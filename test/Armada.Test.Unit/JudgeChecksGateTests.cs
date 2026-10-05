@@ -357,6 +357,59 @@ namespace Armada.Test.Unit
                 }
             }).ConfigureAwait(false);
 
+            // A Judge reads WorkProduced from the moment its captain exits until its handler applies the
+            // verdict. A sweep in that window sees every mission done and must not end the voyage on a
+            // verdict nobody has read: a terminal voyage is never rewritten, so a NEEDS_REVISION applied
+            // after it would leave a Complete voyage beside a Failed Judge.
+            await RunTest("HealthCycleSweep_JudgeStillInCompletionHandling_KeepsVoyageForItsVerdict", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedJudgePassedVoyageAsync(testDb).ConfigureAwait(false);
+                    Mission judge = (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false))
+                        .Single(m => m.Persona == "Judge");
+                    judge.Status = MissionStatusEnum.WorkProduced;
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                    TaskCompletionSource<bool> handler = new TaskCompletionSource<bool>();
+                    svc.InFlightCompletionsForTests.TryAdd(judge.Id, new MissionService.CompletionGuardEntry(handler.Task, null));
+                    VoyageService sweep = new VoyageService(CreateLogging(), testDb.Driver);
+
+                    List<Voyage> ended = await sweep.CheckCompletionsAsync(CancellationToken.None, null, svc.IsCompletionInFlight).ConfigureAwait(false);
+                    Voyage? during = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.InProgress, during!.Status, "the sweep keeps the voyage while the Judge's completion is handled");
+                    AssertEqual(0, ended.Count, "a kept voyage is not reported as ended");
+
+                    judge.Status = MissionStatusEnum.Failed;
+                    judge.FailureReason = "Judge verdict: NEEDS_REVISION";
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                    handler.SetResult(true);
+
+                    await sweep.CheckCompletionsAsync(CancellationToken.None, null, svc.IsCompletionInFlight).ConfigureAwait(false);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Failed, after!.Status, "once the verdict is applied the voyage ends on it");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("MissionPath_SiblingStillInCompletionHandling_KeepsVoyageForTheSibling", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedJudgePassedVoyageAsync(testDb).ConfigureAwait(false);
+                    Mission worker = (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false))
+                        .Single(m => m.Persona == "Worker");
+                    svc.InFlightCompletionsForTests.TryAdd(worker.Id, new MissionService.CompletionGuardEntry(new TaskCompletionSource<bool>().Task, null));
+
+                    await svc.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
+                    Voyage? during = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.InProgress, during!.Status, "a stage's completion does not end the voyage while a sibling's completion is handled");
+
+                    svc.InFlightCompletionsForTests.TryRemove(worker.Id, out _);
+                    await svc.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, after!.Status, "the voyage completes once no completion is in flight");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("ForeignTenantCheck_NeverReachesVoyageOrJudgeGate", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

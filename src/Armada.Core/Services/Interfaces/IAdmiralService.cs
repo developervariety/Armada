@@ -44,6 +44,14 @@ namespace Armada.Core.Services.Interfaces
         Func<Voyage, Task>? OnVoyageComplete { get; set; }
 
         /// <summary>
+        /// True while a completion handler for the mission is running (see
+        /// <see cref="IMissionService.IsCompletionInFlight"/>).
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <returns>True when the mission's completion is still being handled.</returns>
+        bool IsMissionCompletionInFlight(string missionId) => false;
+
+        /// <summary>
         /// Delegate invoked during health check to reconcile PullRequestOpen missions.
         /// The handler receives a mission and should check if its PR has been merged,
         /// returning true if the mission was reconciled (transitioned to Complete or LandingFailed).

@@ -83,6 +83,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A voyage ends on its last verdict:** the voyage completion sweeps, and a
+  stage's own completion, keep a voyage open while any of its missions is still
+  in completion handling. A Judge reads WorkProduced from the moment its captain
+  exits until its verdict is applied, and a sweep in that window could write the
+  voyage Complete; the later NEEDS_REVISION then left a Complete voyage beside a
+  Failed Judge, because a Complete voyage is never rewritten. The landing drain
+  also leaves such a voyage alone, so it no longer queues a stage for landing on
+  a Judge PASS that the Judge's own handler has not accepted yet.
 - **Unfinished in-scope work no longer reads as an owner question:** the
   working personas' blocked-path guidance keeps `[ARMADA:RESULT] BLOCKED` for
   what a captain cannot resolve itself (missing context, a false premise, a

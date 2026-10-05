@@ -450,6 +450,15 @@ namespace Armada.Server
                 if (summaries.Any(item => IsMissionActivelyRunning(item)))
                     continue;
 
+                // A stage still in completion handling reads WorkProduced while its handler applies the
+                // Judge gates, the definition-of-done gate and the handoff. A Judge's PASS text is not a
+                // pass until that handler accepts it, so the drain leaves the voyage until it finishes.
+                if (summaries.Any(item => _Admiral.IsMissionCompletionInFlight(item.Id)))
+                {
+                    _Logging.Debug(_Header + "landing-drain skipped voyage " + voyage.Id + ": a mission's completion is still being handled");
+                    continue;
+                }
+
                 processed++;
 
                 // Isolate each voyage: a single failing voyage (e.g. a vessel with an
@@ -610,7 +619,7 @@ namespace Armada.Server
         {
             // The rule raises OnVoyageComplete itself, after the write and before the drain's own
             // incident and event bookkeeping below.
-            VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyage.Id, _Admiral.OnVoyageComplete, token).ConfigureAwait(false);
+            VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyage.Id, _Admiral.OnVoyageComplete, _Admiral.IsMissionCompletionInFlight, token).ConfigureAwait(false);
             if (result.HookException != null)
                 _Logging.Warn(_Header + "OnVoyageComplete failed for voyage " + voyage.Id + ": " + result.HookException.Message);
             if (result.EventException != null)

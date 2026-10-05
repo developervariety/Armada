@@ -17,7 +17,7 @@ namespace Armada.Core.Services
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The rule runs three steps, in order:
+    /// The rule runs four steps, in order:
     /// </para>
     /// <list type="number">
     /// <item><description>
@@ -25,10 +25,17 @@ namespace Armada.Core.Services
     /// <see cref="TerminalVoyageMissionRule.IsTerminalVoyage"/>). This set belongs to the voyage
     /// lifecycle only; a mission, merge entry, landing job, Check run and objective each have their
     /// own terminal set. A Complete or Cancelled voyage is never rewritten. A Failed voyage moves only
-    /// to Complete, and only when the next two steps would complete it and at least one mission is
+    /// to Complete, and only when the mission-state and Check steps would complete it and at least one mission is
     /// Complete: its failed work was later landed, for example by a retried landing. A failed stage
     /// that was cancelled instead is not evidence of landed work. A Failed voyage is never written Failed again, so its
     /// completion time stays, and it never returns to Open or InProgress.
+    /// </description></item>
+    /// <item><description>
+    /// Completion-handling guard. A voyage with a mission whose completion is still being handled is
+    /// kept. A mission enters WorkProduced when its captain exits, before its Judge verdict, its
+    /// definition-of-done gate and its handoff are applied, so a reader that sees every mission done in
+    /// that window would end the voyage on a verdict nobody has read yet. The caller names which
+    /// missions are mid-handling; the handler applies this rule itself when it finishes.
     /// </description></item>
     /// <item><description>
     /// Mission-state evaluation. A voyage with no missions is kept. A voyage with any mission that is
@@ -63,6 +70,9 @@ namespace Armada.Core.Services
 
         /// <summary>Kept: the voyage has no missions.</summary>
         public const string ReasonNoMissions = "no_missions";
+
+        /// <summary>Kept: a mission's completion is still being handled, so its verdict is not applied yet.</summary>
+        public const string ReasonCompletionInFlight = "completion_in_flight";
 
         /// <summary>Kept: at least one mission is still active.</summary>
         public const string ReasonMissionActive = "mission_active";
@@ -143,10 +153,30 @@ namespace Armada.Core.Services
         /// <param name="missions">Every mission on the voyage.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The verdict. <see cref="VoyageCompletionVerdict.NewStatus"/> is null when the voyage is kept.</returns>
+        public static Task<VoyageCompletionVerdict> EvaluateAsync(
+            DatabaseDriver database,
+            Voyage voyage,
+            IReadOnlyList<Mission> missions,
+            CancellationToken token = default)
+        {
+            return EvaluateAsync(database, voyage, missions, null, token);
+        }
+
+        /// <summary>
+        /// Decide what completion does to a voyage, without writing anything, keeping it while any of
+        /// its missions is still in completion handling.
+        /// </summary>
+        /// <param name="database">Database driver, used to read the voyage's Checks.</param>
+        /// <param name="voyage">The voyage as currently stored.</param>
+        /// <param name="missions">Every mission on the voyage.</param>
+        /// <param name="isMissionCompletionInFlight">True for a mission id whose completion is still being handled; null when the caller tracks none.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The verdict. <see cref="VoyageCompletionVerdict.NewStatus"/> is null when the voyage is kept.</returns>
         public static async Task<VoyageCompletionVerdict> EvaluateAsync(
             DatabaseDriver database,
             Voyage voyage,
             IReadOnlyList<Mission> missions,
+            Func<string, bool>? isMissionCompletionInFlight,
             CancellationToken token = default)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
@@ -155,6 +185,9 @@ namespace Armada.Core.Services
 
             if (voyage.Status == VoyageStatusEnum.Complete || voyage.Status == VoyageStatusEnum.Cancelled)
                 return VoyageCompletionVerdict.Keep(ReasonVoyageTerminal);
+
+            if (isMissionCompletionInFlight != null && missions.Any(m => isMissionCompletionInFlight(m.Id)))
+                return VoyageCompletionVerdict.Keep(ReasonCompletionInFlight);
 
             VoyageCompletionVerdict verdict = await EvaluateMissionsAndChecksAsync(database, voyage.TenantId, voyage.Id, missions, token).ConfigureAwait(false);
             if (voyage.Status != VoyageStatusEnum.Failed) return verdict;
@@ -195,10 +228,30 @@ namespace Armada.Core.Services
         /// <param name="onVoyageComplete">Voyage completion hook, raised only when this call wrote a terminal status.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The verdict, the voyage as written or as read, and any exception the event write or the hook threw.</returns>
+        public static Task<VoyageCompletionResult> ApplyAsync(
+            DatabaseDriver database,
+            string? voyageId,
+            Func<Voyage, Task>? onVoyageComplete,
+            CancellationToken token = default)
+        {
+            return ApplyAsync(database, voyageId, onVoyageComplete, null, token);
+        }
+
+        /// <summary>
+        /// <see cref="ApplyAsync(DatabaseDriver, string, Func{Voyage, Task}, CancellationToken)"/>, keeping the
+        /// voyage while any of its missions is still in completion handling.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="voyageId">Voyage identifier.</param>
+        /// <param name="onVoyageComplete">Voyage completion hook, raised only when this call wrote a terminal status.</param>
+        /// <param name="isMissionCompletionInFlight">True for a mission id whose completion is still being handled; null when the caller tracks none.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The verdict, the voyage as written or as read, and any exception the event write or the hook threw.</returns>
         public static async Task<VoyageCompletionResult> ApplyAsync(
             DatabaseDriver database,
             string? voyageId,
             Func<Voyage, Task>? onVoyageComplete,
+            Func<string, bool>? isMissionCompletionInFlight,
             CancellationToken token = default)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
@@ -210,7 +263,7 @@ namespace Armada.Core.Services
                 return new VoyageCompletionResult(null, VoyageCompletionVerdict.Keep(ReasonVoyageMissing));
 
             List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
-            VoyageCompletionVerdict verdict = await EvaluateAsync(database, voyage, missions, token).ConfigureAwait(false);
+            VoyageCompletionVerdict verdict = await EvaluateAsync(database, voyage, missions, isMissionCompletionInFlight, token).ConfigureAwait(false);
             if (verdict.NewStatus == null)
                 return new VoyageCompletionResult(voyage, verdict);
 

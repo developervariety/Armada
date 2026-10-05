@@ -410,6 +410,39 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(VoyageStatusEnum.Open, updated!.Status, "Voyage with a live mission must stay Open.");
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_JudgeStillInCompletionHandling_DoesNotEnqueueOrCompleteVoyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+                Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-handling", "Worker").ConfigureAwait(false);
+
+                // The Judge wrote PASS and its captain exited, but its handler has not accepted the PASS yet:
+                // it reads WorkProduced and may still reject it.
+                Mission judge = await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
+                judge.Status = MissionStatusEnum.WorkProduced;
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                admiral.CompletionsInFlight.Add(judge.Id);
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue, admiral);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, mergeQueue.EnqueueCalls.Count, "A PASS still in completion handling must not land the work it reviewed.");
+                Voyage? during = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                AssertEqual(VoyageStatusEnum.Open, during!.Status, "The voyage stays open while a mission's completion is handled.");
+
+                admiral.CompletionsInFlight.Clear();
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Once the handler finishes, the drain lands the Judge-passed Worker.");
+                AssertEqual(worker.Id, mergeQueue.EnqueueCalls[0].MissionId, "The enqueue targets the Worker mission.");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_EnqueueThrows_IsolatesMissionAndContinues", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1892,6 +1925,10 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             public List<Mission> DispatchedMissions { get; } = new List<Mission>();
+
+            public HashSet<string> CompletionsInFlight { get; } = new HashSet<string>(StringComparer.Ordinal);
+
+            public bool IsMissionCompletionInFlight(string missionId) => CompletionsInFlight.Contains(missionId);
 
             public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
             public Func<Captain, Task>? OnStopAgent { get; set; }

@@ -25,6 +25,15 @@ namespace Armada.Core.Services.Interfaces
         Func<Voyage, Task>? OnVoyageComplete { get; set; }
 
         /// <summary>
+        /// True while a completion handler for the mission is running: its captain has exited and the
+        /// mission may read WorkProduced, but its verdict, definition-of-done gate and handoff are not
+        /// applied yet. The voyage completion sweeps keep the mission's voyage open while this is true.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <returns>True when the mission's completion is still being handled.</returns>
+        bool IsCompletionInFlight(string missionId) => false;
+
+        /// <summary>
         /// Delegate that retrieves and clears accumulated agent stdout output for a mission.
         /// Wired to AgentLifecycleHandler.GetAndClearMissionOutput at startup.
         /// </summary>

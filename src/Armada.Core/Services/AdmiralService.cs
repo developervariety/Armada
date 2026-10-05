@@ -54,6 +54,12 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public bool IsMissionCompletionInFlight(string missionId)
+        {
+            return _Missions.IsCompletionInFlight(missionId);
+        }
+
+        /// <inheritdoc />
         public Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
 
         /// <inheritdoc />
@@ -2474,7 +2480,7 @@ namespace Armada.Core.Services
         private async Task CheckVoyageCompletionsAsync(CancellationToken token)
         {
             // The completion rule raises OnVoyageComplete for each voyage it ends.
-            await _Voyages.CheckCompletionsAsync(token, OnVoyageComplete).ConfigureAwait(false);
+            await _Voyages.CheckCompletionsAsync(token, OnVoyageComplete, _Missions.IsCompletionInFlight).ConfigureAwait(false);
         }
 
         /// <summary>

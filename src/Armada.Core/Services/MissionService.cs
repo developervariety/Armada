@@ -315,6 +315,12 @@ namespace Armada.Core.Services
         /// </summary>
         private System.Collections.Concurrent.ConcurrentDictionary<string, CompletionGuardEntry> _InFlightCompletions = new System.Collections.Concurrent.ConcurrentDictionary<string, CompletionGuardEntry>();
 
+        /// <summary>
+        /// The mission whose completion handler this async flow is running, so the voyage rule that handler
+        /// applies does not wait on the handler itself.
+        /// </summary>
+        private readonly AsyncLocal<string?> _HandlingCompletionOf = new AsyncLocal<string?>();
+
         /// <summary>How long a handled completion keeps de-duplicating late calls for the same launch.</summary>
         internal static readonly TimeSpan CompletionDuplicateWindow = TimeSpan.FromSeconds(30);
 
@@ -1262,6 +1268,7 @@ namespace Armada.Core.Services
             bool handledSuccessfully = false;
             try
             {
+                _HandlingCompletionOf.Value = missionId;
                 await HandleCompletionCoreAsync(captain, missionId, token).ConfigureAwait(false);
                 handledSuccessfully = true;
             }
@@ -1283,6 +1290,21 @@ namespace Armada.Core.Services
                     });
                 }
             }
+        }
+
+        /// <inheritdoc />
+        public bool IsCompletionInFlight(string missionId)
+        {
+            if (String.IsNullOrEmpty(missionId)) return false;
+            return _InFlightCompletions.TryGetValue(missionId, out CompletionGuardEntry? entry)
+                && entry != null
+                && !entry.Gate.IsCompleted;
+        }
+
+        private bool IsOtherCompletionInFlight(string missionId)
+        {
+            return !String.Equals(missionId, _HandlingCompletionOf.Value, StringComparison.Ordinal)
+                && IsCompletionInFlight(missionId);
         }
 
         private bool TryEnterCompletionGuard(string missionId, CompletionGuardEntry entry)
@@ -8577,7 +8599,9 @@ namespace Armada.Core.Services
         /// </summary>
         internal async Task UpdateVoyageTerminalStatusAsync(string? voyageId, CancellationToken token)
         {
-            VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyageId, OnVoyageComplete, token).ConfigureAwait(false);
+            // A sibling stage still in completion handling has a verdict this handler has not seen; that
+            // handler applies the rule when it finishes.
+            VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyageId, OnVoyageComplete, IsOtherCompletionInFlight, token).ConfigureAwait(false);
             if (result.HookException != null)
                 _Logging.Warn(_Header + "error in OnVoyageComplete callback for voyage " + voyageId + ": " + result.HookException.Message);
             if (result.EventException != null)
@@ -8595,6 +8619,10 @@ namespace Armada.Core.Services
             else if (result.Verdict.Reason == VoyageCompletionRule.ReasonVoyageTerminal)
             {
                 _Logging.Debug(_Header + "voyage " + voyageId + " is already " + result.Voyage!.Status + " -- completion does not rewrite a terminal voyage");
+            }
+            else if (result.Verdict.Reason == VoyageCompletionRule.ReasonCompletionInFlight)
+            {
+                _Logging.Info(_Header + "voyage " + voyageId + " kept open: another mission's completion is still being handled and will decide it");
             }
         }
 

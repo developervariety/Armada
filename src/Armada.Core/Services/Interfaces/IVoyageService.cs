@@ -13,8 +13,9 @@ namespace Armada.Core.Services.Interfaces
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         /// <param name="onVoyageComplete">Voyage completion hook, raised once for each voyage the rule ends.</param>
+        /// <param name="isMissionCompletionInFlight">True for a mission id whose completion is still being handled; its voyage is kept until the handler finishes.</param>
         /// <returns>Voyages the rule moved to Complete or Failed during this check.</returns>
-        Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default, Func<Voyage, Task>? onVoyageComplete = null);
+        Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default, Func<Voyage, Task>? onVoyageComplete = null, Func<string, bool>? isMissionCompletionInFlight = null);
 
         /// <summary>
         /// Get progress details for a specific voyage.

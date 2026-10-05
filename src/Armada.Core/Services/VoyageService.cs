@@ -37,7 +37,7 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <inheritdoc />
-        public async Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default, Func<Voyage, Task>? onVoyageComplete = null)
+        public async Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default, Func<Voyage, Task>? onVoyageComplete = null, Func<string, bool>? isMissionCompletionInFlight = null)
         {
             // CheckCompletionsAsync is a background/system method (called from Admiral loop).
             // It scans all tenants' voyages, so unscoped calls are appropriate here.
@@ -51,11 +51,13 @@ namespace Armada.Core.Services
 
             foreach (Voyage voyage in activeVoyages)
             {
-                VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyage.Id, onVoyageComplete, token).ConfigureAwait(false);
+                VoyageCompletionResult result = await VoyageCompletionRule.ApplyAsync(_Database, voyage.Id, onVoyageComplete, isMissionCompletionInFlight, token).ConfigureAwait(false);
                 if (result.HookException != null)
                     _Logging.Warn(_Header + "error in OnVoyageComplete callback for voyage " + voyage.Id + ": " + result.HookException.Message);
                 if (result.EventException != null)
                     _Logging.Warn(_Header + "could not record voyage.completed for voyage " + voyage.Id + ": " + result.EventException.Message);
+                if (result.Verdict.Reason == VoyageCompletionRule.ReasonCompletionInFlight)
+                    _Logging.Debug(_Header + "voyage " + voyage.Id + " kept open: a mission's completion is still being handled");
                 if (!result.Written) continue;
 
                 _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + result.Voyage!.Status + " (" + result.Verdict.Reason + ")");
