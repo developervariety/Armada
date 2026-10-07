@@ -11,6 +11,11 @@ namespace Armada.Server.Mcp
     /// deployment, restore, purge and server control. Only a global administrator may use it. Any
     /// other authenticated caller reaches only the tools that apply the caller's own scope, so MCP
     /// never grants a narrower role more than the REST API does.
+    ///
+    /// A captain calls with a mission token, which carries the mission owner's identity. The token
+    /// reaches the caller-scoped tools and the read-only voyage tools, and never operator control,
+    /// even when the owner is an administrator: a mission is not the operator. Every tool a caller may
+    /// call is also listed to it, and a model pays for each listed definition on every request.
     /// </summary>
     public static class McpToolAccessPolicy
     {
@@ -27,6 +32,11 @@ namespace Armada.Server.Mcp
         /// administrator changes only their own tenant's records.
         /// </summary>
         public static IReadOnlyCollection<string> TenantAdminTools => _TenantAdminTools;
+
+        /// <summary>
+        /// Read-only tools a mission caller may reach in addition to <see cref="CallerScopedTools"/>.
+        /// </summary>
+        public static IReadOnlyCollection<string> MissionReadTools => _MissionReadTools;
 
         #endregion
 
@@ -78,6 +88,16 @@ namespace Armada.Server.Mcp
             "armada_harbor_job_stop"
         };
 
+        // Read-only voyage tools a mission caller may also reach, so a captain can reconstruct its own
+        // voyage (the Recorder does). Each reads through the caller's scope and writes no record.
+        private static readonly HashSet<string> _MissionReadTools = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "armada_enumerate",
+            "armada_mission_status",
+            "armada_get_mission_log",
+            "armada_voyage_status"
+        };
+
         private static readonly HashSet<string> _TenantAdminTools = new HashSet<string>(StringComparer.Ordinal)
         {
             "create_persona",
@@ -102,6 +122,8 @@ namespace Armada.Server.Mcp
         {
             if (caller == null || !caller.IsAuthenticated) return false;
             if (String.IsNullOrEmpty(toolName)) return false;
+            if (!String.IsNullOrEmpty(caller.MissionId))
+                return _CallerScopedTools.Contains(toolName) || _MissionReadTools.Contains(toolName);
             if (caller.IsAdmin) return true;
             if (caller.IsTenantAdmin && _TenantAdminTools.Contains(toolName)) return true;
             return _CallerScopedTools.Contains(toolName);

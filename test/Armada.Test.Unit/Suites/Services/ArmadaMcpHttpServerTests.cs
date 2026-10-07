@@ -452,6 +452,46 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, adminTools.GetProperty("result").GetProperty("tools").GetArrayLength(), "a global administrator discovers the whole catalog");
             }).ConfigureAwait(false);
 
+            // A captain's mission token carries its owner's roles. An administrator-owned mission must still
+            // see only the captain tools: every listed definition rides along with each model request, and
+            // operator control is not the captain's to call.
+            await RunTest("MissionCallerOfAnAdministratorOwnerListsAndCallsOnlyCaptainTools", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                server.ToolAuthorizer = McpToolAccessPolicy.IsAllowed;
+                bool operatorToolRan = false;
+                server.RegisterTool("search_memory", "Captain memory read", new { type = "object" },
+                    args => Task.FromResult((object)new { Status = "ok" }));
+                server.RegisterTool("armada_voyage_status", "Voyage overview", new { type = "object" },
+                    args => Task.FromResult((object)new { Status = "ok" }));
+                server.RegisterTool("armada_dispatch", "Operator dispatch", new { type = "object" },
+                    args => { operatorToolRan = true; return Task.FromResult((object)new { Status = "dispatched" }); });
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+
+                using HttpRequestMessage listRequest = CreateRequest("/mcp", 1, "tools/list", new { }, apiKey: MissionApiKey);
+                JsonElement list = await ReadRpcAsync(await client.SendAsync(listRequest).ConfigureAwait(false)).ConfigureAwait(false);
+                List<string> names = list.GetProperty("result").GetProperty("tools").EnumerateArray()
+                    .Select(tool => tool.GetProperty("name").GetString()!).ToList();
+                AssertTrue(names.SequenceEqual(new[] { "armada_voyage_status", "search_memory" }),
+                    "a mission caller discovers the captain and voyage-read tools only, got: " + String.Join(", ", names));
+
+                using HttpRequestMessage denied = CreateRequest(
+                    "/mcp", 2, "tools/call", new { name = "armada_dispatch", arguments = new { } }, apiKey: MissionApiKey);
+                JsonElement deniedRpc = await ReadRpcAsync(await client.SendAsync(denied).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertTrue(deniedRpc.TryGetProperty("error", out _), "an operator tool call from a mission caller is refused");
+                AssertFalse(operatorToolRan, "the refused operator tool never runs");
+
+                using HttpRequestMessage adminList = CreateRequest("/mcp", 3, "tools/list", new { });
+                JsonElement adminTools = await ReadRpcAsync(await client.SendAsync(adminList).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(3, adminTools.GetProperty("result").GetProperty("tools").GetArrayLength(), "the administrator outside a mission still discovers the whole catalog");
+            }).ConfigureAwait(false);
+
             await RunTest("HeaderParticipantReachesHandlerAndAudit", async () =>
             {
                 int port = GetAvailablePort();
@@ -666,6 +706,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         /// <summary>Credential that resolves to an ordinary user.</summary>
         private const string UserApiKey = "test-user-key";
+        private const string MissionApiKey = "mission-key";
 
         private static ArmadaMcpHttpServer CreateServer(int port)
         {
@@ -679,6 +720,13 @@ namespace Armada.Test.Unit.Suites.Services
                         return Task.FromResult(AuthContext.Authenticated("default", "default", true, true, "ApiKey"));
                     if (credentials.ApiKey == UserApiKey)
                         return Task.FromResult(AuthContext.Authenticated("ten_scoped", "usr_scoped", false, false, "Bearer"));
+                    if (credentials.ApiKey == MissionApiKey)
+                    {
+                        // A mission token resolves to its owner's identity and roles; this owner is an administrator.
+                        AuthContext mission = AuthContext.Authenticated("default", "default", true, true, "Session");
+                        mission.MissionId = "msn_example";
+                        return Task.FromResult(mission);
+                    }
                     return Task.FromResult(new AuthContext());
                 }
             };

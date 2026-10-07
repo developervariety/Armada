@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **A captain's MCP tool list is the captain set:** a mission token reaches the
+  caller-scoped tools and the read-only voyage tools, even when the mission's
+  owner is an administrator. An administrator-owned mission was listed every
+  operator tool, and each model request carried about 51,000 tokens of tool
+  definitions; a self-hosted model behind a 60-second gateway could not read
+  the first request in time.
 - **A voyage ends on its last verdict:** the voyage completion sweeps, and a
   stage's own completion, keep a voyage open while any of its missions is still
   in completion handling. A Judge reads WorkProduced from the moment its captain
