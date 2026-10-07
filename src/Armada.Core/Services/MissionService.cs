@@ -4850,8 +4850,10 @@ namespace Armada.Core.Services
         /// makes it re-read files it was told not to retain. That module also tells the captain to
         /// commit when scope runs long, which a read-only mission cannot do.
         ///
-        /// The budget is therefore expressed in files rather than lines, and running out of budget
-        /// resolves to a partial report instead of a commit.
+        /// The budget is therefore expressed in files rather than lines. The mission's scope sets how
+        /// much is read: a large file is read in chunks to its end, re-reading what compaction removed is
+        /// allowed, and work the captain could not finish is reported as unfinished against the
+        /// acceptance criteria rather than as a successful partial report.
         /// </summary>
         /// <param name="mode">The mission mode; named in the text so the captain knows why.</param>
         /// <returns>The context conservation section.</returns>
@@ -4860,16 +4862,21 @@ namespace Armada.Core.Services
             return
                 "## Context Conservation (CRITICAL)\n" +
                 "\n" +
-                "You have a limited context window. Exceeding it will crash your process and fail the " +
-                "mission. The mission mode is " + mode + ", so the budget is spent on files examined, not " +
-                "on lines per file:\n" +
+                "Your context window is limited. When it fills, your runtime compacts earlier turns or stops " +
+                "the process. The mission mode is " + mode + ", so spend the budget on the evidence the " +
+                "mission requires, not on repeated measurement. These rules decide how you read; the " +
+                "mission's own scope and acceptance criteria decide how much. Nothing here shortens a " +
+                "mission that requires whole files or every listed file.\n" +
                 "\n" +
-                "1. **Read each file you need once, in full, and keep it.** When your mission compares a " +
-                "file against a reference, the whole file is what you need. Do not grep it, measure it, " +
-                "and then read it anyway -- that costs three steps for one file's worth of evidence.\n" +
+                "1. **Read each file you need once, in full.** When your mission compares a file against a " +
+                "reference, the whole file is what you need. Do not grep it, measure it, and then read it " +
+                "anyway -- that costs three steps for one file's worth of evidence. A file too large for one " +
+                "read is read in consecutive chunks to its end.\n" +
                 "\n" +
-                "2. **Never read the same path twice.** You already have it. If you are unsure what it " +
-                "said, say so in your report rather than reading it again.\n" +
+                "2. **Do not re-read text you still hold.** Reading the next chunk of a file is not a re-read, " +
+                "and neither is reading a region again after your runtime compacted it away. Record each " +
+                "finding as you reach it, with its path and line numbers, so compaction does not cost you " +
+                "the evidence.\n" +
                 "\n" +
                 "3. **Use grep instead of a read only when you want a specific value across many files.** " +
                 "For a single named file you are going to analyze, read it.\n" +
@@ -4877,10 +4884,11 @@ namespace Armada.Core.Services
                 "4. **Do not explore beyond the files your mission names.** Locate the paths you were " +
                 "given, then stop searching and start reading.\n" +
                 "\n" +
-                "5. **If the file set is larger than about 15 files**, examine them in the order the " +
-                "mission lists, and when context runs short, report what you verified and what you did " +
-                "not reach. Name the unexamined files explicitly. A partial report with an honest " +
-                "boundary is a success; a crash is not.\n";
+                "5. **If you cannot finish what the mission requires**, examine the files in the order the " +
+                "mission lists and keep going until the work is done or you truly cannot continue. Then name " +
+                "every file or region you did not examine, and mark each acceptance criterion they affect as " +
+                "not met. An unfinished study is reported as unfinished: it is never a success, and an honest " +
+                "boundary is still better than a guessed finding.\n";
         }
 
         /// <summary>

@@ -83,6 +83,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Report-only reading rules no longer cut a full study short:** the
+  context-conservation section of a Research or Audit brief defers to the
+  mission's scope, lets a large file be read in chunks to its end and re-read
+  after compaction, and reports unfinished required work as unmet acceptance
+  criteria. It forbade reading the same path twice and called a partial report
+  a success, which captains cited to leave mandatory files unread.
 - **A captain's MCP tool list is the captain set:** a mission token reaches the
   caller-scoped tools and the read-only voyage tools, even when the mission's
   owner is an administrator. An administrator-owned mission was listed every

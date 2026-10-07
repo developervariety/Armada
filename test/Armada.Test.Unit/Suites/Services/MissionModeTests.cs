@@ -174,8 +174,25 @@ namespace Armada.Test.Unit.Suites.Services
                             "an audit brief must not resolve an oversized scope with a commit");
                         AssertContains("Read each file you need once, in full", auditBrief,
                             "an audit brief must permit one whole-file read");
-                        AssertContains("Never read the same path twice", auditBrief,
-                            "an audit brief must forbid repeat reads of the same path");
+                        AssertContains("Do not re-read text you still hold", auditBrief,
+                            "an audit brief must forbid re-reading what the captain still holds");
+
+                        // A study brief can require every file read to its end. The conservation rules must
+                        // not override that: chunked reading and re-reading after compaction are allowed, and
+                        // unfinished required work is reported against the acceptance criteria, never as a
+                        // successful partial report.
+                        AssertContains("Nothing here shortens a mission that requires whole files", auditBrief,
+                            "the mission's scope must take precedence over the conservation rules");
+                        AssertContains("read in consecutive chunks to its end", auditBrief,
+                            "an audit brief must allow a large file to be read in chunks to its end");
+                        AssertContains("after your runtime compacted it away", auditBrief,
+                            "re-reading text that compaction removed is not a forbidden re-read");
+                        AssertContains("it is never a success", auditBrief,
+                            "an unfinished study is reported as unfinished");
+                        AssertFalse(auditBrief.Contains("Never read the same path twice", StringComparison.Ordinal),
+                            "an audit brief must not forbid reading the next chunk of the same path");
+                        AssertFalse(auditBrief.Contains("partial report with an honest boundary is a success", StringComparison.Ordinal),
+                            "an audit brief must not call unfinished required work a success");
 
                         // The implementation brief keeps the line-budget rule: an edit needs one region
                         // of one file, so reading the whole file there is waste.
