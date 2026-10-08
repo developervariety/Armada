@@ -190,6 +190,7 @@ namespace Armada.Runtimes
 
             ApplySharedCaptainEnvironment(startInfo);
             ApplyEnvironment(startInfo, captain, model);
+            string? launchTempDirectory = null;
 
             StreamWriter? logWriter = OpenLogWriter(logFilePath);
             if (logWriter != null) await WriteLaunchHeaderAsync(logWriter, command, args, prompt).ConfigureAwait(false);
@@ -230,6 +231,7 @@ namespace Armada.Runtimes
                 try { code = ((Process?)sender)?.ExitCode; }
                 catch (Exception ex) { WarnSwallowed("reading the exit code of process " + processId + "; recording it as unknown", ex); }
 
+                DeleteLaunchTempDirectory(launchTempDirectory);
                 CompleteExit(processId, code, logWriter, capturedFinalMessageFilePath);
 
                 // Dispose the Process object to release the working directory handle.
@@ -250,6 +252,7 @@ namespace Armada.Runtimes
             try
             {
                 token.ThrowIfCancellationRequested();
+                launchTempDirectory = ApplyLaunchTempDirectory(startInfo);
                 DateTime launchUtc = DateTime.UtcNow;
                 processStarted = process.Start();
                 if (!processStarted)
@@ -315,6 +318,10 @@ namespace Armada.Runtimes
                 // agent running unowned: the caller never receives its identifier, so nothing else
                 // would ever stop it.
                 if (processStarted) KillFailedLaunch(process);
+
+                // A process that never started never raises Exited, which is where its temporary
+                // directory is otherwise removed.
+                if (!processStarted) DeleteLaunchTempDirectory(launchTempDirectory);
 
                 // Dispose the writer + process here to release the file/pipe handles. The process
                 // may already have exited on its own: a fast-exiting agent can fail the launch too.
@@ -698,6 +705,48 @@ namespace Armada.Runtimes
         {
             try { _Logging.Warn(_Header + operation + " failed: " + ex.Message); }
             catch (ObjectDisposedException) { }
+        }
+
+        /// <summary>
+        /// Give the launch its own temporary directory, removed when the agent exits. Agent CLIs and the
+        /// builds and tests they run write to the temporary directory and leave files behind: the OpenCode
+        /// CLI unpacks a native library of several megabytes there on every run and never deletes it. A
+        /// caller that sets TMPDIR keeps its own directory, and that directory is never removed.
+        /// </summary>
+        /// <param name="startInfo">Launch start info.</param>
+        /// <returns>The directory this launch owns, or null when the caller supplied one.</returns>
+        private string? ApplyLaunchTempDirectory(ProcessStartInfo startInfo)
+        {
+            if (startInfo.Environment.TryGetValue("TMPDIR", out string? supplied) && !String.IsNullOrEmpty(supplied)) return null;
+
+            string directory = Path.Combine(Path.GetTempPath(), "armada-launch-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(directory);
+            }
+            catch (Exception ex)
+            {
+                WarnSwallowed("creating launch temporary directory " + directory + "; the agent uses the shared one", ex);
+                return null;
+            }
+
+            startInfo.Environment["TMPDIR"] = directory;
+            startInfo.Environment["TMP"] = directory;
+            startInfo.Environment["TEMP"] = directory;
+            return directory;
+        }
+
+        private void DeleteLaunchTempDirectory(string? directory)
+        {
+            if (String.IsNullOrEmpty(directory)) return;
+            try
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+            catch (Exception ex)
+            {
+                WarnSwallowed("removing launch temporary directory " + directory, ex);
+            }
         }
 
         private static void ApplySharedCaptainEnvironment(ProcessStartInfo startInfo)

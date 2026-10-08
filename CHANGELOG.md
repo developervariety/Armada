@@ -83,6 +83,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Changed
 
+- **Each captain launch gets its own temporary directory, removed on exit:**
+  agent CLIs and the builds and tests they start wrote to the shared temporary
+  directory and left files behind. The OpenCode CLI unpacked a native library
+  of about 5 MB there on every run, several hundred a day, and nothing removed
+  them. A launch whose caller sets TMPDIR keeps that directory.
 - **Report-only reading rules no longer cut a full study short:** the
   context-conservation section of a Research or Audit brief defers to the
   mission's scope, lets a large file be read in chunks to its end and re-read

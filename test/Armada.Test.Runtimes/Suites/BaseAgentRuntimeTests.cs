@@ -132,6 +132,73 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("enabled", startInfo.Environment["ARMADA_TEST_SCOPED_CONFIG"]);
             });
 
+            // Agent CLIs and the builds they run leave files in the temporary directory; one CLI unpacks a
+            // native library of several megabytes there on every run. Each launch gets its own directory,
+            // and it is removed when the agent exits.
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("A Launch Gets Its Own Temporary Directory And It Is Removed On Exit", "the stand-in process is a POSIX shell");
+            }
+            else await RunTest("A Launch Gets Its Own Temporary Directory And It Is Removed On Exit", async () =>
+            {
+                string workDir = Path.Combine(Path.GetTempPath(), "armada_launch_tmp_test_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workDir);
+                try
+                {
+                    TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                    runtime.RedirectStdinOverride = false;
+                    runtime.CommandOverride = "/bin/sh";
+                    runtime.ArgsOverride = new List<string> { "-c", "printf '%s' \"$TMPDIR\" > tmpdir.txt; printf x > \"$TMPDIR/leftover.so\"" };
+                    TaskCompletionSource<bool> exited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    runtime.OnProcessExited += (pid, code) => exited.TrySetResult(true);
+
+                    await runtime.StartAsync(workDir, "test prompt");
+                    Task finished = await Task.WhenAny(exited.Task, Task.Delay(TimeSpan.FromSeconds(30)));
+                    AssertTrue(finished == exited.Task, "the stand-in agent exits");
+
+                    string launchTemp = File.ReadAllText(Path.Combine(workDir, "tmpdir.txt"));
+                    AssertFalse(String.IsNullOrEmpty(launchTemp), "the agent receives a TMPDIR");
+                    AssertFalse(String.Equals(launchTemp.TrimEnd('/'), Path.GetTempPath().TrimEnd('/'), StringComparison.Ordinal),
+                        "the TMPDIR is the launch's own directory, not the shared one");
+                    AssertFalse(Directory.Exists(launchTemp), "the launch's temporary directory and what the agent left in it are removed on exit");
+                }
+                finally
+                {
+                    try { Directory.Delete(workDir, true); } catch { }
+                }
+            });
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("A Caller-Supplied Temporary Directory Is Kept", "the stand-in process is a POSIX shell");
+            }
+            else await RunTest("A Caller-Supplied Temporary Directory Is Kept", async () =>
+            {
+                string workDir = Path.Combine(Path.GetTempPath(), "armada_launch_tmp_test_" + Guid.NewGuid().ToString("N"));
+                string supplied = Path.Combine(workDir, "caller-tmp");
+                Directory.CreateDirectory(supplied);
+                try
+                {
+                    TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                    runtime.RedirectStdinOverride = false;
+                    runtime.CommandOverride = "/bin/sh";
+                    runtime.ArgsOverride = new List<string> { "-c", "printf '%s' \"$TMPDIR\" > tmpdir.txt" };
+                    TaskCompletionSource<bool> exited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    runtime.OnProcessExited += (pid, code) => exited.TrySetResult(true);
+
+                    await runtime.StartAsync(workDir, "test prompt", environment: new Dictionary<string, string> { ["TMPDIR"] = supplied });
+                    Task finished = await Task.WhenAny(exited.Task, Task.Delay(TimeSpan.FromSeconds(30)));
+                    AssertTrue(finished == exited.Task, "the stand-in agent exits");
+
+                    AssertEqual(supplied, File.ReadAllText(Path.Combine(workDir, "tmpdir.txt")), "the caller's TMPDIR reaches the agent");
+                    AssertTrue(Directory.Exists(supplied), "a directory the caller supplied is never removed");
+                }
+                finally
+                {
+                    try { Directory.Delete(workDir, true); } catch { }
+                }
+            });
+
             if (OperatingSystem.IsWindows())
             {
                 SkipTest("Stop And Liveness Refuse A Process Whose Start Time Differs From The Recorded Launch", "the stand-in process is a POSIX sleep");
