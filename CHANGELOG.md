@@ -9,6 +9,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Smart Routing persona model lists are authoritative: a captain whose model is
+  on none of a persona's lists no longer takes that persona's work when the
+  listed captains are busy; the mission waits with
+  `persona_model_list_excludes`, and the dispatch preview counts the same
+  captains. A Cursor captain with API-pool usage leads only its own list group.
 - Captains no longer inherit admiral secrets: a local launch removes provider and
   typed-decision key variables, configured `captainEnvironmentScrubNames`, and
   credential-named `ARMADA_` variables before applying its own, and Claude Code

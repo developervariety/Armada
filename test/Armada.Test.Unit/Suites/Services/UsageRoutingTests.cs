@@ -379,7 +379,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("Unknown", status.State);
                 await service.RefreshAsync(policy);
             });
-            await RunTest("Cursor API captains lead only while their measured pool has usage", async () =>
+            await RunTest("Cursor API captains lead their own list group only while their measured pool has usage", async () =>
             {
                 DateTime now = DateTime.UtcNow;
                 UsageAccountSettings account = new UsageAccountSettings
@@ -406,7 +406,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         ["Worker"] = new PersonaModelSettings
                         {
-                            Default = new List<string> { "composer-2.5" },
+                            Default = new List<string> { "composer-2.5", "gpt-6-luna" },
                             Stronger = new List<string> { "cursor-grok-4.7-high" }
                         }
                     }
@@ -434,6 +434,20 @@ namespace Armada.Test.Unit.Suites.Services
                     BusyCaptainIds = Array.Empty<string>(), NowUtc = now, RandomPick = n => 0
                 }).GetAwaiter().GetResult();
                 AssertEqual("composer", decision.Candidates[0].Id);
+
+                // An API-pool captain on a later list never jumps ahead of an earlier list group.
+                account.ManualSnapshot.Windows[1].RemainingPercent = 20;
+                policy.PersonaModels["Worker"].Default = new List<string> { "composer-2.5" };
+                policy.PersonaModels["Worker"].Stronger = new List<string> { "gpt-6-luna" };
+                decision = SmartRoutingSelector.SelectAsync(new SmartRoutingRequest
+                {
+                    Tiers = new ModelTierSettings(), Policy = policy, Usage = service,
+                    Mission = new Mission { Persona = "Worker" }, Pool = captains,
+                    BusyCaptainIds = Array.Empty<string>(), NowUtc = now, RandomPick = n => 0
+                }).GetAwaiter().GetResult();
+                AssertEqual("composer", decision.Candidates[0].Id, "the Default group comes first");
+                AssertEqual("api", decision.Candidates[1].Id, "the API-pool captain leads the Stronger group");
+                AssertFalse(decision.Groups.Any(g => g.Name == "cursor_api"), "no group outranks the persona lists");
             });
             await RunTest("OpenCode Go fractional percent and reset interval preserve units", () =>
             {

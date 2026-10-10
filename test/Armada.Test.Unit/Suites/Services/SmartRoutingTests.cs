@@ -209,7 +209,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("cpt-luna", decision.Candidates[0].Id, "legacy would pick DeepSeek; the Default list wins");
                 AssertEqual(CapacityChoiceEnum.Default, decision.Capacity);
                 AssertEqual(CapacityEscalationResolver.SourceNoAdapter, decision.CapacitySource);
-                AssertSequence(new List<string> { "default", "stronger", "lighter", "unlisted" }, decision.Groups.Select(g => g.Name).ToList(), "group order");
+                AssertSequence(new List<string> { "default", "stronger", "lighter" }, decision.Groups.Select(g => g.Name).ToList(), "group order");
             });
 
             await RunTest("Capacity reading stronger at threshold picks the Stronger group", async () =>
@@ -237,7 +237,7 @@ namespace Armada.Test.Unit.Suites.Services
                     policy.PersonaModels["Worker"] = WorkerModels();
                     UsageRoutingDecision decision = await SelectAsync(policy, Pool(), capacity: Resolver(db, client));
                     AssertEqual("cpt-deepseek", decision.Candidates[0].Id);
-                    AssertSequence(new List<string> { "lighter", "default", "stronger", "unlisted" }, decision.Groups.Select(g => g.Name).ToList(), "group order");
+                    AssertSequence(new List<string> { "lighter", "default", "stronger" }, decision.Groups.Select(g => g.Name).ToList(), "group order");
                 }
             });
 
@@ -278,15 +278,80 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PersonaModelListHealth.ReasonAppliedPrefix + "stronger:cpt-opus", decision.Reason);
             });
 
-            await RunTest("A captain whose model is in no list stays reachable when every group is empty", async () =>
+            await RunTest("A captain whose model is in no list never takes the persona; the mission waits with the named reason", async () =>
             {
                 List<Captain> pool = Pool();
                 pool.Add(NewCaptain("cpt-unlisted", _Unlisted));
                 UsageRoutingSettings policy = Policy(Account("listed", 0, "cpt-luna", "cpt-opus", "cpt-deepseek"));
                 policy.PersonaModels["Worker"] = WorkerModels();
                 UsageRoutingDecision decision = await SelectAsync(policy, pool);
-                AssertEqual("cpt-unlisted", decision.Candidates[0].Id);
-                AssertEqual(1, decision.Candidates.Count);
+                AssertEqual(0, decision.Candidates.Count, "the only usable captain runs a model the persona does not name");
+                AssertEqual(SmartRoutingSelector.ReasonPersonaModelListExcludes, decision.Reason);
+                SmartRoutingCaptainVerdict verdict = decision.Verdicts.Single(v => v.CaptainId == "cpt-unlisted" && v.Layer == SmartRoutingSelector.LayerPersonaModels);
+                AssertEqual(UsageRoutingService.OutcomeExcluded, verdict.Outcome);
+                AssertEqual(SmartRoutingSelector.ReasonPersonaModelListExcludes, verdict.Reason);
+            });
+
+            await RunTest("A persona lock and preferred persona never admit a model the persona lists do not name", async () =>
+            {
+                Captain unlisted = NewCaptain("cpt-unlisted", _Unlisted);
+                unlisted.AllowedPersonas = "[\"Worker\"]";
+                unlisted.PreferredPersona = "Worker";
+                unlisted.PreferenceRank = 1000;
+                UsageRoutingSettings policy = Policy();
+                policy.PersonaModels["Worker"] = WorkerModels();
+                UsageRoutingDecision decision = await SelectAsync(policy, new List<Captain> { unlisted });
+                AssertEqual(0, decision.Candidates.Count);
+                AssertEqual(SmartRoutingSelector.ReasonPersonaModelListExcludes, decision.Reason);
+
+                List<Captain> pool = Pool();
+                pool.Add(unlisted);
+                UsageRoutingDecision withListed = await SelectAsync(policy, pool);
+                AssertFalse(withListed.Candidates.Any(c => c.Id == "cpt-unlisted"), "a listed captain being idle changes nothing for the unlisted one");
+                AssertEqual("cpt-luna", withListed.Candidates[0].Id);
+            });
+
+            await RunTest("A persona without model lists still reaches every admitted captain", async () =>
+            {
+                List<Captain> pool = Pool();
+                pool.Add(NewCaptain("cpt-unlisted", _Unlisted));
+                UsageRoutingSettings policy = Policy();
+                policy.PersonaModels["Judge"] = WorkerModels();
+                UsageRoutingDecision decision = await SelectAsync(policy, pool);
+                AssertSequence(Ids(LegacyCaptainSelector.Order(Tiers(), new Mission { Persona = "Worker", Priority = 100 }, pool, false, n => 0)),
+                    Ids(decision.Candidates), "the Worker names no models, so the legacy order stands");
+                AssertTrue(decision.Candidates.Any(c => c.Id == "cpt-unlisted"));
+            });
+
+            await RunTest("Live assignment and the dispatch preview admit the same captains for every list shape", async () =>
+            {
+                List<Captain> pool = Pool();
+                pool.Add(NewCaptain("cpt-unlisted", _Unlisted));
+                List<PersonaModelSettings?> shapes = new List<PersonaModelSettings?>
+                {
+                    null,
+                    WorkerModels(),
+                    new PersonaModelSettings { Default = new List<string> { _Unlisted } },
+                    new PersonaModelSettings { Default = new List<string> { _Luna }, Lighter = new List<string> { _Unlisted } }
+                };
+                List<string?> pins = new List<string?> { null, "mid", _Unlisted };
+                foreach (PersonaModelSettings? shape in shapes)
+                {
+                    foreach (string? pin in pins)
+                    {
+                        UsageRoutingSettings policy = Policy();
+                        if (shape != null) policy.PersonaModels["Worker"] = shape;
+                        Mission mission = new Mission { Id = "msn_example", Persona = "Worker", Priority = 100, Title = "work", PreferredModel = pin };
+                        UsageRoutingDecision decision = await SelectAsync(policy, pool, mission);
+                        foreach (Captain captain in pool)
+                        {
+                            if (!decision.LegacyOrder.Any(c => c.Id == captain.Id)) continue;
+                            bool live = decision.Candidates.Any(c => c.Id == captain.Id);
+                            bool preview = SmartRoutingSelector.PersonaModelListsAdmit(policy, mission, captain);
+                            AssertEqual(preview, live, "shape " + shapes.IndexOf(shape) + ", pin " + (pin ?? "none") + ", " + captain.Id);
+                        }
+                    }
+                }
             });
 
             await RunTest("Routes restrict a persona to named accounts and leave other personas unrestricted", async () =>

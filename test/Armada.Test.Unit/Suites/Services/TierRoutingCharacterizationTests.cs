@@ -162,7 +162,9 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 AssertSequence(new List<string> { "cpt-deepseek", "cpt-luna-ext", "cpt-luna", "cpt-mid-ext", "cpt-composer", "cpt-astra", "cpt-fable", "cpt-fable51" }, Ids(decision.LegacyOrder), "legacy order");
                 AssertEqual("removed", decision.Verdicts.First(v => v.CaptainId == "cpt-luna").Outcome);
-                AssertSequence(new List<string> { "cpt-fable", "cpt-composer", "cpt-deepseek", "cpt-mid-ext", "cpt-astra", "cpt-fable51" }, Ids(decision.Candidates), "grouped candidates");
+                AssertSequence(new List<string> { "cpt-fable", "cpt-composer" }, Ids(decision.Candidates), "grouped candidates: only captains whose model a list names");
+                AssertTrue(decision.Verdicts.Any(v => v.CaptainId == "cpt-deepseek" && v.Reason == SmartRoutingSelector.ReasonPersonaModelListExcludes),
+                    "an unlisted model is excluded, not queued last");
                 AssertEqual("cpt-fable", decision.Candidates[0].Id, "the Stronger list follows the empty Default list");
             });
 

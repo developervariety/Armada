@@ -152,11 +152,12 @@ steps are:
 4. **Persona model groups (optional).** See the next section.
 5. The first captain that remains is assigned.
 
-When the Legacy Routing order has captains but the usage filter removes all
-of them, the mission waits as `WaitingForProviderUsage`. The scheduler
-retries it without counting an assignment failure. The reason is the first
-account code (for example `account_login_expired`), or
-`usage_exhausted_or_account_capacity`.
+When the Legacy Routing order has captains but the usage filter or the
+persona model lists remove all of them, the mission waits as
+`WaitingForProviderUsage`. The scheduler retries it without counting an
+assignment failure. The reason is `persona_model_list_excludes` when the lists
+excluded an admitted captain; otherwise it is the first account code (for
+example `account_login_expired`) or `usage_exhausted_or_account_capacity`.
 
 Armada never sorts by remaining allowance. A kept account at 45% stays
 ahead of a kept account at 95% when Legacy Routing puts it first.
@@ -182,10 +183,23 @@ Persona names match after normalization (`TestEngineer` and
 For a persona with an entry, Smart Routing builds groups from the
 usage-filtered order. The chosen list goes first. The other lists follow in
 the order default, stronger, lighter. A captain goes into the first group
-whose list contains its model. Captains whose model is in no list go last,
-so a persona is never starved by its lists. Inside each group, the
-Legacy Routing and usage order stays. The first captain of the first
-non-empty group is assigned.
+whose list contains its model. Inside each group, the Legacy Routing and
+usage order stays, except that a Cursor captain whose API pool has usage left
+leads its own group; it never moves ahead of an earlier group. The first
+captain of the first non-empty group is assigned.
+
+The lists are authoritative. A captain whose model is on none of the
+persona's lists never takes that persona's work, whatever its persona lock,
+preferred persona or preference rank. Its verdict reads layer
+`persona_models`, outcome `excluded`. When no listed captain can take the
+mission now and an idle captain was excluded this way, the mission waits as
+`WaitingForProviderUsage` with reason `persona_model_list_excludes`, so a
+model that should serve as a fallback must be on one of the lists. A mission
+that pins a concrete model, and a persona with no entry, skip the lists. The
+dispatch preview applies the same rule when it counts the captains that can
+run a required role. A captain named directly (an assignment override or the
+persona's default captain) is an explicit choice and is not filtered by the
+lists.
 
 A list entry is **dead** when no captain who may serve that persona (persona
 lock plus the capability tier floor) runs that model. Saving the policy still

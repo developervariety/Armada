@@ -1259,13 +1259,14 @@ namespace Armada.Core.Services
 
         // The gates assignment applies before any choice, with a busy captain counted as one that will be
         // free: its state is usable, it belongs to the mission's tenant, it is not quarantined, and the
-        // persona's Smart Routing routes admit it when Smart Routing is enabled.
+        // persona's Smart Routing routes and model lists admit it when Smart Routing is enabled.
         private static bool IsAssignableForCoverage(Captain captain, Mission probe, UsageRoutingSettings usage, DateTime now)
         {
             return IsConfiguredUsableCaptain(captain)
                 && MissionService.CaptainServesTenant(captain, probe.TenantId)
                 && !CaptainQuarantineService.IsQuarantinedAt(captain, now)
-                && (!usage.Enabled || UsageRoutingService.PersonaRoutesAdmit(usage, probe.Persona, captain));
+                && (!usage.Enabled || UsageRoutingService.PersonaRoutesAdmit(usage, probe.Persona, captain))
+                && SmartRoutingSelector.PersonaModelListsAdmit(usage, probe, captain);
         }
 
         private static List<string?> ResolveStagePreferredModels(

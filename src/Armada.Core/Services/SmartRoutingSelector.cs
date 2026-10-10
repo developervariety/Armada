@@ -13,7 +13,9 @@ namespace Armada.Core.Services
     /// Smart Routing: the Legacy Routing order, restricted by optional persona routes, filtered by account usage
     /// (Exhausted removed, Low and Reserve demoted), and grouped by the persona's model preference with the
     /// capacity decision choosing the group tried first. It never re-ranks captains inside a group, and it never
-    /// admits a captain the Legacy Routing eligibility layer (persona lock and tier floor) excluded.
+    /// admits a captain the Legacy Routing eligibility layer (persona lock and tier floor) excluded. When a persona
+    /// names models, the lists are authoritative: a captain whose model is on none of them never takes that
+    /// persona's work, and the mission waits with <see cref="ReasonPersonaModelListExcludes"/> instead.
     /// </summary>
     public static class SmartRoutingSelector
     {
@@ -36,6 +38,15 @@ namespace Armada.Core.Services
 
         /// <summary>Prefix of the reason when a persona model group supplied the captain.</summary>
         public const string ReasonGroupPrefix = "persona_models_";
+
+        /// <summary>
+        /// The persona names models and no listed captain can take the mission now; the idle captains whose model
+        /// is on none of the lists are not candidates, so the mission waits.
+        /// </summary>
+        public const string ReasonPersonaModelListExcludes = "persona_model_list_excludes";
+
+        /// <summary>Verdict layer: the persona model lists.</summary>
+        public const string LayerPersonaModels = "persona_models";
 
         #endregion
 
@@ -108,6 +119,7 @@ namespace Armada.Core.Services
                 filtered = filtered.OrderByDescending(captain => cursorApiAvailable.Contains(captain.Id)).ToList();
 
             PersonaModelSettings? models = UsageRoutingService.FindPersonaModels(policy, mission.Persona);
+            int excludedByLists = 0;
             bool concretePin = !String.IsNullOrEmpty(mission.PreferredModel) && !PreferredModelTierSelector.IsTierSelector(mission.PreferredModel);
             string groupReason = String.Empty;
             if (models != null && !concretePin)
@@ -127,21 +139,10 @@ namespace Armada.Core.Services
                 foreach (CapacityChoiceEnum next in new[] { CapacityChoiceEnum.Default, CapacityChoiceEnum.Stronger, CapacityChoiceEnum.Lighter })
                     if (!order.Contains(next)) order.Add(next);
 
+                // Captains with an available Cursor API pool already lead the filtered order, so they lead within
+                // their own list group and never ahead of a group tried earlier.
                 HashSet<string> placed = new HashSet<string>(StringComparer.Ordinal);
                 List<Captain> grouped = new List<Captain>();
-                SmartRoutingModelGroup cursorApi = new SmartRoutingModelGroup { Name = "cursor_api" };
-                foreach (Captain captain in filtered)
-                {
-                    if (!cursorApiAvailable.Contains(captain.Id)) continue;
-                    placed.Add(captain.Id);
-                    cursorApi.CaptainIds.Add(captain.Id);
-                    grouped.Add(captain);
-                }
-                if (cursorApi.CaptainIds.Count > 0)
-                {
-                    decision.Groups.Add(cursorApi);
-                    groupReason = ReasonGroupPrefix + cursorApi.Name;
-                }
                 List<string> chosenModels = reading.Choice == CapacityChoiceEnum.Lighter ? models.Lighter
                     : reading.Choice == CapacityChoiceEnum.Stronger ? models.Stronger : models.Default;
                 if (chosenModels.Count > 0
@@ -174,17 +175,37 @@ namespace Armada.Core.Services
                     if (groupReason.Length == 0 && group.CaptainIds.Count > 0) groupReason = ReasonGroupPrefix + group.Name;
                     decision.Groups.Add(group);
                 }
-                // A captain whose model is in no list stays reachable after every group, so a persona is never
-                // starved by its model preference.
-                SmartRoutingModelGroup unlisted = new SmartRoutingModelGroup { Name = "unlisted" };
-                foreach (Captain captain in filtered)
+                if (NamesModels(models))
                 {
-                    if (placed.Contains(captain.Id)) continue;
-                    unlisted.CaptainIds.Add(captain.Id);
-                    grouped.Add(captain);
+                    // The persona names its models, so a captain whose model is on none of the lists is not a
+                    // candidate, whatever its persona lock or preferred persona say.
+                    foreach (Captain captain in filtered)
+                    {
+                        if (PersonaModelListsAdmit(policy, mission, captain)) continue;
+                        excludedByLists++;
+                        decision.Verdicts.Add(new SmartRoutingCaptainVerdict
+                        {
+                            CaptainId = captain.Id,
+                            Model = captain.Model,
+                            Layer = LayerPersonaModels,
+                            Outcome = UsageRoutingService.OutcomeExcluded,
+                            Reason = ReasonPersonaModelListExcludes
+                        });
+                    }
                 }
-                if (groupReason.Length == 0 && unlisted.CaptainIds.Count > 0) groupReason = ReasonGroupPrefix + unlisted.Name;
-                decision.Groups.Add(unlisted);
+                else
+                {
+                    // Lists configured but all empty name no model, so every admitted captain stays reachable.
+                    SmartRoutingModelGroup unlisted = new SmartRoutingModelGroup { Name = "unlisted" };
+                    foreach (Captain captain in filtered)
+                    {
+                        if (placed.Contains(captain.Id)) continue;
+                        unlisted.CaptainIds.Add(captain.Id);
+                        grouped.Add(captain);
+                    }
+                    if (groupReason.Length == 0 && unlisted.CaptainIds.Count > 0) groupReason = ReasonGroupPrefix + unlisted.Name;
+                    decision.Groups.Add(unlisted);
+                }
                 decision.Candidates = grouped;
             }
             else
@@ -210,6 +231,10 @@ namespace Armada.Core.Services
             {
                 decision.Reason = ReasonNoLegacyCandidate;
             }
+            else if (excludedByLists > 0)
+            {
+                decision.Reason = ReasonPersonaModelListExcludes;
+            }
             else
             {
                 // A login problem or provider hold names the account, not its allowance; report the first such code
@@ -220,9 +245,38 @@ namespace Armada.Core.Services
             return decision;
         }
 
+        /// <summary>
+        /// Whether the persona model lists let a captain take the mission: true when the policy is disabled, the
+        /// persona names no model, the mission pins a concrete model, or the captain's model is on one of the
+        /// persona's lists. Live assignment and the dispatch preview both apply this rule.
+        /// </summary>
+        /// <param name="policy">Smart Routing policy.</param>
+        /// <param name="mission">The mission (or dispatch probe) being assigned.</param>
+        /// <param name="captain">The candidate captain.</param>
+        /// <returns>True when the lists admit the captain.</returns>
+        public static bool PersonaModelListsAdmit(UsageRoutingSettings policy, Mission mission, Captain captain)
+        {
+            if (policy == null) throw new ArgumentNullException(nameof(policy));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (!policy.Enabled) return true;
+            if (!String.IsNullOrEmpty(mission.PreferredModel) && !PreferredModelTierSelector.IsTierSelector(mission.PreferredModel)) return true;
+            PersonaModelSettings? models = UsageRoutingService.FindPersonaModels(policy, mission.Persona);
+            if (models == null || !NamesModels(models)) return true;
+            string model = captain.Model ?? String.Empty;
+            return models.Default.Contains(model, StringComparer.OrdinalIgnoreCase)
+                || models.Stronger.Contains(model, StringComparer.OrdinalIgnoreCase)
+                || models.Lighter.Contains(model, StringComparer.OrdinalIgnoreCase);
+        }
+
         #endregion
 
         #region Private-Methods
+
+        private static bool NamesModels(PersonaModelSettings models)
+        {
+            return models.Default.Count + models.Stronger.Count + models.Lighter.Count > 0;
+        }
 
         // The eligibility layer runs before Smart Routing and decides membership: a captain it excludes is never
         // reordered into the choice, whatever the persona model lists or the capacity reading say.
