@@ -92,8 +92,14 @@ namespace Armada.Core.Services
             if (objective == null) throw new ArgumentNullException(nameof(objective));
             string current = existing?.TrimEnd() ?? String.Empty;
             if (current.Contains(StartMarker(objective.Id), StringComparison.Ordinal)) return current;
+            current = EscapeOperatorHandoffMarkers(current);
             string brief = Render(objective, maxChars);
             return String.IsNullOrWhiteSpace(current) ? brief : current + Environment.NewLine + Environment.NewLine + brief;
+        }
+
+        private static string EscapeOperatorHandoffMarkers(string value)
+        {
+            return value.Replace("<!-- ARMADA:HANDOFF:", "&lt;!-- ARMADA:HANDOFF:", StringComparison.Ordinal);
         }
 
         private static string RenderPreparation(Objective objective, int maxChars)

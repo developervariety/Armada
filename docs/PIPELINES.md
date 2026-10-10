@@ -167,6 +167,9 @@ in backticks, or states `NOT MET`. Each criterion needs its own line and evidenc
 The contract includes the current marked objective brief and the first operator
 criteria section outside older generated briefs. Quoted handoff reports do not
 add criteria. Control markers in narrative fields render as literal text.
+Operator-supplied handoff marker lines render as literal text before the objective
+brief is appended. A same-objective retry preserves the generated handoff markers
+in an already-augmented description.
 Criteria that differ only by letter case remain separate requirements.
 Duplicate or unrelated claims do not cover a missing criterion.
 Any `NOT MET` refuses PASS. The gate checks the citation format; the Judge checks its truth.

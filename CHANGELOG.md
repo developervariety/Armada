@@ -14,7 +14,9 @@ upstream integrations and excludes changes already present at that baseline.
   total-budget trimming preserve complete-output references and digests even
   when large contracts, diffs, and voyage board notes consume the narrative
   budget. Quoted control markers cannot replace the objective contract, and
-  criteria that differ by letter case remain separate requirements.
+  operator-supplied handoff markers render as text. Same-objective retries keep
+  generated handoff markers, and criteria that differ by letter case remain
+  separate requirements.
 
 - Mission status and full-description reads apply the same caller evidence scope
   as mission output before returning metadata, scope text, or context events.
