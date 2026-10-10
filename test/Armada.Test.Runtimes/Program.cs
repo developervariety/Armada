@@ -33,6 +33,7 @@ namespace Armada.Test.Runtimes
             TestRunner runner = new TestRunner("ARMADA RUNTIME TEST SUITE");
 
             runner.AddSuite(new BaseAgentRuntimeTests());
+            runner.AddSuite(new CaptainEnvironmentScrubTests());
             runner.AddSuite(new ClaudeCodeRuntimeTests());
             runner.AddSuite(new CodexRuntimeTests());
             runner.AddSuite(new GeminiRuntimeTests());

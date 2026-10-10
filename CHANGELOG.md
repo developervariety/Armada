@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Captains no longer inherit admiral secrets: a local launch removes provider and
+  typed-decision key variables, configured `captainEnvironmentScrubNames`, and
+  credential-named `ARMADA_` variables before applying its own, and Claude Code
+  captains are refused the bare environment-listing commands.
 - Stored-prompt upgrade coverage uses a fixed historical fixture instead of
   deriving its prior input from the current prompt.
 - Premise checks identify a selected supplied fact for a positive absent-symbol

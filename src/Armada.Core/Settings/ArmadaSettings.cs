@@ -739,6 +739,17 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Extra environment variable names a captain process must never inherit from the admiral, beyond the
+        /// model-provider and typed-decision key variables and the admiral's own credential-named variables,
+        /// which are removed already. Names only, never values. Hot-reloads in place.
+        /// </summary>
+        public List<string> CaptainEnvironmentScrubNames
+        {
+            get => _CaptainEnvironmentScrubNames;
+            set => _CaptainEnvironmentScrubNames = value ?? new List<string>();
+        }
+
+        /// <summary>
         /// Captain context fetch tool (<c>armada_fetch_context</c>) policy: whether it is enabled,
         /// the per-call leaf byte budget, and the per-mission call budget. The tool is read-only and
         /// returns only sanitized memory and docs leaf text.
@@ -1025,6 +1036,7 @@ namespace Armada.Core.Settings
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
         private TypedDecisionSettings _TypedDecisions = new TypedDecisionSettings();
         private List<BannedDiffPatternRule> _BannedDiffPatterns = new List<BannedDiffPatternRule>();
+        private List<string> _CaptainEnvironmentScrubNames = new List<string>();
         private ContextRetrievalSettings _ContextRetrieval = new ContextRetrievalSettings();
         private CrashLoopDetectionSettings _CrashLoopDetection = new CrashLoopDetectionSettings();
         private CaptainQuarantineSettings _CaptainQuarantine = new CaptainQuarantineSettings();
@@ -1191,6 +1203,7 @@ namespace Armada.Core.Settings
             foreach (BannedDiffPatternRule rule in source.BannedDiffPatterns)
                 if (rule != null) patterns.Add(rule.Clone());
             BannedDiffPatterns = patterns;
+            CaptainEnvironmentScrubNames = new List<string>(source.CaptainEnvironmentScrubNames);
             // The crash-loop tracker and the definition-of-done gate are constructed with a reference to
             // these sections, so both are copied in place: a replaced object would leave them reading
             // the startup values while the admiral reads the reloaded ones.

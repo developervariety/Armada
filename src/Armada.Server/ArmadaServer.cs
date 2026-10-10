@@ -401,6 +401,8 @@ namespace Armada.Server
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
             _RuntimeFactory = _SuppliedRuntimeFactory
                 ?? new AgentRuntimeFactory(_Logging, _Settings.CodeIndex.OpenCodeServer, _Settings.ModelProviders);
+            if (_RuntimeFactory.AdmiralSecretNames == null)
+                _RuntimeFactory.AdmiralSecretNames = () => CaptainEnvironmentScrub.ConfiguredNames(_Settings);
             _Workspace = new WorkspaceService();
             _RequestHistoryCapture = new RequestHistoryCaptureService(_Settings);
             _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);

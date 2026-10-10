@@ -52,6 +52,23 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
+        /// Bash permission rules every Claude Code captain is refused: the commands that print the whole
+        /// process environment. A command that sets a variable for one child (<c>env NAME=value cmd</c>) stays
+        /// allowed.
+        /// </summary>
+        public static readonly IReadOnlyList<string> EnvironmentListingDenyRules = new List<string>
+        {
+            "Bash(env)",
+            "Bash(printenv)",
+            "Bash(printenv:*)",
+            "Bash(set)",
+            "Bash(export)",
+            "Bash(export -p)",
+            "Bash(declare -x)",
+            "Bash(declare -p)"
+        };
+
+        /// <summary>
         /// Whether to use --dangerously-skip-permissions flag.
         /// </summary>
         public bool SkipPermissions { get; set; } = true;
@@ -152,6 +169,11 @@ namespace Armada.Runtimes
             // plugins and MCP servers (e.g. Playwright) from leaking into headless captain processes.
             args.Add("--setting-sources");
             args.Add("project,local");
+
+            // The launch already removes admiral secrets from the captain environment; refusing the bare
+            // environment-listing commands keeps whatever else the environment holds out of the transcript.
+            args.Add("--disallowedTools");
+            args.AddRange(EnvironmentListingDenyRules);
             args.Add("--strict-mcp-config");
 
             if (!String.IsNullOrEmpty(model))

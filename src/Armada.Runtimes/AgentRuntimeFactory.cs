@@ -11,6 +11,16 @@ namespace Armada.Runtimes
     /// </summary>
     public class AgentRuntimeFactory
     {
+        #region Public-Members
+
+        /// <summary>
+        /// Source of the operator-configured admiral secret names every built-in CLI runtime removes from a
+        /// captain's inherited environment. Null applies only the built-in credential-name rule.
+        /// </summary>
+        public Func<IReadOnlyCollection<string>>? AdmiralSecretNames { get; set; }
+
+        #endregion
+
         #region Private-Members
 
         private string _Header = "[AgentRuntimeFactory] ";
@@ -18,6 +28,7 @@ namespace Armada.Runtimes
         private OpenCodeServerSettings? _OpenCodeConnection;
         private ModelProvidersSettings? _ModelProviders;
         private Dictionary<string, Func<IAgentRuntime>> _CustomRuntimes = new Dictionary<string, Func<IAgentRuntime>>();
+
 
         #endregion
 
@@ -93,6 +104,13 @@ namespace Armada.Runtimes
         }
 
         private IAgentRuntime CreateAdapter(AgentRuntimeEnum runtimeType)
+        {
+            IAgentRuntime runtime = CreateBuiltIn(runtimeType);
+            if (runtime is BaseAgentRuntime cli) cli.AdmiralSecretNames = AdmiralSecretNames;
+            return runtime;
+        }
+
+        private IAgentRuntime CreateBuiltIn(AgentRuntimeEnum runtimeType)
         {
             switch (runtimeType)
             {

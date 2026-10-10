@@ -553,6 +553,19 @@ syntax:
 | Codex | `bearer_token_env_var = "ARMADA_MCP_TOKEN"` |
 | Mux | `"auth": { "type": "bearer", "bearerToken": "${ARMADA_MCP_TOKEN}" }` |
 
+A captain can list its own environment, and whatever it lists reaches its model
+provider, so a captain never inherits an admiral secret. Before a local launch
+applies its own variables, it removes every inherited variable whose name is a
+model provider's `apiKeyEnv`, the typed-decision `apiKeyEnv`, or a name in the
+`captainEnvironmentScrubNames` setting, plus every `ARMADA_` variable whose name
+has a credential part (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `PASS`,
+`CREDENTIAL`, `CREDENTIALS`). The `ARMADA_TEST_` namespace is exempt from that
+name rule because it carries test fixtures to fake agents. The variables the launch then sets on purpose
+(`ARMADA_MCP_TOKEN`, a per-captain provider key) still reach the captain. Claude
+Code captains are also refused the bare environment-listing commands (`env`,
+`printenv`, `set`, `export`, `export -p`, `declare -x`, `declare -p`) through
+`--disallowedTools`; `env NAME=value command` stays allowed.
+
 The captain tool inventory of a running Mux mission captain lists the MCP
 servers that mission's launch delivers: it reads the servers file the launch
 plan builds, not the captain's config directory, whose servers `mux print`

@@ -75,6 +75,13 @@ namespace Armada.Runtimes
         /// </summary>
         public event Action<int, int?>? OnProcessExited;
 
+        /// <summary>
+        /// Source of the operator-configured admiral secret names a captain must not inherit (see
+        /// <see cref="CaptainEnvironmentScrub"/>). Read at every launch so a settings reload applies. When null,
+        /// only the built-in credential-name rule applies.
+        /// </summary>
+        public Func<IReadOnlyCollection<string>>? AdmiralSecretNames { get; set; }
+
         #endregion
 
         #region Protected-Members
@@ -172,24 +179,7 @@ namespace Armada.Runtimes
                 startInfo.ArgumentList.Add(arg);
             }
 
-            if (environment != null)
-            {
-                foreach (KeyValuePair<string, string> kvp in environment)
-                {
-                    startInfo.Environment[kvp.Key] = kvp.Value;
-                }
-            }
-
-            if (isolationPlan != null)
-            {
-                foreach (KeyValuePair<string, string> kvp in isolationPlan.EnvironmentOverrides)
-                {
-                    startInfo.Environment[kvp.Key] = kvp.Value;
-                }
-            }
-
-            ApplySharedCaptainEnvironment(startInfo);
-            ApplyEnvironment(startInfo, captain, model);
+            PrepareCaptainEnvironment(startInfo, environment, isolationPlan, captain, model);
             string? launchTempDirectory = null;
 
             StreamWriter? logWriter = OpenLogWriter(logFilePath);
@@ -747,6 +737,46 @@ namespace Armada.Runtimes
             {
                 WarnSwallowed("removing launch temporary directory " + directory, ex);
             }
+        }
+
+        /// <summary>
+        /// Build the environment a local captain process receives: inherited admiral secrets are removed first,
+        /// then the launch's own variables, the isolation overrides, the shared captain settings and the
+        /// runtime's variables are applied, so a variable the launch sets on purpose survives the scrub.
+        /// </summary>
+        internal void PrepareCaptainEnvironment(
+            ProcessStartInfo startInfo,
+            Dictionary<string, string>? environment,
+            CaptainLaunchIsolationPlan? isolationPlan,
+            Captain? captain,
+            string? model)
+        {
+            ScrubAdmiralSecrets(startInfo);
+
+            if (environment != null)
+            {
+                foreach (KeyValuePair<string, string> kvp in environment)
+                    startInfo.Environment[kvp.Key] = kvp.Value;
+            }
+
+            if (isolationPlan != null)
+            {
+                foreach (KeyValuePair<string, string> kvp in isolationPlan.EnvironmentOverrides)
+                    startInfo.Environment[kvp.Key] = kvp.Value;
+            }
+
+            ApplySharedCaptainEnvironment(startInfo);
+            ApplyEnvironment(startInfo, captain, model);
+        }
+
+        private void ScrubAdmiralSecrets(ProcessStartInfo startInfo)
+        {
+            IReadOnlyCollection<string>? configured = null;
+            try { configured = AdmiralSecretNames?.Invoke(); }
+            catch (Exception ex) { WarnSwallowed("reading the configured admiral secret names; only the credential-name rule applies", ex); }
+            List<string> removed = CaptainEnvironmentScrub.Scrub(startInfo.Environment, configured);
+            if (removed.Count > 0)
+                _Logging.Debug(_Header + "removed " + removed.Count + " admiral secret variable(s) from the captain environment: " + String.Join(", ", removed));
         }
 
         private static void ApplySharedCaptainEnvironment(ProcessStartInfo startInfo)
