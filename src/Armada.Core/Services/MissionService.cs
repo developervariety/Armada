@@ -7757,14 +7757,9 @@ namespace Armada.Core.Services
         // model's context ("Prompt is too long"). The full change always remains on the branch for inspection.
         private const int _MaxReviewDiffChars = 60000;
 
-        // Hard ceiling on a persisted mission description. The per-part caps above bound one handoff block
-        // (8,000 chars of agent output plus _MaxReviewDiffChars of diff), but they cannot bound the total
-        // once a brief carries a base description, a persona preamble, and a handoff block. This is the
-        // backstop that keeps a runaway brief out of the captain prompt entirely. The value is sized so a
-        // persisted description cannot by itself exceed the captain instruction budget (32 KiB): the
-        // metadata module embeds it, so a description larger than the whole brief would always be cut at
-        // render time. The render-time bound in <see cref="BoundMetadataDescription"/> is the first line of
-        // defense; this backstop keeps the persisted record itself from growing without limit.
+        // Narrative limit on a persisted mission description. Base prose, stage output, and diffs
+        // share this bound. Complete acceptance criteria and report references remain intact even
+        // when they exceed it; prompt-budget telemetry reports any excess in the generated brief.
         private const int _MaxMissionDescriptionChars = 20000;
 
         // Cap on the description embedded in the mission.metadata module. The module also carries the
@@ -8069,9 +8064,8 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Bounds the description embedded in the mission.metadata module so a single module can never
-        /// exceed the captain instruction budget, whatever the persisted description holds. Preserves the
-        /// head (the base brief) and the tail (the newest handoff block, which carries the diff a
+        /// Bounds the narrative embedded in the mission.metadata module. Complete criteria and report
+        /// references can exceed this bound. Preserves the head (the base brief) and the tail (the newest handoff block, which carries the diff a
         /// reviewing stage needs) and elides the middle with a visible marker. Returns the input unchanged
         /// when it fits, and a default string when the description is null or empty so the module never
         /// renders a blank Description section.
@@ -8124,16 +8118,56 @@ namespace Armada.Core.Services
         {
             if (description.Length <= maxChars) return description;
             string? criteria = JudgeAcceptanceWalk.FormatPinnedBlock(description);
-            if (criteria == null) return BuildBoundedDescription(description, maxChars, headChars, marker);
+            List<string> reportReferences = ExtractReportReferences(description);
+            if (criteria == null && reportReferences.Count == 0)
+                return BuildBoundedDescription(description, maxChars, headChars, marker);
 
-            // Keep the complete contract before any elided context. A budget smaller than the contract
-            // cannot be met safely; retain the contract and let the brief budget report the excess.
+            System.Text.StringBuilder pinned = new System.Text.StringBuilder();
+            if (!String.IsNullOrEmpty(criteria)) pinned.Append(criteria.TrimEnd()).Append('\n');
+            foreach (string reference in reportReferences)
+                pinned.Append(reference).Append('\n');
+
+            // Keep the complete criteria and each report reference outside the elided narrative. A budget
+            // smaller than these required lines cannot be met safely; retain them and let the brief budget
+            // report the excess rather than silently removing the only route to a full stage report.
             const string contextHeading = "\n## Mission Context\n";
-            int contextBudget = maxChars - criteria.Length - marker.Length - contextHeading.Length;
-            if (contextBudget <= 0) return criteria + marker;
-            string bounded = BuildBoundedDescription(description, maxChars - criteria.Length - contextHeading.Length,
+            int contextBudget = maxChars - pinned.Length - marker.Length - contextHeading.Length;
+            if (contextBudget <= 0) return pinned.ToString() + marker;
+            string bounded = BuildBoundedDescription(description, maxChars - pinned.Length - contextHeading.Length,
                 Math.Min(headChars, contextBudget / 3), marker);
-            return criteria + contextHeading + bounded;
+            return pinned.ToString() + contextHeading + bounded;
+        }
+
+        private static List<string> ExtractReportReferences(string description)
+        {
+            List<string> references = new List<string>();
+            HashSet<string> seen = new HashSet<string>(System.StringComparer.Ordinal);
+            string[] lines = description.Split('\n');
+            for (int index = 0; index < lines.Length; index++)
+            {
+                string line = lines[index];
+                string comparable = line.TrimEnd('\r');
+                System.Text.RegularExpressions.Match headingMatch = System.Text.RegularExpressions.Regex.Match(
+                    comparable,
+                    @"^### Report essentials \((?<persona>[^\r\n]+) (?<missionId>msn_[A-Za-z0-9_-]+)\)$",
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+                if (headingMatch.Success && index + 1 < lines.Length)
+                {
+                    string referenceLine = lines[index + 1];
+                    string referenceComparable = referenceLine.TrimEnd('\r');
+                    System.Text.RegularExpressions.Match referenceMatch = System.Text.RegularExpressions.Regex.Match(
+                        referenceComparable,
+                        @"^Complete output: mission-output:(?<missionId>msn_[A-Za-z0-9_-]+) \((?<length>[0-9]+) chars, UTF-8 SHA-256 (?<sha256>[0-9A-Fa-f]{64})\)\. Read it with armada_mission_output before acting on anything this summary leaves out\.$",
+                        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+                    if (referenceMatch.Success
+                        && System.String.Equals(headingMatch.Groups["missionId"].Value, referenceMatch.Groups["missionId"].Value, System.StringComparison.Ordinal))
+                    {
+                        string reference = comparable + "\n" + referenceComparable;
+                        if (seen.Add(reference)) references.Add(reference);
+                    }
+                }
+            }
+            return references;
         }
 
         private static string BuildBoundedDescription(string description, int maxChars, int headChars, string marker)

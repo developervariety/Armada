@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Text;
+    using System.Text.RegularExpressions;
     using Armada.Core.Enums;
     using Armada.Core.Models;
 
@@ -21,7 +22,7 @@ namespace Armada.Core.Services
         private const int _MaxScopeChars = 6000;
 
         /// <summary>
-        /// Render one deterministic, bounded objective brief.
+        /// Render one deterministic objective brief, preserving the full acceptance contract.
         /// </summary>
         public static string Render(Objective objective, int maxChars = DefaultMaxChars)
         {
@@ -33,22 +34,53 @@ namespace Armada.Core.Services
             string preparation = RenderPreparation(
                 objective,
                 Math.Min(DefaultMaxPreparationChars, Math.Max(80, maxChars / 2)));
-            int reservedSuffixChars = endMarker.Length + 2;
-            if (!String.IsNullOrWhiteSpace(preparation)) reservedSuffixChars += preparation.Length + 2;
-            int coreLimit = Math.Max(0, maxChars - reservedSuffixChars);
-            StringBuilder result = new StringBuilder(Math.Min(maxChars, 4096));
-            AppendAtomic(result, startMarker, coreLimit, false);
-            AppendAtomic(result, "# Objective Brief", coreLimit, true);
-            AppendAtomic(result, "Objective: " + BoundItem(objective.Title), coreLimit, true);
+            int separatorLength = Environment.NewLine.Length * 2;
+            int reservedSuffixChars = endMarker.Length + separatorLength;
+            if (!String.IsNullOrWhiteSpace(preparation)) reservedSuffixChars += preparation.Length + separatorLength;
+            StringBuilder requiredHeader = new StringBuilder();
+            AppendAtomic(requiredHeader, startMarker, Int32.MaxValue, false);
+            AppendAtomic(requiredHeader, "# Objective Brief", Int32.MaxValue, true);
+            AppendAtomic(requiredHeader, "Objective: " + BoundItem(objective.Title), Int32.MaxValue, true);
 
-            AppendListSection(result, "## Acceptance Criteria", objective.AcceptanceCriteria, coreLimit);
+            List<string> criteria = objective.AcceptanceCriteria?
+                .Where(value => !String.IsNullOrWhiteSpace(value))
+                .Select(NormalizeCriterion)
+                .ToList() ?? new List<string>();
+            long mandatoryContractLength = requiredHeader.Length;
+            if (criteria.Count > 0)
+            {
+                mandatoryContractLength += "## Acceptance Criteria".Length + (long)separatorLength;
+                mandatoryContractLength += criteria.Sum(value => (long)"- ".Length + value.Length + (long)separatorLength);
+            }
+
+            int effectiveLimit = (int)Math.Min(Int32.MaxValue,
+                Math.Max((long)maxChars, mandatoryContractLength + reservedSuffixChars));
+            int coreLimit = Math.Max(0, effectiveLimit - reservedSuffixChars);
+            StringBuilder result = new StringBuilder(Math.Min(effectiveLimit, 4096));
+            result.Append(requiredHeader);
+            AppendCriteriaSection(result, criteria, coreLimit);
             AppendTextSection(result, "## Scope", objective.Description, coreLimit);
             AppendListSection(result, "## Non-Goals", objective.NonGoals, coreLimit);
 
-            AppendAtomic(result, preparation, maxChars - endMarker.Length - 2, true);
+            AppendAtomic(result, preparation, effectiveLimit - endMarker.Length - separatorLength, true);
 
-            AppendAtomic(result, endMarker, maxChars, true);
+            AppendAtomic(result, endMarker, effectiveLimit, true);
             return result.ToString().TrimEnd();
+        }
+
+        private static bool AppendCriteriaSection(StringBuilder builder, IEnumerable<string> criteria, int maxChars)
+        {
+            List<string> items = criteria.ToList();
+            if (items.Count == 0) return true;
+            if (!AppendAtomic(builder, "## Acceptance Criteria", maxChars, true)) return false;
+            foreach (string item in items)
+                if (!AppendAtomic(builder, "- " + item, maxChars, true)) return false;
+            return true;
+        }
+
+        private static string NormalizeCriterion(string value)
+        {
+            return Regex.Replace(value.Trim(), @"\s+", " ");
         }
 
         /// <summary>

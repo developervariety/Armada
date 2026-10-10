@@ -75,9 +75,10 @@ Each handoff block ends with a report-essentials section for the stage that
 just finished: the complete-output reference (`mission-output:<id>`) with its
 length and UTF-8 SHA-256, the verdict, every blocking finding, and the
 follow-up, residual and added-tests sections, within a 4,000-character bound.
-It sits after the bounded output preview and the diff, because the description
-cap keeps the end of a brief; compacting an older block keeps it, and a rescue
-brief carries the newest one.
+It sits after the bounded output preview and the diff. Description, metadata,
+and total-budget trimming pin each report heading and complete-output reference
+before trimming the narrative. Voyage board notes cannot displace those
+references. Compaction of older blocks retains their report essentials.
 
 A mission's dock outlives its captain while the mission still lands or is
 approved from it: a mission in `WorkProduced`, `PullRequestOpen` or `Review`
@@ -147,11 +148,16 @@ When a brief lists acceptance criteria, the Judge includes an exact
 `## Acceptance Criteria` section. Each line copies one criterion's text, then
 states `MET` with a `path:line` citation or `command: ` followed by the command
 in backticks, or states `NOT MET`. Each criterion needs its own line and evidence.
-Duplicate or unrelated claims do not cover a missing criterion. Any `NOT MET`
+The contract includes the current marked objective brief and the first operator
+criteria section outside older generated briefs. Quoted handoff reports do not
+add criteria. Duplicate or unrelated claims do not cover a missing criterion. Any `NOT MET`
 refuses PASS. The gate checks the citation format; the Judge checks its truth.
 
-Description, metadata, and total-budget trimming retain the complete criteria
-block before trimming surrounding context. If the contract itself exceeds a
-budget, the contract remains intact and budget telemetry reports the excess.
+Objective dispatch renders every acceptance criterion in full. It folds line
+breaks and other whitespace in each criterion into spaces so one stored item
+stays one Judge entry. Description, metadata, and total-budget trimming retain
+the complete criteria block and report references before trimming surrounding
+context. If this required content exceeds a budget, it remains intact and
+budget telemetry reports the excess.
 For `[DOD:DOC-ONLY]` missions with only non-code changes, the Judge reviews the
 document diff without running the full test suite.

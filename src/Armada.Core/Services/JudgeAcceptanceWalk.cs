@@ -16,24 +16,97 @@ namespace Armada.Core.Services
 
         private static readonly Regex _NotMet = new Regex(@"\bNOT\s+MET\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex _Met = new Regex(@"\bMET\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex _ObjectiveBriefStart = new Regex(
+            @"<!-- armada-objective-brief:[^>]+ -->",
+            RegexOptions.CultureInvariant);
+        private static readonly Regex _HandoffMarker = new Regex(
+            @"^<!-- ARMADA:HANDOFF:[^>\r\n]+ -->\r?$",
+            RegexOptions.Multiline | RegexOptions.CultureInvariant);
 
         /// <summary>Bullet items under the brief's Acceptance Criteria heading.</summary>
         public static List<string> ExtractCriteria(string? brief)
         {
+            if (String.IsNullOrWhiteSpace(brief)) return new List<string>();
+
+            Match handoff = _HandoffMarker.Match(brief);
+            int baseLimit = handoff.Success ? handoff.Index : brief.Length;
+            string baseDescription = brief.Substring(0, baseLimit);
+            if (TryFindLastCompleteObjectiveFrame(baseDescription, out Match objectiveStart, out int objectiveEnd))
+            {
+                string prefix = StripObjectiveFrames(baseDescription.Substring(0, objectiveStart.Index));
+                List<string> items = ReadFirstCriteriaSection(prefix);
+                items.AddRange(ReadFirstCriteriaSection(baseDescription.Substring(objectiveStart.Index, objectiveEnd - objectiveStart.Index)));
+                return Deduplicate(items);
+            }
+
+            // Legacy descriptions and incomplete bounded frames keep the first-section rule.
+            return ReadFirstCriteriaSection(baseDescription);
+        }
+
+        private static bool TryFindLastCompleteObjectiveFrame(string text, out Match start, out int end)
+        {
+            start = Match.Empty;
+            end = -1;
+            MatchCollection starts = _ObjectiveBriefStart.Matches(text);
+            for (int index = 0; index < starts.Count; index++)
+            {
+                Match candidate = starts[index];
+                int nextStart = index + 1 < starts.Count ? starts[index + 1].Index : text.Length;
+                int candidateEnd = text.IndexOf("<!-- /armada-objective-brief -->", candidate.Index + candidate.Length, StringComparison.Ordinal);
+                if (candidateEnd < 0 || candidateEnd >= nextStart) continue;
+                start = candidate;
+                end = candidateEnd;
+            }
+            return start.Success;
+        }
+
+        private static string StripObjectiveFrames(string text)
+        {
+            MatchCollection starts = _ObjectiveBriefStart.Matches(text);
+            if (starts.Count == 0) return text;
+
+            const string endMarker = "<!-- /armada-objective-brief -->";
+            System.Text.StringBuilder clean = new System.Text.StringBuilder(text.Length);
+            int cursor = 0;
+            for (int index = 0; index < starts.Count; index++)
+            {
+                Match start = starts[index];
+                if (start.Index < cursor) continue;
+                int nextStart = index + 1 < starts.Count ? starts[index + 1].Index : text.Length;
+                int end = text.IndexOf(endMarker, start.Index + start.Length, StringComparison.Ordinal);
+                int frameEnd = end >= 0 && end < nextStart ? end + endMarker.Length : nextStart;
+                clean.Append(text, cursor, start.Index - cursor);
+                cursor = frameEnd;
+            }
+            clean.Append(text, cursor, text.Length - cursor);
+            return clean.ToString();
+        }
+
+        private static List<string> ReadFirstCriteriaSection(string? text)
+        {
             List<string> items = new List<string>();
-            string? block = ExtractSection(brief, SectionName);
+            string? block = ExtractSection(text, SectionName);
             if (String.IsNullOrWhiteSpace(block)) return items;
             foreach (string raw in block.Replace("\r\n", "\n").Split('\n'))
             {
                 string line = raw.Trim();
                 if (line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal))
                 {
-                    string item = line.Substring(2).Trim();
+                    string item = Regex.Replace(line.Substring(2).Trim(), @"\s+", " ");
                     if (item.Length > 0 && !item.StartsWith("[additional", StringComparison.OrdinalIgnoreCase))
                         items.Add(item);
                 }
             }
             return items;
+        }
+
+        private static List<string> Deduplicate(IEnumerable<string> items)
+        {
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<string> unique = new List<string>();
+            foreach (string item in items)
+                if (seen.Add(Regex.Replace(item.Trim(), @"\s+", " "))) unique.Add(Regex.Replace(item.Trim(), @"\s+", " "));
+            return unique;
         }
 
         /// <summary>

@@ -9,6 +9,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Objective dispatch keeps long, numerous, and multiline acceptance criteria
+  complete for the Judge evidence gate. Mission description, metadata, and
+  total-budget trimming preserve complete-output references and digests even
+  when large contracts, diffs, and voyage board notes consume the narrative
+  budget.
+
 - Objective MCP tools expose stored preflight answers and stage-skip confirmation
   in the preparation schema. Update descriptions state that a supplied
   preparation replaces the full nested object, so clients can send each value

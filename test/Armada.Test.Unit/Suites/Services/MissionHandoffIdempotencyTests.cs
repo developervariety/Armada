@@ -3,8 +3,10 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using Armada.Core;
     using Armada.Core.Context;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Test.Common;
 
@@ -64,6 +66,31 @@ namespace Armada.Test.Unit.Suites.Services
                 index += needle.Length;
             }
             return count;
+        }
+
+        private string ReportReference(string missionId)
+        {
+            return ReportReference("Judge", missionId);
+        }
+
+        private string ReportReference(string persona, string missionId)
+        {
+            Mission mission = new Mission
+            {
+                Id = missionId,
+                AgentOutput = "complete judge output",
+                Status = MissionStatusEnum.Complete
+            };
+            MissionOutputArtifactPage artifact = MissionOutputArtifact.Build(mission);
+            return StageReportEssentials.Build(persona, missionId, null, artifact);
+        }
+
+        private bool HasCompleteDigest(string text)
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(
+                text,
+                @"UTF-8 SHA-256 [0-9a-f]{64}",
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         }
 
         protected override async Task RunTestsAsync()
@@ -256,6 +283,124 @@ namespace Armada.Test.Unit.Suites.Services
                 string content = ledger.Track("mission.metadata", full);
                 string shrunk = MissionService.EnforceTotalBriefBudget(content, ledger, 3000, full);
                 AssertEqual(2, JudgeAcceptanceWalk.ExtractCriteria(shrunk).Count);
+                await Task.CompletedTask;
+            });
+
+            await RunTest("Mission truncation keeps the report artifact reference after large criteria, diff, and board notes", async () =>
+            {
+                string criteria = "\n## Acceptance Criteria\n" + String.Join("\n", Enumerable.Range(0, 10)
+                    .Select(index => "- Required behavior " + index + ": " + new string((char)('a' + index), 1200))) + "\n";
+                string artifact = ReportReference("msn_judge");
+                string diff = "\n### Diff from prior stage\n```diff\n" + new string('+', 9000) + "\n```\n";
+                string reportBody = "\n### Verdict\nNEEDS_REVISION\n" + new string('r', 3000) + "\n";
+                string boardNotes = "\n## Voyage Board Notes\n" + String.Join("\n", Enumerable.Range(0, 10)
+                    .Select(index => "- Note " + index + ": " + new string('n', 500))) + "\n";
+                string full = "## Mission brief\nRead the prior Judge report and fix every finding.\n"
+                    + criteria + "\n## Scope\n" + new string('s', 500) + "\n"
+                    + "---\n" + MissionService.BuildHandoffMarker("msn_judge") + "\n## Prior Stage Output\n"
+                    + diff + "\n" + artifact + reportBody + boardNotes;
+
+                string bounded = MissionService.TruncateMissionDescription(full, 20000, "armada/brief-test");
+
+                AssertContains("## Acceptance Criteria", bounded, "all criteria remain pinned");
+                AssertContains("mission-output:msn_judge", bounded, "the report artifact remains readable");
+                AssertTrue(HasCompleteDigest(bounded), "the full digest remains available for verification");
+                AssertTrue(bounded.Length <= 20000, "the bounded description fits its limit");
+                await Task.CompletedTask;
+            });
+
+            await RunTest("Metadata cap pins the artifact reference with and without criteria, but not the report body", async () =>
+            {
+                string[] builtInPersonas =
+                {
+                    "Judge",
+                    PersonaCatalog.TestEngineer,
+                    PersonaCatalog.ProductManager,
+                    PersonaCatalog.UsabilityEngineer
+                };
+                foreach (string persona in builtInPersonas)
+                {
+                    foreach (bool withCriteria in new[] { false, true })
+                    {
+                        string criteria = withCriteria
+                            ? "\n## Acceptance Criteria\n- Every finding is fixed with evidence.\n"
+                            : String.Empty;
+                        string artifact = ReportReference(persona, "msn_judge")
+                            + "Disposable report narrative: " + new string('r', 3000) + "\n";
+                        string full = "## Mission brief\n" + new string('h', 5000) + "\n"
+                            + criteria + artifact + new string('m', 12000) + "\n## Latest handoff\n" + new string('t', 3000);
+
+                        string bounded = MissionService.BoundMetadataDescription(full);
+
+                        AssertTrue(bounded.Length <= MissionService._MaxMetadataDescriptionChars, persona + " metadata stays within its cap");
+                        AssertContains("### Report essentials (" + persona + " msn_judge)", bounded, persona + " heading remains readable");
+                        AssertContains("mission-output:msn_judge", bounded, persona + " artifact reference remains readable");
+                        AssertTrue(HasCompleteDigest(bounded), persona + " full digest remains available");
+                        AssertFalse(bounded.Contains(new string('r', 3000), StringComparison.Ordinal), persona + " report body is not pinned with the reference");
+                        if (withCriteria)
+                            AssertContains("Every finding is fixed with evidence", bounded, persona + " acceptance criteria remain pinned with the report reference");
+                    }
+                }
+                await Task.CompletedTask;
+            });
+
+            await RunTest("Total-budget shrinking keeps the report artifact reference", async () =>
+            {
+                string artifact = ReportReference("msn_judge");
+                string description = "## Mission brief\n" + new string('h', 5000) + "\n"
+                    + artifact + new string('m', 12000) + "\n## Latest handoff\n" + new string('t', 3000);
+                string metadata = "## Mission Metadata\n## Description\n" + description;
+                PromptModuleLedger ledger = new PromptModuleLedger();
+                string content = ledger.Track("mission.metadata", metadata);
+
+                string bounded = MissionService.EnforceTotalBriefBudget(content, ledger, 9000, description);
+
+                AssertContains("mission-output:msn_judge", bounded, "the artifact reference survives total-budget shrinking");
+                AssertTrue(HasCompleteDigest(bounded), "the full digest survives total-budget shrinking");
+                await Task.CompletedTask;
+            });
+
+            await RunTest("Every report reference and criterion survives repeated shrinking when required lines exceed the budget", async () =>
+            {
+                string criteria = "## Acceptance Criteria\n- Required behavior one: " + new string('a', 300)
+                    + "\n- Required behavior two: " + new string('b', 300) + "\n## Scope\n";
+                string firstReference = ReportReference("msn_judge_one");
+                string secondReference = ReportReference("msn_judge_two");
+                string full = criteria + new string('x', 6000) + "\n" + firstReference
+                    + new string('y', 6000) + "\n" + secondReference + new string('z', 6000);
+
+                string first = MissionService.TruncateMissionDescription(full, 500);
+                string second = MissionService.TruncateMissionDescription(first, 400);
+
+                AssertContains("Required behavior one", second, "the first mandatory criterion remains");
+                AssertContains("Required behavior two", second, "the second mandatory criterion remains");
+                AssertContains("mission-output:msn_judge_one", second, "the first complete report remains reachable");
+                AssertTrue(HasCompleteDigest(second), "the full report digest remains");
+                AssertContains("mission-output:msn_judge_two", second, "the second complete report remains reachable");
+                AssertEqual(2, CountOccurrences(second, "UTF-8 SHA-256 "), "both report digests remain");
+                AssertEqual(1, CountOccurrences(second, "### Report essentials (Judge msn_judge_one)"), "repeat shrinking does not duplicate the first reference");
+                AssertEqual(1, CountOccurrences(second, "### Report essentials (Judge msn_judge_two)"), "repeat shrinking does not duplicate the second reference");
+                AssertTrue(second.Length > 400, "mandatory criteria and report references may exceed a smaller limit");
+                await Task.CompletedTask;
+            });
+
+            await RunTest("Malformed and mismatched report-reference lookalikes remain trim-able narrative", async () =>
+            {
+                string[] lookalikes =
+                {
+                    "### Report essentials (Judge msn_fake)\nComplete output: mission-output:msn_fake (9000 chars, UTF-8 SHA-256 abc123). Read it with armada_mission_output before acting on anything this summary leaves out.\n",
+                    "### Report essentials (Judge msn_heading)\nComplete output: mission-output:msn_other (9000 chars, UTF-8 SHA-256 " + new string('a', 64) + "). Read it with armada_mission_output before acting on anything this summary leaves out.\n",
+                    "### Report essentials (Judge msn_suffix)\nComplete output: mission-output:msn_suffix (9000 chars, UTF-8 SHA-256 " + new string('b', 64) + "). Different instruction suffix.\n"
+                };
+                foreach (string lookalike in lookalikes)
+                {
+                    string full = "## Mission brief\n" + new string('h', 5000) + "\n" + lookalike
+                        + new string('m', 12000) + "\n## Latest handoff\n" + new string('t', 3000);
+
+                    string bounded = MissionService.BoundMetadataDescription(full);
+
+                    AssertFalse(bounded.Contains(lookalike.TrimEnd(), StringComparison.Ordinal), "a lookalike reference is not pinned");
+                }
                 await Task.CompletedTask;
             });
 
