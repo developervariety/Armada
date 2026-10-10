@@ -215,6 +215,7 @@ namespace Armada.Server.Mcp
                 // the caller-scoped catalogue a mission captain reaches.
                 McpTypedDecisionDataTools.Register(
                     register,
+                    database,
                     typedRecorder,
                     typedDecisionSamples,
                     () => effectiveSettings.TypedDecisions,

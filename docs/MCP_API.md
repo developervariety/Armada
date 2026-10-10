@@ -970,6 +970,45 @@ A `MissionDiff` decision also runs by itself when a Worker stage hands off,
 on the vessels its `vessels` list names (every vessel when empty). A call by
 name through this tool ignores that scope.
 
+## Retained Preflight Samples
+
+### armada_typed_decision_sample
+
+This operator-only tool reads one retained, redacted `preflight` input by its
+typed-decision event id. It requires a global administrator, the retention
+switch, and the `preflight` decision opt-in. The handler checks the caller
+before it reads event metadata or the host-local sample store. Mission tokens,
+tenant administrators, and ordinary users are refused even if they call the
+registered handler directly.
+
+| Argument | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `eventId` | string | yes | The typed-decision event id. |
+| `offset` | integer | no | Character offset in the retained state; defaults to `0`. |
+| `maxChars` | integer | no | Requested page size; defaults to `1024` and is capped at `4096`. |
+
+The response gives the event id and timestamp, `preflight` decision point,
+state SHA-256, state and page UTF-8 byte counts, redactor version, page text,
+offsets, and completion state. It omits objective and mission ownership
+fields, model answers, and request provenance. `q4SpecificPremise` is `null`
+and `q4RationaleStatus` is `not_recorded` when the stored evidence has no
+explicit premise reference.
+
+Availability distinguishes `event_not_found`, `not_typed_decision`,
+`wrong_decision_point`, `sample_not_retained`, `scan_incomplete`, and
+`unavailable`. It returns `forbidden` for an unauthorized caller,
+`invalid_request`, `invalid_offset`, or `invalid_page_size` for a malformed
+request, and `sample_store_unavailable`, `retention_disabled`,
+`event_unavailable`, or `event_metadata_unavailable` when the required local
+service or event data cannot be used. The bounded lookup scans the event UTC date file and the next
+date file to cover a write across midnight. It stops at fixed file, byte,
+record, or line limits. The two files share an 8 MiB byte budget. A limit or
+corrupt line returns `scan_incomplete`, never a false missing-sample result.
+A returned state must have the current
+redactor version, match the event digest and byte count, and pass current
+redaction unchanged. This tool changes no gate or preparation state and
+records no provider call.
+
 ## Typed Decision Evaluation
 
 ### armada_typed_decision_eval

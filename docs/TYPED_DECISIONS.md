@@ -186,6 +186,22 @@ byte count and never the state, and nothing extra leaves the host.
   strict JSON-lines reader accepts every line.
 - **Report before you train.** `armada_typed_decision_labels` names every decision
   with retained data and says which are short of the minimum and by how much.
+- **Inspect one preflight sample by event.** The global-operator tool
+  `armada_typed_decision_sample` accepts a typed-decision event id and returns
+  pages of the matching retained `preflight` state. Both the retention switch
+  and the `preflight` decision opt-in must be enabled. The handler reads the
+  event metadata before it looks for a sample, then scans only the event's UTC
+  date file and the following date file. Both files share an 8 MiB byte cap;
+  record lines and record count also have fixed caps. A capped or corrupt scan returns
+  `scan_incomplete`, never `sample_not_retained`. It returns at most 4096
+  characters per page and includes the state digest, UTF-8 byte counts, current
+  redactor version, and event timestamp. A sample is available only when its
+  event id, decision, digest, byte count, and ownership links match the event,
+  its redactor version is current, and applying current redaction leaves the
+  state unchanged. The response has no objective or mission ownership fields,
+  provider answers, or request provenance. It reports
+  `q4SpecificPremise: null` and `q4RationaleStatus: not_recorded`; the input
+  state does not establish a model rationale.
 
 ### The provider key
 

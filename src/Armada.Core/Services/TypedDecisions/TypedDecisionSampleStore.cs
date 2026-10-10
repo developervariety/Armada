@@ -5,10 +5,13 @@ namespace Armada.Core.Services.TypedDecisions
     using System.Globalization;
     using System.IO;
     using System.Linq;
+    using System.Security.Cryptography;
     using System.Text;
     using System.Text.Json;
+    using System.Text.Json.Nodes;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Core.Models;
     using SyslogLogging;
@@ -45,6 +48,9 @@ namespace Armada.Core.Services.TypedDecisions
         #region Private-Members
 
         private const string _Header = "[TypedDecisionSampleStore] ";
+        private const long _LookupMaxBytes = 8L * 1024L * 1024L;
+        private const int _LookupMaxRecords = 20000;
+        private const int _LookupMaxRecordChars = 256 * 1024;
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
@@ -223,6 +229,158 @@ namespace Armada.Core.Services.TypedDecisions
                 _Logging?.Warn(_Header + "summarize failed: " + ex.Message);
             }
             return counts;
+        }
+
+        /// <summary>
+        /// Find one retained decision in the event's daily file and the following UTC daily file.
+        /// The second file covers a write that crosses midnight after its event is created. File,
+        /// byte, line, and record limits are strict: an incomplete scan is never reported as not found.
+        /// The returned state is usable only when its current-redactor output is byte-for-byte
+        /// unchanged and its digest and byte count match the event.
+        /// </summary>
+        /// <param name="decisionPoint">The validated decision-point key.</param>
+        /// <param name="eventId">The event id to match exactly.</param>
+        /// <param name="eventCreatedUtc">The event's UTC creation time.</param>
+        /// <param name="expectedStateSha256">The state digest stored on the event.</param>
+        /// <param name="expectedStateBytes">The UTF-8 byte count stored on the event.</param>
+        /// <param name="expectedObjectiveId">The objective id stored on the event.</param>
+        /// <param name="expectedMissionId">The mission id stored on the event.</param>
+        /// <returns>A sample only when the complete bounded scan validates it.</returns>
+        public TypedDecisionSampleLookupResult FindDecision(
+            string decisionPoint,
+            string eventId,
+            DateTime eventCreatedUtc,
+            string expectedStateSha256,
+            int expectedStateBytes,
+            string? expectedObjectiveId,
+            string? expectedMissionId)
+        {
+            if (String.IsNullOrWhiteSpace(decisionPoint)
+                || String.IsNullOrWhiteSpace(eventId)
+                || String.IsNullOrWhiteSpace(expectedStateSha256)
+                || expectedStateBytes < 0
+                || !String.Equals(Sanitize(decisionPoint), decisionPoint, StringComparison.Ordinal))
+                return TypedDecisionSampleLookupResult.UnsafeSample();
+
+            try
+            {
+                string folder = Path.Combine(RootPath, decisionPoint);
+                DateTime utc = eventCreatedUtc.Kind == DateTimeKind.Local
+                    ? eventCreatedUtc.ToUniversalTime()
+                    : DateTime.SpecifyKind(eventCreatedUtc, DateTimeKind.Utc);
+                DateTime firstDay = utc.Date;
+                long bytesScanned = 0;
+                int recordsScanned = 0;
+                TypedDecisionSample? found = null;
+
+                // A sample is appended immediately after its event. Only a UTC midnight boundary
+                // can place it in the following date file.
+                for (int dayOffset = 0; dayOffset <= 1; dayOffset++)
+                {
+                    string file = Path.Combine(folder,
+                        firstDay.AddDays(dayOffset).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".jsonl");
+                    FileStream openedStream;
+                    try
+                    {
+                        openedStream = new FileStream(file, FileMode.Open, FileAccess.Read,
+                            FileShare.ReadWrite | FileShare.Delete);
+                    }
+                    catch (FileNotFoundException)
+                    {
+                        continue;
+                    }
+                    catch (DirectoryNotFoundException)
+                    {
+                        continue;
+                    }
+
+                    using (openedStream)
+                    {
+                        long snapshotLength = openedStream.Length;
+                        if (snapshotLength > _LookupMaxBytes - bytesScanned || snapshotLength > Int32.MaxValue)
+                            return TypedDecisionSampleLookupResult.ScanIncomplete();
+                        bytesScanned += snapshotLength;
+
+                        // Read only the captured length, then check for growth. This keeps the
+                        // byte cap effective even if another process appends a very large line.
+                        byte[] snapshot = new byte[(int)snapshotLength];
+                        int bytesRead = 0;
+                        while (bytesRead < snapshot.Length)
+                        {
+                            int read = openedStream.Read(snapshot, bytesRead, snapshot.Length - bytesRead);
+                            if (read <= 0) return TypedDecisionSampleLookupResult.ScanIncomplete();
+                            bytesRead += read;
+                        }
+                        if (openedStream.ReadByte() >= 0) return TypedDecisionSampleLookupResult.ScanIncomplete();
+
+                        string content = new UTF8Encoding(false, true).GetString(snapshot);
+                        using (StringReader reader = new StringReader(content))
+                        {
+                            string? line;
+                            while ((line = reader.ReadLine()) != null)
+                            {
+                                recordsScanned++;
+                                if (recordsScanned > _LookupMaxRecords || line.Length > _LookupMaxRecordChars)
+                                    return TypedDecisionSampleLookupResult.ScanIncomplete();
+                                if (String.IsNullOrWhiteSpace(line)) continue;
+
+                                TypedDecisionSample? sample;
+                                try
+                                {
+                                    sample = JsonSerializer.Deserialize<TypedDecisionSample>(line, _JsonOptions);
+                                }
+                                catch (JsonException)
+                                {
+                                    return TypedDecisionSampleLookupResult.ScanIncomplete();
+                                }
+                                if (sample == null)
+                                    return TypedDecisionSampleLookupResult.ScanIncomplete();
+                                if (!String.Equals(sample.EventId, eventId, StringComparison.Ordinal)
+                                    || !String.Equals(sample.DecisionPoint, decisionPoint, StringComparison.Ordinal)
+                                    || !String.Equals(sample.Kind, KindDecision, StringComparison.Ordinal))
+                                    continue;
+
+                                if (found != null) return TypedDecisionSampleLookupResult.UnsafeSample();
+                                found = sample;
+                            }
+                        }
+                    }
+                }
+
+                if (found == null) return TypedDecisionSampleLookupResult.NotFound();
+                if (found.RedactorVersion != DecisionStateRedactor.Version
+                    || found.RedactedState == null
+                    || !String.Equals(found.ObjectiveId, expectedObjectiveId, StringComparison.Ordinal)
+                    || !String.Equals(found.MissionId, expectedMissionId, StringComparison.Ordinal))
+                    return TypedDecisionSampleLookupResult.UnsafeSample();
+
+                byte[] stateBytes = Encoding.UTF8.GetBytes(found.RedactedState ?? String.Empty);
+                string stateHash = Convert.ToHexString(SHA256.HashData(stateBytes)).ToLowerInvariant();
+                if (stateBytes.Length != expectedStateBytes
+                    || !String.Equals(stateHash, expectedStateSha256, StringComparison.OrdinalIgnoreCase)
+                    || !String.Equals(found.StateSha256, expectedStateSha256, StringComparison.OrdinalIgnoreCase))
+                    return TypedDecisionSampleLookupResult.UnsafeSample();
+
+                try
+                {
+                    JsonNode? node = JsonNode.Parse(found.RedactedState);
+                    if (node == null
+                        || !String.Equals(DecisionStateRedactor.RedactState(node, Int32.MaxValue).Text,
+                            found.RedactedState, StringComparison.Ordinal))
+                        return TypedDecisionSampleLookupResult.UnsafeSample();
+                }
+                catch (JsonException)
+                {
+                    return TypedDecisionSampleLookupResult.UnsafeSample();
+                }
+
+                return TypedDecisionSampleLookupResult.Found(found);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                || ex is DecoderFallbackException || ex is ArgumentOutOfRangeException)
+            {
+                return TypedDecisionSampleLookupResult.ScanIncomplete();
+            }
         }
 
         #endregion

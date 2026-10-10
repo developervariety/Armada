@@ -4,12 +4,16 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Security.Cryptography;
+    using System.Text;
     using System.Text.Json;
+    using System.Text.Json.Nodes;
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.TypedDecisions;
     using Armada.Core.Settings;
+    using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -88,7 +92,7 @@ namespace Armada.Test.Unit.Suites.Services
                             new Dictionary<string, Func<JsonElement?, Task<object>>>();
                         McpTypedDecisionDataTools.Register(
                             (name, description, schema, handler) => handlers[name] = handler,
-                            recorder, store, () => settings.TypedDecisions, new LoggingModule());
+                            testDb.Driver, recorder, store, () => settings.TypedDecisions, new LoggingModule());
 
                         string report = await CallAsync(handlers, McpTypedDecisionDataTools.LabelsToolName, new { }).ConfigureAwait(false);
                         AssertContains("custom:house_rule", report, "the labels report names the opted-in custom decision");
@@ -321,7 +325,7 @@ namespace Armada.Test.Unit.Suites.Services
                             new Dictionary<string, Func<JsonElement?, Task<object>>>();
                         McpTypedDecisionDataTools.Register(
                             (name, description, schema, handler) => handlers[name] = handler,
-                            recorder, store, () => settings.TypedDecisions, new LoggingModule());
+                            testDb.Driver, recorder, store, () => settings.TypedDecisions, new LoggingModule());
 
                         AssertTrue(handlers.ContainsKey(McpTypedDecisionDataTools.ReversalToolName), "the reversal tool registers");
                         AssertTrue(handlers.ContainsKey(McpTypedDecisionDataTools.LabelsToolName), "the report tool registers");
@@ -346,6 +350,233 @@ namespace Armada.Test.Unit.Suites.Services
                         settings.TypedDecisions.Retention.Enabled = false;
                         string off = await CallAsync(handlers, McpTypedDecisionDataTools.LabelsToolName, new { }).ConfigureAwait(false);
                         AssertContains("\"RetentionEnabled\":false", off, "the report states plainly that retention is off");
+                    }
+                    finally { SafeDelete(dataDirectory); }
+                }
+            });
+
+            await RunTest("The operator retrieves one retained preflight sample in bounded pages", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string dataDirectory = NewTempDir("preflight-retrieval");
+                    try
+                    {
+                        const string toolName = "armada_typed_decision_sample";
+                        const string decisionPoint = PreflightTextAdapter.DecisionPoint;
+                        const string objectiveId = "obj_synthetic";
+                        ArmadaSettings settings = RetainingSettings(decisionPoint);
+                        TypedDecisionSampleStore store = new TypedDecisionSampleStore(dataDirectory, new LoggingModule());
+                        TypedDecisionRecorder recorder = new TypedDecisionRecorder(
+                            testDb.Driver, new LoggingModule(), store, () => settings.TypedDecisions);
+                        Dictionary<string, Func<JsonElement?, Task<object>>> handlers =
+                            new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                        McpTypedDecisionDataTools.Register(
+                            (name, description, schema, handler) => handlers[name] = handler,
+                            testDb.Driver, recorder, store, () => settings.TypedDecisions, new LoggingModule());
+
+                        AssertTrue(handlers.ContainsKey(toolName), "the event-scoped retained-sample handler registers");
+                        AssertTrue(McpToolAccessPolicy.IsAllowed(McpTestCaller.Operator, toolName), "a global operator may call the tool");
+
+                        AuthContext ordinaryUser = AuthContext.Authenticated("tenant-sample", "user-sample", false, false, "Bearer");
+                        AuthContext tenantAdmin = AuthContext.Authenticated("tenant-sample", "admin-sample", false, true, "Bearer");
+                        AuthContext missionAdmin = AuthContext.Authenticated(
+                            Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId,
+                            true, true, "Bearer", "credential-sample", "Mission administrator");
+                        missionAdmin.MissionId = "msn_synthetic";
+                        AssertFalse(McpToolAccessPolicy.IsAllowed(ordinaryUser, toolName), "an ordinary user cannot call the operator tool");
+                        AssertFalse(McpToolAccessPolicy.IsAllowed(tenantAdmin, toolName), "a tenant administrator cannot call the operator tool");
+                        AssertFalse(McpToolAccessPolicy.IsAllowed(missionAdmin, toolName), "a mission token cannot call the operator tool even when its owner is admin");
+
+                        // All fixture content is synthetic and already redacted. Its size forces several pages.
+                        string state = String.Empty;
+                        const string escapedSupplementaryCharacter = "\\uD83D\\uDE00";
+                        for (int padding = 0; padding < 1024; padding++)
+                        {
+                            string candidate = DecisionStateRedactor.RedactState(new
+                            {
+                                question = new string('a', padding) + "😀" + new string('b', 5900 - padding)
+                            }, 8192).Text;
+                            if (candidate.IndexOf(escapedSupplementaryCharacter, StringComparison.Ordinal) == 1023)
+                            {
+                                state = candidate;
+                                break;
+                            }
+                        }
+                        AssertTrue(!String.IsNullOrEmpty(state),
+                            "the producer's supplementary character has its canonical escape at the first page boundary");
+                        AssertEqual(state, DecisionStateRedactor.RedactState(JsonNode.Parse(state), 8192).Text,
+                            "the retained fixture passes current redaction unchanged");
+                        TypedDecisionEventContext context = new TypedDecisionEventContext
+                        {
+                            DecisionPoint = decisionPoint,
+                            ObjectiveId = objectiveId,
+                            RuleVerdict = "Infra",
+                            ModelVerdict = "TestFail",
+                            Confidence = 0.93,
+                            RedactedState = state,
+                            Result = new TypedDecisionResult { Available = true, Answers = new Dictionary<string, TypedAnswer>() }
+                        };
+                        ArmadaEvent? decisionEvent = await recorder.RecordGatedAsync(context, default).ConfigureAwait(false);
+                        AssertNotNull(decisionEvent, "the synthetic decision event is recorded");
+                        TypedDecisionSample expected = ReadSamples(store, decisionPoint)
+                            .Single(sample => sample.EventId == decisionEvent!.Id && sample.Kind == TypedDecisionSampleStore.KindDecision);
+                        AssertEqual(DecisionStateRedactor.Version, expected.RedactorVersion, "the fixture uses the current redactor cohort");
+                        string sampleFile = Directory.EnumerateFiles(Path.Combine(store.RootPath, decisionPoint), "*.jsonl").Single();
+                        string[] validSampleLines = File.ReadAllLines(sampleFile);
+                        int targetSampleLine = Array.FindIndex(validSampleLines,
+                            line => line.Contains(decisionEvent!.Id, StringComparison.Ordinal));
+                        AssertTrue(targetSampleLine >= 0, "the event has a retained sample line");
+
+                        if (targetSampleLine >= 0)
+                        {
+                            string originalSampleLine = validSampleLines[targetSampleLine];
+                            JsonObject alteredHash = JsonNode.Parse(validSampleLines[targetSampleLine])!.AsObject();
+                            alteredHash["state_sha256"] = new string('0', 64);
+                            validSampleLines[targetSampleLine] = alteredHash.ToJsonString();
+                            File.WriteAllLines(sampleFile, validSampleLines);
+                            string hashMismatch = await CallAsAsync(handlers, toolName,
+                                new { eventId = decisionEvent!.Id, offset = 0, maxChars = 32 }, McpTestCaller.Operator).ConfigureAwait(false);
+                            AssertEqual("unavailable", ParseRetainedSamplePage(hashMismatch)?.Availability,
+                                "a sample whose stored digest differs from the event is refused");
+
+                            JsonObject alteredVersion = JsonNode.Parse(validSampleLines[targetSampleLine])!.AsObject();
+                            alteredVersion["state_sha256"] = expected.StateSha256;
+                            alteredVersion["redactor_version"] = DecisionStateRedactor.Version - 1;
+                            validSampleLines[targetSampleLine] = alteredVersion.ToJsonString();
+                            File.WriteAllLines(sampleFile, validSampleLines);
+                            string staleRedactor = await CallAsAsync(handlers, toolName,
+                                new { eventId = decisionEvent!.Id, offset = 0, maxChars = 32 }, McpTestCaller.Operator).ConfigureAwait(false);
+                            AssertEqual("unavailable", ParseRetainedSamplePage(staleRedactor)?.Availability,
+                                "a sample from an older redactor version is refused");
+
+                            validSampleLines[targetSampleLine] = originalSampleLine;
+                            File.WriteAllLines(sampleFile, validSampleLines);
+                        }
+
+                        if (!handlers.ContainsKey(toolName)) return;
+                        string firstPage = await CallAsAsync(handlers, toolName,
+                            new { eventId = decisionEvent!.Id, offset = 0, maxChars = 999999 }, McpTestCaller.Operator).ConfigureAwait(false);
+                        AssertContains("\"Success\":true", firstPage, "the operator retrieves the matching event sample");
+                        AssertContains(decisionEvent.Id, firstPage, "the response is bound to the requested event");
+                        AssertContains(decisionPoint, firstPage, "the response names the decision point");
+                        AssertContains(expected.StateSha256, firstPage, "the response provides the retained-state digest");
+                        AssertContains("not_recorded", firstPage, "the specific Q4 rationale is stated as not recorded");
+                        AssertContains("\"Q4SpecificPremise\":null", firstPage, "the tool does not invent a Q4 premise");
+                        AssertFalse(firstPage.Contains("\"Provenance\"", StringComparison.Ordinal), "the response omits retained request provenance");
+                        AssertFalse(firstPage.Contains("\"Model\"", StringComparison.Ordinal), "the response omits provider metadata");
+                        AssertFalse(firstPage.Contains("\"Answers\"", StringComparison.Ordinal), "the response omits unrelated answer data");
+                        AssertFalse(firstPage.Contains(objectiveId, StringComparison.Ordinal), "the response omits objective ownership metadata");
+
+                        RetainedSamplePage? oversizedPage = ParseRetainedSamplePage(firstPage);
+                        AssertNotNull(oversizedPage, "the tool returns its typed page response");
+                        AssertTrue(oversizedPage!.Success, "the registered handler reports success to the operator");
+                        AssertEqual(decisionEvent!.Id, oversizedPage.EventId, "the typed response is bound to the requested event");
+                        AssertEqual(decisionPoint, oversizedPage.DecisionPoint, "the typed response names the decision point");
+                        AssertEqual(expected.StateSha256, oversizedPage.StateSha256, "the typed response carries the stored state digest");
+                        AssertEqual(DecisionStateRedactor.Version, oversizedPage.RedactorVersion,
+                            "the typed response identifies the current redactor version");
+                        AssertEqual("not_recorded", oversizedPage.Q4RationaleStatus,
+                            "the typed response marks the specific rationale as not recorded");
+                        AssertNull(oversizedPage.Q4SpecificPremise, "the typed response does not invent a Q4 premise");
+                        AssertTrue((oversizedPage!.PageText ?? String.Empty).Length <= 4096,
+                            "the server caps a requested oversized page");
+                        AssertEqual(expected.RedactedState.Length, oversizedPage.TotalChars,
+                            "the total length describes only the retained redacted state");
+                        AssertTrue(oversizedPage.NextOffset > 0 && oversizedPage.NextOffset < oversizedPage.TotalChars,
+                            "the first page is bounded and incomplete");
+
+                        StringBuilder assembled = new StringBuilder();
+                        int offset = 0;
+                        while (offset < expected.RedactedState.Length)
+                        {
+                            string pageJson = await CallAsAsync(handlers, toolName,
+                                new { eventId = decisionEvent!.Id, offset, maxChars = 1024 }, McpTestCaller.Operator).ConfigureAwait(false);
+                            AssertContains("\"Success\":true", pageJson, "each page returns successfully");
+                            RetainedSamplePage? page = ParseRetainedSamplePage(pageJson);
+                            AssertNotNull(page, "each page uses the typed response shape");
+                            string text = page!.PageText ?? String.Empty;
+                            AssertTrue(text.Length <= 1024, "each requested page stays within its cap");
+                            AssertEqual(offset, page.Offset, "each page reports its requested offset");
+                            assembled.Append(text);
+                            int nextOffset = page.NextOffset;
+                            AssertTrue(nextOffset > offset, "pagination advances beyond the previous offset");
+                            offset = nextOffset;
+                        }
+                        AssertEqual(expected.RedactedState, assembled.ToString(), "the pages reproduce exactly the retained redacted state");
+                        string assembledDigest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(assembled.ToString()))).ToLowerInvariant();
+                        AssertEqual(expected.StateSha256, assembledDigest,
+                            "pages preserve the producer's canonical supplementary-character escape and exact UTF-8 digest");
+                        AssertEqual(expected.StateBytes, Encoding.UTF8.GetByteCount(assembled.ToString()),
+                            "bounded pages preserve the exact UTF-8 byte count");
+
+                        string missing = await CallAsAsync(handlers, toolName,
+                            new { eventId = "evt_missing", offset = 0, maxChars = 32 }, McpTestCaller.Operator).ConfigureAwait(false);
+                        AssertContains("\"Success\":false", missing, "an unknown event does not return any sample");
+                        RetainedSamplePage? missingEvent = ParseRetainedSamplePage(missing);
+                        AssertEqual("event_not_found", missingEvent?.Availability, "an absent event is distinct from an unretained event");
+
+                        settings.TypedDecisions.Retention.Enabled = false;
+                        ArmadaEvent? unretainedEvent = await recorder.RecordGatedAsync(
+                            Context(decisionPoint, "{\"question\":\"synthetic unretained event\"}"), default).ConfigureAwait(false);
+                        settings.TypedDecisions.Retention.Enabled = true;
+                        string unretained = await CallAsAsync(handlers, toolName,
+                            new { eventId = unretainedEvent!.Id, offset = 0, maxChars = 32 }, McpTestCaller.Operator).ConfigureAwait(false);
+                        AssertEqual("sample_not_retained", ParseRetainedSamplePage(unretained)?.Availability,
+                            "a typed preflight event without an opted-in sample is explicit");
+
+                        string wrongDecisionState = DecisionStateRedactor.RedactState(new { question = "synthetic wrong decision point" }, 1024).Text;
+                        ArmadaEvent? wrongDecisionEvent = await recorder.RecordGatedAsync(
+                            Context("failure_cause", wrongDecisionState), default).ConfigureAwait(false);
+                        string wrongDecision = await CallAsAsync(handlers, toolName,
+                            new { eventId = wrongDecisionEvent!.Id, offset = 0, maxChars = 32 }, McpTestCaller.Operator).ConfigureAwait(false);
+                        AssertEqual("wrong_decision_point", ParseRetainedSamplePage(wrongDecision)?.Availability,
+                            "a different typed decision cannot be read through the preflight tool");
+
+                        string unsafeState = "{\"api_key\":\"synthetic private marker\"}";
+                        ArmadaEvent? unsafeEvent = await recorder.RecordGatedAsync(
+                            Context(decisionPoint, unsafeState), default).ConfigureAwait(false);
+                        string unsafeResponse = await CallAsAsync(handlers, toolName,
+                            new { eventId = unsafeEvent!.Id, offset = 0, maxChars = 32 }, McpTestCaller.Operator).ConfigureAwait(false);
+                        AssertEqual("unavailable", ParseRetainedSamplePage(unsafeResponse)?.Availability,
+                            "a stored state that changes under current redaction is refused");
+                        AssertFalse(unsafeResponse.Contains("synthetic private marker", StringComparison.Ordinal),
+                            "the changed state is never returned");
+
+                        string tenantDenied = await CallAsAsync(handlers, toolName,
+                            new { eventId = decisionEvent.Id, offset = 0, maxChars = 32 }, tenantAdmin).ConfigureAwait(false);
+                        AssertEqual("forbidden", ParseRetainedSamplePage(tenantDenied)?.Availability,
+                            "direct handler calls also refuse a tenant administrator");
+
+                        string denied = await CallAsAsync(handlers, toolName,
+                            new { eventId = decisionEvent.Id, offset = 0, maxChars = 32 }, missionAdmin).ConfigureAwait(false);
+                        AssertContains("\"Success\":false", denied, "the handler enforces global-admin scope even when called directly");
+
+                        byte[] originalSampleBytes = File.ReadAllBytes(sampleFile);
+                        byte[] overCapSampleBytes = new byte[(8 * 1024 * 1024) + 1];
+                        Array.Fill(overCapSampleBytes, (byte)'x');
+                        try
+                        {
+                            File.WriteAllBytes(sampleFile, overCapSampleBytes);
+                            string overCap = await CallAsAsync(handlers, toolName,
+                                new { eventId = decisionEvent.Id, offset = 0, maxChars = 32 }, McpTestCaller.Operator).ConfigureAwait(false);
+                            RetainedSamplePage? overCapPage = ParseRetainedSamplePage(overCap);
+                            AssertEqual("scan_incomplete", overCapPage?.Availability,
+                                "a daily file above the fixed 8 MiB byte cap is refused");
+                            AssertNull(overCapPage?.PageText, "an over-cap file returns no retained text");
+                        }
+                        finally
+                        {
+                            File.WriteAllBytes(sampleFile, originalSampleBytes);
+                        }
+
+                        File.AppendAllText(sampleFile, "{corrupt synthetic line}\n");
+                        string incomplete = await CallAsAsync(handlers, toolName,
+                            new { eventId = decisionEvent.Id, offset = 0, maxChars = 32 }, McpTestCaller.Operator).ConfigureAwait(false);
+                        RetainedSamplePage? incompletePage = ParseRetainedSamplePage(incomplete);
+                        AssertEqual("scan_incomplete", incompletePage?.Availability,
+                            "a corrupt daily file does not read as an absent sample");
+                        AssertNull(incompletePage?.PageText, "an incomplete scan returns no retained text");
                     }
                     finally { SafeDelete(dataDirectory); }
                 }
@@ -489,6 +720,56 @@ namespace Armada.Test.Unit.Suites.Services
                 object result = await handlers[tool](document.RootElement.Clone()).ConfigureAwait(false);
                 return JsonSerializer.Serialize(result);
             }
+        }
+
+        private static async Task<string> CallAsAsync(
+            Dictionary<string, Func<JsonElement?, Task<object>>> handlers,
+            string tool,
+            object args,
+            AuthContext caller)
+        {
+            using (JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(args)))
+            {
+                using (McpCallerContext.Begin(caller))
+                {
+                    object result = await handlers[tool](document.RootElement.Clone()).ConfigureAwait(false);
+                    return JsonSerializer.Serialize(result);
+                }
+            }
+        }
+
+        private static RetainedSamplePage? ParseRetainedSamplePage(string json)
+        {
+            return JsonSerializer.Deserialize<RetainedSamplePage>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+
+        private sealed class RetainedSamplePage
+        {
+            /// <summary>Whether the lookup returned a usable page.</summary>
+            public bool Success { get; set; }
+            /// <summary>The typed-decision event identifier.</summary>
+            public string? EventId { get; set; }
+            /// <summary>The retained decision point.</summary>
+            public string? DecisionPoint { get; set; }
+            /// <summary>SHA-256 digest of the complete redacted state.</summary>
+            public string? StateSha256 { get; set; }
+            /// <summary>Redactor version that produced the retained state.</summary>
+            public int RedactorVersion { get; set; }
+            /// <summary>Character offset of this page.</summary>
+            public int Offset { get; set; }
+            /// <summary>Total character count of the redacted state.</summary>
+            public int TotalChars { get; set; }
+            /// <summary>Character offset for the next page.</summary>
+            public int NextOffset { get; set; }
+            /// <summary>This page's redacted state text.</summary>
+            public string? PageText { get; set; }
+            /// <summary>Whether this page reaches the end of the state.</summary>
+            public bool Complete { get; set; }
+            /// <summary>Specific Q4 premise reference, absent when not recorded.</summary>
+            public string? Q4SpecificPremise { get; set; }
+            /// <summary>States whether a specific Q4 rationale was retained.</summary>
+            public string? Q4RationaleStatus { get; set; }
         }
 
         private static string NewTempDir(string prefix)

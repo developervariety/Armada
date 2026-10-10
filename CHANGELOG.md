@@ -35,6 +35,10 @@ upstream integrations and excludes changes already present at that baseline.
   it through an authorized read.
 - Mission status and full-description reads apply the same caller evidence scope
   as mission output before returning metadata, scope text, or context events.
+- Global operators can inspect retained preflight input by event id through
+  bounded pages with digest validation; incomplete scans and unrecorded Q4
+  rationale are explicit, and no objective or mission ownership fields leave
+  the host-local sample store.
 - Judge rescue briefs use the full redacted output artifact, keep required review
   findings ahead of completed criteria, and mark bounded excerpts incomplete.
   Every rescue stage receives the failed-output reference; description, metadata,
