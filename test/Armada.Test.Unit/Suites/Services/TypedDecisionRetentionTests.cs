@@ -473,17 +473,35 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertTrue(oversizedPage!.Success, "the registered handler reports success to the operator");
                         AssertEqual(decisionEvent!.Id, oversizedPage.EventId, "the typed response is bound to the requested event");
                         AssertEqual(decisionPoint, oversizedPage.DecisionPoint, "the typed response names the decision point");
+                        AssertNotNull(oversizedPage.EventCreatedUtc, "the successful page includes the event timestamp");
+                        AssertEqual(decisionEvent.CreatedUtc, oversizedPage.EventCreatedUtc!.Value,
+                            "the typed response returns the source event timestamp");
                         AssertEqual(expected.StateSha256, oversizedPage.StateSha256, "the typed response carries the stored state digest");
-                        AssertEqual(DecisionStateRedactor.Version, oversizedPage.RedactorVersion,
+                        int expectedStateBytes = Encoding.UTF8.GetByteCount(expected.RedactedState);
+                        AssertNotNull(oversizedPage.StateBytes, "the successful page includes the state byte count");
+                        AssertEqual(expectedStateBytes, oversizedPage.StateBytes!.Value,
+                            "the typed response carries the event's UTF-8 state byte count");
+                        AssertNotNull(oversizedPage.RedactorVersion, "the successful page includes a redactor version");
+                        AssertEqual(DecisionStateRedactor.Version, oversizedPage.RedactorVersion!.Value,
                             "the typed response identifies the current redactor version");
                         AssertEqual("not_recorded", oversizedPage.Q4RationaleStatus,
                             "the typed response marks the specific rationale as not recorded");
                         AssertNull(oversizedPage.Q4SpecificPremise, "the typed response does not invent a Q4 premise");
                         AssertTrue((oversizedPage!.PageText ?? String.Empty).Length <= 4096,
                             "the server caps a requested oversized page");
-                        AssertEqual(expected.RedactedState.Length, oversizedPage.TotalChars,
+                        AssertNotNull(oversizedPage.TotalUtf8Bytes, "the successful page includes total UTF-8 bytes");
+                        AssertEqual(expectedStateBytes, oversizedPage.TotalUtf8Bytes!.Value,
+                            "the total UTF-8 byte count matches the retained state");
+                        AssertNotNull(oversizedPage.PageUtf8Bytes, "the successful page includes page UTF-8 bytes");
+                        AssertEqual(Encoding.UTF8.GetByteCount(oversizedPage.PageText ?? String.Empty),
+                            oversizedPage.PageUtf8Bytes!.Value, "the page UTF-8 byte count matches its text");
+                        AssertNotNull(oversizedPage.Complete, "the successful page includes its completion state");
+                        AssertFalse(oversizedPage.Complete!.Value, "the first bounded page is incomplete");
+                        AssertNotNull(oversizedPage.TotalChars, "the successful page includes the total character count");
+                        AssertEqual(expected.RedactedState.Length, oversizedPage.TotalChars!.Value,
                             "the total length describes only the retained redacted state");
-                        AssertTrue(oversizedPage.NextOffset > 0 && oversizedPage.NextOffset < oversizedPage.TotalChars,
+                        AssertNotNull(oversizedPage.NextOffset, "the successful page includes its next offset");
+                        AssertTrue(oversizedPage.NextOffset!.Value > 0 && oversizedPage.NextOffset.Value < oversizedPage.TotalChars.Value,
                             "the first page is bounded and incomplete");
 
                         StringBuilder assembled = new StringBuilder();
@@ -497,10 +515,15 @@ namespace Armada.Test.Unit.Suites.Services
                             AssertNotNull(page, "each page uses the typed response shape");
                             string text = page!.PageText ?? String.Empty;
                             AssertTrue(text.Length <= 1024, "each requested page stays within its cap");
-                            AssertEqual(offset, page.Offset, "each page reports its requested offset");
+                            AssertNotNull(page.Offset, "each page includes its requested offset");
+                            AssertEqual(offset, page.Offset!.Value, "each page reports its requested offset");
                             assembled.Append(text);
-                            int nextOffset = page.NextOffset;
+                            AssertNotNull(page.NextOffset, "each page includes its next offset");
+                            int nextOffset = page.NextOffset!.Value;
                             AssertTrue(nextOffset > offset, "pagination advances beyond the previous offset");
+                            AssertNotNull(page.Complete, "each page includes its completion state");
+                            AssertEqual(nextOffset >= expected.RedactedState.Length, page.Complete!.Value,
+                                "each page reports whether it reached the end of the state");
                             offset = nextOffset;
                         }
                         AssertEqual(expected.RedactedState, assembled.ToString(), "the pages reproduce exactly the retained redacted state");
@@ -754,20 +777,28 @@ namespace Armada.Test.Unit.Suites.Services
             public string? EventId { get; set; }
             /// <summary>The retained decision point.</summary>
             public string? DecisionPoint { get; set; }
+            /// <summary>The source event creation time in UTC.</summary>
+            public DateTime? EventCreatedUtc { get; set; }
             /// <summary>SHA-256 digest of the complete redacted state.</summary>
             public string? StateSha256 { get; set; }
+            /// <summary>UTF-8 byte count of the complete redacted state.</summary>
+            public int? StateBytes { get; set; }
             /// <summary>Redactor version that produced the retained state.</summary>
-            public int RedactorVersion { get; set; }
+            public int? RedactorVersion { get; set; }
             /// <summary>Character offset of this page.</summary>
-            public int Offset { get; set; }
+            public int? Offset { get; set; }
             /// <summary>Total character count of the redacted state.</summary>
-            public int TotalChars { get; set; }
+            public int? TotalChars { get; set; }
+            /// <summary>Total UTF-8 byte count of the redacted state.</summary>
+            public int? TotalUtf8Bytes { get; set; }
+            /// <summary>UTF-8 byte count of this page.</summary>
+            public int? PageUtf8Bytes { get; set; }
             /// <summary>Character offset for the next page.</summary>
-            public int NextOffset { get; set; }
+            public int? NextOffset { get; set; }
             /// <summary>This page's redacted state text.</summary>
             public string? PageText { get; set; }
             /// <summary>Whether this page reaches the end of the state.</summary>
-            public bool Complete { get; set; }
+            public bool? Complete { get; set; }
             /// <summary>Specific Q4 premise reference, absent when not recorded.</summary>
             public string? Q4SpecificPremise { get; set; }
             /// <summary>States whether a specific Q4 rationale was retained.</summary>
