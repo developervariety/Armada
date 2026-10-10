@@ -615,7 +615,15 @@ caller can read its own output, missions in the same voyage, and its direct
 tenant and owner. Use `offset` and `length`, follow `NextOffset` while `HasMore`
 is true, and check the final reconstructed UTF-8 content against `Sha256`.
 `Complete` identifies a final artifact; it does not mean that one page contains
-all content.
+all content. A later autonomous rescue stage can also read the failed parent
+named by its marked rescue root, reached through the same-owner, same-voyage
+and same-vessel dependency chain. Existing direct-parent reads remain available.
+
+`armada_mission_status` uses the same evidence scope before it returns mission
+metadata or context events. Its default response omits the description and
+report bodies. Pass `includeDescription=true` to read the full stored brief
+when the rescue scope excerpt omits original instructions or diagnostics.
+Unrelated and cross-owner mission IDs return not found.
 
 `get_objective` returns the full objective that directly links the caller's
 mission or voyage, and its directly linked parent objective. Both must have the

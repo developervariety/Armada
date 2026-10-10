@@ -95,12 +95,28 @@ of a failed stage also recovers the failed stages above it in the same chain,
 because it started from that stage's commit and re-ran them.
 
 A rescue for a reviewer rejection is a Worker started from the reviewed
-commit. Its brief lists every item the review marks as blocking (`NOT
-DELIVERED`, `NOT MET`, `NOT RESOLVED`, or a `Blocking` finding), each whole,
-within a 4,000-character bound; when the items exceed it, each keeps its
-opening and says how much was cut. A bounded excerpt of the review follows,
-with tool narration before the first section dropped and the Suggested
-Follow-ups and Verdict kept whole.
+commit. The brief carries a digest-backed pointer to the full Judge output and
+instructs every rescue stage to read it with `armada_mission_output` before it
+edits or re-verifies. The tool returns the safely redacted output in pages; the
+stage continues until `hasMore` is false and checks `complete` and `sha256`.
+
+The rescue findings list includes numbered or bulleted defects from
+Correctness, Failure Modes, Tests and Verdict, plus existing `NOT DELIVERED`,
+`NOT MET`, `NOT RESOLVED` and `Blocking` items. It keeps file and line anchors,
+places NOT MET criteria after defects, removes MET criteria and narration
+before shortening, and uses one list marker per item. The embedded full-review
+cap is 12,000 characters. When the report fits, the brief carries it whole.
+When it does not, the brief keeps the protected sections whole after removing
+narration and MET criteria. If those protected sections exceed the bound, the
+brief labels the embedded list incomplete and directs the stage to the complete
+parent output. Gate-log truncation keeps its existing cap and content-filter
+recovery behavior.
+
+The failed parent output is in scope for the rescue Worker and later stages in
+that rescue chain. The server follows same-owner, same-voyage and same-vessel
+dependencies back to the marked rescue root, and exposes only the failed
+mission named by that root as an additional rescue-chain read. Existing direct
+parent and dependency reads remain available within the caller's normal scope.
 
 Stage `preferredModel` values are logical tiers: `low`, `mid`, or `high`.
 Provider routing resolves the concrete model. Do not put concrete provider

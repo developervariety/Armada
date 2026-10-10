@@ -1979,6 +1979,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
                 failed.Persona = "Judge";
                 failed.ReviewComment = "The fix is missing a regression test for the null-branch case; add coverage before resubmitting.";
+                failed.AgentOutput = failed.ReviewComment;
                 await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
@@ -1993,6 +1994,185 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("Worker", rescue.Persona, "Reviewer-stage failures must dispatch a Worker rescue.");
                 AssertContains("Reviewer feedback to address:", rescue.Description ?? "", "Rescue brief must label the inlined reviewer feedback.");
                 AssertContains(failed.ReviewComment!, rescue.Description ?? "", "Rescue brief must inline the parent's review feedback verbatim.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReviewerFeedback_RescueUsesCompleteJudgeOutputAndNamesItsReadableParent", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_rescue_full_review", "usr_rescue_full_review").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_rescue_full_review", "usr_rescue_full_review").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+
+                StringBuilder review = new StringBuilder();
+                review.AppendLine("## Completeness");
+                review.AppendLine("- src/Example.cs:101 -- complete criterion one. NOT MET.");
+                review.AppendLine("- src/Example.cs:102 -- complete criterion two. NOT MET.");
+                review.AppendLine("- src/Example.cs:103 -- complete criterion three. NOT MET.");
+                review.AppendLine("- src/Example.cs:104 -- complete criterion four. NOT MET.");
+                review.AppendLine("- src/Example.cs:105 -- complete criterion five. NOT MET.");
+                review.AppendLine("- src/Example.cs:106 -- delivered behavior. MET.");
+                review.AppendLine(new string('n', 15000));
+                review.AppendLine("## Correctness");
+                review.AppendLine("1. src/Example.cs:12 -- preserve the first rejected behavior.");
+                review.AppendLine("2. src/Example.cs:24 -- preserve the second rejected behavior.");
+                review.AppendLine("3. src/Example.cs:36 -- preserve the third rejected behavior.");
+                review.AppendLine("4. src/Example.cs:48 -- preserve the fourth rejected behavior.");
+                review.AppendLine("5. src/Example.cs:60 -- preserve the fifth rejected behavior.");
+                review.AppendLine("6. P2 src/Example.cs:72 -- preserve the sixth rejected behavior.");
+                review.AppendLine("7. src/Example.cs:73 -- failure to meet the required output shape is still present.");
+                review.AppendLine("8. src/Test.cs:42 -- the result uses the wrong PASS constant.");
+                review.AppendLine("9. src/Test.cs:43 -- add assertions for SUCCESS.");
+                review.AppendLine("- **Non-blocking:** src/Example.cs:109 -- optional cleanup.");
+                review.AppendLine("- **Blocking:** src/Example.cs:110 -- the required branch is still missing.");
+                review.AppendLine("### Nested correctness evidence");
+                review.AppendLine("- src/Example.cs:74 -- the nested section still has an unresolved defect.");
+                review.AppendLine("Non-blocking: src/Example.cs:108 -- optional follow-up.");
+                review.AppendLine("## Failure Modes");
+                review.AppendLine("- src/Example.cs:84 -- handle the empty-input case.");
+                review.AppendLine("- Failure mode for empty input is handled by an explicit guard.");
+                review.AppendLine("- src/Example.cs:85 -- failure mode for malformed input is not handled.");
+                review.AppendLine("## Tests");
+                review.AppendLine("- src/ExampleTests.cs:19 -- add the missing boundary test.");
+                review.AppendLine("- src/ExampleTests.cs:27 -- the null result has no assertion.");
+                review.AppendLine("- Test 0 covers the changed behaviour and passed in the foreground run.");
+                review.AppendLine("- Verified rule output matches the documented contract.");
+                review.AppendLine("## Verdict");
+                review.AppendLine("NEEDS_REVISION: add src/Example.cs:96 and verify the failure path.");
+                string fullReview = review.ToString();
+                failed.AgentOutput = fullReview;
+                failed.ReviewComment = fullReview.Substring(0, 8000);
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()));
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                Mission rescue = admiral.DispatchedMissions.Single();
+                string description = rescue.Description ?? String.Empty;
+                AssertContains("src/Example.cs:12", description, "The first Correctness defect is carried.");
+                AssertContains("src/Example.cs:24", description, "The second Correctness defect is carried.");
+                AssertContains("src/Example.cs:36", description, "The third Correctness defect is carried.");
+                AssertContains("src/Example.cs:48", description, "The fourth Correctness defect is carried.");
+                AssertContains("src/Example.cs:60", description, "The fifth Correctness defect is carried.");
+                AssertContains("src/Example.cs:72", description, "A P2 defect is not discarded as a lesser item.");
+                AssertContains("src/Example.cs:73", description, "MET wording inside a defect does not hide it.");
+                AssertContains("src/Test.cs:42", description, "A PASS token inside defect text does not mark it as successful.");
+                AssertContains("src/Test.cs:43", description, "A SUCCESS token inside defect text does not mark it as successful.");
+                AssertContains("src/Example.cs:74", description, "An unmarked defect under a nested protected heading is retained.");
+                AssertContains("src/Example.cs:84", description, "Failure Modes defects are carried.");
+                AssertContains("src/Example.cs:85", description, "A failure mode that is not handled remains actionable.");
+                AssertContains("src/ExampleTests.cs:19", description, "Tests defects are carried.");
+                AssertContains("src/ExampleTests.cs:27", description, "A Tests defect does not need a keyword to be actionable.");
+                AssertContains("src/Example.cs:96", description, "A Verdict-only required change is carried.");
+                AssertContains("src/Example.cs:110", description, "An explicit bold Blocking label remains actionable.");
+                int findingStart = description.IndexOf("Blocking findings to fix", StringComparison.Ordinal);
+                int feedbackStart = description.IndexOf("Reviewer feedback to address:", StringComparison.Ordinal);
+                AssertTrue(findingStart >= 0 && feedbackStart > findingStart, "The brief has a separate findings list before the full reviewer artifact.");
+                string feedback = description.Substring(feedbackStart);
+                AssertContains("### Nested correctness evidence", feedback, "A nested protected heading survives the bounded feedback projection.");
+                AssertContains("src/Example.cs:74", feedback, "The nested protected defect survives the bounded feedback projection.");
+                string findingBlock = description.Substring(findingStart, feedbackStart - findingStart);
+                AssertFalse(findingBlock.Contains("optional follow-up", StringComparison.Ordinal), "Explicitly non-blocking commentary is excluded from required fixes.");
+                AssertFalse(findingBlock.Contains("optional cleanup", StringComparison.Ordinal), "A bold Non-blocking label is excluded from required fixes.");
+                AssertFalse(findingBlock.Contains("Test 0 covers", StringComparison.Ordinal), "A passed test result is not listed as a defect.");
+                AssertFalse(findingBlock.Contains("Verified rule output", StringComparison.Ordinal), "A verified test result is not listed as a defect.");
+                AssertFalse(findingBlock.Contains("Failure mode for empty input is handled", StringComparison.Ordinal), "A handled failure mode is not listed as a defect.");
+                AssertFalse(findingBlock.Contains("delivered behavior", StringComparison.Ordinal), "MET criterion restatements are excluded from required fixes.");
+                AssertContains("src/Example.cs:105", findingBlock, "NOT MET criteria remain after defects.");
+                int firstDefect = findingBlock.IndexOf("src/Example.cs:12", StringComparison.Ordinal);
+                int criterion = findingBlock.IndexOf("NOT MET", StringComparison.Ordinal);
+                AssertTrue(firstDefect >= 0 && criterion > firstDefect, "Criterion restatements follow defects in the rescue brief.");
+                AssertContains("mission-output:" + failed.Id, description, "The complete parent output has a readable pointer.");
+                AssertContains("armada_mission_output", description, "The rescue is told how to read the complete parent output.");
+                AssertContains("armada_mission_status", description, "The rescue has a readable pointer to the full original mission description.");
+                AssertContains("includeDescription=true", description, "The original-description pointer requests the full description field.");
+                AssertFalse(description.Contains("remainder in admiral log", StringComparison.Ordinal), "The brief does not send the captain to an unreadable admiral log.");
+                AssertFalse(description.Contains("- - ", StringComparison.Ordinal), "The brief does not double its bullets.");
+
+                Mission verdictOnly = new Mission("Verdict-only required change")
+                {
+                    Id = "msn_test_verdict_only",
+                    Status = MissionStatusEnum.Failed,
+                    Persona = "Judge",
+                    AgentOutput = "## Verdict\n- src/Example.cs:96 -- add the required failure-path check.",
+                    ReviewComment = "## Verdict\n- src/Example.cs:96 -- add the required failure-path check."
+                };
+                Incident syntheticIncident = new Incident
+                {
+                    Id = "inc_test_verdict_only",
+                    Title = "synthetic verdict-only review",
+                    Summary = "synthetic summary",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.Medium
+                };
+                string verdictBrief = AutonomousRecoveryOrchestrator.BuildRescueDescription(verdictOnly, syntheticIncident, 1);
+                AssertContains("src/Example.cs:96", verdictBrief, "A required change that appears only in Verdict remains actionable.");
+
+                Mission passOnly = new Mission("Plain passing review")
+                {
+                    Id = "msn_test_plain_pass",
+                    Status = MissionStatusEnum.Complete,
+                    Persona = "Judge",
+                    AgentOutput = "## Verdict\nPASS",
+                    ReviewComment = "## Verdict\nPASS"
+                };
+                string passBrief = AutonomousRecoveryOrchestrator.BuildRescueDescription(passOnly, syntheticIncident, 1);
+                AssertFalse(passBrief.Contains("Blocking findings to fix", StringComparison.Ordinal), "A plain PASS does not become a defect.");
+
+                Mission capturedOutput = new Mission("Captured output limit")
+                {
+                    Id = "msn_test_output_capture_limit",
+                    Status = MissionStatusEnum.Failed,
+                    Persona = "Judge",
+                    AgentOutput = MissionOutputArtifact.StreamTruncationMarker + "\n## Correctness\n1. src/Example.cs:120 -- captured tail finding.",
+                    ReviewComment = "## Correctness\n1. src/Example.cs:120 -- captured tail finding."
+                };
+                string capturedBrief = AutonomousRecoveryOrchestrator.BuildRescueDescription(capturedOutput, syntheticIncident, 1);
+                AssertContains("incomplete", capturedBrief, "A streamed-output capture marker is not described as a complete review.");
+                AssertContains("mission-output:" + capturedOutput.Id, capturedBrief, "The incomplete capture still points to the parent artifact.");
+
+                Mission fallbackReview = new Mission("Review comment fallback")
+                {
+                    Id = "msn_test_review_comment_fallback",
+                    Status = MissionStatusEnum.Failed,
+                    Persona = "Judge",
+                    AgentOutput = String.Empty,
+                    ReviewComment = "## Correctness\n- src/Example.cs:130 -- fallback-only review text."
+                };
+                string fallbackBrief = AutonomousRecoveryOrchestrator.BuildRescueDescription(fallbackReview, syntheticIncident, 1);
+                AssertContains("Persisted Judge output (empty)", fallbackBrief, "The brief identifies that the persisted output is empty.");
+                AssertContains("ReviewComment is only a fallback", fallbackBrief, "Fallback text is not described as the complete review.");
+                AssertContains("Blocking findings to fix (incomplete", fallbackBrief, "The fallback findings list is explicitly incomplete.");
+                AssertFalse(fallbackBrief.Contains("complete list from the full review", StringComparison.Ordinal), "The fallback does not claim full-review completeness.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ChainedRescueStages_PointToTheFailedJudgeOutput", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()));
+                Mission failed = new Mission("Failed review") { Id = "msn_test_failed_review" };
+
+                Mission stage = orchestrator.BuildChainedRescueStage(
+                    failed,
+                    "vyg_test_rescue",
+                    "msn_test_rescue_worker",
+                    new PipelineStage(3, "Judge"),
+                    1,
+                    new List<SelectedPlaybook>());
+
+                AssertContains("mission-output:" + failed.Id, stage.Description ?? String.Empty, "Every chained rescue stage points to the failed review output.");
+                AssertContains("armada_mission_output", stage.Description ?? String.Empty, "Every chained stage is told how to read it.");
+                await Task.CompletedTask;
             }).ConfigureAwait(false);
 
             await RunTest("RealSignalGateRejection_NoRescueLoopOnGreenWork", async () =>
@@ -3222,10 +3402,63 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildRescueDescription_LargeEmbeddedFailureLog_StaysUnderCap).ConfigureAwait(false);
             await RunTest("BuildRescueDescription reduces older handoff blocks so the newest survives",
                 BuildRescueDescription_OlderHandoffBlocks_AreReducedSoTheNewestSurvives).ConfigureAwait(false);
-            await RunTest("BuildRescueDescription keeps an over-cap Judge report's Follow-ups and Verdict whole",
+            await RunTest("BuildRescueDescription embeds a Judge report within the full-review cap",
                 BuildRescueDescription_OverCapJudgeReport_KeepsTheVerdictAndFollowUpsWhole).ConfigureAwait(false);
             await RunTest("BuildRescueDescription embeds an under-cap Judge report whole",
                 BuildRescueDescription_UnderCapJudgeReport_IsEmbeddedWhole).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription marks protected findings overflow incomplete and points to full output", async () =>
+            {
+                StringBuilder report = new StringBuilder();
+                report.AppendLine("## Correctness");
+                for (int i = 1; i <= 24; i++)
+                    report.AppendLine(i + ". src/Example.cs:" + (i * 10) + " -- required fix " + i + ": " + new string('x', 900));
+                Mission failed = new Mission("Oversized review")
+                {
+                    Id = "msn_test_overflow_review",
+                    Status = MissionStatusEnum.Failed,
+                    Persona = "Judge",
+                    AgentOutput = report.ToString(),
+                    ReviewComment = report.ToString()
+                };
+                Incident incident = new Incident
+                {
+                    Id = "inc_test_overflow_review",
+                    Title = "synthetic review overflow",
+                    Summary = "synthetic summary",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.Medium
+                };
+
+                string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+
+                AssertContains("incomplete", brief, "The brief states that the capped embedded list is incomplete.");
+                AssertContains("mission-output:" + failed.Id, brief, "The overflow case names the complete output artifact.");
+                AssertContains("armada_mission_output", brief, "The overflow case gives the tool needed to read the complete review.");
+                AssertFalse(brief.Contains("fix all of them", StringComparison.Ordinal), "An incomplete embedded list does not claim to contain every defect.");
+                AssertTrue(brief.Length < 24000, "The rescue brief remains bounded when protected review material exceeds its cap.");
+                await Task.CompletedTask;
+            }).ConfigureAwait(false);
+            await RunTest("StageReportEssentials marks findings incomplete when the outer section cap cannot hold them", async () =>
+            {
+                Mission mission = new Mission("bounded report")
+                {
+                    Id = "msn_test_bounded_report",
+                    AgentOutput = "## Correctness\n" + String.Join("\n", Enumerable.Range(1, 12)
+                        .Select(index => index + ". src/Test.cs:" + index + " -- required defect " + new string('x', 100)))
+                };
+                string essentials = StageReportEssentials.Build(
+                    "Judge",
+                    mission.Id,
+                    mission.AgentOutput,
+                    MissionOutputArtifact.Build(mission, 0, 64000),
+                    400);
+
+                AssertContains("Blocking findings (incomplete", essentials, "The outer cap does not advertise a partial list as complete.");
+                AssertContains("armada_mission_output", essentials, "The bounded section points to the complete output.");
+                AssertFalse(essentials.Contains("every one; fix all", StringComparison.Ordinal), "The cut essentials do not claim to list every finding.");
+                AssertTrue(essentials.Length <= 400, "The essentials section respects its outer cap.");
+                await Task.CompletedTask;
+            }).ConfigureAwait(false);
             await RunTest("TruncateReviewerFeedbackForBrief keeps the head-first cut for text without Judge sections",
                 TruncateReviewerFeedbackForBrief_TextWithoutJudgeSections_KeepsTheHeadFirstCut).ConfigureAwait(false);
             await RunTest("BuildRescueDescription carries every blocking finding of a long review whose findings sit mid-report",
@@ -3772,13 +4005,10 @@ namespace Armada.Test.Unit.Suites.Services
 
         public async Task BuildRescueDescription_OverCapJudgeReport_KeepsTheVerdictAndFollowUpsWhole()
         {
-            // The report is four times the reviewer-feedback cap. A head-first cut would keep the
-            // Completeness padding and drop every actionable line; the rescue brief must instead
-            // carry the Suggested Follow-ups, the Verdict and the verdict line whole, and name the
-            // sections it omitted.
+            // The report is larger than the former excerpt cap but fits the full-review cap.
             string report = BuildJudgeReport(4000, 4000);
-            AssertTrue(report.Length > AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars * 3,
-                "Precondition: the report must be well over the cap. Actual length: " + report.Length);
+            AssertTrue(report.Length < 12000,
+                "Precondition: the complete report must fit the production review cap. Actual length: " + report.Length);
 
             Mission failed = new Mission
             {
@@ -3788,6 +4018,7 @@ namespace Armada.Test.Unit.Suites.Services
                 FailureReason = "Judge verdict: NEEDS_REVISION",
                 Description = "title: decompile the update manager",
                 ReviewComment = report,
+                AgentOutput = report,
             };
             Incident incident = new Incident
             {
@@ -3800,25 +4031,15 @@ namespace Armada.Test.Unit.Suites.Services
 
             string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
 
-            AssertTrue(brief.Contains("## Suggested Follow-ups" + "\n" + "- src/Fixture.cs:12 -- record the sha256 of both copies."),
-                "The Suggested Follow-ups section must survive whole.");
-            AssertTrue(brief.Contains("## Verdict" + "\n" + "NEEDS_REVISION: the disclosure is missing; add the two hashes and the identity statement."),
-                "The Verdict section must survive whole.");
-            AssertTrue(brief.Contains("[ARMADA:VERDICT] NEEDS_REVISION"),
-                "The standalone verdict line must survive.");
-            AssertTrue(brief.Contains("## Completeness"),
-                "The head of the report is still filled from the top.");
-            AssertTrue(brief.Contains("reviewer feedback truncated") && brief.Contains("the sections Correctness, Tests, Failure Modes"),
-                "The marker must sit where the middle was and name the omitted sections. Brief: " + brief);
-            AssertFalse(brief.Contains(new string('r', 4000)),
-                "The omitted Correctness padding must not be carried verbatim.");
+            AssertContains(report, brief, "The complete Judge report is carried when it fits the full-review cap.");
+            AssertFalse(brief.Contains("reviewer feedback truncated", StringComparison.Ordinal), "A report inside the full-review cap is not truncated.");
 
             int feedbackStart = brief.IndexOf("Reviewer feedback to address:", StringComparison.Ordinal);
             int feedbackEnd = brief.IndexOf("Objective:", StringComparison.Ordinal);
             AssertTrue(feedbackStart > 0 && feedbackEnd > feedbackStart, "The brief keeps its section order.");
             int feedbackLength = feedbackEnd - feedbackStart;
-            AssertTrue(feedbackLength <= AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars + 400,
-                "The embedded feedback must stay near the cap. Actual length: " + feedbackLength);
+            AssertTrue(feedbackLength <= 12000 + 400,
+                "The embedded feedback must stay near the full-review cap. Actual length: " + feedbackLength);
             await Task.CompletedTask;
         }
 
@@ -3864,6 +4085,7 @@ namespace Armada.Test.Unit.Suites.Services
                 FailureReason = "Judge verdict: NEEDS_REVISION",
                 Description = "title: build the registry",
                 ReviewComment = text,
+                AgentOutput = text,
             };
             Incident incident = new Incident { Id = "inc_test_mid_findings", Title = "t", Summary = "s", Status = IncidentStatusEnum.Open, Severity = IncidentSeverityEnum.Medium };
 
@@ -3874,9 +4096,11 @@ namespace Armada.Test.Unit.Suites.Services
             AssertTrue(blockStart > 0 && feedbackStart > blockStart, "The blocking findings come before the excerpt");
             string block = brief.Substring(blockStart, feedbackStart - blockStart);
             AssertContains(notDelivered.Substring(2), block, "The NOT DELIVERED item is carried whole");
-            AssertContains(blockingOne, block, "The first blocking defect is carried whole");
-            AssertContains(blockingTwo, block, "The second blocking defect is carried whole");
+            AssertContains(blockingOne.Substring(3), block, "The first blocking defect is carried whole without a duplicated list marker");
+            AssertContains(blockingTwo.Substring(3), block, "The second blocking defect is carried whole without a duplicated list marker");
             AssertFalse(block.Contains("Non-blocking observations"), "A non-blocking note is not listed as blocking");
+            AssertFalse(block.Contains("Verified rule", StringComparison.Ordinal), "Verified Correctness evidence does not crowd out defects.");
+            AssertFalse(block.Contains("Test 0 covers", StringComparison.Ordinal), "Passed Tests evidence does not crowd out defects.");
             AssertFalse(block.Contains("I'll start by reading"), "Tool narration is not a finding");
             AssertTrue(block.Length <= AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars + 200, "The findings block stays inside its bound. Actual: " + block.Length);
             await Task.CompletedTask;
@@ -3915,8 +4139,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             for (int i = 0; i < 12; i++)
                 AssertContains("Finding number " + i + " opens here.", block, "Every finding keeps its opening");
-            AssertTrue(block.Length <= 4000 + 12 * 60, "The block stays near its bound. Actual: " + block.Length);
-            AssertContains("more chars of this finding in the review", block, "A cut finding says it was cut");
+            AssertTrue(block.Length <= 4000, "The block respects its exact bound. Actual: " + block.Length);
+            AssertContains("[detail omitted]", block, "A cut finding says its details were omitted.");
+            AssertContains(StageReportEssentials.IncompleteFindingsMarker, block, "The shortened list says it is incomplete.");
             AssertEqual(String.Empty, AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief("## Verdict\nPASS", 4000), "A review with no blocking item yields nothing");
             await Task.CompletedTask;
         }
@@ -3935,6 +4160,7 @@ namespace Armada.Test.Unit.Suites.Services
                 FailureReason = "Judge verdict: NEEDS_REVISION",
                 Description = "title: decompile the update manager",
                 ReviewComment = report,
+                AgentOutput = report,
             };
             Incident incident = new Incident
             {
@@ -3977,12 +4203,12 @@ namespace Armada.Test.Unit.Suites.Services
             // A gate log or a free-form review has no Judge sections; its signal is at the top,
             // so the existing head-first cut and marker stay exactly as they were.
             string log = String.Join("\n", Enumerable.Range(0, 400).Select(i => "warning CS0618: line " + i));
-            string cut = AutonomousRecoveryOrchestrator.TruncateReviewerFeedbackForBrief(log, AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars);
-            string expected = AutonomousRecoveryOrchestrator.TruncateForBrief(log, AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars);
+            string cut = AutonomousRecoveryOrchestrator.TruncateReviewerFeedbackForBrief(log, AutonomousRecoveryOrchestrator._MaxRescueGateLogChars);
+            string expected = AutonomousRecoveryOrchestrator.TruncateForBrief(log, AutonomousRecoveryOrchestrator._MaxRescueGateLogChars);
 
             AssertEqual(expected, cut, "Text without Judge sections uses the head-first cut unchanged.");
             AssertTrue(cut.StartsWith("warning CS0618: line 0", StringComparison.Ordinal), "The head is kept.");
-            AssertTrue(cut.Contains("remainder in admiral log"), "The existing marker is kept.");
+            AssertTrue(cut.Contains("read the complete source record"), "The generic truncation helper does not point at an unrelated artifact.");
             await Task.CompletedTask;
         }
 

@@ -28,6 +28,147 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("MissionStatus_MissionCallerCannotReadUnrelatedMissionMetadata", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    TenantMetadata otherTenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("status other tenant")).ConfigureAwait(false);
+                    UserMaster otherUser = await testDb.Driver.Users.CreateAsync(new UserMaster(Armada.Core.Constants.DefaultTenantId, "status-other@example.com", "password")).ConfigureAwait(false);
+                    Mission callerMission = await testDb.Driver.Missions.CreateAsync(new Mission("status caller")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Description = "own mission brief is opt-in"
+                    }).ConfigureAwait(false);
+                    Mission directParent = await testDb.Driver.Missions.CreateAsync(new Mission("direct status parent")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Description = "authorized direct parent brief",
+                        AgentOutput = "authorized direct parent output"
+                    }).ConfigureAwait(false);
+                    Mission directChild = await testDb.Driver.Missions.CreateAsync(new Mission("direct status child")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Description = "direct child brief is opt-in",
+                        ParentMissionId = directParent.Id
+                    }).ConfigureAwait(false);
+                    Voyage rescueVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("status rescue chain")).ConfigureAwait(false);
+                    Vessel rescueVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("status-rescue-vessel", "https://example.invalid/status-rescue.git")).ConfigureAwait(false);
+                    string rescueVesselId = rescueVessel.Id;
+                    Mission failedJudge = await testDb.Driver.Missions.CreateAsync(new Mission("failed status review")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        Description = "authorized failed review brief",
+                        AgentOutput = "authorized failed review output",
+                        Status = MissionStatusEnum.Failed
+                    }).ConfigureAwait(false);
+                    Mission rescueRoot = await testDb.Driver.Missions.CreateAsync(new Mission("status rescue root")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = rescueVoyage.Id,
+                        ParentMissionId = failedJudge.Id,
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+                    Mission rescueJudge = await testDb.Driver.Missions.CreateAsync(new Mission("status rescue judge")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = rescueVoyage.Id,
+                        DependsOnMissionId = rescueRoot.Id,
+                        Description = RescueMissionMarker.Marker,
+                        Persona = "Judge"
+                    }).ConfigureAwait(false);
+                    Mission unrelated = await testDb.Driver.Missions.CreateAsync(new Mission("private status target")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Description = "private mission instructions",
+                        AgentOutput = "private mission output",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission foreignTenant = await testDb.Driver.Missions.CreateAsync(new Mission("private foreign tenant status")
+                    {
+                        TenantId = otherTenant.Id,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Description = "foreign tenant brief"
+                    }).ConfigureAwait(false);
+                    Mission foreignUser = await testDb.Driver.Missions.CreateAsync(new Mission("private foreign user status")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = otherUser.Id,
+                        Description = "foreign user brief"
+                    }).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? readStatus = null;
+                    McpMissionTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == "armada_mission_status") readStatus = handler;
+                    }, testDb.Driver, new RecordingAdmiralDouble(), null, null);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = callerMission.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        Mission ownSummary = (Mission)await readStatus!(JsonSerializer.SerializeToElement(new
+                        {
+                            missionId = callerMission.Id
+                        })).ConfigureAwait(false);
+                        AssertEqual(null, ownSummary.Description, "status omits the brief unless requested");
+                        AssertEqual(null, ownSummary.AgentOutput, "status never returns the report body");
+                    }
+                    caller.MissionId = directChild.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        Mission directSummary = (Mission)await readStatus!(JsonSerializer.SerializeToElement(new
+                        {
+                            missionId = directParent.Id,
+                            includeDescription = true
+                        })).ConfigureAwait(false);
+                        AssertEqual("authorized direct parent brief", directSummary.Description, "direct parent status remains readable");
+                        AssertEqual(null, directSummary.AgentOutput, "status never returns the report body");
+
+                        string result = JsonSerializer.Serialize(await readStatus!(JsonSerializer.SerializeToElement(new
+                        {
+                            missionId = unrelated.Id,
+                            includeDescription = true
+                        })).ConfigureAwait(false));
+                        AssertContains("Mission not found", result, "mission status must apply the caller's evidence scope");
+                        AssertFalse(result.Contains("private status target", StringComparison.Ordinal), "denied status must not disclose mission metadata");
+                        AssertFalse(result.Contains("private mission instructions", StringComparison.Ordinal), "denied status must not disclose the description");
+                        AssertFalse(result.Contains("private mission output", StringComparison.Ordinal), "denied status must not disclose agent output");
+                        foreach (Mission deniedMission in new[] { foreignTenant, foreignUser })
+                        {
+                            string denied = JsonSerializer.Serialize(await readStatus!(JsonSerializer.SerializeToElement(new
+                            {
+                                missionId = deniedMission.Id,
+                                includeDescription = true
+                            })).ConfigureAwait(false));
+                            AssertContains("Mission not found", denied, "mission status must preserve tenant and user boundaries");
+                            AssertFalse(denied.Contains(deniedMission.Description!, StringComparison.Ordinal), "denied status must not disclose foreign descriptions");
+                        }
+                    }
+                    caller.MissionId = rescueJudge.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        Mission rescuedSummary = (Mission)await readStatus!(JsonSerializer.SerializeToElement(new
+                        {
+                            missionId = failedJudge.Id,
+                            includeDescription = true
+                        })).ConfigureAwait(false);
+                        AssertEqual("authorized failed review brief", rescuedSummary.Description,
+                            "a rescue stage can inspect its root failed Judge metadata");
+                        AssertEqual(null, rescuedSummary.AgentOutput, "rescued status does not return the report body");
+                    }
+                }
+            });
+
             await RunTest("MissionEvidence_AdminOwnedCallerReadsOnlyRelatedRecords", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -156,6 +297,183 @@ namespace Armada.Test.Unit.Suites.Services
                             string denied = JsonSerializer.Serialize(await readObjective!(JsonSerializer.SerializeToElement(new { objectiveId = deniedObjective })).ConfigureAwait(false));
                             AssertContains("Objective not found", denied);
                         }
+                    }
+                }
+            });
+
+            await RunTest("MissionEvidence_RescueChainCanReadFailedParentOutputButKeepsOwnerBoundary", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    TenantMetadata otherTenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("rescue evidence other tenant")).ConfigureAwait(false);
+                    UserMaster otherUser = await testDb.Driver.Users.CreateAsync(new UserMaster(Armada.Core.Constants.DefaultTenantId, "rescue-evidence-other@example.com", "password")).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("rescue evidence chain")).ConfigureAwait(false);
+                    Vessel rescueVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("rescue-evidence-vessel", "https://example.invalid/rescue-evidence.git")).ConfigureAwait(false);
+                    string rescueVesselId = rescueVessel.Id;
+                    string failedOutput = new string('r', 17000) + "\nfinal protected finding";
+                    Mission failed = await testDb.Driver.Missions.CreateAsync(new Mission("failed review")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        AgentOutput = failedOutput,
+                        Status = MissionStatusEnum.Failed
+                    }).ConfigureAwait(false);
+                    Mission rescueRoot = await testDb.Driver.Missions.CreateAsync(new Mission("rescue worker")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        ParentMissionId = failed.Id,
+                        Description = RescueMissionMarker.Marker,
+                        AgentOutput = "rescue work"
+                    }).ConfigureAwait(false);
+                    Mission intermediate = await testDb.Driver.Missions.CreateAsync(new Mission("rescue test engineer")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = rescueRoot.Id,
+                        Description = RescueMissionMarker.Marker,
+                        Persona = "TestEngineer"
+                    }).ConfigureAwait(false);
+                    Mission downstream = await testDb.Driver.Missions.CreateAsync(new Mission("rescue judge")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = intermediate.Id,
+                        Description = RescueMissionMarker.Marker,
+                        Persona = "Judge",
+                        AgentOutput = "re-review"
+                    }).ConfigureAwait(false);
+                    Mission unrelated = await testDb.Driver.Missions.CreateAsync(new Mission("unrelated same-owner mission")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        AgentOutput = "unrelated same-owner output"
+                    }).ConfigureAwait(false);
+                    Mission intermediateRescueStage = await testDb.Driver.Missions.CreateAsync(new Mission("intermediate rescue stage with a valid dependency")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = rescueRoot.Id,
+                        Description = RescueMissionMarker.Marker,
+                        Persona = "TestEngineer"
+                    }).ConfigureAwait(false);
+
+                    Mission foreignTenant = await testDb.Driver.Missions.CreateAsync(new Mission("foreign tenant parent")
+                    {
+                        TenantId = otherTenant.Id,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        AgentOutput = "foreign tenant output"
+                    }).ConfigureAwait(false);
+                    Mission foreignTenantRoot = await testDb.Driver.Missions.CreateAsync(new Mission("mismatched tenant rescue root")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        ParentMissionId = foreignTenant.Id,
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+                    Mission tenantMismatchStage = await testDb.Driver.Missions.CreateAsync(new Mission("tenant mismatch rescue judge")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = foreignTenantRoot.Id
+                    }).ConfigureAwait(false);
+                    Mission foreignUser = await testDb.Driver.Missions.CreateAsync(new Mission("foreign user parent")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = otherUser.Id,
+                        VesselId = rescueVesselId,
+                        AgentOutput = "foreign user output"
+                    }).ConfigureAwait(false);
+                    Mission foreignUserRoot = await testDb.Driver.Missions.CreateAsync(new Mission("mismatched user rescue root")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        ParentMissionId = foreignUser.Id,
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+                    Mission userMismatchStage = await testDb.Driver.Missions.CreateAsync(new Mission("user mismatch rescue judge")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = foreignUserRoot.Id
+                    }).ConfigureAwait(false);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = downstream.Id;
+                    Func<JsonElement?, Task<object>>? readOutput = null;
+                    McpMissionTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == "armada_mission_output") readOutput = handler;
+                    }, testDb.Driver, new RecordingAdmiralDouble(), null, null);
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string combined = String.Empty;
+                        int offset = 0;
+                        MissionOutputArtifactPage page;
+                        do
+                        {
+                            page = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id, offset, length = 4096 })).ConfigureAwait(false);
+                            combined += page.Content;
+                            offset = page.NextOffset ?? page.TotalLength;
+                        } while (page.HasMore);
+                        AssertEqual(failedOutput, combined, "The final Judge can page the complete failed review through its rescue chain.");
+                        AssertTrue(page.Complete, "The final page reports the full artifact as complete.");
+                        AssertEqual(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(failedOutput))).ToLowerInvariant(), page.Sha256,
+                            "The final page carries the complete output digest.");
+                        string unrelatedResult = JsonSerializer.Serialize(await readOutput(JsonSerializer.SerializeToElement(new { missionId = unrelated.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", unrelatedResult, "The rescue chain does not expose unrelated same-owner output.");
+
+                    }
+                    caller.MissionId = intermediate.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        MissionOutputArtifactPage page = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id, length = 64000 })).ConfigureAwait(false);
+                        AssertEqual(failedOutput, page.Content, "An intermediate TestEngineer can read the failed review through its rescue chain.");
+                    }
+                    caller.MissionId = rescueRoot.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        MissionOutputArtifactPage page = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id, length = 64000 })).ConfigureAwait(false);
+                        AssertEqual(failedOutput, page.Content, "The rescue Worker can read its failed parent output.");
+                    }
+                    caller.MissionId = intermediateRescueStage.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        MissionOutputArtifactPage page = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id, length = 64000 })).ConfigureAwait(false);
+                        AssertEqual(failedOutput, page.Content, "A malformed intermediate parent link does not hide the actual rescue-root parent.");
+                        string deniedMalformedParent = JsonSerializer.Serialize(await readOutput(JsonSerializer.SerializeToElement(new { missionId = unrelated.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedMalformedParent, "A rescue chain does not expose an unrelated same-owner mission.");
+                    }
+                    caller.MissionId = tenantMismatchStage.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string deniedTenant = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = foreignTenant.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedTenant, "A rescue chain cannot cross tenant ownership.");
+                    }
+                    caller.MissionId = userMismatchStage.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string deniedUser = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = foreignUser.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedUser, "A rescue chain cannot cross user ownership.");
                     }
                 }
             });

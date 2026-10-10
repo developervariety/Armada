@@ -7,6 +7,7 @@ namespace Armada.Server.Mcp
     using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Limits captain evidence reads to the calling mission's report chain and authorizing objectives.
@@ -25,12 +26,51 @@ namespace Armada.Server.Mcp
             // ID reads allow legacy null ownership; SameOwner is mandatory before any record leaves this scope.
             Mission? target = await database.Missions.ReadAsync(id).ConfigureAwait(false);
             if (target == null || !SameOwner(caller, target.TenantId, target.UserId)) return null;
+            Mission? rescueRoot = await FindRescueRootInDependencyChainAsync(database, caller, anchor).ConfigureAwait(false);
             if (target.Id == anchor.Id
                 || (!String.IsNullOrEmpty(anchor.VoyageId) && target.VoyageId == anchor.VoyageId)
                 || target.Id == anchor.DependsOnMissionId
                 || target.Id == anchor.ParentMissionId)
                 return target;
+            if (rescueRoot != null
+                && rescueRoot.ParentMissionId == target.Id
+                && SameRescueVessel(anchor, target))
+                return target;
             return null;
+        }
+
+        private static async Task<Mission?> FindRescueRootInDependencyChainAsync(
+            DatabaseDriver database,
+            AuthContext caller,
+            Mission anchor)
+        {
+            if (String.IsNullOrWhiteSpace(anchor.VoyageId) || String.IsNullOrWhiteSpace(anchor.VesselId)) return null;
+            HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal) { anchor.Id };
+            Mission current = anchor;
+            for (int depth = 0; depth < 32 && !String.IsNullOrWhiteSpace(current.DependsOnMissionId); depth++)
+            {
+                string predecessorId = current.DependsOnMissionId!;
+                if (!visited.Add(predecessorId)) return null;
+                Mission? predecessor = await database.Missions.ReadAsync(predecessorId).ConfigureAwait(false);
+                if (predecessor == null
+                    || !SameOwner(caller, predecessor.TenantId, predecessor.UserId)
+                    || !String.Equals(anchor.VoyageId, predecessor.VoyageId, StringComparison.Ordinal)
+                    || !String.Equals(anchor.VesselId, predecessor.VesselId, StringComparison.Ordinal))
+                    return null;
+
+                if (RescueMissionMarker.IsAutoRescue(predecessor)
+                    && !String.IsNullOrWhiteSpace(predecessor.ParentMissionId)
+                    && String.IsNullOrWhiteSpace(predecessor.DependsOnMissionId))
+                    return predecessor;
+                current = predecessor;
+            }
+            return null;
+        }
+
+        private static bool SameRescueVessel(Mission rescueStage, Mission target)
+        {
+            return !String.IsNullOrWhiteSpace(rescueStage.VesselId)
+                && String.Equals(rescueStage.VesselId, target.VesselId, StringComparison.Ordinal);
         }
 
         /// <summary>Read an authorizing objective or its directly linked parent without previewing its evidence.</summary>

@@ -75,6 +75,10 @@ namespace Armada.Server.Mcp.Tools
                 {
                     MissionStatusArgs request = JsonSerializer.Deserialize<MissionStatusArgs>(args!.Value, _JsonOptions)!;
                     string missionId = request.MissionId;
+                    Mission? authorized = await McpMissionEvidenceScope.ReadMissionAsync(
+                        database, McpCallerContext.Require(), missionId).ConfigureAwait(false);
+                    if (authorized == null) return (object)new { Error = "Mission not found" };
+
                     Mission? mission = await database.Missions.ReadSummaryAsync(missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
                     if (request.IncludeDescription)
@@ -117,12 +121,12 @@ namespace Armada.Server.Mcp.Tools
                     {
                         // Non-fatal; leave ContextPackUsage and PromptBudget null.
                     }
-                    return (object)mission;
+                    return (object)SanitizeMissionForStatus(mission);
                 });
 
             register(
                 "armada_mission_output",
-                "Read a digest-backed page of the authoritative safe output artifact for a mission. Mission callers may read their own mission, same-voyage reports, and their direct dependency or parent, within the same owner and tenant. Secret-shaped values are redacted. Continue at nextOffset until hasMore is false, then verify sha256 and complete before treating the report as complete.",
+                "Read a digest-backed page of the authoritative safe output artifact for a mission. Mission callers may read their own mission, same-voyage reports, and direct dependencies or parents within the same owner and tenant. A later stage in an autonomous rescue may also read the failed mission named by that rescue chain's root. Secret-shaped values are redacted. Continue at nextOffset until hasMore is false, then verify sha256 and complete before treating the report as complete.",
                 new
                 {
                     type = "object",

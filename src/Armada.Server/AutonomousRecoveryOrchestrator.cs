@@ -2260,6 +2260,10 @@ namespace Armada.Server
             int attemptNumber,
             List<SelectedPlaybook> rescuePlaybooks)
         {
+            MissionOutputArtifactPage chainedOutput = MissionOutputArtifact.Build(failedMission, 0, MissionOutputArtifact.MaximumPageLength);
+            bool chainedReviewFallback = IsReviewerPersona(failedMission.Persona)
+                && chainedOutput.TotalLength == 0
+                && !String.IsNullOrWhiteSpace(failedMission.ReviewComment);
             return new Mission
             {
                 TenantId = failedMission.TenantId,
@@ -2284,6 +2288,12 @@ namespace Armada.Server
                 SelectedPlaybooks = ClonePlaybookSelections(rescuePlaybooks),
                 Title = "Rescue " + attemptNumber + " " + stage.PersonaName + ": " + Truncate(failedMission.Title, 90),
                 Description = _RescueMarker + Environment.NewLine +
+                    BuildRescueOutputReference(
+                        chainedOutput,
+                        IsReviewerPersona(failedMission.Persona),
+                        chainedReviewFallback) + Environment.NewLine +
+                    "Read the complete failed mission output with armada_mission_output before editing or re-verifying." + Environment.NewLine +
+                    "Read the complete failed stage brief with armada_mission_status (missionId=" + failedMission.Id + ", includeDescription=true) if the description omits scope." + Environment.NewLine +
                     "Re-verification stage for the autonomous revision rescue of failed mission " + failedMission.Id + "." + Environment.NewLine +
                     "Confirm the revised branch resolves the original reviewer feedback before it lands."
             };
@@ -2848,14 +2858,34 @@ namespace Armada.Server
         // reviewer feedback that are actually useful.
         internal const int _MaxRescueDescriptionChars = 6000;
         internal const int _MaxRescueDiagnosticsChars = 1500;
-        internal const int _MaxRescueReviewerFeedbackChars = 2000;
+        internal const int _MaxRescueReviewerFeedbackChars = 12000;
+        internal const int _MaxRescueGateLogChars = 2000;
         internal const int _MaxRescueBlockingFindingsChars = 4000;
 
         internal static string BuildRescueDescription(Mission failedMission, Incident incident, int attemptNumber)
         {
+            MissionOutputArtifactPage outputArtifact = MissionOutputArtifact.Build(
+                failedMission,
+                0,
+                MissionOutputArtifact.MaximumPageLength);
+            bool reviewerMission = IsReviewerPersona(failedMission.Persona);
+            bool reviewFromFallback = reviewerMission
+                && outputArtifact.TotalLength == 0
+                && !String.IsNullOrWhiteSpace(failedMission.ReviewComment);
+            bool outputArtifactComplete = outputArtifact.Complete && !outputArtifact.HasMore && !reviewFromFallback;
+            string review = reviewerMission
+                ? outputArtifact.Content
+                : String.IsNullOrWhiteSpace(failedMission.ReviewComment)
+                    ? String.Empty
+                    : RuntimeLogFormatter.RedactSecrets(failedMission.ReviewComment).Trim();
+            if (reviewerMission && review.Length == 0 && !String.IsNullOrWhiteSpace(failedMission.ReviewComment))
+                review = RuntimeLogFormatter.RedactSecrets(failedMission.ReviewComment).Trim();
+
             StringBuilder sb = new StringBuilder();
             sb.AppendLine(_RescueMarker);
             sb.AppendLine("Autonomous rescue attempt " + attemptNumber + " for failed mission " + failedMission.Id + ".");
+            sb.AppendLine(BuildRescueOutputReference(outputArtifact, reviewerMission, reviewFromFallback));
+            sb.AppendLine("Every rescue stage must read the complete parent mission output with armada_mission_output before editing.");
             sb.AppendLine();
             sb.AppendLine("Incident: " + incident.Id);
             sb.AppendLine("Original title: " + failedMission.Title);
@@ -2865,27 +2895,49 @@ namespace Armada.Server
                 : TruncateForBrief(failedMission.FailureReason, _MaxRescueDiagnosticsChars)));
             if (!String.IsNullOrWhiteSpace(failedMission.BranchName))
                 sb.AppendLine("Original branch: " + failedMission.BranchName);
-            if (!String.IsNullOrWhiteSpace(failedMission.ReviewComment))
+            if (!String.IsNullOrWhiteSpace(review))
             {
-                // Findings sit in every section of a Judge report, so a head-and-tail excerpt drops
-                // the middle ones and the rescue fixes only part of the rejection. Every blocking
-                // finding is carried whole, under its own bound, before the excerpt.
-                string blocking = BuildBlockingFindingsForBrief(failedMission.ReviewComment.Trim(), _MaxRescueBlockingFindingsChars);
+                string blocking = BuildBlockingFindingsForBrief(review.Trim(), _MaxRescueBlockingFindingsChars);
+                bool findingsComplete = outputArtifactComplete
+                    && !blocking.Contains(StageReportEssentials.IncompleteFindingsMarker, StringComparison.Ordinal);
+                if (!outputArtifactComplete && blocking.Length > 0
+                    && !blocking.Contains(StageReportEssentials.IncompleteFindingsMarker, StringComparison.Ordinal))
+                {
+                    blocking += Environment.NewLine + "- " + StageReportEssentials.IncompleteFindingsMarker
+                        + " The output artifact is incomplete; read all pages before editing.";
+                    findingsComplete = false;
+                }
                 if (blocking.Length > 0)
                 {
                     sb.AppendLine();
-                    sb.AppendLine("Blocking findings to fix (every one the reviewer marked; fix all of them):");
+                    sb.AppendLine(findingsComplete
+                        ? "Blocking findings to fix (complete list from the full review):"
+                        : "Blocking findings to fix (incomplete excerpt; read the complete parent output before editing):");
                     sb.AppendLine(blocking);
                 }
                 sb.AppendLine();
                 sb.AppendLine("Reviewer feedback to address:");
-                sb.AppendLine(TruncateReviewerFeedbackForBrief(failedMission.ReviewComment.Trim(), _MaxRescueReviewerFeedbackChars));
+                bool feedbackProtectedSectionsComplete = outputArtifactComplete;
+                string feedback = reviewerMission
+                    ? BuildJudgeReviewerFeedbackForBrief(review.Trim(), _MaxRescueReviewerFeedbackChars, out feedbackProtectedSectionsComplete)
+                    : TruncateReviewerFeedbackForBrief(review.Trim(), _MaxRescueGateLogChars);
+                if (reviewFromFallback)
+                    feedback = "[INCOMPLETE REVIEW OUTPUT: persisted AgentOutput is empty; ReviewComment is only a fallback and does not prove the full review. Read and verify the source mission record before editing.]"
+                        + Environment.NewLine + feedback;
+                else if (!outputArtifactComplete)
+                    feedback = "[INCOMPLETE REVIEW OUTPUT: " + (outputArtifact.TruncationReason ?? "additional output page required")
+                        + "; read the complete parent mission output before editing.]" + Environment.NewLine + feedback;
+                else if (!feedbackProtectedSectionsComplete)
+                    feedback = "[INCOMPLETE PROTECTED REVIEW: the protected sections exceed the embedded limit; read the complete parent mission output before editing.]"
+                        + Environment.NewLine + feedback;
+                sb.AppendLine(feedback);
             }
             sb.AppendLine();
             sb.AppendLine("Objective:");
             sb.AppendLine("Recover the original mission without repeating the failure. Inspect the original failure, make the smallest corrective change, run the vessel's workflow profile checks when available, and leave explicit evidence in Armada records.");
             sb.AppendLine();
             sb.AppendLine("Original mission description:");
+            sb.AppendLine("Read the full original mission record with armada_mission_status (missionId=" + failedMission.Id + ", includeDescription=true) when this excerpt or its diagnostics are shortened.");
             string originalDescription = failedMission.Description ?? "(no description recorded)";
 
             // Shrink the older prior-stage blocks before the size cap is applied. The cap keeps the HEAD
@@ -2908,6 +2960,105 @@ namespace Armada.Server
             }
             return sb.ToString();
         }
+
+        private static string BuildRescueOutputReference(MissionOutputArtifactPage artifact, bool isReview, bool reviewFromFallback = false)
+        {
+            string label = reviewFromFallback
+                ? "Persisted Judge output (empty): "
+                : isReview ? "Complete Judge review output: " : "Complete failed mission output: ";
+            StringBuilder reference = new StringBuilder(label)
+                .Append(artifact.ArtifactRef)
+                .Append(" (").Append(artifact.TotalLength).Append(" chars, UTF-8 SHA-256 ").Append(artifact.Sha256).AppendLine(").");
+            if (reviewFromFallback)
+            {
+                reference.Append("The stored output is empty; ReviewComment is only a fallback and is not the complete review. Read and verify the source mission record before editing.");
+            }
+            else
+            {
+                reference.Append("Read all pages with armada_mission_output; continue until hasMore is false, then verify complete and sha256 before treating the review as complete.");
+            }
+            if (!artifact.Complete)
+            {
+                reference.Append(" The stored output is incomplete (")
+                    .Append(artifact.TruncationReason ?? "mission output is not finalized")
+                    .Append("); the embedded review is incomplete.");
+            }
+            else if (artifact.HasMore)
+            {
+                reference.Append(" More output pages remain; the embedded review is incomplete until all pages are read.");
+            }
+            return reference.ToString();
+        }
+
+        private static string BuildJudgeReviewerFeedbackForBrief(string source, int maxChars, out bool protectedSectionsComplete)
+        {
+            if (source.Length <= maxChars)
+            {
+                protectedSectionsComplete = true;
+                return source;
+            }
+
+            string[] sourceLines = source.Replace("\r\n", "\n").Split('\n');
+            StringBuilder protectedSections = new StringBuilder();
+            string section = String.Empty;
+            int protectedHeadingDepth = 0;
+            for (int i = 0; i < sourceLines.Length; i++)
+            {
+                string line = sourceLines[i];
+                string normalizedLine = line.Trim();
+                if (normalizedLine.StartsWith("#", StringComparison.Ordinal))
+                {
+                    int headingDepth = normalizedLine.TakeWhile(character => character == '#').Count();
+                    string heading = normalizedLine.Substring(headingDepth).Trim();
+                    if (IsProtectedReviewSection(heading))
+                    {
+                        section = heading;
+                        protectedHeadingDepth = headingDepth;
+                        protectedSections.AppendLine(line);
+                    }
+                    else if (section.Length > 0 && headingDepth > protectedHeadingDepth)
+                    {
+                        protectedSections.AppendLine(line);
+                    }
+                    else
+                    {
+                        section = String.Empty;
+                        protectedHeadingDepth = 0;
+                    }
+                    continue;
+                }
+                if (section.Length == 0 || String.IsNullOrWhiteSpace(line)) continue;
+                protectedSections.AppendLine(line);
+            }
+
+            string selected = protectedSections.ToString().TrimEnd();
+            const string omittedNote = "[Narration and MET criterion lines were omitted. Read the complete output for all context.]";
+            if (selected.Length <= maxChars)
+            {
+                protectedSectionsComplete = true;
+                return selected.Length + Environment.NewLine.Length + omittedNote.Length <= maxChars
+                    ? selected + Environment.NewLine + omittedNote
+                    : selected;
+            }
+
+            protectedSectionsComplete = false;
+            const string incompleteNote = "[INCOMPLETE PROTECTED REVIEW: required sections exceed this brief limit. Read the complete parent mission output before editing.]";
+            int contentLimit = Math.Max(0, maxChars - incompleteNote.Length - Environment.NewLine.Length);
+            int cut = selected.LastIndexOf('\n', Math.Min(contentLimit, selected.Length - 1));
+            if (cut <= 0) cut = Math.Min(contentLimit, selected.Length);
+            string excerpt = selected.Substring(0, cut).TrimEnd();
+            return excerpt + Environment.NewLine + incompleteNote;
+        }
+
+        private static bool IsProtectedReviewSection(string heading)
+        {
+            return heading.StartsWith("Correctness", StringComparison.OrdinalIgnoreCase)
+                || heading.StartsWith("Failure Modes", StringComparison.OrdinalIgnoreCase)
+                || heading.StartsWith("Tests", StringComparison.OrdinalIgnoreCase)
+                || heading.StartsWith("Verdict", StringComparison.OrdinalIgnoreCase)
+                || heading.StartsWith("Suggested Follow-ups", StringComparison.OrdinalIgnoreCase);
+        }
+
 
         /// <summary>
         /// Every item of a review that is marked as blocking, each whole within the bound
@@ -2969,7 +3120,7 @@ namespace Armada.Server
             string diagnosticsTruncated = TruncateForBrief(diagnostics, _MaxRescueDiagnosticsChars);
             return scopeTruncated
                 + Environment.NewLine
-                + "--- (ACTIONABLE DIAGNOSTICS truncated; full failure log in admiral log) ---"
+                + "--- (ACTIONABLE DIAGNOSTICS truncated; read the complete parent mission output with armada_mission_output) ---"
                 + Environment.NewLine
                 + diagnosticsTruncated;
         }
@@ -3003,7 +3154,7 @@ namespace Armada.Server
             int firstSection = IndexOfFirstSectionHeader(source);
             if (firstSection > 0)
             {
-                source = "--- (" + firstSection + " chars of reviewer narration before the first section omitted; remainder in admiral log) ---"
+                source = "--- (" + firstSection + " chars of reviewer narration before the first section omitted; read complete parent mission output with armada_mission_output) ---"
                     + Environment.NewLine
                     + source.Substring(firstSection);
                 if (source.Length <= maxChars)
@@ -3032,7 +3183,7 @@ namespace Armada.Server
                 return "--- (reviewer feedback truncated: " + (source.Length - kept.Length) + " of " + source.Length
                     + " chars omitted before this point, including "
                     + DescribeSectionHeaders(source.Substring(0, source.Length - kept.Length))
-                    + "; remainder in admiral log) ---"
+                    + "; read complete parent mission output with armada_mission_output) ---"
                     + Environment.NewLine
                     + kept;
             }
@@ -3062,7 +3213,7 @@ namespace Armada.Server
                   .Append(omitted.Length).Append(" of ").Append(source.Length)
                   .Append(" chars omitted here, including ")
                   .Append(DescribeSectionHeaders(omitted))
-                  .Append("; the sections below are kept whole; remainder in admiral log) ---");
+                  .Append("; the sections below are kept whole; read complete parent mission output with armada_mission_output) ---");
             }
             sb.Append(Environment.NewLine);
             sb.Append(Environment.NewLine);
@@ -3126,7 +3277,7 @@ namespace Armada.Server
                 cut = maxChars;
             return source.Substring(0, cut)
                 + Environment.NewLine
-                + "--- (truncated to " + cut + " of " + source.Length + " chars; remainder in admiral log) ---";
+                + "--- (truncated to " + cut + " of " + source.Length + " chars; read the complete source record) ---";
         }
 
         private static int IndexOfAny(string source, params string[] needles)
