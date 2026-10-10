@@ -7097,37 +7097,216 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Extract added test methods from a unified diff snapshot, best effort: a test method is an
-        /// added (<c>+</c>) line declaring a method whose name looks like a test, with a bounded body of
-        /// the following added lines. Bounded in count, name length, and body length so the state stays
-        /// small.
+        /// added (<c>+</c>) attributed method or a recognized Armada RunTest registration, with a bounded
+        /// body of the following added lines. Bounded in count, name length, and body length so the state
+        /// stays small.
         /// </summary>
         private static IReadOnlyList<TestCoversMethod> ExtractAddedTestMethods(string? diffSnapshot)
         {
             const int maxTests = 12;
             const int maxBodyLines = 60;
+
+            static bool ContainsTestAttribute(string attributeList)
+            {
+                if (attributeList.Length > 512) return false;
+
+                int nesting = 0;
+                int start = 0;
+                bool found = false;
+                for (int i = 0; i <= attributeList.Length; i++)
+                {
+                    if (i < attributeList.Length)
+                    {
+                        if (attributeList[i] == '(') nesting++;
+                        else if (attributeList[i] == ')') nesting--;
+                    }
+
+                    if (i < attributeList.Length && (attributeList[i] != ',' || nesting != 0)) continue;
+
+                    string attribute = attributeList.Substring(start, i - start).Trim();
+                    int argumentList = attribute.IndexOf('(');
+                    if (argumentList >= 0) attribute = attribute.Substring(0, argumentList).Trim();
+                    int qualifier = attribute.LastIndexOf('.');
+                    if (qualifier >= 0) attribute = attribute.Substring(qualifier + 1);
+                    if (attribute.EndsWith("Attribute", StringComparison.Ordinal))
+                    {
+                        attribute = attribute.Substring(0, attribute.Length - "Attribute".Length);
+                    }
+
+                    if (attribute.Equals("Fact", StringComparison.OrdinalIgnoreCase)
+                        || attribute.Equals("Theory", StringComparison.OrdinalIgnoreCase)
+                        || attribute.Equals("Test", StringComparison.OrdinalIgnoreCase)
+                        || attribute.Equals("TestCase", StringComparison.OrdinalIgnoreCase)
+                        || attribute.Equals("TestCaseSource", StringComparison.OrdinalIgnoreCase)
+                        || attribute.Equals("TestMethod", StringComparison.OrdinalIgnoreCase)
+                        || attribute.Equals("DataTestMethod", StringComparison.OrdinalIgnoreCase))
+                    {
+                        found = true;
+                    }
+
+                    start = i + 1;
+                }
+
+                return found;
+            }
+
+            static bool TryGetRunTestName(string registration, out string name)
+            {
+                const int maxRegistrationLength = 512;
+                name = String.Empty;
+                if (registration.Length > maxRegistrationLength) return false;
+
+                string call = registration.StartsWith("await ", StringComparison.Ordinal)
+                    ? registration.Substring("await ".Length)
+                    : registration;
+                const string callPrefix = "RunTest(\"";
+                if (!call.StartsWith(callPrefix, StringComparison.Ordinal)) return false;
+
+                System.Text.StringBuilder parsedName = new System.Text.StringBuilder();
+                int i = callPrefix.Length;
+                bool closed = false;
+                while (i < call.Length)
+                {
+                    char current = call[i++];
+                    if (current == '\\' && i < call.Length)
+                    {
+                        char escaped = call[i++];
+                        if (escaped == '\\' || escaped == '"') parsedName.Append(escaped);
+                        else
+                        {
+                            parsedName.Append('\\');
+                            parsedName.Append(escaped);
+                        }
+                        continue;
+                    }
+                    if (current == '"')
+                    {
+                        closed = true;
+                        break;
+                    }
+                    parsedName.Append(current);
+                }
+
+                if (!closed || parsedName.Length == 0 || parsedName.Length > 120) return false;
+                string remaining = call.Substring(i).TrimStart();
+                if (!remaining.Equals(", async () =>", StringComparison.Ordinal)
+                    && !remaining.Equals(", () =>", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                name = parsedName.ToString();
+                return true;
+            }
+
             List<TestCoversMethod> tests = new List<TestCoversMethod>();
             if (String.IsNullOrEmpty(diffSnapshot)) return tests;
 
             string[] lines = diffSnapshot.Split('\n');
+            bool testAttributePending = false;
             for (int i = 0; i < lines.Length && tests.Count < maxTests; i++)
             {
                 string line = lines[i];
-                if (line.Length == 0 || line[0] != '+') continue;
-                string content = line.Substring(1).Trim();
+                if (line.StartsWith("@@", StringComparison.Ordinal))
+                {
+                    testAttributePending = false;
+                    continue;
+                }
+                if (line.Length == 0) continue;
+                char prefix = line[0];
+                if (prefix != '+' && prefix != ' ')
+                {
+                    if (prefix == '-') testAttributePending = false;
+                    continue;
+                }
 
-                // A method declaration whose name contains "Test" or that follows a [Fact]/[Theory]-style
-                // signature. Keep it simple and defensive: look for a parenthesised method whose name
-                // hints at a test.
+                string content = line.Substring(1).Trim();
+                bool addedLine = prefix == '+';
+                if (addedLine && TryGetRunTestName(content, out string registeredTestName))
+                {
+                    System.Text.StringBuilder registeredTestBody = new System.Text.StringBuilder();
+                    int registeredBodyLines = 0;
+                    bool hasAddedBodyContent = false;
+                    for (int j = i + 1; j < lines.Length && registeredBodyLines < maxBodyLines; j++)
+                    {
+                        string bodyLine = lines[j];
+                        if (bodyLine.Length == 0) continue;
+                        if (bodyLine.StartsWith("@@", StringComparison.Ordinal) || bodyLine[0] == '@') break;
+                        if (bodyLine[0] != '+') continue;
+
+                        string bodyContent = bodyLine.Substring(1).TrimStart();
+                        if (TryGetRunTestName(bodyContent, out _)
+                            || bodyContent.StartsWith("[", StringComparison.Ordinal)) break;
+                        int bodyParen = bodyContent.IndexOf('(');
+                        if (bodyParen > 0)
+                        {
+                            string bodyBeforeParen = bodyContent.Substring(0, bodyParen);
+                            if (bodyBeforeParen.Contains("public ", StringComparison.Ordinal)
+                                || bodyBeforeParen.Contains("private ", StringComparison.Ordinal)
+                                || bodyBeforeParen.Contains("protected ", StringComparison.Ordinal)
+                                || bodyBeforeParen.Contains("internal ", StringComparison.Ordinal))
+                            {
+                                break;
+                            }
+                        }
+
+                        registeredTestBody.AppendLine(bodyLine.Substring(1));
+                        registeredBodyLines++;
+                        if (bodyContent.Length > 0
+                            && !bodyContent.Equals("{", StringComparison.Ordinal)
+                            && !bodyContent.Equals("}", StringComparison.Ordinal)
+                            && !bodyContent.Equals("});", StringComparison.Ordinal))
+                        {
+                            hasAddedBodyContent = true;
+                        }
+                    }
+
+                    if (hasAddedBodyContent)
+                    {
+                        tests.Add(new TestCoversMethod(registeredTestName, registeredTestBody.ToString()));
+                    }
+                    continue;
+                }
+
                 int paren = content.IndexOf('(');
-                if (paren <= 0) continue;
+                if (content.StartsWith("[", StringComparison.Ordinal))
+                {
+                    int closingBracket = content.IndexOf(']');
+                    if (closingBracket < 0) continue;
+                    testAttributePending |= ContainsTestAttribute(content.Substring(1, closingBracket - 1));
+                    content = content.Substring(closingBracket + 1).Trim();
+                    if (content.Length == 0) continue;
+                    paren = content.IndexOf('(');
+                }
+
+                if (paren <= 0)
+                {
+                    if (content.Length > 0
+                        && !content.StartsWith("//", StringComparison.Ordinal)
+                        && !content.StartsWith("/*", StringComparison.Ordinal))
+                    {
+                        testAttributePending = false;
+                    }
+                    continue;
+                }
+
                 string beforeParen = content.Substring(0, paren);
                 int lastSpace = beforeParen.LastIndexOf(' ');
                 string name = lastSpace >= 0 ? beforeParen.Substring(lastSpace + 1) : beforeParen;
                 if (name.Length == 0 || name.Length > 120) continue;
-                bool looksTest = name.Contains("Test", StringComparison.OrdinalIgnoreCase)
-                    || content.Contains("async Task", StringComparison.Ordinal)
-                    || content.Contains("void ", StringComparison.Ordinal);
-                if (!looksTest || !content.Contains(name + "(", StringComparison.Ordinal)) continue;
+                bool isMemberDeclaration = beforeParen.Contains("public ", StringComparison.Ordinal)
+                    || beforeParen.Contains("private ", StringComparison.Ordinal)
+                    || beforeParen.Contains("protected ", StringComparison.Ordinal)
+                    || beforeParen.Contains("internal ", StringComparison.Ordinal);
+                if (!isMemberDeclaration)
+                {
+                    testAttributePending = false;
+                    continue;
+                }
+
+                bool isTest = testAttributePending;
+                testAttributePending = false;
+                if (!addedLine || !isTest || !content.Contains(name + "(", StringComparison.Ordinal)) continue;
 
                 System.Text.StringBuilder body = new System.Text.StringBuilder();
                 int bodyLines = 0;
@@ -7135,10 +7314,24 @@ namespace Armada.Core.Services
                 {
                     string bl = lines[j];
                     if (bl.Length == 0) continue;
-                    if (bl[0] == '@' || (bl.Length > 1 && bl[0] == '+' && bl.Substring(1).TrimStart().StartsWith("public ", StringComparison.Ordinal) && bl.Contains('(')))
+                    if (bl.StartsWith("@@", StringComparison.Ordinal) || bl[0] == '@')
                         break;
                     if (bl[0] == '+')
                     {
+                        string bodyContent = bl.Substring(1).TrimStart();
+                        if (bodyContent.StartsWith("[", StringComparison.Ordinal)) break;
+                        int bodyParen = bodyContent.IndexOf('(');
+                        if (bodyParen > 0)
+                        {
+                            string bodyBeforeParen = bodyContent.Substring(0, bodyParen);
+                            if (bodyBeforeParen.Contains("public ", StringComparison.Ordinal)
+                                || bodyBeforeParen.Contains("private ", StringComparison.Ordinal)
+                                || bodyBeforeParen.Contains("protected ", StringComparison.Ordinal)
+                                || bodyBeforeParen.Contains("internal ", StringComparison.Ordinal))
+                            {
+                                break;
+                            }
+                        }
                         body.AppendLine(bl.Substring(1));
                         bodyLines++;
                     }

@@ -536,7 +536,11 @@ Three persona-specific decision points sit on Judge and handoff seams (all ship
   item leaves the rule standing and the rescue proceeds. The model never lands;
   the finished work stays on its branch for the operator.
 - `test_covers` (D22) sits on the TestEngineer handoff, over the added test
-  methods and the objective's symptom sentence. The model answers `covers_symptom`,
+  methods and the objective's symptom sentence. C# method candidates require a recognized
+  test attribute (`Fact`, `Theory`, `Test`, `TestCase`, `TestCaseSource`,
+  `TestMethod`, or `DataTestMethod`), including qualified and `Attribute` forms.
+  Armada `RunTest` registrations use their literal test names. Unannotated
+  helper methods and ordinary calls do not consume the 12-test limit. The model answers `covers_symptom`,
   `asserts_source_text`, `fails_without_change`, and `passes_with_change` Nouls per added test; a
   doubted test becomes a Judge **instruction** prepended to the next brief ("verify
   test X fails without the change"). It **never fails the stage** by itself. With

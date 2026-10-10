@@ -499,7 +499,7 @@ What a caller may use:
 | --- | --- |
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
 | Tenant administrator | The caller-scoped tools below, plus `create_persona`, `update_persona`, `delete_persona`, `create_pipeline`, `update_pipeline` and `delete_pipeline`, as on REST. Each change finds the record through the caller scope and applies `OwnershipPolicy.CanEdit`, so it changes only the caller's own tenant's records; another tenant's record reads as not found |
-| Mission captain (a mission session token), whatever its owner's role | The caller-scoped tools below, plus the read-only voyage tools `armada_enumerate`, `armada_mission_status`, `armada_get_mission_log` and `armada_voyage_status`. An administrator owner's mission still reaches no operator tool, and its model is sent only these definitions with each request |
+| Mission captain (a mission session token), whatever its owner's role | The caller-scoped tools below, plus the read-only voyage tools `armada_enumerate`, `armada_mission_status`, `armada_get_mission_log`, `armada_voyage_status`, `armada_mission_output` and `get_objective`. An administrator owner's mission still reaches no operator tool, and its model is sent only these definitions with each request |
 | Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_fetch_context`, `armada_mission_code_search`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
 
 The Harbor job tools apply the runner authority rule that Harbor enrollment
@@ -526,8 +526,8 @@ does not carry comes from its voyage, which holds the objective owner of an
 autonomous mission. Dispatch copies the vessel's owner, and a tenant-owned vessel
 has no user. A record without a user belongs to the default user and a record
 without a tenant to the default tenant, so a mission on such a vessel runs as the
-default user with that user's own privileges. When the default user is an
-administrator, that includes the operator tools. The owner must be an active user
+default user. A mission token keeps the captain tool limit even when its owner
+is an administrator. The owner must be an active user
 of the mission's tenant. Otherwise the launch presents no credential, the
 endpoint refuses it (fail closed), and the admiral log names the reason.
 
@@ -585,12 +585,41 @@ say that the count is not reported. When the endpoint cannot be read, the entry
 names the reason and does not report tool calling as enabled.
 
 Because the token is caller-scoped, a mission reaches only its owner's records
-and the tools that owner's tenant and user may use - never an operator-only or
-cross-tenant tool - even though captains use the operator catalog. The admiral
+and the captain tools listed above. The endpoint applies the same limit to tool
+discovery and calls, regardless of the owner's administrator role. The admiral
 also holds a random launch credential (recognised at the endpoint for its own
 internal use), but no mission or chat captain is ever launched with it. Captain
 prompts must still keep dispatch, administration, deployment, restore, purge and
 server-control actions outside mission scope.
+
+### Captain evidence reads
+
+`armada_mission_output` returns digest-backed pages of persisted output. A mission
+caller can read its own output, missions in the same voyage, and its direct
+`DependsOnMissionId` or `ParentMissionId` source. Each source must have the same
+tenant and owner. Use `offset` and `length`, follow `NextOffset` while `HasMore`
+is true, and check the final reconstructed UTF-8 content against `Sha256`.
+`Complete` identifies a final artifact; it does not mean that one page contains
+all content.
+
+`get_objective` returns the full objective that directly links the caller's
+mission or voyage, and its directly linked parent objective. Both must have the
+same tenant and owner. Unrelated records return not found. Operator reads retain
+their normal caller scope.
+
+### Papercut listing pages
+
+`armada_list_papercuts` returns at most 200 groups or reports per page. Pass
+`NextContinuationToken` as `continuationToken` until `HasMore` is false. Keep the
+filters, `limit`, `scanLimit`, and grouping mode unchanged. The token fixes the
+source cutoff and time filter. New reports do not displace the original page
+set. If retained events or merged groups change, the tool asks you to restart
+instead of silently skipping rows.
+
+`TotalFiltered` counts matching reports; grouped responses also include
+`TotalGroups`. `TotalEvents` counts source events before filters. `ScanTruncated`
+means that `scanLimit` bounded the scan. Paging covers only that scanned set;
+increase `scanLimit` when needed, up to 5000.
 
 **Local stdio.** `armada mcp stdio` runs the tools in-process with the local
 settings file and database credentials. It sets an explicit local operator

@@ -110,7 +110,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "get_objective",
-                "Inspect one objective including linked repositories, planning sessions, voyages, releases, deployments, incidents, and acceptance criteria.",
+                "Read one complete objective including evidence and acceptance criteria. Mission callers may read only the objective authorizing their mission or voyage and its directly linked parent. Operator callers retain their normal record scope.",
                 new
                 {
                     type = "object",
@@ -125,7 +125,9 @@ namespace Armada.Server.Mcp.Tools
                     ObjectiveIdArgs request = JsonSerializer.Deserialize<ObjectiveIdArgs>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize ObjectiveIdArgs.");
                     AuthContext auth = McpCallerContext.Require();
-                    Objective? objective = await objectiveService.ReadAsync(auth, request.ObjectiveId).ConfigureAwait(false);
+                    Objective? objective = !String.IsNullOrEmpty(auth.MissionId)
+                        ? await McpMissionEvidenceScope.ReadObjectiveAsync(database, auth, request.ObjectiveId).ConfigureAwait(false)
+                        : await objectiveService.ReadAsync(auth, request.ObjectiveId).ConfigureAwait(false);
                     if (objective == null) return (object)new { Error = "Objective not found" };
                     return (object)objective;
                 });

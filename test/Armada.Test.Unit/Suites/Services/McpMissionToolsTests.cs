@@ -2,12 +2,15 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Security.Cryptography;
+    using System.Text;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
@@ -25,6 +28,138 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("MissionEvidence_AdminOwnedCallerReadsOnlyRelatedRecords", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    TenantMetadata otherTenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("evidence other tenant")).ConfigureAwait(false);
+                    UserMaster otherUser = await testDb.Driver.Users.CreateAsync(new UserMaster(Armada.Core.Constants.DefaultTenantId, "evidence-other@example.com", "password")).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("report chain")).ConfigureAwait(false);
+                    Mission dependency = await testDb.Driver.Missions.CreateAsync(new Mission("dependency")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        AgentOutput = "dependency report"
+                    }).ConfigureAwait(false);
+                    Mission missionParent = await testDb.Driver.Missions.CreateAsync(new Mission("mission parent")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        AgentOutput = "parent report"
+                    }).ConfigureAwait(false);
+                    Mission own = await testDb.Driver.Missions.CreateAsync(new Mission("reader")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = dependency.Id,
+                        ParentMissionId = missionParent.Id,
+                        AgentOutput = "own final report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    string output = "complete report with unicode 🙂";
+                    Mission predecessor = await testDb.Driver.Missions.CreateAsync(new Mission("predecessor")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        VoyageId = voyage.Id,
+                        AgentOutput = output,
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission legacy = await testDb.Driver.Missions.CreateAsync(new Mission("legacy owner")
+                    {
+                        VoyageId = voyage.Id,
+                        AgentOutput = "legacy report"
+                    }).ConfigureAwait(false);
+                    Mission unrelated = await testDb.Driver.Missions.CreateAsync(new Mission("unrelated")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        AgentOutput = "private unrelated report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission foreign = await testDb.Driver.Missions.CreateAsync(new Mission("foreign")
+                    {
+                        TenantId = otherTenant.Id,
+                        VoyageId = voyage.Id,
+                        AgentOutput = "foreign report"
+                    }).ConfigureAwait(false);
+                    Mission otherOwner = await testDb.Driver.Missions.CreateAsync(new Mission("other owner")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = otherUser.Id,
+                        VoyageId = voyage.Id,
+                        AgentOutput = "other owner report"
+                    }).ConfigureAwait(false);
+                    Objective parent = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "parent",
+                        Description = new string('p', 20000)
+                    }).ConfigureAwait(false);
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "authorized work",
+                        ParentObjectiveId = parent.Id,
+                        MissionIds = new List<string> { own.Id },
+                        EvidenceLinks = new List<string> { "full report reference" }
+                    }).ConfigureAwait(false);
+                    Objective otherObjective = await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "unrelated work", TenantId = Armada.Core.Constants.DefaultTenantId }).ConfigureAwait(false);
+                    Objective otherOwnerObjective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "other owner work",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = otherUser.Id,
+                        MissionIds = new List<string> { own.Id }
+                    }).ConfigureAwait(false);
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = own.Id;
+                    Func<JsonElement?, Task<object>>? readOutput = null;
+                    Func<JsonElement?, Task<object>>? readObjective = null;
+                    McpMissionTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == "armada_mission_output") readOutput = handler;
+                    }, testDb.Driver, new RecordingAdmiralDouble(), null, null);
+                    McpObjectiveTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == "get_objective") readObjective = handler;
+                    }, testDb.Driver, new ObjectiveService(testDb.Driver));
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string combined = String.Empty;
+                        int offset = 0;
+                        MissionOutputArtifactPage page;
+                        do
+                        {
+                            page = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = predecessor.Id, offset, length = 7 })).ConfigureAwait(false);
+                            combined += page.Content;
+                            offset = page.NextOffset ?? page.TotalLength;
+                        } while (page.HasMore);
+                        AssertEqual(output, combined, "the captain reconstructs the complete predecessor artifact");
+                        AssertTrue(page.Complete, "final output is complete");
+                        AssertEqual(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(combined))).ToLowerInvariant(), page.Sha256);
+                        MissionOutputArtifactPage ownPage = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = own.Id })).ConfigureAwait(false);
+                        AssertEqual("own final report", ownPage.Content);
+                        AssertTrue(ownPage.Complete);
+                        foreach (Mission source in new[] { dependency, missionParent })
+                        {
+                            MissionOutputArtifactPage sourcePage = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = source.Id })).ConfigureAwait(false);
+                            AssertEqual(source.AgentOutput, sourcePage.Content, "direct and legacy report sources are readable");
+                        }
+                        foreach (string deniedId in new[] { unrelated.Id, foreign.Id, otherOwner.Id })
+                        {
+                            string result = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = deniedId })).ConfigureAwait(false));
+                            AssertContains("Mission not found", result, "mission owner admin rights do not widen evidence scope");
+                        }
+                        MissionOutputArtifactPage legacyPage = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = legacy.Id })).ConfigureAwait(false);
+                        AssertEqual("legacy report", legacyPage.Content, "null tenant and user normalize to default ownership");
+                        Objective full = (Objective)await readObjective!(JsonSerializer.SerializeToElement(new { objectiveId = objective.Id })).ConfigureAwait(false);
+                        AssertEqual("full report reference", full.EvidenceLinks[0]);
+                        Objective fullParent = (Objective)await readObjective!(JsonSerializer.SerializeToElement(new { objectiveId = parent.Id })).ConfigureAwait(false);
+                        AssertEqual(20000, fullParent.Description!.Length, "parent evidence is not a preview");
+                        foreach (string deniedObjective in new[] { otherObjective.Id, otherOwnerObjective.Id })
+                        {
+                            string denied = JsonSerializer.Serialize(await readObjective!(JsonSerializer.SerializeToElement(new { objectiveId = deniedObjective })).ConfigureAwait(false));
+                            AssertContains("Objective not found", denied);
+                        }
+                    }
+                }
+            });
+
             await RunTest("TransitionMissionStatus_CallerOutsideMissionOwnerIsRefusedWithoutChange", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -277,7 +412,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? outputHandler = null;
                     McpMissionTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_mission_output") outputHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_mission_output") outputHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         new RecordingAdmiralDouble(),
                         null,

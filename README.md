@@ -72,6 +72,8 @@ What the fork adds on top of the shared model:
   or dispatches, fails closed to the rule, and never egresses unredacted state.
   Captains get read-only tools, including prior-art retrieval
   that answers "does this already exist?" with evidence before work starts.
+  Captains can also read full authorizing objectives and digest-backed output
+  pages from their scoped report chain.
 - **Deeper review.** Linter and Recorder pipeline stages, immutable reviewed-commit
   Checks, declared-consumer builds, verified landing evidence, and full recovery
   pipelines with provider-aware rescue.

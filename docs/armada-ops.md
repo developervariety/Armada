@@ -26,6 +26,9 @@ detail. Use [MERGING.md](MERGING.md), [PIPELINES.md](PIPELINES.md), and
 [OPERATIONAL_ASSETS.md](OPERATIONAL_ASSETS.md) for playbooks, runbooks, workflow
 profiles, environments, personas, pipelines, and their links.
 
+For captain evidence scope and complete papercut page traversal, use the
+[read contracts in MCP_API.md](MCP_API.md#captain-evidence-reads).
+
 ## Chapters
 
 These links open the tracked templates. On an installed deployment, read the

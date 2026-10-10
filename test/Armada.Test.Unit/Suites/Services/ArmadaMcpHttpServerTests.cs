@@ -465,6 +465,10 @@ namespace Armada.Test.Unit.Suites.Services
                     args => Task.FromResult((object)new { Status = "ok" }));
                 server.RegisterTool("armada_voyage_status", "Voyage overview", new { type = "object" },
                     args => Task.FromResult((object)new { Status = "ok" }));
+                server.RegisterTool("armada_mission_output", "Scoped complete report", new { type = "object" },
+                    args => Task.FromResult((object)new { MissionId = McpCallerContext.Require().MissionId }));
+                server.RegisterTool("get_objective", "Scoped objective evidence", new { type = "object" },
+                    args => Task.FromResult((object)new { Status = "ok" }));
                 server.RegisterTool("armada_dispatch", "Operator dispatch", new { type = "object" },
                     args => { operatorToolRan = true; return Task.FromResult((object)new { Status = "dispatched" }); });
                 await server.StartAsync().ConfigureAwait(false);
@@ -478,7 +482,7 @@ namespace Armada.Test.Unit.Suites.Services
                 JsonElement list = await ReadRpcAsync(await client.SendAsync(listRequest).ConfigureAwait(false)).ConfigureAwait(false);
                 List<string> names = list.GetProperty("result").GetProperty("tools").EnumerateArray()
                     .Select(tool => tool.GetProperty("name").GetString()!).ToList();
-                AssertTrue(names.SequenceEqual(new[] { "armada_voyage_status", "search_memory" }),
+                AssertTrue(names.SequenceEqual(new[] { "armada_mission_output", "armada_voyage_status", "get_objective", "search_memory" }),
                     "a mission caller discovers the captain and voyage-read tools only, got: " + String.Join(", ", names));
 
                 using HttpRequestMessage denied = CreateRequest(
@@ -487,9 +491,16 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(deniedRpc.TryGetProperty("error", out _), "an operator tool call from a mission caller is refused");
                 AssertFalse(operatorToolRan, "the refused operator tool never runs");
 
+                using (HttpRequestMessage outputRead = CreateRequest(
+                    "/mcp", 5, "tools/call", new { name = "armada_mission_output", arguments = new { } }, apiKey: MissionApiKey))
+                {
+                    JsonElement outputRpc = await ReadRpcAsync(await client.SendAsync(outputRead).ConfigureAwait(false)).ConfigureAwait(false);
+                    AssertContains("msn_example", ResultText(outputRpc), "the allowed report call keeps the authenticated mission identity");
+                }
+
                 using HttpRequestMessage adminList = CreateRequest("/mcp", 3, "tools/list", new { });
                 JsonElement adminTools = await ReadRpcAsync(await client.SendAsync(adminList).ConfigureAwait(false)).ConfigureAwait(false);
-                AssertEqual(3, adminTools.GetProperty("result").GetProperty("tools").GetArrayLength(), "the administrator outside a mission still discovers the whole catalog");
+                AssertEqual(5, adminTools.GetProperty("result").GetProperty("tools").GetArrayLength(), "the administrator outside a mission still discovers the whole catalog");
             }).ConfigureAwait(false);
 
             await RunTest("HeaderParticipantReachesHandlerAndAudit", async () =>

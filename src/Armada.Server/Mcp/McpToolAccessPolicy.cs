@@ -95,7 +95,9 @@ namespace Armada.Server.Mcp
             "armada_enumerate",
             "armada_mission_status",
             "armada_get_mission_log",
-            "armada_voyage_status"
+            "armada_voyage_status",
+            "armada_mission_output",
+            "get_objective"
         };
 
         private static readonly HashSet<string> _TenantAdminTools = new HashSet<string>(StringComparer.Ordinal)

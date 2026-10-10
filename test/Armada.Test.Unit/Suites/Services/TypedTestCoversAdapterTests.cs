@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
@@ -74,6 +75,52 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("ExtractAddedTestMethods_ExcludesUnannotatedHelpers", () =>
+            {
+                const string diff = "@@ -1,2 +1,31 @@\n"
+                    + " [Fact]\n"
+                    + " public void ExistingTest_IsContextOnly() { }\n"
+                    + "+[TestCategory(\"helpers\")]\n"
+                    + "+private async Task ArrangeAsync() { await Task.Yield(); }\n"
+                    + "+private void Helper01() { }\n"
+                    + "+private void Helper02() { }\n"
+                    + "+private void Helper03() { }\n"
+                    + "+private void Helper04() { }\n"
+                    + "+private void Helper05() { }\n"
+                    + "+private void Helper06() { }\n"
+                    + "+private void Helper07() { }\n"
+                    + "+private void Helper08() { }\n"
+                    + "+private void Helper09() { }\n"
+                    + "+private void Helper10() { }\n"
+                    + "+private void Helper11() { }\n"
+                    + "+private void Helper12() { }\n"
+                    + "+[Xunit.Fact] public void Decode_TruncatesCounter_ReturnsByte()\n"
+                    + "+{\n"
+                    + "+    Assert.Equal(8, Decode(frame));\n"
+                    + "+}\n"
+                    + "+[Theory]\n"
+                    + "+public void Decode_HandlesBoundary(byte value)\n"
+                    + "+{\n"
+                    + "+    Assert.Equal(value, Decode(value));\n"
+                    + "+}\n"
+                    + "+[Theory, InlineData(5, 6)]\n"
+                    + "+public void Decode_HandlesCombinedAttributes(byte value) { }\n"
+                    + "+await RunTest(\"Registration_Name_IsTheEvidenceLabel\", async () =>\n"
+                    + "+{\n"
+                    + "+    Decode(frame);\n"
+                    + "+});";
+
+                MethodInfo extractor = typeof(MissionService).GetMethod(
+                    "ExtractAddedTestMethods", BindingFlags.NonPublic | BindingFlags.Static)!;
+                IReadOnlyList<TestCoversMethod> methods = (IReadOnlyList<TestCoversMethod>)extractor.Invoke(null, new object[] { diff })!;
+
+                AssertEqual(4, methods.Count, "only attribute-marked methods and named Armada runner registrations are passed to test_covers");
+                AssertEqual("Decode_TruncatesCounter_ReturnsByte", methods[0].Name);
+                AssertEqual("Decode_HandlesBoundary", methods[1].Name);
+                AssertEqual("Decode_HandlesCombinedAttributes", methods[2].Name);
+                AssertEqual("Registration_Name_IsTheEvidenceLabel", methods[3].Name);
+            });
+
             await RunTest("Off_ReturnsNoInstructions_NoCall", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

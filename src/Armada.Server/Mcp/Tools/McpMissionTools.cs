@@ -122,7 +122,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_mission_output",
-                "Read a digest-backed page of the authoritative safe output artifact for a mission. Secret-shaped values are redacted. Continue at nextOffset until hasMore is false, then verify sha256 and complete before treating the report as complete.",
+                "Read a digest-backed page of the authoritative safe output artifact for a mission. Mission callers may read their own mission, same-voyage reports, and their direct dependency or parent, within the same owner and tenant. Secret-shaped values are redacted. Continue at nextOffset until hasMore is false, then verify sha256 and complete before treating the report as complete.",
                 new
                 {
                     type = "object",
@@ -137,9 +137,8 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     MissionOutputArgs request = JsonSerializer.Deserialize<MissionOutputArgs>(args!.Value, _JsonOptions)!;
-                    Mission? mission = await database.Missions.ReadAsync(
-                        ArmadaConstants.DefaultTenantId,
-                        request.MissionId).ConfigureAwait(false);
+                    Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(
+                        database, McpCallerContext.Require(), request.MissionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
                     try
                     {

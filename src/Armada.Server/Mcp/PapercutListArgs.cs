@@ -31,6 +31,11 @@ namespace Armada.Server.Mcp
         public bool? Ungrouped { get; set; }
 
         /// <summary>
+        /// Opaque token returned for the next stable page.
+        /// </summary>
+        public string? ContinuationToken { get; set; }
+
+        /// <summary>
         /// Maximum rows returned (default 25).
         /// </summary>
         public int? Limit { get; set; }

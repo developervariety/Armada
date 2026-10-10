@@ -5,6 +5,18 @@ Net changes since the latest full upstream merge on 2026-05-24
 This compares the merged tree with the current fork. It includes later selected
 upstream integrations and excludes changes already present at that baseline.
 
+## Unreleased
+
+### Fixed
+
+- Mission tokens can read scoped report-chain output and full authorizing
+  objectives without inheriting administrator operator tools.
+- Papercut listings expose continuation pages, source and result totals, and
+  scan truncation. New arrivals cannot displace the page set; changed retained
+  events or merged results require a restart.
+- Added-test coverage extraction accepts recognized test attributes and excludes
+  unannotated helper methods from its bounded candidate list.
+
 ## Added
 
 - **Typed decisions:** provider-neutral closed-question classification behind
