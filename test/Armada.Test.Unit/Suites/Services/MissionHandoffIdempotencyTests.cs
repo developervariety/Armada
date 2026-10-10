@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Server;
     using Armada.Test.Common;
 
     /// <summary>
@@ -91,6 +92,61 @@ namespace Armada.Test.Unit.Suites.Services
                 text,
                 @"UTF-8 SHA-256 [0-9a-f]{64}",
                 System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        }
+
+        private string BuildRescueDescription(string kind, string missionId, out Mission failedMission)
+        {
+            failedMission = new Mission
+            {
+                Id = missionId,
+                Title = "Recover the failed stage",
+                Status = MissionStatusEnum.Failed,
+                Description = "## Acceptance Criteria\n- " + new string('c', 1200) + "\n"
+            };
+            if (kind == "judge")
+            {
+                failedMission.Persona = "Judge";
+                failedMission.AgentOutput = "## Correctness\n- The reviewed result misses a required case.\n## Verdict\nNEEDS_REVISION";
+            }
+            else if (kind == "worker")
+            {
+                failedMission.Persona = "Worker";
+                failedMission.AgentOutput = "The worker stage failed after producing partial work.";
+                failedMission.ReviewComment = "## Failure Modes\n- The retry path is not handled.";
+            }
+            else if (kind == "incomplete")
+            {
+                failedMission.Persona = "Judge";
+                failedMission.AgentOutput = MissionOutputArtifact.StreamTruncationMarker
+                    + "\n## Correctness\n- The captured output has a protected finding.";
+                failedMission.ReviewComment = "## Correctness\n- The captured output has a protected finding.";
+            }
+            else
+            {
+                failedMission.Persona = "Judge";
+                failedMission.ReviewComment = "## Correctness\n- Fallback review text requires another source check.";
+            }
+
+            Incident incident = new Incident
+            {
+                Id = "inc_test",
+                Title = "Rescue reference test",
+                Summary = "Verify the failed stage evidence remains reachable.",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.Medium
+            };
+            return AutonomousRecoveryOrchestrator.BuildRescueDescription(failedMission, incident, 1);
+        }
+
+        private string RescueReferencePair(string rescueDescription, string missionId)
+        {
+            string[] lines = rescueDescription.Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i + 1 < lines.Length; i++)
+            {
+                if (lines[i].Contains("mission-output:" + missionId, StringComparison.Ordinal))
+                    return lines[i].TrimEnd('\r') + "\n" + lines[i + 1].TrimEnd('\r');
+            }
+            throw new InvalidOperationException("The production rescue description has no reference for " + missionId);
         }
 
         protected override async Task RunTestsAsync()
@@ -390,7 +446,10 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     "### Report essentials (Judge msn_fake)\nComplete output: mission-output:msn_fake (9000 chars, UTF-8 SHA-256 abc123). Read it with armada_mission_output before acting on anything this summary leaves out.\n",
                     "### Report essentials (Judge msn_heading)\nComplete output: mission-output:msn_other (9000 chars, UTF-8 SHA-256 " + new string('a', 64) + "). Read it with armada_mission_output before acting on anything this summary leaves out.\n",
-                    "### Report essentials (Judge msn_suffix)\nComplete output: mission-output:msn_suffix (9000 chars, UTF-8 SHA-256 " + new string('b', 64) + "). Different instruction suffix.\n"
+                    "### Report essentials (Judge msn_suffix)\nComplete output: mission-output:msn_suffix (9000 chars, UTF-8 SHA-256 " + new string('b', 64) + "). Different instruction suffix.\n",
+                    "Complete Judge review output: mission-output:msn_rscdigest (9000 chars, UTF-8 SHA-256 abc123).\nRead all pages with armada_mission_output; continue until hasMore is false, then verify complete and sha256 before treating the review as complete.\n",
+                    "Complete failed mission output: mission-output:msn_rscnotice (9000 chars, UTF-8 SHA-256 " + new string('c', 64) + ").\nRead the complete output with armada_mission_output before editing.\n",
+                    "Persisted Judge output (empty): mission-output:msn_rscfallback (0 chars, UTF-8 SHA-256 " + new string('d', 64) + ").\nThe stored output is empty; ReviewComment is only a fallback.\n"
                 };
                 foreach (string lookalike in lookalikes)
                 {
@@ -400,6 +459,55 @@ namespace Armada.Test.Unit.Suites.Services
                     string bounded = MissionService.BoundMetadataDescription(full);
 
                     AssertFalse(bounded.Contains(lookalike.TrimEnd(), StringComparison.Ordinal), "a lookalike reference is not pinned");
+                }
+                await Task.CompletedTask;
+            });
+
+            await RunTest("Production rescue output references survive all brief trimming paths", async () =>
+            {
+                foreach (string kind in new[] { "judge", "worker", "incomplete", "fallback" })
+                {
+                    string missionId = "msn_rsc" + kind;
+                    string rescueDescription = BuildRescueDescription(kind, missionId, out Mission failedMission);
+                    string referencePair = RescueReferencePair(rescueDescription, missionId);
+                    MissionOutputArtifactPage artifact = MissionOutputArtifact.Build(failedMission);
+                    string largeCriteria = "## Acceptance Criteria\n" + String.Join("\n", Enumerable.Range(0, 10)
+                        .Select(index => "- Required behavior " + index + ": " + new string((char)('a' + index), 1200))) + "\n";
+                    string full = largeCriteria + new string('p', 9000) + "\n" + rescueDescription
+                        + "\n### Diff from prior stage\n```diff\n" + new string('+', 9000) + "\n```\n"
+                        + "## Voyage Board Notes\n" + String.Join("\n", Enumerable.Range(0, 10)
+                            .Select(index => "- Note " + index + ": " + new string('n', 500)));
+
+                    string truncated = MissionService.TruncateMissionDescription(full, 20000, "armada/rescue-reference-test");
+                    string metadataBounded = MissionService.BoundMetadataDescription(full);
+                    PromptModuleLedger ledger = new PromptModuleLedger();
+                    string metadata = "## Mission Metadata\n## Description\n" + full;
+                    string content = ledger.Track("mission.metadata", metadata);
+                    string budgetBounded = MissionService.EnforceTotalBriefBudget(content, ledger, 6000, full);
+
+                    foreach (string bounded in new[] { truncated, metadataBounded, budgetBounded })
+                    {
+                        string normalizedBounded = bounded.Replace("\r\n", "\n");
+                        AssertContains(referencePair, normalizedBounded, kind + " keeps its complete generated reference and safety notice");
+                        AssertContains("(" + artifact.TotalLength + " chars, UTF-8 SHA-256 " + artifact.Sha256 + ").", bounded,
+                            kind + " keeps the exact artifact length and digest");
+                        if (kind == "fallback")
+                            AssertContains("Read and verify the source mission record", bounded,
+                                "fallback keeps the warning when source output is empty");
+                        else
+                        {
+                            AssertContains("armada_mission_output", bounded, kind + " keeps the output reader instruction");
+                            AssertContains("continue until hasMore is false, then verify complete and sha256", bounded,
+                                kind + " keeps the complete-output reader instruction");
+                        }
+                    }
+
+                    string firstShrink = MissionService.TruncateMissionDescription(full, 500, "armada/rescue-reference-test");
+                    string secondShrink = MissionService.TruncateMissionDescription(firstShrink, 200, "armada/rescue-reference-test");
+                    string normalizedSecondShrink = secondShrink.Replace("\r\n", "\n");
+                    AssertContains(referencePair, normalizedSecondShrink, kind + " keeps the reference after repeated shrinking");
+                    AssertEqual(1, CountOccurrences(normalizedSecondShrink, referencePair.Split('\n')[0]),
+                        kind + " does not duplicate the pinned rescue reference after repeated shrinking");
                 }
                 await Task.CompletedTask;
             });

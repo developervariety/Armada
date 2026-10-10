@@ -113,6 +113,10 @@ brief labels the embedded list incomplete and directs the stage to the complete
 parent output. Gate-log truncation keeps its existing cap and content-filter
 recovery behavior.
 
+Description, metadata and total-budget trimming keep each generated rescue-root
+artifact reference with its ID, length, digest and exact read notice. The
+original rescue description remains available as bounded narrative.
+
 The failed parent output is in scope for the rescue Worker and later stages in
 that rescue chain. The server follows same-owner, same-voyage and same-vessel
 dependencies back to the marked rescue root, and exposes only the failed

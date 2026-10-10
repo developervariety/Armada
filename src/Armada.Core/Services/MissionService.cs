@@ -8151,23 +8151,43 @@ namespace Armada.Core.Services
                     comparable,
                     @"^### Report essentials \((?<persona>[^\r\n]+) (?<missionId>msn_[A-Za-z0-9_-]+)\)$",
                     System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-                if (headingMatch.Success && index + 1 < lines.Length)
+                if (index + 1 >= lines.Length) continue;
+
+                string referenceComparable = lines[index + 1].TrimEnd('\r');
+                System.Text.RegularExpressions.Match referenceMatch = System.Text.RegularExpressions.Regex.Match(
+                    referenceComparable,
+                    @"^Complete output: mission-output:(?<missionId>msn_[A-Za-z0-9_-]+) \((?<length>[0-9]+) chars, UTF-8 SHA-256 (?<sha256>[0-9A-Fa-f]{64})\)\. Read it with armada_mission_output before acting on anything this summary leaves out\.$",
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+                bool reportEssentialsReference = headingMatch.Success
+                    && referenceMatch.Success
+                    && System.String.Equals(headingMatch.Groups["missionId"].Value, referenceMatch.Groups["missionId"].Value, System.StringComparison.Ordinal);
+                bool rescueOutputReference = IsGeneratedRescueOutputReference(comparable, referenceComparable);
+                if (reportEssentialsReference || rescueOutputReference)
                 {
-                    string referenceLine = lines[index + 1];
-                    string referenceComparable = referenceLine.TrimEnd('\r');
-                    System.Text.RegularExpressions.Match referenceMatch = System.Text.RegularExpressions.Regex.Match(
-                        referenceComparable,
-                        @"^Complete output: mission-output:(?<missionId>msn_[A-Za-z0-9_-]+) \((?<length>[0-9]+) chars, UTF-8 SHA-256 (?<sha256>[0-9A-Fa-f]{64})\)\. Read it with armada_mission_output before acting on anything this summary leaves out\.$",
-                        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-                    if (referenceMatch.Success
-                        && System.String.Equals(headingMatch.Groups["missionId"].Value, referenceMatch.Groups["missionId"].Value, System.StringComparison.Ordinal))
-                    {
-                        string reference = comparable + "\n" + referenceComparable;
-                        if (seen.Add(reference)) references.Add(reference);
-                    }
+                    string reference = comparable + "\n" + referenceComparable;
+                    if (seen.Add(reference)) references.Add(reference);
                 }
             }
             return references;
+        }
+
+        private static bool IsGeneratedRescueOutputReference(string referenceLine, string noticeLine)
+        {
+            System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(
+                referenceLine,
+                @"^(?:Complete Judge review output|Complete failed mission output|Persisted Judge output \(empty\)): mission-output:(?<missionId>msn_[A-Za-z0-9_-]+) \((?<length>[0-9]+) chars, UTF-8 SHA-256 (?<sha256>[0-9A-Fa-f]{64})\)\.$",
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+            if (!match.Success) return false;
+
+            const string incompleteOutputNote = @"(?: The stored output is incomplete \((?:stream_capture_limit|output_unavailable|mission_not_finalized)\); the embedded review is incomplete\.)?";
+            bool fallback = referenceLine.StartsWith("Persisted Judge output (empty):", System.StringComparison.Ordinal);
+            string noticePattern = fallback
+                ? @"^The stored output is empty; ReviewComment is only a fallback and is not the complete review\. Read and verify the source mission record before editing\." + incompleteOutputNote + "$"
+                : @"^Read all pages with armada_mission_output; continue until hasMore is false, then verify complete and sha256 before treating the review as complete\.(?: The stored output is incomplete \((?:stream_capture_limit|output_unavailable|mission_not_finalized)\); the embedded review is incomplete\.| More output pages remain; the embedded review is incomplete until all pages are read\.)?$";
+            return System.Text.RegularExpressions.Regex.IsMatch(
+                noticeLine,
+                noticePattern,
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         }
 
         private static string BuildBoundedDescription(string description, int maxChars, int headChars, string marker)

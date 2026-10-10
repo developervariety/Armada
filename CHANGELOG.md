@@ -24,8 +24,10 @@ upstream integrations and excludes changes already present at that baseline.
   as mission output before returning metadata, scope text, or context events.
 - Judge rescue briefs use the full redacted output artifact, keep required review
   findings ahead of completed criteria, and mark bounded excerpts incomplete.
-  Every rescue stage receives the failed-output reference; later stages can read
-  that parent through the same-owner rescue chain.
+  Every rescue stage receives the failed-output reference; description, metadata,
+  and total-budget trimming keep its exact artifact ID, length, digest, and
+  generated read notice together. Later stages can read that parent through the
+  same-owner rescue chain.
 - Objective MCP tools expose stored preflight answers and stage-skip confirmation
   in the preparation schema. Update descriptions state that a supplied
   preparation replaces the full nested object, so clients can send each value
