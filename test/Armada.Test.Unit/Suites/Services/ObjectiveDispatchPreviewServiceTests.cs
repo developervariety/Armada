@@ -1193,12 +1193,17 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    harness.Vessel.TenantId = harness.Auth.TenantId;
+                    harness.Vessel.UserId = harness.Auth.UserId;
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
                     string siblingDirectory = Path.Combine(harness.RepositoryDirectory, "reference-source");
                     Directory.CreateDirectory(siblingDirectory);
                     Vessel sibling = await testDb.Driver.Vessels.CreateAsync(new Vessel("ReferenceSource", "https://example.test/reference-source.git")
                     {
                         LocalPath = siblingDirectory,
-                        WorkingDirectory = siblingDirectory
+                        WorkingDirectory = siblingDirectory,
+                        TenantId = harness.Auth.TenantId,
+                        UserId = harness.Auth.UserId
                     }).ConfigureAwait(false);
                     harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
                     {
@@ -1268,6 +1273,10 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AuthContext scopedCaller = AuthContext.Authenticated(
                         harness.Auth.TenantId, harness.Auth.UserId, false, false, "UnitTest");
+                    harness.Git.RevisionCommitShas[siblingDirectory + "|HEAD"] = siblingTip;
+                    ObjectiveDispatchPreview scopedVisible = await harness.Service.PreviewAsync(scopedCaller, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Pass, scopedVisible.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "an ordinary owner resolves its visible required sibling before ownership changes");
                     UserMaster anotherOwner = await testDb.Driver.Users.CreateAsync(
                         new UserMaster(harness.Auth.TenantId, "sibling-other-owner@example.test", "password")).ConfigureAwait(false);
                     sibling.UserId = anotherOwner.Id;
