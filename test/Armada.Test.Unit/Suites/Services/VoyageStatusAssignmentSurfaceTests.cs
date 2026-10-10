@@ -269,7 +269,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
                     Func<JsonElement?, Task<object>>? statusHandler = null;
                     McpMissionTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_mission_status") statusHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_mission_status") statusHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null,
@@ -438,7 +438,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
                     Func<JsonElement?, Task<object>>? statusHandler = null;
                     McpMissionTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_mission_status") statusHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_mission_status") statusHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null,

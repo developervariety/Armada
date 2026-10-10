@@ -249,7 +249,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertContains("bounded head/tail preview; middle omitted", description, "Precondition: the preview drops the middle of the report");
                     AssertContains(StageReportEssentials.Heading, description, "The essentials section survives the description cap");
-                    AssertContains(blocking, description, "The blocking finding survives whole");
+                    AssertContains(blocking.Substring("2. ".Length), description, "The blocking finding body and anchor survive without duplicating its source number");
                     AssertContains(followUp, description, "The follow-up survives");
                     AssertContains("[ARMADA:VERDICT] NEEDS_REVISION", description, "The verdict survives");
                     AssertContains("Complete output: mission-output:" + judge.Id, description, "The complete-output reference survives");
@@ -257,7 +257,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     string compacted = MissionService.CompactOlderHandoffBlocks(description);
                     AssertContains("## Prior Stage (compacted)", compacted, "Precondition: the block was compacted");
-                    AssertContains(blocking, compacted, "Compaction keeps the blocking finding");
+                    AssertContains(blocking.Substring("2. ".Length), compacted, "Compaction keeps the full blocking finding body and anchor");
                     AssertContains("Complete output: mission-output:" + judge.Id, compacted, "Compaction keeps the complete-output reference");
                     AssertFalse(compacted.Contains(new string('d', 1000), StringComparison.Ordinal), "Compaction still drops the diff");
                 }

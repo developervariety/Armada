@@ -2012,7 +2012,7 @@ namespace Armada.Test.Unit.Suites.Services
                 review.AppendLine("- src/Example.cs:104 -- complete criterion four. NOT MET.");
                 review.AppendLine("- src/Example.cs:105 -- complete criterion five. NOT MET.");
                 review.AppendLine("- src/Example.cs:106 -- delivered behavior. MET.");
-                review.AppendLine(new string('n', 15000));
+                review.AppendLine(BuildBenignReviewPadding(15000));
                 review.AppendLine("## Correctness");
                 review.AppendLine("1. src/Example.cs:12 -- preserve the first rejected behavior.");
                 review.AppendLine("2. src/Example.cs:24 -- preserve the second rejected behavior.");
@@ -3455,6 +3455,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertContains("Blocking findings (incomplete", essentials, "The outer cap does not advertise a partial list as complete.");
                 AssertContains("armada_mission_output", essentials, "The bounded section points to the complete output.");
+                AssertContains("mission-output:" + mission.Id, essentials, "The compact reference retains the artifact pointer.");
+                AssertContains("SHA-256:", essentials, "The compact reference retains the output digest.");
                 AssertFalse(essentials.Contains("every one; fix all", StringComparison.Ordinal), "The cut essentials do not claim to list every finding.");
                 AssertTrue(essentials.Length <= 400, "The essentials section respects its outer cap.");
                 await Task.CompletedTask;
@@ -3994,13 +3996,32 @@ namespace Armada.Test.Unit.Suites.Services
         // the actionable Suggested Follow-ups and Verdict last, then the standalone verdict line.
         private static string BuildJudgeReport(int completenessChars, int correctnessChars)
         {
-            return "## Completeness" + "\n" + new string('c', completenessChars) + "\n\n"
-                + "## Correctness" + "\n" + new string('r', correctnessChars) + "\n\n"
+            return "## Completeness" + "\n" + BuildBenignReviewPadding(completenessChars) + "\n\n"
+                + "## Correctness" + "\n" + BuildBenignReviewPadding(correctnessChars) + "\n\n"
                 + "## Tests" + "\n" + "Ran the suite in the foreground: 0 failed." + "\n\n"
                 + "## Failure Modes" + "\n" + "Reviewed the absence paths." + "\n\n"
                 + "## Suggested Follow-ups" + "\n" + "- src/Fixture.cs:12 -- record the sha256 of both copies." + "\n\n"
                 + "## Verdict" + "\n" + "NEEDS_REVISION: the disclosure is missing; add the two hashes and the identity statement." + "\n\n"
                 + "[ARMADA:VERDICT] NEEDS_REVISION";
+        }
+
+        private static string BuildBenignReviewPadding(int minimumChars)
+        {
+            string[] sentences =
+            {
+                "The review records the observed behavior for this documented boundary.",
+                "The evidence remains within the expected scope for this case.",
+                "The reviewer checked the result against the stated contract.",
+                "This note preserves ordinary report text for the size-boundary scenario."
+            };
+            StringBuilder padding = new StringBuilder();
+            int sentenceIndex = 0;
+            while (padding.Length < minimumChars)
+            {
+                padding.Append(sentences[sentenceIndex % sentences.Length]).Append(' ');
+                sentenceIndex++;
+            }
+            return padding.ToString().TrimEnd();
         }
 
         public async Task BuildRescueDescription_OverCapJudgeReport_KeepsTheVerdictAndFollowUpsWhole()
@@ -4101,6 +4122,7 @@ namespace Armada.Test.Unit.Suites.Services
             AssertFalse(block.Contains("Non-blocking observations"), "A non-blocking note is not listed as blocking");
             AssertFalse(block.Contains("Verified rule", StringComparison.Ordinal), "Verified Correctness evidence does not crowd out defects.");
             AssertFalse(block.Contains("Test 0 covers", StringComparison.Ordinal), "Passed Tests evidence does not crowd out defects.");
+            AssertFalse(block.Contains("Failure mode 0 is handled", StringComparison.Ordinal), "Handled Failure Modes evidence does not crowd out defects.");
             AssertFalse(block.Contains("I'll start by reading"), "Tool narration is not a finding");
             AssertTrue(block.Length <= AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars + 200, "The findings block stays inside its bound. Actual: " + block.Length);
             await Task.CompletedTask;

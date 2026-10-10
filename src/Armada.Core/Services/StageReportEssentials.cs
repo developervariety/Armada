@@ -76,6 +76,12 @@ namespace Armada.Core.Services
                 .Append(" (").Append(artifact.TotalLength).Append(" chars, UTF-8 SHA-256 ").Append(artifact.Sha256).Append(")")
                 .Append(". Read it with armada_mission_output before acting on anything this summary leaves out.\n");
             string reference = sb.ToString();
+            const string incompleteHeading = "\nBlocking findings (incomplete; read armada_mission_output).\n";
+            if (reference.Length + incompleteHeading.Length > maxChars)
+            {
+                reference = Heading + "\nOutput: " + artifact.ArtifactRef + "; SHA-256: " + artifact.Sha256
+                    + "; read armada_mission_output.\n";
+            }
             if (String.IsNullOrWhiteSpace(agentOutput)) return reference;
 
             string source = agentOutput.Replace("\r\n", "\n");
@@ -100,10 +106,9 @@ namespace Armada.Core.Services
             foreach (string part in parts)
             {
                 int room = maxChars - body.Length - 2;
-                bool blockingPart = part.StartsWith("Blocking findings (every one; fix all of them):", StringComparison.Ordinal);
+                bool blockingPart = part.StartsWith("Blocking findings (", StringComparison.Ordinal);
                 if (blockingPart && part.Length > room)
                 {
-                    string incompleteHeading = "\nBlocking findings (incomplete; read complete output with armada_mission_output).\n";
                     if (body.Length + incompleteHeading.Length <= maxChars) body.Append(incompleteHeading);
                     break;
                 }
@@ -363,7 +368,7 @@ namespace Armada.Core.Services
 
         private static bool IsExplicitSuccess(string item, string section)
         {
-            if (Regex.IsMatch(item, @"^Failure mode\b.*\bhandled\b(?:\s+by\b.*)?[.!]?$", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(item, @"^Failure mode\b.*\bhandled(?:\s+by\b.+)?[.!]?$", RegexOptions.IgnoreCase))
                 return !Regex.IsMatch(item, @"\b(not|never|unhandled|missing|still open|remains)\b", RegexOptions.IgnoreCase);
             if (ContainsAny(item, "MISSING", "FAIL", "FAILURE", "LACKS", "UNCOVERED", "NO TEST", "NO ASSERTION", "NO COVERAGE", "DOES NOT", "NOT RUN", "NOT COVER", "ABSENT", "UNTESTED"))
                 return false;

@@ -139,7 +139,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? statusHandler = null;
                     McpMissionTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_mission_status") statusHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_mission_status") statusHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         new NullAdmiralDouble(),
                         null,
@@ -173,7 +173,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? statusHandler = null;
                     McpMissionTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_mission_status") statusHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_mission_status") statusHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         new NullAdmiralDouble(),
                         null,
