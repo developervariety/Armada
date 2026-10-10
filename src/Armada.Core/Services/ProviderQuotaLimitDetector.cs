@@ -445,7 +445,8 @@ namespace Armada.Core.Services
             + @"|\b401\s+unauthorized\b|\b403\s+forbidden\b|\bunauthorized\b"
             + @"|\binvalid[_ ]api[_ ]key\b|\bincorrect api key\b|\bno api key\b|\bmissing api key\b|\bapi key (?:is )?(?:invalid|missing|expired|revoked)\b"
             + @"|\bauthentication[_ ](?:failed|error|required)\b|\bauth failed\b|\bfailed to authenticate\b|\bnot authenticated\b|\bcould not authenticate\b"
-            + @"|\bpermission_denied\b|\bnot logged in\b|\blogin required\b",
+            + @"|\bpermission_denied\b|\bnot logged in\b|\blogin required\b"
+            + @"|\btoken_expired\b|\brefresh[_ ]token (?:was |has been |is )?(?:revoked|expired|invalid)\b|\b(?:sign|log) ?in again\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _RetryAtPattern = new Regex(

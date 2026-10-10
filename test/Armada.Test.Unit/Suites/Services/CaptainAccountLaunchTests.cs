@@ -280,6 +280,67 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                     finally { Directory.Delete(scratch, true); Directory.Delete(first, true); Directory.Delete(second, true); }
                 });
+
+                await RunTest("A Codex usage read refused with 401 names the login expired and refuses the account until a good read", async () =>
+                {
+                    string scratch = TempDirectory("codex-revoked");
+                    string home = LoggedInHome(AgentRuntimeEnum.Codex);
+                    try
+                    {
+                        long reset = DateTimeOffset.UtcNow.AddDays(2).ToUnixTimeSeconds();
+                        string good = "{\"id\":2,\"result\":{\"ordinaryUsageAllowed\":true,\"rateLimits\":{\"limitId\":\"codex\",\"primary\":{\"usedPercent\":30,\"resetsAt\":" + reset + "}}}}";
+                        string revoked = "{\"id\":2,\"error\":{\"code\":-32603,\"message\":\"failed to fetch rate limits: unexpected status 401 Unauthorized: token_expired: Your refresh token was revoked. Please sign in again.\"}}";
+                        string otherError = "{\"id\":2,\"error\":{\"code\":-32603,\"message\":\"internal error\"}}";
+                        string fake = WriteScript(scratch, "codex", "read line\necho '{\"id\":1,\"result\":{}}'\nread line\nread line\ncat \"$CODEX_HOME/reply.json\"\necho\n");
+                        // The runtime's login status command reads only the stored login file, so it still reports logged in.
+                        string loggedIn = WriteScript(scratch, "codex-status", "echo 'Logged in using ChatGPT'\nexit 0\n");
+                        UsageAccountSettings account = new UsageAccountSettings { Id = "codex-test", Collector = "Codex", Runtime = AgentRuntimeEnum.Codex, HomeDirectory = home, CaptainIds = new List<string> { "codex-captain" } };
+                        UsageRoutingSettings policy = new UsageRoutingSettings
+                        {
+                            Enabled = true, Accounts = new List<UsageAccountSettings> { account },
+                            PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>> { ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = account.Id } } }
+                        };
+                        UsageRoutingService service = new UsageRoutingService
+                        {
+                            LoginProbeExecutable = _ => loggedIn,
+                            ProviderCollector = (a, t) => CodexUsageCollector.CollectAsync(a, fake, t)
+                        };
+                        Captain captain = new Captain("codex-captain") { Id = "codex-captain" };
+                        string replyPath = Path.Combine(home, "reply.json");
+
+                        File.WriteAllText(replyPath, good);
+                        UsageAccountRefreshResult? measured = await service.RefreshAccountAsync(policy, account.Id).ConfigureAwait(false);
+                        AssertEqual("Normal", measured!.Status.State, "a good read measures the account");
+                        AssertEqual(1, measured.Status.Windows.Count);
+
+                        File.WriteAllText(replyPath, revoked);
+                        UsageAccountRefreshResult? rejected = await service.RefreshAccountAsync(policy, account.Id).ConfigureAwait(false);
+                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, rejected!.Reason, "the refused read names the login, not a generic provider error");
+                        ProviderUsageStatus status = service.GetStatus(account, null, DateTime.UtcNow);
+                        AssertEqual("Exhausted", status.State);
+                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, status.Reason, "the status says the account needs sign-in");
+                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, status.CollectionError);
+                        AssertEqual(UsageRoutingService.HoldKindAuth, status.HoldKind);
+                        AssertNull(status.ExhaustedUntilUtc, "a login hold has no expiry");
+                        AssertEqual(0, status.Windows.Count, "windows measured before the rejection are dropped from the status");
+                        AssertEqual(UsageRoutingService.OutcomeRemoved, service.ClassifyCaptain(policy, new Mission { Persona = "Worker" }, captain, Array.Empty<string>(), DateTime.UtcNow).Outcome, "the account is not routed");
+                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, service.GetLoginProblem(account, DateTime.UtcNow), "the launch check refuses the account although its status command reports logged in");
+
+                        File.WriteAllText(replyPath, good);
+                        UsageAccountRefreshResult? recovered = await service.RefreshAccountAsync(policy, account.Id).ConfigureAwait(false);
+                        AssertTrue(recovered!.Collected, "the next read succeeds");
+                        AssertEqual("Normal", recovered.Status.State, "a successful read clears the login refusal");
+                        AssertNull(recovered.Status.HoldKind);
+                        AssertNull(service.GetLoginProblem(account, DateTime.UtcNow));
+                        AssertEqual(UsageRoutingService.OutcomeKept, service.ClassifyCaptain(policy, new Mission { Persona = "Worker" }, captain, Array.Empty<string>(), DateTime.UtcNow).Outcome);
+
+                        File.WriteAllText(replyPath, otherError);
+                        UsageAccountRefreshResult? other = await service.RefreshAccountAsync(policy, account.Id).ConfigureAwait(false);
+                        AssertEqual("usage_collector_provider_error", other!.Reason, "an error that is not a login rejection stays a provider error");
+                        AssertNull(service.GetLoginProblem(account, DateTime.UtcNow), "and does not refuse the login");
+                    }
+                    finally { Directory.Delete(scratch, true); Directory.Delete(home, true); }
+                });
             }
 
             string? probeSkip = PosixShellSkipReason(OperatingSystem.IsWindows());

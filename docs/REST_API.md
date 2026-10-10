@@ -5547,4 +5547,5 @@ share one read. The response has `AccountId`, `Collected` (the usage was read),
 `usage_refresh_manual_snapshot`, or the collection error code), `RetryAfterUtc`,
 `LoginProbeRerun`, and `Status`: the account's `State`, `Reason`,
 `ObservedUtc`, `Source`, `CollectionError`, `LoginCheckedUtc`,
-`ExhaustedUntilUtc`, and `Windows`, as in `providerUsage`.
+`ExhaustedUntilUtc`, `HoldKind` (`quota`, `credit`, `auth`, or null), and
+`Windows`, as in `providerUsage`.

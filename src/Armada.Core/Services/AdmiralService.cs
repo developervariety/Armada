@@ -3340,10 +3340,34 @@ namespace Armada.Core.Services
                 TimeSpan quotaRuntime = mission.StartedUtc.HasValue ? DateTime.UtcNow - mission.StartedUtc.Value : TimeSpan.Zero;
                 bool isCreditAuth = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(failureReason);
                 bool isAccountSpendLimit = ProviderQuotaLimitDetector.IsProviderAccountSpendLimitSignal(failureReason);
+                bool isCodexUsageCrash = ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(exitCode, quotaRuntime, failureReason);
+
+                // An authentication failure that names no quota, credit or spend limit is a rejected login, not a spent
+                // allowance: waiting does not restore it, so a captain on a usage account refuses the whole account
+                // until a usage read succeeds or the account signs in again, instead of a timed quota hold that expires
+                // into the same failure. A captain on no account keeps the captain bench below.
+                UsageAccountSettings? loginAccount = !isCodexUsageCrash
+                    && ProviderQuotaLimitDetector.ClassifyProviderFault(failureReason) == RuntimeFailureKindEnum.AuthFailure
+                    ? CaptainAccountLaunch.FindAccount(_Settings.ModelTier.UsageRouting, captain.Id)
+                    : null;
+                if (loginAccount != null)
+                {
+                    await RejectUsageAccountLoginAsync(captain, loginAccount, mission, token).ConfigureAwait(false);
+                    await RerouteRecoverableFailureAsync(captain, mission, missionId, failureReason,
+                        label: "provider authentication failure",
+                        benchReason: "Usage account " + loginAccount.Id + " login was rejected by the provider; sign the account in again.",
+                        benchUntilUtc: null,
+                        rerouteEventKind: "mission.auth_rerouted",
+                        exhaustedReason: "Every compatible captain failed provider authentication after re-routes; " +
+                            "sign the affected accounts in again, then re-dispatch.",
+                        token).ConfigureAwait(false);
+                    return;
+                }
+
                 bool isQuota = ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) ||
                     isCreditAuth ||
                     isAccountSpendLimit ||
-                    ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(exitCode, quotaRuntime, failureReason);
+                    isCodexUsageCrash;
                 if (isQuota)
                 {
                     DateTime? retryAfterUtc = ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(failureReason, captain.Runtime, DateTime.UtcNow);
@@ -3362,7 +3386,12 @@ namespace Armada.Core.Services
                             benchUntil, token).ConfigureAwait(false);
                     }
 
-                    await HoldUsageAccountAsync(captain, retryAfterUtc, token).ConfigureAwait(false);
+                    // A credit or billing limit that names no usage, rate or spend limit is a credit hold; the rest are quota holds.
+                    string holdKind = ProviderQuotaLimitDetector.IsCreditSignal(failureReason)
+                        && !ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) && !isAccountSpendLimit && !isCodexUsageCrash
+                        ? UsageRoutingService.HoldKindCredit
+                        : UsageRoutingService.HoldKindQuota;
+                    await HoldUsageAccountAsync(captain, retryAfterUtc, holdKind, token).ConfigureAwait(false);
                     await HandleQuotaFailureRerouteAsync(captain, mission, missionId, failureReason, isCreditAuth, retryAfterUtc, token).ConfigureAwait(false);
                     return;
                 }
@@ -3819,12 +3848,38 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Hold the failing captain's whole usage account Exhausted until the provider's retry time. Every captain on
-        /// one account shares its allowance and login, so benching only the failed captain lets the re-route land on a
-        /// sibling that fails the same way. Idle siblings are held now; a busy sibling keeps its running mission and
-        /// routing refuses it new work while the account is Exhausted. A captain on no account is unaffected.
+        /// Refuse the failing captain's whole usage account because the provider rejected its login. Every captain on
+        /// the account shares the login, so routing and launch refuse each of them until a usage read succeeds or the
+        /// account signs in again. Sibling captains are not quarantined: the refusal lives on the account and ends the
+        /// moment the login works, where a timed quarantine would outlast the fix. The operator sees an event and an
+        /// error signal naming the account and that it needs sign-in.
         /// </summary>
-        private async Task HoldUsageAccountAsync(Captain failingCaptain, DateTime? retryAfterUtc, CancellationToken token)
+        private async Task RejectUsageAccountLoginAsync(Captain failingCaptain, UsageAccountSettings account, Mission mission, CancellationToken token)
+        {
+            UsageRoutingService.For(_Settings).MarkAccountLoginRejected(account.Id);
+            string message = "Usage account " + account.Id + " needs sign-in: the provider rejected its login when captain " +
+                failingCaptain.Id + " ran mission " + mission.Id + ". No captain on the account receives work until a usage " +
+                "read succeeds or the account is signed in again.";
+            _Logging.Warn(_Header + message);
+            await EmitEventAsync(UsageAccountLoginRejectedEvent, message,
+                entityType: "usage_account", entityId: account.Id,
+                captainId: failingCaptain.Id, missionId: mission.Id,
+                vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+            Signal signal = new Signal(SignalTypeEnum.Error, message);
+            signal.FromCaptainId = failingCaptain.Id;
+            await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Event recorded when a captain's authentication failure refuses its usage account until sign-in.</summary>
+        internal const string UsageAccountLoginRejectedEvent = "usage_account.login_rejected";
+
+        /// <summary>
+        /// Hold the failing captain's whole usage account Exhausted until the provider's retry time. Every captain on
+        /// one account shares its allowance, so benching only the failed captain lets the re-route land on a sibling
+        /// that fails the same way. Idle siblings are held now; a busy sibling keeps its running mission and routing
+        /// refuses it new work while the account is Exhausted. A captain on no account is unaffected.
+        /// </summary>
+        private async Task HoldUsageAccountAsync(Captain failingCaptain, DateTime? retryAfterUtc, string holdKind, CancellationToken token)
         {
             UsageAccountSettings? account = CaptainAccountLaunch.FindAccount(_Settings.ModelTier.UsageRouting, failingCaptain.Id);
             if (account == null) return;
@@ -3833,10 +3888,10 @@ namespace Armada.Core.Services
             DateTime untilUtc = retryAfterUtc.HasValue && retryAfterUtc.Value.ToUniversalTime() > nowUtc
                 ? retryAfterUtc.Value.ToUniversalTime()
                 : nowUtc.AddSeconds(_Settings.CaptainQuarantine.DefaultBackoffSeconds);
-            UsageRoutingService.For(_Settings).MarkAccountExhausted(account.Id, untilUtc);
+            UsageRoutingService.For(_Settings).MarkAccountExhausted(account.Id, untilUtc, holdKind);
 
             string reason = "Usage account " + account.Id + " is exhausted: captain " + failingCaptain.Id +
-                " hit a provider quota, billing, or authentication limit.";
+                " hit a provider " + holdKind + " limit.";
             AuthContext siblingScope = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "Internal");
             int held = 0;
             int busy = 0;
@@ -3859,7 +3914,7 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "usage account hold: could not hold captain " + siblingId + ": " + ex.Message);
                 }
             }
-            _Logging.Warn(_Header + "usage account " + account.Id + " held Exhausted until " +
+            _Logging.Warn(_Header + "usage account " + account.Id + " held Exhausted (" + holdKind + ") until " +
                 untilUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture) + " after captain " + failingCaptain.Id +
                 " failed; held " + held + " idle sibling(s), " + busy + " busy sibling(s) keep their running mission");
         }

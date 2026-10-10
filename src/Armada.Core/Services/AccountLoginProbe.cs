@@ -23,8 +23,17 @@ namespace Armada.Core.Services
     {
         #region Public-Members
 
-        /// <summary>The login file is present but the runtime reports the home as not logged in: expired or revoked.</summary>
+        /// <summary>
+        /// The runtime reports the home as not logged in, or the provider rejected the stored login (an expired or
+        /// revoked token) when its usage was read: either way only a new login clears it.
+        /// </summary>
         public const string ReasonLoginExpired = "account_login_expired";
+
+        /// <summary>
+        /// A captain on the account failed with a provider authentication error that is not a quota or credit limit.
+        /// The account stays refused until a successful usage read or a new login.
+        /// </summary>
+        public const string ReasonLoginRejected = "account_login_rejected";
 
         /// <summary>The status command did not finish within its timeout.</summary>
         public const string ReasonProbeTimeout = "account_login_probe_timeout";

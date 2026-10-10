@@ -541,13 +541,50 @@ Probes run in the background. Dispatch, status, and preview read the last
 result and never wait for a probe, so a hanging CLI cannot stall the scheduler.
 Until an account's first probe finishes, only the file check applies. Command
 output is read only to decide the result; it is never logged or returned. The
-probe cannot detect a revoked OpenCode credential or an invalid Cursor key; the
-first launch that fails on authentication then holds the account, as described
-below.
+probe cannot detect a revoked OpenCode credential or an invalid Cursor key, and
+`codex login status` reads only the stored `auth.json`, so it reports a Codex
+login whose refresh token the provider revoked as ready. Two other signals catch
+those logins, as described below.
 
-When a captain fails on a quota, billing, or authentication signal, Armada holds
+### Login refused by the provider
+
+A login the provider rejects refuses the **whole account** until it works again.
+Two signals set the refusal:
+
+- **The usage read.** When `codex app-server` answers `account/rateLimits/read`
+  with an error that is a credential rejection (HTTP 401, `token_expired`, a
+  revoked or expired refresh token, "sign in again"), the collection error and
+  the status reason are `account_login_expired`. Any other provider error stays
+  `usage_collector_provider_error` and refuses nothing.
+- **A captain's run.** When a captain on an account fails with an authentication
+  error (HTTP 401 or 403, "unauthorized", a revoked token, "sign in again") that
+  names no quota, rate, credit, or spend limit, the status reason is
+  `account_login_rejected`. Armada records a `usage_account.login_rejected` event
+  for the account and an error signal, both saying the account needs sign-in.
+  The mission is re-routed to a compatible captain on another account
+  (`mission.auth_rerouted`). The failing captain is benched for the default
+  backoff; sibling captains are not quarantined.
+
+A refused account is `Exhausted` with that reason and `holdKind` `auth`. It has
+no `exhaustedUntilUtc`: waiting does not restore a login. Its status drops the
+windows measured before the refusal. Routing gives none of its captains work and
+the launch check refuses them. The login status route reports `loginReady:
+false` with the reason, and the Dashboard shows the account as not logged in.
+The next successful usage read of the account, or a completed login, clears the
+refusal. An account with a `Manual` or `File` collector has no usage read that
+proves its login, so only a new login clears it. A captain on no account keeps
+the captain bench described below.
+
+### Quota and credit holds
+
+When a captain fails on a quota, rate, spend, or credit signal, Armada holds
 its **whole account** Exhausted until the provider's retry time (reason
-`account_provider_failure`, with `exhaustedUntilUtc`). A throttle (HTTP 429,
+`account_provider_failure`, with `exhaustedUntilUtc`). The status names the
+hold's kind in `holdKind`: `credit` for a credit, balance, or billing limit that
+names no usage limit, `quota` otherwise. A usage read in which the provider
+reports that it serves ordinary usage with no limit reached (Codex
+`ordinaryUsageAllowed: true`) ends a `quota` hold at once; a `credit` hold keeps
+its time, because a usage meter does not measure a balance. A throttle (HTTP 429,
 "too many requests") or a provider overload (HTTP 529, "overloaded") is a
 provider signal too, and by design it is handled like a quota: the captain is
 benched and the mission re-routed, rather than retried on the same captain. When
@@ -559,8 +596,10 @@ toward crash-loop quarantine. The bench decision and the crash-loop classifier
 read the same provider signatures. Idle captains on the same
 account are quarantined until then, so the re-routed mission cannot land on
 them. A busy captain on the account keeps its running mission, and routing gives
-it no new work while the hold lasts. The hold is kept in memory and ends at a
-restart. An operator override replaces it.
+it no new work while the hold lasts. Holds and login refusals are kept in
+memory and end at a restart. An operator override replaces a quota or credit
+hold; it does not replace a login refusal, because a captain cannot run on a
+rejected login.
 
 ## Unknown data and overrides
 
@@ -734,10 +773,15 @@ an account with no captains together with its server-derived folder; see
 the shared login, as before. A missing login blocks the account with a named
 reason. Claude Code and Codex accounts also run the runtime's login status
 command in the background, so an expired or revoked login reads
-`account_login_expired`. When such an account removes every remaining captain, the
-routing decision reason (usage preview `reason`, and the deferred-mission log)
-is that account code. A quota, billing, or authentication failure on one captain holds the
-whole account Exhausted and quarantines its idle captains until the retry time.
+`account_login_expired`. A Codex usage read the provider refuses with a
+credential rejection reads `account_login_expired` too, and a captain's
+authentication failure reads `account_login_rejected`; both refuse the account
+until a successful usage read or a new login (see
+[Login refused by the provider](#login-refused-by-the-provider)). When such an
+account removes every remaining captain, the routing decision reason (usage
+preview `reason`, and the deferred-mission log) is that account code. A quota or
+credit failure on one captain holds the whole account Exhausted and quarantines
+its idle captains until the retry time.
 Rollout of any second subscription account needs an owner decision under the
 provider's terms. See [Account logins](#account-logins).
 

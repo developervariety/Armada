@@ -25,7 +25,8 @@ namespace Armada.Core.Services
         private readonly Dictionary<string, bool> _Conserving = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, DateTime> _RetryAfter = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> _AccountSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, DateTime> _ExhaustedUntil = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, AccountHold> _Holds = new Dictionary<string, AccountHold>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _LoginRejections = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, LoginProbeState> _LoginProbes = new Dictionary<string, LoginProbeState>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Task> _InFlight = new Dictionary<string, Task>(StringComparer.OrdinalIgnoreCase);
         private UsageRoutingSettings? _LastSettings;
@@ -40,6 +41,18 @@ namespace Armada.Core.Services
 
         /// <summary>Reads a provider-measured account (every collector except Manual and File). Replaceable so tests can supply a fake provider.</summary>
         public Func<UsageAccountSettings, CancellationToken, Task<ProviderUsageSnapshot>> ProviderCollector { get; set; } = CollectFromProviderAsync;
+
+        /// <summary>Hold kind: a quota, rate, or spend limit; timed, and cleared early by a read in which the provider serves ordinary usage.</summary>
+        public const string HoldKindQuota = "quota";
+
+        /// <summary>Hold kind: a credit, balance, or billing limit; timed.</summary>
+        public const string HoldKindCredit = "credit";
+
+        /// <summary>Hold kind: the provider rejected the account's login; held until a successful usage read or a new login.</summary>
+        public const string HoldKindAuth = "auth";
+
+        /// <summary>Status reason for a timed quota or credit hold.</summary>
+        public const string ReasonProviderFailureHold = "account_provider_failure";
 
         /// <summary>A hard refresh found an active provider retry-after, so the provider was not called.</summary>
         public const string ReasonRefreshRateLimited = "usage_refresh_rate_limited";
@@ -139,7 +152,7 @@ namespace Armada.Core.Services
                     lock (_StateLock)
                     {
                         HashSet<string> retained = new HashSet<string>(settings.Accounts.Select(a => a.Id), StringComparer.OrdinalIgnoreCase);
-                        foreach (string id in _AccountSources.Keys.Where(id => !retained.Contains(id)).ToList()) { ForgetAccount(id); _ExhaustedUntil.Remove(id); }
+                        foreach (string id in _AccountSources.Keys.Where(id => !retained.Contains(id)).ToList()) { ForgetAccount(id); _Holds.Remove(id); }
                         foreach (string id in _LoginProbes.Keys.Where(id => !retained.Contains(id)).ToList()) _LoginProbes.Remove(id);
                         foreach (UsageAccountSettings account in settings.Accounts)
                         {
@@ -233,7 +246,7 @@ namespace Armada.Core.Services
             lock (_StateLock)
             {
                 ForgetAccount(accountId);
-                _ExhaustedUntil.Remove(accountId);
+                _Holds.Remove(accountId);
                 _LoginProbes.Remove(accountId);
             }
         }
@@ -273,7 +286,17 @@ namespace Armada.Core.Services
                 {
                     ProviderUsageSnapshot measured = await ProviderCollector(account, CancellationToken.None).ConfigureAwait(false);
                     ApplyWindowModels(account, measured);
-                    lock (_StateLock) { _Snapshots[account.Id] = measured; _Errors.Remove(account.Id); }
+                    lock (_StateLock)
+                    {
+                        _Snapshots[account.Id] = measured;
+                        _Errors.Remove(account.Id);
+                        // The provider just served a read on this login, so a login it rejected earlier is usable again.
+                        _LoginRejections.Remove(account.Id);
+                        // The provider's own verdict that it serves ordinary usage ends a quota hold early; a credit
+                        // hold keeps its time, because a usage meter does not measure a balance.
+                        if (measured.ProviderAllowsUsage == true && _Holds.TryGetValue(account.Id, out AccountHold? hold) && hold.Kind == HoldKindQuota)
+                            _Holds.Remove(account.Id);
+                    }
                     return;
                 }
                 using (FileStream stream = new FileStream(account.UsageFilePath!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, true))
@@ -309,6 +332,7 @@ namespace Armada.Core.Services
                         : ex is InvalidDataException && ex.Message.StartsWith("usage_", StringComparison.Ordinal) ? ex.Message
                         : "usage_snapshot_unavailable_or_invalid";
                     if (ex is UsageCollectionException limited && limited.RetryAfterUtc.HasValue) _RetryAfter[account.Id] = limited.RetryAfterUtc.Value;
+                    if (ex is UsageCollectionException rejected && rejected.Code == AccountLoginProbe.ReasonLoginExpired) _LoginRejections[account.Id] = rejected.Code;
                 }
             }
         }
@@ -346,7 +370,7 @@ namespace Armada.Core.Services
 
         private void ForgetAccount(string id)
         {
-            _Snapshots.Remove(id); _Errors.Remove(id); _RetryAfter.Remove(id); _AccountSources.Remove(id);
+            _Snapshots.Remove(id); _Errors.Remove(id); _RetryAfter.Remove(id); _AccountSources.Remove(id); _LoginRejections.Remove(id);
             foreach (string key in _Conserving.Keys.Where(key => key.StartsWith(id + "\n", StringComparison.OrdinalIgnoreCase)).ToList()) _Conserving.Remove(key);
         }
 
@@ -465,29 +489,54 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Mark a whole account Exhausted until the provider's retry time, after one of its captains failed on a quota,
-        /// billing, or authentication signal. Every captain on the account shares the same allowance and login, so the
-        /// next one would fail the same way. An operator override still wins; a later mark never shortens an earlier one.
+        /// Mark a whole account Exhausted until the provider's retry time, after one of its captains failed on a quota or
+        /// credit signal. Every captain on the account shares the same allowance, so the next one would fail the same
+        /// way. An operator override still wins; a later mark never shortens an earlier one. The hold keeps its kind, so
+        /// the status names it and a read in which the provider serves ordinary usage can end a quota hold early.
         /// </summary>
-        public void MarkAccountExhausted(string accountId, DateTime untilUtc)
+        /// <param name="accountId">Account identifier.</param>
+        /// <param name="untilUtc">When the hold ends.</param>
+        /// <param name="kind"><see cref="HoldKindQuota"/> or <see cref="HoldKindCredit"/>.</param>
+        public void MarkAccountExhausted(string accountId, DateTime untilUtc, string kind = HoldKindQuota)
         {
             if (String.IsNullOrWhiteSpace(accountId)) throw new ArgumentException("Account ID is required.", nameof(accountId));
+            if (kind != HoldKindQuota && kind != HoldKindCredit) throw new ArgumentException("A timed account hold is a quota or credit hold.", nameof(kind));
             DateTime until = untilUtc.Kind == DateTimeKind.Utc ? untilUtc : DateTime.SpecifyKind(untilUtc.ToUniversalTime(), DateTimeKind.Utc);
             lock (_StateLock)
-                if (!_ExhaustedUntil.TryGetValue(accountId, out DateTime existing) || existing < until) _ExhaustedUntil[accountId] = until;
+                if (!_Holds.TryGetValue(accountId, out AccountHold? existing) || existing.UntilUtc < until) _Holds[accountId] = new AccountHold { Kind = kind, UntilUtc = until };
+        }
+
+        /// <summary>
+        /// Refuse a whole account because the provider rejected its login, after one of its captains failed with an
+        /// authentication error that is not a quota or credit limit. Every captain on the account shares the login, so
+        /// each would fail the same way. The refusal has no expiry: a successful usage read or a new login
+        /// (<see cref="InvalidateLoginProbe"/>) clears it. Until then <see cref="GetLoginProblem"/> names it.
+        /// </summary>
+        /// <param name="accountId">Account identifier.</param>
+        public void MarkAccountLoginRejected(string accountId)
+        {
+            if (String.IsNullOrWhiteSpace(accountId)) throw new ArgumentException("Account ID is required.", nameof(accountId));
+            lock (_StateLock)
+                // A rejection the usage read already named stays as the more specific reason.
+                if (!_LoginRejections.ContainsKey(accountId)) _LoginRejections[accountId] = AccountLoginProbe.ReasonLoginRejected;
         }
 
         /// <summary>
         /// Return the account's login problem, or null when its login is usable or it has no login binding. The file or
-        /// variable check runs first. For runtimes with a status command, the last probe result is returned and a stale
-        /// or missing one starts a background probe; this call never waits for a probe, so a scheduler tick is never
-        /// blocked. Before the first probe finishes, only the file check applies.
+        /// variable check runs first. A login the provider rejected (on a usage read or a captain's run) comes next, for
+        /// every account, because a runtime's status command reads only the stored login and cannot see a revoked
+        /// token. For runtimes with a status command, the last probe result is returned and a stale or missing one
+        /// starts a background probe; this call never waits for a probe, so a scheduler tick is never blocked. Before
+        /// the first probe finishes, only the file check and a provider rejection apply.
         /// </summary>
         public string? GetLoginProblem(UsageAccountSettings account, DateTime now)
         {
             if (account == null) throw new ArgumentNullException(nameof(account));
             string? fileProblem = CaptainAccountLaunch.CheckReadiness(account);
-            if (fileProblem != null || !CaptainAccountLaunch.HasLaunchIdentity(account) || !AccountLoginProbe.HasStatusCommand(account.Runtime!.Value)) return fileProblem;
+            if (fileProblem != null) return fileProblem;
+            string? rejected;
+            lock (_StateLock) _LoginRejections.TryGetValue(account.Id, out rejected);
+            if (!CaptainAccountLaunch.HasLaunchIdentity(account) || !AccountLoginProbe.HasStatusCommand(account.Runtime!.Value)) return rejected;
             UsageRoutingSettings? settings = _LastSettings;
             TimeSpan interval = TimeSpan.FromMinutes(settings?.LoginProbeIntervalMinutes ?? 10);
             TimeSpan timeout = TimeSpan.FromSeconds(settings?.LoginProbeTimeoutSeconds ?? 10);
@@ -509,12 +558,13 @@ namespace Armada.Core.Services
                 }
             }
             if (start) StartLoginProbe(account, state, timeout);
-            lock (_StateLock) return state.Reason;
+            lock (_StateLock) return rejected ?? state.Reason;
         }
 
         /// <summary>
-        /// Discard the account's cached login probe result, so the next login check starts a fresh probe. Called after a
-        /// login completes, so a stale "expired" result does not outlive the new login.
+        /// Discard the account's cached login probe result and any login rejection the provider reported, so the next
+        /// login check starts a fresh probe. Called after a login completes, so a stale "expired" or "rejected" result
+        /// does not outlive the new login.
         /// </summary>
         public void InvalidateLoginProbe(string accountId)
         {
@@ -523,6 +573,8 @@ namespace Armada.Core.Services
             {
                 // A running probe keeps its state object; replacing the entry makes its late result land nowhere.
                 _LoginProbes.Remove(accountId);
+                _LoginRejections.Remove(accountId);
+                if (_Errors.TryGetValue(accountId, out string? error) && error == AccountLoginProbe.ReasonLoginExpired) _Errors.Remove(accountId);
             }
         }
 
@@ -550,6 +602,9 @@ namespace Armada.Core.Services
                 {
                     result.State = "Exhausted";
                     result.Reason = loginProblem;
+                    if (_LoginRejections.ContainsKey(account.Id)) result.HoldKind = HoldKindAuth;
+                    // Windows measured on a login that no longer works describe nothing the account can use.
+                    result.Windows = new List<ProviderUsageWindow>();
                     return result;
                 }
                 if (account.OverrideState != null && account.OverrideUntilUtc > now)
@@ -558,11 +613,12 @@ namespace Armada.Core.Services
                     result.Reason = "operator_override";
                     return result;
                 }
-                if (_ExhaustedUntil.TryGetValue(account.Id, out DateTime exhaustedUntil) && exhaustedUntil > now)
+                if (_Holds.TryGetValue(account.Id, out AccountHold? hold) && hold.UntilUtc > now)
                 {
                     result.State = "Exhausted";
-                    result.Reason = "account_provider_failure";
-                    result.ExhaustedUntilUtc = exhaustedUntil;
+                    result.Reason = ReasonProviderFailureHold;
+                    result.HoldKind = hold.Kind;
+                    result.ExhaustedUntilUtc = hold.UntilUtc;
                     return result;
                 }
                 bool stale = snapshot == null || snapshot.ObservedUtc > now || snapshot.ObservedUtc.AddMinutes(account.MaxAgeMinutes) <= now;
@@ -787,6 +843,12 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Classes
+
+        private sealed class AccountHold
+        {
+            public string Kind { get; set; } = HoldKindQuota;
+            public DateTime UntilUtc { get; set; }
+        }
 
         private sealed class LoginProbeState
         {

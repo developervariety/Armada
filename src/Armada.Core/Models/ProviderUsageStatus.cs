@@ -33,8 +33,15 @@ namespace Armada.Core.Models
         /// <summary>When the runtime's login status command last reported on this account's home, or null before any probe.</summary>
         public DateTime? LoginCheckedUtc { get; set; }
 
-        /// <summary>When a quota, billing, or authentication failure on one captain holds the whole account Exhausted.</summary>
+        /// <summary>When a quota or credit failure on one captain holds the whole account Exhausted. Null for a login hold, which has no expiry.</summary>
         public DateTime? ExhaustedUntilUtc { get; set; }
+
+        /// <summary>
+        /// Kind of the account hold in force: <c>quota</c> or <c>credit</c> (timed, see <see cref="ExhaustedUntilUtc"/>),
+        /// or <c>auth</c> (the provider rejected the login; held until a successful usage read or a new login). Null
+        /// when no hold applies.
+        /// </summary>
+        public string? HoldKind { get; set; }
 
         /// <summary>Last known usage windows; inspect measurement time before use.</summary>
         public List<ProviderUsageWindow> Windows { get; set; } = new List<ProviderUsageWindow>();

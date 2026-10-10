@@ -445,6 +445,69 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("Unknown", status.State);
                 await service.RefreshAsync(policy);
             });
+            await RunTest("A captain login rejection refuses the account without expiry until a successful read or a new login", async () =>
+            {
+                UsageAccountSettings account = new UsageAccountSettings { Id = "codex-test", Collector = "Codex", CaptainIds = new List<string> { "codex-test" } };
+                UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true, Accounts = new List<UsageAccountSettings> { account } };
+                UsageRoutingService service = new UsageRoutingService { ProviderCollector = (_, _) => Task.FromResult(MeasuredSnapshot(80)) };
+                Captain captain = new Captain("codex-test") { Id = "codex-test" };
+
+                service.MarkAccountLoginRejected(account.Id);
+                ProviderUsageStatus status = service.GetStatus(account, null, DateTime.UtcNow.AddDays(1));
+                AssertEqual("Exhausted", status.State, "the refusal does not expire on a timer");
+                AssertEqual(AccountLoginProbe.ReasonLoginRejected, status.Reason);
+                AssertEqual(UsageRoutingService.HoldKindAuth, status.HoldKind);
+                AssertNull(status.ExhaustedUntilUtc);
+                AssertEqual(UsageRoutingService.OutcomeRemoved, service.ClassifyCaptain(policy, new Mission { Persona = "Worker" }, captain, Array.Empty<string>(), DateTime.UtcNow).Outcome);
+
+                UsageAccountRefreshResult? read = await service.RefreshAccountAsync(policy, account.Id);
+                AssertTrue(read!.Collected);
+                AssertEqual("Normal", read.Status.State, "a successful usage read clears the refusal");
+                AssertNull(read.Status.HoldKind);
+
+                service.MarkAccountLoginRejected(account.Id);
+                AssertEqual(AccountLoginProbe.ReasonLoginRejected, service.GetLoginProblem(account, DateTime.UtcNow));
+                service.InvalidateLoginProbe(account.Id);
+                AssertNull(service.GetLoginProblem(account, DateTime.UtcNow), "a new login clears the refusal");
+                AssertEqual("Normal", service.GetStatus(account, null, DateTime.UtcNow).State);
+            });
+            await RunTest("A quota hold names its kind and ends early when the provider serves ordinary usage; a credit hold keeps its time", async () =>
+            {
+                UsageAccountSettings account = new UsageAccountSettings { Id = "codex-test", Collector = "Codex", CaptainIds = new List<string> { "codex-test" } };
+                UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true, Accounts = new List<UsageAccountSettings> { account } };
+                bool? allows = null;
+                UsageRoutingService service = new UsageRoutingService
+                {
+                    ProviderCollector = (_, _) => { ProviderUsageSnapshot snapshot = MeasuredSnapshot(80); snapshot.ProviderAllowsUsage = allows; return Task.FromResult(snapshot); }
+                };
+                DateTime until = DateTime.UtcNow.AddMinutes(30);
+
+                service.MarkAccountExhausted(account.Id, until);
+                ProviderUsageStatus held = service.GetStatus(account, null, DateTime.UtcNow);
+                AssertEqual("Exhausted", held.State);
+                AssertEqual(UsageRoutingService.ReasonProviderFailureHold, held.Reason);
+                AssertEqual(UsageRoutingService.HoldKindQuota, held.HoldKind);
+                AssertEqual(until, held.ExhaustedUntilUtc!.Value);
+
+                await service.RefreshAccountAsync(policy, account.Id);
+                AssertEqual(UsageRoutingService.HoldKindQuota, service.GetStatus(account, null, DateTime.UtcNow).HoldKind, "a read without the provider's verdict keeps the hold");
+                allows = false;
+                await service.RefreshAccountAsync(policy, account.Id);
+                AssertEqual(UsageRoutingService.HoldKindQuota, service.GetStatus(account, null, DateTime.UtcNow).HoldKind, "a provider that refuses keeps the hold");
+                allows = true;
+                await service.RefreshAccountAsync(policy, account.Id);
+                ProviderUsageStatus released = service.GetStatus(account, null, DateTime.UtcNow);
+                AssertEqual("Normal", released.State, "the provider serving ordinary usage ends the quota hold");
+                AssertNull(released.HoldKind);
+                AssertNull(released.ExhaustedUntilUtc);
+
+                service.MarkAccountExhausted(account.Id, until, UsageRoutingService.HoldKindCredit);
+                await service.RefreshAccountAsync(policy, account.Id);
+                ProviderUsageStatus credit = service.GetStatus(account, null, DateTime.UtcNow);
+                AssertEqual("Exhausted", credit.State, "a usage meter does not measure a balance, so a credit hold keeps its time");
+                AssertEqual(UsageRoutingService.HoldKindCredit, credit.HoldKind);
+                AssertThrows<ArgumentException>(() => service.MarkAccountExhausted(account.Id, until, UsageRoutingService.HoldKindAuth), "a login refusal is never a timed hold");
+            });
             await RunTest("Cursor API captains lead their own list group only while their measured pool has usage", async () =>
             {
                 DateTime now = DateTime.UtcNow;

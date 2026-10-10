@@ -78,7 +78,8 @@ namespace Armada.Core.Services
         public static ProviderUsageSnapshot Parse(string json, DateTime observedUtc)
         {
             Reply reply = JsonSerializer.Deserialize<Reply>(json, _Json) ?? throw new InvalidDataException();
-            if (reply.Error != null || reply.Result == null) throw new InvalidDataException("usage_collector_provider_error");
+            if (reply.Error != null) throw ProviderFailure(reply.Error);
+            if (reply.Result == null) throw new InvalidDataException("usage_collector_provider_error");
             Dictionary<string, Bucket> buckets = reply.Result.RateLimitsByLimitId ?? new Dictionary<string, Bucket>();
             if (buckets.Count == 0 && reply.Result.RateLimits != null) buckets[reply.Result.RateLimits.LimitId ?? "account"] = reply.Result.RateLimits;
             ProviderUsageSnapshot snapshot = new ProviderUsageSnapshot { ObservedUtc = observedUtc, Source = "codex_app_server" };
@@ -128,11 +129,24 @@ namespace Armada.Core.Services
                 Reply? reply = JsonSerializer.Deserialize<Reply>(text, _Json);
                 if (reply?.Id == id)
                 {
-                    if (reply.Error != null) throw new InvalidDataException("usage_collector_provider_error");
+                    if (reply.Error != null) throw ProviderFailure(reply.Error);
                     return text;
                 }
             }
             throw new InvalidDataException("usage_collector_output_limit");
+        }
+
+        /// <summary>
+        /// Name a provider error reply. A rejected login (HTTP 401, an expired or revoked token, a request to sign in
+        /// again) is <see cref="AccountLoginProbe.ReasonLoginExpired"/>, because only a new login clears it; the
+        /// runtime's own login status command reads the stored login file and cannot see the rejection. Any other
+        /// error stays a generic provider error. The provider text decides the reason and is never returned.
+        /// </summary>
+        private static Exception ProviderFailure(ProviderError error)
+        {
+            string text = error.Code + " " + (error.Message ?? String.Empty) + " " + (error.Data.HasValue ? error.Data.Value.GetRawText() : String.Empty);
+            if (error.Code == 401 || ProviderQuotaLimitDetector.IsAuthFailureSignal(text)) return new UsageCollectionException(AccountLoginProbe.ReasonLoginExpired);
+            return new InvalidDataException("usage_collector_provider_error");
         }
 
         private static async Task DrainAsync(StreamReader reader, CancellationToken token)
@@ -147,7 +161,12 @@ namespace Armada.Core.Services
             public Result? Result { get; set; }
             public ProviderError? Error { get; set; }
         }
-        private sealed class ProviderError { public int Code { get; set; } }
+        private sealed class ProviderError
+        {
+            public int Code { get; set; }
+            public string? Message { get; set; }
+            public JsonElement? Data { get; set; }
+        }
         private sealed class Result
         {
             public bool? OrdinaryUsageAllowed { get; set; }

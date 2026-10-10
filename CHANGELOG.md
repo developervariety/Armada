@@ -9,6 +9,19 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A usage account whose login the provider rejects reads as needing sign-in,
+  not Exhausted on a timer. A Codex usage read refused with a credential
+  rejection (HTTP 401, an expired or revoked token, "sign in again") names
+  `account_login_expired` instead of a generic provider error. A captain's
+  authentication failure that names no quota or credit limit refuses its
+  account as `account_login_rejected`, records a `usage_account.login_rejected`
+  event and an error signal, re-routes the mission, and no longer starts a
+  timed quota hold or quarantines sibling captains. A refused account drops its
+  stale windows from the status, is not routed or launched, and recovers on the
+  next successful usage read or a new login. Account holds name their kind
+  (`quota`, `credit`, `auth`) in `holdKind`, and a usage read in which the
+  provider serves ordinary usage ends a quota hold early.
+
 - Objective preflight Q1 resolves parent-relative citations only through a
   sibling that is both declared by the target vessel and required by the
   objective. It checks the cited file against that sibling repository's

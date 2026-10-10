@@ -852,6 +852,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ProviderUsageStatus status = usage.GetStatus(settings.ModelTier.UsageRouting.Accounts[0], null, DateTime.UtcNow);
                     AssertEqual("Exhausted", status.State, "The whole account is Exhausted");
                     AssertEqual("account_provider_failure", status.Reason);
+                    AssertEqual(UsageRoutingService.HoldKindQuota, status.HoldKind, "The hold names its kind");
                     AssertTrue(status.ExhaustedUntilUtc > DateTime.UtcNow, "The hold lasts until the retry time");
                     AssertFalse(usage.GetStatus(settings.ModelTier.UsageRouting.Accounts[1], null, DateTime.UtcNow).State == "Exhausted", "The other account is not held");
 
@@ -862,6 +863,88 @@ namespace Armada.Test.Unit.Suites.Services
                         new List<Captain> { freed, otherAfter }, Array.Empty<string>(), DateTime.UtcNow);
                     AssertEqual(1, decision.Candidates.Count, "Only the captain on the other account is a candidate");
                     AssertEqual(other.Id, decision.Candidates[0].Id);
+                }
+            });
+
+            await RunTest("HandleProcessExitAsync AuthFailureOnAccountCaptain RefusesAccountUntilSignInWithoutTimedHold", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxRecoveryAttempts = 3;
+                    settings.MinIdleCaptains = 0;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    Captain failing = new Captain("account-first") { Model = "shared-model", State = CaptainStateEnum.Working, ProcessId = 5252 };
+                    Captain sibling = new Captain("account-second") { Model = "shared-model", State = CaptainStateEnum.Idle };
+                    Captain other = new Captain("other-account") { Model = "shared-model", State = CaptainStateEnum.Idle };
+                    await db.Captains.CreateAsync(failing);
+                    await db.Captains.CreateAsync(sibling);
+                    await db.Captains.CreateAsync(other);
+                    settings.ModelTier.UsageRouting = new UsageRoutingSettings
+                    {
+                        Enabled = true,
+                        Accounts = new List<UsageAccountSettings>
+                        {
+                            new UsageAccountSettings { Id = "shared", CaptainIds = new List<string> { failing.Id, sibling.Id } },
+                            new UsageAccountSettings { Id = "separate", CaptainIds = new List<string> { other.Id } }
+                        },
+                        PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>>
+                        {
+                            ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "shared" }, new UsageRouteSettings { AccountId = "separate" } }
+                        }
+                    };
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Voyage voyage = new Voyage("Account login voyage") { Status = VoyageStatusEnum.InProgress };
+                    await db.Voyages.CreateAsync(voyage);
+                    Mission mission = new Mission("Account login mission")
+                    {
+                        VoyageId = voyage.Id,
+                        Persona = "Worker",
+                        Status = MissionStatusEnum.InProgress,
+                        AssignmentState = MissionAssignmentStateEnum.Assigned,
+                        ProcessId = 5252
+                    };
+                    await db.Missions.CreateAsync(mission);
+                    failing.CurrentMissionId = mission.Id;
+                    await db.Captains.UpdateAsync(failing);
+
+                    string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                    Directory.CreateDirectory(missionLogDir);
+                    await File.WriteAllTextAsync(
+                        Path.Combine(missionLogDir, mission.Id + ".log"),
+                        "[stderr] unexpected status 401 Unauthorized: Your refresh token was revoked. Please sign in again.\n[2026-04-02 23:49:03] Agent exited with code 1").ConfigureAwait(false);
+
+                    await service.HandleProcessExitAsync(5252, 1, failing.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? missionAfter = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Captain? siblingAfter = await db.Captains.ReadAsync(sibling.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, missionAfter!.Status, "The mission is re-routed, not failed");
+                    AssertEqual(CaptainStateEnum.Idle, siblingAfter!.State, "A sibling is not quarantined on a timer; the refusal lives on the account");
+
+                    UsageRoutingService usage = UsageRoutingService.For(settings);
+                    ProviderUsageStatus status = usage.GetStatus(settings.ModelTier.UsageRouting.Accounts[0], null, DateTime.UtcNow);
+                    AssertEqual(AccountLoginProbe.ReasonLoginRejected, status.Reason, "The account needs sign-in, not a quota wait");
+                    AssertEqual(UsageRoutingService.HoldKindAuth, status.HoldKind);
+                    AssertNull(status.ExhaustedUntilUtc, "No timed quota hold is started");
+                    AssertEqual(AccountLoginProbe.ReasonLoginRejected, usage.GetStatus(settings.ModelTier.UsageRouting.Accounts[0], null, DateTime.UtcNow.AddSeconds(settings.CaptainQuarantine.DefaultBackoffSeconds + 60)).Reason,
+                        "The refusal outlasts the default backoff, so the next mission is not routed to the dead login");
+                    AssertFalse(usage.GetStatus(settings.ModelTier.UsageRouting.Accounts[1], null, DateTime.UtcNow).State == "Exhausted", "The other account is not refused");
+
+                    UsageRoutingDecision decision = SmartRoutingTestSelect.Select(usage, settings.ModelTier.UsageRouting, new Mission { Persona = "Worker" },
+                        new List<Captain> { siblingAfter, other }, Array.Empty<string>(), DateTime.UtcNow);
+                    AssertEqual(1, decision.Candidates.Count, "Only the captain on the other account is a candidate");
+                    AssertEqual(other.Id, decision.Candidates[0].Id);
+
+                    EnumerationResult<ArmadaEvent> events = await db.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
+                    ArmadaEvent? rejected = events.Objects.FirstOrDefault(e => e.EventType == AdmiralService.UsageAccountLoginRejectedEvent);
+                    AssertNotNull(rejected, "The operator sees an event for the account");
+                    AssertEqual("shared", rejected!.EntityId);
+                    AssertTrue(rejected.Message.Contains("needs sign-in", StringComparison.Ordinal), "The event says the account needs sign-in: " + rejected.Message);
+                    AssertTrue(events.Objects.Any(e => e.EventType == "mission.auth_rerouted" && e.MissionId == mission.Id), "The mission re-route is recorded");
                 }
             });
 
