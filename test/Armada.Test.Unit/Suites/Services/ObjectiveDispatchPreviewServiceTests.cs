@@ -1364,7 +1364,9 @@ namespace Armada.Test.Unit.Suites.Services
                     objective.Preparation.StageSkip = new StageSkipRequest
                     {
                         Stages = new List<string> { "Judge" },
-                        ConfirmedBy = "UnitTest"
+                        ConfirmedBy = "UnitTest",
+                        ConfirmedUtc = DateTime.UtcNow,
+                        OperatorConfirmationId = Guid.NewGuid().ToString("N")
                     };
                     await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
 
