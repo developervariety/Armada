@@ -65,6 +65,23 @@ namespace Armada.Test.Unit.Suites.Services
             };
         }
 
+        private static UsageAccountSettings CursorAccount(DateTime now, double cursorModelsRemaining, double thirdPartyRemaining)
+        {
+            return new UsageAccountSettings
+            {
+                Id = "cursor", Collector = "Cursor",
+                ManualSnapshot = new ProviderUsageSnapshot
+                {
+                    ObservedUtc = now, Source = "test",
+                    Windows = new List<ProviderUsageWindow>
+                    {
+                        new ProviderUsageWindow { Name = "cursor_models", RemainingPercent = cursorModelsRemaining, ResetsUtc = now.AddDays(1) },
+                        new ProviderUsageWindow { Name = "third_party", RemainingPercent = thirdPartyRemaining, ResetsUtc = now.AddDays(1) }
+                    }
+                }
+            };
+        }
+
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
@@ -363,6 +380,55 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("Normal", service.GetStatus(account, "composer-2.5", now).State);
                 AssertEqual("Normal", service.GetStatus(account, "cursor-grok-4.7-high", now).State);
                 AssertEqual("Exhausted", service.GetStatus(account, "gpt-5.6-luna", now).State);
+            });
+            await RunTest("A Cursor model spills into the third-party pool once the Cursor-models pool is spent", async () =>
+            {
+                DateTime now = DateTime.UtcNow;
+                UsageAccountSettings account = CursorAccount(now, cursorModelsRemaining: 0, thirdPartyRemaining: 40);
+                UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true, Accounts = new List<UsageAccountSettings> { account } };
+                UsageRoutingService service = new UsageRoutingService { ProviderCollector = (_, _) => Task.FromResult(account.ManualSnapshot!) };
+                await service.RefreshAsync(policy);
+
+                ProviderUsageStatus composer = service.GetStatus(account, "composer-2.5", now);
+                AssertEqual("Low", composer.State, "a spent Cursor-models pool with spill-over room is conserved, not exhausted");
+                AssertEqual("cursor_models_spent_third_party_spill", composer.Reason);
+                AssertEqual("Low", service.GetStatus(account, "grok-4.7-medium", now).State, "grok spills over like composer");
+                AssertEqual("Normal", service.GetStatus(account, "gpt-6-luna", now).State, "a third-party model reads its own pool");
+
+                account.ManualSnapshot!.Windows[1].RemainingPercent = 5;
+                await service.RefreshAsync(policy);
+                AssertEqual("Reserve", service.GetStatus(account, "composer-2.5", now).State, "the spill-over pool's own severity carries through");
+
+                account.ManualSnapshot.Windows[1].RemainingPercent = 0;
+                await service.RefreshAsync(policy);
+                AssertEqual("Exhausted", service.GetStatus(account, "composer-2.5", now).State, "both pools spent");
+                AssertEqual("Exhausted", service.GetStatus(account, "grok-4.7-medium", now).State, "both pools spent");
+            });
+            await RunTest("A grok model is a Cursor model whatever its prefix and never reads as a third-party API captain", async () =>
+            {
+                DateTime now = DateTime.UtcNow;
+                UsageAccountSettings account = CursorAccount(now, cursorModelsRemaining: 40, thirdPartyRemaining: 0);
+                UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true, Accounts = new List<UsageAccountSettings> { account } };
+                UsageRoutingService service = new UsageRoutingService { ProviderCollector = (_, _) => Task.FromResult(account.ManualSnapshot!) };
+                await service.RefreshAsync(policy);
+                AssertEqual("Normal", service.GetStatus(account, "grok-4.7-medium", now).State, "grok runs from the Cursor-models pool while the third-party pool is spent");
+
+                account.ManualSnapshot!.Windows[1].RemainingPercent = 40;
+                await service.RefreshAsync(policy);
+                AssertFalse(service.HasAvailableCursorApiPool(account, "grok-4.7-medium", now), "grok gets no third-party API-pool preference");
+                AssertFalse(service.HasAvailableCursorApiPool(account, "composer-2.5", now), "composer gets no third-party API-pool preference");
+                AssertTrue(service.HasAvailableCursorApiPool(account, "gpt-6-luna", now), "a third-party model keeps the preference");
+
+                // The prefix list is the operator's: without grok on it, grok bills as a third-party model.
+                account.CursorModelPrefixes = new List<string> { "composer-" };
+                account.ManualSnapshot.Windows[1].RemainingPercent = 0;
+                await service.RefreshAsync(policy);
+                AssertEqual("Exhausted", service.GetStatus(account, "grok-4.7-medium", now).State, "an unlisted prefix reads the third-party pool only");
+                AssertEqual("Normal", service.GetStatus(account, "composer-2.5", now).State);
+
+                UsageRoutingService.Validate(policy);
+                account.CursorModelPrefixes = new List<string> { " " };
+                AssertThrows<ArgumentException>(() => UsageRoutingService.Validate(policy), "a blank prefix is refused");
             });
             await RunTest("A provider error reply is recorded on the account and never escapes the refresh", async () =>
             {

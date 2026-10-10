@@ -212,10 +212,11 @@ event `routing.persona_model_list_dead` names the list. A list that did
 supply the captain is `persona_models_applied_<group>:<captainId>`. Dead
 lists never refuse dispatch.
 
-For Cursor accounts, a captain whose model uses the `third_party` pool moves
-ahead of the regular persona groups while that pool has measured usage left.
-If the pool is empty or unknown, routing skips those captains and uses the
-available Composer 2.5 or Grok 4.7 captains in the configured groups.
+For Cursor accounts, a captain whose model uses only the `third_party` pool
+leads its own list group while that pool has measured usage left. Cursor's own
+models (Composer and Grok) never take this lead. If the pool is empty or
+unknown, routing skips those captains and uses the available Composer or Grok
+captains in the configured groups.
 
 #### Persona minimum tier
 
@@ -279,9 +280,15 @@ The defaults are Low at 25% remaining, Reserve at 10%, and recovery at 35%.
 After entering Low, an account stays there until recovery. All applicable
 windows bind: the most restrictive window wins. `windowModels` maps an exact
 reported window name to captain model IDs. Unmapped windows apply to all
-models, except Cursor's `cursor_models` pool, which applies to `composer-*`
-and `cursor-grok-*` models, and its `third_party` pool, which applies to other
-models. Explicit mappings override this Cursor behavior. The Dashboard account
+models, except Cursor's two pools. A Cursor model is one whose ID starts with
+a prefix in the account's `cursorModelPrefixes` (default `composer-`, `grok-`,
+`cursor-grok-`). Cursor serves its own models from the `cursor_models` pool
+first and from the `third_party` pool once `cursor_models` is spent, so a
+Cursor model reads `cursor_models`, and when that pool is spent it reads Low
+(or the third-party pool's state, if worse) with reason
+`cursor_models_spent_third_party_spill` instead of Exhausted. It is Exhausted
+only when both pools are spent. Every other model reads the `third_party` pool
+only. Explicit mappings override this Cursor behavior. The Dashboard account
 summary reports `Partial` when one Cursor pool is exhausted and the other has
 remaining usage; dispatch evaluates only windows that apply to the captain's
 model.

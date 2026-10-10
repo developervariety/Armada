@@ -23,6 +23,13 @@ namespace Armada.Core.Settings
         public Dictionary<string, List<string>> WindowModels { get; set; } = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
+        /// Model ID prefixes that Cursor bills as its own models on a Cursor account. Cursor serves these from the
+        /// Cursor-models pool first and from the third-party pool once that pool is spent; every other model draws
+        /// on the third-party pool only. Matched case-insensitively.
+        /// </summary>
+        public List<string> CursorModelPrefixes { get; set; } = new List<string> { "composer-", "grok-", "cursor-grok-" };
+
+        /// <summary>
         /// Captain runtime whose login this account owns: ClaudeCode, Codex, OpenCode, or Cursor. Null keeps the
         /// account usage-only, and every captain launches with the shared login.
         /// </summary>

@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Cursor usage routing reads Cursor's own models correctly: models matching the
+  account's `cursorModelPrefixes` (default `composer-`, `grok-`, `cursor-grok-`)
+  draw on the Cursor-models pool, read Low instead of Exhausted while they spill
+  into the third-party pool, and never take the third-party API-pool lead.
 - Smart Routing persona model lists are authoritative: a captain whose model is
   on none of a persona's lists no longer takes that persona's work when the
   listed captains are busy; the mission waits with

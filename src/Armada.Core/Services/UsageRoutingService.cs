@@ -86,6 +86,7 @@ namespace Armada.Core.Services
                 if (account.OverrideState != null && (!new[] { "Normal", "Low", "Reserve", "Exhausted" }.Contains(account.OverrideState) || !account.OverrideUntilUtc.HasValue || account.OverrideUntilUtc.Value.Kind != DateTimeKind.Utc)) throw new ArgumentException("Usage overrides need a valid state and expiry.");
                 if (!new[] { "Manual", "File", "Codex", "Claude", "Cursor", "OpenCodeGo" }.Contains(account.Collector)) throw new ArgumentException("Unsupported usage collector.");
                 if (account.WindowModels == null || account.WindowModels.Any(p => String.IsNullOrWhiteSpace(p.Key) || p.Value == null || p.Value.Any(String.IsNullOrWhiteSpace))) throw new ArgumentException("Usage window model mappings are invalid.");
+                if (account.CursorModelPrefixes == null || account.CursorModelPrefixes.Any(String.IsNullOrWhiteSpace)) throw new ArgumentException("Cursor model prefixes cannot be null or blank.");
                 if (account.Collector == "File" && String.IsNullOrWhiteSpace(account.UsageFilePath)) throw new ArgumentException("File collector requires a usage snapshot path.");
                 if (account.ManualSnapshot != null) ValidateSnapshot(account.ManualSnapshot);
                 CaptainAccountLaunch.ValidateAccount(account, accountsRoot);
@@ -403,21 +404,56 @@ namespace Armada.Core.Services
         private static bool CursorPoolAppliesToModel(UsageAccountSettings account, ProviderUsageWindow window, string model)
         {
             if (!String.Equals(account.Collector, "Cursor", StringComparison.OrdinalIgnoreCase)) return true;
-            // Explicit operator mappings and collector-supplied model scopes remain authoritative.
-            if (account.WindowModels.Keys.Any(key => String.Equals(key, window.Name, StringComparison.OrdinalIgnoreCase)) || window.Models.Count > 0) return true;
-            bool cursorModel = model.StartsWith("composer-", StringComparison.OrdinalIgnoreCase)
-                || model.StartsWith("cursor-grok-", StringComparison.OrdinalIgnoreCase);
+            if (HasExplicitWindowScope(account, window)) return true;
+            bool cursorModel = IsCursorModel(account, model);
             if (String.Equals(window.Name, "cursor_models", StringComparison.OrdinalIgnoreCase)) return cursorModel;
             if (String.Equals(window.Name, "third_party", StringComparison.OrdinalIgnoreCase)) return !cursorModel;
             return true;
+        }
+
+        /// <summary>
+        /// Whether the window is the third-party pool that Cursor spills one of its own models into once the
+        /// Cursor-models pool is spent. That pool decides availability only when the Cursor-models pool cannot.
+        /// </summary>
+        private static bool IsCursorSpillWindow(UsageAccountSettings account, ProviderUsageWindow window, string model)
+        {
+            return String.Equals(account.Collector, "Cursor", StringComparison.OrdinalIgnoreCase)
+                && String.Equals(window.Name, "third_party", StringComparison.OrdinalIgnoreCase)
+                && !HasExplicitWindowScope(account, window)
+                && IsCursorModel(account, model);
+        }
+
+        private static bool HasExplicitWindowScope(UsageAccountSettings account, ProviderUsageWindow window)
+        {
+            // Explicit operator mappings and collector-supplied model scopes remain authoritative.
+            return account.WindowModels.Keys.Any(key => String.Equals(key, window.Name, StringComparison.OrdinalIgnoreCase)) || window.Models.Count > 0;
+        }
+
+        private static bool IsCursorModel(UsageAccountSettings account, string model)
+        {
+            return account.CursorModelPrefixes.Any(prefix => model.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Severity of one measured window: 0 Normal, 2 Low, 3 Reserve, 4 Exhausted. A window enters Low at the low
+        /// threshold and leaves it only at the recovery threshold. Callers hold the state lock.
+        /// </summary>
+        private int WindowSeverity(UsageAccountSettings account, ProviderUsageWindow window, DateTime now)
+        {
+            double remaining = window.RemainingPercent!.Value;
+            string key = account.Id + "\n" + window.Name;
+            bool conserving = _Conserving.TryGetValue(key, out bool previous) && previous;
+            conserving = remaining <= account.LowRemainingPercent || (conserving && remaining < account.RecoveryRemainingPercent);
+            _Conserving[key] = conserving;
+            bool resetSoon = window.ResetsUtc.HasValue && window.ResetsUtc.Value <= now.AddMinutes(account.ResetGraceMinutes);
+            return remaining <= 0 ? 4 : remaining <= account.ReserveRemainingPercent ? 3 : conserving && !resetSoon ? 2 : 0;
         }
 
         internal bool HasAvailableCursorApiPool(UsageAccountSettings account, string? model, DateTime now)
         {
             if (account == null || String.IsNullOrWhiteSpace(model)
                 || !String.Equals(account.Collector, "Cursor", StringComparison.OrdinalIgnoreCase)
-                || model.StartsWith("composer-", StringComparison.OrdinalIgnoreCase)
-                || model.StartsWith("cursor-grok-", StringComparison.OrdinalIgnoreCase)) return false;
+                || IsCursorModel(account, model)) return false;
             ProviderUsageStatus status = GetStatus(account, model, now);
             if (status.State == "Exhausted" || status.State == "Unknown" || status.ObservedUtc == null
                 || status.ObservedUtc > now || status.ObservedUtc.Value.AddMinutes(account.MaxAgeMinutes) <= now) return false;
@@ -533,26 +569,35 @@ namespace Armada.Core.Services
                 int severity = 0;
                 bool unknown = stale;
                 bool any = false;
+                int? spillSeverity = null;
                 if (snapshot != null)
                 {
                     foreach (ProviderUsageWindow window in snapshot.Windows)
                     {
                         List<string> windowModels = GetWindowModels(account, window);
+                        if (model != null && IsCursorSpillWindow(account, window, model))
+                        {
+                            // The spill-over pool never blocks a Cursor model on its own; it is read only to rescue a spent Cursor-models pool.
+                            if (!stale && window.ResetsUtc > now && window.RemainingPercent.HasValue)
+                                spillSeverity = WindowSeverity(account, window, now);
+                            continue;
+                        }
                         if (model != null && !CursorPoolAppliesToModel(account, window, model)) continue;
                         if (model != null && windowModels.Count > 0 && !windowModels.Contains(model, StringComparer.OrdinalIgnoreCase)) continue;
                         any = true;
                         if (stale || window.ResetsUtc <= now || !window.RemainingPercent.HasValue) { unknown = true; continue; }
-                        double remaining = window.RemainingPercent.Value;
-                        string key = account.Id + "\n" + window.Name;
-                        bool conserving = _Conserving.TryGetValue(key, out bool previous) && previous;
-                        conserving = remaining <= account.LowRemainingPercent || (conserving && remaining < account.RecoveryRemainingPercent);
-                        _Conserving[key] = conserving;
-                        bool resetSoon = window.ResetsUtc.HasValue && window.ResetsUtc.Value <= now.AddMinutes(account.ResetGraceMinutes);
-                        int current = remaining <= 0 ? 4 : remaining <= account.ReserveRemainingPercent ? 3 : conserving && !resetSoon ? 2 : 0;
-                        severity = Math.Max(severity, current);
+                        severity = Math.Max(severity, WindowSeverity(account, window, now));
                     }
                 }
                 unknown |= !any;
+                // Cursor keeps serving its own models from the third-party pool once the Cursor-models pool is spent,
+                // so a spent Cursor-models pool with spill-over room left is conserved (Low at best), not Exhausted.
+                string? spillReason = null;
+                if (severity == 4 && spillSeverity.HasValue && spillSeverity.Value < 4)
+                {
+                    severity = Math.Max(2, spillSeverity.Value);
+                    spillReason = "cursor_models_spent_third_party_spill";
+                }
                 // The provider's own verdict outranks its meter: a spent window whose provider still serves
                 // ordinary requests is Reserve (demoted, still usable), and a provider that refuses is Exhausted.
                 bool providerVerdict = snapshot != null && !stale && snapshot.ProviderAllowsUsage.HasValue;
@@ -578,7 +623,7 @@ namespace Armada.Core.Services
                 // An unknown window is also binding; a known low window must not hide an unknown-data block.
                 if (unknown && account.UnknownUsagePolicy == "Block" && severity < 4) result.State = "Unknown";
                 if (unknown && account.UnknownUsagePolicy == "Conserve" && severity < 2) result.State = "Unknown";
-                result.Reason = verdictReason ?? (unknown ? "required_usage_window_unknown_or_stale" : "measured_usage_windows");
+                result.Reason = verdictReason ?? spillReason ?? (unknown ?"required_usage_window_unknown_or_stale" : "measured_usage_windows");
                 return result;
             }
         }
