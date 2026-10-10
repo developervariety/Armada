@@ -341,9 +341,17 @@ of the effective pipeline (`stage_skip_unknown_persona`), or when only the Judge
 would remain (`stage_skip_leaves_no_work`). A `stage_optional` preview Warning
 is advice only: nothing is skipped unless the operator names it. The autonomous
 scheduler reads an operator-confirmed skip from the objective's
-`preparation.stageSkip` (`stages`, `reason`, `confirmedBy`, `confirmedUtc`) and
-honours it only when `confirmedBy` is set; otherwise it skips the objective as
-`stage_skip_unconfirmed`. A refinement summary never writes this field.
+`preparation.stageSkip` (`stages`, `reason`, `confirmedBy`, `confirmedUtc`, and
+the server-issued `operatorConfirmationId`). A stored skip is honored only when
+all server confirmation fields are present; older records without the proof are
+kept but treated as unconfirmed until an operator confirms them. On objective
+create or update, send top-level `confirmStageSkip: true` with the skip in
+`preparation.stageSkip`. On update, omit `preparation` to confirm the existing
+skip again without changing its stage list. Armada ignores inbound confirmer,
+timestamp, and proof values and records the authenticated operator and server
+time. Without the flag, an unchanged full-preparation replacement preserves
+the stored proof, while a changed skip remains unconfirmed. A refinement
+summary never confirms or writes this field.
 An autonomous rescue carries the skips recorded on the voyage it rescues: it
 reads that voyage's `voyage.stage_skipped` events, drops the same stages from
 the rescue chain through the same rule, and records one `voyage.stage_skipped`
@@ -1183,9 +1191,14 @@ Send every nested value that must remain: `requiredForDispatch`,
 `requiredClaimKinds`, `requiredSiblingInputs`, `executionRequirements`,
 `source`, `target`, `claims`, `preflight`, and `stageSkip`. Omitted preparation
 members reset to their model defaults or `null`. The MCP input schema exposes
-each member, including all preflight-answer and stored stage-skip fields. A
-stored stage skip still needs its operator confirmation before the autonomous
-scheduler honours it. The clearable text fields (`description`, `category`,
+each member, including all preflight-answer and stored stage-skip fields.
+`confirmStageSkip: true` explicitly confirms the skip supplied in preparation,
+or the existing skip when preparation is omitted. Armada records the authenticated
+operator, server time, and a server-issued proof; inbound `confirmedBy`,
+`confirmedUtc`, and `operatorConfirmationId` values do not authorize a skip.
+Without the flag, unchanged preparation preserves its proof and changed
+preparation leaves the skip unconfirmed. Legacy skips remain stored but require
+explicit reconfirmation. The clearable text fields (`description`, `category`,
 `owner`, `targetVersion`, `parentObjectiveId`, `refinementSummary`,
 `suggestedPipelineId`,
 `startFromRef`) declare `emptyStringClears`, so an explicit `""` clears the

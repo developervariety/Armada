@@ -1286,7 +1286,8 @@ namespace Armada.Test.Unit.Suites.Services
                         Stages = new List<string> { "TestEngineer" },
                         Reason = "doc-only",
                         ConfirmedBy = "UnitTest",
-                        ConfirmedUtc = DateTime.UtcNow
+                        ConfirmedUtc = DateTime.UtcNow,
+                        OperatorConfirmationId = Guid.NewGuid().ToString("N")
                     };
                     Objective objective = harness.CreateReadyObjective("stored-skip-preview");
                     objective.Preparation.StageSkip = skip;
@@ -1327,14 +1328,16 @@ namespace Armada.Test.Unit.Suites.Services
                     objective.Preparation.StageSkip = new StageSkipRequest
                     {
                         Stages = new List<string> { "TestEngineer" },
-                        Reason = "not yet confirmed"
+                        Reason = "legacy skip without server proof",
+                        ConfirmedBy = "forged-legacy-operator",
+                        ConfirmedUtc = DateTime.UtcNow
                     };
                     await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
 
                     ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(
                         harness.Auth, objective, null, pipeline.Id).ConfigureAwait(false);
 
-                    AssertFalse(result.StageSkipConfirmed, "no confirmer means unconfirmed");
+                    AssertFalse(result.StageSkipConfirmed, "legacy confirmer text without server proof remains unconfirmed");
                     AssertTrue(result.EffectivePipelineStages.SequenceEqual(new[] { "Worker", "TestEngineer", "Judge" }),
                         "an unconfirmed skip does not drop stages");
                     AssertEqual(0, result.SkippedPipelineStages.Count, "no stage is listed as skipped");
@@ -1361,7 +1364,9 @@ namespace Armada.Test.Unit.Suites.Services
                     objective.Preparation.StageSkip = new StageSkipRequest
                     {
                         Stages = new List<string> { "Judge" },
-                        ConfirmedBy = "UnitTest"
+                        ConfirmedBy = "UnitTest",
+                        ConfirmedUtc = DateTime.UtcNow,
+                        OperatorConfirmationId = Guid.NewGuid().ToString("N")
                     };
                     await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
 

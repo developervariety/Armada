@@ -79,7 +79,8 @@ namespace Armada.Core.Services
                 Stages = stages.ToList(),
                 Reason = String.IsNullOrWhiteSpace(reason) ? "operator-confirmed at dispatch" : reason.Trim(),
                 ConfirmedBy = DescribeConfirmer(caller),
-                ConfirmedUtc = DateTime.UtcNow
+                ConfirmedUtc = DateTime.UtcNow,
+                OperatorConfirmationId = Guid.NewGuid().ToString("N")
             };
         }
 

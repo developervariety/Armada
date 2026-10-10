@@ -563,6 +563,10 @@ namespace Armada.Server.Mcp.Tools
             mission.DiffSnapshot = null;
             mission.AgentOutput = null;
             mission.PlaybookSnapshots = new List<MissionPlaybookSnapshot>();
+            if (mission.ReviewComment != null)
+                mission.ReviewComment = RuntimeLogFormatter.RedactSecrets(mission.ReviewComment);
+            if (mission.FailureReason != null)
+                mission.FailureReason = RuntimeLogFormatter.RedactSecrets(mission.FailureReason);
             return mission;
         }
     }

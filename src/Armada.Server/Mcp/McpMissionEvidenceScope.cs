@@ -47,7 +47,7 @@ namespace Armada.Server.Mcp
             if (String.IsNullOrWhiteSpace(anchor.VoyageId) || String.IsNullOrWhiteSpace(anchor.VesselId)) return null;
             HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal) { anchor.Id };
             Mission current = anchor;
-            for (int depth = 0; depth < 32 && !String.IsNullOrWhiteSpace(current.DependsOnMissionId); depth++)
+            while (!String.IsNullOrWhiteSpace(current.DependsOnMissionId))
             {
                 string predecessorId = current.DependsOnMissionId!;
                 if (!visited.Add(predecessorId)) return null;

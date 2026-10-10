@@ -3465,6 +3465,8 @@ namespace Armada.Test.Unit.Suites.Services
                 TruncateReviewerFeedbackForBrief_TextWithoutJudgeSections_KeepsTheHeadFirstCut).ConfigureAwait(false);
             await RunTest("BuildRescueDescription carries every blocking finding of a long review whose findings sit mid-report",
                 BuildRescueDescription_LongReviewWithMidReportFindings_CarriesEveryBlockingFinding).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription keeps unmarked Residual Risks defects from a long report-only Judge review",
+                BuildRescueDescription_LongReportOnlyJudgeReview_CarriesResidualRiskDefect).ConfigureAwait(false);
             await RunTest("BuildRescueDescription keeps the newest prior stage's report essentials that the description digest would cut",
                 BuildRescueDescription_LongDescription_KeepsTheNewestReportEssentials).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief keeps every finding's opening inside its bound when the findings are long",
@@ -4126,6 +4128,115 @@ namespace Armada.Test.Unit.Suites.Services
             AssertFalse(block.Contains("Failure mode 0 is handled", StringComparison.Ordinal), "Handled Failure Modes evidence does not crowd out defects.");
             AssertFalse(block.Contains("I'll start by reading"), "Tool narration is not a finding");
             AssertTrue(block.Length <= AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars + 200, "The findings block stays inside its bound. Actual: " + block.Length);
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildRescueDescription_LongReportOnlyJudgeReview_CarriesResidualRiskDefect()
+        {
+            string defect = "The report omits the required source comparison for the changed parser.";
+            StringBuilder review = new StringBuilder();
+            for (int i = 0; i < 220; i++)
+                review.AppendLine("The auditor read the repository summary and reviewed the change history before writing this report.");
+            review.AppendLine("## Completeness");
+            review.AppendLine("- The requested report is present.");
+            review.AppendLine("## Correctness");
+            review.AppendLine("- Verified the reviewed output matches the checked source.");
+            review.AppendLine("## Evidence");
+            review.AppendLine("- Verified source evidence matches the reviewed revision.");
+            string evidenceDefect = "The cited snapshot does not match the reviewed commit.";
+            review.AppendLine("- " + evidenceDefect);
+            review.AppendLine("## Residual Risks");
+            review.AppendLine("- " + defect);
+            review.AppendLine("## Verdict");
+            review.AppendLine("NEEDS_REVISION: the source comparison is missing.");
+            review.AppendLine("[ARMADA:VERDICT] NEEDS_REVISION");
+            string text = review.ToString();
+            AssertTrue(text.Length > AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars,
+                "Precondition: the report-only Judge output exceeds the embedded feedback cap.");
+
+            Mission failed = new Mission
+            {
+                Id = "msn_test_report_only_residual_risk",
+                Title = "review a source report",
+                Status = MissionStatusEnum.Failed,
+                Persona = "Judge",
+                FailureReason = "Judge verdict: NEEDS_REVISION",
+                Description = "title: review the source report",
+                AgentOutput = text,
+                ReviewComment = text,
+            };
+            Incident incident = new Incident
+            {
+                Id = "inc_test_report_only_residual_risk",
+                Title = "synthetic report review",
+                Summary = "synthetic summary",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.Medium,
+            };
+
+            string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+
+            int findingsStart = brief.IndexOf("Blocking findings to fix (complete list from the full review):", StringComparison.Ordinal);
+            int feedbackStart = brief.IndexOf("Reviewer feedback to address:", StringComparison.Ordinal);
+            AssertTrue(findingsStart >= 0 && feedbackStart > findingsStart, "The complete findings block precedes reviewer feedback.");
+            string findings = brief.Substring(findingsStart, feedbackStart - findingsStart);
+            AssertContains(defect, findings, "The unmarked Residual Risks defect appears in the blocking-findings list.");
+            AssertContains(evidenceDefect, findings, "The unmarked Evidence defect appears in the blocking-findings list.");
+            AssertFalse(findings.Contains("Verified source evidence", StringComparison.Ordinal),
+                "Positive Evidence does not become a defect.");
+            AssertContains("Blocking findings to fix (complete list from the full review):", brief,
+                "The complete finding list includes the Residual Risks defect.");
+            string feedback = brief.Substring(feedbackStart);
+            AssertContains("## Evidence", feedback, "Report-only evidence remains in the protected review excerpt.");
+            AssertContains("## Residual Risks", feedback, "Report-only residual risks remain in the protected review excerpt.");
+            AssertFalse(feedback.Contains("INCOMPLETE PROTECTED REVIEW", StringComparison.Ordinal),
+                "The bounded protected report is complete after narration is omitted.");
+
+            StringBuilder oversizedReview = new StringBuilder();
+            oversizedReview.AppendLine("## Completeness");
+            oversizedReview.AppendLine("The requested read-only report is present.");
+            oversizedReview.AppendLine("## Correctness");
+            oversizedReview.AppendLine("Verified against the requested scope.");
+            oversizedReview.AppendLine("## Evidence");
+            for (int i = 0; i < 600; i++)
+                oversizedReview.AppendLine("Evidence narrative records a benign source observation for this read-only audit in full.");
+            oversizedReview.AppendLine("## Residual Risks");
+            oversizedReview.AppendLine("- " + defect);
+            oversizedReview.AppendLine("## Verdict");
+            oversizedReview.AppendLine("NEEDS_REVISION: the source comparison is missing.");
+            oversizedReview.AppendLine("[ARMADA:VERDICT] NEEDS_REVISION");
+            string oversizedText = oversizedReview.ToString();
+            AssertTrue(oversizedText.Length > 50000 && oversizedText.Length < 64000,
+                "Precondition: the protected report section exceeds the brief cap but fits in one output page.");
+            Mission oversizedFailed = new Mission
+            {
+                Id = "msn_test_report_only_residual_risk_overflow",
+                Title = "review an oversized source report",
+                Status = MissionStatusEnum.Failed,
+                Persona = "Judge",
+                FailureReason = "Judge verdict: NEEDS_REVISION",
+                Description = "title: review the oversized source report",
+                AgentOutput = oversizedText,
+                ReviewComment = oversizedText,
+            };
+            Incident oversizedIncident = new Incident
+            {
+                Id = "inc_test_report_only_residual_risk_overflow",
+                Title = "synthetic oversized report review",
+                Summary = "synthetic summary",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.Medium,
+            };
+
+            string oversizedBrief = AutonomousRecoveryOrchestrator.BuildRescueDescription(oversizedFailed, oversizedIncident, 1);
+            int oversizedFindingsStart = oversizedBrief.IndexOf("Blocking findings to fix (complete list from the full review):", StringComparison.Ordinal);
+            int oversizedFeedbackStart = oversizedBrief.IndexOf("Reviewer feedback to address:", StringComparison.Ordinal);
+            AssertTrue(oversizedFindingsStart >= 0 && oversizedFeedbackStart > oversizedFindingsStart,
+                "The overflow case retains a complete findings block before feedback.");
+            AssertContains(defect, oversizedBrief.Substring(oversizedFindingsStart, oversizedFeedbackStart - oversizedFindingsStart),
+                "The Residual Risks defect remains in the finding list when protected evidence overflows.");
+            AssertContains("INCOMPLETE PROTECTED REVIEW", oversizedBrief,
+                "Oversized protected evidence is explicitly incomplete and directs the reader to the full output.");
             await Task.CompletedTask;
         }
 

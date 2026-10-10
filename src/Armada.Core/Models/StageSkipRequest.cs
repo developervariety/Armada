@@ -4,9 +4,9 @@ namespace Armada.Core.Models
     using System.Collections.Generic;
 
     /// <summary>
-    /// An operator-confirmed request to drop named pipeline stages when a voyage is materialised.
-    /// A skip is only ever taken on an operator's confirmation: nothing infers one from the
-    /// stage-necessity classifier. The Judge can never be skipped.
+    /// A request to drop named pipeline stages when a voyage is materialised. Stored objective skips
+    /// require server-issued operator confirmation; immediate dispatch uses the authenticated operator
+    /// builder. Nothing infers a skip from the stage-necessity classifier. The Judge can never be skipped.
     /// </summary>
     public class StageSkipRequest
     {
@@ -21,14 +21,21 @@ namespace Armada.Core.Models
         public string? Reason { get; set; } = null;
 
         /// <summary>
-        /// Who confirmed the skip. The autonomous scheduler honours a stored skip only when this is set.
+        /// Server-recorded operator identity for a stored objective skip. Request values are ignored.
         /// </summary>
         public string? ConfirmedBy { get; set; } = null;
 
         /// <summary>
-        /// When the skip was confirmed, or null when not recorded.
+        /// Server-recorded confirmation time for a stored objective skip, or null when not recorded.
         /// </summary>
         public DateTime? ConfirmedUtc { get; set; } = null;
+
+        /// <summary>
+        /// Server-issued proof that an authenticated operator confirmed this stored skip. Request values
+        /// are never trusted; the objective service issues this identifier only when confirmStageSkip is set.
+        /// Older records have no identifier and require explicit reconfirmation.
+        /// </summary>
+        public string? OperatorConfirmationId { get; set; } = null;
 
         /// <summary>
         /// True when the request names at least one stage.
@@ -38,6 +45,20 @@ namespace Armada.Core.Models
         public static bool HasStages(StageSkipRequest? request)
         {
             return request != null && request.Stages != null && request.Stages.Count > 0;
+        }
+
+        /// <summary>
+        /// True when this request carries the complete server-issued confirmation proof required for a
+        /// stored objective skip. Immediate dispatch builders also issue this proof server-side.
+        /// </summary>
+        /// <param name="request">Skip request, or null.</param>
+        /// <returns>True when confirmation metadata and server-issued proof are present.</returns>
+        public static bool HasTrustedConfirmation(StageSkipRequest? request)
+        {
+            return HasStages(request)
+                && !String.IsNullOrWhiteSpace(request!.ConfirmedBy)
+                && request.ConfirmedUtc.HasValue
+                && !String.IsNullOrWhiteSpace(request.OperatorConfirmationId);
         }
     }
 }

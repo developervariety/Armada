@@ -95,6 +95,13 @@ namespace Armada.Core.Models
         public ObjectivePreparation? Preparation { get; set; } = null;
 
         /// <summary>
+        /// Explicitly confirm the stage skip in this request's preparation. When true, the service
+        /// records the authenticated operator and server time, even when the stage list is unchanged.
+        /// Omit or set false to preserve an unchanged skip without confirming it again.
+        /// </summary>
+        public bool ConfirmStageSkip { get; set; } = false;
+
+        /// <summary>
         /// Suggested pipeline override.
         /// </summary>
         public string? SuggestedPipelineId { get; set; } = null;

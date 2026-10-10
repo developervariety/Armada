@@ -26,6 +26,15 @@ namespace Armada.Test.Unit.Suites.Services
     /// </summary>
     public class ObjectiveServiceTests : TestSuite
     {
+        private static async Task<object> InvokeObjectiveHandlerAsync(
+            Dictionary<string, Func<JsonElement?, Task<object>>> handlers, string handlerName, string json)
+        {
+            using (JsonDocument document = JsonDocument.Parse(json))
+            {
+                return await handlers[handlerName](document.RootElement).ConfigureAwait(false);
+            }
+        }
+
         /// <inheritdoc />
         public override string Name => "Objective Service";
 
@@ -174,6 +183,162 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("backlog_item_id_required", JsonSerializer.Serialize(noIdResult));
             }).ConfigureAwait(false);
 
+            await RunTest("MCP objective tools expose explicit stage-skip confirmation", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                    Dictionary<string, object> schemas = new Dictionary<string, object>();
+                    McpObjectiveTools.Register(
+                        (name, _, schema, _) => schemas[name] = schema,
+                        testDb.Driver,
+                        objectives);
+
+                    foreach (string toolName in new[] { "create_objective", "create_backlog_item", "update_objective", "update_backlog_item" })
+                    {
+                        ToolInputSchema schema = JsonSerializer.Deserialize<ToolInputSchema>(JsonSerializer.Serialize(schemas[toolName]),
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                            ?? throw new InvalidOperationException("Could not read the schema for " + toolName + ".");
+                        AssertTrue(schema.Properties.ContainsKey("confirmStageSkip"), toolName + " exposes explicit operator confirmation");
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("MCP objective confirmation replaces forged confirmer metadata", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                    McpObjectiveTools.Register(
+                        (name, _, _, handler) => handlers[name] = McpTestCaller.Wrap(handler),
+                        testDb.Driver,
+                        objectives);
+
+                    AuthContext auth = McpTestCaller.Operator;
+                    AuthContext tenantOwner = AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "UnitTest");
+                    Objective legacy = await objectives.CreateAsync(tenantOwner, new ObjectiveUpsertRequest
+                    {
+                        Title = "Legacy stored skip",
+                        Preparation = new ObjectivePreparation
+                        {
+                            StageSkip = new StageSkipRequest
+                            {
+                                Stages = new List<string> { "TestEngineer" },
+                                Reason = "No test stage is required.",
+                                ConfirmedBy = "legacy-operator",
+                                ConfirmedUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                                OperatorConfirmationId = "forged-create-proof"
+                            }
+                        }
+                    }).ConfigureAwait(false);
+                    AssertTrue(legacy.Preparation.StageSkip?.ConfirmedBy == null
+                        && legacy.Preparation.StageSkip?.ConfirmedUtc == null
+                        && legacy.Preparation.StageSkip?.OperatorConfirmationId == null,
+                        "create clears forged confirmation metadata from a new preparation");
+                    AssertFalse(StageSkipRequest.HasTrustedConfirmation(legacy.Preparation.StageSkip),
+                        "create does not trust a caller-supplied confirmation proof");
+
+                    DateTime startedUtc = DateTime.UtcNow;
+                    Objective confirmed = (Objective)await InvokeObjectiveHandlerAsync(handlers, "update_objective",
+                        "{\"objectiveId\":\"" + legacy.Id + "\",\"confirmStageSkip\":true," +
+                        "\"preparation\":{\"stageSkip\":{\"stages\":[\"TestEngineer\"]," +
+                        "\"reason\":\"No test stage is required.\",\"confirmedBy\":\"forged-operator\"," +
+                        "\"confirmedUtc\":\"2001-01-01T00:00:00Z\",\"operatorConfirmationId\":\"forged-proof\"}}}").ConfigureAwait(false);
+                    DateTime finishedUtc = DateTime.UtcNow;
+
+                    AssertEqual(McpTestCaller.Operator.UserId, confirmed.Preparation.StageSkip?.ConfirmedBy,
+                        "the service stamps the authenticated operator instead of accepting request text");
+                    DateTime? confirmedUtc = confirmed.Preparation.StageSkip?.ConfirmedUtc;
+                    AssertTrue(confirmedUtc.HasValue, "the service records a confirmation timestamp");
+                    AssertTrue(confirmedUtc.GetValueOrDefault() >= startedUtc && confirmedUtc.GetValueOrDefault() <= finishedUtc,
+                        "the service stamps its own confirmation time");
+                    string? confirmationId = confirmed.Preparation.StageSkip?.OperatorConfirmationId;
+                    AssertTrue(!String.IsNullOrWhiteSpace(confirmationId), "the service issues a confirmation identifier");
+                    AssertTrue(!String.Equals("forged-proof", confirmationId, StringComparison.Ordinal),
+                        "the service issues a server-owned proof");
+                    AssertTrue(StageSkipRequest.HasTrustedConfirmation(confirmed.Preparation.StageSkip),
+                        "the persisted skip has the complete trusted confirmation");
+
+                    Objective preserved = (Objective)await InvokeObjectiveHandlerAsync(handlers, "update_objective",
+                        "{\"objectiveId\":\"" + legacy.Id + "\",\"preparation\":{\"stageSkip\":{" +
+                        "\"stages\":[\"TestEngineer\"],\"reason\":\"No test stage is required.\"," +
+                        "\"confirmedBy\":\"forged-again\",\"confirmedUtc\":\"2001-01-01T00:00:00Z\"," +
+                        "\"operatorConfirmationId\":\"forged-again\"}}}").ConfigureAwait(false);
+                    AssertEqual(confirmationId, preserved.Preparation.StageSkip?.OperatorConfirmationId,
+                        "an unchanged full-preparation replacement preserves the persisted proof");
+                    AssertEqual(McpTestCaller.Operator.UserId, preserved.Preparation.StageSkip?.ConfirmedBy,
+                        "an unchanged full-preparation replacement ignores forged confirmer text");
+                    AssertEqual(confirmedUtc, preserved.Preparation.StageSkip?.ConfirmedUtc,
+                        "an unchanged full-preparation replacement ignores forged timestamp text");
+
+                    DateTime reconfirmStartedUtc = DateTime.UtcNow;
+                    Objective reconfirmed = (Objective)await InvokeObjectiveHandlerAsync(handlers, "update_objective",
+                        "{\"objectiveId\":\"" + legacy.Id + "\",\"confirmStageSkip\":true}").ConfigureAwait(false);
+                    DateTime reconfirmFinishedUtc = DateTime.UtcNow;
+                    AssertTrue(!String.Equals(confirmationId, reconfirmed.Preparation.StageSkip?.OperatorConfirmationId, StringComparison.Ordinal),
+                        "explicit reconfirmation issues a fresh proof for the same stage list");
+                    DateTime? reconfirmedUtc = reconfirmed.Preparation.StageSkip?.ConfirmedUtc;
+                    AssertTrue(reconfirmedUtc.HasValue
+                        && reconfirmedUtc.GetValueOrDefault() >= reconfirmStartedUtc
+                        && reconfirmedUtc.GetValueOrDefault() <= reconfirmFinishedUtc,
+                        "explicit reconfirmation records a fresh server timestamp");
+
+                    Objective reasonChanged = (Objective)await InvokeObjectiveHandlerAsync(handlers, "update_objective",
+                        "{\"objectiveId\":\"" + legacy.Id + "\",\"preparation\":{\"stageSkip\":{" +
+                        "\"stages\":[\"TestEngineer\"],\"reason\":\"The revised reason needs review.\"," +
+                        "\"confirmedBy\":\"forged-reason-editor\",\"confirmedUtc\":\"2001-01-01T00:00:00Z\"," +
+                        "\"operatorConfirmationId\":\"forged-reason-proof\"}}}").ConfigureAwait(false);
+                    AssertTrue(reasonChanged.Preparation.StageSkip?.ConfirmedBy == null
+                        && reasonChanged.Preparation.StageSkip?.ConfirmedUtc == null
+                        && reasonChanged.Preparation.StageSkip?.OperatorConfirmationId == null,
+                        "changing the skip reason clears old proof and ignores forged replacement metadata");
+                    AssertFalse(StageSkipRequest.HasTrustedConfirmation(reasonChanged.Preparation.StageSkip),
+                        "a changed reason requires a new explicit confirmation");
+
+                    Objective reasonReconfirmed = (Objective)await InvokeObjectiveHandlerAsync(handlers, "update_objective",
+                        "{\"objectiveId\":\"" + legacy.Id + "\",\"confirmStageSkip\":true}").ConfigureAwait(false);
+                    AssertTrue(StageSkipRequest.HasTrustedConfirmation(reasonReconfirmed.Preparation.StageSkip),
+                        "the operator can confirm the changed reason after review");
+
+                    Objective stagesChanged = (Objective)await InvokeObjectiveHandlerAsync(handlers, "update_objective",
+                        "{\"objectiveId\":\"" + legacy.Id + "\",\"preparation\":{\"stageSkip\":{" +
+                        "\"stages\":[\"Worker\"],\"reason\":\"The revised reason needs review.\"," +
+                        "\"confirmedBy\":\"forged-stage-editor\",\"confirmedUtc\":\"2001-01-01T00:00:00Z\"," +
+                        "\"operatorConfirmationId\":\"forged-stage-proof\"}}}").ConfigureAwait(false);
+                    AssertTrue(stagesChanged.Preparation.StageSkip?.ConfirmedBy == null
+                        && stagesChanged.Preparation.StageSkip?.ConfirmedUtc == null
+                        && stagesChanged.Preparation.StageSkip?.OperatorConfirmationId == null,
+                        "changing skipped stages clears old proof and ignores forged replacement metadata");
+                    AssertFalse(StageSkipRequest.HasTrustedConfirmation(stagesChanged.Preparation.StageSkip),
+                        "a changed stage set requires a new explicit confirmation");
+
+                    Objective withoutSkip = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "No stored skip"
+                    }).ConfigureAwait(false);
+                    object noSkipResult = await InvokeObjectiveHandlerAsync(handlers, "update_objective",
+                        "{\"objectiveId\":\"" + withoutSkip.Id + "\",\"confirmStageSkip\":true}").ConfigureAwait(false);
+                    AssertContains("confirmStageSkip requires a stageSkip", JsonSerializer.Serialize(noSkipResult),
+                        "an empty confirmation action is refused");
+
+                    AssertTrue(Armada.Server.Mcp.McpToolAccessPolicy.IsAllowed(McpTestCaller.Operator, "update_objective"),
+                        "the existing operator MCP path can confirm a stage skip");
+                    AuthContext mission = AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, false, "Bearer");
+                    mission.MissionId = "msn_scope";
+                    AssertFalse(Armada.Server.Mcp.McpToolAccessPolicy.IsAllowed(mission, "update_objective"),
+                        "a mission caller cannot invoke objective writes to confirm a stage skip");
+                    RecordWriteResult<Objective> missionConfirmation = await objectives.UpdateRecordAsync(
+                        mission,
+                        legacy.Id,
+                        new ObjectiveUpsertRequest { ConfirmStageSkip = true }).ConfigureAwait(false);
+                    AssertFalse(missionConfirmation.Succeeded,
+                        "the shared ObjectiveService also refuses a mission-context confirmation");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("MCP create_backlog_item creates records and returns structured enum errors", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -238,6 +403,7 @@ namespace Armada.Test.Unit.Suites.Services
                     new ObjectiveUpsertRequest
                     {
                         Title = "MCP preparation replacement",
+                        ConfirmStageSkip = true,
                         Preparation = new ObjectivePreparation
                         {
                             RequiredForDispatch = true,
@@ -290,8 +456,9 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("operator", roundTrip.Preparation.Preflight.Questions[0].AnsweredBy);
                     AssertEqual("TestEngineer", roundTrip.Preparation.StageSkip?.Stages[0]);
                     AssertEqual("No test stage is required for this objective.", roundTrip.Preparation.StageSkip?.Reason);
-                    AssertEqual("operator", roundTrip.Preparation.StageSkip?.ConfirmedBy);
-                    AssertEqual(new DateTime(2026, 10, 10, 12, 1, 0, DateTimeKind.Utc), roundTrip.Preparation.StageSkip?.ConfirmedUtc);
+                    AssertEqual(Armada.Core.Constants.DefaultUserId, roundTrip.Preparation.StageSkip?.ConfirmedBy);
+                    AssertEqual(prepared.Preparation.StageSkip?.ConfirmedUtc, roundTrip.Preparation.StageSkip?.ConfirmedUtc);
+                    AssertEqual(prepared.Preparation.StageSkip?.OperatorConfirmationId, roundTrip.Preparation.StageSkip?.OperatorConfirmationId);
                 }
 
                 using (JsonDocument omittedPreparationDoc = JsonDocument.Parse("{\"objectiveId\":\"" + prepared.Id + "\",\"title\":\"Keep nested preparation\"}"))
@@ -299,7 +466,8 @@ namespace Armada.Test.Unit.Suites.Services
                     Objective preserved = (Objective)await handlers["update_objective"](omittedPreparationDoc.RootElement).ConfigureAwait(false);
                     AssertTrue(preserved.Preparation.RequiredForDispatch, "Omitting top-level preparation preserves the complete existing value.");
                     AssertEqual(ObjectivePreflightAnswerEnum.Yes, preserved.Preparation.Preflight.Questions[0].Answer);
-                    AssertEqual("operator", preserved.Preparation.StageSkip?.ConfirmedBy);
+                    AssertEqual(Armada.Core.Constants.DefaultUserId, preserved.Preparation.StageSkip?.ConfirmedBy);
+                    AssertEqual(prepared.Preparation.StageSkip?.OperatorConfirmationId, preserved.Preparation.StageSkip?.OperatorConfirmationId);
                 }
 
                 using JsonDocument invalidEnumDoc = JsonDocument.Parse("{\"title\":\"Bad backlog create\",\"kind\":\"NotARealKind\"}");

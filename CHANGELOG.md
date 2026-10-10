@@ -20,6 +20,19 @@ upstream integrations and excludes changes already present at that baseline.
   generated handoff markers. Criteria that differ by letter case remain separate
   requirements.
 
+- Git source anchors exclude the reserved generated briefing tree while keeping
+  ordinary tracked and absent repository paths in the anchor report.
+- Rescue evidence reads support long configured stage chains through a visited
+  dependency walk that preserves owner, voyage and vessel boundaries.
+- Stored objective stage skips require an explicit authenticated operator
+  confirmation with server-recorded identity, time and proof. Legacy skips block
+  dispatch until reconfirmed. Changed stage lists or reasons clear prior proof;
+  unchanged preparation round trips retain it.
+- Judge rescue briefs protect report-only Evidence and Residual Risks sections,
+  retain their actionable findings, and state when protected feedback exceeds
+  the embedding cap.
+- Mission status replies redact operator review and failure text before returning
+  it through an authorized read.
 - Mission status and full-description reads apply the same caller evidence scope
   as mission output before returning metadata, scope text, or context events.
 - Judge rescue briefs use the full redacted output artifact, keep required review

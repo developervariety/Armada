@@ -1665,7 +1665,9 @@ namespace Armada.Test.Unit.Suites.Services
                         {
                             Stages = new List<string> { "TestEngineer" },
                             Reason = "docs-only change",
-                            ConfirmedBy = "operator@example.com"
+                            ConfirmedBy = "operator@example.com",
+                            ConfirmedUtc = DateTime.UtcNow,
+                            OperatorConfirmationId = Guid.NewGuid().ToString("N")
                         }
                     }
                 }).ConfigureAwait(false);
@@ -1699,7 +1701,12 @@ namespace Armada.Test.Unit.Suites.Services
                     VesselIds = new List<string> { vessel.Id },
                     Preparation = new ObjectivePreparation
                     {
-                        StageSkip = new StageSkipRequest { Stages = new List<string> { "TestEngineer" } }
+                        StageSkip = new StageSkipRequest
+                        {
+                            Stages = new List<string> { "TestEngineer" },
+                            ConfirmedBy = "forged-legacy-operator",
+                            ConfirmedUtc = DateTime.UtcNow
+                        }
                     }
                 }).ConfigureAwait(false);
 

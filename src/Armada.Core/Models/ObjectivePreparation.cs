@@ -46,9 +46,9 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// Operator-confirmed pipeline stages the autonomous scheduler drops when it dispatches this
-        /// objective. Honoured only when <see cref="StageSkipRequest.ConfirmedBy"/> is set; a list with no
-        /// confirmer makes the scheduler skip the objective instead. Nothing writes this from the
-        /// stage-necessity classifier or a refinement summary: a skip is an operator decision.
+        /// objective. Honoured only when server-issued confirmation identity, time, and proof are present;
+        /// a legacy or unconfirmed list makes the scheduler skip the objective instead. Nothing writes
+        /// this from the stage-necessity classifier or a refinement summary: a skip is an operator decision.
         /// </summary>
         public StageSkipRequest? StageSkip { get; set; } = null;
     }

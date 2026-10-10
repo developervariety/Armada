@@ -3055,6 +3055,8 @@ namespace Armada.Server
             return heading.StartsWith("Correctness", StringComparison.OrdinalIgnoreCase)
                 || heading.StartsWith("Failure Modes", StringComparison.OrdinalIgnoreCase)
                 || heading.StartsWith("Tests", StringComparison.OrdinalIgnoreCase)
+                || heading.StartsWith("Evidence", StringComparison.OrdinalIgnoreCase)
+                || heading.StartsWith("Residual Risks", StringComparison.OrdinalIgnoreCase)
                 || heading.StartsWith("Verdict", StringComparison.OrdinalIgnoreCase)
                 || heading.StartsWith("Suggested Follow-ups", StringComparison.OrdinalIgnoreCase);
         }

@@ -64,6 +64,8 @@ namespace Armada.Test.Unit.Suites.Services
                         VesselId = rescueVesselId,
                         Description = "authorized failed review brief",
                         AgentOutput = "authorized failed review output",
+                        ReviewComment = "review detail " + ("sk-" + new string('R', 24)),
+                        FailureReason = "provider detail " + ("sk-" + new string('F', 24)),
                         Status = MissionStatusEnum.Failed
                     }).ConfigureAwait(false);
                     Mission rescueRoot = await testDb.Driver.Missions.CreateAsync(new Mission("status rescue root")
@@ -165,6 +167,10 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual("authorized failed review brief", rescuedSummary.Description,
                             "a rescue stage can inspect its root failed Judge metadata");
                         AssertEqual(null, rescuedSummary.AgentOutput, "rescued status does not return the report body");
+                        AssertEqual("review detail sk-[REDACTED]", rescuedSummary.ReviewComment,
+                            "status redacts secret-shaped review feedback before it leaves the mission boundary");
+                        AssertEqual("provider detail sk-[REDACTED]", rescuedSummary.FailureReason,
+                            "status redacts secret-shaped failure text before it leaves the mission boundary");
                     }
                 }
             });
@@ -308,14 +314,17 @@ namespace Armada.Test.Unit.Suites.Services
                     TenantMetadata otherTenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("rescue evidence other tenant")).ConfigureAwait(false);
                     UserMaster otherUser = await testDb.Driver.Users.CreateAsync(new UserMaster(Armada.Core.Constants.DefaultTenantId, "rescue-evidence-other@example.com", "password")).ConfigureAwait(false);
                     Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("rescue evidence chain")).ConfigureAwait(false);
+                    Voyage otherVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("other rescue evidence chain")).ConfigureAwait(false);
                     Vessel rescueVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("rescue-evidence-vessel", "https://example.invalid/rescue-evidence.git")).ConfigureAwait(false);
                     string rescueVesselId = rescueVessel.Id;
+                    Vessel otherRescueVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("other-rescue-evidence-vessel", "https://example.invalid/other-rescue-evidence.git")).ConfigureAwait(false);
                     string failedOutput = new string('r', 17000) + "\nfinal protected finding";
                     Mission failed = await testDb.Driver.Missions.CreateAsync(new Mission("failed review")
                     {
                         TenantId = Armada.Core.Constants.DefaultTenantId,
                         UserId = Armada.Core.Constants.DefaultUserId,
                         VesselId = rescueVesselId,
+                        Description = "failed review brief",
                         AgentOutput = failedOutput,
                         Status = MissionStatusEnum.Failed
                     }).ConfigureAwait(false);
@@ -433,9 +442,11 @@ namespace Armada.Test.Unit.Suites.Services
                     AuthContext caller = McpTestCaller.Operator;
                     caller.MissionId = downstream.Id;
                     Func<JsonElement?, Task<object>>? readOutput = null;
+                    Func<JsonElement?, Task<object>>? readStatus = null;
                     McpMissionTools.Register((name, _, _, handler) =>
                     {
                         if (name == "armada_mission_output") readOutput = handler;
+                        if (name == "armada_mission_status") readStatus = handler;
                     }, testDb.Driver, new RecordingAdmiralDouble(), null, null);
                     using (McpCallerContext.Begin(caller))
                     {
@@ -469,6 +480,138 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         MissionOutputArtifactPage page = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id, length = 64000 })).ConfigureAwait(false);
                         AssertEqual(failedOutput, page.Content, "The rescue Worker can read its failed parent output.");
+                    }
+
+                    Mission longChainStage = rescueRoot;
+                    for (int i = 0; i < 34; i++)
+                    {
+                        longChainStage = await testDb.Driver.Missions.CreateAsync(new Mission("long rescue stage " + i)
+                        {
+                            TenantId = Armada.Core.Constants.DefaultTenantId,
+                            UserId = Armada.Core.Constants.DefaultUserId,
+                            VesselId = rescueVesselId,
+                            VoyageId = voyage.Id,
+                            DependsOnMissionId = longChainStage.Id,
+                            Description = RescueMissionMarker.Marker
+                        }).ConfigureAwait(false);
+                    }
+                    caller.MissionId = longChainStage.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        object deepOutputResult = await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id, length = 64000 })).ConfigureAwait(false);
+                        AssertTrue(deepOutputResult is MissionOutputArtifactPage,
+                            "A same-owner rescue stage more than 32 links from the root can read output; actual result: " + JsonSerializer.Serialize(deepOutputResult));
+                        MissionOutputArtifactPage page = (MissionOutputArtifactPage)deepOutputResult;
+                        AssertEqual(failedOutput, page.Content,
+                            "A same-owner rescue stage more than 32 links from the root can read the complete failed output.");
+                        AssertTrue(page.Complete, "The long-chain output read is complete.");
+
+                        object deepStatusResult = await readStatus!(JsonSerializer.SerializeToElement(new
+                        {
+                            missionId = failed.Id,
+                            includeDescription = true
+                        })).ConfigureAwait(false);
+                        AssertTrue(deepStatusResult is Mission,
+                            "A same-owner rescue stage more than 32 links from the root can read status; actual result: " + JsonSerializer.Serialize(deepStatusResult));
+                        Mission failedStatus = (Mission)deepStatusResult;
+                        AssertEqual(failed.Description, failedStatus.Description,
+                            "A same-owner rescue stage more than 32 links from the root can read failed-mission status.");
+
+                        string deniedDeepTarget = JsonSerializer.Serialize(await readOutput(JsonSerializer.SerializeToElement(new { missionId = unrelated.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedDeepTarget,
+                            "Long-chain scope does not expose an unrelated same-owner report.");
+                    }
+                    Mission missingLinkStage = await testDb.Driver.Missions.CreateAsync(new Mission("rescue stage with missing predecessor")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = "msn_missing",
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+                    caller.MissionId = missingLinkStage.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string deniedMissingLink = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedMissingLink,
+                            "A missing predecessor stops the rescue scope walk.");
+                    }
+                    Mission cycleFirst = await testDb.Driver.Missions.CreateAsync(new Mission("rescue cycle first stage")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+                    Mission cycleSecond = await testDb.Driver.Missions.CreateAsync(new Mission("rescue cycle second stage")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = cycleFirst.Id,
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+                    cycleFirst.DependsOnMissionId = cycleSecond.Id;
+                    await testDb.Driver.Missions.UpdateAsync(cycleFirst).ConfigureAwait(false);
+                    caller.MissionId = cycleFirst.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string deniedCycle = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedCycle,
+                            "A dependency cycle stops the rescue scope walk.");
+                    }
+                    Mission crossVesselRoot = await testDb.Driver.Missions.CreateAsync(new Mission("rescue root on another vessel")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = otherRescueVessel.Id,
+                        VoyageId = voyage.Id,
+                        ParentMissionId = failed.Id,
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+                    Mission crossVesselStage = await testDb.Driver.Missions.CreateAsync(new Mission("stage depending across vessels")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = crossVesselRoot.Id,
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+                    caller.MissionId = crossVesselStage.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string deniedCrossVessel = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedCrossVessel,
+                            "A predecessor from another vessel stops the rescue scope walk.");
+                    }
+                    Mission crossVoyageRoot = await testDb.Driver.Missions.CreateAsync(new Mission("rescue root in another voyage")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = otherVoyage.Id,
+                        ParentMissionId = failed.Id,
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+                    Mission crossVoyageStage = await testDb.Driver.Missions.CreateAsync(new Mission("stage depending across voyages")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = crossVoyageRoot.Id,
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+                    caller.MissionId = crossVoyageStage.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string deniedCrossVoyage = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedCrossVoyage,
+                            "A predecessor from another voyage stops the rescue scope walk.");
                     }
                     caller.MissionId = legacyTitleDependent.Id;
                     using (McpCallerContext.Begin(caller))
