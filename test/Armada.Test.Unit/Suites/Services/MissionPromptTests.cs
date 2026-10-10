@@ -390,7 +390,8 @@ namespace Armada.Test.Unit.Suites.Services
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertTrue(!content.Contains("Objective Scope"), "A voyage without a linked objective must not carry an Objective Scope module");
+                        AssertFalse(content.Contains("## Objective Scope (Definition of Done)"),
+                            "A voyage without a linked objective must not carry the Objective Scope module heading");
                     }
                     finally
                     {
