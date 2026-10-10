@@ -1168,9 +1168,17 @@ template through the caller scope, and require edit rights.
 `create_objective`, `create_backlog_item`, `update_objective` and
 `update_backlog_item` share one input schema and call the same service methods
 as `POST` and `PUT /api/v1/objectives` (and `/api/v1/backlog`). The update tools
-change only the supplied fields, including `autoDispatchEnabled`. The clearable
-text fields (`description`, `category`, `owner`, `targetVersion`,
-`parentObjectiveId`, `refinementSummary`, `suggestedPipelineId`,
+change only supplied top-level fields, including `autoDispatchEnabled`. If an
+update supplies `preparation`, that nested object is a complete replacement.
+Send every nested value that must remain: `requiredForDispatch`,
+`requiredClaimKinds`, `requiredSiblingInputs`, `executionRequirements`,
+`source`, `target`, `claims`, `preflight`, and `stageSkip`. Omitted preparation
+members reset to their model defaults or `null`. The MCP input schema exposes
+each member, including all preflight-answer and stored stage-skip fields. A
+stored stage skip still needs its operator confirmation before the autonomous
+scheduler honours it. The clearable text fields (`description`, `category`,
+`owner`, `targetVersion`, `parentObjectiveId`, `refinementSummary`,
+`suggestedPipelineId`,
 `startFromRef`) declare `emptyStringClears`, so an explicit `""` clears the
 stored value as it does on REST. A refusal carries `Outcome`: `NotFound` for an
 objective the caller cannot read, `Invalid` for a missing title, an unknown enum

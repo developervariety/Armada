@@ -225,13 +225,13 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "update_objective",
-                "Update one objective/backlog entry, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied fields change; an empty string clears a clearable text field.",
+                "Update one objective/backlog entry, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied top-level fields change. When supplied, preparation replaces the complete nested value; omitted preparation members reset to their defaults or null. An empty string clears a clearable text field.",
                 ObjectiveWriteSchema("objective", true),
                 async (args) => await UpdateAsync(objectiveService, args, "objective_update_failed", "objectiveId is required", null).ConfigureAwait(false));
 
             register(
                 "update_backlog_item",
-                "Update one backlog item, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied fields change; an empty string clears a clearable text field.",
+                "Update one backlog item, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied top-level fields change. When supplied, preparation replaces the complete nested value; omitted preparation members reset to their defaults or null. An empty string clears a clearable text field.",
                 ObjectiveWriteSchema("backlog item", true),
                 async (args) => await UpdateAsync(objectiveService, args, "backlog_update_failed", "objectiveId is required", "backlog_item_id_required").ConfigureAwait(false));
 
@@ -1037,7 +1037,7 @@ namespace Armada.Server.Mcp.Tools
             return new
             {
                 type = "object",
-                description = "Complete bounded repository preparation replacement. Send every source, target, and claim value that must remain. Changing an anchor marks only dependent claims for recheck.",
+                description = "Complete bounded repository preparation replacement. Include every nested value that must remain: dispatch requirements, sibling inputs, execution requirements, source and target anchors, claims, preflight answers, and stored stage-skip confirmation. Omitted members reset to their model defaults or null. Changing an anchor marks only dependent claims for recheck.",
                 properties = new
                 {
                     requiredForDispatch = new { type = "boolean", description = "When true, dispatch requires immutable anchors and current evidence-backed required claims" },
@@ -1111,6 +1111,45 @@ namespace Armada.Server.Mcp.Tools
                             },
                             required = new[] { "id", "kind", "text" }
                         }
+                    },
+                    preflight = new
+                    {
+                        type = "object",
+                        description = "Recorded operator answers to the dispatch-preflight questions. This value is replaced with the preparation object.",
+                        properties = new
+                        {
+                            questions = new
+                            {
+                                type = "array",
+                                maxItems = ObjectivePreflight.QuestionCount,
+                                items = new
+                                {
+                                    type = "object",
+                                    properties = new
+                                    {
+                                        number = new { type = "integer", minimum = 1, maximum = ObjectivePreflight.QuestionCount },
+                                        answer = new { type = "string", @enum = Enum.GetNames<ObjectivePreflightAnswerEnum>() },
+                                        note = new { type = "string", description = "Operator note that supports the recorded answer" },
+                                        answeredUtc = new { type = "string", format = "date-time" },
+                                        answeredBy = new { type = "string", description = "Operator who recorded the answer" }
+                                    },
+                                    required = new[] { "number", "answer" }
+                                }
+                            }
+                        }
+                    },
+                    stageSkip = new
+                    {
+                        type = "object",
+                        description = "Stored operator-confirmed stage skips for autonomous dispatch. This value is replaced with the preparation object; confirmation is still required.",
+                        properties = new
+                        {
+                            stages = new { type = "array", items = new { type = "string" }, description = "Pipeline persona names to omit" },
+                            reason = new { type = "string", description = "Why the stages are not needed" },
+                            confirmedBy = new { type = "string", description = "Operator who confirmed the skip" },
+                            confirmedUtc = new { type = "string", format = "date-time", description = "When the operator confirmed the skip" }
+                        },
+                        required = new[] { "stages" }
                     }
                 }
             };

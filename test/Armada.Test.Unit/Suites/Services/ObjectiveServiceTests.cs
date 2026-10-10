@@ -202,6 +202,22 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("requiredClaimKinds", createSchema);
                 AssertContains("requiredSiblingInputs", createSchema);
                 AssertContains("requiredArtifactPaths", createSchema);
+                foreach (string toolName in new[] { "create_objective", "create_backlog_item", "update_objective", "update_backlog_item" })
+                {
+                    ToolInputSchema schema = JsonSerializer.Deserialize<ToolInputSchema>(JsonSerializer.Serialize(schemas[toolName]),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                        ?? throw new InvalidOperationException("Could not read the schema for " + toolName + ".");
+                    AssertTrue(schema.Properties.ContainsKey("preparation"), toolName + " exposes preparation");
+                    foreach (string member in new[]
+                    {
+                        "requiredForDispatch", "requiredClaimKinds", "requiredSiblingInputs", "executionRequirements",
+                        "source", "target", "claims", "preflight", "stageSkip"
+                    })
+                    {
+                        AssertTrue(schema.Properties["preparation"].Properties.ContainsKey(member),
+                            toolName + " exposes preparation member " + member);
+                    }
+                }
 
                 using JsonDocument validDoc = JsonDocument.Parse("{\"title\":\"MCP backlog create\",\"kind\":\"Bug\",\"priority\":\"P0\",\"status\":\"Scoped\",\"suggestedPlaybooks\":[{\"playbookId\":\"pbk_mcp\",\"deliveryMode\":\"InstructionWithReference\"}],\"preparation\":{\"requiredForDispatch\":true,\"requiredClaimKinds\":[\"SourcePath\"],\"requiredSiblingInputs\":[{\"vesselRef\":\"ReferenceSource\",\"relativePath\":\"../ReferenceSource\",\"requiredArtifactPaths\":[]}],\"source\":{\"vesselId\":\"vsl_source\",\"ref\":\"main\",\"resolvedCommit\":\"def456\"},\"claims\":[{\"id\":\"opc_mcp_create\",\"kind\":\"SourcePath\",\"text\":\"Read src/Entry.cs\",\"dependsOn\":\"Source\",\"state\":\"Verified\"}]}}");
                 object validResult = await handlers["create_backlog_item"](validDoc.RootElement).ConfigureAwait(false);
@@ -216,6 +232,75 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("ReferenceSource", created.Preparation.RequiredSiblingInputs[0].VesselRef);
                 AssertEqual("pbk_mcp", created.SuggestedPlaybooks[0].PlaybookId);
                 AssertEqual(PlaybookDeliveryModeEnum.InstructionWithReference, created.SuggestedPlaybooks[0].DeliveryMode);
+
+                Objective prepared = await objectives.CreateAsync(
+                    AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "UnitTest"),
+                    new ObjectiveUpsertRequest
+                    {
+                        Title = "MCP preparation replacement",
+                        Preparation = new ObjectivePreparation
+                        {
+                            RequiredForDispatch = true,
+                            RequiredClaimKinds = new List<ObjectivePreparationClaimKindEnum> { ObjectivePreparationClaimKindEnum.SourcePath },
+                            ExecutionRequirements = new ObjectiveExecutionRequirements
+                            {
+                                OperatingSystem = "Linux",
+                                Executables = new List<string> { "git" }
+                            },
+                            Preflight = new ObjectivePreflight
+                            {
+                                Questions = new List<ObjectivePreflightAnswer>
+                                {
+                                    new ObjectivePreflightAnswer
+                                    {
+                                        Number = 1,
+                                        Answer = ObjectivePreflightAnswerEnum.Yes,
+                                        Note = "Checked the target repository.",
+                                        AnsweredUtc = new DateTime(2026, 10, 10, 12, 0, 0, DateTimeKind.Utc),
+                                        AnsweredBy = "operator"
+                                    }
+                                }
+                            },
+                            StageSkip = new StageSkipRequest
+                            {
+                                Stages = new List<string> { "TestEngineer" },
+                                Reason = "No test stage is required for this objective.",
+                                ConfirmedBy = "operator",
+                                ConfirmedUtc = new DateTime(2026, 10, 10, 12, 1, 0, DateTimeKind.Utc)
+                            }
+                        }
+                    }).ConfigureAwait(false);
+
+                using (JsonDocument updateDoc = JsonDocument.Parse(
+                    "{\"objectiveId\":\"" + prepared.Id + "\",\"preparation\":{" +
+                    "\"requiredForDispatch\":true," +
+                    "\"requiredClaimKinds\":[\"SourcePath\"]," +
+                    "\"executionRequirements\":{\"operatingSystem\":\"Linux\",\"executables\":[\"git\"]}," +
+                    "\"preflight\":{\"questions\":[{\"number\":1,\"answer\":\"Yes\",\"note\":\"Checked the target repository.\",\"answeredUtc\":\"2026-10-10T12:00:00Z\",\"answeredBy\":\"operator\"}]}," +
+                    "\"stageSkip\":{\"stages\":[\"TestEngineer\"],\"reason\":\"No test stage is required for this objective.\",\"confirmedBy\":\"operator\",\"confirmedUtc\":\"2026-10-10T12:01:00Z\"}}}"))
+                {
+                    Objective roundTrip = (Objective)await handlers["update_objective"](updateDoc.RootElement).ConfigureAwait(false);
+                    AssertTrue(roundTrip.Preparation.RequiredForDispatch);
+                    AssertEqual(ObjectivePreparationClaimKindEnum.SourcePath, roundTrip.Preparation.RequiredClaimKinds[0]);
+                    AssertEqual("Linux", roundTrip.Preparation.ExecutionRequirements?.OperatingSystem);
+                    AssertEqual(1, roundTrip.Preparation.Preflight.Questions.Count);
+                    AssertEqual(ObjectivePreflightAnswerEnum.Yes, roundTrip.Preparation.Preflight.Questions[0].Answer);
+                    AssertEqual("Checked the target repository.", roundTrip.Preparation.Preflight.Questions[0].Note);
+                    AssertEqual(new DateTime(2026, 10, 10, 12, 0, 0, DateTimeKind.Utc), roundTrip.Preparation.Preflight.Questions[0].AnsweredUtc);
+                    AssertEqual("operator", roundTrip.Preparation.Preflight.Questions[0].AnsweredBy);
+                    AssertEqual("TestEngineer", roundTrip.Preparation.StageSkip?.Stages[0]);
+                    AssertEqual("No test stage is required for this objective.", roundTrip.Preparation.StageSkip?.Reason);
+                    AssertEqual("operator", roundTrip.Preparation.StageSkip?.ConfirmedBy);
+                    AssertEqual(new DateTime(2026, 10, 10, 12, 1, 0, DateTimeKind.Utc), roundTrip.Preparation.StageSkip?.ConfirmedUtc);
+                }
+
+                using (JsonDocument omittedPreparationDoc = JsonDocument.Parse("{\"objectiveId\":\"" + prepared.Id + "\",\"title\":\"Keep nested preparation\"}"))
+                {
+                    Objective preserved = (Objective)await handlers["update_objective"](omittedPreparationDoc.RootElement).ConfigureAwait(false);
+                    AssertTrue(preserved.Preparation.RequiredForDispatch, "Omitting top-level preparation preserves the complete existing value.");
+                    AssertEqual(ObjectivePreflightAnswerEnum.Yes, preserved.Preparation.Preflight.Questions[0].Answer);
+                    AssertEqual("operator", preserved.Preparation.StageSkip?.ConfirmedBy);
+                }
 
                 using JsonDocument invalidEnumDoc = JsonDocument.Parse("{\"title\":\"Bad backlog create\",\"kind\":\"NotARealKind\"}");
                 object invalidEnumResult = await handlers["create_backlog_item"](invalidEnumDoc.RootElement).ConfigureAwait(false);
@@ -1201,6 +1286,31 @@ namespace Armada.Test.Unit.Suites.Services
                     Title = "Replace preparation",
                     Preparation = new ObjectivePreparation
                     {
+                        RequiredForDispatch = true,
+                        RequiredClaimKinds = new List<ObjectivePreparationClaimKindEnum> { ObjectivePreparationClaimKindEnum.SourcePath },
+                        RequiredSiblingInputs = new List<ObjectivePreparationSiblingInput>
+                        {
+                            new ObjectivePreparationSiblingInput { VesselRef = "ReferenceSource", RelativePath = "../ReferenceSource" }
+                        },
+                        ExecutionRequirements = new ObjectiveExecutionRequirements
+                        {
+                            OperatingSystem = "Linux",
+                            Executables = new List<string> { "git" }
+                        },
+                        Preflight = new ObjectivePreflight
+                        {
+                            Questions = new List<ObjectivePreflightAnswer>
+                            {
+                                new ObjectivePreflightAnswer { Number = 1, Answer = ObjectivePreflightAnswerEnum.Yes, Note = "Checked.", AnsweredBy = "operator" }
+                            }
+                        },
+                        StageSkip = new StageSkipRequest
+                        {
+                            Stages = new List<string> { "TestEngineer" },
+                            Reason = "Not required.",
+                            ConfirmedBy = "operator",
+                            ConfirmedUtc = DateTime.UtcNow
+                        },
                         Source = new ObjectivePreparationAnchor { ResolvedCommit = "aaaa" },
                         Claims = new List<ObjectivePreparationClaim>
                         {
@@ -1221,6 +1331,13 @@ namespace Armada.Test.Unit.Suites.Services
                     "A supplied preparation object replaces omitted nested source data.");
                 AssertEqual(0, replaced.Preparation.Claims.Count,
                     "A supplied preparation object replaces omitted nested claims.");
+                AssertFalse(replaced.Preparation.RequiredForDispatch,
+                    "A supplied preparation object resets omitted dispatch requirements.");
+                AssertEqual(0, replaced.Preparation.RequiredClaimKinds.Count);
+                AssertEqual(0, replaced.Preparation.RequiredSiblingInputs.Count);
+                AssertNull(replaced.Preparation.ExecutionRequirements);
+                AssertEqual(0, replaced.Preparation.Preflight.Questions.Count);
+                AssertNull(replaced.Preparation.StageSkip);
                 AssertEqual("bbbb", replaced.Preparation.Target?.ResolvedCommit);
             }).ConfigureAwait(false);
 
@@ -1806,6 +1923,16 @@ namespace Armada.Test.Unit.Suites.Services
         {
             if (objective == null) throw new InvalidOperationException("Expected objective to be present.");
             return objective;
+        }
+
+        private sealed class ToolInputSchema
+        {
+            public Dictionary<string, ToolSchemaProperty> Properties { get; set; } = new Dictionary<string, ToolSchemaProperty>();
+        }
+
+        private sealed class ToolSchemaProperty
+        {
+            public Dictionary<string, ToolSchemaProperty> Properties { get; set; } = new Dictionary<string, ToolSchemaProperty>();
         }
     }
 }

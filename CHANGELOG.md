@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Objective MCP tools expose stored preflight answers and stage-skip confirmation
+  in the preparation schema. Update descriptions state that a supplied
+  preparation replaces the full nested object, so clients can send each value
+  that must remain when they change repository anchors.
 - Cursor usage routing reads Cursor's own models correctly: models matching the
   account's `cursorModelPrefixes` (default `composer-`, `grok-`, `cursor-grok-`)
   draw on the Cursor-models pool, read Low instead of Exhausted while they spill
