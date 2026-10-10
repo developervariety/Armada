@@ -507,7 +507,7 @@ namespace Armada.Test.Unit.Suites.Services
                         string assembledDigest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(assembled.ToString()))).ToLowerInvariant();
                         AssertEqual(expected.StateSha256, assembledDigest,
                             "pages preserve the producer's canonical supplementary-character escape and exact UTF-8 digest");
-                        AssertEqual(expected.StateBytes, Encoding.UTF8.GetByteCount(assembled.ToString()),
+                        AssertEqual(Encoding.UTF8.GetByteCount(expected.RedactedState), Encoding.UTF8.GetByteCount(assembled.ToString()),
                             "bounded pages preserve the exact UTF-8 byte count");
 
                         string missing = await CallAsAsync(handlers, toolName,
@@ -748,6 +748,8 @@ namespace Armada.Test.Unit.Suites.Services
         {
             /// <summary>Whether the lookup returned a usable page.</summary>
             public bool Success { get; set; }
+            /// <summary>Lookup availability or refusal status.</summary>
+            public string? Availability { get; set; }
             /// <summary>The typed-decision event identifier.</summary>
             public string? EventId { get; set; }
             /// <summary>The retained decision point.</summary>

@@ -74,6 +74,9 @@ upstream integrations and excludes changes already present at that baseline.
   changes while preserving required, permitted validation.
 - Mission tokens can read scoped report-chain output and full authorizing
   objectives without inheriting administrator operator tools.
+- Voyage status now applies caller scope to the voyage record, summary counts,
+  assignment totals and mission details. Mission tokens remain limited to their
+  own voyage and its same-owner missions, even when the owner is an administrator.
 - Papercut listings expose continuation pages, source and result totals, and
   scan truncation. New arrivals cannot displace the page set; changed retained
   events or merged results require a restart.

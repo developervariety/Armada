@@ -10,6 +10,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Threading.Tasks;
     using Armada.Core;
     using ArmadaConstants = Armada.Core.Constants;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -270,26 +271,24 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
+                    AuthContext caller = McpCallerContext.Require();
                     VoyageStatusArgs request = JsonSerializer.Deserialize<VoyageStatusArgs>(args!.Value, _JsonOptions)!;
                     string voyageId = request.VoyageId;
-                    Voyage? voyage = await database.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
-                    if (voyage == null) return (object)new { Error = "Voyage not found" };
+                    VoyageStatusReadScope? readScope = await ReadVoyageStatusReadScopeAsync(
+                        database, caller, voyageId).ConfigureAwait(false);
+                    if (readScope == null) return (object)new { Error = "Voyage not found" };
+                    Voyage voyage = readScope.Voyage;
 
                     // Default: summary mode (returns voyage metadata + mission counts by status, no mission objects)
                     bool isSummary = request.Summary != false;
                     if (isSummary)
                     {
-                        Dictionary<MissionStatusEnum, int> statusCounts = await database.Missions.CountByVoyageStatusAsync(voyageId).ConfigureAwait(false);
-                        Dictionary<string, int> counts = statusCounts.ToDictionary(kvp => kvp.Key.ToString(), kvp => kvp.Value);
-                        EnumerationQuery summaryAssignmentQuery = new EnumerationQuery
-                        {
-                            VoyageId = voyageId,
-                            PageSize = 1000
-                        };
-                        List<Mission> summaryMissions = (await database.Missions.EnumerateSummariesAsync(summaryAssignmentQuery).ConfigureAwait(false)).Objects;
-                        Dictionary<string, int> assignmentCounts = summaryMissions
-                            .GroupBy(m => m.AssignmentState.ToString())
-                            .ToDictionary(g => g.Key, g => g.Count());
+                        VoyageMissionSummary missionSummary = await database.Missions.ReadVoyageMissionSummaryAsync(
+                            voyageId, tenantId: readScope.TenantId, userId: readScope.UserId).ConfigureAwait(false);
+                        Dictionary<string, long> counts = missionSummary.StatusCounts
+                            .ToDictionary(kvp => kvp.Key.ToString(), kvp => kvp.Value);
+                        Dictionary<string, int> assignmentCounts = await CountVoyageMissionAssignmentsAsync(
+                            database, voyageId, readScope).ConfigureAwait(false);
                         return (object)new
                         {
                             Voyage = new { voyage.Id, voyage.Title, voyage.Description, voyage.Status, voyage.CreatedUtc, voyage.LastUpdateUtc },
@@ -299,20 +298,18 @@ namespace Armada.Server.Mcp.Tools
                         };
                     }
 
-                    EnumerationQuery missionQuery = new EnumerationQuery
-                    {
-                        VoyageId = voyageId,
-                        PageSize = 1000
-                    };
-                    List<Mission> missionSummaries = (await database.Missions.EnumerateSummariesAsync(missionQuery).ConfigureAwait(false)).Objects;
+                    VoyageMissionSummary summary = await database.Missions.ReadVoyageMissionSummaryAsync(
+                        voyageId, tenantId: readScope.TenantId, userId: readScope.UserId).ConfigureAwait(false);
+                    long totalMissions = summary.StatusCounts.Values.Sum();
 
                     // Non-summary: optionally include mission objects
                     if (request.IncludeMissions != true)
                     {
-                        return (object)new { Voyage = voyage, TotalMissions = missionSummaries.Count };
+                        return (object)new { Voyage = voyage, TotalMissions = totalMissions };
                     }
 
-                    List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
+                    List<Mission> missions = await ReadAllVoyageMissionsAsync(
+                        database, voyageId, readScope).ConfigureAwait(false);
                     return (object)new
                     {
                         Voyage = new { voyage.Id, voyage.Title, voyage.Status, voyage.CreatedUtc, voyage.CompletedUtc, voyage.LastUpdateUtc, DescriptionLength = voyage.Description?.Length ?? 0 },
@@ -394,6 +391,124 @@ namespace Armada.Server.Mcp.Tools
                         id => database.Voyages.ReadAsync(id)).ConfigureAwait(false);
                     return (object)result;
                 });
+        }
+
+        private static async Task<VoyageStatusReadScope?> ReadVoyageStatusReadScopeAsync(
+            DatabaseDriver database,
+            AuthContext caller,
+            string voyageId)
+        {
+            string? tenantId;
+            string? userId;
+            Voyage? voyage;
+
+            if (!String.IsNullOrWhiteSpace(caller.MissionId))
+            {
+                tenantId = OwnershipPolicy.TenantOf(caller);
+                userId = OwnershipPolicy.UserOf(caller);
+                Mission? anchor = await database.Missions.ReadAsync(caller.MissionId).ConfigureAwait(false);
+                if (anchor == null
+                    || !OwnershipPolicy.SameTenant(anchor.TenantId, tenantId)
+                    || !String.Equals(OwnershipPolicy.UserOfRecord(anchor.UserId), userId, StringComparison.Ordinal)
+                    || !String.Equals(anchor.VoyageId, voyageId, StringComparison.Ordinal))
+                    return null;
+
+                // A mission credential stays user-scoped for mission rows even when its owner is an administrator.
+                voyage = await database.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
+                if (voyage != null
+                    && !OwnershipPolicy.SameTenant(voyage.TenantId, tenantId))
+                    voyage = null;
+            }
+            else
+            {
+                voyage = await CallerScopedRead.ReadVoyageAsync(database, caller, voyageId).ConfigureAwait(false);
+                if (caller.IsAdmin)
+                {
+                    tenantId = null;
+                    userId = null;
+                }
+                else if (caller.IsTenantAdmin)
+                {
+                    tenantId = caller.TenantId;
+                    userId = null;
+                }
+                else
+                {
+                    tenantId = caller.TenantId;
+                    userId = caller.UserId;
+                }
+            }
+
+            return voyage == null ? null : new VoyageStatusReadScope(voyage, tenantId, userId);
+        }
+
+        private static async Task<Dictionary<string, int>> CountVoyageMissionAssignmentsAsync(
+            DatabaseDriver database,
+            string voyageId,
+            VoyageStatusReadScope readScope)
+        {
+            Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            EnumerationQuery query = new EnumerationQuery { VoyageId = voyageId, PageSize = 1000 };
+            while (true)
+            {
+                EnumerationResult<MissionSummary> page = readScope.TenantId == null
+                    ? await database.Missions.EnumerateMissionSummariesAsync(query).ConfigureAwait(false)
+                    : readScope.UserId == null
+                        ? await database.Missions.EnumerateMissionSummariesAsync(readScope.TenantId, query).ConfigureAwait(false)
+                        : await database.Missions.EnumerateMissionSummariesAsync(readScope.TenantId, readScope.UserId, query).ConfigureAwait(false);
+                foreach (MissionSummary mission in page.Objects)
+                {
+                    string state = mission.AssignmentState.ToString();
+                    counts.TryGetValue(state, out int count);
+                    counts[state] = count + 1;
+                }
+
+                if (page.PageNumber >= page.TotalPages) break;
+                query.PageNumber = page.PageNumber + 1;
+            }
+            return counts;
+        }
+
+        private static async Task<List<Mission>> ReadAllVoyageMissionsAsync(
+            DatabaseDriver database,
+            string voyageId,
+            VoyageStatusReadScope readScope)
+        {
+            List<Mission> missions = new List<Mission>();
+            EnumerationQuery query = new EnumerationQuery { VoyageId = voyageId, PageSize = 1000 };
+            while (true)
+            {
+                EnumerationResult<Mission> page = readScope.TenantId == null
+                    ? await database.Missions.EnumerateAsync(query).ConfigureAwait(false)
+                    : readScope.UserId == null
+                        ? await database.Missions.EnumerateAsync(readScope.TenantId, query).ConfigureAwait(false)
+                        : await database.Missions.EnumerateAsync(readScope.TenantId, readScope.UserId, query).ConfigureAwait(false);
+                missions.AddRange(page.Objects);
+                if (page.PageNumber >= page.TotalPages) break;
+                query.PageNumber = page.PageNumber + 1;
+            }
+            return missions;
+        }
+
+        private sealed class VoyageStatusReadScope
+        {
+            /// <summary>Create a status read scope after the voyage is authorized.</summary>
+            /// <param name="voyage">The visible voyage.</param>
+            /// <param name="tenantId">Tenant filter for mission rows, or null for global scope.</param>
+            /// <param name="userId">User filter for mission rows, or null for tenant or global scope.</param>
+            public VoyageStatusReadScope(Voyage voyage, string? tenantId, string? userId)
+            {
+                Voyage = voyage;
+                TenantId = tenantId;
+                UserId = userId;
+            }
+
+            /// <summary>Voyage metadata that the caller may read.</summary>
+            public Voyage Voyage { get; }
+            /// <summary>Tenant filter that applies to mission rows.</summary>
+            public string? TenantId { get; }
+            /// <summary>User filter that applies to mission rows.</summary>
+            public string? UserId { get; }
         }
 
         private static object BuildSlimMissionStatus(Mission mission, List<string>? includeFields)

@@ -617,6 +617,15 @@ server-control actions outside mission scope.
 
 ### Captain evidence reads
 
+`armada_voyage_status` requires an authenticated caller. A global administrator
+can read any voyage. A tenant administrator can read voyages and mission rows
+in that tenant. An ordinary user can read only its own voyages and mission
+rows. A mission token keeps user scope even when its owner is an administrator:
+it can read only the voyage assigned to that mission and same-tenant,
+same-owner mission rows in that voyage. Other owners' rows do not appear in the
+summary counts or mission details. A missing or out-of-scope voyage returns
+`Voyage not found`.
+
 `armada_mission_output` returns digest-backed pages of persisted output. A mission
 caller can read its own output, missions in the same voyage, and its direct
 `DependsOnMissionId` or `ParentMissionId` source. Each source must have the same

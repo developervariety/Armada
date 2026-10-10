@@ -12,6 +12,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -28,6 +29,161 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("VoyageStatus_UsesCallerScopeForEveryReturnedField", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    TenantMetadata foreignTenant = await testDb.Driver.Tenants.CreateAsync(
+                        new TenantMetadata("voyage status foreign tenant")).ConfigureAwait(false);
+                    UserMaster foreignOwner = await testDb.Driver.Users.CreateAsync(
+                        new UserMaster(Armada.Core.Constants.DefaultTenantId, "voyage-status-foreign-owner@example.com", "password")).ConfigureAwait(false);
+                    UserMaster foreignTenantOwner = await testDb.Driver.Users.CreateAsync(
+                        new UserMaster(foreignTenant.Id, "voyage-status-foreign-tenant@example.com", "password")).ConfigureAwait(false);
+
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("scoped status voyage")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Description = "visible only in scope"
+                    }).ConfigureAwait(false);
+                    Voyage unrelatedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("unrelated status voyage")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+
+                    Mission callerMission = await CreateVoyageStatusMissionAsync(
+                        testDb.Driver, voyage.Id, Armada.Core.Constants.DefaultTenantId,
+                        Armada.Core.Constants.DefaultUserId, "caller mission", MissionStatusEnum.Complete).ConfigureAwait(false);
+                    Mission sameOwnerSibling = await CreateVoyageStatusMissionAsync(
+                        testDb.Driver, voyage.Id, Armada.Core.Constants.DefaultTenantId,
+                        Armada.Core.Constants.DefaultUserId, "same owner sibling", MissionStatusEnum.Failed).ConfigureAwait(false);
+                    Mission sameTenantOtherOwner = await CreateVoyageStatusMissionAsync(
+                        testDb.Driver, voyage.Id, Armada.Core.Constants.DefaultTenantId,
+                        foreignOwner.Id, "same tenant other owner", MissionStatusEnum.Pending).ConfigureAwait(false);
+                    Mission foreignTenantMission = await CreateVoyageStatusMissionAsync(
+                        testDb.Driver, voyage.Id, foreignTenant.Id,
+                        foreignTenantOwner.Id, "foreign tenant mission", MissionStatusEnum.Cancelled).ConfigureAwait(false);
+                    Mission unrelatedMission = await CreateVoyageStatusMissionAsync(
+                        testDb.Driver, unrelatedVoyage.Id, Armada.Core.Constants.DefaultTenantId,
+                        Armada.Core.Constants.DefaultUserId, "unrelated caller mission", MissionStatusEnum.Pending).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? statusHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = handler; },
+                        testDb.Driver,
+                        new MinimalAdmiralDouble(),
+                        null);
+                    AssertNotNull(statusHandler, "armada_voyage_status handler must be registered");
+
+                    JsonElement summaryArgs = JsonSerializer.SerializeToElement(new { voyageId = voyage.Id });
+                    AuthContext foreignTenantCaller = AuthContext.Authenticated(
+                        foreignTenant.Id, foreignTenantOwner.Id, false, false, "Test");
+                    StatusResponse foreignTenantResult = await ReadVoyageStatusAsync(
+                        statusHandler!, foreignTenantCaller, summaryArgs).ConfigureAwait(false);
+                    AssertEqual("Voyage not found", foreignTenantResult.Error);
+
+                    AuthContext foreignOwnerCaller = AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, foreignOwner.Id, false, false, "Test");
+                    StatusResponse foreignOwnerResult = await ReadVoyageStatusAsync(
+                        statusHandler!, foreignOwnerCaller, summaryArgs).ConfigureAwait(false);
+                    AssertEqual("Voyage not found", foreignOwnerResult.Error);
+
+                    AuthContext unrelatedMissionCaller = AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, false, "Session");
+                    unrelatedMissionCaller.MissionId = unrelatedMission.Id;
+                    StatusResponse unrelatedMissionResult = await ReadVoyageStatusAsync(
+                        statusHandler!, unrelatedMissionCaller, summaryArgs).ConfigureAwait(false);
+                    AssertEqual("Voyage not found", unrelatedMissionResult.Error);
+
+                    AuthContext missionCaller = AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId,
+                        false, false, "Session");
+                    missionCaller.MissionId = callerMission.Id;
+                    StatusResponse missionSummary = await ReadVoyageStatusAsync(
+                        statusHandler!, missionCaller, summaryArgs).ConfigureAwait(false);
+                    AssertEqual(voyage.Id, missionSummary.Voyage?.Id);
+                    AssertEqual(2, missionSummary.TotalMissions);
+                    AssertEqual(1L, missionSummary.MissionCountsByStatus![nameof(MissionStatusEnum.Complete)]);
+                    AssertEqual(1L, missionSummary.MissionCountsByStatus[nameof(MissionStatusEnum.Failed)]);
+                    AssertEqual(2L, missionSummary.MissionCountsByAssignmentState![MissionAssignmentStateEnum.Pending.ToString()]);
+
+                    JsonElement fullArgs = JsonSerializer.SerializeToElement(new
+                    {
+                        voyageId = voyage.Id,
+                        summary = false,
+                        includeMissions = true
+                    });
+                    StatusResponse missionDetails = await ReadVoyageStatusAsync(
+                        statusHandler!, missionCaller, fullArgs).ConfigureAwait(false);
+                    AssertTrue(missionDetails.Missions!.Select(mission => mission.Id).ToHashSet(StringComparer.Ordinal)
+                        .SetEquals(new[] { callerMission.Id, sameOwnerSibling.Id }),
+                        "mission tokens may read same-owner sibling mission metadata in their voyage");
+
+                    AuthContext adminOwnedMissionCaller = AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId,
+                        true, true, "Session");
+                    adminOwnedMissionCaller.MissionId = callerMission.Id;
+                    StatusResponse adminOwnedMissionSummary = await ReadVoyageStatusAsync(
+                        statusHandler!, adminOwnedMissionCaller, summaryArgs).ConfigureAwait(false);
+                    AssertEqual(2, adminOwnedMissionSummary.TotalMissions);
+                    StatusResponse adminOwnedMissionUnrelated = await ReadVoyageStatusAsync(
+                        statusHandler!, adminOwnedMissionCaller,
+                        JsonSerializer.SerializeToElement(new { voyageId = unrelatedVoyage.Id })).ConfigureAwait(false);
+                    AssertEqual("Voyage not found", adminOwnedMissionUnrelated.Error);
+
+                    AuthContext ownerCaller = AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId,
+                        false, false, "Test");
+                    StatusResponse ownerSummary = await ReadVoyageStatusAsync(
+                        statusHandler!, ownerCaller, summaryArgs).ConfigureAwait(false);
+                    AssertEqual(2, ownerSummary.TotalMissions);
+                    StatusResponse ownerDetails = await ReadVoyageStatusAsync(
+                        statusHandler!, ownerCaller, fullArgs).ConfigureAwait(false);
+                    AssertTrue(ownerDetails.Missions!.Select(mission => mission.Id).ToHashSet(StringComparer.Ordinal)
+                        .SetEquals(new[] { callerMission.Id, sameOwnerSibling.Id }),
+                        "ordinary users see all and only their own voyage missions");
+
+                    AuthContext tenantAdmin = AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "Test");
+                    StatusResponse tenantAdminResult = await ReadVoyageStatusAsync(
+                        statusHandler!, tenantAdmin, summaryArgs).ConfigureAwait(false);
+                    AssertEqual(3, tenantAdminResult.TotalMissions);
+                    AssertTrue(!tenantAdminResult.MissionCountsByStatus!.ContainsKey(nameof(MissionStatusEnum.Cancelled)),
+                        "tenant admins must not count missions from another tenant");
+                    StatusResponse tenantAdminDetails = await ReadVoyageStatusAsync(
+                        statusHandler!, tenantAdmin, fullArgs).ConfigureAwait(false);
+                    AssertTrue(tenantAdminDetails.Missions!.Select(mission => mission.Id).ToHashSet(StringComparer.Ordinal)
+                        .SetEquals(new[] { callerMission.Id, sameOwnerSibling.Id, sameTenantOtherOwner.Id }),
+                        "tenant admins see all and only their tenant's voyage missions");
+
+                    AuthContext globalAdmin = AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId,
+                        true, true, "Test");
+                    StatusResponse globalAdminResult = await ReadVoyageStatusAsync(
+                        statusHandler!, globalAdmin, summaryArgs).ConfigureAwait(false);
+                    AssertEqual(4, globalAdminResult.TotalMissions);
+                    AssertTrue(globalAdminResult.MissionCountsByStatus!.ContainsKey(nameof(MissionStatusEnum.Cancelled)),
+                        "global admins retain global voyage visibility");
+                    StatusResponse globalAdminDetails = await ReadVoyageStatusAsync(
+                        statusHandler!, globalAdmin, fullArgs).ConfigureAwait(false);
+                    AssertTrue(globalAdminDetails.Missions!.Select(mission => mission.Id).ToHashSet(StringComparer.Ordinal)
+                        .SetEquals(new[] { callerMission.Id, sameOwnerSibling.Id, sameTenantOtherOwner.Id, foreignTenantMission.Id }),
+                        "global admins retain global mission visibility");
+
+                    bool refusedUnauthenticated = false;
+                    try
+                    {
+                        await statusHandler!(summaryArgs).ConfigureAwait(false);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        refusedUnauthenticated = true;
+                    }
+                    AssertTrue(refusedUnauthenticated, "voyage status requires an authenticated MCP caller");
+                }
+            });
+
             await RunTest("VoyageStatusSummary_IncludesMissionCountsByAssignmentState_WithCorrectGrouping", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -454,6 +610,71 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("\"Failed\"", json);
                 }
             });
+        }
+
+        private static async Task<Mission> CreateVoyageStatusMissionAsync(
+            DatabaseDriver database,
+            string voyageId,
+            string tenantId,
+            string userId,
+            string title,
+            MissionStatusEnum status)
+        {
+            return await database.Missions.CreateAsync(new Mission(title)
+            {
+                TenantId = tenantId,
+                UserId = userId,
+                VoyageId = voyageId,
+                Status = status,
+                AssignmentState = MissionAssignmentStateEnum.Pending
+            }).ConfigureAwait(false);
+        }
+
+        private async Task<StatusResponse> ReadVoyageStatusAsync(
+            Func<JsonElement?, Task<object>> handler,
+            AuthContext caller,
+            JsonElement arguments)
+        {
+            using (McpCallerContext.Begin(caller))
+            {
+                object result = await handler(arguments).ConfigureAwait(false);
+                string serialized = JsonSerializer.Serialize(result);
+                StatusResponse? response = JsonSerializer.Deserialize<StatusResponse>(serialized);
+                AssertNotNull(response, "voyage status response must deserialize");
+                return response!;
+            }
+        }
+
+        private sealed class StatusResponse
+        {
+            /// <summary>Error returned when the requested voyage is outside the caller's scope.</summary>
+            public string? Error { get; set; }
+            /// <summary>Voyage summary returned to the caller.</summary>
+            public VoyageSummary? Voyage { get; set; }
+            /// <summary>Number of mission records visible in the caller's scope.</summary>
+            public int TotalMissions { get; set; }
+            /// <summary>Visible mission totals by status.</summary>
+            public Dictionary<string, long>? MissionCountsByStatus { get; set; }
+            /// <summary>Visible mission totals by assignment state.</summary>
+            public Dictionary<string, long>? MissionCountsByAssignmentState { get; set; }
+            /// <summary>Mission records returned when detail mode is requested.</summary>
+            public List<StatusMission>? Missions { get; set; }
+        }
+
+        private sealed class VoyageSummary
+        {
+            /// <summary>Voyage identifier.</summary>
+            public string? Id { get; set; }
+            /// <summary>Voyage title.</summary>
+            public string? Title { get; set; }
+        }
+
+        private sealed class StatusMission
+        {
+            /// <summary>Mission identifier.</summary>
+            public string? Id { get; set; }
+            /// <summary>Mission title.</summary>
+            public string? Title { get; set; }
         }
 
         /// <summary>
