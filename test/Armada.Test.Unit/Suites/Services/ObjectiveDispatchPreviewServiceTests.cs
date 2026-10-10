@@ -1268,7 +1268,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AuthContext scopedCaller = AuthContext.Authenticated(
                         harness.Auth.TenantId, harness.Auth.UserId, false, false, "UnitTest");
-                    sibling.UserId = "another-owner";
+                    UserMaster anotherOwner = await testDb.Driver.Users.CreateAsync(
+                        new UserMaster(harness.Auth.TenantId, "sibling-other-owner@example.test", "password")).ConfigureAwait(false);
+                    sibling.UserId = anotherOwner.Id;
                     await testDb.Driver.Vessels.UpdateAsync(sibling).ConfigureAwait(false);
                     harness.Git.RevisionCommitShas[siblingDirectory + "|HEAD"] = siblingTip;
                     ObjectiveDispatchPreview foreignOwner = await harness.Service.PreviewAsync(scopedCaller, objective).ConfigureAwait(false);
@@ -1277,7 +1279,10 @@ namespace Armada.Test.Unit.Suites.Services
 
                     sibling.UserId = harness.Auth.UserId;
                     TenantMetadata foreignTenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Other sibling tenant")).ConfigureAwait(false);
+                    UserMaster otherTenantOwner = await testDb.Driver.Users.CreateAsync(
+                        new UserMaster(foreignTenant.Id, "sibling-other-tenant@example.test", "password")).ConfigureAwait(false);
                     sibling.TenantId = foreignTenant.Id;
+                    sibling.UserId = otherTenantOwner.Id;
                     await testDb.Driver.Vessels.UpdateAsync(sibling).ConfigureAwait(false);
                     ObjectiveDispatchPreview foreignTenantPreview = await harness.Service.PreviewAsync(scopedCaller, objective).ConfigureAwait(false);
                     AssertEqual(PreflightFactStatusEnum.Fail, foreignTenantPreview.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
