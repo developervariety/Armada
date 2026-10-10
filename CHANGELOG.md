@@ -9,6 +9,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Stored-prompt upgrade coverage uses a fixed historical fixture instead of
+  deriving its prior input from the current prompt.
 - Premise checks identify a selected supplied fact for a positive absent-symbol
   reading, or return an explicit unknown identity, using centrally redacted values.
 - Default TestEngineer instructions honor explicit objective limits on test-file

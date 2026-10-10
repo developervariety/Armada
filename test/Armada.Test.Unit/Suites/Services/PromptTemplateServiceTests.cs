@@ -172,29 +172,14 @@ namespace Armada.Test.Unit.Suites.Services
                     PromptTemplateService initial = new PromptTemplateService(testDb.Driver, logging);
                     await initial.SeedDefaultsAsync().ConfigureAwait(false);
 
-                    string updatedDefault = initial.GetEmbeddedDefault("persona.test_engineer");
-                    string priorDefault = updatedDefault
-                        .Replace(
-                            "You do not patch production code. Objective Scope, including its acceptance criteria and non-goals, controls whether tests are in scope. If it expressly excludes test changes or requires a documentation-only change, do not edit or commit tests; run any validation that Objective Scope requires and permits, and explain why no tests were needed under `## Residual Risks`. When tests are in scope, edit and commit test files only.\n",
-                            "You do not patch production code. Commit test files only.\n",
-                            StringComparison.Ordinal)
-                        .Replace(
-                            "3. **Identify coverage gaps.** When Objective Scope includes test work, determine which new code paths lack test coverage, cover the happy path, and add at least one negative or edge-path test for each new validation, timeout, cancellation, retry, cleanup, or other error-handling branch within scope when feasible.\n",
-                            "3. **Identify coverage gaps.** Determine which new code paths lack test coverage. Cover the happy path, but also add at least one negative or edge-path test for each new validation, timeout, cancellation, retry, cleanup, or other error-handling branch within scope when feasible.\n",
-                            StringComparison.Ordinal)
-                        .Replace(
-                            "4. **Write focused tests when in scope.** Each test should verify one behavior. Use descriptive test ",
-                            "4. **Write focused tests.** Each test should verify one behavior. Use descriptive test ",
-                            StringComparison.Ordinal)
-                        .Replace(
-                            "6. **Run in-scope validation.** Run the tests and other checks that Objective Scope requires and permits, and report the exact commands and output summary. Do not add tests only to satisfy this role when the objective excludes test changes. Fix any failures before committing. Do not commit tests that are known to fail.\n",
-                            "6. **Run the tests and report exact commands.** Execute the test suite to verify your tests pass. Report the exact commands you ran and their output summary. Fix any failures before committing. Do not commit tests that are known to fail.\n",
-                            StringComparison.Ordinal)
-                        .Replace(
-                            "7. **Commit in-scope test files only.** Do not modify production code. Add test coverage only when Objective Scope calls for it.\n",
-                            "7. **Commit test files only.** Do not modify production code. Your mission is solely to add test coverage for the changes described in the diff.\n",
-                            StringComparison.Ordinal);
-                    string priorHash = PromptTemplateService.HashContent(priorDefault);
+                    string priorDefault = File.ReadAllText(Path.Combine(
+                        AppContext.BaseDirectory,
+                        "Fixtures",
+                        "PromptTemplates",
+                        "TestEngineer.previous.txt"));
+                    const string priorHash = "0f584b1d0441e3f8913da730961de46c12db1d861ce3d0d55fbd3b4036c88a0a";
+                    AssertEqual(priorHash, PromptTemplateService.HashContent(priorDefault),
+                        "the historical TestEngineer fixture matches its fixed content hash");
                     Dictionary<string, List<string>> history = PromptTemplateService.LoadTemplateHashHistory();
                     AssertTrue(history.TryGetValue("persona.test_engineer", out List<string>? hashes) && hashes.Contains(priorHash),
                         "the pre-change embedded default hash is recorded as a supported prior version");

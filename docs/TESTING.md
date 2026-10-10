@@ -45,6 +45,10 @@ The `Mission Review Diff` unit suite owns all six review-diff cases. It checks
 unchanged small diffs, retained code and file headers, generated-data elision,
 small data files, and generic elision for large code files.
 
+Stored-prompt migration tests read a fixed historical fixture and verify its
+known hash. Do not derive historical input from the current default prompt.
+This keeps the migration proof independent of current prompt text.
+
 ## Gate Host
 
 The gate is the four runners together: `unit` (sharded), `automated`, `runtimes` and `shared`. A commit passes only when all four pass in one combined run. Run the gate on a Linux host, not on a macOS workstation.
