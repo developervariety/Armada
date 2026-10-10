@@ -198,20 +198,26 @@ namespace Armada.Core.Services
                 templateName = personaOverride.PromptTemplateName!.Trim();
 
             string result = GetPersonaPromptFallback(persona);
+            bool templateContainsOwnershipPlaceholder = false;
             if (promptTemplates != null)
             {
+                PromptTemplate? template = await promptTemplates.ResolveAsync(templateName, token).ConfigureAwait(false);
+                templateContainsOwnershipPlaceholder = template != null &&
+                    template.Content.Contains("{TestOwnership}", StringComparison.Ordinal);
+
                 string rendered = await promptTemplates.RenderAsync(templateName, templateParams, token).ConfigureAwait(false);
                 if (!String.IsNullOrEmpty(rendered))
                     result = rendered;
+            }
 
-                // The fallback path must carry the same ownership directive as the template path, or a
-                // mission whose template is missing silently loses the rule.
-                string? ownershipDirective;
-                if (templateParams.TryGetValue("TestOwnership", out ownershipDirective) &&
-                    !String.IsNullOrEmpty(ownershipDirective))
-                {
-                    result = result + "\n\n" + ownershipDirective;
-                }
+            // Templates that define the placeholder receive the directive during rendering. Older or
+            // operator-authored templates without it, plus the code fallback, receive one appended copy.
+            string? ownershipDirective;
+            if (!templateContainsOwnershipPlaceholder &&
+                templateParams.TryGetValue("TestOwnership", out ownershipDirective) &&
+                !String.IsNullOrEmpty(ownershipDirective))
+            {
+                result = result + "\n\n" + ownershipDirective;
             }
 
             if (overrideActive && !String.IsNullOrWhiteSpace(personaOverride!.AdditionalInstructions))

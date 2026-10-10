@@ -7428,10 +7428,11 @@ namespace Armada.Core.Services
                             "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary.\n\n";
                     }
 
-                    return "## Your Role: TestEngineer (Write Tests)\n\n" +
-                        "You are writing tests for code changes made by the Worker. " +
-                        "Review the diff below and write unit tests, integration tests, or test harness updates " +
-                        "that cover the changes. Follow existing test patterns in the repository. " +
+                    return "## Your Role: TestEngineer (Write Tests When in Scope)\n\n" +
+                        "Objective Scope, including its acceptance criteria and non-goals, controls whether test changes are in scope. " +
+                        "If it excludes test work, do not write tests; run any validation that Objective Scope requires and permits, " +
+                        "and explain why no tests were needed. Otherwise, when tests are in scope, review the diff below and write unit tests, integration tests, " +
+                        "or test harness updates that cover the changes. Follow existing test patterns in the repository. " +
                         "Scope yourself only to this mission, not sibling missions in the same voyage. Cover the " +
                         "happy path, but also add negative or edge-path coverage for validation, timeout, cancellation, " +
                         "retry, cleanup, and error-handling branches when they are in scope. Include short " +

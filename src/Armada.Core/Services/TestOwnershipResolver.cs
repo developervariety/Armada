@@ -132,13 +132,17 @@ namespace Armada.Core.Services
             {
                 if (ownership == TestOwnershipEnum.SoleTestOwner || ownership == TestOwnershipEnum.Unknown)
                 {
-                    return "No Test Engineer stage runs for this mission. You own the tests for this change: " +
+                    return "Objective Scope, including its acceptance criteria and non-goals, controls whether tests are " +
+                        "in scope. If it excludes test changes, do not add or edit tests; run any validation that Objective " +
+                        "Scope requires and permits. Otherwise, no Test Engineer stage runs for this mission. You own the tests for this change: " +
                         "add or update the tests that cover the behaviour you changed, including the negative paths " +
                         "for any validation, timeout, cancellation, retry, cleanup, or error-handling branch you " +
                         "touched, and run them before you commit.";
                 }
 
-                return "A Test Engineer stage runs after you. Write the tests that belong with your change and run " +
+                return "Objective Scope, including its acceptance criteria and non-goals, controls whether tests are " +
+                    "in scope. If it excludes test changes, do not add or edit tests; run any validation that Objective " +
+                    "Scope requires and permits. Otherwise, a Test Engineer stage runs after you. Write the tests that belong with your change and run " +
                     "them; the Test Engineer stage adds the broader coverage. Do not skip testing on the assumption " +
                     "that a later stage will do all of it.";
             }
