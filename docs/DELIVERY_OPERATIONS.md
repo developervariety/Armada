@@ -276,12 +276,14 @@ Check of a voyage that ended without completing is cancelled with its reason.
 No setting turns this off. Deployment deploy, verify, and rollback Checks stay
 under the deployment action so the deployment record remains authoritative.
 
-While the dispatch hold is engaged, the heartbeat runs no Check. Pending Checks
-stay Pending and run on the first sweep after the hold clears. One
-`check.auto_deferred_dispatch_hold` event per hold engagement names the holder
-and reason. A voyage that needs a green Check before its Judge PASS can land
-waits for the hold to clear. `run_check` and `retry_check_run` still run a Check
-on an operator's request.
+While the dispatch hold is engaged, the heartbeat runs eligible Checks for
+work on active voyages. These Checks let existing voyages pass their Check gate
+and drain, including work produced by a mission that was already running when
+the hold began. Checks for idle vessels, completed voyages and unrelated work
+stay Pending until the hold clears. One `check.auto_deferred_dispatch_hold`
+event per hold engagement names the holder and reason. New mission dispatches
+and autonomous rescues remain blocked. `run_check` and `retry_check_run` still
+run a Check on an operator's request.
 
 ## 10. Minimum Closeout
 

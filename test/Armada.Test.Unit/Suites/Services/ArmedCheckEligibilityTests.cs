@@ -197,35 +197,82 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Sweep runs no check while the dispatch hold is engaged and names the hold once", async () =>
+            await RunTest("Sweep finishes eligible live-voyage checks under the dispatch hold and defers unrelated checks", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
-                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("held-voyage")).ConfigureAwait(false);
-                    CheckRun armed = await ArmCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
-                    await CreateWorkMissionAsync(
-                        testDb, vessel, voyage, MissionStatusEnum.WorkProduced, "armada/worker/msn-held", "held123").ConfigureAwait(false);
+                    string workingDirectory = CreateWorkingDirectory();
+                    try
+                    {
+                        Vessel voyageVessel = await CreateLiveDirectoryVesselAsync(testDb, workingDirectory).ConfigureAwait(false);
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("held-voyage")).ConfigureAwait(false);
+                        CheckRun armed = await ArmRunnableCheckAsync(testDb, voyageVessel, voyage).ConfigureAwait(false);
+                        Mission producedWork = await CreateWorkMissionAsync(
+                            testDb, voyageVessel, voyage, MissionStatusEnum.WorkProduced, "armada/worker/msn-held", "held123").ConfigureAwait(false);
 
-                    DispatchHold hold = new DispatchHold();
-                    hold.Engage("Managed-vessel execution is paused.", "operator-session");
-                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb, hold);
+                        Voyage finishingVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("finishing-held-voyage")).ConfigureAwait(false);
+                        CheckRun finishingCheck = await ArmRunnableCheckAsync(testDb, voyageVessel, finishingVoyage).ConfigureAwait(false);
+                        Mission finishingWork = await CreateWorkMissionAsync(
+                            testDb, voyageVessel, finishingVoyage, MissionStatusEnum.InProgress, null, null).ConfigureAwait(false);
 
-                    AssertEqual(0, await orchestrator.RunSweepAsync(default).ConfigureAwait(false), "No check may execute while the hold is engaged");
-                    AssertEqual(0, await orchestrator.RunSweepAsync(default).ConfigureAwait(false), "A second sweep under the same hold executes nothing");
+                        Vessel idleVessel = await CreateLiveDirectoryVesselAsync(testDb, workingDirectory, "armed-check-idle-vessel").ConfigureAwait(false);
+                        CheckRun idleCheck = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                        {
+                            VesselId = idleVessel.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Source = CheckRunSourceEnum.Armada,
+                            Status = CheckRunStatusEnum.Pending,
+                            Command = "echo " + _DefaultBranchMarker,
+                            Label = "Build (idle-vessel check)"
+                        }).ConfigureAwait(false);
 
-                    CheckRun? reloaded = await testDb.Driver.CheckRuns.ReadAsync(armed.Id).ConfigureAwait(false);
-                    AssertNotNull(reloaded, "The held check should remain readable");
-                    AssertEqual(CheckRunStatusEnum.Pending, reloaded!.Status, "A held check stays Pending, so it runs once the hold clears");
-                    AssertNull(reloaded.BranchName, "A held check is not stamped or started");
+                        DispatchHold hold = new DispatchHold();
+                        AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb, hold);
+                        AssertTrue(await orchestrator.IsEligibleAsync(idleCheck, default).ConfigureAwait(false),
+                            "The idle-vessel check is otherwise eligible, so its deferral is due to the hold");
+                        hold.Engage("Managed-vessel execution is paused.", "operator-session");
 
-                    List<ArmadaEvent> deferred = await testDb.Driver.Events.EnumerateByTypeAsync(
-                        AutomaticCheckRunOrchestrator.DeferredByDispatchHoldEvent, 50).ConfigureAwait(false);
-                    AssertEqual(1, deferred.Count, "One event per hold engagement names why checks wait, not one per sweep");
-                    AssertContains("operator-session", deferred[0].Message ?? String.Empty, "The event names who holds dispatch");
+                        // A mission already running when the hold is engaged may finish and produce its
+                        // branch during the hold. Its pre-armed voyage check must then be allowed to drain.
+                        finishingWork.Status = MissionStatusEnum.WorkProduced;
+                        finishingWork.BranchName = "armada/worker/msn-finishing-held";
+                        finishingWork.CommitHash = "finishing123";
+                        await testDb.Driver.Missions.UpdateAsync(finishingWork).ConfigureAwait(false);
 
-                    hold.Clear();
-                    AssertEqual(1, await orchestrator.RunSweepAsync(default).ConfigureAwait(false), "The held check runs once the hold clears");
+                        AssertEqual(2, await orchestrator.RunSweepAsync(default).ConfigureAwait(false),
+                            "Checks for committed work on existing voyages must run so those voyages can drain");
+
+                        CheckRun? checkedVoyage = await testDb.Driver.CheckRuns.ReadAsync(armed.Id).ConfigureAwait(false);
+                        AssertNotNull(checkedVoyage, "The voyage check should remain readable");
+                        AssertEqual(CheckRunStatusEnum.Passed, checkedVoyage!.Status, "The eligible voyage check must finish under the hold");
+                        AssertEqual(producedWork.BranchName, checkedVoyage.BranchName, "The check still measures the committed voyage work");
+                        AssertEqual("held123", checkedVoyage.CommitHash, "The check remains pinned to that work's commit");
+
+                        CheckRun? checkedFinishingVoyage = await testDb.Driver.CheckRuns.ReadAsync(finishingCheck.Id).ConfigureAwait(false);
+                        AssertNotNull(checkedFinishingVoyage, "The check for work produced during the hold should remain readable");
+                        AssertEqual(CheckRunStatusEnum.Passed, checkedFinishingVoyage!.Status, "The check for work produced during the hold must run");
+                        AssertEqual(finishingWork.BranchName, checkedFinishingVoyage.BranchName, "The check is stamped at the new work branch");
+                        AssertEqual("finishing123", checkedFinishingVoyage.CommitHash, "The check is stamped at the new work commit");
+
+                        CheckRun? deferredIdle = await testDb.Driver.CheckRuns.ReadAsync(idleCheck.Id).ConfigureAwait(false);
+                        AssertNotNull(deferredIdle, "The unrelated idle-vessel check should remain readable");
+                        AssertEqual(CheckRunStatusEnum.Pending, deferredIdle!.Status, "The dispatch hold still defers unrelated vessel checks");
+                        AssertNull(deferredIdle.StartedUtc, "An unrelated check must not start under the hold");
+
+                        AssertEqual(0, await orchestrator.RunSweepAsync(default).ConfigureAwait(false), "A second sweep must not repeat a completed voyage check");
+
+                        List<ArmadaEvent> deferred = await testDb.Driver.Events.EnumerateByTypeAsync(
+                            AutomaticCheckRunOrchestrator.DeferredByDispatchHoldEvent, 50).ConfigureAwait(false);
+                        AssertEqual(1, deferred.Count, "One event per hold engagement names why unrelated checks wait");
+                        AssertContains("operator-session", deferred[0].Message ?? String.Empty, "The event names who holds dispatch");
+
+                        hold.Clear();
+                        AssertEqual(1, await orchestrator.RunSweepAsync(default).ConfigureAwait(false), "The unrelated check runs once the hold clears");
+                    }
+                    finally
+                    {
+                        DeleteDirectory(workingDirectory);
+                    }
                 }
             });
 
@@ -489,11 +536,11 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private static async Task<Vessel> CreateLiveDirectoryVesselAsync(TestDatabase testDb, string workingDirectory)
+        private static async Task<Vessel> CreateLiveDirectoryVesselAsync(TestDatabase testDb, string workingDirectory, string name = "armed-check-live-vessel")
         {
             Vessel vessel = new Vessel
             {
-                Name = "armed-check-live-vessel",
+                Name = name,
                 RepoUrl = String.Empty,
                 LocalPath = String.Empty,
                 WorkingDirectory = workingDirectory,

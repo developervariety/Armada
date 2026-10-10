@@ -147,17 +147,20 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "stale-check supersession failed: " + ex.Message);
             }
 
-            // The dispatch hold stops all automatic execution on managed vessels, and a check runs the
-            // vessel's build and test commands. Pending records stay Pending and run on the first sweep
-            // after the hold clears. An operator's own check run is not affected.
+            // The dispatch hold stops checks that are unrelated to draining work already admitted into
+            // a live voyage. Such a voyage may need its armed checks to finish before it can complete;
+            // running missions are allowed to finish during the hold and their checks must drain too.
+            // Checks for idle vessels, completed voyages, and releases remain deferred. An operator's
+            // own check run is not affected.
             DispatchHoldSnapshot? hold = _DispatchHold?.Snapshot();
             if (hold != null)
             {
                 await ReportHoldDeferralAsync(hold, token).ConfigureAwait(false);
-                return started;
             }
-
-            _ReportedHoldSetByUtc = null;
+            else
+            {
+                _ReportedHoldSetByUtc = null;
+            }
             int capacity = MaxConcurrentChecks - _InFlight.Count;
             if (capacity <= 0)
             {
@@ -165,7 +168,7 @@ namespace Armada.Server
                 return started;
             }
 
-            List<CheckRun> eligible = await FindEligiblePendingChecksAsync(capacity, token).ConfigureAwait(false);
+            List<CheckRun> eligible = await FindEligiblePendingChecksAsync(capacity, hold, token).ConfigureAwait(false);
             if (eligible.Count == 0) return started;
 
             _Logging.Info(_Header + "starting " + eligible.Count + " eligible pending check(s); "
@@ -250,8 +253,9 @@ namespace Armada.Server
             if (_ReportedHoldSetByUtc == hold.SetByUtc) return;
 
             string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
-            string message = "Automatic checks deferred: dispatch_hold engaged by " + holder + " at "
-                + hold.SetByUtc.ToString("u") + ": " + hold.Reason + " Pending checks run after the hold clears.";
+            string message = "Automatic checks for idle vessels and non-live-voyage work deferred: dispatch_hold engaged by " + holder + " at "
+                + hold.SetByUtc.ToString("u") + ": " + hold.Reason
+                + " Eligible checks for already active voyages can run so their work can drain; other checks run after the hold clears.";
             _Logging.Info(_Header + message);
 
             ArmadaEvent evt = new ArmadaEvent(DeferredByDispatchHoldEvent, message)
@@ -263,7 +267,7 @@ namespace Armada.Server
             _ReportedHoldSetByUtc = hold.SetByUtc;
         }
 
-        private async Task<List<CheckRun>> FindEligiblePendingChecksAsync(int limit, CancellationToken token)
+        private async Task<List<CheckRun>> FindEligiblePendingChecksAsync(int limit, DispatchHoldSnapshot? hold, CancellationToken token)
         {
             CheckRunQuery query = new CheckRunQuery
             {
@@ -287,6 +291,7 @@ namespace Armada.Server
                     {
                         scanned++;
                         if (_InFlight.ContainsKey(run.Id)) continue;
+                        if (hold != null && !await IsEligibleDuringDispatchHoldAsync(run, token).ConfigureAwait(false)) continue;
                         if (await IsEligibleAsync(run, token).ConfigureAwait(false))
                             eligible.Add(run);
                         if (eligible.Count >= limit) break;
@@ -311,6 +316,24 @@ namespace Armada.Server
             }
 
             return eligible;
+        }
+
+        /// <summary>
+        /// A dispatch hold still permits checks needed to drain work in an existing live voyage.
+        /// </summary>
+        /// <remarks>
+        /// The hold blocks new mission and voyage dispatches, not missions that were already running.
+        /// A running mission can therefore produce work while the hold is active. Its voyage-armed
+        /// check must run when that work becomes measurable, or the check itself prevents the voyage
+        /// from completing and the deployment drain cannot finish. A timestamp cutoff would strand
+        /// exactly that in-flight work. Other automatic checks remain deferred.
+        /// </remarks>
+        private async Task<bool> IsEligibleDuringDispatchHoldAsync(CheckRun run, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(run.VoyageId) || !String.IsNullOrWhiteSpace(run.DeploymentId)) return false;
+
+            Voyage? voyage = await _Database.Voyages.ReadAsync(run.VoyageId, token).ConfigureAwait(false);
+            return voyage != null && ObjectiveService.IsActiveVoyageStatus(voyage.Status);
         }
 
         /// <summary>

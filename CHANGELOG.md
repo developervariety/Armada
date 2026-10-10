@@ -13,6 +13,10 @@ upstream integrations and excludes changes already present at that baseline.
   account's `cursorModelPrefixes` (default `composer-`, `grok-`, `cursor-grok-`)
   draw on the Cursor-models pool, read Low instead of Exhausted while they spill
   into the third-party pool, and never take the third-party API-pool lead.
+- Eligible automated Checks for active voyages can finish during a dispatch hold,
+  so existing voyages can pass their Check gate and drain. Checks for idle vessels,
+  completed voyages, and other unrelated work remain deferred; new mission and
+  rescue dispatches remain blocked.
 - Smart Routing persona model lists are authoritative: a captain whose model is
   on none of a persona's lists no longer takes that persona's work when the
   listed captains are busy; the mission waits with
