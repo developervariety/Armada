@@ -58,7 +58,7 @@ namespace Armada.Server.Mcp
                     || !String.Equals(anchor.VesselId, predecessor.VesselId, StringComparison.Ordinal))
                     return null;
 
-                if (RescueMissionMarker.IsAutoRescue(predecessor)
+                if (RescueMissionMarker.CarriesDescriptionMarker(predecessor.Description)
                     && !String.IsNullOrWhiteSpace(predecessor.ParentMissionId)
                     && String.IsNullOrWhiteSpace(predecessor.DependsOnMissionId))
                     return predecessor;

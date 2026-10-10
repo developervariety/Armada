@@ -357,17 +357,30 @@ namespace Armada.Test.Unit.Suites.Services
                         VesselId = rescueVesselId,
                         AgentOutput = "unrelated same-owner output"
                     }).ConfigureAwait(false);
-                    Mission intermediateRescueStage = await testDb.Driver.Missions.CreateAsync(new Mission("intermediate rescue stage with a valid dependency")
+                    Mission legacyTitleTarget = await testDb.Driver.Missions.CreateAsync(new Mission("legacy title-only parent")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        AgentOutput = "legacy-title-only private output"
+                    }).ConfigureAwait(false);
+                    Mission legacyTitleRoot = await testDb.Driver.Missions.CreateAsync(new Mission("Rescue: legacy title-only root")
                     {
                         TenantId = Armada.Core.Constants.DefaultTenantId,
                         UserId = Armada.Core.Constants.DefaultUserId,
                         VesselId = rescueVesselId,
                         VoyageId = voyage.Id,
-                        DependsOnMissionId = rescueRoot.Id,
-                        Description = RescueMissionMarker.Marker,
-                        Persona = "TestEngineer"
+                        ParentMissionId = legacyTitleTarget.Id,
+                        Description = "ordinary text without the rescue marker"
                     }).ConfigureAwait(false);
-
+                    Mission legacyTitleDependent = await testDb.Driver.Missions.CreateAsync(new Mission("dependent on legacy title-only root")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = rescueVesselId,
+                        VoyageId = voyage.Id,
+                        DependsOnMissionId = legacyTitleRoot.Id
+                    }).ConfigureAwait(false);
                     Mission foreignTenant = await testDb.Driver.Missions.CreateAsync(new Mission("foreign tenant parent")
                     {
                         TenantId = otherTenant.Id,
@@ -448,6 +461,8 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         MissionOutputArtifactPage page = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id, length = 64000 })).ConfigureAwait(false);
                         AssertEqual(failedOutput, page.Content, "An intermediate TestEngineer can read the failed review through its rescue chain.");
+                        string deniedUnrelated = JsonSerializer.Serialize(await readOutput(JsonSerializer.SerializeToElement(new { missionId = unrelated.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedUnrelated, "A rescue chain does not expose an unrelated same-owner mission.");
                     }
                     caller.MissionId = rescueRoot.Id;
                     using (McpCallerContext.Begin(caller))
@@ -455,13 +470,14 @@ namespace Armada.Test.Unit.Suites.Services
                         MissionOutputArtifactPage page = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id, length = 64000 })).ConfigureAwait(false);
                         AssertEqual(failedOutput, page.Content, "The rescue Worker can read its failed parent output.");
                     }
-                    caller.MissionId = intermediateRescueStage.Id;
+                    caller.MissionId = legacyTitleDependent.Id;
                     using (McpCallerContext.Begin(caller))
                     {
-                        MissionOutputArtifactPage page = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { missionId = failed.Id, length = 64000 })).ConfigureAwait(false);
-                        AssertEqual(failedOutput, page.Content, "A malformed intermediate parent link does not hide the actual rescue-root parent.");
-                        string deniedMalformedParent = JsonSerializer.Serialize(await readOutput(JsonSerializer.SerializeToElement(new { missionId = unrelated.Id })).ConfigureAwait(false));
-                        AssertContains("Mission not found", deniedMalformedParent, "A rescue chain does not expose an unrelated same-owner mission.");
+                        string deniedLegacyTitleParent = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = legacyTitleTarget.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedLegacyTitleParent,
+                            "a legacy title prefix alone cannot grant a rescue ancestor read");
+                        AssertFalse(deniedLegacyTitleParent.Contains("legacy-title-only private output", StringComparison.Ordinal),
+                            "a legacy title-only chain cannot disclose the parent output");
                     }
                     caller.MissionId = tenantMismatchStage.Id;
                     using (McpCallerContext.Begin(caller))

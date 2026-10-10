@@ -3456,7 +3456,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("Blocking findings (incomplete", essentials, "The outer cap does not advertise a partial list as complete.");
                 AssertContains("armada_mission_output", essentials, "The bounded section points to the complete output.");
                 AssertContains("mission-output:" + mission.Id, essentials, "The compact reference retains the artifact pointer.");
-                AssertContains("SHA-256:", essentials, "The compact reference retains the output digest.");
+                AssertContains(MissionOutputArtifact.Build(mission, 0, 64000).Sha256, essentials, "The bounded reference retains the exact output digest.");
                 AssertFalse(essentials.Contains("every one; fix all", StringComparison.Ordinal), "The cut essentials do not claim to list every finding.");
                 AssertTrue(essentials.Length <= 400, "The essentials section respects its outer cap.");
                 await Task.CompletedTask;
@@ -4034,6 +4034,7 @@ namespace Armada.Test.Unit.Suites.Services
             Mission failed = new Mission
             {
                 Id = "msn_test_judge_over",
+                Persona = "Judge",
                 Title = "test mission",
                 Status = MissionStatusEnum.Failed,
                 FailureReason = "Judge verdict: NEEDS_REVISION",
