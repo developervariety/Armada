@@ -46,6 +46,26 @@ namespace Armada.Core.Services
             return ReadFirstCriteriaSection(baseDescription);
         }
 
+        internal static bool HasCompleteObjectiveBrief(string? description, string renderedBrief)
+        {
+            if (String.IsNullOrWhiteSpace(description) || String.IsNullOrWhiteSpace(renderedBrief)) return false;
+            Match handoff = _HandoffMarker.Match(description);
+            string baseDescription = handoff.Success ? description.Substring(0, handoff.Index) : description;
+            if (!TryFindLastCompleteObjectiveFrame(baseDescription, out Match start, out int end)) return false;
+            Match closing = _ObjectiveBriefEnd.Match(baseDescription, end);
+            if (!closing.Success || closing.Index != end) return false;
+
+            string completeFrame = baseDescription.Substring(start.Index, closing.Index + closing.Length - start.Index);
+            completeFrame = NormalizeLineEndings(completeFrame.TrimEnd('\r'));
+            string expectedFrame = NormalizeLineEndings(renderedBrief.TrimEnd());
+            return String.Equals(completeFrame, expectedFrame, StringComparison.Ordinal);
+        }
+
+        private static string NormalizeLineEndings(string value)
+        {
+            return value.Replace("\r\n", "\n").Replace('\r', '\n');
+        }
+
         private static bool TryFindLastCompleteObjectiveFrame(string text, out Match start, out int end)
         {
             start = Match.Empty;

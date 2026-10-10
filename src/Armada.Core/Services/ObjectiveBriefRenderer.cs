@@ -84,16 +84,16 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Append the authoritative brief after operator-specific instructions. The marker makes
-        /// augmentation idempotent when a request is validated or retried more than once.
+        /// Append the authoritative brief after operator-specific instructions. A retry is
+        /// idempotent only when the complete rendered brief is already present.
         /// </summary>
         public static string AppendToMissionDescription(string? existing, Objective objective, int maxChars = DefaultMaxChars)
         {
             if (objective == null) throw new ArgumentNullException(nameof(objective));
             string current = existing?.TrimEnd() ?? String.Empty;
-            if (current.Contains(StartMarker(objective.Id), StringComparison.Ordinal)) return current;
-            current = EscapeOperatorHandoffMarkers(current);
             string brief = Render(objective, maxChars);
+            if (JudgeAcceptanceWalk.HasCompleteObjectiveBrief(current, brief)) return current;
+            current = EscapeOperatorHandoffMarkers(current);
             return String.IsNullOrWhiteSpace(current) ? brief : current + Environment.NewLine + Environment.NewLine + brief;
         }
 
