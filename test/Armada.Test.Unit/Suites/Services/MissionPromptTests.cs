@@ -295,16 +295,44 @@ namespace Armada.Test.Unit.Suites.Services
 
                         PromptTemplate customDbTemplate = new PromptTemplate(
                             "persona.test_engineer",
-                            "CUSTOM TEST ENGINEER PROMPT: follow the objective scope and report only.");
+                            "CUSTOM TEST ENGINEER PROMPT: follow the objective scope and report only.\n{TestOwnership}");
                         await testDb.Driver.PromptTemplates.CreateAsync(customDbTemplate).ConfigureAwait(false);
+                        const string ownership = "SYNTHETIC OWNERSHIP DIRECTIVE";
                         string customPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
                             mission.Persona,
-                            new Dictionary<string, string> { ["TestOwnership"] = "SYNTHETIC OWNERSHIP DIRECTIVE" },
+                            new Dictionary<string, string> { ["TestOwnership"] = ownership },
                             templates).ConfigureAwait(false);
                         AssertContains("CUSTOM TEST ENGINEER PROMPT", customPrompt,
                             "a shared database template takes precedence over the embedded default");
+                        AssertEqual(1, customPrompt.Split(new[] { ownership }, StringSplitOptions.None).Length - 1,
+                            "a template placeholder receives the ownership directive once");
                         AssertFalse(customPrompt.Contains("You are an Armada test engineer agent"),
                             "the embedded source default must not overwrite a custom database template");
+
+                        await testDb.Driver.PromptTemplates.CreateAsync(new PromptTemplate(
+                            "persona.test_engineer_without_ownership_placeholder",
+                            "CUSTOM FALLBACK TEST ENGINEER PROMPT: follow the objective scope."))
+                            .ConfigureAwait(false);
+                        PersonaOverride noPlaceholderOverride = new PersonaOverride
+                        {
+                            PersonaName = "TestEngineer",
+                            PromptTemplateName = "persona.test_engineer_without_ownership_placeholder"
+                        };
+                        string fallbackPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
+                            mission.Persona,
+                            new Dictionary<string, string> { ["TestOwnership"] = ownership },
+                            templates,
+                            noPlaceholderOverride).ConfigureAwait(false);
+                        AssertContains("CUSTOM FALLBACK TEST ENGINEER PROMPT", fallbackPrompt,
+                            "the custom template without a placeholder remains active");
+                        AssertEqual(1, fallbackPrompt.Split(new[] { ownership }, StringSplitOptions.None).Length - 1,
+                            "the ownership directive is appended once when the template has no placeholder");
+
+                        string joinedBrief = MissionService.BuildPersonaPreamble("TestEngineer", MissionModeEnum.Implementation) + customPrompt;
+                        AssertContains("Objective Scope", joinedBrief,
+                            "the joined handoff preamble and persona prompt preserve the explicit scope rule");
+                        AssertEqual(1, joinedBrief.Split(new[] { ownership }, StringSplitOptions.None).Length - 1,
+                            "joining the handoff preamble does not duplicate ownership prose");
 
                         await testDb.Driver.PromptTemplates.CreateAsync(new PromptTemplate(
                             "persona.test_engineer_profile_custom",

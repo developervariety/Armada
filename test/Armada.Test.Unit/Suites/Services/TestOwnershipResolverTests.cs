@@ -129,6 +129,19 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask;
             });
 
+            await RunTest("Test ownership duties defer to Objective Scope", async () =>
+            {
+                string worker = TestOwnershipResolver.BuildDirective("Worker", TestOwnershipEnum.SoleTestOwner);
+                string engineer = TestOwnershipResolver.BuildDirective("TestEngineer", TestOwnershipEnum.TestEngineerIsMe);
+
+                AssertContains("Objective Scope", worker, "Worker test duties must defer to explicit mission scope");
+                AssertContains("You own the tests for this change", worker, "scope priority must preserve ordinary Worker ownership");
+                AssertContains("Objective Scope", engineer, "TestEngineer duties must defer to explicit mission scope");
+                AssertContains("gap coverage, not first coverage", engineer, "scope priority must preserve ordinary TestEngineer duties");
+
+                await Task.CompletedTask;
+            });
+
             await RunTest("A persona that neither produces nor judges gets no directive", async () =>
             {
                 AssertEqual("", TestOwnershipResolver.BuildDirective("Architect", TestOwnershipEnum.SoleTestOwner),

@@ -697,12 +697,13 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask;
             });
 
-            await RunTest("TestEngineer preamble orders writing tests in Implementation mode", async () =>
+            await RunTest("TestEngineer implementation preamble defers test scope to Objective Scope", async () =>
             {
                 string preamble = MissionService.BuildPersonaPreamble("TestEngineer", MissionModeEnum.Implementation);
 
-                AssertContains("Write Tests", preamble, "implementation-mode TestEngineer must be told to write tests");
-                AssertContains("write unit tests", preamble, "the writing instruction must be explicit");
+                AssertContains("Objective Scope", preamble, "implementation-mode TestEngineer must follow the mission's explicit scope");
+                AssertContains("when tests are in scope", preamble, "test writing remains the ordinary duty when permitted");
+                AssertContains("Review the diff below", preamble, "the TestEngineer still reviews the Worker's changes");
             });
 
             await RunTest("TestEngineer preamble validates the report in Audit and Research modes", async () =>
