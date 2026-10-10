@@ -13,7 +13,8 @@ upstream integrations and excludes changes already present at that baseline.
   complete for the Judge evidence gate. Mission description, metadata, and
   total-budget trimming preserve complete-output references and digests even
   when large contracts, diffs, and voyage board notes consume the narrative
-  budget.
+  budget. Quoted control markers cannot replace the objective contract, and
+  criteria that differ by letter case remain separate requirements.
 
 - Mission status and full-description reads apply the same caller evidence scope
   as mission output before returning metadata, scope text, or context events.

@@ -17,8 +17,11 @@ namespace Armada.Core.Services
         private static readonly Regex _NotMet = new Regex(@"\bNOT\s+MET\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex _Met = new Regex(@"\bMET\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex _ObjectiveBriefStart = new Regex(
-            @"<!-- armada-objective-brief:[^>]+ -->",
-            RegexOptions.CultureInvariant);
+            @"^<!-- armada-objective-brief:[^>\r\n]+ -->\r?$",
+            RegexOptions.Multiline | RegexOptions.CultureInvariant);
+        private static readonly Regex _ObjectiveBriefEnd = new Regex(
+            @"^<!-- /armada-objective-brief -->\r?$",
+            RegexOptions.Multiline | RegexOptions.CultureInvariant);
         private static readonly Regex _HandoffMarker = new Regex(
             @"^<!-- ARMADA:HANDOFF:[^>\r\n]+ -->\r?$",
             RegexOptions.Multiline | RegexOptions.CultureInvariant);
@@ -52,10 +55,10 @@ namespace Armada.Core.Services
             {
                 Match candidate = starts[index];
                 int nextStart = index + 1 < starts.Count ? starts[index + 1].Index : text.Length;
-                int candidateEnd = text.IndexOf("<!-- /armada-objective-brief -->", candidate.Index + candidate.Length, StringComparison.Ordinal);
-                if (candidateEnd < 0 || candidateEnd >= nextStart) continue;
+                Match candidateEnd = _ObjectiveBriefEnd.Match(text, candidate.Index + candidate.Length);
+                if (!candidateEnd.Success || candidateEnd.Index >= nextStart) continue;
                 start = candidate;
-                end = candidateEnd;
+                end = candidateEnd.Index;
             }
             return start.Success;
         }
@@ -65,7 +68,6 @@ namespace Armada.Core.Services
             MatchCollection starts = _ObjectiveBriefStart.Matches(text);
             if (starts.Count == 0) return text;
 
-            const string endMarker = "<!-- /armada-objective-brief -->";
             System.Text.StringBuilder clean = new System.Text.StringBuilder(text.Length);
             int cursor = 0;
             for (int index = 0; index < starts.Count; index++)
@@ -73,8 +75,8 @@ namespace Armada.Core.Services
                 Match start = starts[index];
                 if (start.Index < cursor) continue;
                 int nextStart = index + 1 < starts.Count ? starts[index + 1].Index : text.Length;
-                int end = text.IndexOf(endMarker, start.Index + start.Length, StringComparison.Ordinal);
-                int frameEnd = end >= 0 && end < nextStart ? end + endMarker.Length : nextStart;
+                Match end = _ObjectiveBriefEnd.Match(text, start.Index + start.Length);
+                int frameEnd = end.Success && end.Index < nextStart ? end.Index + end.Length : nextStart;
                 clean.Append(text, cursor, start.Index - cursor);
                 cursor = frameEnd;
             }
@@ -102,10 +104,13 @@ namespace Armada.Core.Services
 
         private static List<string> Deduplicate(IEnumerable<string> items)
         {
-            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
             List<string> unique = new List<string>();
             foreach (string item in items)
-                if (seen.Add(Regex.Replace(item.Trim(), @"\s+", " "))) unique.Add(Regex.Replace(item.Trim(), @"\s+", " "));
+            {
+                string normalized = Regex.Replace(item.Trim(), @"\s+", " ");
+                if (seen.Add(normalized)) unique.Add(normalized);
+            }
             return unique;
         }
 

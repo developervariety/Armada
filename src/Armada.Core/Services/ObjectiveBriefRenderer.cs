@@ -237,7 +237,7 @@ namespace Armada.Core.Services
             if (!AppendAtomic(builder, heading, maxChars, true)) return false;
             int remaining = maxChars - builder.Length - (Environment.NewLine.Length * 2);
             if (remaining <= 0) return false;
-            return AppendAtomic(builder, BoundToLength(text.Trim(), Math.Min(_MaxScopeChars, remaining)), maxChars, true);
+            return AppendAtomic(builder, BoundToLength(EscapeControlMarkers(text.Trim()), Math.Min(_MaxScopeChars, remaining)), maxChars, true);
         }
 
         private static bool AppendListSection(StringBuilder builder, string heading, IEnumerable<string>? values, int maxChars)
@@ -295,7 +295,7 @@ namespace Armada.Core.Services
 
         private static string BoundItem(string value)
         {
-            string normalized = value.Trim();
+            string normalized = EscapeControlMarkers(value.Trim());
             if (normalized.Length <= _MaxItemChars) return normalized;
             return normalized.Substring(0, _MaxItemChars - 24).TrimEnd() + " … [item truncated]";
         }
@@ -306,6 +306,14 @@ namespace Armada.Core.Services
             if (value.Length <= maxChars) return value;
             if (maxChars <= marker.Length) return marker.Substring(0, maxChars);
             return value.Substring(0, maxChars - marker.Length).TrimEnd() + marker;
+        }
+
+        private static string EscapeControlMarkers(string value)
+        {
+            return value
+                .Replace("<!-- armada-objective-brief:", "&lt;!-- armada-objective-brief:", StringComparison.Ordinal)
+                .Replace("<!-- /armada-objective-brief -->", "&lt;!-- /armada-objective-brief --&gt;", StringComparison.Ordinal)
+                .Replace("<!-- ARMADA:HANDOFF:", "&lt;!-- ARMADA:HANDOFF:", StringComparison.Ordinal);
         }
 
         private static string StartMarker(string objectiveId)
