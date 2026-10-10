@@ -29,6 +29,19 @@ profiles, environments, personas, pipelines, and their links.
 For captain evidence scope and complete papercut page traversal, use the
 [read contracts in MCP_API.md](MCP_API.md#captain-evidence-reads).
 
+For a rescue after Judge rejection, the brief points to the full, safely
+redacted parent output and every rescue stage reads it with
+`armada_mission_output`. The tool returns pages with one digest for the full
+artifact. The stage reads until `hasMore` is false and checks `complete` and
+`sha256` before it treats the review as complete. The embedded review cap is
+12,000 characters. The brief keeps Correctness, Failure Modes, Tests and
+Verdict findings ahead of less actionable text; if protected findings exceed
+the cap, it marks the embedded list incomplete and points to the full output.
+Later stages can read the failed mission through the same-owner rescue chain.
+The marked rescue root names the additional failed-parent grant. Existing
+direct-parent and dependency reads remain available within each caller's
+normal evidence scope.
+
 For a premise check's selected fact and unknown identity, use
 [the premise contract](MCP_API.md#armada_check_premise). The default TestEngineer
 role respects explicit objective limits on test changes and preserves required,

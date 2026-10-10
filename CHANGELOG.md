@@ -15,6 +15,12 @@ upstream integrations and excludes changes already present at that baseline.
   when large contracts, diffs, and voyage board notes consume the narrative
   budget.
 
+- Mission status and full-description reads apply the same caller evidence scope
+  as mission output before returning metadata, scope text, or context events.
+- Judge rescue briefs use the full redacted output artifact, keep required review
+  findings ahead of completed criteria, and mark bounded excerpts incomplete.
+  Every rescue stage receives the failed-output reference; later stages can read
+  that parent through the same-owner rescue chain.
 - Objective MCP tools expose stored preflight answers and stage-skip confirmation
   in the preparation schema. Update descriptions state that a supplied
   preparation replaces the full nested object, so clients can send each value
