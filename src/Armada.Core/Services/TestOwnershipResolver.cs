@@ -145,9 +145,13 @@ namespace Armada.Core.Services
 
             if (String.Equals(normalized, PersonaCatalog.TestEngineer, StringComparison.Ordinal))
             {
-                return "A Worker stage ran before you and may already have added tests. Read the diff first: your job " +
+                return "Objective Scope, including its acceptance criteria and non-goals, controls whether tests are " +
+                    "in scope. If it expressly excludes test changes or requires a documentation-only change, do not " +
+                    "edit or commit tests; run any validation that Objective Scope requires and permits, and explain " +
+                    "why no tests were needed under `## Residual Risks`. Otherwise, " +
+                    "a Worker stage ran before you and may already have added tests. Read the diff first: your job " +
                     "is gap coverage, not first coverage. Do not duplicate a test that already exists. You do not " +
-                    "modify production code -- commit test files only. When you find a defect in the production code, " +
+                    "modify production code; when tests are in scope, edit and commit test files only. When you find a defect in the production code, " +
                     "do not fix it: describe it under `## Residual Risks` with the exact inputs or state that " +
                     "reproduce it, so the following stage routes the fix back to a Worker. When no stage follows you, " +
                     "that section is the escalation record.";

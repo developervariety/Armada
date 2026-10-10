@@ -373,7 +373,14 @@ custom runner writes `typed_decision.captain` when the call never reaches the pr
 the custom decision's own path (see "Custom decisions" below). Every event carries only
 the state hash and byte count.
 
-The captain tools gate nothing, so they apply no threshold. Every answer comes back with
+`premise_check` also asks a closed fact-identity choice over up to eight safe
+top-level scalar facts. It returns one centrally redacted key/value only when
+the absent-symbol Noul is greater than 0.5 and the selected identity exists in
+the redacted state. Otherwise it returns an explicit unknown identity. The
+full supplied facts remain in the reasoning context. This is advice to verify;
+the maintained evaluation set covers both identification and unknown results.
+
+The captain tools gate nothing, so they apply no admission threshold. Every answer comes back with
 its confidence (and its probabilities where the provider gives them), so the captain
 weighs a low-confidence answer itself. A pre-shaped helper follows its decision's mode:
 `Off` makes no call and returns `unavailable` (reason `disabled`); **`Shadow` consults the

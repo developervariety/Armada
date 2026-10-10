@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Premise checks identify a selected supplied fact for a positive absent-symbol
+  reading, or return an explicit unknown identity, using centrally redacted values.
+- Default TestEngineer instructions honor explicit objective limits on test-file
+  changes while preserving required, permitted validation.
 - Mission tokens can read scoped report-chain output and full authorizing
   objectives without inheriting administrator operator tools.
 - Papercut listings expose continuation pages, source and result totals, and

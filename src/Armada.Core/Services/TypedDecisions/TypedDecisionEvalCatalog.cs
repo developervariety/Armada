@@ -34,6 +34,7 @@ namespace Armada.Core.Services
 
             ITypedDecisionClient silent = new NullTypedDecisionClient();
             List<TypedDecisionEvalCase> cases = new List<TypedDecisionEvalCase>();
+            AddPremiseCheck(cases);
             AddFailureCause(cases, new TypedFailureCauseAdapter(silent, recorder, settings, logging));
             AddRefusal(cases, new TypedRefusalAdapter(silent, recorder, settings, logging));
             AddRuntimeFailure(cases, new TypedRuntimeFailureAdapter(silent, recorder, settings, logging));
@@ -47,6 +48,55 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static void AddPremiseCheck(List<TypedDecisionEvalCase> cases)
+        {
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
+            {
+                ["contradicts_scope"] = new NoulQuestion(
+                    "The restatement contradicts the brief's scope.",
+                    "contradicts the scope", "matches the scope"),
+                ["assumes_absent_symbol"] = new NoulQuestion(
+                    "The restatement assumes a symbol or file the preflight facts show absent at the target tip.",
+                    "assumes something absent", "assumes only what is present"),
+                ["names_unrequested_deliverable"] = new NoulQuestion(
+                    "The restatement names a deliverable the brief does not ask for.",
+                    "adds an unrequested deliverable", "asks for only what the brief asks"),
+                ["missing_context"] = new ChoiceQuestion(
+                    "Which missing context, if any, would stop this task from being done correctly.",
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["none"] = "nothing is missing; the brief and facts are enough",
+                        ["repo_fact"] = "a repository fact the captain must verify is missing",
+                        ["owner_ruling"] = "an open question only the owner can answer is missing"
+                    }),
+                ["fact_identity"] = new ChoiceQuestion(
+                    "If assumes_absent_symbol is positive, which one supplied fact directly identifies the assumed absent symbol or file? Choose only an offered fact id; choose unknown if none does.",
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["fact_0"] = "this supplied scalar fact directly identifies the symbol or file the restatement assumes absent",
+                        ["fact_1"] = "this supplied scalar fact directly identifies the symbol or file the restatement assumes absent",
+                        ["fact_2"] = "this supplied scalar fact directly identifies the symbol or file the restatement assumes absent",
+                        ["unknown"] = "no supplied fact directly identifies it, or the identity is uncertain"
+                    })
+            };
+
+            cases.Add(Pair(
+                "premise_check.identifies_only_direct_supplied_fact",
+                "premise_check",
+                TypedDecisionEvalCaseKindEnum.Reference,
+                "Name the supplied scalar fact only when the restatement makes an absent-symbol assumption; otherwise return unknown.",
+                new TypedDecisionBatchItem(
+                    RedactedDecisionState.FromText("{\"restatement\":\"I will edit Parser.Generated.cs\",\"objective_title\":null,\"objective_description\":null,\"acceptance_criteria\":null,\"stage_persona\":null,\"preflight_facts\":{\"missingFile\":\"Parser.Generated.cs is absent at the target tip\",\"featureAvailable\":false,\"attemptCount\":3},\"fact_identity_candidates\":[{\"id\":\"fact_0\",\"key\":\"missingFile\",\"value\":\"Parser.Generated.cs is absent at the target tip\"},{\"id\":\"fact_1\",\"key\":\"featureAvailable\",\"value\":\"false\"},{\"id\":\"fact_2\",\"key\":\"attemptCount\",\"value\":\"3\"}]}"),
+                    questions),
+                new TypedDecisionBatchItem(
+                    RedactedDecisionState.FromText("{\"restatement\":\"I will update the existing parser\",\"objective_title\":null,\"objective_description\":null,\"acceptance_criteria\":null,\"stage_persona\":null,\"preflight_facts\":{\"parserPresent\":true,\"featureAvailable\":false,\"attemptCount\":3},\"fact_identity_candidates\":[{\"id\":\"fact_0\",\"key\":\"parserPresent\",\"value\":\"true\"},{\"id\":\"fact_1\",\"key\":\"featureAvailable\",\"value\":\"false\"},{\"id\":\"fact_2\",\"key\":\"attemptCount\",\"value\":\"3\"}]}"),
+                    questions),
+                Expect("assumes_absent_symbol", new TypedDecisionExpectation { NoulAtLeast = 0.6 },
+                    "fact_identity", new TypedDecisionExpectation { Choice = "fact_0" }),
+                Expect("assumes_absent_symbol", new TypedDecisionExpectation { NoulAtMost = 0.4 },
+                    "fact_identity", new TypedDecisionExpectation { Choice = "unknown" })));
+        }
 
         private static void AddFailureCause(List<TypedDecisionEvalCase> cases, TypedFailureCauseAdapter adapter)
         {

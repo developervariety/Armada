@@ -189,6 +189,12 @@ A Linter stage runs before the Judge in the pipelines that produce vessel code, 
 
 Personas are stored records, not hardcoded prompt strings. Custom personas and prompt templates can be added through REST or MCP and then referenced by custom pipeline stages.
 
+The default TestEngineer role follows explicit objective limits on test changes.
+A documentation-only or no-test scope does not require new test files; the stage
+still runs validation that the objective requires and permits, and reports
+remaining risk. Database templates and project-profile overrides retain their
+normal precedence over the embedded persona.
+
 ### Model-Tier Routing
 
 Dispatchers can use `preferredModel` as routing guidance. Routing

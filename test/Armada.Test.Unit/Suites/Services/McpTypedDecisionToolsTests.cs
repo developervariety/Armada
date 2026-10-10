@@ -2,9 +2,11 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.IO;
     using System.Linq;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
@@ -356,6 +358,153 @@ namespace Armada.Test.Unit.Suites.Services
                     string liveResponse = await live.CallAsync("armada_check_premise", new { restatement = "I will port the decoder." }).ConfigureAwait(false);
                     AssertContains("\"available\":true", Compact(liveResponse));
                     AssertEqual(1, client.CallCount, "An enabled helper reaches the client once");
+                }
+            });
+
+            await RunTest("Premise check returns only a selected redacted scalar fact for a positive absent-symbol reading", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, object?> facts = new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["sourceRoot"] = "/Volumes/private/source.cs",
+                        ["apiKey"] = "sk-proj-12345678901234567890",
+                        ["nested"] = new Dictionary<string, object?> { ["hiddenFact"] = "must not be selected" },
+                        ["longFact"] = new string('x', 257),
+                        ["featureAvailable"] = false,
+                        ["attemptCount"] = 3
+                    };
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient
+                    {
+                        NextResult = new TypedDecisionResult
+                        {
+                            Available = true,
+                            Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                            {
+                                ["assumes_absent_symbol"] = new TypedAnswer { Type = "noul", Noul = 0.95 },
+                                ["fact_identity"] = new TypedAnswer { Type = "choice", Choice = "fact_0", Confidence = 0.95 }
+                            }
+                        }
+                    };
+                    Harness harness = Harness.Create(testDb, client, enabled: true, enablePremiseCheck: true);
+
+                    string response = await harness.CallAsync("armada_check_premise", new
+                    {
+                        restatement = "I will add a missing source file.",
+                        facts
+                    }).ConfigureAwait(false);
+
+                    AssertTrue(client.LastQuestions!.ContainsKey("fact_identity"), "the helper asks for a closed fact identity");
+                    ChoiceQuestion choices = (ChoiceQuestion)client.LastQuestions["fact_identity"];
+                    AssertEqual("If assumes_absent_symbol is positive, which one supplied fact directly identifies the assumed absent symbol or file? Choose only an offered fact id; choose unknown if none does.", choices.Instructions);
+                    AssertTrue(choices.Criteria.ContainsKey("fact_0"), "safe scalar facts have opaque choice ids");
+                    AssertTrue(choices.Criteria.ContainsKey("unknown"), "unknown is an explicit choice");
+                    AssertTrue(choices.Criteria.ContainsKey("fact_1"), "later safe scalar facts remain eligible");
+                    AssertTrue(choices.Criteria.ContainsKey("fact_2"), "numeric facts remain eligible");
+                    AssertFalse(choices.Criteria.ContainsKey("fact_3"), "secret, nested, and oversized facts are excluded");
+                    PremiseFactIdentityState? providerState = JsonSerializer.Deserialize<PremiseFactIdentityState>(client.LastState ?? String.Empty, _JsonOptions);
+                    PremiseFactIdentityCandidate? providerCandidate = providerState?.FactIdentityCandidates?.SingleOrDefault(item => item.Id == "fact_0");
+                    AssertEqual("<path>", providerCandidate?.Value, "the provider sees the decoded, centrally redacted candidate value");
+                    AssertFalse((client.LastState ?? String.Empty).Contains("sk-proj-12345678901234567890", StringComparison.Ordinal), "the provider does not see the secret value");
+                    AssertContains("hiddenFact", client.LastState ?? String.Empty, "the full nested fact remains in the reasoning context");
+                    PremiseCheckTestResponse? typedResponse = JsonSerializer.Deserialize<PremiseCheckTestResponse>(response, _JsonOptions);
+                    AssertEqual("identified", typedResponse?.MissingPremiseFact?.Status);
+                    AssertEqual("sourceRoot", typedResponse?.MissingPremiseFact?.Key);
+                    AssertEqual("<path>", typedResponse?.MissingPremiseFact?.Value, "the result returns the decoded value after central redaction");
+                    AssertFalse(response.Contains("must not be selected", StringComparison.Ordinal), "the result does not echo nested facts");
+
+                    List<TypedDecisionEvalCase> evalCases = TypedDecisionEvalCatalog.Build(
+                        new TypedDecisionRecorder(testDb.Driver, new LoggingModule()), new TypedDecisionSettings(), new LoggingModule());
+                    TypedDecisionEvalCase premiseEval = evalCases.Single(item => item.Id == "premise_check.identifies_only_direct_supplied_fact");
+                    AssertQuestionsMatch(premiseEval.VariantA.Questions, client.LastQuestions, "maintained premise eval and registered tool use the same questions");
+                }
+            });
+
+            await RunTest("Premise check reports unknown for a negative, invalid, or unknown fact choice", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    foreach (PremiseFactChoiceScenario scenario in new[]
+                    {
+                        new PremiseFactChoiceScenario { Noul = 0.1, Choice = "fact_0" },
+                        new PremiseFactChoiceScenario { Noul = 0.5, Choice = "fact_0" },
+                        new PremiseFactChoiceScenario { Noul = 0.95, Choice = "invented" },
+                        new PremiseFactChoiceScenario { Noul = 0.95, Choice = "unknown" }
+                    })
+                    {
+                        FakeTypedDecisionClient client = new FakeTypedDecisionClient
+                        {
+                            NextResult = new TypedDecisionResult
+                            {
+                                Available = true,
+                                Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                                {
+                                    ["assumes_absent_symbol"] = new TypedAnswer { Type = "noul", Noul = scenario.Noul },
+                                    ["fact_identity"] = new TypedAnswer { Type = "choice", Choice = scenario.Choice, Confidence = 0.95 }
+                                }
+                            }
+                        };
+                        Harness harness = Harness.Create(testDb, client, enabled: true, enablePremiseCheck: true);
+                        string response = await harness.CallAsync("armada_check_premise", new
+                        {
+                            restatement = "I will add a missing source file.",
+                            facts = new Dictionary<string, object?> { ["symbolExists"] = false }
+                        }).ConfigureAwait(false);
+
+                        AssertContains("\"status\":\"unknown\"", Compact(response), "noul=" + scenario.Noul + ", choice=" + scenario.Choice);
+                        AssertContains("\"key\":null", Compact(response));
+                        AssertContains("\"value\":null", Compact(response));
+                    }
+                }
+            });
+
+            await RunTest("Premise fact choices stay bounded and preserve unselectable facts", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, object?> manyFacts = Enumerable.Range(0, 10)
+                        .ToDictionary(index => "factKey" + index.ToString(CultureInfo.InvariantCulture), index => (object?)("value" + index.ToString(CultureInfo.InvariantCulture)), StringComparer.Ordinal);
+                    FakeTypedDecisionClient boundedClient = new FakeTypedDecisionClient
+                    {
+                        NextResult = new TypedDecisionResult
+                        {
+                            Available = true,
+                            Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                            {
+                                ["assumes_absent_symbol"] = new TypedAnswer { Type = "noul", Noul = 0.95 },
+                                ["fact_identity"] = new TypedAnswer { Type = "choice", Choice = "fact_8", Confidence = 0.95 }
+                            }
+                        }
+                    };
+                    Harness boundedHarness = Harness.Create(testDb, boundedClient, enabled: true, enablePremiseCheck: true);
+                    string boundedResponse = await boundedHarness.CallAsync("armada_check_premise", new { restatement = "I will use a missing fact.", facts = manyFacts }).ConfigureAwait(false);
+                    ChoiceQuestion boundedChoices = (ChoiceQuestion)boundedClient.LastQuestions!["fact_identity"];
+                    AssertEqual(9, boundedChoices.Criteria.Count, "eight fact ids plus unknown are offered");
+                    AssertFalse(boundedChoices.Criteria.ContainsKey("fact_8"), "the ninth fact is not selectable");
+                    AssertContains("\"factKey8\":\"value8\"", boundedClient.LastState ?? String.Empty, "the complete facts remain available as context");
+                    AssertContains("\"status\":\"unknown\"", Compact(boundedResponse), "an unoffered fact id cannot be returned");
+
+                    foreach (object? facts in new object?[] { null, new object[] { "array-value" }, "scalar-value" })
+                    {
+                        FakeTypedDecisionClient noCandidatesClient = new FakeTypedDecisionClient
+                        {
+                            NextResult = new TypedDecisionResult
+                            {
+                                Available = true,
+                                Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                                {
+                                    ["assumes_absent_symbol"] = new TypedAnswer { Type = "noul", Noul = 0.95 },
+                                    ["fact_identity"] = new TypedAnswer { Type = "choice", Choice = "unknown", Confidence = 0.95 }
+                                }
+                            }
+                        };
+                        Harness noCandidatesHarness = Harness.Create(testDb, noCandidatesClient, enabled: true, enablePremiseCheck: true);
+                        string noCandidatesResponse = await noCandidatesHarness.CallAsync("armada_check_premise", new { restatement = "I will use a missing fact.", facts }).ConfigureAwait(false);
+                        ChoiceQuestion noCandidatesChoices = (ChoiceQuestion)noCandidatesClient.LastQuestions!["fact_identity"];
+                        AssertEqual(1, noCandidatesChoices.Criteria.Count, "only unknown is offered for non-object facts");
+                        AssertTrue(noCandidatesChoices.Criteria.ContainsKey("unknown"), "unknown remains available");
+                        AssertContains("\"status\":\"unknown\"", Compact(noCandidatesResponse), "non-object facts do not produce identities");
+                    }
                 }
             });
 
@@ -749,7 +898,61 @@ namespace Armada.Test.Unit.Suites.Services
             return json.Replace(" ", "").Replace("\n", "").Replace("\r", "");
         }
 
+        private void AssertQuestionsMatch(
+            IReadOnlyDictionary<string, TypedQuestion> expected,
+            IReadOnlyDictionary<string, TypedQuestion> actual,
+            string message)
+        {
+            AssertEqual(expected.Count, actual.Count, message + " question count");
+            foreach (KeyValuePair<string, TypedQuestion> entry in expected)
+            {
+                AssertTrue(actual.TryGetValue(entry.Key, out TypedQuestion? actualQuestion), message + " contains " + entry.Key);
+                AssertEqual(entry.Value.Instructions, actualQuestion!.Instructions, message + " instructions for " + entry.Key);
+                if (entry.Value is ChoiceQuestion expectedChoice)
+                {
+                    AssertTrue(actualQuestion is ChoiceQuestion, message + " choice type for " + entry.Key);
+                    ChoiceQuestion actualChoice = (ChoiceQuestion)actualQuestion!;
+                    AssertEqual(expectedChoice.Criteria.Count, actualChoice.Criteria.Count, message + " option count for " + entry.Key);
+                    foreach (KeyValuePair<string, string> criterion in expectedChoice.Criteria)
+                    {
+                        AssertTrue(actualChoice.Criteria.TryGetValue(criterion.Key, out string? actualCriterion), message + " offers " + criterion.Key);
+                        AssertEqual(criterion.Value, actualCriterion, message + " meaning for " + criterion.Key);
+                    }
+                }
+            }
+        }
+
         #region Private-Types
+
+        private sealed class PremiseFactChoiceScenario
+        {
+            public double Noul { get; init; }
+            public string Choice { get; init; } = String.Empty;
+        }
+
+        private sealed class PremiseFactIdentityState
+        {
+            [JsonPropertyName("fact_identity_candidates")]
+            public List<PremiseFactIdentityCandidate>? FactIdentityCandidates { get; set; }
+        }
+
+        private sealed class PremiseFactIdentityCandidate
+        {
+            public string Id { get; set; } = String.Empty;
+            public string? Value { get; set; }
+        }
+
+        private sealed class PremiseCheckTestResponse
+        {
+            public MissingPremiseFactResult? MissingPremiseFact { get; set; }
+        }
+
+        private sealed class MissingPremiseFactResult
+        {
+            public string? Status { get; set; }
+            public string? Key { get; set; }
+            public string? Value { get; set; }
+        }
 
         private static CustomTypedDecisionSettings CustomDecision(TypedDecisionModeEnum mode)
         {

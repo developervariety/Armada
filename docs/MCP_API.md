@@ -826,6 +826,15 @@ unrequested deliverable, plus whether a repository fact or an owner ruling is
 missing. It never blocks the captain; it informs it. Dormant (returns
 unavailable) until the `premise_check` decision is enabled.
 
+An available answer also includes `missingPremiseFact`. A positive
+`assumes_absent_symbol` reading (Noul greater than 0.5) and a valid fact choice
+return `{status: "identified", key, value}`. Otherwise the identity is
+`{status: "unknown", key: null, value: null}`. The choice offers up to eight
+top-level scalar facts; nested values, secret-named keys, keys over 96 characters,
+and values over 256 characters are excluded. The returned value is the centrally
+redacted value sent to the provider. The full `facts` input remains in the
+reasoning context. A selected fact is advice to verify, not proof of absence.
+
 ### armada_memory_triage
 
 Triage a memory candidate before writing it (decision `memory_record`), for the

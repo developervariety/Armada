@@ -163,6 +163,77 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed defaults upgrades the prior TestEngineer prompt hash and preserves a custom prompt row", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    PromptTemplateService initial = new PromptTemplateService(testDb.Driver, logging);
+                    await initial.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    string updatedDefault = initial.GetEmbeddedDefault("persona.test_engineer");
+                    string priorDefault = updatedDefault
+                        .Replace(
+                            "You do not patch production code. Objective Scope, including its acceptance criteria and non-goals, controls whether tests are in scope. If it expressly excludes test changes or requires a documentation-only change, do not edit or commit tests; run any validation that Objective Scope requires and permits, and explain why no tests were needed under `## Residual Risks`. When tests are in scope, edit and commit test files only.\n",
+                            "You do not patch production code. Commit test files only.\n",
+                            StringComparison.Ordinal)
+                        .Replace(
+                            "3. **Identify coverage gaps.** When Objective Scope includes test work, determine which new code paths lack test coverage, cover the happy path, and add at least one negative or edge-path test for each new validation, timeout, cancellation, retry, cleanup, or other error-handling branch within scope when feasible.\n",
+                            "3. **Identify coverage gaps.** Determine which new code paths lack test coverage. Cover the happy path, but also add at least one negative or edge-path test for each new validation, timeout, cancellation, retry, cleanup, or other error-handling branch within scope when feasible.\n",
+                            StringComparison.Ordinal)
+                        .Replace(
+                            "4. **Write focused tests when in scope.** Each test should verify one behavior. Use descriptive test ",
+                            "4. **Write focused tests.** Each test should verify one behavior. Use descriptive test ",
+                            StringComparison.Ordinal)
+                        .Replace(
+                            "6. **Run in-scope validation.** Run the tests and other checks that Objective Scope requires and permits, and report the exact commands and output summary. Do not add tests only to satisfy this role when the objective excludes test changes. Fix any failures before committing. Do not commit tests that are known to fail.\n",
+                            "6. **Run the tests and report exact commands.** Execute the test suite to verify your tests pass. Report the exact commands you ran and their output summary. Fix any failures before committing. Do not commit tests that are known to fail.\n",
+                            StringComparison.Ordinal)
+                        .Replace(
+                            "7. **Commit in-scope test files only.** Do not modify production code. Add test coverage only when Objective Scope calls for it.\n",
+                            "7. **Commit test files only.** Do not modify production code. Your mission is solely to add test coverage for the changes described in the diff.\n",
+                            StringComparison.Ordinal);
+                    string priorHash = PromptTemplateService.HashContent(priorDefault);
+                    Dictionary<string, List<string>> history = PromptTemplateService.LoadTemplateHashHistory();
+                    AssertTrue(history.TryGetValue("persona.test_engineer", out List<string>? hashes) && hashes.Contains(priorHash),
+                        "the pre-change embedded default hash is recorded as a supported prior version");
+
+                    PromptTemplate previousBuiltIn = (await testDb.Driver.PromptTemplates.ReadByNameAsync("persona.test_engineer").ConfigureAwait(false))!;
+                    previousBuiltIn.Content = priorDefault;
+                    await testDb.Driver.PromptTemplates.UpdateAsync(previousBuiltIn).ConfigureAwait(false);
+
+                    PromptTemplate custom = new PromptTemplate("persona.test_engineer_operator_custom", "CUSTOM TEST ENGINEER PROMPT")
+                    {
+                        IsBuiltIn = false
+                    };
+                    await testDb.Driver.PromptTemplates.CreateAsync(custom).ConfigureAwait(false);
+
+                    PromptTemplateService restarted = new PromptTemplateService(testDb.Driver, logging);
+                    await restarted.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate upgraded = (await testDb.Driver.PromptTemplates.ReadByNameAsync("persona.test_engineer").ConfigureAwait(false))!;
+                    AssertEqual(restarted.GetEmbeddedDefault("persona.test_engineer"), upgraded.Content,
+                        "a built-in row with the prior embedded hash takes the corrected default");
+                    AssertContains("controls whether tests are in scope", upgraded.Content,
+                        "the upgraded built-in prompt gives explicit objective scope priority");
+
+                    PromptTemplate? customAfter = await testDb.Driver.PromptTemplates.ReadByNameAsync(custom.Name).ConfigureAwait(false);
+                    AssertNotNull(customAfter, "the separate custom prompt row remains present");
+                    AssertEqual("CUSTOM TEST ENGINEER PROMPT", customAfter!.Content,
+                        "seeding leaves a custom prompt row unchanged");
+
+                    string operatorEdit = upgraded.Content + "\nOPERATOR-SPECIFIC TEST ENGINEER GUIDANCE";
+                    upgraded.Content = operatorEdit;
+                    await testDb.Driver.PromptTemplates.UpdateAsync(upgraded).ConfigureAwait(false);
+                    await restarted.SeedDefaultsAsync().ConfigureAwait(false);
+                    PromptTemplate? editedBuiltInAfter = await testDb.Driver.PromptTemplates.ReadByNameAsync("persona.test_engineer").ConfigureAwait(false);
+                    AssertNotNull(editedBuiltInAfter, "the customized built-in prompt row remains present");
+                    AssertEqual(operatorEdit, editedBuiltInAfter!.Content,
+                        "a built-in row with operator-edited content is not overwritten by the new default hash");
+                }
+            });
+
             await RunTest("Seed defaults includes specialist persona templates", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

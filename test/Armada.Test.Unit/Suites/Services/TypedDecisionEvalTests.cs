@@ -52,8 +52,16 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
 
-                foreach (string gated in new[] { "failure_cause", "refusal", "runtime_failure", "review_substance", "lint_finding" })
+                foreach (string gated in new[] { "premise_check", "failure_cause", "refusal", "runtime_failure", "review_substance", "lint_finding" })
                     AssertTrue(decisions.Contains(gated), "the set covers " + gated);
+
+                TypedDecisionEvalCase premiseCase = cases.Single(item => item.Id == "premise_check.identifies_only_direct_supplied_fact");
+                AssertTrue(premiseCase.VariantA.Questions.ContainsKey("fact_identity"), "premise evaluation covers the fact identity question");
+                AssertTrue(premiseCase.ExpectedB["fact_identity"].Choice == "unknown", "premise evaluation expects unknown when the absent-symbol reading is negative");
+                AssertContains("\"missingFile\":\"Parser.Generated.cs is absent at the target tip\"", premiseCase.VariantA.State.Text, "positive evaluation candidate is present in supplied facts");
+                AssertContains("\"key\":\"missingFile\",\"value\":\"Parser.Generated.cs is absent at the target tip\"", premiseCase.VariantA.State.Text, "positive identity candidate maps to that supplied fact");
+                AssertContains("\"parserPresent\":true", premiseCase.VariantB!.State.Text, "negative evaluation fact is present");
+                AssertContains("\"key\":\"parserPresent\",\"value\":\"true\"", premiseCase.VariantB.State.Text, "negative identity candidate maps to that supplied fact");
             });
 
             await RunTest("Runner_ReferenceCase_PassesOnlyWhenEveryAnswerHolds", async () =>

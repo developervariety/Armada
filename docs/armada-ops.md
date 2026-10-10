@@ -29,6 +29,11 @@ profiles, environments, personas, pipelines, and their links.
 For captain evidence scope and complete papercut page traversal, use the
 [read contracts in MCP_API.md](MCP_API.md#captain-evidence-reads).
 
+For a premise check's selected fact and unknown identity, use
+[the premise contract](MCP_API.md#armada_check_premise). The default TestEngineer
+role respects explicit objective limits on test changes and preserves required,
+permitted validation; see [pipelines and personas](../README.md#pipelines-and-personas).
+
 ## Chapters
 
 These links open the tracked templates. On an installed deployment, read the

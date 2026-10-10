@@ -251,6 +251,91 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TestEngineer brief lets an objective no-test non-goal override the embedded test-writing role", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionServiceWithTemplates(logging, testDb.Driver, settings, git, out IPromptTemplateService templates);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("docs-only-test-engineer-voyage")).ConfigureAwait(false);
+                        Objective objective = new Objective();
+                        objective.Title = "Correct the documentation example";
+                        objective.Description = "Update the example text to match the current option names.";
+                        objective.AcceptanceCriteria = new List<string> { "The example names the current options." };
+                        objective.NonGoals = new List<string> { "Do not add, edit, or commit test files; this objective changes documentation only." };
+                        objective.VoyageIds = new List<string> { voyage.Id };
+                        await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("DocsOnlyTestEngineerVessel", "https://github.com/test/repo")).ConfigureAwait(false);
+                        Mission mission = new Mission();
+                        mission.Title = "Update the example";
+                        mission.Description = "Update the docs example only. Do not change or add tests.";
+                        mission.Persona = "TestEngineer";
+                        mission.Mode = MissionModeEnum.Implementation;
+                        mission.VoyageId = voyage.Id;
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel).ConfigureAwait(false);
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md")).ConfigureAwait(false);
+
+                        AssertContains("Do not add, edit, or commit test files", brief, "the linked objective non-goal reaches the TestEngineer brief");
+                        AssertFalse(brief.Contains("You do not patch production code. Commit test files only."),
+                            "the brief must not issue an unconditional test-only commit command when the objective forbids test changes");
+                        AssertContains("controls whether tests are in scope", brief,
+                            "the generated TestEngineer brief must give explicit objective scope priority over its default test-writing role");
+                        AssertContains("run any validation that Objective Scope requires and permits", brief,
+                            "no-test scope must not suppress required and permitted validation");
+                        AssertContains("## Residual Risks", brief, "the TestEngineer can report why no tests were needed");
+
+                        PromptTemplate customDbTemplate = new PromptTemplate(
+                            "persona.test_engineer",
+                            "CUSTOM TEST ENGINEER PROMPT: follow the objective scope and report only.");
+                        await testDb.Driver.PromptTemplates.CreateAsync(customDbTemplate).ConfigureAwait(false);
+                        string customPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
+                            mission.Persona,
+                            new Dictionary<string, string> { ["TestOwnership"] = "SYNTHETIC OWNERSHIP DIRECTIVE" },
+                            templates).ConfigureAwait(false);
+                        AssertContains("CUSTOM TEST ENGINEER PROMPT", customPrompt,
+                            "a shared database template takes precedence over the embedded default");
+                        AssertFalse(customPrompt.Contains("You are an Armada test engineer agent"),
+                            "the embedded source default must not overwrite a custom database template");
+
+                        await testDb.Driver.PromptTemplates.CreateAsync(new PromptTemplate(
+                            "persona.test_engineer_profile_custom",
+                            "PROFILE TEST ENGINEER PROMPT: follow the project profile."))
+                            .ConfigureAwait(false);
+                        PersonaOverride personaOverride = new PersonaOverride();
+                        personaOverride.PersonaName = "TestEngineer";
+                        personaOverride.PromptTemplateName = "persona.test_engineer_profile_custom";
+                        ProjectProfile profile = new ProjectProfile();
+                        profile.Name = "test-engineer-profile";
+                        profile.VesselId = vessel.Id;
+                        profile.PersonaOverrides = new List<PersonaOverride> { personaOverride };
+                        await testDb.Driver.ProjectProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                        string profileDir = Path.Combine(tempDir, "profile");
+                        Directory.CreateDirectory(profileDir);
+                        await service.GenerateClaudeMdAsync(profileDir, mission, vessel).ConfigureAwait(false);
+                        string profileBrief = await File.ReadAllTextAsync(Path.Combine(profileDir, "CLAUDE.md")).ConfigureAwait(false);
+                        AssertContains("PROFILE TEST ENGINEER PROMPT", profileBrief,
+                            "the active project-profile override takes precedence over the database persona template");
+                        AssertFalse(profileBrief.Contains("CUSTOM TEST ENGINEER PROMPT"),
+                            "the project-profile template replaces the shared database persona template");
+
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("GenerateClaudeMdAsync omits Objective Scope when the voyage links no objective", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

@@ -5,6 +5,8 @@ namespace Armada.Server.Mcp.Tools
     using System.Globalization;
     using System.Linq;
     using System.Text.Json;
+    using System.Text.Json.Nodes;
+    using System.Text.Json.Serialization;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -103,6 +105,10 @@ namespace Armada.Server.Mcp.Tools
 
         /// <summary>Greatest number of list items one <c>armada_score_items</c> call covers.</summary>
         private const int _ScoreItemsMax = 32;
+
+        private const int _PremiseFactIdentityMax = 8;
+        private const int _PremiseFactKeyMaxChars = 96;
+        private const int _PremiseFactValueMaxChars = 256;
 
         #endregion
 
@@ -204,7 +210,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 CheckPremiseToolName,
-                "Before you start, check your own reading of the task. Give your one-paragraph restatement of what you are about to do in 'restatement'; the tool compares it against the brief and the deterministic preflight facts and returns typed readings on whether it contradicts the scope, assumes a symbol or file the facts show absent, or names a deliverable the brief did not ask for, plus whether a repository fact or an owner ruling is missing. It never blocks you and takes no action; it informs you so you can fix a misreading before you spend a mission on it. Dormant by default (returns unavailable) until an operator enables the premise-check decision. Pass your mission id in 'missionId'.",
+                "Before you start, check your own reading of the task. Give your one-paragraph restatement of what you plan to do in 'restatement'. The tool returns typed readings on scope, absent symbols or files, unrequested deliverables, and missing context. If it finds an absent-symbol assumption, it can name one of up to eight safe top-level scalar facts supplied in 'facts'; otherwise it returns an explicit unknown fact identity. Nested, oversized, and secret-named values cannot be selected. The result is advice only: it never blocks or takes action. Dormant by default until an operator enables the premise-check decision. Pass your mission id in 'missionId'.",
                 new
                 {
                     type = "object",
@@ -215,7 +221,7 @@ namespace Armada.Server.Mcp.Tools
                         objectiveDescription = new { type = "string", description = "The objective description, if you have it." },
                         acceptanceCriteria = new { type = "string", description = "The acceptance criteria, if you have them." },
                         stagePersona = new { type = "string", description = "Your stage persona, e.g. Worker or Judge." },
-                        facts = new { description = "The deterministic preflight facts object from the brief, if present." },
+                        facts = new { description = "Optional facts from the brief. The tool keeps the full object for context and offers a bounded choice over up to eight safe top-level scalar key/value pairs; nested, oversized, secret-named, or non-scalar values cannot be returned as a specific fact." },
                         missionId = new { type = "string", description = "The calling mission id, for scope and event attribution. Optional." }
                     },
                     required = new[] { "restatement" }
@@ -230,7 +236,8 @@ namespace Armada.Server.Mcp.Tools
                     settings,
                     logging,
                     participantKey,
-                    buildStateAndQuestions: BuildPremiseCheck).ConfigureAwait(false));
+                    buildStateAndQuestions: BuildPremiseCheck,
+                    formatResultWithRedactedState: FormatPremiseCheck).ConfigureAwait(false));
 
             register(
                 MemoryTriageToolName,
@@ -485,7 +492,8 @@ namespace Armada.Server.Mcp.Tools
             Func<string?> participantKeyProvider,
             Func<JsonElement, ParsedDecision?>? buildStateAndQuestions,
             Func<JsonElement, Mission?, CancellationToken, Task<ParsedDecision?>>? buildStateAndQuestionsAsync = null,
-            Func<TypedDecisionResult, ParsedDecision, object>? formatResult = null)
+            Func<TypedDecisionResult, ParsedDecision, object>? formatResult = null,
+            Func<TypedDecisionResult, RedactedDecisionState, object>? formatResultWithRedactedState = null)
         {
             try
             {
@@ -602,6 +610,8 @@ namespace Armada.Server.Mcp.Tools
                 if (shadow)
                     return Unavailable("shadow", "This helper is in Shadow: its answer is recorded for review, not returned. Decide it yourself.");
 
+                if (formatResultWithRedactedState != null)
+                    return formatResultWithRedactedState(result, redactedDecisionState);
                 return formatResult != null ? formatResult(result, parsed) : BuildAnswer(result);
             }
             catch (Exception ex)
@@ -831,17 +841,23 @@ namespace Armada.Server.Mcp.Tools
 
         private static ParsedDecision? BuildPremiseCheck(JsonElement root)
         {
-            string restatement = ReadOptionalString(root, "restatement") ?? String.Empty;
+            PremiseCheckInput? input = JsonSerializer.Deserialize<PremiseCheckInput>(root.GetRawText(), _JsonOptions);
+            string restatement = input?.Restatement ?? String.Empty;
             if (String.IsNullOrWhiteSpace(restatement)) return null;
+
+            List<PremiseFactIdentityCandidate> factCandidates = BuildPremiseFactIdentityCandidates(input!);
 
             Dictionary<string, object?> state = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["restatement"] = restatement,
-                ["objective_title"] = ReadOptionalString(root, "objectiveTitle"),
-                ["objective_description"] = ReadOptionalString(root, "objectiveDescription"),
-                ["acceptance_criteria"] = ReadOptionalString(root, "acceptanceCriteria"),
-                ["stage_persona"] = ReadOptionalString(root, "stagePersona"),
-                ["preflight_facts"] = ReadOptionalRaw(root, "facts")
+                ["objective_title"] = input!.ObjectiveTitle,
+                ["objective_description"] = input.ObjectiveDescription,
+                ["acceptance_criteria"] = input.AcceptanceCriteria,
+                ["stage_persona"] = input.StagePersona,
+                // Keep the original full facts as context. The separate projection gives the model
+                // a bounded, closed set of identities it may select for the returned fact field.
+                ["preflight_facts"] = input.Facts,
+                ["fact_identity_candidates"] = factCandidates
             };
 
             Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
@@ -865,7 +881,108 @@ namespace Armada.Server.Mcp.Tools
                     })
             };
 
+            Dictionary<string, string> factChoices = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (PremiseFactIdentityCandidate candidate in factCandidates)
+            {
+                factChoices[candidate.Id] = "this supplied scalar fact directly identifies the symbol or file the restatement assumes absent";
+            }
+            factChoices["unknown"] = "no supplied fact directly identifies it, or the identity is uncertain";
+            questions["fact_identity"] = new ChoiceQuestion(
+                "If assumes_absent_symbol is positive, which one supplied fact directly identifies the assumed absent symbol or file? Choose only an offered fact id; choose unknown if none does.",
+                factChoices);
+
             return new ParsedDecision(state, questions);
+        }
+
+        private static List<PremiseFactIdentityCandidate> BuildPremiseFactIdentityCandidates(PremiseCheckInput input)
+        {
+            List<PremiseFactIdentityCandidate> candidates = new List<PremiseFactIdentityCandidate>();
+            if (input.Facts is not JsonObject facts) return candidates;
+
+            foreach (KeyValuePair<string, JsonNode?> property in facts)
+            {
+                if (candidates.Count >= _PremiseFactIdentityMax) break;
+                string key = property.Key;
+                if (String.IsNullOrWhiteSpace(key)
+                    || key.Length > _PremiseFactKeyMaxChars
+                    || SecretRedactor.IsSecretPropertyName(key))
+                    continue;
+
+                if (property.Value is not JsonValue scalar) continue;
+                JsonValueKind kind = scalar.GetValueKind();
+                string? value = kind switch
+                {
+                    JsonValueKind.String => JsonSerializer.Deserialize<string>(scalar.ToJsonString(), _JsonOptions),
+                    JsonValueKind.True or JsonValueKind.False or JsonValueKind.Number => scalar.ToJsonString(),
+                    _ => null
+                };
+                if (value == null || value.Length > _PremiseFactValueMaxChars) continue;
+
+                candidates.Add(new PremiseFactIdentityCandidate
+                {
+                    Id = "fact_" + candidates.Count.ToString(CultureInfo.InvariantCulture),
+                    Key = key,
+                    Value = value
+                });
+            }
+
+            return candidates;
+        }
+
+        private static object FormatPremiseCheck(
+            TypedDecisionResult result,
+            RedactedDecisionState redactedState)
+        {
+            string? key = null;
+            string? value = null;
+            bool positiveAbsentSymbol = result.Answers.TryGetValue("assumes_absent_symbol", out TypedAnswer? absentAnswer)
+                && String.Equals(absentAnswer.Type, "noul", StringComparison.OrdinalIgnoreCase)
+                && absentAnswer.Noul > 0.5;
+
+            if (positiveAbsentSymbol
+                && result.Answers.TryGetValue("fact_identity", out TypedAnswer? identityAnswer)
+                && String.Equals(identityAnswer.Type, "choice", StringComparison.OrdinalIgnoreCase)
+                && !String.IsNullOrWhiteSpace(identityAnswer.Choice)
+                && !String.Equals(identityAnswer.Choice, "unknown", StringComparison.Ordinal)
+                && TryFindRedactedPremiseFact(redactedState.Text, identityAnswer.Choice!, out string? selectedKey, out string? selectedValue))
+            {
+                key = selectedKey;
+                value = selectedValue;
+            }
+
+            return new
+            {
+                Available = true,
+                Answers = BuildAnswerMap(result),
+                MissingPremiseFact = new
+                {
+                    Status = key == null ? "unknown" : "identified",
+                    Key = key,
+                    Value = value
+                }
+            };
+        }
+
+        private static bool TryFindRedactedPremiseFact(string stateText, string id, out string? key, out string? value)
+        {
+            key = null;
+            value = null;
+            try
+            {
+                PremiseCheckRedactedState? state = JsonSerializer.Deserialize<PremiseCheckRedactedState>(stateText, _JsonOptions);
+                PremiseFactIdentityCandidate? candidate = state?.FactIdentityCandidates?
+                    .FirstOrDefault(item => String.Equals(item.Id, id, StringComparison.Ordinal));
+                if (candidate == null || String.IsNullOrWhiteSpace(candidate.Key) || candidate.Value == null) return false;
+                key = candidate.Key;
+                value = candidate.Value;
+                return true;
+            }
+            catch (JsonException)
+            {
+                // If the central redactor had to fall back to truncated text, no identity is safe to echo.
+            }
+
+            return false;
         }
 
         private static ParsedDecision? BuildCorpusPrelabel(JsonElement root)
@@ -1234,6 +1351,29 @@ namespace Armada.Server.Mcp.Tools
         #endregion
 
         #region Private-Types
+
+        private sealed class PremiseCheckInput
+        {
+            public string? Restatement { get; set; }
+            public string? ObjectiveTitle { get; set; }
+            public string? ObjectiveDescription { get; set; }
+            public string? AcceptanceCriteria { get; set; }
+            public string? StagePersona { get; set; }
+            public JsonNode? Facts { get; set; }
+        }
+
+        private sealed class PremiseCheckRedactedState
+        {
+            [JsonPropertyName("fact_identity_candidates")]
+            public List<PremiseFactIdentityCandidate>? FactIdentityCandidates { get; set; }
+        }
+
+        private sealed class PremiseFactIdentityCandidate
+        {
+            public string Id { get; set; } = String.Empty;
+            public string Key { get; set; } = String.Empty;
+            public string? Value { get; set; }
+        }
 
         private sealed class ParsedDecision
         {
