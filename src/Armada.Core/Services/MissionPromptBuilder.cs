@@ -198,24 +198,40 @@ namespace Armada.Core.Services
                 templateName = personaOverride.PromptTemplateName!.Trim();
 
             string result = GetPersonaPromptFallback(persona);
-            bool templateContainsOwnershipPlaceholder = false;
+            string? ownershipDirective;
+            bool hasOwnershipDirective = templateParams.TryGetValue("TestOwnership", out ownershipDirective) &&
+                !String.IsNullOrEmpty(ownershipDirective);
+            bool templateRenderedOwnership = false;
             if (promptTemplates != null)
             {
-                PromptTemplate? template = await promptTemplates.ResolveAsync(templateName, token).ConfigureAwait(false);
-                templateContainsOwnershipPlaceholder = template != null &&
-                    template.Content.Contains("{TestOwnership}", StringComparison.Ordinal);
+                Dictionary<string, string> renderParams = templateParams;
+                string ownershipMarker = String.Empty;
+                if (hasOwnershipDirective)
+                {
+                    // Render once with a unique marker. This detects the placeholder from the exact
+                    // rendered template without resolving the template a second time or risking a
+                    // database change between resolving and rendering it.
+                    ownershipMarker = "__ARMADA_TEST_OWNERSHIP_" + Guid.NewGuid().ToString("N") + "__";
+                    renderParams = new Dictionary<string, string>(templateParams)
+                    {
+                        ["TestOwnership"] = ownershipMarker
+                    };
+                }
 
-                string rendered = await promptTemplates.RenderAsync(templateName, templateParams, token).ConfigureAwait(false);
+                string rendered = await promptTemplates.RenderAsync(templateName, renderParams, token).ConfigureAwait(false);
                 if (!String.IsNullOrEmpty(rendered))
-                    result = rendered;
+                {
+                    templateRenderedOwnership = hasOwnershipDirective &&
+                        rendered.Contains(ownershipMarker, StringComparison.Ordinal);
+                    result = templateRenderedOwnership
+                        ? rendered.Replace(ownershipMarker, ownershipDirective!, StringComparison.Ordinal)
+                        : rendered;
+                }
             }
 
             // Templates that define the placeholder receive the directive during rendering. Older or
             // operator-authored templates without it, plus the code fallback, receive one appended copy.
-            string? ownershipDirective;
-            if (!templateContainsOwnershipPlaceholder &&
-                templateParams.TryGetValue("TestOwnership", out ownershipDirective) &&
-                !String.IsNullOrEmpty(ownershipDirective))
+            if (hasOwnershipDirective && !templateRenderedOwnership)
             {
                 result = result + "\n\n" + ownershipDirective;
             }
