@@ -361,8 +361,14 @@ namespace Test.Shared.Infrastructure
         /// <summary>Repository-relative paths that exist on a revision, keyed by the path alone.</summary>
         public HashSet<string> PathsOnRevision { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Recorded repository, revision and path for each tracked-path lookup.</summary>
+        public List<string> PathExistsOnRevisionCalls { get; } = new List<string>();
+
         public Task<bool> PathExistsOnRevisionAsync(string worktreePath, string revision, string relativePath, CancellationToken token = default)
-            => Task.FromResult(PathsOnRevision.Contains(relativePath));
+        {
+            PathExistsOnRevisionCalls.Add(worktreePath + "|" + revision + "|" + relativePath);
+            return Task.FromResult(PathsOnRevision.Contains(relativePath));
+        }
 
         /// <summary>Terms reported as found by SearchTrackedContentOnRevisionAsync.</summary>
         public HashSet<string> FoundTermsOnRevision { get; } = new HashSet<string>(StringComparer.Ordinal);

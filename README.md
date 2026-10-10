@@ -152,6 +152,11 @@ captain override or the persona's default captain with its fallback tier floor,
 and the tier floor a pinned model no captain runs sets. A compatible captain
 does not have to be idle for the objective to be ready; idle state is capacity.
 Operator and autonomous objective dispatch use this same preflight.
+Question 1 resolves ordinary citations at the target repository revision.
+Parent-relative citations resolve only when the objective requires that sibling
+and the target vessel declares the same sibling path; Armada checks the path at
+the sibling repository's current verified tip. An undeclared sibling path or
+one that traverses above its sibling root remains unresolved.
 The REST preview accepts a JSON `captainAssignments` query value when an
 operator must test the same captain and fallback-tier overrides as dispatch.
 

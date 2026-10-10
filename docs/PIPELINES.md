@@ -46,6 +46,12 @@ material is a normal part of that vessel's work.
 Read current fleet and vessel settings before a default change. Do not infer a
 default from a previous voyage.
 
+Objective preflight question 1 checks ordinary `path:line` citations at the
+target repository revision. A parent-relative citation is checked at a sibling
+tip only when the objective requires that sibling and the target vessel
+declares the same normalized sibling path. Armada rejects paths that traverse
+above that sibling root.
+
 ## Execution
 
 Armada creates missions for the first stage order. When all sibling missions

@@ -357,7 +357,8 @@ namespace Armada.Core.Services
             result.Preflight.Facts.Add(BuildDeliverableKindFact(objective, preflight, description));
             result.Preflight.Facts.Add(await BuildRecoverRefFact(objective, preflight, repositoryPath, description, token).ConfigureAwait(false));
             result.Preflight.Facts.Add(await BuildSiblingTipFact(auth, vessel, preflight, description, token).ConfigureAwait(false));
-            result.Preflight.Facts.Add(await BuildCitationResolvesFact(preflight, repositoryPath, targetRevision, description, token).ConfigureAwait(false));
+            result.Preflight.Facts.Add(await BuildCitationResolvesFact(auth, objective, vessel, preflight, repositoryPath,
+                targetRevision, description, token).ConfigureAwait(false));
         }
 
         private static ObjectiveDispatchPreflightFact BuildVesselCountFact(Objective objective, ObjectivePreflight preflight)
@@ -543,7 +544,14 @@ namespace Armada.Core.Services
         }
 
         private async Task<ObjectiveDispatchPreflightFact> BuildCitationResolvesFact(
-            ObjectivePreflight preflight, string repositoryPath, string targetRevision, string description, CancellationToken token)
+            AuthContext auth,
+            Objective objective,
+            Vessel vessel,
+            ObjectivePreflight preflight,
+            string repositoryPath,
+            string targetRevision,
+            string description,
+            CancellationToken token)
         {
             const int question = 1;
             ObjectiveDispatchPreflightFact fact = new ObjectiveDispatchPreflightFact
@@ -566,6 +574,14 @@ namespace Armada.Core.Services
             {
                 foreach (string path in paths)
                 {
+                    if (path.StartsWith("../", StringComparison.Ordinal))
+                    {
+                        bool siblingExists = await PathExistsInDeclaredSiblingAsync(
+                            auth, objective, vessel, path, token).ConfigureAwait(false);
+                        if (!siblingExists) unresolved.Add(path);
+                        continue;
+                    }
+
                     bool exists = await _Git.PathExistsOnRevisionAsync(repositoryPath, targetRevision, path, token).ConfigureAwait(false);
                     if (!exists)
                     {
@@ -598,6 +614,57 @@ namespace Armada.Core.Services
                 fact.Detail = "These citations do not resolve at the target tip: " + String.Join(", ", unresolved) + ".";
             }
             return fact;
+        }
+
+        private async Task<bool> PathExistsInDeclaredSiblingAsync(
+            AuthContext auth,
+            Objective objective,
+            Vessel vessel,
+            string citedPath,
+            CancellationToken token)
+        {
+            string normalizedCitation = NormalizeRelativePath(citedPath);
+            List<SiblingRepo> declaredSiblings = vessel.GetSiblingRepos();
+            foreach (ObjectivePreparationSiblingInput required in objective.Preparation?.RequiredSiblingInputs
+                ?? new List<ObjectivePreparationSiblingInput>())
+            {
+                string requiredPath = NormalizeRelativePath(required.RelativePath);
+                if (requiredPath.Length == 0
+                    || !normalizedCitation.StartsWith(requiredPath + "/", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string siblingRelativePath = normalizedCitation.Substring(requiredPath.Length + 1);
+                if (String.IsNullOrWhiteSpace(siblingRelativePath)
+                    || siblingRelativePath.Split('/').Any(segment => segment == ".." || segment == ".")
+                    || siblingRelativePath.StartsWith("/", StringComparison.Ordinal))
+                    continue;
+
+                Vessel? requiredVessel = await ResolveVesselReferenceAsync(auth, required.VesselRef, token).ConfigureAwait(false);
+                if (requiredVessel == null) continue;
+
+                bool declared = false;
+                foreach (SiblingRepo sibling in declaredSiblings.Where(item => item != null
+                    && String.Equals(NormalizeRelativePath(item.RelativePath), requiredPath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    Vessel? declaredVessel = await ResolveVesselReferenceAsync(auth, sibling.VesselRef, token).ConfigureAwait(false);
+                    if (String.Equals(declaredVessel?.Id, requiredVessel.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        declared = true;
+                        break;
+                    }
+                }
+                if (!declared) continue;
+
+                string siblingRepositoryPath = RepositoryPath(requiredVessel);
+                string? siblingTip = await _Git.GetRevisionCommitShaAsync(siblingRepositoryPath, "HEAD", token).ConfigureAwait(false);
+                if (String.IsNullOrWhiteSpace(siblingTip)) continue;
+                if (await _Git.PathExistsOnRevisionAsync(siblingRepositoryPath, siblingTip, siblingRelativePath, token).ConfigureAwait(false))
+                    return true;
+                string? suffix = await _Git.ResolveTrackedPathSuffixAsync(
+                    siblingRepositoryPath, siblingTip, siblingRelativePath, token).ConfigureAwait(false);
+                if (!String.IsNullOrWhiteSpace(suffix)) return true;
+            }
+            return false;
         }
 
         private static List<string> MatchAll(string input, Regex pattern)

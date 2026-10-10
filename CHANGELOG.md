@@ -9,6 +9,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Objective preflight Q1 resolves parent-relative citations only through a
+  sibling that is both declared by the target vessel and required by the
+  objective. It checks the cited file against that sibling repository's
+  current verified tip and keeps ordinary target-repository citations on the
+  target revision.
+
 - Objective dispatch keeps long, numerous, and multiline acceptance criteria
   complete for the Judge evidence gate. Mission description, metadata, and
   total-budget trimming preserve complete-output references and digests even

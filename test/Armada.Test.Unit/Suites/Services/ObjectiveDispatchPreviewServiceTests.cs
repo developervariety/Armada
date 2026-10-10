@@ -1188,6 +1188,103 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Preflight citations resolve declared sibling paths at the sibling tip", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    string siblingDirectory = Path.Combine(harness.RepositoryDirectory, "reference-source");
+                    Directory.CreateDirectory(siblingDirectory);
+                    Vessel sibling = await testDb.Driver.Vessels.CreateAsync(new Vessel("ReferenceSource", "https://example.test/reference-source.git")
+                    {
+                        LocalPath = siblingDirectory,
+                        WorkingDirectory = siblingDirectory
+                    }).ConfigureAwait(false);
+                    harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = sibling.Id, RelativePath = "../ReferenceSource" }
+                    });
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+
+                    Objective objective = harness.CreateReadyObjective("facts-sibling-citation-preview");
+                    objective.Description = "See ../ReferenceSource/Parser/Generated.cs:7-16 and Services/Foo.cs:10.";
+                    objective.Preparation.RequiredSiblingInputs.Add(new ObjectivePreparationSiblingInput
+                    {
+                        VesselRef = sibling.Id,
+                        RelativePath = "../ReferenceSource"
+                    });
+                    const string siblingTip = "0123456789abcdef0123456789abcdef01234567";
+                    harness.Git.RevisionCommitShas[siblingDirectory + "|HEAD"] = siblingTip;
+                    harness.Git.PathsOnRevision.Add("Parser/Generated.cs");
+                    harness.Git.PathsOnRevision.Add("Services/Foo.cs");
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertEqual(PreflightFactStatusEnum.Pass, result.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a sibling citation resolves under its declared sibling vessel while the target citation still resolves at the target tip");
+                    AssertTrue(harness.Git.PathExistsOnRevisionCalls.Contains(
+                        siblingDirectory + "|" + siblingTip + "|Parser/Generated.cs"),
+                        "the sibling path check uses the registered sibling root and its resolved commit, not the target repository or a symbolic ref");
+                    AssertTrue(harness.Git.PathExistsOnRevisionCalls.Contains(
+                        harness.RepositoryDirectory + "|HEAD|Services/Foo.cs"),
+                        "ordinary citations continue to use the target repository revision");
+
+                    objective.Preparation.RequiredSiblingInputs.Clear();
+                    ObjectiveDispatchPreview undeclared = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Fail, undeclared.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a parent-relative citation is not admitted by a vessel declaration alone");
+
+                    objective.Preparation.RequiredSiblingInputs.Add(new ObjectivePreparationSiblingInput
+                    {
+                        VesselRef = sibling.Id,
+                        RelativePath = "../ReferenceSource"
+                    });
+                    harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = sibling.Id, RelativePath = "../DifferentSibling" }
+                    });
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+                    ObjectiveDispatchPreview mismatched = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Fail, mismatched.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a required input does not authorize a different declared sibling path");
+
+                    harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = sibling.Id, RelativePath = "../ReferenceSource" }
+                    });
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+                    objective.Description = "See ../ReferenceSource/../escape/Parser.cs:7 and Services/Foo.cs:10.";
+                    ObjectiveDispatchPreview traversal = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Fail, traversal.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a citation cannot traverse above the resolved sibling root");
+
+                    objective.Description = "See ../ReferenceSource/Parser/Generated.cs:7-16 and Services/Foo.cs:10.";
+                    harness.Git.RevisionCommitShas.Remove(siblingDirectory + "|HEAD");
+                    harness.Git.RevisionCommitShaResult = null;
+                    harness.Git.LandingCommitShaResult = null;
+                    ObjectiveDispatchPreview missingTip = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Fail, missingTip.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a sibling citation stays unresolved when the sibling tip cannot be verified");
+
+                    AuthContext scopedCaller = AuthContext.Authenticated(
+                        harness.Auth.TenantId, harness.Auth.UserId, false, false, "UnitTest");
+                    sibling.UserId = "another-owner";
+                    await testDb.Driver.Vessels.UpdateAsync(sibling).ConfigureAwait(false);
+                    harness.Git.RevisionCommitShas[siblingDirectory + "|HEAD"] = siblingTip;
+                    ObjectiveDispatchPreview foreignOwner = await harness.Service.PreviewAsync(scopedCaller, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Fail, foreignOwner.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a sibling owned by another user is not used to resolve a citation");
+
+                    sibling.UserId = harness.Auth.UserId;
+                    TenantMetadata foreignTenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Other sibling tenant")).ConfigureAwait(false);
+                    sibling.TenantId = foreignTenant.Id;
+                    await testDb.Driver.Vessels.UpdateAsync(sibling).ConfigureAwait(false);
+                    ObjectiveDispatchPreview foreignTenantPreview = await harness.Service.PreviewAsync(scopedCaller, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Fail, foreignTenantPreview.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a sibling outside the caller's tenant is not used to resolve a citation");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("A preflight fact compares the declared sibling tip against a cited commit", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
