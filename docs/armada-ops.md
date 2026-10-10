@@ -34,8 +34,8 @@ redacted parent output and every rescue stage reads it with
 `armada_mission_output`. The tool returns pages with one digest for the full
 artifact. The stage reads until `hasMore` is false and checks `complete` and
 `sha256` before it treats the review as complete. The embedded review cap is
-12,000 characters. The brief keeps Correctness, Failure Modes, Tests and
-Verdict findings ahead of less actionable text; if protected findings exceed
+12,000 characters. The brief keeps Correctness, Failure Modes, Tests, Evidence,
+Residual Risks and Verdict findings ahead of less actionable text; if protected findings exceed
 the cap, it marks the embedded list incomplete and points to the full output.
 Later stages can read the failed mission through the same-owner rescue chain.
 The marked rescue root names the additional failed-parent grant. Existing

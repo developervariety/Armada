@@ -4546,7 +4546,7 @@ namespace Armada.Core.Services
                 }
 
                 string missionText = (mission.Title ?? "") + "\n" + (mission.Description ?? "");
-                List<string> paths = MissionSubjectExtractor.ExtractPaths(missionText);
+                List<string> paths = ExtractGitAnchorPaths(missionText);
                 List<string> terms = MissionSubjectExtractor.ExtractTerms(missionText);
 
                 foreach (string path in paths)

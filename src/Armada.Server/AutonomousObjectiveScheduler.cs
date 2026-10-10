@@ -1373,15 +1373,15 @@ namespace Armada.Server
 
             List<MissionDescription> missionDescriptions = new List<MissionDescription> { md };
 
-            // Stage skips on the autonomous path come only from an operator-confirmed list stored on the
-            // objective's preparation. The scheduler never infers a skip; an unconfirmed list is a named
-            // skip of the objective, not a silent full-pipeline dispatch.
+            // Stage skips on the autonomous path come only from a stored objective list with
+            // server-issued operator confirmation. The scheduler never infers a skip; a legacy or
+            // unconfirmed list is a named skip of the objective, not a silent full-pipeline dispatch.
             StageSkipRequest? stageSkip = objective.Preparation?.StageSkip;
-            if (StageSkipRequest.HasStages(stageSkip) && String.IsNullOrWhiteSpace(stageSkip!.ConfirmedBy))
+            if (StageSkipRequest.HasStages(stageSkip) && !StageSkipRequest.HasTrustedConfirmation(stageSkip))
             {
                 await EmitObjectiveEventAsync("objective_scheduler.skipped_stage_skip_unconfirmed",
                     "Autonomous scheduler skipped objective " + objective.Id + ": preparation.stageSkip names "
-                        + String.Join(", ", stageSkip.Stages) + " but records no confirmedBy. Confirm the skip or clear it.",
+                        + String.Join(", ", stageSkip.Stages) + " but has no server-issued operator confirmation. Confirm the skip or clear it.",
                     objective, vesselId, token).ConfigureAwait(false);
                 throw new ObjectiveSkippedException("stage_skip_unconfirmed");
             }

@@ -731,6 +731,7 @@ namespace Armada.Core.Services
             };
 
             SanitizeObjective(objective);
+            ApplyStageSkipConfirmation(auth, objective.Preparation!, request.ConfirmStageSkip, null);
             bool dependencyLockTaken = false;
             try
             {
@@ -769,6 +770,7 @@ namespace Armada.Core.Services
 
             ObjectivePreparationAnchor? priorSourceAnchor = CopyAnchor(objective.Preparation?.Source);
             ObjectivePreparationAnchor? priorTargetAnchor = CopyAnchor(objective.Preparation?.Target);
+            StageSkipRequest? priorStageSkip = CopyStageSkip(objective.Preparation?.StageSkip);
             string? priorStartFromRef = objective.StartFromRef;
             List<string> priorVesselIds = objective.VesselIds.ToList();
             Dictionary<string, DateTime?> priorClaimVerification = (objective.Preparation?.Claims ?? new List<ObjectivePreparationClaim>())
@@ -815,6 +817,7 @@ namespace Armada.Core.Services
             objective.LastUpdateUtc = DateTime.UtcNow;
 
             SanitizeObjective(objective);
+            ApplyStageSkipConfirmation(auth, objective.Preparation!, request.ConfirmStageSkip, priorStageSkip);
             if (request.Preparation != null || request.StartFromRef != null || request.VesselIds != null)
             {
                 ObjectivePreparation preparation = objective.Preparation!;
@@ -2340,6 +2343,79 @@ namespace Armada.Core.Services
             skip.ConfirmedBy = Normalize(skip.ConfirmedBy);
             if (skip.ConfirmedBy != null) EnsureMaximumLength(skip.ConfirmedBy, _MaxPreparationIdChars, "Objective stage skip confirmed-by");
             skip.ConfirmedUtc = skip.ConfirmedUtc?.ToUniversalTime();
+            skip.OperatorConfirmationId = Normalize(skip.OperatorConfirmationId);
+            if (skip.OperatorConfirmationId != null) EnsureMaximumLength(skip.OperatorConfirmationId, _MaxPreparationIdChars, "Objective stage skip confirmation id");
+        }
+
+        private static void ApplyStageSkipConfirmation(
+            AuthContext auth,
+            ObjectivePreparation preparation,
+            bool confirmStageSkip,
+            StageSkipRequest? prior)
+        {
+            StageSkipRequest? skip = preparation.StageSkip;
+            if (confirmStageSkip)
+            {
+                if (!StageSkipRequest.HasStages(skip))
+                    throw new InvalidOperationException("confirmStageSkip requires a stageSkip with at least one stage.");
+
+                if (!auth.IsAuthenticated
+                    || !String.IsNullOrWhiteSpace(auth.MissionId)
+                    || (!auth.IsAdmin && !auth.IsTenantAdmin)
+                    || String.IsNullOrWhiteSpace(auth.UserId))
+                {
+                    throw new InvalidOperationException("Only an authenticated operator can confirm an objective stage skip.");
+                }
+
+                skip!.ConfirmedBy = NormalizeRequired(auth.UserId, nameof(auth.UserId));
+                EnsureMaximumLength(skip.ConfirmedBy, _MaxPreparationIdChars, "Objective stage skip confirmed-by");
+                skip.ConfirmedUtc = DateTime.UtcNow;
+                skip.OperatorConfirmationId = Guid.NewGuid().ToString("N");
+                return;
+            }
+
+            if (!StageSkipRequest.HasStages(skip)) return;
+
+            if (prior != null && SameSemanticStageSkip(skip!, prior))
+            {
+                // A full-preparation round trip, including refinement's preserved value, carries no new
+                // confirmation. Restore the persisted proof so inbound fields cannot forge or erase it.
+                skip!.ConfirmedBy = prior.ConfirmedBy;
+                skip.ConfirmedUtc = prior.ConfirmedUtc;
+                skip.OperatorConfirmationId = prior.OperatorConfirmationId;
+                return;
+            }
+
+            // A changed or new skip remains stored for review but cannot authorize dispatch until the
+            // operator explicitly confirms it through confirmStageSkip.
+            skip!.ConfirmedBy = null;
+            skip.ConfirmedUtc = null;
+            skip.OperatorConfirmationId = null;
+        }
+
+        private static StageSkipRequest? CopyStageSkip(StageSkipRequest? skip)
+        {
+            if (skip == null) return null;
+            return new StageSkipRequest
+            {
+                Stages = skip.Stages?.ToList() ?? new List<string>(),
+                Reason = skip.Reason,
+                ConfirmedBy = skip.ConfirmedBy,
+                ConfirmedUtc = skip.ConfirmedUtc,
+                OperatorConfirmationId = skip.OperatorConfirmationId
+            };
+        }
+
+        private static bool SameSemanticStageSkip(StageSkipRequest left, StageSkipRequest right)
+        {
+            HashSet<string> leftStages = (left.Stages ?? new List<string>())
+                .Where(stage => !String.IsNullOrWhiteSpace(stage))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> rightStages = (right.Stages ?? new List<string>())
+                .Where(stage => !String.IsNullOrWhiteSpace(stage))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return leftStages.SetEquals(rightStages)
+                && String.Equals(left.Reason, right.Reason, StringComparison.Ordinal);
         }
 
         private static void SanitizeExecutionRequirements(ObjectivePreparation preparation)

@@ -172,13 +172,14 @@ namespace Armada.Core.Services
                 if (!notMetCriterion && IsExplicitSuccess(item, section)) continue;
 
                 bool explicitBlocking = IsExplicitBlocking(raw);
-                bool sectionFinding = section == "Correctness" || section == "Failure Modes"
-                    ? listItem
-                    : section == "Tests"
-                        ? listItem
-                        : section == "Verdict"
-                            ? ContainsAny(raw, "NEEDS_REVISION", "REQUIRED CHANGE", "MUST ") || (listItem && !ContainsAny(raw, "PASS"))
-                            : false;
+                bool findingSectionItem = section == "Correctness"
+                    || section == "Failure Modes"
+                    || section == "Tests"
+                    || section == "Evidence"
+                    || section == "Residual Risks";
+                bool sectionFinding = findingSectionItem && listItem
+                    || section == "Verdict"
+                        && (ContainsAny(raw, "NEEDS_REVISION", "REQUIRED CHANGE", "MUST ") || (listItem && !ContainsAny(raw, "PASS")));
                 if (!notMetCriterion && !explicitBlocking && !sectionFinding) continue;
 
                 StringBuilder finding = new StringBuilder(item);
@@ -318,6 +319,8 @@ namespace Armada.Core.Services
             if (name.StartsWith("Correctness", StringComparison.OrdinalIgnoreCase)) return "Correctness";
             if (name.StartsWith("Failure Modes", StringComparison.OrdinalIgnoreCase)) return "Failure Modes";
             if (name.StartsWith("Tests", StringComparison.OrdinalIgnoreCase)) return "Tests";
+            if (name.StartsWith("Evidence", StringComparison.OrdinalIgnoreCase)) return "Evidence";
+            if (name.StartsWith("Residual Risks", StringComparison.OrdinalIgnoreCase)) return "Residual Risks";
             if (name.StartsWith("Verdict", StringComparison.OrdinalIgnoreCase)) return "Verdict";
             if (name.StartsWith("Completeness", StringComparison.OrdinalIgnoreCase)) return "Completeness";
             if (name.StartsWith("Acceptance Criteria", StringComparison.OrdinalIgnoreCase)) return "Acceptance Criteria";

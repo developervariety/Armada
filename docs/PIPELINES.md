@@ -101,7 +101,8 @@ edits or re-verifies. The tool returns the safely redacted output in pages; the
 stage continues until `hasMore` is false and checks `complete` and `sha256`.
 
 The rescue findings list includes numbered or bulleted defects from
-Correctness, Failure Modes, Tests and Verdict, plus existing `NOT DELIVERED`,
+Correctness, Failure Modes, Tests, Evidence, Residual Risks and Verdict, plus
+existing `NOT DELIVERED`,
 `NOT MET`, `NOT RESOLVED` and `Blocking` items. It keeps file and line anchors,
 places NOT MET criteria after defects, removes MET criteria and narration
 before shortening, and uses one list marker per item. The embedded full-review
@@ -115,7 +116,9 @@ recovery behavior.
 The failed parent output is in scope for the rescue Worker and later stages in
 that rescue chain. The server follows same-owner, same-voyage and same-vessel
 dependencies back to the marked rescue root, and exposes only the failed
-mission named by that root as an additional rescue-chain read. Existing direct
+mission named by that root as an additional rescue-chain read. The walk follows
+the stored dependency chain and stops at missing links, cycles, or a change of
+owner, voyage or vessel. It visits each dependency at most once. Existing direct
 parent and dependency reads remain available within the caller's normal scope.
 
 Stage `preferredModel` values are logical tiers: `low`, `mid`, or `high`.

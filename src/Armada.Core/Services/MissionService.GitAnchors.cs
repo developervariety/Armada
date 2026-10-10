@@ -6,6 +6,24 @@ namespace Armada.Core.Services
 
     public partial class MissionService
     {
+        /// <summary>
+        /// Returns repository paths named by the mission, excluding Armada's reserved generated
+        /// briefing tree. That tree is written into the dock after fallback anchors are resolved,
+        /// and it is not source content for either fallback or dock-pinned Git history.
+        /// </summary>
+        private static List<string> ExtractGitAnchorPaths(string missionText)
+        {
+            List<string> paths = new List<string>();
+            foreach (string path in MissionSubjectExtractor.ExtractPaths(missionText))
+            {
+                // Keep the same slash and case semantics as the generated brief writer, which uses
+                // these repository-relative paths verbatim. The directory separator keeps similarly named
+                // source folders such as `_briefing-tools/` in the ordinary anchor flow.
+                if (!path.StartsWith("_briefing/", StringComparison.Ordinal)) paths.Add(path);
+            }
+            return paths;
+        }
+
         internal async Task<GitAnchors> ResolveDispatchGitAnchorsAsync(string path, Mission mission,
             Vessel vessel, CancellationToken token)
         {
@@ -70,7 +88,7 @@ namespace Armada.Core.Services
                     result.Anchors.TargetTip = tip!;
                 }
                 string text = (mission.Title ?? "") + "\n" + (mission.Description ?? "");
-                foreach (string requested in MissionSubjectExtractor.ExtractPaths(text))
+                foreach (string requested in ExtractGitAnchorPaths(text))
                 {
                     if (!DockGitAnchorPersistence.IsRelativePath(requested) || RuntimeLogFormatter.RedactSecrets(requested) != requested) { result.Truncated = true; continue; }
                     GitAnchorFileHistory history = new GitAnchorFileHistory { Path = requested };

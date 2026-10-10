@@ -213,25 +213,25 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "create_objective",
-                "Create an internal-first objective or intake-style record that can link vessels, planning sessions, voyages, checks, releases, deployments, and incidents.",
+                "Create an internal-first objective or intake-style record that can link vessels, planning sessions, voyages, checks, releases, deployments, and incidents. Set confirmStageSkip=true to explicitly confirm a stage skip in preparation; the server records the authenticated operator and time.",
                 ObjectiveWriteSchema("objective", false),
                 async (args) => await CreateAsync(objectiveService, args, "objective_create_failed").ConfigureAwait(false));
 
             register(
                 "create_backlog_item",
-                "Create a backlog item that can link vessels, planning sessions, voyages, checks, releases, deployments, and incidents.",
+                "Create a backlog item that can link vessels, planning sessions, voyages, checks, releases, deployments, and incidents. Set confirmStageSkip=true to explicitly confirm a stage skip in preparation; the server records the authenticated operator and time.",
                 ObjectiveWriteSchema("backlog item", false),
                 async (args) => await CreateAsync(objectiveService, args, "backlog_create_failed").ConfigureAwait(false));
 
             register(
                 "update_objective",
-                "Update one objective/backlog entry, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied top-level fields change. When supplied, preparation replaces the complete nested value; omitted preparation members reset to their defaults or null. An empty string clears a clearable text field.",
+                "Update one objective/backlog entry, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied top-level fields change. When supplied, preparation replaces the complete nested value; omitted preparation members reset to their defaults or null. Set confirmStageSkip=true to explicitly confirm the supplied or existing stage skip; the server records the authenticated operator and time. Without the flag, unchanged skips retain their proof and changed skips remain unconfirmed. An empty string clears a clearable text field.",
                 ObjectiveWriteSchema("objective", true),
                 async (args) => await UpdateAsync(objectiveService, args, "objective_update_failed", "objectiveId is required", null).ConfigureAwait(false));
 
             register(
                 "update_backlog_item",
-                "Update one backlog item, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied top-level fields change. When supplied, preparation replaces the complete nested value; omitted preparation members reset to their defaults or null. An empty string clears a clearable text field.",
+                "Update one backlog item, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied top-level fields change. When supplied, preparation replaces the complete nested value; omitted preparation members reset to their defaults or null. Set confirmStageSkip=true to explicitly confirm the supplied or existing stage skip; the server records the authenticated operator and time. Without the flag, unchanged skips retain their proof and changed skips remain unconfirmed. An empty string clears a clearable text field.",
                 ObjectiveWriteSchema("backlog item", true),
                 async (args) => await UpdateAsync(objectiveService, args, "backlog_update_failed", "objectiveId is required", "backlog_item_id_required").ConfigureAwait(false));
 
@@ -944,6 +944,7 @@ namespace Armada.Server.Mcp.Tools
             properties["parentObjectiveId"] = ClearableText("Parent " + noun + " identifier");
             properties["blockedByObjectiveIds"] = new { type = "array", items = new { type = "string" }, description = "Blocking " + noun + " identifiers" };
             properties["refinementSummary"] = ClearableText("Captain-generated refinement summary");
+            properties["confirmStageSkip"] = new { type = "boolean", description = "Explicitly confirm the stage skip in the supplied preparation, or the existing skip when preparation is omitted. The service records the authenticated operator, server time, and proof; inbound confirmer, timestamp, and proof fields are ignored. Rejects when there is no stage skip." };
             properties["preparation"] = BuildPreparationSchema();
             properties["suggestedPipelineId"] = ClearableText("Suggested pipeline identifier");
             properties["suggestedPlaybooks"] = BuildPlaybookSelectionSchema();
@@ -1141,13 +1142,13 @@ namespace Armada.Server.Mcp.Tools
                     stageSkip = new
                     {
                         type = "object",
-                        description = "Stored operator-confirmed stage skips for autonomous dispatch. This value is replaced with the preparation object; confirmation is still required.",
+                        description = "Stored objective stage skips for autonomous dispatch. This value is replaced with the preparation object. Use top-level confirmStageSkip=true for a new confirmation; submitted confirmer and timestamp fields do not prove confirmation.",
                         properties = new
                         {
                             stages = new { type = "array", items = new { type = "string" }, description = "Pipeline persona names to omit" },
                             reason = new { type = "string", description = "Why the stages are not needed" },
-                            confirmedBy = new { type = "string", description = "Operator who confirmed the skip" },
-                            confirmedUtc = new { type = "string", format = "date-time", description = "When the operator confirmed the skip" }
+                            confirmedBy = new { type = "string", description = "Read-only confirmation identity returned by Armada; request values are ignored" },
+                            confirmedUtc = new { type = "string", format = "date-time", description = "Read-only server confirmation time returned by Armada; request values are ignored" }
                         },
                         required = new[] { "stages" }
                     }

@@ -1840,6 +1840,53 @@ namespace Armada.Test.Unit.Suites.Services
 
             // Git anchors: the facts a captain would otherwise spend its opening turns deriving.
 
+            await RunTest("Dispatch Git anchors omit the generated mission-description self-reference", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    git.PathsOnRevision.Add("src/Present.cs");
+                    string headCommit = new string('a', 40);
+                    git.HeadCommitHashResult = headCommit;
+                    git.RevisionShaResult = headCommit.Substring(0, 12);
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService,
+                        git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Mission mission = new Mission
+                        {
+                            Title = "Review generated briefing",
+                            Description = "Read _briefing/mission/01-description.md, src/Present.cs, and src/Existing.cs.\n\n"
+                                + new string('x', 12000)
+                        };
+                        Vessel vessel = new Vessel("AnchorVessel", "https://github.com/test/repo");
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel).ConfigureAwait(false);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md")).ConfigureAwait(false);
+                        string generatedDescription = Path.Combine(tempDir, "_briefing", "mission", "01-description.md");
+                        AssertTrue(File.Exists(generatedDescription), "the named description file is generated in the dock");
+                        AssertFalse(content.Contains("- `_briefing/mission/01-description.md` does not exist on this checkout."),
+                            "the dispatch anchor must not report its own generated briefing file as absent source");
+                        AssertContains("- `src/Existing.cs` does not exist on this checkout. It is new work, not an edit.", content,
+                            "an ordinary absent source path must keep its existing new-work warning");
+                        AssertContains("- `src/Present.cs`\n", content,
+                            "an ordinary present source path must remain anchored in the generated brief");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("GitAnchors Section Is Omitted When Nothing Resolved", () =>
             {
                 GitAnchors anchors = GitAnchors.Unresolved("no git service is configured on this admiral");

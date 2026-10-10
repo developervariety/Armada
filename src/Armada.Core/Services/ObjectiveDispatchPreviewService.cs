@@ -1010,11 +1010,11 @@ namespace Armada.Core.Services
             if (!StageSkipRequest.HasStages(skip))
                 return pipeline;
 
-            result.StageSkipConfirmed = !String.IsNullOrWhiteSpace(skip!.ConfirmedBy);
+            result.StageSkipConfirmed = StageSkipRequest.HasTrustedConfirmation(skip);
             if (!result.StageSkipConfirmed)
             {
                 AddIssue(result, "stage_skip_unconfirmed", "pipeline", ReadinessSeverityEnum.Warning,
-                    "The stored stage skip is not confirmed; autonomous dispatch will skip this objective.", null);
+                    "The stored stage skip has no server-issued operator confirmation; autonomous dispatch will skip this objective.", null);
                 return pipeline;
             }
 
