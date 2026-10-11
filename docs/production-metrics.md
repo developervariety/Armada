@@ -42,19 +42,20 @@ A verified landed slice must meet all of these rules:
 
 - The objective is a leaf and has status `Completed`.
 - The objective links at least one voyage.
-- Every linked voyage has status `Complete`. Historical failed-and-rescued
-  voyages stay unverified until Armada retains enough chain history to prove
-  each independent recovery.
+- Every linked voyage has status `Complete`, or has typed attempt facts that
+  prove the full recovery lineage for each independent failed chain. Each
+  terminal recovery mission must be `Complete`, have a commit, and belong to a
+  `Complete` voyage. Missing, ambiguous, cross-scope, or incomplete lineage
+  stays unverified.
 - At least one implementation-producing mission has a commit hash and reached
   `Complete`. A read-only objective must instead have an explicit read-only
   delivery classification.
-- Each independent delivered tip has typed landing evidence: a
+- Every terminal tip in each delivery chain has typed landing evidence: a
   mission-linked `Landed` merge entry (merge-queue landing) or a `Landed`
   attempt fact (direct landing, such as `LocalMerge` or a merged pull
   request).
-- Each participating Check for each delivered tip's commit is `Passed`. A
-  Check for another commit is not current. A missing current Check is not a
-  pass.
+- Each participating Check for each terminal tip's commit is `Passed`. A Check
+  for another commit is not current. A missing current Check is not a pass.
 
 Return the failed or unavailable rule codes for each uncovered slice. Do not
 infer a pass from the objective status alone.

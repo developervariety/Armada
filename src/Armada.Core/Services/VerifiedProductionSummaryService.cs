@@ -306,16 +306,20 @@ namespace Armada.Core.Services
             if (objective.VoyageIds.Count == 0) return SliceEvidence.Failed("missing_voyage_link");
             if (objective.MissionIds.Any(id => !missionById.ContainsKey(id)))
                 return SliceEvidence.Failed("missing_linked_mission");
-            // Final rows do not preserve enough chain history to prove that every independent
-            // chain of a failed voyage was rescued. Stay conservative instead of repeating the
-            // former objective-reconciliation bug that let one rescue satisfy a multi-chain voyage.
-            if (objective.VoyageIds.Any(id => !voyageById.TryGetValue(id, out Voyage? voyage) || voyage.Status != VoyageStatusEnum.Complete))
-                return SliceEvidence.Failed("non_complete_voyage_requires_chain_evidence");
-            if (linked.Any(item => item.Status != MissionStatusEnum.Complete))
-                return SliceEvidence.Failed("mission_chain_not_complete");
-            List<MissionSummary> implementation = linked.Where(item => item.Status == MissionStatusEnum.Complete && !String.IsNullOrWhiteSpace(item.CommitHash)).ToList();
-            if (implementation.Count == 0) return SliceEvidence.Failed("missing_completed_implementation");
+            if (objective.VoyageIds.Any(id => !voyageById.ContainsKey(id)))
+                return SliceEvidence.Failed("missing_linked_voyage");
 
+            bool hasFailedVoyage = objective.VoyageIds
+                .Select(id => voyageById[id])
+                .Any(voyage => voyage.Status == VoyageStatusEnum.Failed);
+            if (objective.VoyageIds.Any(id => voyageById[id].Status != VoyageStatusEnum.Complete
+                && voyageById[id].Status != VoyageStatusEnum.Failed))
+                return SliceEvidence.Failed("non_complete_voyage_requires_chain_evidence");
+
+            if (!hasFailedVoyage && linked.Any(item => item.Status != MissionStatusEnum.Complete))
+                return SliceEvidence.Failed("mission_chain_not_complete");
+
+            List<MissionSummary> implementation = linked.Where(item => item.Status == MissionStatusEnum.Complete && !String.IsNullOrWhiteSpace(item.CommitHash)).ToList();
             HashSet<string> supersededImplementationIds = implementation
                 .SelectMany(item => new[] { item.DependsOnMissionId, item.ParentMissionId })
                 .Where(id => !String.IsNullOrWhiteSpace(id))
@@ -324,7 +328,58 @@ namespace Armada.Core.Services
             List<MissionSummary> deliveryTips = implementation
                 .Where(item => !supersededImplementationIds.Contains(item.Id))
                 .ToList();
-            if (deliveryTips.Count == 0) return SliceEvidence.Failed("invalid_mission_chain");
+
+            if (hasFailedVoyage)
+            {
+                HashSet<string> failedVoyageIds = objective.VoyageIds
+                    .Where(id => voyageById[id].Status == VoyageStatusEnum.Failed)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                List<MissionSummary> attemptedFailures = linked
+                    .Where(item => item.VoyageId != null
+                        && failedVoyageIds.Contains(item.VoyageId)
+                        && AttemptFactIndex.Ran(item)
+                        && item.Status != MissionStatusEnum.Complete)
+                    .ToList();
+                if (attemptedFailures.Count == 0)
+                    return SliceEvidence.Failed("attempt_lineage_incomplete");
+
+                HashSet<string> roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (MissionSummary failedMission in attemptedFailures)
+                {
+                    if (!attemptFacts.TryGetLineage(failedMission.Id, out AttemptLineage? lineage, out string lineageReason))
+                        return SliceEvidence.Failed(lineageReason);
+                    if (failedMission.Status == MissionStatusEnum.Failed || failedMission.Status == MissionStatusEnum.LandingFailed)
+                    {
+                        if (!attemptFacts.HasFact(failedMission.Id, MissionAttemptFactTypeEnum.Failed))
+                            return SliceEvidence.Failed("attempt_lineage_incomplete");
+                    }
+                    roots.Add(lineage!.RootMissionId);
+                }
+
+                foreach (string rootId in roots)
+                {
+                    if (!attemptFacts.TryResolveRecoveryTips(rootId, missionById, out List<MissionSummary> recoveredTips, out string lineageReason))
+                        return SliceEvidence.Failed(lineageReason);
+                    if (!recoveredTips.Any(tip => attemptFacts.IsRescue(tip.Id)))
+                        return SliceEvidence.Failed("attempt_lineage_no_rescue");
+                    foreach (MissionSummary tip in recoveredTips)
+                    {
+                        if (tip.Status != MissionStatusEnum.Complete)
+                            return SliceEvidence.Failed("attempt_lineage_incomplete");
+                        if (String.IsNullOrWhiteSpace(tip.CommitHash))
+                            return SliceEvidence.Failed("missing_completed_implementation");
+                        if (String.IsNullOrWhiteSpace(tip.VoyageId)
+                            || !voyageById.TryGetValue(tip.VoyageId, out Voyage? tipVoyage)
+                            || tipVoyage.Status != VoyageStatusEnum.Complete)
+                            return SliceEvidence.Failed("attempt_lineage_incomplete");
+                    }
+                    deliveryTips.AddRange(recoveredTips);
+                }
+                deliveryTips = deliveryTips.DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase).ToList();
+            }
+
+            if (deliveryTips.Count == 0)
+                return SliceEvidence.Failed(implementation.Count == 0 ? "missing_completed_implementation" : "invalid_mission_chain");
 
             List<DateTime> landingTimes = new List<DateTime>();
             foreach (MissionSummary tip in deliveryTips)
@@ -942,6 +997,22 @@ namespace Armada.Core.Services
             internal bool FirstPassDisqualified { get; set; }
         }
 
+        private sealed class AttemptLineage
+        {
+            internal AttemptLineage(string rootMissionId, string? parentMissionId, bool isRescue)
+            {
+                RootMissionId = rootMissionId;
+                ParentMissionId = parentMissionId;
+                IsRescue = isRescue;
+            }
+
+            internal string RootMissionId { get; }
+
+            internal string? ParentMissionId { get; }
+
+            internal bool IsRescue { get; }
+        }
+
         /// <summary>
         /// Index of durable attempt facts. Chain identity, rescue classification, and first-pass
         /// disqualification come only from these facts, never from titles or final mission state.
@@ -983,6 +1054,147 @@ namespace Armada.Core.Services
 
             internal bool IsRescue(string missionId) =>
                 _ByMission.TryGetValue(missionId, out List<MissionAttemptFact>? facts) && facts.Any(item => item.IsRescue);
+
+            internal bool HasFact(string missionId, MissionAttemptFactTypeEnum factType) =>
+                _ByMission.TryGetValue(missionId, out List<MissionAttemptFact>? facts)
+                && facts.Any(item => item.FactType == factType);
+
+            internal bool TryGetLineage(string missionId, out AttemptLineage? lineage, out string reason)
+            {
+                lineage = null;
+                reason = "attempt_lineage_incomplete";
+                if (!_ByMission.TryGetValue(missionId, out List<MissionAttemptFact>? facts)
+                    || !facts.Any(item => item.FactType == MissionAttemptFactTypeEnum.AttemptStarted))
+                {
+                    reason = "attempt_facts_not_recorded";
+                    return false;
+                }
+
+                if (facts.Any(item => item.ReasonCode == "lineage_cycle"))
+                {
+                    reason = "attempt_lineage_cycle";
+                    return false;
+                }
+                if (facts.Any(item => item.ReasonCode == "lineage_parent_missing"
+                    || item.ReasonCode == "lineage_depth_exceeded"))
+                    return false;
+
+                if (facts.Any(item => String.IsNullOrWhiteSpace(item.RootMissionId)))
+                    return false;
+
+                string[] roots = facts.Select(item => item.RootMissionId)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                string[] parents = facts.Select(item => item.ParentMissionId ?? String.Empty)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                bool[] rescueFlags = facts.Select(item => item.IsRescue).Distinct().ToArray();
+                if (roots.Length != 1 || parents.Length != 1 || rescueFlags.Length != 1)
+                {
+                    reason = "attempt_lineage_ambiguous";
+                    return false;
+                }
+                if (String.IsNullOrWhiteSpace(roots[0])) return false;
+
+                lineage = new AttemptLineage(
+                    roots[0],
+                    String.IsNullOrWhiteSpace(parents[0]) ? null : parents[0],
+                    rescueFlags[0]);
+                reason = String.Empty;
+                return true;
+            }
+
+            internal bool TryResolveRecoveryTips(
+                string rootMissionId,
+                Dictionary<string, MissionSummary> missionById,
+                out List<MissionSummary> tips,
+                out string reason)
+            {
+                tips = new List<MissionSummary>();
+                reason = "attempt_lineage_incomplete";
+                if (!_MissionIdsByRoot.TryGetValue(rootMissionId, out HashSet<string>? memberIds)
+                    || !memberIds.Contains(rootMissionId))
+                    return false;
+
+                Dictionary<string, AttemptLineage> lineageByMission = new Dictionary<string, AttemptLineage>(StringComparer.OrdinalIgnoreCase);
+                foreach (string memberId in memberIds)
+                {
+                    if (!missionById.ContainsKey(memberId)) return false;
+                    if (!TryGetLineage(memberId, out AttemptLineage? lineage, out reason)) return false;
+                    if (!String.Equals(lineage!.RootMissionId, rootMissionId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        reason = "attempt_lineage_ambiguous";
+                        return false;
+                    }
+                    MissionSummary mission = missionById[memberId];
+                    List<MissionAttemptFact> facts = _ByMission[memberId];
+                    if (facts.Any(item => !String.Equals(item.TenantId, mission.TenantId, StringComparison.OrdinalIgnoreCase)
+                        || !String.Equals(item.UserId, mission.UserId, StringComparison.OrdinalIgnoreCase)
+                        || !String.Equals(item.VesselId, mission.VesselId, StringComparison.OrdinalIgnoreCase)
+                        || !String.Equals(item.VoyageId, mission.VoyageId, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        reason = "attempt_lineage_scope_mismatch";
+                        return false;
+                    }
+
+                    string? missionParent = !String.IsNullOrWhiteSpace(mission.ParentMissionId)
+                        ? mission.ParentMissionId
+                        : lineage.IsRescue ? mission.DependsOnMissionId : null;
+                    if (!String.Equals(lineage.ParentMissionId, missionParent, StringComparison.OrdinalIgnoreCase))
+                    {
+                        reason = "attempt_lineage_ambiguous";
+                        return false;
+                    }
+                    lineageByMission.Add(memberId, lineage);
+                }
+
+                foreach (KeyValuePair<string, AttemptLineage> entry in lineageByMission)
+                {
+                    bool isRoot = String.Equals(entry.Key, rootMissionId, StringComparison.OrdinalIgnoreCase);
+                    if (isRoot)
+                    {
+                        if (entry.Value.ParentMissionId != null || entry.Value.IsRescue)
+                        {
+                            reason = "attempt_lineage_ambiguous";
+                            return false;
+                        }
+                        continue;
+                    }
+                    if (!entry.Value.IsRescue || String.IsNullOrWhiteSpace(entry.Value.ParentMissionId)
+                        || !lineageByMission.ContainsKey(entry.Value.ParentMissionId))
+                        return false;
+                }
+
+                foreach (string memberId in memberIds)
+                {
+                    HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    string currentId = memberId;
+                    while (!String.Equals(currentId, rootMissionId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!seen.Add(currentId))
+                        {
+                            reason = "attempt_lineage_cycle";
+                            return false;
+                        }
+                        if (!lineageByMission.TryGetValue(currentId, out AttemptLineage? current)
+                            || String.IsNullOrWhiteSpace(current.ParentMissionId))
+                            return false;
+                        currentId = current.ParentMissionId;
+                    }
+                }
+
+                HashSet<string> parentIds = lineageByMission.Values
+                    .Where(item => !String.IsNullOrWhiteSpace(item.ParentMissionId))
+                    .Select(item => item.ParentMissionId!)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                tips = memberIds
+                    .Where(memberId => !parentIds.Contains(memberId))
+                    .Select(memberId => missionById[memberId])
+                    .ToList();
+                if (tips.Count == 0) return false;
+                reason = String.Empty;
+                return true;
+            }
 
             internal List<MissionSummary> ResolveChain(List<MissionSummary> sliceMissions, Dictionary<string, MissionSummary> missionById)
             {

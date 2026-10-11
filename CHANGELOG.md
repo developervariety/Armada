@@ -21,6 +21,11 @@ upstream integrations and excludes changes already present at that baseline.
   `--mux-max-turns` sets a clamped per-captain iteration limit. Unsupported
   print approval policies now stop launch with an explicit error.
 
+- Verified production summaries can count a failed voyage after recovery only
+  when typed attempt facts prove every independent rescue chain through
+  completed, committed delivery tips with landing and passing Check evidence.
+  Ambiguous, incomplete, or cross-scope lineage remains unknown.
+
 - Tenant creation rejects whitespace-only identifiers with a client error
   before storing a tenant or its initial user credentials.
 
