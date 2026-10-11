@@ -144,22 +144,14 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("BuildArguments Uses Current Mux Run Contract", () =>
+            await RunTest("BuildArguments Emits Every Supported Captain Option", () =>
             {
                 InspectableMuxRuntime runtime = CreateRuntime();
                 Captain captain = new Captain("mux-captain", AgentRuntimeEnum.Mux)
                 {
-                    RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new MuxCaptainOptions
-                    {
-                        ConfigDirectory = "C:/mux/config",
-                        Endpoint = "captain-prod",
-                        BaseUrl = "https://mux.example.com",
-                        AdapterType = "openai",
-                        Temperature = 0.2,
-                        MaxTokens = 4096,
-                        SystemPromptPath = "C:/mux/prompts/system.txt",
-                        ApprovalPolicy = "deny"
-                    })
+                    // maxTurns is part of the serialized Mux options contract. Use persisted JSON here
+                    // so this regression still builds before the corresponding C# model property lands.
+                    RuntimeOptionsJson = "{\"schemaVersion\":1,\"configDirectory\":\"C:/mux/config\",\"endpoint\":\"captain-prod\",\"baseUrl\":\"https://mux.example.com\",\"adapterType\":\"openai\",\"temperature\":0.2,\"maxTokens\":4096,\"maxTurns\":37,\"systemPromptPath\":\"C:/mux/prompts/system.txt\",\"approvalPolicy\":\"deny\"}"
                 };
 
                 List<string> args = runtime.Args("C:/worktree", "test prompt", "gpt-5.4-mini", "C:/logs/final.txt", captain);
@@ -169,18 +161,39 @@ namespace Armada.Test.Runtimes.Suites
                 AssertTrue(args.Contains("gpt-5.4-mini"));
                 AssertTrue(args.Contains("-w"));
                 AssertTrue(args.Contains("C:/worktree"));
-                AssertTrue(args.Contains("--yolo"));
                 AssertFlagValue(args, "--config-dir", "C:/mux/config");
                 AssertTrue(args.Contains("--output-format"));
                 AssertTrue(args.Contains("jsonl"));
                 AssertFlagValue(args, "--output-last-message", "C:/logs/final.txt");
                 AssertFlagValue(args, "--endpoint", "captain-prod");
-                AssertFalse(args.Contains("--base-url"));
-                AssertFalse(args.Contains("--adapter-type"));
-                AssertFalse(args.Contains("--temperature"));
-                AssertFalse(args.Contains("--max-tokens"));
-                AssertFalse(args.Contains("--system-prompt"));
-                AssertFalse(args.Contains("--approval-policy"));
+                AssertEqual("https://mux.example.com", runtime.AppliedEnvironmentValue(captain, "OPENAI_BASE_URL"), "the base URL reaches Mux through its supported environment input");
+                AssertFlagValue(args, "--adapter-type", "openai");
+                AssertFlagValue(args, "--temperature", "0.2");
+                AssertFlagValue(args, "--max-tokens", "4096");
+                AssertFlagValue(args, "--max-turns", "37");
+                AssertFlagValue(args, "--system-prompt", "C:/mux/prompts/system.txt");
+                AssertFlagValue(args, "--approval-policy", "deny");
+                AssertFalse(args.Contains("--yolo"), "the explicit deny policy must not be combined with auto-approval");
+            });
+
+            await RunTest("BuildArguments Clamps The Per-Captain Mux Iteration Cap", () =>
+            {
+                InspectableMuxRuntime runtime = CreateRuntime();
+                foreach (KeyValuePair<int, string> item in new List<KeyValuePair<int, string>>
+                {
+                    new KeyValuePair<int, string>(0, "1"),
+                    new KeyValuePair<int, string>(101, "100")
+                })
+                {
+                    Captain captain = new Captain("mux-cap-captain", AgentRuntimeEnum.Mux)
+                    {
+                        RuntimeOptionsJson = "{\"maxTurns\":" + item.Key.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}"
+                    };
+
+                    List<string> args = runtime.Args("C:/worktree", "test prompt", captain: captain);
+
+                    AssertFlagValue(args, "--max-turns", item.Value);
+                }
             });
 
             await RunTest("A Prompt Longer Than The Windows Command Line Limit Is Delivered On Stdin", () =>
@@ -213,7 +226,7 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(args.Contains("--mode"));
             });
 
-            await RunTest("BuildArguments IgnoresLegacyPlanApproval", () =>
+            await RunTest("BuildArguments RefusesUnsupportedPrintApprovalPolicy", () =>
             {
                 InspectableMuxRuntime runtime = CreateRuntime();
                 Captain captain = new Captain("mux-captain", AgentRuntimeEnum.Mux)
@@ -224,10 +237,7 @@ namespace Armada.Test.Runtimes.Suites
                     })
                 };
 
-                List<string> args = runtime.Args("C:/worktree", "test prompt", captain: captain);
-
-                AssertFalse(args.Contains("--mode"));
-                AssertFalse(args.Contains("plan"));
+                AssertThrows<InvalidOperationException>(() => runtime.Args("C:/worktree", "test prompt", captain: captain));
             });
 
             await RunTest("ExactProviderUsageIsPublishedButEstimatesAreIgnored", () =>
