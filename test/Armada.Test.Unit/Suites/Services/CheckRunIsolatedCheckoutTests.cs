@@ -484,7 +484,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Name = "Commit Ref Build Workflow",
                         Scope = WorkflowProfileScopeEnum.Vessel,
                         VesselId = vessel.Id,
-                        BuildCommand = PrintFileCommand(source.MarkerFileName)
+                        BuildCommand = PrintHeadAndFileCommand(source.MarkerFileName)
                     };
                     await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
 
@@ -498,6 +498,8 @@ namespace Armada.Test.Unit.Suites.Services
                     }).ConfigureAwait(false);
 
                     AssertEqual(CheckRunStatusEnum.Passed, run.Status);
+                    AssertEqual(source.FeatureCommitHash, run.CommitHash);
+                    AssertContains(source.FeatureCommitHash, run.Output ?? String.Empty);
                     AssertContains(source.MarkerContent, run.Output ?? String.Empty);
                 }
                 finally
@@ -507,13 +509,9 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            // Fallback-checkout regression: CommitHash takes precedence and is resolved first, but when
-            // it cannot be checked out (unreachable hash) the code must fall back to BranchName. Both the
-            // failing primary checkout and the fallback use the corrected "git checkout <ref> --" form,
-            // so the feature marker -- present only on the fallback branch -- proves the fallback actually
-            // switched refs. With the old "-- <ref>" form the fallback checkout was a silent no-op and the
-            // command would have run against the clone default (marker absent).
-            await RunTest("Build check falls back to BranchName when an unreachable CommitHash cannot be checked out", async () =>
+            // An explicit CommitHash is authoritative. If it cannot be resolved, the check must fail
+            // before the command runs, even when a valid branch is available.
+            await RunTest("Build check fails before the command when explicit CommitHash is unreachable", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
@@ -526,6 +524,8 @@ namespace Armada.Test.Unit.Suites.Services
                 SourceRepoWithRef source = await CreateSourceRepoWithFeatureRefAsync().ConfigureAwait(false);
                 string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-fb-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(workingDirectory);
+                const string unreachableCommitHash = "0123456789abcdef0123456789abcdef01234567";
+                const string commandMarker = "UNREACHABLE_COMMIT_CHECK_COMMAND_RAN";
 
                 try
                 {
@@ -540,7 +540,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Name = "Fallback Ref Build Workflow",
                         Scope = WorkflowProfileScopeEnum.Vessel,
                         VesselId = vessel.Id,
-                        BuildCommand = PrintFileCommand(source.MarkerFileName)
+                        BuildCommand = PrintMarkerAndFileCommand(commandMarker, source.MarkerFileName)
                     };
                     await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
 
@@ -550,20 +550,100 @@ namespace Armada.Test.Unit.Suites.Services
                         VesselId = vessel.Id,
                         Type = CheckRunTypeEnum.Build,
                         Label = "Build",
-                        // Unreachable 40-char hash: primary "git checkout <hash> --" fails, forcing the fallback.
-                        CommitHash = "0123456789abcdef0123456789abcdef01234567",
+                        CommitHash = unreachableCommitHash,
                         BranchName = source.FeatureBranch
                     }).ConfigureAwait(false);
 
-                    AssertEqual(CheckRunStatusEnum.Passed, run.Status);
-                    // The marker only exists on the fallback feature branch; its presence proves the fallback
-                    // checkout (not the failed CommitHash and not the clone default) supplied the working tree.
-                    AssertContains(source.MarkerContent, run.Output ?? String.Empty);
+                    string output = run.Output ?? String.Empty;
+                    AssertFalse(
+                        output.Contains(commandMarker, StringComparison.Ordinal),
+                        "An unavailable explicit CommitHash must fail before running the check command; output: " + output);
+                    AssertFalse(
+                        output.Contains(source.MarkerContent, StringComparison.Ordinal),
+                        "An unavailable explicit CommitHash must not fall through to the feature branch; output: " + output);
+                    AssertEqual(CheckRunStatusEnum.Failed, run.Status);
+                    AssertEqual(-1, run.ExitCode ?? 0);
+                    AssertEqual(unreachableCommitHash, run.CommitHash);
+
                 }
                 finally
                 {
                     SafeDeleteDirectory(workingDirectory);
                     SafeDeleteDirectory(source.RepoPath);
+                }
+            }).ConfigureAwait(false);
+
+            // The clone path must reject the requested hash when neither it nor the named branch
+            // resolves. Returning the clone default would run a command against an unrelated tree.
+            await RunTest("Build check fails before the command when clone commit and branch are unavailable", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                    VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                    CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                    await EnsureTenantAndUserAsync(testDb, "ten_iso_clonefb", "usr_iso_clonefb").ConfigureAwait(false);
+
+                    SourceRepoWithRef source = await CreateSourceRepoWithFeatureRefAsync().ConfigureAwait(false);
+                    string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-clonefb-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(workingDirectory);
+                    const string unreachableCommitHash = "0123456789abcdef0123456789abcdef01234567";
+                    const string commandMarker = "CLONE_UNREACHABLE_COMMIT_COMMAND_RAN";
+
+                    try
+                    {
+                        Vessel vessel = CreateVessel("ten_iso_clonefb", "usr_iso_clonefb", workingDirectory);
+                        vessel.LocalPath = String.Empty;
+                        vessel.RepoUrl = source.RepoPath;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        WorkflowProfile profile = new WorkflowProfile
+                        {
+                            TenantId = "ten_iso_clonefb",
+                            UserId = "usr_iso_clonefb",
+                            Name = "Clone Fallback Ref Build Workflow",
+                            Scope = WorkflowProfileScopeEnum.Vessel,
+                            VesselId = vessel.Id,
+                            BuildCommand = PrintMarkerAndFileCommand(commandMarker, source.MarkerFileName)
+                        };
+                        await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                        AuthContext auth = AuthContext.Authenticated("ten_iso_clonefb", "usr_iso_clonefb", false, false, "UnitTest");
+                        CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                        {
+                            VesselId = vessel.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Label = "Build",
+                            CommitHash = unreachableCommitHash,
+                            BranchName = "missing"
+                        }).ConfigureAwait(false);
+
+                        string output = run.Output ?? String.Empty;
+                        AssertFalse(
+                            output.Contains(commandMarker, StringComparison.Ordinal),
+                            "A failed commit and branch resolution must fail before running the check command; output: " + output);
+                        AssertEqual(CheckRunStatusEnum.Failed, run.Status);
+                        AssertEqual(-1, run.ExitCode ?? 0);
+                        AssertEqual(unreachableCommitHash, run.CommitHash);
+
+                        CheckRun branchRun = await checkRuns.RunAsync(auth, new CheckRunRequest
+                        {
+                            VesselId = vessel.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Label = "Build branch-only clone",
+                            BranchName = source.FeatureBranch
+                        }).ConfigureAwait(false);
+
+                        AssertEqual(CheckRunStatusEnum.Passed, branchRun.Status);
+                        AssertContains(source.MarkerContent, branchRun.Output ?? String.Empty);
+                    }
+                    finally
+                    {
+                        SafeDeleteDirectory(workingDirectory);
+                        SafeDeleteDirectory(source.RepoPath);
+                    }
                 }
             }).ConfigureAwait(false);
 
@@ -823,6 +903,20 @@ namespace Armada.Test.Unit.Suites.Services
         private static string PrintFileCommand(string fileName)
         {
             return OperatingSystem.IsWindows() ? "type " + fileName : "cat " + fileName;
+        }
+
+        private static string PrintMarkerAndFileCommand(string marker, string fileName)
+        {
+            return OperatingSystem.IsWindows()
+                ? "echo " + marker + " & type " + fileName
+                : "echo " + marker + "; cat " + fileName;
+        }
+
+        private static string PrintHeadAndFileCommand(string fileName)
+        {
+            return OperatingSystem.IsWindows()
+                ? "git rev-parse HEAD & type " + fileName
+                : "git rev-parse HEAD && cat " + fileName;
         }
 
         private static bool IsGitOnPath()

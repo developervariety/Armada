@@ -1468,8 +1468,9 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Cut a detached worktree from <paramref name="repoPath"/> at the best resolvable ref
-        /// (commit hash, then branch, then default branch). The worktree shares the repository's own
+        /// Cut a detached worktree from <paramref name="repoPath"/> at the requested commit, or at
+        /// the best resolvable branch ref when no commit hash was supplied. The worktree shares the
+        /// repository's own
         /// config, so its checkout EOL and filters match a mission dock created from the same repo.
         /// </summary>
         private async Task<IsolatedCheckout?> TryCreateDetachedWorktreeAsync(
@@ -1505,6 +1506,14 @@ namespace Armada.Core.Services
                     return null;
                 }
 
+                string? checkedOutSha = await ResolveRefCandidateAsync(tempPath, "HEAD", token).ConfigureAwait(false);
+                if (!String.Equals(sha, checkedOutSha, StringComparison.OrdinalIgnoreCase))
+                {
+                    _Logging.Warn(_Header + "isolated checkout: worktree HEAD did not match requested ref in " + repoPath);
+                    await CleanupIsolatedCheckoutAsync(new IsolatedCheckout(tempPath, repoPath), CancellationToken.None).ConfigureAwait(false);
+                    return null;
+                }
+
                 // A prune run from a process that cannot see this directory removes an unlocked
                 // worktree's admin entry while the check is still executing in it. A lock survives
                 // every prune, whoever runs it.
@@ -1534,9 +1543,10 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Resolve the requested checkout ref to a commit in the repository. The commit hash wins,
-        /// then the branch name, then the default branch. Branch names resolve through local, origin
-        /// remote, and bare-name spellings so the checkout works for both bare and normal repos.
+        /// Resolve the requested checkout ref to a commit in the repository. An explicit commit hash
+        /// is authoritative; branch and default refs are considered only when no hash was supplied.
+        /// Branch names resolve through local, origin remote, and bare-name spellings so the checkout
+        /// works for both bare and normal repos.
         /// </summary>
         private async Task<string?> ResolveCheckoutShaAsync(
             string repoPath,
@@ -1547,11 +1557,7 @@ namespace Armada.Core.Services
         {
             if (!String.IsNullOrWhiteSpace(commitHash))
             {
-                string? sha = await ResolveRefCandidateAsync(repoPath, commitHash!, token).ConfigureAwait(false);
-                if (!String.IsNullOrEmpty(sha))
-                {
-                    return sha;
-                }
+                return await ResolveRefCandidateAsync(repoPath, commitHash!, token).ConfigureAwait(false);
             }
 
             if (!String.IsNullOrWhiteSpace(branchName))
@@ -1667,38 +1673,65 @@ namespace Armada.Core.Services
                     return null;
                 }
 
-                string checkoutRef = !String.IsNullOrWhiteSpace(commitHash)
-                    ? commitHash!
-                    : !String.IsNullOrWhiteSpace(branchName)
-                        ? branchName!
-                        : defaultBranch;
-
-                if (!String.IsNullOrWhiteSpace(checkoutRef)
-                    && !String.Equals(checkoutRef, defaultBranch, StringComparison.OrdinalIgnoreCase))
+                string? targetSha = await ResolveCheckoutShaAsync(tempPath, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
+                if (String.IsNullOrWhiteSpace(targetSha))
                 {
-                    // Place the ref BEFORE the "--" separator so git treats it as a branch/commit to
-                    // switch to, not as a pathspec to restore. "checkout -- <ref>" silently fails for any
-                    // branch/commit (the ref is interpreted as a path), leaving HEAD on the clone default.
-                    int checkoutExit = await RunGitAsync(
+                    _Logging.Warn(_Header + "isolated checkout: no resolvable ref in cloned repo " + repoSource);
+                    SafeDeleteDirectory(tempPath);
+                    return null;
+                }
+
+                int checkoutExit;
+                if (!String.IsNullOrWhiteSpace(commitHash))
+                {
+                    checkoutExit = await RunGitAsync(
+                        tempPath,
+                        TimeSpan.FromMinutes(2),
+                        token,
+                        "checkout", "--detach", targetSha).ConfigureAwait(false);
+                }
+                else
+                {
+                    string checkoutRef = !String.IsNullOrWhiteSpace(branchName) ? branchName! : defaultBranch;
+                    checkoutExit = await RunGitAsync(
                         tempPath,
                         TimeSpan.FromMinutes(2),
                         token,
                         "checkout", checkoutRef, "--").ConfigureAwait(false);
 
-                    if (checkoutExit != 0 && !String.IsNullOrWhiteSpace(commitHash))
+                    if (checkoutExit != 0
+                        && !String.IsNullOrWhiteSpace(branchName)
+                        && !String.Equals(branchName, defaultBranch, StringComparison.Ordinal))
                     {
-                        string fallbackRef = !String.IsNullOrWhiteSpace(branchName)
-                            ? branchName!
-                            : defaultBranch;
-                        if (!String.Equals(fallbackRef, checkoutRef, StringComparison.OrdinalIgnoreCase))
+                        targetSha = await ResolveBranchCandidateAsync(tempPath, defaultBranch, token).ConfigureAwait(false);
+                        if (String.IsNullOrWhiteSpace(targetSha))
                         {
-                            await RunGitAsync(
-                                tempPath,
-                                TimeSpan.FromMinutes(2),
-                                token,
-                                "checkout", fallbackRef, "--").ConfigureAwait(false);
+                            _Logging.Warn(_Header + "isolated checkout: default branch did not resolve in clone " + repoSource);
+                            SafeDeleteDirectory(tempPath);
+                            return null;
                         }
+
+                        checkoutExit = await RunGitAsync(
+                            tempPath,
+                            TimeSpan.FromMinutes(2),
+                            token,
+                            "checkout", defaultBranch, "--").ConfigureAwait(false);
                     }
+                }
+
+                if (checkoutExit != 0)
+                {
+                    _Logging.Warn(_Header + "isolated checkout: git checkout failed in clone " + repoSource);
+                    SafeDeleteDirectory(tempPath);
+                    return null;
+                }
+
+                string? checkedOutSha = await ResolveRefCandidateAsync(tempPath, "HEAD", token).ConfigureAwait(false);
+                if (!String.Equals(targetSha, checkedOutSha, StringComparison.OrdinalIgnoreCase))
+                {
+                    _Logging.Warn(_Header + "isolated checkout: clone HEAD did not match requested ref " + repoSource);
+                    SafeDeleteDirectory(tempPath);
+                    return null;
                 }
 
                 _Logging.Debug(_Header + "isolated checkout created at " + tempPath);

@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Check runs honor an explicit commit hash as the exact revision to test. An
+  unavailable commit or failed checkout now fails before the command runs,
+  instead of testing a branch or the clone's default revision.
+
 - A usage account whose login the provider rejects reads as needing sign-in,
   not Exhausted on a timer. A Codex usage read refused with a credential
   rejection (HTTP 401, an expired or revoked token, "sign in again") names
