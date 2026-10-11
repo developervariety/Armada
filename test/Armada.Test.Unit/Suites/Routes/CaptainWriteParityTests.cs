@@ -6,6 +6,7 @@ namespace Armada.Test.Unit.Suites.Routes
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
 
@@ -86,6 +87,62 @@ namespace Armada.Test.Unit.Suites.Routes
 
                     AssertEqual(stored[0], stored[1], "REST and WebSocket store the same runtime options for the same body");
                     AssertNull(stored[1], "Mux runtime options on a non-Mux captain are dropped");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("McpCreateAndUpdate_MuxMaxTurnsRoundTrip", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    SurfaceReply createdReply = await harness.McpAsync("armada_create_captain", new
+                    {
+                        name = "mux-turn-cap",
+                        runtime = "Mux",
+                        muxEndpoint = "unit-test",
+                        muxMaxTurns = 37
+                    }).ConfigureAwait(false);
+                    AssertFalse(createdReply.Refused, "MCP creates the Mux captain: " + createdReply);
+                    Captain? created = await harness.Driver.Captains.ReadByNameAsync("mux-turn-cap").ConfigureAwait(false);
+                    AssertNotNull(created, "the Mux captain is stored");
+                    AssertEqual(37, CaptainRuntimeOptions.GetCaptainOptions(created)!.MaxTurns, "MCP create stores the configured turn cap");
+
+                    SurfaceReply updatedReply = await harness.McpAsync("armada_update_captain", new
+                    {
+                        captainId = created!.Id,
+                        muxMaxTurns = 55
+                    }).ConfigureAwait(false);
+                    AssertFalse(updatedReply.Refused, "MCP updates the Mux captain: " + updatedReply);
+                    Captain? updated = await harness.Driver.Captains.ReadAsync(created.Id).ConfigureAwait(false);
+                    AssertEqual(55, CaptainRuntimeOptions.GetCaptainOptions(updated)!.MaxTurns, "MCP update stores the new turn cap");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("McpSwitchingAwayFromMux_ClearsTurnCapAndKeepsRuntimeAgnosticOptions", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    Captain captain = await harness.Driver.Captains.CreateAsync(new Captain("mux-turn-cap-switch")
+                    {
+                        Runtime = AgentRuntimeEnum.Mux,
+                        RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new CaptainOptions
+                        {
+                            Endpoint = "unit-test",
+                            MaxTurns = 37,
+                            ReasoningEffort = "high"
+                        })
+                    }).ConfigureAwait(false);
+
+                    SurfaceReply reply = await harness.McpAsync("armada_update_captain", new
+                    {
+                        captainId = captain.Id,
+                        runtime = "ClaudeCode"
+                    }).ConfigureAwait(false);
+                    AssertFalse(reply.Refused, "MCP switches the captain away from Mux: " + reply);
+                    Captain? stored = await harness.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    CaptainOptions options = CaptainRuntimeOptions.GetCaptainOptions(stored)!;
+                    AssertEqual(AgentRuntimeEnum.ClaudeCode, stored!.Runtime, "the runtime is updated");
+                    AssertNull(options.MaxTurns, "the Mux turn cap is removed");
+                    AssertEqual("high", options.ReasoningEffort, "runtime-agnostic options are preserved");
                 }
             }).ConfigureAwait(false);
         }
