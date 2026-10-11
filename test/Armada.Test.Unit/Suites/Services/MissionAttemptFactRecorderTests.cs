@@ -75,6 +75,24 @@ namespace Armada.Test.Unit.Suites.Services
                     "a known deterministic cause keeps its stable code");
             }).ConfigureAwait(false);
 
+            await RunTest("Review denial reason codes require a declared enum name", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Mission invalid = await testDb.Driver.Missions.CreateAsync(new Mission("Invalid review code", "ordinary mission")).ConfigureAwait(false);
+                Mission valid = await testDb.Driver.Missions.CreateAsync(new Mission("Valid review code", "ordinary mission")).ConfigureAwait(false);
+
+                MissionAttemptFact? invalidFact = await MissionAttemptFactRecorder.RecordAsync(
+                    testDb.Driver, invalid, MissionAttemptFactTypeEnum.ReviewDenied, "review_denied_0").ConfigureAwait(false);
+                MissionAttemptFact? validFact = await MissionAttemptFactRecorder.RecordAsync(
+                    testDb.Driver, valid, MissionAttemptFactTypeEnum.ReviewDenied, "review_denied_retrystage").ConfigureAwait(false);
+
+                AssertNotNull(invalidFact, "the fact is stored even when its optional code is unknown");
+                AssertNull(invalidFact!.ReasonCode, "a numeric enum value is not an allow-listed reason code");
+                AssertNotNull(validFact, "the valid fact is stored");
+                AssertEqual("review_denied_retrystage", validFact!.ReasonCode,
+                    "a declared review action remains a stable reason code");
+            }).ConfigureAwait(false);
+
             await RunTest("RestartRecordsRestartedFact", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
