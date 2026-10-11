@@ -461,7 +461,10 @@ namespace Armada.Test.Automated.Suites
                         AssertEqual(CaptainStateEnum.Idle, captain.State, "the harness captain is idle");
                     }
 
-                    string savedSettings = await File.ReadAllTextAsync(_SettingsFilePath).ConfigureAwait(false);
+                    bool settingsFileExisted = File.Exists(_SettingsFilePath);
+                    string? savedSettings = settingsFileExisted
+                        ? await File.ReadAllTextAsync(_SettingsFilePath).ConfigureAwait(false)
+                        : null;
                     async Task<UsagePreviewResponse> PreviewAsync(string listed)
                     {
                         using (StringContent content = JsonHelper.ToJsonContent(new
@@ -496,7 +499,9 @@ namespace Armada.Test.Automated.Suites
                     AssertEqual(1, allowed.Candidates.Count, "the listed synthetic model is a candidate");
                     AssertEqual(captainName, allowed.Candidates[0].Name, "the listed captain is returned");
                     AssertFalse(allowed.Capacity.Asked, "the allowed control also avoids capacity calls");
-                    AssertEqual(savedSettings, await File.ReadAllTextAsync(_SettingsFilePath).ConfigureAwait(false), "draft previews do not save settings");
+                    AssertEqual(settingsFileExisted, File.Exists(_SettingsFilePath), "draft previews do not create or remove a settings file");
+                    if (settingsFileExisted)
+                        AssertEqual(savedSettings, await File.ReadAllTextAsync(_SettingsFilePath).ConfigureAwait(false), "draft previews do not save settings");
                 }
                 finally
                 {
