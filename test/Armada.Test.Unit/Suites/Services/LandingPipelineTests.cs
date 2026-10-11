@@ -198,6 +198,13 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionStatusEnum.LandingFailed, wp!.Status, "Failed integration merge should set LandingFailed");
                     AssertContains("integration_merge_failed", wp.FailureReason ?? "", "Failure reason should name the integration merge failure class");
                     AssertContains("Simulated merge failure", wp.FailureReason ?? "", "Failure reason should carry the underlying git error");
+                    ProductionFactPage<MissionAttemptFact> facts = await testDb.Driver.MissionAttemptFacts.EnumerateAsync(
+                        new ProductionFactQuery { FromUtc = DateTime.UtcNow.AddMinutes(-1), ToUtc = DateTime.UtcNow.AddMinutes(1) }).ConfigureAwait(false);
+                    List<MissionAttemptFact> failedFacts = facts.Items.Where(item => item.MissionId == mission.Id
+                        && item.FactType == MissionAttemptFactTypeEnum.Failed).ToList();
+                    AssertEqual(1, failedFacts.Count, "The landing handler records the terminal failure once");
+                    AssertEqual("landing_merge_failed", failedFacts[0].ReasonCode,
+                        "A merge exception emits its typed landing cause without using failure prose");
                     AssertTrue(git.MergeBranchCalls.Contains(entities.Dock.BranchName + " -> " + integrationWorktree), "Merge should be attempted in the integration worktree");
                     AssertTrue(git.RemoveWorktreeCalls.Contains(integrationWorktree), "Integration worktree should be removed after failed landing");
                     AssertTrue(git.PruneWorktreeCalls.Contains(vessel.LocalPath!), "Bare repo worktrees should be pruned after failed landing");
