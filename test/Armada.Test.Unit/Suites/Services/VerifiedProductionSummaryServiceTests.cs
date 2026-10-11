@@ -372,6 +372,9 @@ namespace Armada.Test.Unit.Suites.Services
                     ("ambiguous", "attempt_lineage_ambiguous"),
                     ("cycle", "attempt_lineage_cycle"),
                     ("scope", "attempt_lineage_scope_mismatch"),
+                    ("cross-tenant", "attempt_lineage_scope_mismatch"),
+                    ("cross-user", "attempt_lineage_scope_mismatch"),
+                    ("cross-vessel", "attempt_lineage_scope_mismatch"),
                     ("missing-root-facts", "attempt_facts_not_recorded")
                 })
                 {
@@ -380,6 +383,70 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, result.Groups.Single().VerifiedLandedSlices.Unknown, item.Failure + " lineage stays unknown.");
                     AssertEqual(1, result.ExclusionsByReason[item.Reason], item.Failure + " lineage has a named reason.");
                 }
+            }).ConfigureAwait(false);
+
+            await RunTest("FailedRecoveryDoesNotOmitCancelledSiblingWithAttemptFacts", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = DateTime.UtcNow.Date.AddDays(-2);
+                Voyage original = await testDb.Driver.Voyages.CreateAsync(new Voyage
+                {
+                    Status = VoyageStatusEnum.Failed,
+                    CreatedUtc = start
+                }).ConfigureAwait(false);
+                Voyage recovery = await testDb.Driver.Voyages.CreateAsync(new Voyage
+                {
+                    Status = VoyageStatusEnum.Complete,
+                    CreatedUtc = start.AddHours(2)
+                }).ConfigureAwait(false);
+                Mission root = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    VoyageId = original.Id,
+                    Status = MissionStatusEnum.Failed,
+                    StartedUtc = start,
+                    CompletedUtc = start.AddHours(1)
+                }).ConfigureAwait(false);
+                Mission cancelledSibling = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    VoyageId = original.Id,
+                    Status = MissionStatusEnum.Cancelled,
+                    StartedUtc = null,
+                    TotalRuntimeMs = null,
+                    CompletedUtc = start.AddHours(1)
+                }).ConfigureAwait(false);
+                Mission rescue = await CreateRescueTipAsync(testDb, recovery, root, "ghijklm", start.AddHours(2)).ConfigureAwait(false);
+
+                await AddLineageFactAsync(testDb, root, root.Id, MissionAttemptFactTypeEnum.AttemptStarted, false, start).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, root, root.Id, MissionAttemptFactTypeEnum.Failed, false, start.AddHours(1)).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, cancelledSibling, cancelledSibling.Id, MissionAttemptFactTypeEnum.AttemptStarted, false, start.AddMinutes(10)).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, cancelledSibling, cancelledSibling.Id, MissionAttemptFactTypeEnum.Retried, false, start.AddMinutes(20)).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, rescue, root.Id, MissionAttemptFactTypeEnum.AttemptStarted, true, start.AddHours(2)).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, rescue, root.Id, MissionAttemptFactTypeEnum.Landed, true, start.AddHours(4)).ConfigureAwait(false);
+                await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    MissionId = rescue.Id,
+                    VoyageId = recovery.Id,
+                    Status = CheckRunStatusEnum.Passed,
+                    Command = "dotnet test",
+                    CommitHash = rescue.CommitHash,
+                    CreatedUtc = start.AddHours(3)
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Status = ObjectiveStatusEnum.Completed,
+                    VoyageIds = new List<string> { original.Id },
+                    MissionIds = new List<string> { root.Id, cancelledSibling.Id },
+                    CompletedUtc = start.AddHours(6),
+                    LastUpdateUtc = start.AddHours(6)
+                }).ConfigureAwait(false);
+
+                ProductionSummaryResult result = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    AuthContext.Authenticated("default", "default", true, true, "UnitTest"),
+                    new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddDays(1) }).ConfigureAwait(false);
+
+                AssertEqual(0, result.Groups.Single().VerifiedLandedSlices.Count, "An attempted independent sibling without a delivered rescue keeps the slice unknown.");
+                AssertEqual(1, result.Groups.Single().VerifiedLandedSlices.Unknown);
+                AssertEqual(1, result.ExclusionsByReason["attempt_lineage_no_rescue"]);
             }).ConfigureAwait(false);
 
             await RunTest("UnresolvedExplicitMissionLinkCannotVerify", async () =>
@@ -886,19 +953,32 @@ namespace Armada.Test.Unit.Suites.Services
         private static async Task<ProductionSummaryResult> CreateRecoveryLineageCaseAsync(TestDatabase testDb, string failure)
         {
             DateTime start = DateTime.UtcNow.Date.AddDays(-2);
+            const string rootTenantId = "lineage-tenant-root";
+            const string rootUserId = "lineage-user-root";
+            const string rootVesselId = "lineage-vessel-root";
+            string recoveryTenantId = failure == "cross-tenant" ? "lineage-tenant-recovery" : rootTenantId;
+            string recoveryUserId = failure == "cross-user" ? "lineage-user-recovery" : rootUserId;
+            string recoveryVesselId = failure == "cross-vessel" ? "lineage-vessel-recovery" : rootVesselId;
             Voyage original = await testDb.Driver.Voyages.CreateAsync(new Voyage
             {
+                TenantId = rootTenantId,
+                UserId = rootUserId,
                 Status = VoyageStatusEnum.Failed,
                 CreatedUtc = start
             }).ConfigureAwait(false);
             Voyage recovery = await testDb.Driver.Voyages.CreateAsync(new Voyage
             {
+                TenantId = recoveryTenantId,
+                UserId = recoveryUserId,
                 Status = VoyageStatusEnum.Complete,
                 CreatedUtc = start.AddHours(2)
             }).ConfigureAwait(false);
             Mission root = await testDb.Driver.Missions.CreateAsync(new Mission
             {
                 VoyageId = original.Id,
+                TenantId = rootTenantId,
+                UserId = rootUserId,
+                VesselId = rootVesselId,
                 Status = MissionStatusEnum.Failed,
                 StartedUtc = start,
                 CompletedUtc = start.AddHours(1)
@@ -945,10 +1025,18 @@ namespace Armada.Test.Unit.Suites.Services
                 first = await CreateRescueTipAsync(testDb, recovery, root, "eeeeeee", start.AddHours(2)).ConfigureAwait(false);
             }
 
-            await AddLineageFactAsync(testDb, root, root.Id, MissionAttemptFactTypeEnum.AttemptStarted, false, start).ConfigureAwait(false);
-            await AddLineageFactAsync(testDb, root, root.Id, MissionAttemptFactTypeEnum.Failed, false, start.AddHours(1)).ConfigureAwait(false);
             List<Mission> rescues = new List<Mission> { first };
             if (second != null) rescues.Add(second);
+            foreach (Mission rescue in rescues)
+            {
+                rescue.TenantId = recoveryTenantId;
+                rescue.UserId = recoveryUserId;
+                rescue.VesselId = recoveryVesselId;
+                await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
+            }
+
+            await AddLineageFactAsync(testDb, root, root.Id, MissionAttemptFactTypeEnum.AttemptStarted, false, start).ConfigureAwait(false);
+            await AddLineageFactAsync(testDb, root, root.Id, MissionAttemptFactTypeEnum.Failed, false, start.AddHours(1)).ConfigureAwait(false);
             foreach (Mission rescue in rescues)
             {
                 string parentId = rescue.ParentMissionId!;
@@ -956,6 +1044,8 @@ namespace Armada.Test.Unit.Suites.Services
                 await AddLineageFactAsync(testDb, rescue, root.Id, MissionAttemptFactTypeEnum.Landed, true, start.AddHours(4)).ConfigureAwait(false);
                 await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
                 {
+                    TenantId = rescue.TenantId,
+                    UserId = rescue.UserId,
                     MissionId = rescue.Id,
                     VoyageId = recovery.Id,
                     Status = CheckRunStatusEnum.Passed,
@@ -999,6 +1089,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             await testDb.Driver.Objectives.CreateAsync(new Objective
             {
+                TenantId = rootTenantId,
+                UserId = rootUserId,
                 Status = ObjectiveStatusEnum.Completed,
                 VoyageIds = new List<string> { original.Id },
                 MissionIds = new List<string> { root.Id },
