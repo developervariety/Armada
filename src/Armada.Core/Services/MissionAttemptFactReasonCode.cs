@@ -50,7 +50,8 @@ namespace Armada.Core.Services
             const string reviewPrefix = "review_denied_";
             if (candidate.StartsWith(reviewPrefix, StringComparison.OrdinalIgnoreCase)
                 && Enum.TryParse(candidate.Substring(reviewPrefix.Length), true, out ReviewDenyActionEnum action)
-                && Enum.IsDefined(typeof(ReviewDenyActionEnum), action))
+                && Enum.IsDefined(typeof(ReviewDenyActionEnum), action)
+                && String.Equals(candidate.Substring(reviewPrefix.Length), action.ToString(), StringComparison.OrdinalIgnoreCase))
                 return reviewPrefix + action.ToString().ToLowerInvariant();
             return null;
         }
