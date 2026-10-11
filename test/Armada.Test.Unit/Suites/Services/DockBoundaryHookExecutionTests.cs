@@ -29,15 +29,12 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Pre-commit hook blocks protected-path commit when boundary.json is present", async () =>
-            {
-                string? shPath = FindShPath();
-                if (shPath == null)
-                {
-                    Console.WriteLine("  [SKIP] sh not found; protected-path hook execution test skipped");
-                    return;
-                }
+            string? shPath = FindShPath();
 
+            if (shPath == null)
+                SkipTest("Pre-commit hook blocks protected-path commit when boundary.json is present", "sh is not available");
+            else await RunTest("Pre-commit hook blocks protected-path commit when boundary.json is present", async () =>
+            {
                 string tempRoot = Path.Combine(Path.GetTempPath(), "armada-hookprot-" + Guid.NewGuid().ToString("N"));
 
                 try
@@ -115,15 +112,10 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Both hooks block protected paths whose names Git would quote", async () =>
+            if (shPath == null)
+                SkipTest("Both hooks block protected paths whose names Git would quote", "sh is not available");
+            else await RunTest("Both hooks block protected paths whose names Git would quote", async () =>
             {
-                string? shPath = FindShPath();
-                if (shPath == null)
-                {
-                    Console.WriteLine("  [SKIP] sh not found; quoted protected-path hook test skipped");
-                    return;
-                }
-
                 string repo = Path.Combine(Path.GetTempPath(), "armada-hookquoted-" + Guid.NewGuid().ToString("N"));
                 try
                 {
@@ -167,15 +159,10 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Both hooks scan an added line whose content starts with ++", async () =>
+            if (shPath == null)
+                SkipTest("Both hooks scan an added line whose content starts with ++", "sh is not available");
+            else await RunTest("Both hooks scan an added line whose content starts with ++", async () =>
             {
-                string? shPath = FindShPath();
-                if (shPath == null)
-                {
-                    Console.WriteLine("  [SKIP] sh not found; added-line hook test skipped");
-                    return;
-                }
-
                 string repo = Path.Combine(Path.GetTempPath(), "armada-hookplus-" + Guid.NewGuid().ToString("N"));
                 try
                 {
@@ -205,15 +192,10 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Hooks do not read a file header as an added line", async () =>
+            if (shPath == null)
+                SkipTest("Hooks do not read a file header as an added line", "sh is not available");
+            else await RunTest("Hooks do not read a file header as an added line", async () =>
             {
-                string? shPath = FindShPath();
-                if (shPath == null)
-                {
-                    Console.WriteLine("  [SKIP] sh not found; header hook test skipped");
-                    return;
-                }
-
                 string repo = Path.Combine(Path.GetTempPath(), "armada-hookheader-" + Guid.NewGuid().ToString("N"));
                 try
                 {
@@ -264,7 +246,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ProcessStartInfo si = new ProcessStartInfo
                 {
                     FileName = "sh",
-                    Arguments = "--version",
+                    Arguments = "-c \"exit 0\"",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

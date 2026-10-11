@@ -9,6 +9,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Dock boundary hook tests detect POSIX shells with a portable command and
+  report unavailable tools as named skips instead of passing without execution.
+
 - Check runs honor an explicit commit hash as the exact revision to test. An
   unavailable commit or failed checkout now fails before the command runs,
   instead of testing a branch or the clone's default revision.

@@ -55,12 +55,13 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
-            await RunTest("All six built-in CORE_RULE_5 secret patterns block via the real pre-commit hook", async () =>
-            {
-                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; secret-pattern hook test skipped"); return; }
-                string? shPath = FindShPath();
-                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; secret-pattern hook test skipped"); return; }
+            bool gitAvailable = IsGitAvailable();
+            string? shPath = FindShPath();
 
+            if (!gitAvailable || shPath == null)
+                SkipTest("All six built-in CORE_RULE_5 secret patterns block via the real pre-commit hook", !gitAvailable ? "git is not available on PATH" : "sh is not available");
+            else await RunTest("All six built-in CORE_RULE_5 secret patterns block via the real pre-commit hook", async () =>
+            {
                 string tempRoot = NewTempRoot("armada-hookcov-secrets");
                 try
                 {
@@ -98,12 +99,10 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { SafeDeleteDirectory(tempRoot); }
             }).ConfigureAwait(false);
 
-            await RunTest("Public vessel: metachar private identifier is blocked by the hook", async () =>
+            if (!gitAvailable || shPath == null)
+                SkipTest("Public vessel: metachar private identifier is blocked by the hook", !gitAvailable ? "git is not available on PATH" : "sh is not available");
+            else await RunTest("Public vessel: metachar private identifier is blocked by the hook", async () =>
             {
-                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; public-privid hook test skipped"); return; }
-                string? shPath = FindShPath();
-                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; public-privid hook test skipped"); return; }
-
                 string tempRoot = NewTempRoot("armada-hookcov-pubprivid");
                 try
                 {
@@ -138,12 +137,10 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { SafeDeleteDirectory(tempRoot); }
             }).ConfigureAwait(false);
 
-            await RunTest("Non-public vessel: same private identifier passes (public gating)", async () =>
+            if (!gitAvailable || shPath == null)
+                SkipTest("Non-public vessel: same private identifier passes (public gating)", !gitAvailable ? "git is not available on PATH" : "sh is not available");
+            else await RunTest("Non-public vessel: same private identifier passes (public gating)", async () =>
             {
-                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; non-public-privid hook test skipped"); return; }
-                string? shPath = FindShPath();
-                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; non-public-privid hook test skipped"); return; }
-
                 string tempRoot = NewTempRoot("armada-hookcov-nonpubprivid");
                 try
                 {
@@ -175,10 +172,10 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { SafeDeleteDirectory(tempRoot); }
             }).ConfigureAwait(false);
 
-            await RunTest("Both config files registered in info/exclude and boundary.json keeps its shape", async () =>
+            if (!gitAvailable)
+                SkipTest("Both config files registered in info/exclude and boundary.json keeps its shape", "git is not available on PATH");
+            else await RunTest("Both config files registered in info/exclude and boundary.json keeps its shape", async () =>
             {
-                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; config-surface test skipped"); return; }
-
                 string tempRoot = NewTempRoot("armada-hookcov-config");
                 try
                 {
@@ -221,12 +218,10 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { SafeDeleteDirectory(tempRoot); }
             }).ConfigureAwait(false);
 
-            await RunTest("Clean staged diff passes the pre-commit hook", async () =>
+            if (!gitAvailable || shPath == null)
+                SkipTest("Clean staged diff passes the pre-commit hook", !gitAvailable ? "git is not available on PATH" : "sh is not available");
+            else await RunTest("Clean staged diff passes the pre-commit hook", async () =>
             {
-                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; clean-diff hook test skipped"); return; }
-                string? shPath = FindShPath();
-                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; clean-diff hook test skipped"); return; }
-
                 string tempRoot = NewTempRoot("armada-hookcov-clean");
                 try
                 {
@@ -250,12 +245,10 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { SafeDeleteDirectory(tempRoot); }
             }).ConfigureAwait(false);
 
-            await RunTest("Single-line JSON catalog of identifiers passes the real pre-commit hook", async () =>
+            if (!gitAvailable || shPath == null)
+                SkipTest("Single-line JSON catalog of identifiers passes the real pre-commit hook", !gitAvailable ? "git is not available on PATH" : "sh is not available");
+            else await RunTest("Single-line JSON catalog of identifiers passes the real pre-commit hook", async () =>
             {
-                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; catalog-hook test skipped"); return; }
-                string? shPath = FindShPath();
-                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; catalog-hook test skipped"); return; }
-
                 string tempRoot = NewTempRoot("armada-hookcov-catalog");
                 try
                 {
@@ -287,12 +280,10 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { SafeDeleteDirectory(tempRoot); }
             }).ConfigureAwait(false);
 
-            await RunTest("Real base64 key still blocks via the entropy path of the real pre-commit hook", async () =>
+            if (!gitAvailable || shPath == null)
+                SkipTest("Real base64 key still blocks via the entropy path of the real pre-commit hook", !gitAvailable ? "git is not available on PATH" : "sh is not available");
+            else await RunTest("Real base64 key still blocks via the entropy path of the real pre-commit hook", async () =>
             {
-                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; key-hook test skipped"); return; }
-                string? shPath = FindShPath();
-                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; key-hook test skipped"); return; }
-
                 string tempRoot = NewTempRoot("armada-hookcov-key");
                 try
                 {
@@ -327,10 +318,10 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { SafeDeleteDirectory(tempRoot); }
             }).ConfigureAwait(false);
 
-            await RunTest("boundary.patterns stores raw un-escaped patterns under ordered section headers", async () =>
+            if (!gitAvailable)
+                SkipTest("boundary.patterns stores raw un-escaped patterns under ordered section headers", "git is not available on PATH");
+            else await RunTest("boundary.patterns stores raw un-escaped patterns under ordered section headers", async () =>
             {
-                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; raw-patterns format test skipped"); return; }
-
                 string tempRoot = NewTempRoot("armada-hookcov-rawpat");
                 try
                 {
@@ -378,12 +369,10 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { SafeDeleteDirectory(tempRoot); }
             }).ConfigureAwait(false);
 
-            await RunTest("Pre-push hook blocks a secret in the pushed commit range", async () =>
+            if (!gitAvailable || shPath == null)
+                SkipTest("Pre-push hook blocks a secret in the pushed commit range", !gitAvailable ? "git is not available on PATH" : "sh is not available");
+            else await RunTest("Pre-push hook blocks a secret in the pushed commit range", async () =>
             {
-                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; pre-push hook test skipped"); return; }
-                string? shPath = FindShPath();
-                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; pre-push hook test skipped"); return; }
-
                 string tempRoot = NewTempRoot("armada-hookcov-prepush");
                 try
                 {
@@ -419,12 +408,10 @@ namespace Armada.Test.Unit.Suites.Services
                 finally { SafeDeleteDirectory(tempRoot); }
             }).ConfigureAwait(false);
 
-            await RunTest("Pre-commit hook falls back to the built-in default when boundary.patterns is absent", async () =>
+            if (!gitAvailable || shPath == null)
+                SkipTest("Pre-commit hook falls back to the built-in default when boundary.patterns is absent", !gitAvailable ? "git is not available on PATH" : "sh is not available");
+            else await RunTest("Pre-commit hook falls back to the built-in default when boundary.patterns is absent", async () =>
             {
-                if (!IsGitAvailable()) { Console.WriteLine("  [SKIP] git not on PATH; fallback hook test skipped"); return; }
-                string? shPath = FindShPath();
-                if (shPath == null) { Console.WriteLine("  [SKIP] sh not found; fallback hook test skipped"); return; }
-
                 string tempRoot = NewTempRoot("armada-hookcov-fallback");
                 try
                 {
@@ -667,7 +654,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ProcessStartInfo si = new ProcessStartInfo
                 {
                     FileName = "sh",
-                    Arguments = "--version",
+                    Arguments = "-c \"exit 0\"",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
