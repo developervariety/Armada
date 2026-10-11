@@ -26,6 +26,11 @@ upstream integrations and excludes changes already present at that baseline.
   completed, committed delivery tips with landing and passing Check evidence.
   Ambiguous, incomplete, or cross-scope lineage remains unknown.
 
+- Mission attempt facts keep stable reason codes only when a typed emitter
+  provides an allow-listed cause. Watchdog, runtime, definition-of-done, and
+  landing failures retain their known causes; unknown causes and free-text
+  messages remain unclassified.
+
 - Tenant creation rejects whitespace-only identifiers with a client error
   before storing a tenant or its initial user credentials.
 

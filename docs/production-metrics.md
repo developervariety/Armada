@@ -152,7 +152,15 @@ cleanup does not remove it. Each fact stores:
   `Failed`, or `Landed`. `Landed` resolves the chain as delivered.
 - `IsRescue`: true only when the mission description carries the
   autonomous-rescue marker. A title prefix is never a rescue classification.
-- a bounded machine reason code. Free-text failure messages are not stored.
+- an allow-listed machine reason code. Unknown causes remain null. Free-text
+  failure messages are not stored or converted into codes.
+
+Known failure codes include the stage-watchdog heartbeat timeout, runtime
+crash, provider usage or authentication failures, provider timeout, typed
+definition-of-done classes, and landing push, merge, or no-commit outcomes.
+The code comes from the emitter's typed decision. A mission's diagnostic text
+does not classify its failure. Missing or unrecognized causes stay unclassified
+and do not change the attempt-coverage denominator.
 
 Facts are recorded when a captain process launches, when a transient captain
 failure or captain recovery relaunch runs the mission again, when a Judge is

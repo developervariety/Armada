@@ -54,7 +54,8 @@ namespace Armada.Core.Services
                     ParentMissionId = lineage.ParentMissionId,
                     FactType = factType,
                     IsRescue = RescueMissionMarker.CarriesDescriptionMarker(mission.Description),
-                    ReasonCode = reasonCode ?? lineage.ReasonCode,
+                    ReasonCode = MissionAttemptFactReasonCode.Normalize(reasonCode)
+                        ?? MissionAttemptFactReasonCode.Normalize(lineage.ReasonCode),
                     CreatedUtc = DateTime.UtcNow
                 };
                 return await database.MissionAttemptFacts.CreateAsync(fact, token).ConfigureAwait(false);

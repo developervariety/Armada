@@ -279,6 +279,7 @@ namespace Armada.Server
             bool landingSucceeded = false;
             bool landingAttempted = false;
             string? landingFailureReason = null;
+            string? landingFailureReasonCode = null;
             bool rescueProducedNoCommits = false;
             // A code-producing Worker mission that lands an empty diff has not done its job. It must
             // NOT be reconciled to Complete (that manufactures a false success that corrupts ranking
@@ -399,6 +400,7 @@ namespace Armada.Server
                         _Logging.Warn(_Header + "error pushing/creating PR for mission " + mission.Id + ": " + ex.Message);
                         landingSucceeded = false;
                         landingFailureReason = "Error pushing/creating PR: " + ex.Message;
+                        landingFailureReasonCode = "landing_push_failed";
                     }
                 }
                 else if (effectivePush && vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory) && !String.IsNullOrEmpty(vessel.LocalPath))
@@ -455,6 +457,7 @@ namespace Armada.Server
                             landingSucceeded = false;
                             workerProducedNoCommits = true;
                             landingFailureReason = "worker_produced_no_commits";
+                            landingFailureReasonCode = "worker_produced_no_commits";
                             // Preserve the branch (do not clean up) for inspection/retry.
                             _Logging.Warn(_Header + "worker mission " + mission.Id + " produced no changes -- treating as failure, not a no-op landing");
                         }
@@ -502,6 +505,7 @@ namespace Armada.Server
 
                         if (!landingSucceeded)
                         {
+                            landingFailureReasonCode = "landing_merge_failed";
                             landingFailureReason = !String.IsNullOrEmpty(mission.FailureReason)
                                 ? mission.FailureReason
                                 : "Integration worktree merge failed";
@@ -534,6 +538,7 @@ namespace Armada.Server
                         _Logging.Warn(_Header + "error merging locally for mission " + mission.Id + ": " + ex.Message + " -- branch " + dock.BranchName + " is still available in the bare repo");
                         landingSucceeded = false;
                         landingFailureReason = "Error merging locally: " + ex.Message;
+                        landingFailureReasonCode = "landing_merge_failed";
                     }
                     } // end hasChanges else
                 }
@@ -781,6 +786,7 @@ namespace Armada.Server
                     // mission so recovery orchestrators (matching by ParentMissionId) and objective
                     // reconciliation reflect the true outcome instead of a false success.
                     string noCommitsReason = rescueProducedNoCommits ? "rescue_produced_no_commits" : "worker_produced_no_commits";
+                    landingFailureReasonCode = noCommitsReason;
                     mission.Status = MissionStatusEnum.Failed;
                     mission.FailureReason = noCommitsReason;
                     mission.LastUpdateUtc = DateTime.UtcNow;
@@ -815,7 +821,7 @@ namespace Armada.Server
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     _Logging.Warn(_Header + "mission " + mission.Id + " landing failed, status set to LandingFailed");
-                    await Armada.Core.Services.MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, "landing_failed", _Logging).ConfigureAwait(false);
+                    await Armada.Core.Services.MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, landingFailureReasonCode, _Logging).ConfigureAwait(false);
 
                     // Emit mission.landing_failed event
                     try

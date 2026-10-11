@@ -2802,7 +2802,8 @@ namespace Armada.Core.Services
                     CreatedUtc = DateTime.UtcNow
                 }, token).ConfigureAwait(false);
 
-                await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, "mission_failed", _Logging, token).ConfigureAwait(false);
+                await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed,
+                    "stage_watchdog_no_captain_heartbeat", _Logging, token).ConfigureAwait(false);
                 await EmitEventAsync("mission.failed",
                     "Mission failed by stage watchdog: " + mission.Title,
                     entityType: "mission", entityId: mission.Id,

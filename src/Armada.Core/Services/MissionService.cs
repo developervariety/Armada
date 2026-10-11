@@ -2765,6 +2765,7 @@ namespace Armada.Core.Services
             // stage that committed production code re-verifies the declared consumers of the branch.
             bool failedForDodGate = false;
             bool dodGateCancelled = false;
+            string? dodFailureReasonCode = null;
             if (!failedForScopeViolation && !failedForBlockedResult && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify && !dodSkippedForReadOnlyNoCommit)
             {
@@ -2785,6 +2786,7 @@ namespace Armada.Core.Services
                     else if (!dodResult.Passed)
                     {
                         failedForDodGate = true;
+                        dodFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(dodResult.FailureClass);
                         mission.Status = MissionStatusEnum.Failed;
                         mission.CompletedUtc = DateTime.UtcNow;
                         mission.LastUpdateUtc = DateTime.UtcNow;
@@ -2823,6 +2825,7 @@ namespace Armada.Core.Services
                 catch (Exception dodEx)
                 {
                     failedForDodGate = true;
+                    dodFailureReasonCode = MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(DefinitionOfDoneFailureClassEnum.Infra);
                     mission.Status = MissionStatusEnum.Failed;
                     mission.CompletedUtc = DateTime.UtcNow;
                     mission.LastUpdateUtc = DateTime.UtcNow;
@@ -3114,7 +3117,7 @@ namespace Armada.Core.Services
                 await ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
             }
 
-            await EmitMissionOutcomeTelemetryAsync(mission, captain, token).ConfigureAwait(false);
+            await EmitMissionOutcomeTelemetryAsync(mission, captain, token, dodFailureReasonCode).ConfigureAwait(false);
 
             // D23 seam B. A Recorder stage that finished its work gets its memory records reviewed. The
             // review may lower salience, link duplicates, and store memory proposals; it never deletes
@@ -11014,7 +11017,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task EmitMissionOutcomeTelemetryAsync(Mission mission, Captain captain, CancellationToken token)
+        private async Task EmitMissionOutcomeTelemetryAsync(Mission mission, Captain captain, CancellationToken token, string? failureReasonCode = null)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
@@ -11022,7 +11025,7 @@ namespace Armada.Core.Services
             (string eventType, string eventMessage) = BuildMissionOutcomeEvent(mission);
             if (mission.Status == MissionStatusEnum.Failed || mission.Status == MissionStatusEnum.LandingFailed)
                 await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed,
-                    mission.Status == MissionStatusEnum.LandingFailed ? "landing_failed" : "mission_failed", _Logging, token).ConfigureAwait(false);
+                    failureReasonCode, _Logging, token).ConfigureAwait(false);
 
             try
             {
