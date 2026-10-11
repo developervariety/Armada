@@ -1,5 +1,7 @@
 namespace Armada.Test.Unit
 {
+    using System;
+    using System.Collections.Generic;
     using System.Text.Json;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
@@ -209,6 +211,31 @@ namespace Armada.Test.Unit
                         AssertEqual("", value.GetString(), clearing + " keeps its clearing value");
                     }
                     AssertFalse(r.TryGetProperty("preferredPersona", out _), "a field whose schema gives \"\" no meaning is still omitted");
+                }
+            });
+
+            await RunTest("CaptainWriteSchemas_ExposeBoundedMuxMaxTurns", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, JsonElement> schemas = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+                    McpCaptainTools.Register(
+                        (name, _, inputSchema, _) =>
+                        {
+                            if (name == "armada_create_captain" || name == "armada_update_captain")
+                                schemas[name] = JsonSerializer.SerializeToElement(inputSchema, _JsonOpts);
+                        },
+                        testDb.Driver,
+                        null!,
+                        null);
+
+                    foreach (string toolName in new[] { "armada_create_captain", "armada_update_captain" })
+                    {
+                        AssertTrue(schemas.TryGetValue(toolName, out JsonElement schema), toolName + " must be registered");
+                        AssertTrue(schema.GetProperty("properties").TryGetProperty("muxMaxTurns", out JsonElement turns), toolName + " exposes muxMaxTurns");
+                        AssertEqual(1, turns.GetProperty("minimum").GetInt32(), toolName + " publishes the minimum turn cap");
+                        AssertEqual(100, turns.GetProperty("maximum").GetInt32(), toolName + " publishes the maximum turn cap");
+                    }
                 }
             });
         }

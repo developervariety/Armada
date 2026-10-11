@@ -101,6 +101,7 @@ namespace Armada.Server.Mcp.Tools
                         muxAdapterType = new { type = "string", description = "Optional Mux adapter type override" },
                         muxTemperature = new { type = "number", description = "Optional Mux temperature override" },
                         muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
+                        muxMaxTurns = new { type = "integer", minimum = 1, maximum = 100, description = "Optional Mux maximum agent-loop turns (1-100)" },
                         muxSystemPromptPath = new { type = "string", description = "Optional Mux system prompt file path" },
                         muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override" },
                         reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high). Null means runtime CLI default." },
@@ -169,6 +170,7 @@ namespace Armada.Server.Mcp.Tools
                         muxAdapterType = new { type = "string", emptyStringClears = true, description = "Optional Mux adapter type override; empty string clears it" },
                         muxTemperature = new { type = "number", description = "Optional Mux temperature override" },
                         muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
+                        muxMaxTurns = new { type = "integer", minimum = 1, maximum = 100, description = "Optional Mux maximum agent-loop turns (1-100)" },
                         muxSystemPromptPath = new { type = "string", emptyStringClears = true, description = "Optional Mux system prompt file path; empty string clears it" },
                         muxApprovalPolicy = new { type = "string", emptyStringClears = true, description = "Optional Mux approval policy override; empty string clears it" },
                         reasoningEffort = new { type = "string", emptyStringClears = true, description = "Reasoning-effort / thinking-budget tier (low|medium|high). Empty string clears it; null leaves it unchanged." },
@@ -585,6 +587,7 @@ namespace Armada.Server.Mcp.Tools
                 options.AdapterType = request.MuxAdapterType;
                 options.Temperature = request.MuxTemperature;
                 options.MaxTokens = request.MuxMaxTokens;
+                options.MaxTurns = request.MuxMaxTurns;
                 options.SystemPromptPath = request.MuxSystemPromptPath;
                 options.ApprovalPolicy = request.MuxApprovalPolicy;
             }
@@ -621,6 +624,7 @@ namespace Armada.Server.Mcp.Tools
                 if (request.MuxAdapterType != null) options.AdapterType = EmptyAsNull(request.MuxAdapterType);
                 if (request.MuxTemperature.HasValue) options.Temperature = request.MuxTemperature;
                 if (request.MuxMaxTokens.HasValue) options.MaxTokens = request.MuxMaxTokens;
+                if (request.MuxMaxTurns.HasValue) options.MaxTurns = request.MuxMaxTurns;
                 if (request.MuxSystemPromptPath != null) options.SystemPromptPath = EmptyAsNull(request.MuxSystemPromptPath);
                 if (request.MuxApprovalPolicy != null) options.ApprovalPolicy = EmptyAsNull(request.MuxApprovalPolicy);
             }
@@ -632,6 +636,7 @@ namespace Armada.Server.Mcp.Tools
                 options.AdapterType = null;
                 options.Temperature = null;
                 options.MaxTokens = null;
+                options.MaxTurns = null;
                 options.SystemPromptPath = null;
                 options.ApprovalPolicy = null;
             }
@@ -663,6 +668,7 @@ namespace Armada.Server.Mcp.Tools
                 || options.AdapterType != null
                 || options.Temperature.HasValue
                 || options.MaxTokens.HasValue
+                || options.MaxTurns.HasValue
                 || options.SystemPromptPath != null
                 || options.ApprovalPolicy != null;
         }

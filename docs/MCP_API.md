@@ -1085,8 +1085,10 @@ proposed again.
 
 `armada_create_captain` accepts `name` (required), `runtime`, `model`, `apiKey`,
 `apiBaseUrl`, `systemInstructions`, `allowedPersonas`, `preferredPersona`, `tier`,
-`preferenceRank`, `reasoningEffort`, `defaultPlaybooks` and the `mux*` options. A
-new captain starts `Idle`, unassigned and not quarantined.
+`preferenceRank`, `reasoningEffort`, `defaultPlaybooks` and the `mux*` options.
+Mux callers can set `muxMaxTurns` as an optional integer from 1 to 100. Armada
+clamps values to that range when it builds the Mux command. A new captain starts
+`Idle`, unassigned and not quarantined.
 
 `tier` is the captain's capability tier (`Economy`, `Standard`, or `Premium`); an
 empty string classifies it from the model name, and any other value returns a tool

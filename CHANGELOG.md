@@ -16,6 +16,9 @@ upstream integrations and excludes changes already present at that baseline.
 - Dashboard captain forms retain the Mux turn cap across edits and offer only
   approval policies supported by `mux print`.
 
+- MCP captain create and update tools store Mux maximum-turn settings, and clear
+  the setting when a captain changes to another runtime.
+
 - Mux captain options reach `mux print`: configured adapter type, temperature,
   token limit, system prompt, and supported approval policy are emitted, and
   `--mux-max-turns` sets a clamped per-captain iteration limit. Unsupported

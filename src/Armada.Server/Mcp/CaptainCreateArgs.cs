@@ -93,6 +93,11 @@ namespace Armada.Server.Mcp
         public int? MuxMaxTokens { get; set; }
 
         /// <summary>
+        /// Optional Mux maximum agent-loop turns. Values are clamped to the supported range of 1 to 100.
+        /// </summary>
+        public int? MuxMaxTurns { get; set; }
+
+        /// <summary>
         /// Optional Mux system prompt file path.
         /// </summary>
         public string? MuxSystemPromptPath { get; set; }
