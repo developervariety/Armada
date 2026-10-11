@@ -70,6 +70,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         string hookPath = Path.Combine(repoDir, "hooks", "pre-commit");
                         Assert(File.Exists(hookPath), "pre-commit hook must be installed");
+                        Assert(File.Exists(Path.Combine(repoDir, "hooks", "prepare-commit-msg")), "prepare-commit-msg hook must be installed");
 
                         string worktreePath = dock!.WorktreePath!;
 
@@ -217,9 +218,67 @@ namespace Armada.Test.Unit.Suites.Services
                     SafeDeleteDirectory(repo);
                 }
             }).ConfigureAwait(false);
+
+            if (shPath == null)
+                SkipTest("Merge messages git writes never name a mission branch", "sh is not available");
+            else await RunTest("Merge messages git writes never name a mission branch", async () =>
+            {
+                string repo = Path.Combine(Path.GetTempPath(), "armada-hookmergemsg-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    await InitHookRepoAsync(repo).ConfigureAwait(false);
+                    string hookPath = Path.Combine(repo, ".git", "hooks", "prepare-commit-msg");
+                    Directory.CreateDirectory(Path.GetDirectoryName(hookPath)!);
+                    await File.WriteAllTextAsync(hookPath, DockService.PrepareCommitMsgHookScript).ConfigureAwait(false);
+                    if (!OperatingSystem.IsWindows())
+                        File.SetUnixFileMode(hookPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+                    string missionBranch = "armada/fixture-captain/msn_fixture";
+                    await RunGitAsync(repo, "checkout", "-q", "-b", missionBranch).ConfigureAwait(false);
+                    await CommitFileAsync(repo, "work.txt", "work").ConfigureAwait(false);
+                    await RunGitAsync(repo, "checkout", "-q", "main").ConfigureAwait(false);
+                    await CommitFileAsync(repo, "main.txt", "main").ConfigureAwait(false);
+
+                    await RunGitAsync(repo, "checkout", "-q", missionBranch).ConfigureAwait(false);
+                    await MergeAsync(repo, "main").ConfigureAwait(false);
+                    AssertEqual("Merge branch 'main'", await RunGitAsync(repo, "log", "-1", "--format=%s").ConfigureAwait(false), "merging main into a mission branch");
+
+                    await RunGitAsync(repo, "checkout", "-q", "main").ConfigureAwait(false);
+                    await MergeAsync(repo, "--no-ff", missionBranch).ConfigureAwait(false);
+                    AssertEqual("Merge a mission branch", await RunGitAsync(repo, "log", "-1", "--format=%s").ConfigureAwait(false), "merging a mission branch into main");
+
+                    await RunGitAsync(repo, "checkout", "-q", "-b", "plain", "HEAD~1").ConfigureAwait(false);
+                    await CommitFileAsync(repo, "plain.txt", "plain").ConfigureAwait(false);
+                    await RunGitAsync(repo, "checkout", "-q", "main").ConfigureAwait(false);
+                    await MergeAsync(repo, "--no-ff", "plain").ConfigureAwait(false);
+                    AssertEqual("Merge branch 'plain'", await RunGitAsync(repo, "log", "-1", "--format=%s").ConfigureAwait(false), "an ordinary merge message is unchanged");
+
+                    await RunGitAsync(repo, "checkout", "-q", missionBranch).ConfigureAwait(false);
+                    await MergeAsync(repo, "--no-ff", "-m", "Keep this message", "main").ConfigureAwait(false);
+                    AssertEqual("Keep this message", await RunGitAsync(repo, "log", "-1", "--format=%s").ConfigureAwait(false), "an explicit merge message is unchanged");
+                }
+                finally
+                {
+                    SafeDeleteDirectory(repo);
+                }
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods
+
+        private static async Task CommitFileAsync(string repo, string file, string content)
+        {
+            await File.WriteAllTextAsync(Path.Combine(repo, file), content + "\n").ConfigureAwait(false);
+            await RunGitAsync(repo, "add", file).ConfigureAwait(false);
+            await RunGitAsync(repo, "-c", "user.name=Hook Test", "-c", "user.email=hook@example.invalid", "commit", "-q", "--no-verify", "-m", content).ConfigureAwait(false);
+        }
+
+        private static async Task MergeAsync(string repo, params string[] args)
+        {
+            List<string> all = new List<string> { "-c", "user.name=Hook Test", "-c", "user.email=hook@example.invalid", "merge", "-q", "--no-edit" };
+            all.AddRange(args);
+            await RunGitAsync(repo, all.ToArray()).ConfigureAwait(false);
+        }
 
         /// <summary>
         /// Locate sh from Git for Windows or the system PATH. Returns null when sh is unavailable

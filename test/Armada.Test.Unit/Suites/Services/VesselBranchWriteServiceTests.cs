@@ -161,7 +161,29 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(tip, merge.TargetCommit);
                     string parents = (await GitAsync(fx.Landing, "rev-list", "--parents", "-n", "1", tip)).Trim();
                     AssertEqual(tip + " " + diverged + " " + fx.FeatureCommit, parents, "merge commit parents are previous target then source");
+                    AssertEqual("Merge branch 'feature/work' into main", (await GitAsync(fx.Landing, "log", "-1", "--format=%s", tip)).Trim(), "merge subject names both ordinary branches");
                     AssertEqual("fast_forwarded", merge.WorkingCheckoutSync);
+                });
+            });
+
+            await RunTest("Merge commit subjects never name a mission branch", async () =>
+            {
+                await WithFixtureAsync(async (fx, db, service, vessel) =>
+                {
+                    string missionBranch = "armada/fixture-captain/msn_fixture";
+                    await GitAsync(fx.Landing, "branch", missionBranch, "feature/work");
+                    await CommitAsync(fx.Source, "main", "main-only.txt", "main only\n", "Main moved");
+                    await GitAsync(fx.Landing, "fetch", fx.Source, "main:refs/heads/main");
+                    await GitAsync(fx.Working, "fetch", fx.Landing, "main");
+                    await GitAsync(fx.Working, "merge", "--ff-only", "FETCH_HEAD");
+
+                    BranchWriteResult intoMission = await service.MergeAsync(vessel, new BranchMergeRequest { SourceRef = "main", TargetRef = missionBranch, Strategy = "MergeCommit" });
+                    AssertTrue(intoMission.Succeeded, "merge into the mission branch succeeds: " + intoMission.Reason + " " + intoMission.Message);
+                    AssertEqual("Merge branch 'main'", (await GitAsync(fx.Landing, "log", "-1", "--format=%s", intoMission.TargetCommit!)).Trim(), "a mission branch target is not named");
+
+                    BranchWriteResult fromMission = await service.MergeAsync(vessel, new BranchMergeRequest { SourceRef = missionBranch, TargetRef = "main", Strategy = "MergeCommit" });
+                    AssertTrue(fromMission.Succeeded, "merge of the mission branch succeeds: " + fromMission.Reason + " " + fromMission.Message);
+                    AssertEqual("Merge a mission branch into main", (await GitAsync(fx.Landing, "log", "-1", "--format=%s", fromMission.TargetCommit!)).Trim(), "a mission branch source is not named");
                 });
             });
 

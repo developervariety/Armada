@@ -9,6 +9,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Merge commits never name a mission branch. Docks install a
+  `prepare-commit-msg` hook that rewrites the first line of a merge message Git
+  writes, so a captain's `git merge main` and a merge-queue merge no longer
+  publish the mission id in history. The operator branch merge builds its
+  subject by the same rule.
+
 - Rescue delivery evidence rejects chains that cross tenant, user, or vessel
   scope and includes cancelled siblings whose attempt facts remain.
 

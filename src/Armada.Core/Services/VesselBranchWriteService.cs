@@ -162,7 +162,7 @@ namespace Armada.Core.Services
                     return Refuse(result, BranchWriteReasons.GitFailed, "git merge-tree could not compute the merge.");
 
                 List<string> commitArgs = await IdentityArgumentsAsync(repository, token).ConfigureAwait(false);
-                commitArgs.AddRange(new[] { "commit-tree", treeId, "-p", targetCommit, "-p", sourceCommit, "-m", "Merge branch '" + source + "' into " + target });
+                commitArgs.AddRange(new[] { "commit-tree", treeId, "-p", targetCommit, "-p", sourceCommit, "-m", MergeCommitMessage(source, target) });
                 GitRun commit = await RunGitAsync(repository, token, commitArgs.ToArray()).ConfigureAwait(false);
                 newCommit = FirstLine(commit.Stdout);
                 if (!commit.Ok || newCommit.Length == 0)
@@ -449,6 +449,22 @@ namespace Armada.Core.Services
             string value = url.Trim().TrimEnd('/');
             if (value.EndsWith(".git", StringComparison.Ordinal)) value = value.Substring(0, value.Length - 4);
             return value.TrimEnd('/');
+        }
+
+        /// <summary>
+        /// Merge commit subject that never names a mission branch: the name carries the mission id,
+        /// which would otherwise be published in history when the branch is pushed.
+        /// </summary>
+        internal static string MergeCommitMessage(string source, string target)
+        {
+            string message = IsMissionBranch(source) ? "Merge a mission branch" : "Merge branch '" + source + "'";
+            if (!IsMissionBranch(target)) message += " into " + target;
+            return message;
+        }
+
+        private static bool IsMissionBranch(string branch)
+        {
+            return branch.StartsWith(Constants.BranchPrefix, StringComparison.Ordinal);
         }
 
         private static string FirstLine(string text)

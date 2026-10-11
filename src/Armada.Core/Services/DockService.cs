@@ -2234,11 +2234,33 @@ namespace Armada.Core.Services
             "done\n" +
             "exit 0\n";
 
+        // Git's default merge message names the merged branches, and a mission branch name carries
+        // the mission id, so a merge made in a dock or by the merge queue would publish that id in
+        // history. Only the first line of a merge message is rewritten; other messages are untouched.
+        private const string _PrepareCommitMsgHook =
+            "#!/bin/sh\n" +
+            "# Armada merge-message hook -- do not edit; regenerated on dock provision\n" +
+            "[ \"$2\" = \"merge\" ] || exit 0\n" +
+            "msg=\"$1\"\n" +
+            "[ -f \"$msg\" ] || exit 0\n" +
+            "tmp=\"$msg.armada.$$\"\n" +
+            "if sed -e \"1s# into armada/[^ ]*\\$##\" \\\n" +
+            "  -e \"1s#\\(remote-tracking \\)\\{0,1\\}branch '[^']*armada/[^']*'#a mission branch#g\" \\\n" +
+            "  -e \"1s#'[^']*armada/[^']*'#a mission branch#g\" \"$msg\" > \"$tmp\"; then\n" +
+            "  mv \"$tmp\" \"$msg\"\n" +
+            "else\n" +
+            "  rm -f \"$tmp\"\n" +
+            "fi\n" +
+            "exit 0\n";
+
         /// <summary>The pre-commit boundary hook script exactly as it is installed.</summary>
         internal static string PreCommitHookScript => _PreCommitHook;
 
         /// <summary>The pre-push boundary hook script exactly as it is installed.</summary>
         internal static string PrePushHookScript => _PrePushHook;
+
+        /// <summary>The prepare-commit-msg hook script exactly as it is installed.</summary>
+        internal static string PrepareCommitMsgHookScript => _PrepareCommitMsgHook;
 
         /// <summary>
         /// The <c>.armada/boundary.patterns</c> file the hooks read: raw pattern strings, one per line, under a
@@ -2285,7 +2307,8 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Install Armada boundary pre-commit and pre-push hooks into the bare repository's
+        /// Install Armada boundary pre-commit and pre-push hooks, and the prepare-commit-msg hook
+        /// that keeps mission branch names out of merge messages, into the bare repository's
         /// hooks directory. Resolves the hooks path via git to honour any configured
         /// <c>core.hooksPath</c>. Failures are logged as warnings; the server-side landing
         /// and merge-queue gates remain as a second boundary even when hooks cannot be installed.
@@ -2301,6 +2324,7 @@ namespace Armada.Core.Services
 
                 await WriteHookFileAsync(Path.Combine(hooksDir, "pre-commit"), _PreCommitHook, token).ConfigureAwait(false);
                 await WriteHookFileAsync(Path.Combine(hooksDir, "pre-push"), _PrePushHook, token).ConfigureAwait(false);
+                await WriteHookFileAsync(Path.Combine(hooksDir, "prepare-commit-msg"), _PrepareCommitMsgHook, token).ConfigureAwait(false);
 
                 _Logging.Debug(_Header + "installed boundary hooks in " + hooksDir);
             }
