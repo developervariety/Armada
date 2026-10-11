@@ -719,6 +719,13 @@ namespace Armada.Test.Unit.Suites.Services
 
                         List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 100);
                         AssertTrue(events.Any(item => item.EventType == "mission.rescue_no_commits"), "Structured mission.rescue_no_commits event must be emitted");
+                        ProductionFactPage<MissionAttemptFact> facts = await testDb.Driver.MissionAttemptFacts.EnumerateAsync(
+                            new ProductionFactQuery { FromUtc = DateTime.UtcNow.AddMinutes(-1), ToUtc = DateTime.UtcNow.AddMinutes(1) }).ConfigureAwait(false);
+                        MissionAttemptFact? failedFact = facts.Items.FirstOrDefault(item => item.MissionId == mission.Id
+                            && item.FactType == MissionAttemptFactTypeEnum.Failed);
+                        AssertNotNull(failedFact, "The no-commit landing failure emits an attempt fact");
+                        AssertEqual("rescue_produced_no_commits", failedFact!.ReasonCode,
+                            "The typed no-commit landing cause is preserved on the fact");
                     }
                     finally
                     {

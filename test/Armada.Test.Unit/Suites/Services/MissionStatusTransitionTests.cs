@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Linq;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -134,6 +135,65 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                     finally
                     {
+                        if (Directory.Exists(settings.LogDirectory)) Directory.Delete(settings.LogDirectory, true);
+                    }
+                }
+            });
+
+            await RunTest("HandleCompletion preserves the typed DoD failure class on the attempt fact", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_dod_failure_" + Guid.NewGuid().ToString("N"));
+                    string? worktreePath = null;
+                    try
+                    {
+                        IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                        ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                        MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git,
+                            resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                        missionService.DefinitionOfDone = new DefinitionOfDoneGate(
+                            new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, RerunFailingClassesOnce = false },
+                            testDb.Driver, logging);
+
+                        TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
+                        worktreePath = entities.Dock.WorktreePath!;
+                        Directory.CreateDirectory(worktreePath);
+                        Mission mission = entities.Mission;
+                        mission.DiffSnapshot = "diff --git a/src/Example.cs b/src/Example.cs\n+class Example {}";
+                        await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        {
+                            Name = "DoD Failure Profile",
+                            Scope = WorkflowProfileScopeEnum.Vessel,
+                            VesselId = mission.VesselId,
+                            BuildCommand = OperatingSystem.IsWindows()
+                                ? "echo Parser.cs(12,5): error CS0103: identifier x not found& exit 1"
+                                : "echo 'Parser.cs(12,5): error CS0103: identifier x not found'; exit 1",
+                            UnitTestCommand = "echo ok",
+                            IsDefault = true,
+                            Active = true
+                        }).ConfigureAwait(false);
+
+                        await missionService.HandleCompletionAsync(entities.Captain).ConfigureAwait(false);
+
+                        Mission? failed = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNotNull(failed, "Mission exists after its DoD result");
+                        AssertEqual(MissionStatusEnum.Failed, failed!.Status, "A failed build still fails the mission");
+                        ProductionFactPage<MissionAttemptFact> facts = await testDb.Driver.MissionAttemptFacts.EnumerateAsync(
+                            new ProductionFactQuery { FromUtc = DateTime.UtcNow.AddMinutes(-1), ToUtc = DateTime.UtcNow.AddMinutes(1) }).ConfigureAwait(false);
+                        MissionAttemptFact? failedFact = facts.Items.FirstOrDefault(item => item.MissionId == mission.Id
+                            && item.FactType == MissionAttemptFactTypeEnum.Failed);
+                        AssertNotNull(failedFact, "The DoD failure emits an attempt fact");
+                        AssertEqual("dod_compile", failedFact!.ReasonCode,
+                            "The structured DoD failure class is preserved without reading its diagnostic text");
+                    }
+                    finally
+                    {
+                        if (worktreePath != null && Directory.Exists(worktreePath)) Directory.Delete(worktreePath, true);
                         if (Directory.Exists(settings.LogDirectory)) Directory.Delete(settings.LogDirectory, true);
                     }
                 }

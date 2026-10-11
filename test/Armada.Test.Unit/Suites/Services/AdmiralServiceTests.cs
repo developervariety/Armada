@@ -1107,6 +1107,14 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, signals.Objects.Count, "Stage watchdog should emit an operator-visible error signal");
                     AssertEqual(SignalTypeEnum.Error, signals.Objects[0].Type);
                     AssertContains("stage_watchdog_no_captain_heartbeat", signals.Objects[0].Payload);
+
+                    ProductionFactPage<MissionAttemptFact> facts = await db.MissionAttemptFacts.EnumerateAsync(
+                        new ProductionFactQuery { FromUtc = DateTime.UtcNow.AddMinutes(-1), ToUtc = DateTime.UtcNow.AddMinutes(1) }).ConfigureAwait(false);
+                    MissionAttemptFact? failedFact = facts.Items.FirstOrDefault(item => item.MissionId == mission.Id
+                        && item.FactType == MissionAttemptFactTypeEnum.Failed);
+                    AssertNotNull(failedFact, "The watchdog failure emits an attempt fact");
+                    AssertEqual("stage_watchdog_no_captain_heartbeat", failedFact!.ReasonCode,
+                        "The typed watchdog cause is preserved on the fact");
                 }
             });
 
@@ -1250,6 +1258,14 @@ namespace Armada.Test.Unit.Suites.Services
 
                     EnumerationResult<ArmadaEvent> events = await db.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
                     AssertTrue(events.Objects.Any(e => e.EventType == "mission.failed" && e.MissionId == mission.Id), "Genuine failure should emit mission.failed");
+
+                    ProductionFactPage<MissionAttemptFact> facts = await db.MissionAttemptFacts.EnumerateAsync(
+                        new ProductionFactQuery { FromUtc = DateTime.UtcNow.AddMinutes(-1), ToUtc = DateTime.UtcNow.AddMinutes(1) }).ConfigureAwait(false);
+                    MissionAttemptFact? failedFact = facts.Items.FirstOrDefault(item => item.MissionId == mission.Id
+                        && item.FactType == MissionAttemptFactTypeEnum.Failed);
+                    AssertNotNull(failedFact, "The process-exit failure emits an attempt fact");
+                    AssertEqual("runtime_crash", failedFact!.ReasonCode,
+                        "The typed runtime crash cause is preserved on the fact");
                 }
             });
 

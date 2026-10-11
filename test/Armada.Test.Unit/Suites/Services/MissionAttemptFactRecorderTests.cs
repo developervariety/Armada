@@ -41,7 +41,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(fact.IsRescue, "the description marker is the typed rescue classification");
             }).ConfigureAwait(false);
 
-            await RunTest("TitlePrefixAloneIsNotARescue", async () =>
+            await RunTest("TitlePrefixAloneIsNotARescueAndFreeTextIsUnclassified", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Mission upstream = await testDb.Driver.Missions.CreateAsync(new Mission("Plan", "plan")).ConfigureAwait(false);
@@ -56,7 +56,23 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNotNull(fact, "fact stored");
                 AssertFalse(fact!.IsRescue, "a title prefix is never a typed rescue marker");
                 AssertEqual(titled.Id, fact.RootMissionId, "a pipeline dependency is not recovery lineage");
-                AssertEqual("some_reason_with_spaces", fact.ReasonCode);
+                AssertNull(fact.ReasonCode, "free text is not a typed cause");
+            }).ConfigureAwait(false);
+
+            await RunTest("StableTypedCauseIsPreserved", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Watchdog", "ordinary mission")
+                {
+                    FailureReason = "stage_watchdog_no_captain_heartbeat"
+                }).ConfigureAwait(false);
+
+                MissionAttemptFact? fact = await MissionAttemptFactRecorder.RecordAsync(
+                    testDb.Driver, mission, MissionAttemptFactTypeEnum.Failed, "stage_watchdog_no_captain_heartbeat").ConfigureAwait(false);
+
+                AssertNotNull(fact, "fact stored");
+                AssertEqual("stage_watchdog_no_captain_heartbeat", fact!.ReasonCode,
+                    "a known deterministic cause keeps its stable code");
             }).ConfigureAwait(false);
 
             await RunTest("RestartRecordsRestartedFact", async () =>
