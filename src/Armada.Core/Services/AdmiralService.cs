@@ -3401,15 +3401,20 @@ namespace Armada.Core.Services
             // and the gateway then answers 502/504 before the captain did any work. The load goes on
             // after the gateway gives up, so one re-run usually finds the model warm. One per mission:
             // a gateway that keeps failing is a real outage and fails the mission as before.
+            bool modelGatewayTimeout = IsModelGatewayTimeoutFailureReason(failureReason);
+            if (modelGatewayTimeout)
+            {
+                failureReason = "[provider_timeout; endpoint=" + GetModelGatewayEndpointLabel(captain) + "] " + failureReason;
+            }
             if (mission != null
-                && IsModelGatewayTimeoutFailureReason(failureReason)
+                && modelGatewayTimeout
                 && await CountModelGatewayRetriesAsync(mission.Id, token).ConfigureAwait(false) < 1)
             {
                 await EmitEventAsync(ModelGatewayRetryEvent, "Mission " + mission.Id + " re-run once after its model gateway timed out before the model answered: " + failureReason,
                     entityType: "mission", entityId: mission.Id,
                     captainId: captain.Id, missionId: mission.Id,
                     vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
-                await RequeueTransientMissionFailureAsync(captain, mission, missionId, failureReason, token).ConfigureAwait(false);
+                await RequeueTransientMissionFailureAsync(captain, mission, missionId, failureReason, token, "provider_timeout").ConfigureAwait(false);
                 await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
                 return;
             }
@@ -3417,7 +3422,7 @@ namespace Armada.Core.Services
             // Transient captain-unavailable / completion-verification failures are recoverable:
             // requeue the mission for reassignment instead of marking it Failed and halting the
             // voyage. Only genuine unrecoverable failures fall through to HaltVoyageAsync below.
-            if (mission != null && IsCaptainUnavailableFailureReason(failureReason))
+            if (mission != null && !modelGatewayTimeout && IsCaptainUnavailableFailureReason(failureReason))
             {
                 await RequeueTransientMissionFailureAsync(captain, mission, missionId, failureReason, token).ConfigureAwait(false);
                 return;
@@ -3466,7 +3471,7 @@ namespace Armada.Core.Services
                     // implementation to clean up the captain branch (honoring policy + rescue guard).
                     await _Missions.ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
 
-                    await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, "mission_failed", _Logging, token).ConfigureAwait(false);
+                    await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, modelGatewayTimeout ? "provider_timeout" : "mission_failed", _Logging, token).ConfigureAwait(false);
                     await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (" + failureReason + ")",
                         entityType: "mission", entityId: mission.Id,
                         captainId: captain.Id, missionId: mission.Id,
@@ -3727,7 +3732,8 @@ namespace Armada.Core.Services
             Mission mission,
             string missionId,
             string failureReason,
-            CancellationToken token)
+            CancellationToken token,
+            string reasonCode = "transient_captain_failure")
         {
             string? vesselId = mission.VesselId;
             string? voyageId = mission.VoyageId;
@@ -3745,7 +3751,7 @@ namespace Armada.Core.Services
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             _Logging.Warn(_Header + "mission " + missionId + " requeued after transient captain failure: " + failureReason);
-            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Retried, "transient_captain_failure", _Logging, token).ConfigureAwait(false);
+            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Retried, reasonCode, _Logging, token).ConfigureAwait(false);
 
             // Non-terminal event so the retry is visible without emitting mission.failed.
             await EmitEventAsync("mission.retry_requeued", "Mission requeued after transient captain failure: " + mission.Title + " (" + failureReason + ")",
@@ -4046,6 +4052,37 @@ namespace Armada.Core.Services
                 || failureReason.Contains("timed out", StringComparison.OrdinalIgnoreCase)
                 || failureReason.Contains("gateway timeout", StringComparison.OrdinalIgnoreCase)
                 || failureReason.Contains("Proxy error", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Names the configured route without credentials, URL paths, or query parameters.
+        /// A runtime default is labelled as unresolved rather than inferred from process output.
+        /// </summary>
+        private static string GetModelGatewayEndpointLabel(Captain captain)
+        {
+            if (!String.IsNullOrWhiteSpace(captain.ModelEndpointId)) return captain.ModelEndpointId;
+            string? baseUrl = captain.ApiBaseUrl;
+            if (captain.Runtime == AgentRuntimeEnum.Mux)
+            {
+                try
+                {
+                    MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
+                    if (!String.IsNullOrWhiteSpace(options?.Endpoint)) return options.Endpoint;
+                    baseUrl = options?.BaseUrl ?? baseUrl;
+                }
+                catch (System.Text.Json.JsonException)
+                {
+                    // Invalid configuration cannot supply a trustworthy endpoint identity.
+                    return "unresolved/" + captain.Runtime;
+                }
+            }
+            if (Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? endpoint)
+                && (endpoint.Scheme == Uri.UriSchemeHttp || endpoint.Scheme == Uri.UriSchemeHttps))
+            {
+                return endpoint.Scheme + "://" + endpoint.IdnHost
+                    + (endpoint.IsDefaultPort ? String.Empty : ":" + endpoint.Port);
+            }
+            return "runtime-default/" + captain.Runtime;
         }
 
         private async Task<int> CountModelGatewayRetriesAsync(string missionId, CancellationToken token)

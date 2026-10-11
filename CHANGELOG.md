@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A repeated model gateway timeout fails with `provider_timeout` and a
+  configured endpoint label. Its one-retry budget follows the mission across
+  captain assignments, and retry and failure facts retain the typed cause.
+
 - Tenant creation rejects whitespace-only identifiers with a client error
   before storing a tenant or its initial user credentials.
 

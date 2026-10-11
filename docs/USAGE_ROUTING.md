@@ -601,6 +601,20 @@ memory and end at a restart. An operator override replaces a quota or credit
 hold; it does not replace a login refusal, because a captain cannot run on a
 rejected login.
 
+### Model gateway timeouts
+
+A model request that ends in a recognized HTTP 502 or 504 gateway timeout
+receives at most one retry per mission. The budget belongs to the mission,
+so a different captain does not reset it. A second timeout fails the mission
+with `provider_timeout` and a configured endpoint label. Both the retry fact
+and the terminal failure fact retain `provider_timeout` as their cause code.
+
+The label uses a model endpoint ID, a named Mux endpoint, or the configured
+HTTP origin. HTTP labels exclude credentials, paths, and query parameters.
+A route that uses a runtime default is labelled `runtime-default/<runtime>`;
+invalid runtime options are labelled `unresolved/<runtime>`. Armada does not
+infer endpoint identity from process output.
+
 ## Unknown data and overrides
 
 `maxAgeMinutes` defaults to 15. Collection failures retain the last valid
