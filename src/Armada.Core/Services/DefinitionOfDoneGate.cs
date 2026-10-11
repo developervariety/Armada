@@ -1381,11 +1381,13 @@ namespace Armada.Core.Services
                     + " seconds.";
                 string timedOutOutput = String.IsNullOrWhiteSpace(combined) ? message : message + "\n" + combined;
                 _Logging.Warn(_Header + message);
-                return DefinitionOfDoneResult.Fail(
+                DefinitionOfDoneResult timeoutResult = DefinitionOfDoneResult.Fail(
                     label,
                     -1,
                     BuildDiagnosticText(timedOutOutput),
                     _FailureClassifier.Classify(label, -1, timedOutOutput, true));
+                AttachCommandOutput(timeoutResult, timedOutOutput, result);
+                return timeoutResult;
             }
 
             string anomalies = BoundedProcessRunner.DescribeAnomalies(result);
@@ -1407,6 +1409,7 @@ namespace Armada.Core.Services
                 exitCode,
                 BuildDiagnosticText(combined),
                 failureClass);
+            AttachCommandOutput(failResult, combined, result);
 
             // Extract the failing test identifiers here, where the runner output is still whole:
             // the diagnostic text keeps only a bounded, redacted tail, so a later reader could not
@@ -1421,6 +1424,17 @@ namespace Armada.Core.Services
             }
 
             return failResult;
+        }
+
+        private static void AttachCommandOutput(DefinitionOfDoneResult result, string output, BoundedProcessResult processResult)
+        {
+            result.GateCommandOutput = output;
+            result.RunnerOutputTruncated = processResult.Truncated;
+            result.RunnerOutputOmittedBytes = processResult.StandardOutputOmittedBytes + processResult.StandardErrorOmittedBytes;
+            result.RunnerOutputIncomplete = processResult.TimedOut || processResult.Truncated
+                || processResult.OutputDrainTimedOut || processResult.StillRunningAfterKill || processResult.KillError != null
+                || processResult.EscapedProcessesKilled > 0 || processResult.ContainmentUnreadableProcesses > 0
+                || processResult.ContainmentSweepError != null;
         }
 
         private static string CombineOutput(string? stdout, string? stderr)

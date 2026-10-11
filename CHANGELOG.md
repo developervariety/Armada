@@ -13,6 +13,12 @@ upstream integrations and excludes changes already present at that baseline.
   unavailable commit or failed checkout now fails before the command runs,
   instead of testing a branch or the clone's default revision.
 
+- Failed definition-of-done commands retain their redacted bounded-runner output
+  in mission-scoped capture files. The evaluation report stores a capture ID,
+  byte count, digest, and runner completeness flags. The mission log endpoint
+  returns bounded UTF-8 pages after mission authorization. Older records without
+  captures remain readable.
+
 - A usage account whose login the provider rejects reads as needing sign-in,
   not Exhausted on a timer. A Codex usage read refused with a credential
   rejection (HTTP 401, an expired or revoked token, "sign in again") names

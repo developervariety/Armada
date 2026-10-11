@@ -532,7 +532,7 @@ namespace Armada.Server.Mcp.Tools
 
                 register(
                     "armada_get_mission_log",
-                    "Get the session log for a mission. Supports pagination.",
+                    "Get a mission log by line page, or read a failed definition-of-done capture by bounded UTF-8 byte pages.",
                     new
                     {
                         type = "object",
@@ -540,7 +540,11 @@ namespace Armada.Server.Mcp.Tools
                         {
                             missionId = new { type = "string", description = "Mission ID (msn_ prefix)" },
                             lines = new { type = "integer", description = "Number of lines to return (default 100)" },
-                            offset = new { type = "integer", description = "Line offset to start from (default 0)" }
+                            offset = new { type = "integer", description = "Line offset to start from (default 0)" },
+                            captureId = new { type = "string", description = "Mission-bound DoD capture ID from the definition-of-done report" },
+                            offsetBytes = new { type = "integer", description = "Zero-based byte offset for a DoD capture" },
+                            lengthBytes = new { type = "integer", description = "DoD capture page size in bytes (maximum 64000)" },
+                            sha256 = new { type = "string", description = "Expected DoD capture SHA-256 from the evaluation record" }
                         },
                         required = new[] { "missionId" }
                     },
@@ -548,8 +552,20 @@ namespace Armada.Server.Mcp.Tools
                     {
                         MissionLogArgs request = JsonSerializer.Deserialize<MissionLogArgs>(args!.Value, _JsonOptions)!;
                         string missionId = request.MissionId;
-                        Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                        Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(
+                            database, McpCallerContext.Require(), missionId).ConfigureAwait(false);
                         if (mission == null) return (object)new { Error = "Mission not found" };
+
+                        if (!String.IsNullOrWhiteSpace(request.CaptureId))
+                        {
+                            return await SessionLogReader.ReadMissionLogCapturePageAsync(
+                                settings.LogDirectory,
+                                mission.Id,
+                                request.CaptureId,
+                                request.OffsetBytes,
+                                request.LengthBytes,
+                                request.Sha256).ConfigureAwait(false);
+                        }
 
                         MissionLogResponse page = await SessionLogReader.ReadMissionLogAsync(
                             settings.LogDirectory, mission.Id, request.Offset, request.Lines, 100).ConfigureAwait(false);

@@ -236,6 +236,34 @@ namespace Armada.Core.Services
                 return null;
             }
 
+            if (stored.OutputCaptureAvailable == true
+                && (!MissionLogCaptureArtifact.IsCaptureId(stored.OutputCaptureId)
+                    || !IsSha256(stored.OutputCaptureSha256)
+                    || !stored.OutputCaptureTotalUtf8Bytes.HasValue
+                    || stored.OutputCaptureTotalUtf8Bytes.Value < 0
+                    || stored.OutputCaptureUnavailableReason != null))
+            {
+                failure = "the latest evaluation record has invalid output capture metadata";
+                return null;
+            }
+            if (stored.OutputCaptureAvailable != true && stored.OutputCaptureId != null)
+            {
+                failure = "the latest evaluation record points to an unavailable output capture";
+                return null;
+            }
+            if (stored.OutputCaptureAvailable != true
+                && (stored.OutputCaptureSha256 != null || stored.OutputCaptureTotalUtf8Bytes != null))
+            {
+                failure = "the latest evaluation record has output capture metadata without an available capture";
+                return null;
+            }
+            if ((stored.OutputCaptureTotalUtf8Bytes.HasValue && stored.OutputCaptureTotalUtf8Bytes.Value < 0)
+                || (stored.RunnerOutputOmittedBytes ?? 0) < 0)
+            {
+                failure = "the latest evaluation record has a negative output byte count";
+                return null;
+            }
+
             string? contradiction = FindContradiction(outcome, stored);
             if (contradiction != null)
             {
@@ -254,6 +282,14 @@ namespace Armada.Core.Services
                 ExitCode = stored.ExitCode,
                 FailureClass = failureClass,
                 OutputTail = stored.OutputTail,
+                OutputCaptureId = stored.OutputCaptureId,
+                OutputCaptureTotalUtf8Bytes = stored.OutputCaptureTotalUtf8Bytes,
+                OutputCaptureSha256 = stored.OutputCaptureSha256,
+                OutputCaptureAvailable = stored.OutputCaptureAvailable ?? false,
+                OutputCaptureUnavailableReason = DefinitionOfDoneEvaluationRecord.BoundLabel(stored.OutputCaptureUnavailableReason),
+                RunnerOutputTruncated = stored.RunnerOutputTruncated ?? false,
+                RunnerOutputOmittedBytes = Math.Max(0, stored.RunnerOutputOmittedBytes ?? 0),
+                RunnerOutputIncomplete = stored.RunnerOutputIncomplete ?? false,
                 FailedTestNames = stored.FailedTestNames,
                 FailedTestNamesOverflow = stored.FailedTestNamesOverflow ?? false,
                 CaptainId = stored.CaptainId,
@@ -266,6 +302,17 @@ namespace Armada.Core.Services
             };
         }
 
+        private static bool IsSha256(string? value)
+        {
+            if (value == null || value.Length != 64) return false;
+            foreach (char character in value)
+            {
+                if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F')))
+                    return false;
+            }
+            return true;
+        }
+
         /// <summary>
         /// Name a combination of outcome and fields that the record writer never produces, or return null. Passed
         /// carries no skip or failure detail; Skipped, NotVerifiable and Cancelled carry a skipped reason and no failure detail;
@@ -276,7 +323,13 @@ namespace Armada.Core.Services
             bool hasFailureDetail = stored.CommandLabel != null
                 || stored.ExitCode != null
                 || stored.FailureClass != null
-                || stored.OutputTail != null;
+                || stored.OutputTail != null
+                || stored.OutputCaptureId != null
+                || stored.OutputCaptureAvailable == true
+                || stored.OutputCaptureUnavailableReason != null
+                || stored.RunnerOutputTruncated == true
+                || stored.RunnerOutputIncomplete == true
+                || (stored.RunnerOutputOmittedBytes ?? 0) > 0;
 
             switch (outcome)
             {
@@ -294,6 +347,10 @@ namespace Armada.Core.Services
                 case DefinitionOfDoneEvaluationOutcomeEnum.EvaluationError:
                     if (String.IsNullOrEmpty(stored.CommandLabel)) return "has no command label";
                     if (stored.SkippedReason != null) return "carries a skipped reason";
+                    if (outcome == DefinitionOfDoneEvaluationOutcomeEnum.EvaluationError
+                        && (stored.OutputCaptureId != null || stored.OutputCaptureAvailable == true
+                            || stored.OutputCaptureUnavailableReason != null))
+                        return "an evaluation error carries a command output capture";
                     return null;
                 default:
                     return "has an outcome with no field rule";
@@ -336,6 +393,14 @@ namespace Armada.Core.Services
             public int? ExitCode { get; set; }
             public string? FailureClass { get; set; }
             public string? OutputTail { get; set; }
+            public string? OutputCaptureId { get; set; }
+            public long? OutputCaptureTotalUtf8Bytes { get; set; }
+            public string? OutputCaptureSha256 { get; set; }
+            public bool? OutputCaptureAvailable { get; set; }
+            public string? OutputCaptureUnavailableReason { get; set; }
+            public bool? RunnerOutputTruncated { get; set; }
+            public long? RunnerOutputOmittedBytes { get; set; }
+            public bool? RunnerOutputIncomplete { get; set; }
             public List<string>? FailedTestNames { get; set; }
             public bool? FailedTestNamesOverflow { get; set; }
             public string? CaptainId { get; set; }

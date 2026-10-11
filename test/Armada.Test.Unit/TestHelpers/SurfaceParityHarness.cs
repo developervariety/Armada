@@ -85,6 +85,16 @@ namespace Armada.Test.Unit.TestHelpers
         /// <summary>REST client sending the administrator key.</summary>
         public HttpClient Rest { get; }
 
+        /// <summary>Create a mission-scoped session token for a route scope test.</summary>
+        /// <param name="tenantId">Token owner's tenant.</param>
+        /// <param name="userId">Token owner's user.</param>
+        /// <param name="missionId">Mission that anchors the token scope.</param>
+        /// <returns>The encrypted session token.</returns>
+        public string CreateMissionToken(string tenantId, string userId, string missionId)
+        {
+            return _SessionTokens.CreateMissionToken(tenantId, userId, missionId).Token!;
+        }
+
         /// <summary>The global administrator every surface acts as.</summary>
         public AuthContext Caller => McpTestCaller.Operator;
 
@@ -109,6 +119,7 @@ namespace Armada.Test.Unit.TestHelpers
         private readonly Webserver _Server;
         private readonly CancellationTokenSource _Cancellation = new CancellationTokenSource();
         private readonly string _Root;
+        private readonly SessionTokenService _SessionTokens = new SessionTokenService();
 
         #endregion
 
@@ -207,7 +218,7 @@ namespace Armada.Test.Unit.TestHelpers
             ObjectiveService objectives = new ObjectiveService(Driver);
             GitHubIntegrationService gitHub = new GitHubIntegrationService(Driver, objectives, checkRuns, deployments, Settings, logging);
             LandingPreviewService landingPreview = new LandingPreviewService(Driver, logging, Settings);
-            AuthenticationService authentication = new AuthenticationService(Driver, new SessionTokenService(), Settings, logging);
+            AuthenticationService authentication = new AuthenticationService(Driver, _SessionTokens, Settings, logging);
 
             int port = ReservePort();
             WebserverSettings webserverSettings = new WebserverSettings();
@@ -258,18 +269,35 @@ namespace Armada.Test.Unit.TestHelpers
         /// <param name="method">HTTP method.</param>
         /// <param name="path">Route path.</param>
         /// <param name="body">Optional JSON body object.</param>
+        /// <param name="sessionToken">Optional mission-scoped session token. It uses a separate client without the operator API key.</param>
         /// <returns>Status and body.</returns>
-        public async Task<SurfaceReply> RestAsync(System.Net.Http.HttpMethod method, string path, object? body = null)
+        public async Task<SurfaceReply> RestAsync(System.Net.Http.HttpMethod method, string path, object? body = null, string? sessionToken = null)
         {
-            using (HttpRequestMessage request = new HttpRequestMessage(method, path))
+            HttpClient client = Rest;
+            bool ownsClient = false;
+            if (!String.IsNullOrWhiteSpace(sessionToken))
             {
-                if (body != null)
-                    request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
-                using (HttpResponseMessage response = await Rest.SendAsync(request).ConfigureAwait(false))
+                // The default operator key on Rest must never accompany a mission session token.
+                client = new HttpClient { BaseAddress = Rest.BaseAddress, Timeout = Rest.Timeout };
+                ownsClient = true;
+            }
+            try
+            {
+                using (HttpRequestMessage request = new HttpRequestMessage(method, path))
                 {
-                    string text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    return new SurfaceReply("REST", (int)response.StatusCode, text);
+                    if (!String.IsNullOrWhiteSpace(sessionToken)) request.Headers.Add("X-Token", sessionToken);
+                    if (body != null)
+                        request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                    using (HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false))
+                    {
+                        string text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        return new SurfaceReply("REST", (int)response.StatusCode, text);
+                    }
                 }
+            }
+            finally
+            {
+                if (ownsClient) client.Dispose();
             }
         }
 

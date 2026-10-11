@@ -748,6 +748,47 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Gate preserves a citation offender located between selected diagnostics and the output tail", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    string worktreePath = CreateTempDir();
+                    try
+                    {
+                        string outputCommand = "i=0; while [ \"$i\" -lt 1000 ]; do "
+                            + "if [ \"$i\" -eq 500 ]; then echo 'CITATION OFFENDER: ExampleComponent lacks required source citation'; "
+                            + "else echo \"error CS1000: synthetic diagnostic $i\"; fi; i=$((i+1)); done; exit 1";
+                        await EnsureVesselWithProfileAsync(testDb, "ten_capture_output", "vsl_captout",
+                            worktreePath, SuccessCommand(), outputCommand).ConfigureAwait(false);
+
+                        DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                            new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                            testDb.Driver,
+                            logging);
+                        DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                            CreateWorkerMission("ten_capture_output", "vsl_captout"),
+                            new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                        AssertFalse(result.Passed, "The synthetic command fails");
+                        AssertFalse((result.OutputTail ?? String.Empty).Contains("CITATION OFFENDER", StringComparison.Ordinal),
+                            "The selected diagnostics and tail omit the middle offender");
+                        string? capturedOutput = typeof(DefinitionOfDoneResult).GetProperty("GateCommandOutput")
+                            ?.GetValue(result) as string;
+                        AssertContains("CITATION OFFENDER: ExampleComponent", capturedOutput ?? String.Empty,
+                            "The full output retained by the bounded runner preserves the omitted middle offender");
+                        bool? runnerOutputTruncated = typeof(DefinitionOfDoneResult).GetProperty("RunnerOutputTruncated")
+                            ?.GetValue(result) as bool?;
+                        AssertFalse(runnerOutputTruncated ?? true, "This synthetic output stays below the runner's per-stream cap");
+                    }
+                    finally
+                    {
+                        TryDeleteDirectory(worktreePath);
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Gate fails with dock-setup when the dock has no worktree path", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

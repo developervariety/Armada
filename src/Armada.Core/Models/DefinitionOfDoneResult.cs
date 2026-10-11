@@ -33,6 +33,18 @@ namespace Armada.Core.Models
         /// </summary>
         public string? OutputTail { get; set; }
 
+        /// <summary>Complete output retained by the bounded command runner. Callers must redact before persistence.</summary>
+        public string? GateCommandOutput { get; set; }
+
+        /// <summary>True when the runner omitted bytes due to its per-stream output limit.</summary>
+        public bool RunnerOutputTruncated { get; set; }
+
+        /// <summary>UTF-8 bytes omitted by the runner's per-stream limits.</summary>
+        public long RunnerOutputOmittedBytes { get; set; }
+
+        /// <summary>True when a timeout, truncation, drain limit, or failed containment may have omitted runner output.</summary>
+        public bool RunnerOutputIncomplete { get; set; }
+
         /// <summary>
         /// Structured classification of the failure, or null for passed and skipped results.
         /// </summary>

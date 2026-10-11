@@ -5292,6 +5292,17 @@ Response from `GET /api/v1/missions/{id}/log`.
 | `Lines` | integer | Number of lines returned |
 | `TotalLines` | integer | Total lines in log file |
 
+To read a failed definition-of-done command capture, pass `captureId` from the
+mission's definition-of-done report. `offsetBytes` defaults to `0`,
+`lengthBytes` defaults to `16000` and cannot exceed `64000`, and `sha256` can
+carry the digest from the report. The response includes the redacted `Content`,
+byte offset and length, total byte count, digest, `HasMore`, and runner
+completeness flags. The server checks mission access before it reads the
+capture. After it joins all pages, a client can hash the reconstructed bytes
+and compare them with the returned whole-capture digest. A missing capture
+returns 404; an invalid page returns 400; invalid capture markers or a mismatch
+with the report digest returns 409.
+
 ---
 
 #### CaptainLog

@@ -4,10 +4,13 @@ namespace Armada.Test.Unit.Suites.Routes
     using System.Collections.Generic;
     using System.IO;
     using System.Net.Http;
+    using System.Security.Cryptography;
+    using System.Text;
     using System.Threading.Tasks;
     using Armada.Core;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
 
@@ -30,6 +33,84 @@ namespace Armada.Test.Unit.Suites.Routes
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("MissionLog_AdminOwnedMissionToken_CannotReadUnrelatedLog", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    UserMaster? owner = await harness.Driver.Users.ReadByIdAsync(Constants.DefaultUserId).ConfigureAwait(false);
+                    AssertNotNull(owner, "The token owner exists");
+                    AssertTrue(owner!.IsAdmin, "The regression must use an administrator-owned mission token");
+                    Mission own = await CreateMissionAsync(harness).ConfigureAwait(false);
+                    Mission unrelated = await CreateMissionAsync(harness).ConfigureAwait(false);
+                    harness.WriteLogFile(Path.Combine("missions", own.Id + ".log"), "own mission evidence");
+                    harness.WriteLogFile(Path.Combine("missions", unrelated.Id + ".log"), "unrelated private evidence");
+                    string token = harness.CreateMissionToken(Constants.DefaultTenantId, Constants.DefaultUserId, own.Id);
+
+                    SurfaceReply allowed = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + own.Id + "/log", sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(200, allowed.Status);
+                    AssertContains("own mission evidence", allowed.Body);
+                    SurfaceReply denied = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + unrelated.Id + "/log", sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(404, denied.Status, "An owner's administrator role must not widen a mission token");
+                    AssertFalse(denied.Body.Contains("unrelated private evidence", StringComparison.Ordinal));
+                    SurfaceReply operatorRead = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + unrelated.Id + "/log").ConfigureAwait(false);
+                    AssertEqual(200, operatorRead.Status);
+                    AssertContains("unrelated private evidence", operatorRead.Body);
+                    SurfaceReply invalid = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + own.Id + "/log", sessionToken: "invalid-session").ConfigureAwait(false);
+                    AssertEqual(401, invalid.Status, "An invalid token must not fall back to the harness operator key");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("MissionLog_CapturePages_PreserveOutputAndEnforceMissionScope", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    Mission own = await CreateMissionAsync(harness).ConfigureAwait(false);
+                    Mission unrelated = await CreateMissionAsync(harness).ConfigureAwait(false);
+                    string output = "first🙂" + new string('x', 70000) + "\nCITATION OFFENDER: ExampleComponent\nlast";
+                    MissionLogCaptureMetadata capture = await MissionLogCaptureArtifact.WriteAsync(harness.Settings.LogDirectory, own.Id, output).ConfigureAwait(false);
+                    MissionLogCaptureMetadata foreignCapture = await MissionLogCaptureArtifact.WriteAsync(harness.Settings.LogDirectory, unrelated.Id, "unrelated capture evidence").ConfigureAwait(false);
+                    string token = harness.CreateMissionToken(Constants.DefaultTenantId, Constants.DefaultUserId, own.Id);
+                    string route = "/api/v1/missions/" + own.Id + "/log?captureId=" + capture.CaptureId;
+                    StringBuilder joined = new StringBuilder();
+                    long offset = 0;
+                    MissionLogCapturePage page;
+                    do
+                    {
+                        SurfaceReply reply = await harness.RestAsync(HttpMethod.Get, route + "&offsetBytes=" + offset + "&lengthBytes=4096&sha256=" + capture.Sha256, sessionToken: token).ConfigureAwait(false);
+                        AssertEqual(200, reply.Status);
+                        page = JsonHelper.Deserialize<MissionLogCapturePage>(reply.Body);
+                        AssertEqual(offset, page.OffsetBytes);
+                        AssertTrue(page.LengthBytes > 0 || !page.HasMore, "Each page makes progress");
+                        AssertTrue(page.LengthBytes <= 4096);
+                        AssertTrue(page.Complete);
+                        joined.Append(page.Content);
+                        offset = page.OffsetBytes + page.LengthBytes;
+                    }
+                    while (page.HasMore);
+                    AssertEqual(output, joined.ToString(), "The route preserves the long line, UTF-8 text and failure detail");
+                    AssertEqual(capture.TotalUtf8Bytes, offset);
+                    AssertEqual(capture.Sha256, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(joined.ToString()))).ToLowerInvariant());
+
+                    string foreignRoute = "/api/v1/missions/" + unrelated.Id + "/log?captureId=" + foreignCapture.CaptureId;
+                    SurfaceReply denied = await harness.RestAsync(HttpMethod.Get, foreignRoute, sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(404, denied.Status);
+                    AssertFalse(denied.Body.Contains("unrelated capture evidence", StringComparison.Ordinal));
+                    SurfaceReply operatorRead = await harness.RestAsync(HttpMethod.Get, foreignRoute).ConfigureAwait(false);
+                    AssertEqual(200, operatorRead.Status);
+                    AssertContains("unrelated capture evidence", operatorRead.Body);
+                    SurfaceReply deniedBeforeValidation = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + unrelated.Id + "/log?captureId=invalid&offsetBytes=-1", sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(404, deniedBeforeValidation.Status, "Mission scope is checked before capture validation or file access");
+
+                    foreach (string query in new[] { "&offsetBytes=not-an-integer", "&offsetBytes=-1", "&lengthBytes=0", "&lengthBytes=64001" })
+                    {
+                        SurfaceReply invalid = await harness.RestAsync(HttpMethod.Get, route + query, sessionToken: token).ConfigureAwait(false);
+                        AssertEqual(400, invalid.Status, "Invalid capture page: " + query);
+                    }
+                    SurfaceReply mismatched = await harness.RestAsync(HttpMethod.Get, route + "&sha256=" + new string('0', 64), sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(409, mismatched.Status);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("MissionLog_KeyShapedValue_IsRedactedOnEverySurface", async () =>
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))

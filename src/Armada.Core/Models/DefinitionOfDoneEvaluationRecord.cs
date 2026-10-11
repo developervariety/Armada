@@ -73,6 +73,30 @@ namespace Armada.Core.Models
         /// </summary>
         public string? OutputTail { get; set; } = null;
 
+        /// <summary>Mission-bound output capture identifier. Use the mission log capture page reader to retrieve it.</summary>
+        public string? OutputCaptureId { get; set; } = null;
+
+        /// <summary>UTF-8 bytes in the complete output retained by the bounded runner and written to the capture.</summary>
+        public long? OutputCaptureTotalUtf8Bytes { get; set; } = null;
+
+        /// <summary>SHA-256 of the complete redacted output capture.</summary>
+        public string? OutputCaptureSha256 { get; set; } = null;
+
+        /// <summary>True when the output capture was written with matching start and end markers.</summary>
+        public bool OutputCaptureAvailable { get; set; } = false;
+
+        /// <summary>Named reason when output existed but could not be written.</summary>
+        public string? OutputCaptureUnavailableReason { get; set; } = null;
+
+        /// <summary>True when the runner omitted bytes at its per-stream output limit.</summary>
+        public bool RunnerOutputTruncated { get; set; } = false;
+
+        /// <summary>UTF-8 bytes omitted by the runner's per-stream limits.</summary>
+        public long RunnerOutputOmittedBytes { get; set; } = 0;
+
+        /// <summary>True when a timeout or runner limit may have omitted process output.</summary>
+        public bool RunnerOutputIncomplete { get; set; } = false;
+
         /// <summary>
         /// Ordered, de-duplicated identifiers of the tests the runner reported as failed, or null
         /// when the failure was not a test failure. Stored as a first-class field so a later
@@ -161,6 +185,9 @@ namespace Armada.Core.Models
                 record.ExitCode = result.ExitCode;
                 record.FailureClass = result.FailureClass;
                 record.OutputTail = BoundOutput(result.OutputTail);
+                record.RunnerOutputTruncated = result.RunnerOutputTruncated;
+                record.RunnerOutputOmittedBytes = Math.Max(0, result.RunnerOutputOmittedBytes);
+                record.RunnerOutputIncomplete = result.RunnerOutputIncomplete;
                 record.FailedTestNames = result.FailedTestNames != null
                     ? new List<string>(result.FailedTestNames)
                     : null;

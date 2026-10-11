@@ -2773,6 +2773,8 @@ namespace Armada.Core.Services
                 {
                     await AppendMissionActivityAsync(mission.Id, "validation started: definition-of-done gate", token).ConfigureAwait(false);
                     DefinitionOfDoneResult dodResult = await _DefinitionOfDoneGate.EvaluateAsync(mission, dock, token, TryReadDockStartCommit(dock.Id)).ConfigureAwait(false);
+                    DefinitionOfDoneEvaluationRecord dodRecord = DefinitionOfDoneEvaluationRecord.FromResult(dodResult, dodStartedUtc);
+                    await PersistDefinitionOfDoneOutputCaptureAsync(mission, dodResult, dodRecord, token).ConfigureAwait(false);
                     // A skipped result carries Passed=true so completion accepts it. Report it as
                     // skipped before the passed branch: "validation passed" would claim a build
                     // and test run that never happened.
@@ -2797,8 +2799,7 @@ namespace Armada.Core.Services
                         await AppendMissionActivityAsync(mission.Id, "validation passed: definition-of-done gate", token).ConfigureAwait(false);
                     }
 
-                    await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock,
-                        DefinitionOfDoneEvaluationRecord.FromResult(dodResult, dodStartedUtc), token).ConfigureAwait(false);
+                    await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock, dodRecord, token).ConfigureAwait(false);
                 }
                 catch (DefinitionOfDoneGateCancelledException)
                 {
@@ -10967,6 +10968,49 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "could not record definition-of-done evaluation for mission " + mission.Id
                     + " outcome=" + record.Outcome + " exceptionType=" + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        private async Task PersistDefinitionOfDoneOutputCaptureAsync(
+            Mission mission,
+            DefinitionOfDoneResult result,
+            DefinitionOfDoneEvaluationRecord record,
+            CancellationToken token)
+        {
+            if (result.GateCommandOutput == null) return;
+            record.RunnerOutputTruncated = result.RunnerOutputTruncated;
+            record.RunnerOutputOmittedBytes = Math.Max(0, result.RunnerOutputOmittedBytes);
+            try
+            {
+                MissionLogCaptureMetadata capture = await MissionLogCaptureArtifact.WriteAsync(
+                    _Settings.LogDirectory,
+                    mission.Id,
+                    result.GateCommandOutput,
+                    result.RunnerOutputTruncated,
+                    result.RunnerOutputOmittedBytes,
+                    result.RunnerOutputIncomplete,
+                    token).ConfigureAwait(false);
+                record.OutputCaptureId = capture.CaptureId;
+                record.OutputCaptureTotalUtf8Bytes = capture.TotalUtf8Bytes;
+                record.OutputCaptureSha256 = capture.Sha256;
+                record.OutputCaptureAvailable = true;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                record.OutputCaptureAvailable = false;
+                record.OutputCaptureUnavailableReason = "capture_write_failed";
+                _Logging.Warn(_Header + "could not persist DoD output capture for mission " + mission.Id
+                    + " exceptionType=" + ex.GetType().Name);
+                await AppendMissionActivityAsync(mission.Id,
+                    "validation output capture unavailable: capture_write_failed", token).ConfigureAwait(false);
+            }
+            finally
+            {
+                result.GateCommandOutput = null;
             }
         }
 

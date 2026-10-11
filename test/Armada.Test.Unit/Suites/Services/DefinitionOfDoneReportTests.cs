@@ -193,6 +193,67 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Completion persists failed command output and the report resolves its redacted capture", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    try
+                    {
+                        LoggingModule logging = CreateLogging();
+                        MissionService missions = CreateMissionService(testDb.Driver, settings, logging,
+                            new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false });
+                        Captain captain = await CreateWorkingMissionAsync(testDb.Driver, "Worker").ConfigureAwait(false);
+                        Mission mission = (await testDb.Driver.Missions.ReadAsync(captain.CurrentMissionId!).ConfigureAwait(false))!;
+                        Dock dock = (await testDb.Driver.Docks.ReadAsync(mission.DockId!).ConfigureAwait(false))!;
+                        dock.WorktreePath = Path.Combine(settings.DocksDirectory, "capture-worktree");
+                        Directory.CreateDirectory(dock.WorktreePath);
+                        await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+                        string failingCommand = OperatingSystem.IsWindows()
+                            ? "echo CITATION OFFENDER: ExampleComponent & echo " + "to" + "ken=private-example-value" + " & exit /b 1"
+                            : "printf 'CITATION OFFENDER: ExampleComponent\\n" + "to" + "ken=private-example-value\\n'; exit 1";
+                        await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        {
+                            Name = "Captured failure profile",
+                            Scope = WorkflowProfileScopeEnum.Vessel,
+                            VesselId = mission.VesselId,
+                            BuildCommand = failingCommand,
+                            UnitTestCommand = "echo ok",
+                            Active = true,
+                            IsDefault = true
+                        }).ConfigureAwait(false);
+
+                        await missions.HandleCompletionAsync(captain).ConfigureAwait(false);
+
+                        Mission stored = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Failed, stored.Status);
+                        DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, logging, () => missions.DefinitionOfDone);
+                        MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, stored).ConfigureAwait(false);
+                        AssertEqual(RecordedHistoryStateEnum.Recorded, report.HistoryState);
+                        DefinitionOfDoneEvaluationRecord evaluation = report.LatestEvaluation!;
+                        AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Failed, evaluation.Outcome);
+                        AssertTrue(evaluation.OutputCaptureAvailable, "Completion must persist the command output before recording its capture pointer");
+                        AssertNotNull(evaluation.OutputCaptureId);
+                        AssertNotNull(evaluation.OutputCaptureSha256);
+                        AssertTrue(evaluation.OutputCaptureTotalUtf8Bytes > 0);
+                        MissionLogCapturePage page = await MissionLogCaptureArtifact.ReadPageAsync(
+                            settings.LogDirectory, mission.Id, evaluation.OutputCaptureId!, 0, 16000,
+                            evaluation.OutputCaptureSha256).ConfigureAwait(false);
+                        AssertNull(page.Error);
+                        AssertFalse(page.HasMore);
+                        AssertTrue(page.Complete);
+                        AssertContains("CITATION OFFENDER: ExampleComponent", page.Content);
+                        AssertContains("token=[REDACTED]", page.Content);
+                        AssertFalse(page.Content.Contains("private-example-value", StringComparison.Ordinal));
+                        AssertEqual(evaluation.OutputCaptureTotalUtf8Bytes!.Value, page.TotalUtf8Bytes);
+                    }
+                    finally
+                    {
+                        DeleteDirectories(settings);
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("A stored TestFail record round-trips its failing test names and overflow flag", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

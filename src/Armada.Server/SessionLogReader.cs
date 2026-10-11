@@ -4,6 +4,7 @@ namespace Armada.Server
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
@@ -39,6 +40,7 @@ namespace Armada.Server
 
             FileInfo? sidecar = Directory.GetFiles(missionLogDir, missionId + ".*.log")
                 .Select(path => new FileInfo(path))
+                .Where(file => !Regex.IsMatch(file.Name, Regex.Escape(missionId) + @"\.dod-[a-fA-F0-9]{32}\.log$", RegexOptions.CultureInvariant))
                 .Where(file => file.Exists && file.Length > 0)
                 .OrderByDescending(file => file.LastWriteTimeUtc)
                 .FirstOrDefault();
@@ -105,6 +107,21 @@ namespace Armada.Server
                 Entries = page.Entries,
                 EntriesTruncated = page.EntriesTruncated
             };
+        }
+
+        /// <summary>Read one bounded, mission-bound diagnostic capture page.</summary>
+        public static Task<MissionLogCapturePage> ReadMissionLogCapturePageAsync(
+            string logDirectory, string missionId, string captureId, long? offsetBytes, int? lengthBytes,
+            string? expectedSha256 = null, CancellationToken token = default)
+        {
+            return MissionLogCaptureArtifact.ReadPageAsync(
+                logDirectory,
+                missionId,
+                captureId,
+                offsetBytes ?? 0,
+                lengthBytes ?? MissionLogCaptureArtifact.DefaultPageLengthBytes,
+                expectedSha256,
+                token);
         }
 
         /// <summary>

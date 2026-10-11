@@ -23,10 +23,21 @@ payload is a `DefinitionOfDoneEvaluationRecord`, schema version 1:
 The record also holds the captain, dock, branch, the mission commit hash when
 known, the recovery attempt count, and start and end times. The failure output
 passes through the shared secret redactor and keeps only its last characters,
-4,000 at most including a truncation marker. On a long failure the gate's
-leading actionable-diagnostics section can fall outside that tail; the complete
-gate output remains in the mission `FailureReason`. A completion stopped by
-server shutdown records nothing.
+4,000 at most including a truncation marker. A failed command also writes its
+complete output retained by the bounded process runner to a mission-owned
+capture sidecar. The evaluation event stores the capture ID, UTF-8 byte count,
+and SHA-256 digest. Read the capture through the mission log endpoint with
+`captureId`, `offsetBytes`, and `lengthBytes`; each page is bounded to 64,000
+bytes and aligned to UTF-8 character boundaries. The capture is redacted and
+the mission scope is checked before the server reads it. A capture write
+failure is named in the record and activity log. Runner truncation, timeout,
+pipe-drain timeout, or incomplete process containment remains visible in
+`RunnerOutputTruncated`, `RunnerOutputOmittedBytes`, and
+`RunnerOutputIncomplete`. `Complete` on a capture page means the runner did not
+report possible output loss; it does not change the gate result. Each page
+returns the whole-capture digest without reading the full file again. After it
+joins all pages, the caller can hash the reconstructed bytes and compare them
+with that digest. A completion stopped by server shutdown records nothing.
 
 Cancelling a mission (the operator cancel, or a status transition to
 `Cancelled`) stops a gate still running for it: the gate's command process
@@ -101,9 +112,10 @@ as a damaged row or a manual edit, and each rejection names its reason.
 
 | Outcome | Required | Rejected |
 | --- | --- | --- |
-| `Passed` | — | a skipped reason, command label, exit code, failure class or output tail |
-| `Skipped`, `NotVerifiable`, `Cancelled` | a skipped reason | a command label, exit code, failure class or output tail |
-| `Failed`, `EvaluationError` | a command label | a skipped reason |
+| `Passed` | — | a skipped reason, command label, exit code, failure class, output tail or capture |
+| `Skipped`, `NotVerifiable`, `Cancelled` | a skipped reason | a command label, exit code, failure class, output tail or capture |
+| `Failed` | a command label | a skipped reason |
+| `EvaluationError` | a command label | a skipped reason or command output capture |
 
 The skipped reason and command label pass through the shared secret redactor
 and keep their first 1,000 characters, a truncation marker included. The same
@@ -131,6 +143,11 @@ worse than showing its times. This is an accepted limit.
   from both profiles are absent from the serialized report.
 - Persona and doc-only skips are reported without running a gate.
 - Failure output is redacted and bounded.
+- Failed command output pages reconstruct the redacted runner capture, including
+  output between selected diagnostics and the tail. The mission binding and
+  capture markers are checked; the caller can verify the whole-capture digest
+  after it joins all pages. Older evaluation events without capture metadata
+  remain readable.
 - API: the owning tenant reads the report, another tenant receives 404, and
   an unauthenticated caller receives 401.
 

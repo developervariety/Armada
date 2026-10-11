@@ -395,6 +395,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new VoyageStatusAssignmentSurfaceTests());
             runner.AddSuite(new McpMissionToolsTests());
             runner.AddSuite(new MissionOutputArtifactTests());
+            runner.AddSuite(new MissionLogCaptureArtifactTests());
             runner.AddSuite(new PromptBudgetSummaryTests());
             runner.AddSuite(new PreferredModelTierSelectorTests());
             runner.AddSuite(new CapabilityRoutingTests());

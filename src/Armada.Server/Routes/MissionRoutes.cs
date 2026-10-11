@@ -21,6 +21,7 @@ namespace Armada.Server.Routes
     using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Server.WebSocket;
+    using Armada.Server.Mcp;
     using SyslogLogging;
 
     /// <summary>
@@ -1154,12 +1155,43 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
                 string id = req.Parameters["id"];
-                Mission? mission = ctx.IsAdmin
-                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
+
+                string? captureId = QueryValueReader.Read(req, "captureId");
+                if (!String.IsNullOrWhiteSpace(captureId))
+                {
+                    string? offsetValue = QueryValueReader.Read(req, "offsetBytes");
+                    string? lengthValue = QueryValueReader.Read(req, "lengthBytes");
+                    if (offsetValue != null && !Int64.TryParse(offsetValue, out _))
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "offsetBytes must be an integer" };
+                    }
+                    if (lengthValue != null && !Int32.TryParse(lengthValue, out _))
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "lengthBytes must be an integer" };
+                    }
+                    long captureOffset = Int64.TryParse(offsetValue, out long parsedCaptureOffset) ? parsedCaptureOffset : 0;
+                    int captureLength = Int32.TryParse(lengthValue, out int parsedCaptureLength)
+                        ? parsedCaptureLength
+                        : MissionLogCaptureArtifact.DefaultPageLengthBytes;
+                    string? captureHash = QueryValueReader.Read(req, "sha256");
+                    try
+                    {
+                        MissionLogCapturePage capturePage = await SessionLogReader.ReadMissionLogCapturePageAsync(
+                            _settings.LogDirectory, mission.Id, captureId, captureOffset, captureLength, captureHash).ConfigureAwait(false);
+                        if (capturePage.Error == "capture not found") req.Http.Response.StatusCode = 404;
+                        else if (capturePage.Error != null) req.Http.Response.StatusCode = 409;
+                        return (object)capturePage;
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.ParamName + " is outside the valid capture page range" };
+                    }
+                }
 
                 bool formatted = String.Equals(QueryValueReader.Read(req, "formatted"), "true", StringComparison.OrdinalIgnoreCase);
                 int? offset = null;
@@ -1173,8 +1205,12 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Missions")
                 .WithSummary("Get log for a mission")
-                .WithDescription("Returns the session log for a mission. Supports pagination via ?lines=N (default 200) and ?offset=N query parameters.")
+                .WithDescription("Returns the session log for a mission. Supports pagination via ?lines=N and ?offset=N. A mission-bound DoD capture uses captureId, offsetBytes, lengthBytes, and optional sha256; the capture is returned in bounded UTF-8 byte pages.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("captureId", "Mission-bound diagnostic capture ID", false))
+                .WithParameter(OpenApiParameterMetadata.Query("offsetBytes", "Zero-based capture byte offset", false))
+                .WithParameter(OpenApiParameterMetadata.Query("lengthBytes", "Capture page byte length (maximum 64000)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("sha256", "Expected capture SHA-256", false))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
