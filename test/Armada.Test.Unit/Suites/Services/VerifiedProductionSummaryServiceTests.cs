@@ -316,7 +316,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, group.VerifiedLandedSlices.Unknown);
                 AssertEqual(1, group.FirstPassAcceptance.Eligible, "Rescue lineage does not change the objective denominator.");
                 AssertEqual(0, group.FirstPassAcceptance.Accepted, "A rescued chain is not first-pass accepted.");
-                AssertEqual(2, group.RescueRuntime.RescuedSlices, "Both typed roots retain their rescue classification.");
+                AssertEqual(1, group.RescueRuntime.RescuedSlices, "One objective slice remains classified as rescued across both typed roots.");
             }).ConfigureAwait(false);
 
             await RunTest("FailedOriginalVoyageKeepsRescueDeliveryUnknownWhenOneTipLacksChecks", async () =>
@@ -953,12 +953,45 @@ namespace Armada.Test.Unit.Suites.Services
         private static async Task<ProductionSummaryResult> CreateRecoveryLineageCaseAsync(TestDatabase testDb, string failure)
         {
             DateTime start = DateTime.UtcNow.Date.AddDays(-2);
-            const string rootTenantId = "lineage-tenant-root";
-            const string rootUserId = "lineage-user-root";
-            const string rootVesselId = "lineage-vessel-root";
-            string recoveryTenantId = failure == "cross-tenant" ? "lineage-tenant-recovery" : rootTenantId;
-            string recoveryUserId = failure == "cross-user" ? "lineage-user-recovery" : rootUserId;
-            string recoveryVesselId = failure == "cross-vessel" ? "lineage-vessel-recovery" : rootVesselId;
+            string rootTenantId = Armada.Core.Constants.DefaultTenantId;
+            string rootUserId = Armada.Core.Constants.DefaultUserId;
+            TenantMetadata? recoveryTenant = null;
+            if (failure == "cross-tenant")
+            {
+                recoveryTenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Lineage recovery tenant")).ConfigureAwait(false);
+            }
+            string recoveryTenantId = recoveryTenant?.Id ?? rootTenantId;
+            UserMaster? recoveryUser = null;
+            if (failure == "cross-user")
+            {
+                recoveryUser = await testDb.Driver.Users.CreateAsync(new UserMaster(rootTenantId, "lineage-recovery@example.test", "password")).ConfigureAwait(false);
+            }
+            else if (recoveryTenant != null)
+            {
+                recoveryUser = await testDb.Driver.Users.CreateAsync(new UserMaster(recoveryTenantId, "lineage-recovery@example.test", "password")).ConfigureAwait(false);
+            }
+            string recoveryUserId = recoveryUser?.Id ?? rootUserId;
+            Vessel rootVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("Lineage root vessel", "https://example.invalid/root.git")
+            {
+                TenantId = rootTenantId,
+                UserId = rootUserId
+            }).ConfigureAwait(false);
+            string rootVesselId = rootVessel.Id;
+            string recoveryVesselId = rootVesselId;
+            if (failure == "cross-vessel" || recoveryTenantId != rootTenantId || recoveryUserId != rootUserId)
+            {
+                Vessel recoveryVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("Lineage recovery vessel", "https://example.invalid/recovery.git")
+                {
+                    TenantId = recoveryTenantId,
+                    UserId = recoveryUserId
+                }).ConfigureAwait(false);
+                recoveryVesselId = recoveryVessel.Id;
+            }
+            TenantMetadata? mismatchedFactTenant = null;
+            if (failure == "scope")
+            {
+                mismatchedFactTenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Lineage mismatched fact tenant")).ConfigureAwait(false);
+            }
             Voyage original = await testDb.Driver.Voyages.CreateAsync(new Voyage
             {
                 TenantId = rootTenantId,
@@ -1073,7 +1106,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     await testDb.Driver.MissionAttemptFacts.CreateAsync(new MissionAttemptFact
                     {
-                        TenantId = "other-tenant",
+                        TenantId = mismatchedFactTenant!.Id,
                         UserId = rescue.UserId,
                         MissionId = rescue.Id,
                         VoyageId = rescue.VoyageId,
