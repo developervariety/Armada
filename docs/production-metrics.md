@@ -45,7 +45,10 @@ A verified landed slice must meet all of these rules:
 - Every linked voyage has status `Complete`, or has typed attempt facts that
   prove the full recovery lineage for each independent failed chain. Each
   terminal recovery mission must be `Complete`, have a commit, and belong to a
-  `Complete` voyage. Missing, ambiguous, cross-scope, or incomplete lineage
+  `Complete` voyage. Each recovery member keeps the root tenant, user, and
+  vessel scope; its recovery voyage can differ. Cancelled siblings with a
+  recorded attempt remain part of the evidence check. Missing, ambiguous,
+  cross-scope, or incomplete lineage
   stays unverified.
 - At least one implementation-producing mission has a commit hash and reached
   `Complete`. A read-only objective must instead have an explicit read-only

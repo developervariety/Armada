@@ -337,7 +337,7 @@ namespace Armada.Core.Services
                 List<MissionSummary> attemptedFailures = linked
                     .Where(item => item.VoyageId != null
                         && failedVoyageIds.Contains(item.VoyageId)
-                        && AttemptFactIndex.Ran(item)
+                        && (AttemptFactIndex.Ran(item) || attemptFacts.HasAttempt(item.Id))
                         && item.Status != MissionStatusEnum.Complete)
                     .ToList();
                 if (attemptedFailures.Count == 0)
@@ -1113,7 +1113,8 @@ namespace Armada.Core.Services
                 tips = new List<MissionSummary>();
                 reason = "attempt_lineage_incomplete";
                 if (!_MissionIdsByRoot.TryGetValue(rootMissionId, out HashSet<string>? memberIds)
-                    || !memberIds.Contains(rootMissionId))
+                    || !memberIds.Contains(rootMissionId)
+                    || !missionById.TryGetValue(rootMissionId, out MissionSummary rootMission))
                     return false;
 
                 Dictionary<string, AttemptLineage> lineageByMission = new Dictionary<string, AttemptLineage>(StringComparer.OrdinalIgnoreCase);
@@ -1131,7 +1132,10 @@ namespace Armada.Core.Services
                     if (facts.Any(item => !String.Equals(item.TenantId, mission.TenantId, StringComparison.OrdinalIgnoreCase)
                         || !String.Equals(item.UserId, mission.UserId, StringComparison.OrdinalIgnoreCase)
                         || !String.Equals(item.VesselId, mission.VesselId, StringComparison.OrdinalIgnoreCase)
-                        || !String.Equals(item.VoyageId, mission.VoyageId, StringComparison.OrdinalIgnoreCase)))
+                        || !String.Equals(item.VoyageId, mission.VoyageId, StringComparison.OrdinalIgnoreCase))
+                        || !String.Equals(mission.TenantId, rootMission.TenantId, StringComparison.OrdinalIgnoreCase)
+                        || !String.Equals(mission.UserId, rootMission.UserId, StringComparison.OrdinalIgnoreCase)
+                        || !String.Equals(mission.VesselId, rootMission.VesselId, StringComparison.OrdinalIgnoreCase))
                     {
                         reason = "attempt_lineage_scope_mismatch";
                         return false;

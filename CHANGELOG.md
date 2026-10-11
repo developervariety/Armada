@@ -9,6 +9,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Rescue delivery evidence rejects chains that cross tenant, user, or vessel
+  scope and includes cancelled siblings whose attempt facts remain.
+
 - A repeated model gateway timeout fails with `provider_timeout` and a
   configured endpoint label. Its one-retry budget follows the mission across
   captain assignments, and retry and failure facts retain the typed cause.
