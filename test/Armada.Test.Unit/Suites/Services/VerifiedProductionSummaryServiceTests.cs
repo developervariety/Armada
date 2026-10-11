@@ -214,6 +214,157 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, result.ExclusionsByReason["missing_landing_evidence"]);
             }).ConfigureAwait(false);
 
+            await RunTest("FailedOriginalVoyageVerifiesOnlyWhenEveryTypedRescueTipIsDelivered", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = DateTime.UtcNow.Date.AddDays(-2);
+                Voyage original = await testDb.Driver.Voyages.CreateAsync(new Voyage
+                {
+                    Title = "Original work",
+                    Status = VoyageStatusEnum.Failed,
+                    CreatedUtc = start,
+                    CompletedUtc = start.AddHours(2)
+                }).ConfigureAwait(false);
+                Voyage recovery = await testDb.Driver.Voyages.CreateAsync(new Voyage
+                {
+                    Title = "Recovery work",
+                    Status = VoyageStatusEnum.Complete,
+                    CreatedUtc = start.AddHours(2),
+                    CompletedUtc = start.AddHours(5)
+                }).ConfigureAwait(false);
+                Mission firstRoot = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    VoyageId = original.Id,
+                    Title = "First independent chain",
+                    Status = MissionStatusEnum.Failed,
+                    StartedUtc = start,
+                    CompletedUtc = start.AddHours(1)
+                }).ConfigureAwait(false);
+                Mission secondRoot = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    VoyageId = original.Id,
+                    Title = "Second independent chain",
+                    Status = MissionStatusEnum.Failed,
+                    StartedUtc = start.AddMinutes(10),
+                    CompletedUtc = start.AddHours(1)
+                }).ConfigureAwait(false);
+                Mission firstRescue = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    VoyageId = recovery.Id,
+                    ParentMissionId = firstRoot.Id,
+                    Title = "First recovery",
+                    Description = RescueMissionMarker.Marker + "\nRecover the first chain.",
+                    Status = MissionStatusEnum.Complete,
+                    CommitHash = "aaaaaaa",
+                    StartedUtc = start.AddHours(2),
+                    CompletedUtc = start.AddHours(3)
+                }).ConfigureAwait(false);
+                Mission secondRescue = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    VoyageId = recovery.Id,
+                    ParentMissionId = secondRoot.Id,
+                    Title = "Second recovery",
+                    Description = RescueMissionMarker.Marker + "\nRecover the second chain.",
+                    Status = MissionStatusEnum.Complete,
+                    CommitHash = "bbbbbbb",
+                    StartedUtc = start.AddHours(3),
+                    CompletedUtc = start.AddHours(4)
+                }).ConfigureAwait(false);
+                foreach (Mission root in new[] { firstRoot, secondRoot })
+                {
+                    await AddLineageFactAsync(testDb, root, root.Id, MissionAttemptFactTypeEnum.AttemptStarted, false, start).ConfigureAwait(false);
+                    await AddLineageFactAsync(testDb, root, root.Id, MissionAttemptFactTypeEnum.Failed, false, start.AddHours(1)).ConfigureAwait(false);
+                }
+                await AddLineageFactAsync(testDb, firstRescue, firstRoot.Id, MissionAttemptFactTypeEnum.AttemptStarted, true, start.AddHours(2)).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, firstRescue, firstRoot.Id, MissionAttemptFactTypeEnum.Landed, true, start.AddHours(4)).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, secondRescue, secondRoot.Id, MissionAttemptFactTypeEnum.AttemptStarted, true, start.AddHours(3)).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, secondRescue, secondRoot.Id, MissionAttemptFactTypeEnum.Landed, true, start.AddHours(4).AddMinutes(10)).ConfigureAwait(false);
+                await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    MissionId = firstRescue.Id,
+                    VoyageId = recovery.Id,
+                    Status = CheckRunStatusEnum.Passed,
+                    Command = "dotnet test",
+                    CommitHash = firstRescue.CommitHash,
+                    CreatedUtc = start.AddHours(3)
+                }).ConfigureAwait(false);
+                await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    MissionId = secondRescue.Id,
+                    VoyageId = recovery.Id,
+                    Status = CheckRunStatusEnum.Passed,
+                    Command = "dotnet test",
+                    CommitHash = secondRescue.CommitHash,
+                    CreatedUtc = start.AddHours(4)
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Recovered objective",
+                    Status = ObjectiveStatusEnum.Completed,
+                    VoyageIds = new List<string> { original.Id },
+                    MissionIds = new List<string> { firstRoot.Id, secondRoot.Id },
+                    CompletedUtc = start.AddHours(6),
+                    LastUpdateUtc = start.AddHours(6)
+                }).ConfigureAwait(false);
+
+                ProductionSummaryResult result = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    AuthContext.Authenticated("default", "default", true, true, "UnitTest"),
+                    new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddDays(1) }).ConfigureAwait(false);
+
+                ProductionSummaryGroup group = result.Groups.Single();
+                AssertEqual(1, group.VerifiedLandedSlices.Count, "Both independently rescued chains make one objective delivery.");
+                AssertEqual(0, group.VerifiedLandedSlices.Unknown);
+                AssertEqual(1, group.FirstPassAcceptance.Eligible, "Rescue lineage does not change the objective denominator.");
+                AssertEqual(0, group.FirstPassAcceptance.Accepted, "A rescued chain is not first-pass accepted.");
+                AssertEqual(2, group.RescueRuntime.RescuedSlices, "Both typed roots retain their rescue classification.");
+            }).ConfigureAwait(false);
+
+            await RunTest("FailedOriginalVoyageKeepsRescueDeliveryUnknownWhenOneTipLacksChecks", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = DateTime.UtcNow.Date.AddDays(-2);
+                Voyage original = await testDb.Driver.Voyages.CreateAsync(new Voyage { Status = VoyageStatusEnum.Failed, CreatedUtc = start }).ConfigureAwait(false);
+                Voyage recovery = await testDb.Driver.Voyages.CreateAsync(new Voyage { Status = VoyageStatusEnum.Complete, CreatedUtc = start.AddHours(2) }).ConfigureAwait(false);
+                Mission firstRoot = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    VoyageId = original.Id, Status = MissionStatusEnum.Failed, StartedUtc = start, CompletedUtc = start.AddHours(1)
+                }).ConfigureAwait(false);
+                Mission secondRoot = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    VoyageId = original.Id, Status = MissionStatusEnum.Failed, StartedUtc = start, CompletedUtc = start.AddHours(1)
+                }).ConfigureAwait(false);
+                Mission firstRescue = await CreateRescueTipAsync(testDb, recovery, firstRoot, "ccccccc", start.AddHours(2)).ConfigureAwait(false);
+                Mission secondRescue = await CreateRescueTipAsync(testDb, recovery, secondRoot, "ddddddd", start.AddHours(3)).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, firstRoot, firstRoot.Id, MissionAttemptFactTypeEnum.AttemptStarted, false, start).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, firstRoot, firstRoot.Id, MissionAttemptFactTypeEnum.Failed, false, start.AddHours(1)).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, secondRoot, secondRoot.Id, MissionAttemptFactTypeEnum.AttemptStarted, false, start).ConfigureAwait(false);
+                await AddLineageFactAsync(testDb, secondRoot, secondRoot.Id, MissionAttemptFactTypeEnum.Failed, false, start.AddHours(1)).ConfigureAwait(false);
+                foreach (Mission rescue in new[] { firstRescue, secondRescue })
+                {
+                    await AddLineageFactAsync(testDb, rescue, rescue.ParentMissionId!, MissionAttemptFactTypeEnum.AttemptStarted, true, start.AddHours(2)).ConfigureAwait(false);
+                    await AddLineageFactAsync(testDb, rescue, rescue.ParentMissionId!, MissionAttemptFactTypeEnum.Landed, true, start.AddHours(4)).ConfigureAwait(false);
+                }
+                await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    MissionId = firstRescue.Id, VoyageId = recovery.Id, Status = CheckRunStatusEnum.Passed,
+                    Command = "dotnet test", CommitHash = firstRescue.CommitHash, CreatedUtc = start.AddHours(3)
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Partially checked recovery", Status = ObjectiveStatusEnum.Completed,
+                    VoyageIds = new List<string> { original.Id }, MissionIds = new List<string> { firstRoot.Id, secondRoot.Id },
+                    CompletedUtc = start.AddHours(6), LastUpdateUtc = start.AddHours(6)
+                }).ConfigureAwait(false);
+
+                ProductionSummaryResult result = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    AuthContext.Authenticated("default", "default", true, true, "UnitTest"),
+                    new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddDays(1) }).ConfigureAwait(false);
+
+                AssertEqual(0, result.Groups.Single().VerifiedLandedSlices.Count);
+                AssertEqual(1, result.Groups.Single().VerifiedLandedSlices.Unknown);
+                AssertEqual(1, result.ExclusionsByReason["missing_check_evidence"]);
+            }).ConfigureAwait(false);
+
             await RunTest("UnresolvedExplicitMissionLinkCannotVerify", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -700,6 +851,21 @@ namespace Armada.Test.Unit.Suites.Services
             return mission;
         }
 
+        private static async Task<Mission> CreateRescueTipAsync(TestDatabase testDb, Voyage voyage, Mission root, string commit, DateTime startedUtc)
+        {
+            return await testDb.Driver.Missions.CreateAsync(new Mission
+            {
+                VoyageId = voyage.Id,
+                ParentMissionId = root.Id,
+                Title = "Recovery",
+                Description = RescueMissionMarker.Marker + "\nRecover the failed work.",
+                Status = MissionStatusEnum.Complete,
+                CommitHash = commit,
+                StartedUtc = startedUtc,
+                CompletedUtc = startedUtc.AddHours(1)
+            }).ConfigureAwait(false);
+        }
+
         private static async Task CreateRegressionIncidentAsync(
             IncidentService incidents, AuthContext auth, DateTime start, string title,
             RegressionPurposeEnum purpose, RegressionCauseEnum cause, string? objectiveId, string? commit, string? checkRunId)
@@ -768,6 +934,29 @@ namespace Armada.Test.Unit.Suites.Services
                 RootMissionId = mission.Id,
                 FactType = type,
                 ReasonCode = reason,
+                CreatedUtc = createdUtc
+            }).ConfigureAwait(false);
+        }
+
+        private static async Task AddLineageFactAsync(
+            TestDatabase testDb,
+            Mission mission,
+            string rootMissionId,
+            MissionAttemptFactTypeEnum type,
+            bool isRescue,
+            DateTime createdUtc)
+        {
+            await testDb.Driver.MissionAttemptFacts.CreateAsync(new MissionAttemptFact
+            {
+                TenantId = mission.TenantId,
+                UserId = mission.UserId,
+                MissionId = mission.Id,
+                VoyageId = mission.VoyageId,
+                VesselId = mission.VesselId,
+                RootMissionId = rootMissionId,
+                ParentMissionId = mission.ParentMissionId,
+                FactType = type,
+                IsRescue = isRescue,
                 CreatedUtc = createdUtc
             }).ConfigureAwait(false);
         }
