@@ -92,3 +92,12 @@ operator can inspect the reason without reading server logs.
 
 See [Branch Cleanup Policy](MERGING.md#branch-cleanup-policy) for managed
 namespaces, deletion events, and the limits of raw Git attribution.
+
+## Repeated model gateway timeouts
+
+A recognized model gateway timeout can retry once for each mission. If it
+occurs again, the mission fails with `provider_timeout` and the configured
+endpoint label. It does not requeue onto another captain on that endpoint.
+The retry and failure facts retain the same cause code. See
+[model gateway timeouts](USAGE_ROUTING.md#model-gateway-timeouts) for the
+endpoint label and retry rules.
