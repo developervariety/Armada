@@ -94,6 +94,7 @@ namespace Armada.Test.Unit.Suites.Routes
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
                 {
+                    harness.CaptainAdministration.ValidateModel = null;
                     SurfaceReply createdReply = await harness.McpAsync("armada_create_captain", new
                     {
                         name = "mux-turn-cap",
@@ -121,6 +122,7 @@ namespace Armada.Test.Unit.Suites.Routes
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
                 {
+                    harness.CaptainAdministration.ValidateModel = null;
                     Captain captain = await harness.Driver.Captains.CreateAsync(new Captain("mux-turn-cap-switch")
                     {
                         Runtime = AgentRuntimeEnum.Mux,

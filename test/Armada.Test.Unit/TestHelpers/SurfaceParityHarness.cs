@@ -67,6 +67,9 @@ namespace Armada.Test.Unit.TestHelpers
         /// <summary>Admiral double that records captain recalls.</summary>
         public ParityAdmiral Admiral { get; }
 
+        /// <summary>Shared captain write service for tests that replace runtime validation.</summary>
+        public CaptainAdministrationService CaptainAdministration { get; }
+
         /// <summary>The shared mission and voyage operations every surface is given.</summary>
         public MissionOperations Operations { get; }
 
@@ -189,6 +192,7 @@ namespace Armada.Test.Unit.TestHelpers
             CaptainAdministrationService captainAdministration = new CaptainAdministrationService(Driver, Admiral.Service.RecallCaptainAsync, logging);
             captainAdministration.StopProcess = lifecycle.HandleStopAgentAsync;
             captainAdministration.ValidateModel = lifecycle.ValidateCaptainModelAsync;
+            CaptainAdministration = captainAdministration;
             WebSocket.CaptainAdministration = captainAdministration;
 
             McpToolRegistrar.RegisterAll(
