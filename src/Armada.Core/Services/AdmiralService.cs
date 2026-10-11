@@ -1749,9 +1749,8 @@ namespace Armada.Core.Services
                 // recovery paths; preserve the captured runtime error, halt the voyage, and only
                 // stall the captain when the failure indicates the runtime itself is unavailable.
                 string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, token).ConfigureAwait(false);
-                await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, token).ConfigureAwait(false);
-
                 RuntimeFailureKindEnum failureKind = RuntimeFailureClassifier.Classify(exitCode, failureReason);
+                await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, failureKind, token).ConfigureAwait(false);
                 failureKind = await RefineRuntimeFailureAsync(mission, captain, exitCode, failureReason, failureKind, token).ConfigureAwait(false);
                 if (_Settings.CrashLoopDetection.Enabled
                     && failureKind == RuntimeFailureKindEnum.Crash
@@ -2060,7 +2059,7 @@ namespace Armada.Core.Services
                         " but no process ID is recorded; agent completion cannot be verified.";
                     _Logging.Warn(_Header + "captain " + captain.Id + " has active mission " + mission.Id +
                         " without a process id -- failing loudly instead of treating it as success");
-                    await HandleTerminalProcessExitFailureAsync(captain, mission, mission.Id, null, failureReason, token).ConfigureAwait(false);
+                    await HandleTerminalProcessExitFailureAsync(captain, mission, mission.Id, null, failureReason, RuntimeFailureClassifier.Classify(null, failureReason), token).ConfigureAwait(false);
                     return;
                 }
 
@@ -2170,7 +2169,7 @@ namespace Armada.Core.Services
                         captainId: captain.Id, missionId: missionId, token: token).ConfigureAwait(false);
 
                     string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, token).ConfigureAwait(false);
-                    await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, token).ConfigureAwait(false);
+                    await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, RuntimeFailureClassifier.Classify(exitCode, failureReason), token).ConfigureAwait(false);
                 }
             }
             else
@@ -3291,6 +3290,7 @@ namespace Armada.Core.Services
             string missionId,
             int? exitCode,
             string failureReason,
+            RuntimeFailureKindEnum failureKind,
             CancellationToken token)
         {
             // A PROVIDER SAFEGUARD BLOCK (the provider's content/cyber safety gate refused the request) follows the
@@ -3448,6 +3448,14 @@ namespace Armada.Core.Services
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                string? failureCause = modelGatewayTimeout ? "provider_timeout" : failureKind switch
+                {
+                    RuntimeFailureKindEnum.UsageLimit => "runtime_usage_limit",
+                    RuntimeFailureKindEnum.AuthFailure => "runtime_auth_failure",
+                    RuntimeFailureKindEnum.Crash when exitCode.HasValue => "runtime_crash",
+                    _ => null
+                };
+                await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, failureCause, _Logging, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "mission " + missionId + " marked failed after process exit"
                     + (hasRecoverableWork ? " (recoverable work preserved)" : ""));
 
@@ -3471,7 +3479,6 @@ namespace Armada.Core.Services
                     // implementation to clean up the captain branch (honoring policy + rescue guard).
                     await _Missions.ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
 
-                    await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, modelGatewayTimeout ? "provider_timeout" : "mission_failed", _Logging, token).ConfigureAwait(false);
                     await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (" + failureReason + ")",
                         entityType: "mission", entityId: mission.Id,
                         captainId: captain.Id, missionId: mission.Id,
