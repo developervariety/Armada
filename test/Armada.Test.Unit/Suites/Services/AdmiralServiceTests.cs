@@ -1699,7 +1699,12 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
 
-                    Captain captain = new Captain("gateway-timeout") { State = CaptainStateEnum.Idle };
+                    Captain captain = new Captain("gateway-timeout")
+                    {
+                        State = CaptainStateEnum.Idle,
+                        Runtime = AgentRuntimeEnum.Mux,
+                        RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new MuxCaptainOptions { Endpoint = "gateway-primary" })
+                    };
                     await db.Captains.CreateAsync(captain).ConfigureAwait(false);
                     Mission mission = await CreateExitMissionAsync(db, captain, 9600).ConfigureAwait(false);
                     string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
@@ -1720,7 +1725,11 @@ namespace Armada.Test.Unit.Suites.Services
                     }).ConfigureAwait(false);
                     AssertEqual(1L, retries.TotalRecords, "The re-run must be recorded once.");
 
-                    Captain? again = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    Captain again = await db.Captains.CreateAsync(new Captain("gateway-timeout-alternate")
+                    {
+                        Runtime = AgentRuntimeEnum.Mux,
+                        RuntimeOptionsJson = captain.RuntimeOptionsJson
+                    }).ConfigureAwait(false);
                     requeued.Status = MissionStatusEnum.InProgress;
                     requeued.AssignmentState = MissionAssignmentStateEnum.Assigned;
                     requeued.CaptainId = again!.Id;
@@ -1731,10 +1740,20 @@ namespace Armada.Test.Unit.Suites.Services
                     again.State = CaptainStateEnum.Working;
                     await db.Captains.UpdateAsync(again).ConfigureAwait(false);
 
-                    await service.HandleProcessExitAsync(9601, 1, captain.Id, mission.Id).ConfigureAwait(false);
+                    await service.HandleProcessExitAsync(9601, 1, again.Id, mission.Id).ConfigureAwait(false);
 
                     Mission? failed = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertEqual(MissionStatusEnum.Failed, failed!.Status, "A second gateway timeout must fail the mission.");
+                    AssertEqual(MissionStatusEnum.Failed, failed!.Status, "A second gateway timeout must fail the mission even on another captain at the same endpoint.");
+                    AssertContains("provider_timeout", failed.FailureReason ?? String.Empty, "The terminal failure names its class.");
+                    AssertContains("endpoint=gateway-primary", failed.FailureReason ?? String.Empty, "The terminal failure names the configured endpoint.");
+                    ProductionFactPage<MissionAttemptFact> facts = await db.MissionAttemptFacts.EnumerateAsync(new ProductionFactQuery
+                    {
+                        FromUtc = DateTime.UtcNow.AddMinutes(-5),
+                        ToUtc = DateTime.UtcNow.AddMinutes(1)
+                    }).ConfigureAwait(false);
+                    MissionAttemptFact? timeoutFact = facts.Items.FirstOrDefault(fact => fact.MissionId == mission.Id && fact.FactType == MissionAttemptFactTypeEnum.Failed);
+                    AssertNotNull(timeoutFact, "The terminal timeout stores a failure fact.");
+                    AssertEqual("provider_timeout", timeoutFact!.ReasonCode, "The typed timeout decision retains its stable cause.");
                     retries = await db.Events.EnumerateAsync(new EnumerationQuery
                     {
                         MissionId = mission.Id,
