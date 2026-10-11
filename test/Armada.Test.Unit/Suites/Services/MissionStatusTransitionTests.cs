@@ -156,13 +156,20 @@ namespace Armada.Test.Unit.Suites.Services
                         MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git,
                             resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                         missionService.DefinitionOfDone = new DefinitionOfDoneGate(
-                            new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, RerunFailingClassesOnce = false },
+                            new DefinitionOfDoneSettings
+                            {
+                                Enabled = true,
+                                AppliedPersonas = new List<string> { "Worker" },
+                                RunRestoreBeforeBuild = false,
+                                RerunFailingClassesOnce = false
+                            },
                             testDb.Driver, logging);
 
                         TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
                         worktreePath = entities.Dock.WorktreePath!;
                         Directory.CreateDirectory(worktreePath);
                         Mission mission = entities.Mission;
+                        mission.Persona = "Worker";
                         mission.DiffSnapshot = "diff --git a/src/Example.cs b/src/Example.cs\n+class Example {}";
                         await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
                         await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
