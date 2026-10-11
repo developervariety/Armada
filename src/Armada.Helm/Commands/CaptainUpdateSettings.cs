@@ -95,6 +95,13 @@ namespace Armada.Helm.Commands
         public int? MuxMaxTokens { get; set; }
 
         /// <summary>
+        /// Optional maximum Mux agent-loop iterations (clamped to 1-100).
+        /// </summary>
+        [Description("Mux maximum agent-loop iterations (1-100)")]
+        [CommandOption("--mux-max-turns")]
+        public int? MuxMaxTurns { get; set; }
+
+        /// <summary>
         /// Optional Mux system prompt path.
         /// </summary>
         [Description("Mux system prompt file path")]
@@ -104,7 +111,7 @@ namespace Armada.Helm.Commands
         /// <summary>
         /// Optional Mux approval policy override.
         /// </summary>
-        [Description("Mux approval policy override")]
+        [Description("Mux print approval policy (auto or deny)")]
         [CommandOption("--mux-approval-policy")]
         public string? MuxApprovalPolicy { get; set; }
     }

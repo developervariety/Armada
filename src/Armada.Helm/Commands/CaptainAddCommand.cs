@@ -46,6 +46,7 @@ namespace Armada.Helm.Commands
                     AdapterType = settings.MuxAdapterType,
                     Temperature = settings.MuxTemperature,
                     MaxTokens = settings.MuxMaxTokens,
+                    MaxTurns = settings.MuxMaxTurns,
                     SystemPromptPath = settings.MuxSystemPromptPath,
                     ApprovalPolicy = settings.MuxApprovalPolicy
                 })

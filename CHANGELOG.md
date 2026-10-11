@@ -13,6 +13,11 @@ upstream integrations and excludes changes already present at that baseline.
   configured endpoint label. Its one-retry budget follows the mission across
   captain assignments, and retry and failure facts retain the typed cause.
 
+- Mux captain options reach `mux print`: configured adapter type, temperature,
+  token limit, system prompt, and supported approval policy are emitted, and
+  `--mux-max-turns` sets a clamped per-captain iteration limit. Unsupported
+  print approval policies now stop launch with an explicit error.
+
 - Tenant creation rejects whitespace-only identifiers with a client error
   before storing a tenant or its initial user credentials.
 

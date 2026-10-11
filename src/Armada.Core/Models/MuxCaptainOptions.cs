@@ -59,6 +59,11 @@ namespace Armada.Core.Models
         public int? MaxTokens { get; set; } = null;
 
         /// <summary>
+        /// Optional maximum agent-loop iterations for a Mux print run. Values are clamped to Mux's 1-100 range.
+        /// </summary>
+        public int? MaxTurns { get; set; } = null;
+
+        /// <summary>
         /// Optional system prompt file path passed through to Mux.
         /// </summary>
         public string? SystemPromptPath
@@ -68,7 +73,7 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
-        /// Optional approval policy override (ask, auto, deny).
+        /// Optional Mux print approval policy. Print supports auto and deny; unsupported values are refused at launch.
         /// </summary>
         public string? ApprovalPolicy
         {

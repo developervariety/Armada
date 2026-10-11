@@ -410,6 +410,14 @@ move Mux, change `MUX_REF` and set `VOLTAIC_REF` and `VOLTAIC_BASE_VERSION` to
 the Voltaic release the new commit references. Then check that the patch still
 applies.
 
+Mux captains pass configured endpoint, adapter type, temperature, token limit,
+turn limit, and system prompt path to `mux print`. `--mux-max-turns` sets the
+per-captain agent-loop limit; Armada clamps it to the Mux-supported range of 1
+through 100. The base URL is passed through `OPENAI_BASE_URL`. Print mode accepts
+the `auto` and `deny` approval policies; other configured values stop launch
+with an error. With no policy configured, Armada keeps the existing `--yolo`
+default.
+
 ## Database Client Tools
 
 Backup (`armada_backup`, `GET /api/v1/backup`, WebSocket `backup`) and the

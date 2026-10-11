@@ -47,6 +47,7 @@ namespace Armada.Helm.Commands
                 if (settings.MuxAdapterType != null) muxOptions.AdapterType = settings.MuxAdapterType;
                 if (settings.MuxTemperature.HasValue) muxOptions.Temperature = settings.MuxTemperature;
                 if (settings.MuxMaxTokens.HasValue) muxOptions.MaxTokens = settings.MuxMaxTokens;
+                if (settings.MuxMaxTurns.HasValue) muxOptions.MaxTurns = settings.MuxMaxTurns;
                 if (settings.MuxSystemPromptPath != null) muxOptions.SystemPromptPath = settings.MuxSystemPromptPath;
                 if (settings.MuxApprovalPolicy != null) muxOptions.ApprovalPolicy = settings.MuxApprovalPolicy;
 

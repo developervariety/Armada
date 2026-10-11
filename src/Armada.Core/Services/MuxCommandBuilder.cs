@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System.Globalization;
     using Armada.Core.Models;
 
     /// <summary>
@@ -57,8 +58,7 @@ namespace Armada.Core.Services
         /// Console.KeyAvailable). No prompt argument is added: `mux print` reads the prompt from
         /// stdin only when the argument is absent, and the command line cannot carry a mission
         /// brief on Windows (32,767 characters). `-w` sets the tool-execution directory, `--yolo`
-        /// auto-approves tool calls, and `--config-dir`/`--endpoint` select the OpenAI-compatible
-        /// backend.
+        /// auto-approves tool calls by default, and `--config-dir`/`--endpoint` select the backend.
         /// </summary>
         /// <param name="workingDirectory">Tool-execution directory passed as -w.</param>
         /// <param name="model">Optional model override.</param>
@@ -103,7 +103,16 @@ namespace Armada.Core.Services
             args.Add("-w");
             args.Add(workingDirectory);
 
-            args.Add("--yolo");
+            string? approvalPolicy = GetPrintApprovalPolicy(options);
+            if (approvalPolicy == null)
+            {
+                args.Add("--yolo");
+            }
+            else
+            {
+                args.Add("--approval-policy");
+                args.Add(approvalPolicy);
+            }
 
             if (showThinking)
             {
@@ -183,6 +192,55 @@ namespace Armada.Core.Services
                 args.Add("--model");
                 args.Add(model!);
             }
+
+            if (options == null) return;
+
+            if (!String.IsNullOrWhiteSpace(options.AdapterType))
+            {
+                string adapterType = options.AdapterType!.Trim().ToLowerInvariant();
+                if (adapterType != "ollama" && adapterType != "openai" && adapterType != "vllm" && adapterType != "openai-compatible")
+                    throw new InvalidOperationException("Mux print does not support adapter type '" + options.AdapterType + "'.");
+                args.Add("--adapter-type");
+                args.Add(adapterType);
+            }
+
+            if (options.Temperature.HasValue)
+            {
+                if (options.Temperature.Value < 0 || options.Temperature.Value > 2 || Double.IsNaN(options.Temperature.Value))
+                    throw new InvalidOperationException("Mux print temperature must be between 0 and 2.");
+                args.Add("--temperature");
+                args.Add(options.Temperature.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (options.MaxTokens.HasValue)
+            {
+                if (options.MaxTokens.Value < 1)
+                    throw new InvalidOperationException("Mux print max tokens must be a positive integer.");
+                args.Add("--max-tokens");
+                args.Add(options.MaxTokens.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (options.MaxTurns.HasValue)
+            {
+                args.Add("--max-turns");
+                args.Add(Math.Clamp(options.MaxTurns.Value, 1, 100).ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (!String.IsNullOrWhiteSpace(options.SystemPromptPath))
+            {
+                args.Add("--system-prompt");
+                args.Add(options.SystemPromptPath!);
+            }
+        }
+
+        private static string? GetPrintApprovalPolicy(MuxCaptainOptions? options)
+        {
+            if (String.IsNullOrWhiteSpace(options?.ApprovalPolicy)) return null;
+
+            string policy = options!.ApprovalPolicy!.Trim().ToLowerInvariant();
+            if (policy == "auto" || policy == "deny") return policy;
+
+            throw new InvalidOperationException("Mux print supports only approval policies 'auto' and 'deny'; configured policy '" + options.ApprovalPolicy + "' cannot be used.");
         }
 
         #endregion
