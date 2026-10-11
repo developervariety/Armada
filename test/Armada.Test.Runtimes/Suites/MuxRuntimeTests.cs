@@ -69,7 +69,10 @@ namespace Armada.Test.Runtimes.Suites
         /// Launch a real process through StartAsync with the mission launch plan, and read back the exact argv and
         /// environment it received. The executable is a probe script standing in for the Mux CLI.
         /// </summary>
-        private static async Task<MuxLaunch> LaunchWithMissionPlanAsync(string scratch, string? configDirectory)
+        private static async Task<MuxLaunch> LaunchWithMissionPlanAsync(
+            string scratch,
+            string? configDirectory,
+            MuxCaptainOptions? captainOptions = null)
         {
             string output = Path.Combine(scratch, "probe");
             string probe = Path.Combine(scratch, "mux");
@@ -89,7 +92,7 @@ namespace Armada.Test.Runtimes.Suites
 
             Captain captain = new Captain("mux-launch-captain", AgentRuntimeEnum.Mux)
             {
-                RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new MuxCaptainOptions { ConfigDirectory = configDirectory })
+                RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(captainOptions ?? new MuxCaptainOptions { ConfigDirectory = configDirectory })
             };
 
             LoggingModule logging = new LoggingModule();
@@ -334,6 +337,37 @@ namespace Armada.Test.Runtimes.Suites
                     {
                         try { Directory.Delete(scratch, true); } catch { }
                     }
+                }
+            });
+
+            await RunTest("A Mission Launch Forwards Advanced Captain Options To The Real Process", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                string scratch = Path.Combine(Path.GetTempPath(), "armada_mux_options_launch_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(scratch);
+                try
+                {
+                    const string baseUrl = "https://mux-provider.example/v1";
+                    MuxLaunch launch = await LaunchWithMissionPlanAsync(scratch, null, new MuxCaptainOptions
+                    {
+                        ConfigDirectory = "/captain/mux-config",
+                        MaxTurns = 17,
+                        ApprovalPolicy = "deny",
+                        BaseUrl = baseUrl
+                    }).ConfigureAwait(false);
+
+                    AssertEqual("print", launch.Arguments[0], "single-shot print run");
+                    AssertFlagValue(launch.Arguments, "--max-turns", "17");
+                    AssertFlagValue(launch.Arguments, "--approval-policy", "deny");
+                    AssertFalse(launch.Arguments.Contains("--yolo"), "an explicit deny approval policy does not also enable --yolo");
+                    AssertEqual("/captain/mux-config", EffectiveConfigDirectory(launch.Arguments, launch.Environment),
+                        "the captain config directory reaches the launched process");
+                    AssertEqual(baseUrl, launch.Environment["OPENAI_BASE_URL"], "the base URL reaches the launched process environment");
+                }
+                finally
+                {
+                    try { Directory.Delete(scratch, true); } catch { }
                 }
             });
         }
