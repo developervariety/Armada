@@ -1073,6 +1073,52 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, disagreements.Count,
                     disagreements.Count + " of " + domain.Count + " cases disagree:" + Environment.NewLine
                     + String.Join(Environment.NewLine, disagreements.Take(40)));
+
+                foreach (CoverageParityCase parityCase in new[]
+                {
+                    new CoverageParityCase { ModelList = "listed-high" },
+                    new CoverageParityCase { ModelList = "listed-low" },
+                    new CoverageParityCase { ModelList = "all-unlisted" },
+                    new CoverageParityCase { ModelList = "empty-lists" }
+                })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        CoverageParityVerdict verdict = await EvaluateCoverageParityAsync(testDb, parityCase).ConfigureAwait(false);
+                        AssertEqual(verdict.PreviewCoverable, verdict.DispatchAssigns,
+                            parityCase.ModelList + " preview coverage and live assignment agree");
+                        if (parityCase.ModelList == "listed-high")
+                        {
+                            AssertTrue(verdict.PreviewEligibleCaptainIds.SequenceEqual(new[] { verdict.HighCaptainId }),
+                                "the preview admits the listed captain and excludes the unlisted Idle captain");
+                            AssertEqual(verdict.HighCaptainId, verdict.AssignedCaptainId,
+                                "live assignment selects the listed captain");
+                        }
+                        else if (parityCase.ModelList == "listed-low")
+                        {
+                            AssertTrue(verdict.PreviewEligibleCaptainIds.SequenceEqual(new[] { verdict.LowCaptainId }),
+                                "the preview admits the listed Standard captain and excludes the unlisted Idle captain");
+                            AssertEqual(verdict.LowCaptainId, verdict.AssignedCaptainId,
+                                "live assignment selects the listed Standard captain");
+                        }
+                        else if (parityCase.ModelList == "all-unlisted")
+                        {
+                            AssertEqual(0, verdict.PreviewEligibleCaptainIds.Count,
+                                "no configured captain model is on a persona list");
+                            AssertEqual("required_role_has_no_captain", verdict.PreviewIssueCode,
+                                "the actual dispatch preview reports the uncovered role");
+                            AssertEqual(null, verdict.AssignedCaptainId,
+                                "live assignment leaves the mission unassigned when every model is unlisted");
+                        }
+                        else
+                        {
+                            AssertEqual(2, verdict.PreviewEligibleCaptainIds.Count,
+                                "empty lists retain the legacy coverage behavior");
+                            AssertTrue(verdict.AssignedCaptainId == verdict.HighCaptainId || verdict.AssignedCaptainId == verdict.LowCaptainId,
+                                "live assignment retains at least one legacy candidate");
+                        }
+                    }
+                }
             }).ConfigureAwait(false);
 
             await RunTest("An objective with no preflight block is refused as preflight-incomplete", async () =>
@@ -1581,6 +1627,17 @@ namespace Armada.Test.Unit.Suites.Services
             else if (parityCase.Routing == "admit-high")
                 ApplyRoutes(settings, new List<string> { high.Id }, new List<string>());
 
+            if (parityCase.ModelList != "off")
+            {
+                ApplyRoutes(settings, new List<string> { high.Id, low.Id }, new List<string>());
+                PersonaModelSettings models = new PersonaModelSettings();
+                if (parityCase.ModelList == "listed-high") models.Default.Add(high.Model!);
+                else if (parityCase.ModelList == "listed-low") models.Default.Add(low.Model!);
+                else if (parityCase.ModelList == "all-unlisted") models.Default.Add("unused-persona-model");
+                else if (parityCase.ModelList != "empty-lists") throw new InvalidOperationException("Unknown persona model list case: " + parityCase.ModelList);
+                settings.ModelTier.UsageRouting.PersonaModels["Worker"] = models;
+            }
+
             List<CaptainAssignmentOverride>? overrides = null;
             if (parityCase.Request == "override-high")
                 overrides = new List<CaptainAssignmentOverride> { new CaptainAssignmentOverride("Worker", high.Id, null) };
@@ -1605,6 +1662,8 @@ namespace Armada.Test.Unit.Suites.Services
                     new MissionDescription("Implement", "Change code") { Mode = "Implementation", PreferredModel = parityCase.Pin }
                 }).ConfigureAwait(false);
             bool previewCoverable = preview.RequiredRoles.Single(role => role.Persona == "Worker").EligibleConfiguredCaptainIds.Count > 0;
+            List<string> previewEligibleCaptainIds = preview.RequiredRoles.Single(role => role.Persona == "Worker").EligibleConfiguredCaptainIds;
+            string? previewIssueCode = preview.Issues.FirstOrDefault(issue => issue.Code == "required_role_has_no_captain")?.Code;
 
             Voyage voyage = new Voyage("coverage parity", "assignment oracle");
             voyage.TenantId = harness.Vessel.TenantId;
@@ -1643,7 +1702,12 @@ namespace Armada.Test.Unit.Suites.Services
             return new CoverageParityVerdict
             {
                 PreviewCoverable = previewCoverable,
-                DispatchAssigns = !String.IsNullOrEmpty(stored?.CaptainId)
+                DispatchAssigns = !String.IsNullOrEmpty(stored?.CaptainId),
+                PreviewEligibleCaptainIds = previewEligibleCaptainIds,
+                PreviewIssueCode = previewIssueCode,
+                AssignedCaptainId = stored?.CaptainId,
+                HighCaptainId = high.Id,
+                LowCaptainId = low.Id
             };
         }
 
@@ -1651,6 +1715,16 @@ namespace Armada.Test.Unit.Suites.Services
         {
             public bool PreviewCoverable { get; set; }
             public bool DispatchAssigns { get; set; }
+            /// <summary>Configured captain IDs the actual dispatch preview admits for the role.</summary>
+            public List<string> PreviewEligibleCaptainIds { get; set; } = new List<string>();
+            /// <summary>Blocking role issue returned by the actual dispatch preview, when present.</summary>
+            public string? PreviewIssueCode { get; set; }
+            /// <summary>Captain ID stored by the real assignment service, or null when it assigns none.</summary>
+            public string? AssignedCaptainId { get; set; }
+            /// <summary>Premium captain ID in the parity fixture.</summary>
+            public string HighCaptainId { get; set; } = String.Empty;
+            /// <summary>Standard captain ID in the parity fixture.</summary>
+            public string LowCaptainId { get; set; } = String.Empty;
         }
 
         private sealed class CoverageParityCase
@@ -1660,6 +1734,11 @@ namespace Armada.Test.Unit.Suites.Services
             public string Request { get; set; } = "none";
             public string? Pin { get; set; } = null;
             public string Routing { get; set; } = "off";
+            /// <summary>
+            /// Persona model-list shape: off, listed-high, listed-low, all-unlisted, or empty-lists.
+            /// The all-unlisted shape names a model that no configured captain runs.
+            /// </summary>
+            public string ModelList { get; set; } = "off";
 
             public string Label => "high=" + HighState + " low=" + Low + " request=" + Request
                 + " pin=" + (Pin ?? "none") + " routing=" + Routing;
