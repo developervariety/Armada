@@ -68,7 +68,21 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
                 string body = req.Http.Request.DataAsString;
-                TenantMetadata? tenant = JsonSerializer.Deserialize<TenantMetadata>(body, _jsonOptions);
+                TenantMetadata? tenant;
+                try
+                {
+                    tenant = JsonSerializer.Deserialize<TenantMetadata>(body, _jsonOptions);
+                }
+                catch (JsonException)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return (object)new { Error = "Invalid request body" };
+                }
+                catch (ArgumentException)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return (object)new { Error = "Invalid request body" };
+                }
                 if (tenant == null) { req.Http.Response.StatusCode = 400; return (object)new { Error = "Invalid request body" }; }
                 tenant.IsProtected = false;
                 tenant = await _database.Tenants.CreateAsync(tenant).ConfigureAwait(false);
@@ -101,7 +115,21 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
                 string body = req.Http.Request.DataAsString;
-                TenantMetadata? tenant = JsonSerializer.Deserialize<TenantMetadata>(body, _jsonOptions);
+                TenantMetadata? tenant;
+                try
+                {
+                    tenant = JsonSerializer.Deserialize<TenantMetadata>(body, _jsonOptions);
+                }
+                catch (JsonException)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return (object)new { Error = "Invalid request body" };
+                }
+                catch (ArgumentException)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return (object)new { Error = "Invalid request body" };
+                }
                 if (tenant == null) { req.Http.Response.StatusCode = 400; return (object)new { Error = "Invalid request body" }; }
                 TenantMetadata? existing = await _database.Tenants.ReadAsync(req.Parameters["id"]).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return (object)new { Error = "Not found" }; }

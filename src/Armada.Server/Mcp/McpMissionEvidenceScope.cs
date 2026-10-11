@@ -99,7 +99,8 @@ namespace Armada.Server.Mcp
                     && objective.VoyageIds.Contains(mission.VoyageId, StringComparer.Ordinal));
         }
 
-        private static bool SameOwner(AuthContext caller, string? tenantId, string? userId)
+        /// <summary>Check mission-record ownership without traversing the caller's report chain.</summary>
+        public static bool SameOwner(AuthContext caller, string? tenantId, string? userId)
         {
             return OwnershipPolicy.SameTenant(tenantId, OwnershipPolicy.TenantOf(caller))
                 && String.Equals(OwnershipPolicy.UserOfRecord(userId), OwnershipPolicy.UserOf(caller), StringComparison.Ordinal);

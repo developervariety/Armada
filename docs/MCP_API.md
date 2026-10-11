@@ -643,6 +643,10 @@ report bodies. Pass `includeDescription=true` to read the full stored brief
 when the rescue scope excerpt omits original instructions or diagnostics.
 Unrelated and cross-owner mission IDs return not found.
 
+REST mission and voyage reads use these same caller scopes. A mission token
+does not gain broader reads from its owner's administrator role. Voyage
+summaries and embedded mission details exclude rows outside the caller's scope.
+
 `get_objective` returns the full objective that directly links the caller's
 mission or voyage, and its directly linked parent objective. Both must have the
 same tenant and owner. Unrelated records return not found. Operator reads retain

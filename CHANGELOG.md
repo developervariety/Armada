@@ -9,6 +9,17 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Tenant creation rejects whitespace-only identifiers with a client error
+  before storing a tenant or its initial user credentials.
+
+- REST mission and voyage reads enforce the shared mission evidence scope
+  before returning metadata, counts, or embedded details, including tokens
+  whose owners are administrators.
+
+- Rescue finding lists retain unbulleted severity findings and test gaps.
+  Completed criteria stay out of the list when their descriptions contain
+  phrases such as "NOT DELIVERED".
+
 - Dock boundary hook tests detect POSIX shells with a portable command and
   report unavailable tools as named skips instead of passing without execution.
 

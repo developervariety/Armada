@@ -26,8 +26,18 @@ namespace Armada.Core.Database
             {
                 string scope = "voyage_id = @voyage";
                 Add(command, "@voyage", voyageId);
-                if (tenantId != null) { scope += " AND tenant_id = @tenant"; Add(command, "@tenant", tenantId); }
-                if (userId != null) { scope += " AND user_id = @user"; Add(command, "@user", userId); }
+                if (tenantId != null)
+                {
+                    scope += " AND (tenant_id = @tenant OR (tenant_id IS NULL AND @tenant = @defaultTenant))";
+                    Add(command, "@tenant", tenantId);
+                    Add(command, "@defaultTenant", Constants.DefaultTenantId);
+                }
+                if (userId != null)
+                {
+                    scope += " AND (user_id = @user OR (user_id IS NULL AND @user = @defaultUser))";
+                    Add(command, "@user", userId);
+                    Add(command, "@defaultUser", Constants.DefaultUserId);
+                }
                 Add(command, "@offset", ((long)pageNumber - 1) * pageSize);
                 Add(command, "@limit", pageSize);
                 string count = provider == DatabaseTypeEnum.SqlServer ? "COUNT_BIG(*)" : "COUNT(*)";

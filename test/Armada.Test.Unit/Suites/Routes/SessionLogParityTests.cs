@@ -10,6 +10,7 @@ namespace Armada.Test.Unit.Suites.Routes
     using Armada.Core;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Recovery;
     using Armada.Core.Services;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -33,6 +34,48 @@ namespace Armada.Test.Unit.Suites.Routes
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("TenantCreate_WhitespaceId_IsRejectedWithoutCreatingRows", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    EnumerationQuery query = new EnumerationQuery();
+                    long tenantsBefore = (await harness.Driver.Tenants.EnumerateAsync(query).ConfigureAwait(false)).TotalRecords;
+                    long usersBefore = (await harness.Driver.Users.EnumerateAsync(query).ConfigureAwait(false)).TotalRecords;
+                    long credentialsBefore = (await harness.Driver.Credentials.EnumerateAsync(query).ConfigureAwait(false)).TotalRecords;
+
+                    object[] invalidRequests =
+                    {
+                        new { Id = " ", Name = "ASCII space" },
+                        new { Id = "\t ", Name = "ASCII whitespace" },
+                        new { Id = "\u00a0", Name = "No-break space" },
+                        new { Id = "\u2003", Name = "Em space" },
+                        new { Id = "", Name = "Empty ID" },
+                        new { Id = (string?)null, Name = "Null ID" }
+                    };
+                    foreach (object invalidRequest in invalidRequests)
+                    {
+                        SurfaceReply rejected = await harness.RestAsync(HttpMethod.Post, "/api/v1/tenants", invalidRequest).ConfigureAwait(false);
+                        AssertEqual(400, rejected.Status, rejected.Body);
+                        AssertEqual(tenantsBefore, (await harness.Driver.Tenants.EnumerateAsync(query).ConfigureAwait(false)).TotalRecords);
+                        AssertEqual(usersBefore, (await harness.Driver.Users.EnumerateAsync(query).ConfigureAwait(false)).TotalRecords);
+                        AssertEqual(credentialsBefore, (await harness.Driver.Credentials.EnumerateAsync(query).ConfigureAwait(false)).TotalRecords);
+                    }
+
+                    SurfaceReply generatedId = await harness.RestAsync(HttpMethod.Post, "/api/v1/tenants", new { Name = "Generated ID tenant" }).ConfigureAwait(false);
+                    AssertEqual(201, generatedId.Status, generatedId.Body);
+                    SurfaceReply validId = await harness.RestAsync(HttpMethod.Post, "/api/v1/tenants", new { Id = "ten_route_valid", Name = "Valid ID tenant" }).ConfigureAwait(false);
+                    AssertEqual(201, validId.Status, validId.Body);
+                    AssertEqual(tenantsBefore + 2, (await harness.Driver.Tenants.EnumerateAsync(query).ConfigureAwait(false)).TotalRecords);
+                    UserMaster? validTenantAdmin = await harness.Driver.Users.ReadByEmailAsync("ten_route_valid", Constants.DefaultUserEmail).ConfigureAwait(false);
+                    AssertNotNull(validTenantAdmin, "The accepted valid ID owns its seeded admin user");
+                    AssertEqual("ten_route_valid", validTenantAdmin!.TenantId);
+
+                    SurfaceReply updateWhitespace = await harness.RestAsync(HttpMethod.Put, "/api/v1/tenants/ten_route_valid", new { Id = "\t  ", Name = "Invalid update" }).ConfigureAwait(false);
+                    AssertEqual(400, updateWhitespace.Status, updateWhitespace.Body);
+                    AssertEqual("Valid ID tenant", (await harness.Driver.Tenants.ReadAsync("ten_route_valid").ConfigureAwait(false))!.Name);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("MissionLog_AdminOwnedMissionToken_CannotReadUnrelatedLog", async () =>
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
@@ -57,6 +100,192 @@ namespace Armada.Test.Unit.Suites.Routes
                     AssertContains("unrelated private evidence", operatorRead.Body);
                     SurfaceReply invalid = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + own.Id + "/log", sessionToken: "invalid-session").ConfigureAwait(false);
                     AssertEqual(401, invalid.Status, "An invalid token must not fall back to the harness operator key");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("MissionReads_AdminOwnedMissionToken_StaysWithinMissionAndVoyageScope", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    Voyage ownVoyage = await harness.Driver.Voyages.CreateAsync(new Voyage("mission read scope")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+                    Voyage foreignVoyage = await harness.Driver.Voyages.CreateAsync(new Voyage("foreign mission read scope")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+
+                    Mission dependency = await CreateMissionAsync(harness).ConfigureAwait(false);
+                    Mission parent = await CreateMissionAsync(harness).ConfigureAwait(false);
+                    Mission anchor = await CreateMissionAsync(harness).ConfigureAwait(false);
+                    anchor.VoyageId = ownVoyage.Id;
+                    anchor.DependsOnMissionId = dependency.Id;
+                    anchor.ParentMissionId = parent.Id;
+                    await harness.Driver.Missions.UpdateAsync(anchor).ConfigureAwait(false);
+                    Mission sibling = await CreateMissionAsync(harness).ConfigureAwait(false);
+                    sibling.VoyageId = ownVoyage.Id;
+                    await harness.Driver.Missions.UpdateAsync(sibling).ConfigureAwait(false);
+                    Mission unrelated = await CreateMissionAsync(harness).ConfigureAwait(false);
+                    unrelated.VoyageId = foreignVoyage.Id;
+                    await harness.Driver.Missions.UpdateAsync(unrelated).ConfigureAwait(false);
+                    UserMaster otherOwner = await harness.Driver.Users.CreateAsync(new UserMaster(Constants.DefaultTenantId, "mission-read-other@example.com", "password")).ConfigureAwait(false);
+                    Mission otherOwnerMission = await harness.Driver.Missions.CreateAsync(new Mission("other voyage member")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = otherOwner.Id,
+                        VoyageId = ownVoyage.Id,
+                        Status = MissionStatusEnum.Failed
+                    }).ConfigureAwait(false);
+                    Voyage crossOwnerVoyage = await harness.Driver.Voyages.CreateAsync(new Voyage("cross-owner linked voyage")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = otherOwner.Id
+                    }).ConfigureAwait(false);
+                    Mission crossOwnerAnchor = await harness.Driver.Missions.CreateAsync(new Mission("cross-owner voyage anchor")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        VoyageId = crossOwnerVoyage.Id
+                    }).ConfigureAwait(false);
+                    TenantMetadata foreignTenant = await harness.Driver.Tenants.CreateAsync(new TenantMetadata("mission-read-foreign-tenant")).ConfigureAwait(false);
+                    UserMaster foreignTenantOwner = await harness.Driver.Users.CreateAsync(new UserMaster(foreignTenant.Id, "mission-read-foreign-tenant@example.com", "password")).ConfigureAwait(false);
+                    Mission foreignTenantMission = await harness.Driver.Missions.CreateAsync(new Mission("foreign tenant member of same voyage")
+                    {
+                        TenantId = foreignTenant.Id,
+                        UserId = foreignTenantOwner.Id,
+                        VoyageId = ownVoyage.Id,
+                        Status = MissionStatusEnum.Failed
+                    }).ConfigureAwait(false);
+                    Vessel rescueVessel = await harness.Driver.Vessels.CreateAsync(new Vessel("mission-read-rescue", "https://example.invalid/mission-read-rescue.git")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+                    Mission failedParent = await harness.Driver.Missions.CreateAsync(new Mission("rescue chain failed parent")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        VesselId = rescueVessel.Id,
+                        Status = MissionStatusEnum.Failed
+                    }).ConfigureAwait(false);
+                    Mission rescueRoot = await harness.Driver.Missions.CreateAsync(new Mission("rescue root")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        VoyageId = ownVoyage.Id,
+                        VesselId = rescueVessel.Id,
+                        ParentMissionId = failedParent.Id,
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+                    Mission rescueStage = await harness.Driver.Missions.CreateAsync(new Mission("rescue review")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        VoyageId = ownVoyage.Id,
+                        VesselId = rescueVessel.Id,
+                        DependsOnMissionId = rescueRoot.Id,
+                        Description = RescueMissionMarker.Marker
+                    }).ConfigureAwait(false);
+
+                    string token = harness.CreateMissionToken(Constants.DefaultTenantId, Constants.DefaultUserId, anchor.Id);
+                    foreach (string collectionRoute in new[]
+                    {
+                        "/api/v1/missions",
+                        "/api/v1/missions/summaries",
+                        "/api/v1/missions/history",
+                        "/api/v1/voyages"
+                    })
+                    {
+                        SurfaceReply deniedCollection = await harness.RestAsync(HttpMethod.Get, collectionRoute, sessionToken: token).ConfigureAwait(false);
+                        AssertEqual(403, deniedCollection.Status, "Mission credentials cannot enumerate an unbounded collection: " + collectionRoute);
+                    }
+                    foreach (string collectionRoute in new[]
+                    {
+                        "/api/v1/missions/enumerate",
+                        "/api/v1/missions/summaries/enumerate",
+                        "/api/v1/voyages/enumerate"
+                    })
+                    {
+                        SurfaceReply deniedCollection = await harness.RestAsync(HttpMethod.Post, collectionRoute, new { }, token).ConfigureAwait(false);
+                        AssertEqual(403, deniedCollection.Status, "Mission credentials cannot enumerate an unbounded collection: " + collectionRoute);
+                    }
+                    foreach (Mission allowedMission in new[] { anchor, dependency, parent, sibling })
+                    {
+                        SurfaceReply allowed = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + allowedMission.Id, sessionToken: token).ConfigureAwait(false);
+                        AssertEqual(200, allowed.Status, "The mission token may read its " + (allowedMission.Id == anchor.Id ? "anchor" : "linked report") + ": " + allowed);
+                        AssertContains(allowedMission.Id, allowed.Body);
+                    }
+
+                    SurfaceReply deniedMission = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + unrelated.Id, sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(404, deniedMission.Status, "The token owner's administrator role does not widen mission detail reads");
+                    AssertFalse(deniedMission.Body.Contains(unrelated.Title, StringComparison.Ordinal));
+                    SurfaceReply deniedSameVoyageOwner = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + otherOwnerMission.Id, sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(404, deniedSameVoyageOwner.Status, "A same-voyage mission from another user stays outside the token scope");
+                    SurfaceReply deniedSameVoyageTenant = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + foreignTenantMission.Id, sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(404, deniedSameVoyageTenant.Status, "A same-voyage mission from another tenant stays outside the token scope");
+
+                    string rescueToken = harness.CreateMissionToken(Constants.DefaultTenantId, Constants.DefaultUserId, rescueStage.Id);
+                    SurfaceReply rescueParentRead = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + failedParent.Id, sessionToken: rescueToken).ConfigureAwait(false);
+                    AssertEqual(200, rescueParentRead.Status, "A final rescue stage keeps the shared rescue-chain read contract");
+
+                    SurfaceReply ownVoyageRead = await harness.RestAsync(HttpMethod.Get, "/api/v1/voyages/" + ownVoyage.Id, sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(200, ownVoyageRead.Status, "The token may read its anchor voyage: " + ownVoyageRead);
+                    AssertContains(anchor.Id, ownVoyageRead.Body);
+                    AssertFalse(ownVoyageRead.Body.Contains(otherOwnerMission.Id, StringComparison.Ordinal), "A mission token cannot widen the associated mission list to other owners");
+
+                    SurfaceReply ownVoyageSummary = await harness.RestAsync(HttpMethod.Get, "/api/v1/voyages/" + ownVoyage.Id + "/mission-summary", sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(200, ownVoyageSummary.Status, "The token may read counts for its anchor voyage: " + ownVoyageSummary);
+                    AssertContains("\"Failed\":2", ownVoyageSummary.Body, "Voyage counts include only missions owned by the token principal");
+
+                    SurfaceReply deniedVoyage = await harness.RestAsync(HttpMethod.Get, "/api/v1/voyages/" + foreignVoyage.Id, sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(404, deniedVoyage.Status, "The token cannot read another voyage owned by its administrator principal");
+                    AssertFalse(deniedVoyage.Body.Contains(foreignVoyage.Title, StringComparison.Ordinal));
+                    SurfaceReply deniedVoyageSummary = await harness.RestAsync(HttpMethod.Get, "/api/v1/voyages/" + foreignVoyage.Id + "/mission-summary", sessionToken: token).ConfigureAwait(false);
+                    AssertEqual(404, deniedVoyageSummary.Status, "The token cannot read counts for another voyage owned by its administrator principal");
+                    string crossOwnerToken = harness.CreateMissionToken(Constants.DefaultTenantId, Constants.DefaultUserId, crossOwnerAnchor.Id);
+                    SurfaceReply deniedCrossOwnerVoyage = await harness.RestAsync(HttpMethod.Get, "/api/v1/voyages/" + crossOwnerVoyage.Id, sessionToken: crossOwnerToken).ConfigureAwait(false);
+                    AssertEqual(404, deniedCrossOwnerVoyage.Status, "A mission cannot use a voyage owned by another user in the same tenant");
+
+                    SurfaceReply operatorRead = await harness.RestAsync(HttpMethod.Get, "/api/v1/missions/" + unrelated.Id).ConfigureAwait(false);
+                    AssertEqual(200, operatorRead.Status, "A request without a mission token keeps administrator scope");
+                    SurfaceReply operatorVoyageRead = await harness.RestAsync(HttpMethod.Get, "/api/v1/voyages/" + foreignVoyage.Id).ConfigureAwait(false);
+                    AssertEqual(200, operatorVoyageRead.Status, "A request without a mission token keeps administrator voyage scope");
+
+                    Voyage legacyVoyage = await harness.Driver.Voyages.CreateAsync(new Voyage("legacy default-owned voyage")
+                    {
+                        TenantId = null,
+                        UserId = null
+                    }).ConfigureAwait(false);
+                    Mission legacyMember = await harness.Driver.Missions.CreateAsync(new Mission("legacy default-owned member")
+                    {
+                        TenantId = null,
+                        UserId = null,
+                        VoyageId = legacyVoyage.Id,
+                        Status = MissionStatusEnum.Failed
+                    }).ConfigureAwait(false);
+                    Mission legacyAnchor = await harness.Driver.Missions.CreateAsync(new Mission("legacy default-owned anchor")
+                    {
+                        TenantId = null,
+                        UserId = null,
+                        VoyageId = legacyVoyage.Id,
+                        Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+                    Voyage? storedLegacyVoyage = await harness.Driver.Voyages.ReadAsync(legacyVoyage.Id).ConfigureAwait(false);
+                    Mission? storedLegacyMember = await harness.Driver.Missions.ReadAsync(legacyMember.Id).ConfigureAwait(false);
+                    AssertNull(storedLegacyVoyage!.TenantId, "The legacy voyage fixture has a null tenant");
+                    AssertNull(storedLegacyVoyage.UserId, "The legacy voyage fixture has a null user");
+                    AssertNull(storedLegacyMember!.TenantId, "The legacy mission fixture has a null tenant");
+                    AssertNull(storedLegacyMember.UserId, "The legacy mission fixture has a null user");
+                    string legacyToken = harness.CreateMissionToken(Constants.DefaultTenantId, Constants.DefaultUserId, legacyAnchor.Id);
+                    SurfaceReply legacyVoyageRead = await harness.RestAsync(HttpMethod.Get, "/api/v1/voyages/" + legacyVoyage.Id, sessionToken: legacyToken).ConfigureAwait(false);
+                    AssertEqual(200, legacyVoyageRead.Status, "Null owner fields resolve to the default owner for an anchor voyage");
+                    AssertContains(legacyMember.Id, legacyVoyageRead.Body, "The voyage detail keeps null-owner missions of the default owner");
+                    SurfaceReply legacyVoyageSummary = await harness.RestAsync(HttpMethod.Get, "/api/v1/voyages/" + legacyVoyage.Id + "/mission-summary", sessionToken: legacyToken).ConfigureAwait(false);
+                    AssertEqual(200, legacyVoyageSummary.Status, "The token may read counts for a null-owner anchor voyage");
+                    AssertContains("\"Failed\":1", legacyVoyageSummary.Body, "Counts include null-owner missions of the default owner");
                 }
             }).ConfigureAwait(false);
 

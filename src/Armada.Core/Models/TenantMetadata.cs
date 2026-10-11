@@ -16,6 +16,7 @@ namespace Armada.Core.Models
             set
             {
                 if (string.IsNullOrEmpty(value)) throw new ArgumentNullException(nameof(Id));
+                if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("Tenant ID cannot be empty or whitespace.", nameof(Id));
                 _Id = value;
             }
         }

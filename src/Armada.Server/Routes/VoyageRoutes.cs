@@ -1,10 +1,12 @@
 namespace Armada.Server.Routes
 {
+    using System;
     using System.Diagnostics;
     using System.Text.Json;
     using WatsonWebserver;
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
+    using SyslogLogging;
     using Armada.Server;
     using Armada.Core;
     using Armada.Core.Database;
@@ -14,7 +16,8 @@ namespace Armada.Server.Routes
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server.WebSocket;
-    using SyslogLogging;
+    using Armada.Server.Mcp;
+    using Armada.Core.Authorization;
 
     /// <summary>
     /// REST API routes for voyage management.
@@ -167,6 +170,8 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                if (!String.IsNullOrWhiteSpace(ctx.MissionId))
+                    return RouteAuthRefusal.Forbid(req, "Mission-scoped credentials cannot enumerate voyages.");
                 EnumerationQuery query = new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
@@ -193,6 +198,8 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                if (!String.IsNullOrWhiteSpace(ctx.MissionId))
+                    return RouteAuthRefusal.Forbid(req, "Mission-scoped credentials cannot enumerate voyages.");
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
@@ -421,18 +428,16 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "pageNumber must be positive and pageSize must be between 1 and 100." };
                 }
                 string id = req.Parameters["id"];
-                Voyage? voyage = ctx.IsAdmin
-                    ? await _database.Voyages.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                VoyageReadScope? readScope = await ReadVoyageReadScopeAsync(ctx, id).ConfigureAwait(false);
+                Voyage? voyage = readScope?.Voyage;
                 if (voyage == null)
                 {
                     req.Http.Response.StatusCode = 404;
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Voyage not found" };
                 }
+                AuthContext scopedCaller = readScope!.Caller;
                 return (object)await _database.Missions.ReadVoyageMissionSummaryAsync(id, pageNumber, pageSize,
-                    ctx.IsAdmin ? null : ctx.TenantId, ctx.IsAdmin || ctx.IsTenantAdmin ? null : ctx.UserId).ConfigureAwait(false);
+                    scopedCaller.IsAdmin ? null : scopedCaller.TenantId, scopedCaller.IsAdmin || scopedCaller.IsTenantAdmin ? null : scopedCaller.UserId).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Voyages")
@@ -453,18 +458,30 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
                 string id = req.Parameters["id"];
-                Voyage? voyage = ctx.IsAdmin
-                    ? await _database.Voyages.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                VoyageReadScope? readScope = await ReadVoyageReadScopeAsync(ctx, id).ConfigureAwait(false);
+                Voyage? voyage = readScope?.Voyage;
                 if (voyage == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Voyage not found" }; }
                 voyage.SelectedPlaybooks = await _database.Playbooks.GetVoyageSelectionsAsync(id).ConfigureAwait(false);
-                List<Mission> missions = ctx.IsAdmin
+                AuthContext scopedCaller = readScope!.Caller;
+                List<Mission> missions = scopedCaller.IsAdmin
                     ? await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false)
-                    : await _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, id).ConfigureAwait(false);
-                // An ordinary user sees only its own missions, as in the mission list.
-                if (!ctx.IsAdmin && !ctx.IsTenantAdmin) missions = missions.Where(mission => mission.UserId == ctx.UserId).ToList();
+                    : await _database.Missions.EnumerateByVoyageAsync(scopedCaller.TenantId!, id).ConfigureAwait(false);
+                if (readScope.MissionScoped)
+                {
+                    missions = await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false);
+                    List<Mission> visibleMissions = new List<Mission>();
+                    foreach (Mission candidate in missions)
+                    {
+                        if (McpMissionEvidenceScope.SameOwner(scopedCaller, candidate.TenantId, candidate.UserId))
+                            visibleMissions.Add(candidate);
+                    }
+                    missions = visibleMissions;
+                }
+                else if (!scopedCaller.IsAdmin && !scopedCaller.IsTenantAdmin)
+                {
+                    // An ordinary user sees only its own missions, as in the mission list.
+                    missions = missions.Where(mission => mission.UserId == scopedCaller.UserId).ToList();
+                }
                 foreach (Mission mission in missions)
                 {
                     mission.PlaybookSnapshots = await _database.Playbooks.GetMissionSnapshotsAsync(mission.Id).ConfigureAwait(false);
@@ -580,6 +597,45 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of voyage IDs to delete"))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
+        }
+
+        private async Task<VoyageReadScope?> ReadVoyageReadScopeAsync(AuthContext caller, string voyageId)
+        {
+            AuthContext scopedCaller = caller;
+            if (!String.IsNullOrWhiteSpace(caller.MissionId))
+            {
+                Mission? anchor = await McpMissionEvidenceScope.ReadMissionAsync(_database, caller, caller.MissionId).ConfigureAwait(false);
+                if (anchor == null || !String.Equals(anchor.VoyageId, voyageId, StringComparison.Ordinal)) return null;
+
+                scopedCaller = AuthContext.Authenticated(
+                    caller.TenantId!,
+                    caller.UserId!,
+                    false,
+                    false,
+                    caller.AuthMethod ?? "Session",
+                    caller.CredentialId,
+                    caller.PrincipalDisplay);
+                scopedCaller.MissionId = caller.MissionId;
+            }
+
+            Voyage? voyage = await CallerScopedRead.ReadVoyageAsync(_database, scopedCaller, voyageId).ConfigureAwait(false);
+            return voyage == null ? null : new VoyageReadScope(voyage, scopedCaller, !String.IsNullOrWhiteSpace(caller.MissionId));
+        }
+
+        private sealed class VoyageReadScope
+        {
+            public VoyageReadScope(Voyage voyage, AuthContext caller, bool missionScoped)
+            {
+                Voyage = voyage;
+                Caller = caller;
+                MissionScoped = missionScoped;
+            }
+
+            public Voyage Voyage { get; }
+
+            public AuthContext Caller { get; }
+
+            public bool MissionScoped { get; }
         }
     }
 }

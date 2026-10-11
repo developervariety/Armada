@@ -4,6 +4,7 @@ namespace Armada.Core.Authorization
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -49,8 +50,26 @@ namespace Armada.Core.Authorization
             Scope scope = Resolve(database, caller, id);
             if (scope.Kind == ScopeKindEnum.None) return null;
             if (scope.Kind == ScopeKindEnum.Global) return await database.Voyages.ReadAsync(id!, token).ConfigureAwait(false);
-            if (scope.Kind == ScopeKindEnum.Tenant) return await database.Voyages.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
-            return await database.Voyages.ReadAsync(scope.TenantId!, scope.UserId!, id!, token).ConfigureAwait(false);
+            Voyage? voyage = scope.Kind == ScopeKindEnum.Tenant
+                ? await database.Voyages.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false)
+                : await database.Voyages.ReadAsync(scope.TenantId!, scope.UserId!, id!, token).ConfigureAwait(false);
+            if (voyage != null) return voyage;
+
+            // Scoped queries use exact stored values. Fall back by ID so legacy null-owner rows can use the
+            // same default ownership rule as every other caller-scoped record.
+            voyage = await database.Voyages.ReadAsync(id!, token).ConfigureAwait(false);
+            if (voyage == null) return null;
+            if (scope.Kind == ScopeKindEnum.Tenant)
+                return OwnershipPolicy.SameTenant(voyage.TenantId, scope.TenantId) ? voyage : null;
+            return OwnershipPolicy.CanUseFor(
+                scope.TenantId,
+                scope.UserId,
+                voyage.TenantId,
+                voyage.UserId,
+                OwnershipScopeEnum.UserSpecific,
+                false)
+                ? voyage
+                : null;
         }
 
         /// <summary>

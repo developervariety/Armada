@@ -213,6 +213,8 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                if (!String.IsNullOrWhiteSpace(ctx.MissionId))
+                    return RouteAuthRefusal.Forbid(req, "Mission-scoped credentials cannot enumerate missions.");
                 EnumerationQuery query = new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
@@ -249,6 +251,8 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                if (!String.IsNullOrWhiteSpace(ctx.MissionId))
+                    return RouteAuthRefusal.Forbid(req, "Mission-scoped credentials cannot enumerate missions.");
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
@@ -281,6 +285,8 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                if (!String.IsNullOrWhiteSpace(ctx.MissionId))
+                    return RouteAuthRefusal.Forbid(req, "Mission-scoped credentials cannot enumerate mission summaries.");
                 EnumerationQuery query = new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 return await MissionSummaryQuery.EnumerateForCallerAsync(_database, ctx, query).ConfigureAwait(false);
@@ -303,6 +309,8 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                if (!String.IsNullOrWhiteSpace(ctx.MissionId))
+                    return RouteAuthRefusal.Forbid(req, "Mission-scoped credentials cannot enumerate mission summaries.");
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 return await MissionSummaryQuery.EnumerateForCallerAsync(_database, ctx, query).ConfigureAwait(false);
@@ -322,6 +330,8 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                if (!String.IsNullOrWhiteSpace(ctx.MissionId))
+                    return RouteAuthRefusal.Forbid(req, "Mission-scoped credentials cannot read aggregated mission history.");
 
                 MissionHistoryQuery query = new MissionHistoryQuery();
                 if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc)) query.FromUtc = fromUtc.ToUniversalTime();
@@ -435,11 +445,7 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
                 string id = req.Parameters["id"];
-                Mission? mission = ctx.IsAdmin
-                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
                 mission.DiffSnapshot = null;
                 mission.AgentOutput = null;
@@ -464,11 +470,7 @@ namespace Armada.Server.Routes
                 }
 
                 string id = req.Parameters["id"];
-                Mission? mission = ctx.IsAdmin
-                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null)
                 {
                     req.Http.Response.StatusCode = 404;
@@ -509,11 +511,7 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
                 string missionId = req.Parameters["id"];
-                Mission? mission = ctx.IsAdmin
-                    ? await _database.Missions.ReadAsync(missionId).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.ReadAsync(ctx.TenantId!, missionId).ConfigureAwait(false)
-                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, missionId).ConfigureAwait(false);
+                Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, missionId).ConfigureAwait(false);
                 if (mission == null)
                 {
                     req.Http.Response.StatusCode = 404;
@@ -548,11 +546,7 @@ namespace Armada.Server.Routes
                 }
 
                 string id = req.Parameters["id"];
-                Mission? mission = ctx.IsAdmin
-                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null)
                 {
                     req.Http.Response.StatusCode = 404;
@@ -597,11 +591,7 @@ namespace Armada.Server.Routes
                 }
 
                 string id = req.Parameters["id"];
-                Mission? mission = ctx.IsAdmin
-                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null)
                 {
                     req.Http.Response.StatusCode = 404;
@@ -628,11 +618,7 @@ namespace Armada.Server.Routes
                 }
 
                 string id = req.Parameters["id"];
-                Mission? mission = ctx.IsAdmin
-                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null)
                 {
                     req.Http.Response.StatusCode = 404;
@@ -659,11 +645,7 @@ namespace Armada.Server.Routes
                 }
 
                 string id = req.Parameters["id"];
-                Mission? mission = ctx.IsAdmin
-                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null)
                 {
                     req.Http.Response.StatusCode = 404;
@@ -1105,11 +1087,7 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
                 string id = req.Parameters["id"];
-                Mission? mission = ctx.IsAdmin
-                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
                 // REST, WebSocket and MCP read a diff through one reader: the saved diff file, then the stored snapshot,
@@ -1222,11 +1200,7 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
                 string id = req.Parameters["id"];
-                Mission? mission = ctx.IsAdmin
-                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
-                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
                 MissionInstructionsPath? resolved = await ResolveMissionInstructionsPathAsync(ctx, mission).ConfigureAwait(false);

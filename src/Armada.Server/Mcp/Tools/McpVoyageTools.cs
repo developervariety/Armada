@@ -17,6 +17,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server.Mcp;
     using SyslogLogging;
 
     /// <summary>
@@ -401,23 +402,19 @@ namespace Armada.Server.Mcp.Tools
             string? tenantId;
             string? userId;
             Voyage? voyage;
+            AuthContext? missionCaller = null;
 
             if (!String.IsNullOrWhiteSpace(caller.MissionId))
             {
                 tenantId = OwnershipPolicy.TenantOf(caller);
                 userId = OwnershipPolicy.UserOf(caller);
-                Mission? anchor = await database.Missions.ReadAsync(caller.MissionId).ConfigureAwait(false);
-                if (anchor == null
-                    || !OwnershipPolicy.SameTenant(anchor.TenantId, tenantId)
-                    || !String.Equals(OwnershipPolicy.UserOfRecord(anchor.UserId), userId, StringComparison.Ordinal)
-                    || !String.Equals(anchor.VoyageId, voyageId, StringComparison.Ordinal))
+                Mission? anchor = await McpMissionEvidenceScope.ReadMissionAsync(database, caller, caller.MissionId).ConfigureAwait(false);
+                if (anchor == null || !String.Equals(anchor.VoyageId, voyageId, StringComparison.Ordinal))
                     return null;
 
-                // A mission credential stays user-scoped for mission rows even when its owner is an administrator.
-                voyage = await database.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
-                if (voyage != null
-                    && !OwnershipPolicy.SameTenant(voyage.TenantId, tenantId))
-                    voyage = null;
+                AuthContext missionOwnerScope = AuthContext.Authenticated(tenantId, userId, false, false, caller.AuthMethod ?? "Session");
+                voyage = await CallerScopedRead.ReadVoyageAsync(database, missionOwnerScope, voyageId).ConfigureAwait(false);
+                missionCaller = caller;
             }
             else
             {
@@ -439,7 +436,7 @@ namespace Armada.Server.Mcp.Tools
                 }
             }
 
-            return voyage == null ? null : new VoyageStatusReadScope(voyage, tenantId, userId);
+            return voyage == null ? null : new VoyageStatusReadScope(voyage, tenantId, userId, missionCaller);
         }
 
         private static async Task<Dictionary<string, int>> CountVoyageMissionAssignmentsAsync(
@@ -451,13 +448,18 @@ namespace Armada.Server.Mcp.Tools
             EnumerationQuery query = new EnumerationQuery { VoyageId = voyageId, PageSize = 1000 };
             while (true)
             {
-                EnumerationResult<MissionSummary> page = readScope.TenantId == null
+                EnumerationResult<MissionSummary> page = readScope.MissionCaller != null
+                    ? await database.Missions.EnumerateMissionSummariesAsync(query).ConfigureAwait(false)
+                    : readScope.TenantId == null
                     ? await database.Missions.EnumerateMissionSummariesAsync(query).ConfigureAwait(false)
                     : readScope.UserId == null
                         ? await database.Missions.EnumerateMissionSummariesAsync(readScope.TenantId, query).ConfigureAwait(false)
                         : await database.Missions.EnumerateMissionSummariesAsync(readScope.TenantId, readScope.UserId, query).ConfigureAwait(false);
                 foreach (MissionSummary mission in page.Objects)
                 {
+                    if (readScope.MissionCaller != null
+                        && !McpMissionEvidenceScope.SameOwner(readScope.MissionCaller, mission.TenantId, mission.UserId))
+                        continue;
                     string state = mission.AssignmentState.ToString();
                     counts.TryGetValue(state, out int count);
                     counts[state] = count + 1;
@@ -478,12 +480,25 @@ namespace Armada.Server.Mcp.Tools
             EnumerationQuery query = new EnumerationQuery { VoyageId = voyageId, PageSize = 1000 };
             while (true)
             {
-                EnumerationResult<Mission> page = readScope.TenantId == null
+                EnumerationResult<Mission> page = readScope.MissionCaller != null
+                    ? await database.Missions.EnumerateAsync(query).ConfigureAwait(false)
+                    : readScope.TenantId == null
                     ? await database.Missions.EnumerateAsync(query).ConfigureAwait(false)
                     : readScope.UserId == null
                         ? await database.Missions.EnumerateAsync(readScope.TenantId, query).ConfigureAwait(false)
                         : await database.Missions.EnumerateAsync(readScope.TenantId, readScope.UserId, query).ConfigureAwait(false);
-                missions.AddRange(page.Objects);
+                if (readScope.MissionCaller != null)
+                {
+                    foreach (Mission mission in page.Objects)
+                    {
+                        if (McpMissionEvidenceScope.SameOwner(readScope.MissionCaller, mission.TenantId, mission.UserId))
+                            missions.Add(mission);
+                    }
+                }
+                else
+                {
+                    missions.AddRange(page.Objects);
+                }
                 if (page.PageNumber >= page.TotalPages) break;
                 query.PageNumber = page.PageNumber + 1;
             }
@@ -496,11 +511,12 @@ namespace Armada.Server.Mcp.Tools
             /// <param name="voyage">The visible voyage.</param>
             /// <param name="tenantId">Tenant filter for mission rows, or null for global scope.</param>
             /// <param name="userId">User filter for mission rows, or null for tenant or global scope.</param>
-            public VoyageStatusReadScope(Voyage voyage, string? tenantId, string? userId)
+            public VoyageStatusReadScope(Voyage voyage, string? tenantId, string? userId, AuthContext? missionCaller)
             {
                 Voyage = voyage;
                 TenantId = tenantId;
                 UserId = userId;
+                MissionCaller = missionCaller;
             }
 
             /// <summary>Voyage metadata that the caller may read.</summary>
@@ -509,6 +525,8 @@ namespace Armada.Server.Mcp.Tools
             public string? TenantId { get; }
             /// <summary>User filter that applies to mission rows.</summary>
             public string? UserId { get; }
+            /// <summary>Mission caller whose shared evidence rule filters voyage members, or null for operator scope.</summary>
+            public AuthContext? MissionCaller { get; }
         }
 
         private static object BuildSlimMissionStatus(Mission mission, List<string>? includeFields)

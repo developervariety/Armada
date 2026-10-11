@@ -184,6 +184,76 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("VoyageStatus_MissionCallerCanReadLegacyNullOwnerRows", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage legacyVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("legacy null owner voyage")
+                    {
+                        TenantId = null,
+                        UserId = null
+                    }).ConfigureAwait(false);
+                    Mission anchor = await CreateVoyageStatusMissionAsync(
+                        testDb.Driver, legacyVoyage.Id, Armada.Core.Constants.DefaultTenantId,
+                        Armada.Core.Constants.DefaultUserId, "legacy voyage anchor", MissionStatusEnum.Pending).ConfigureAwait(false);
+                    Mission legacyMember = await CreateVoyageStatusMissionAsync(
+                        testDb.Driver, legacyVoyage.Id, null, null, "legacy null owner member", MissionStatusEnum.Failed).ConfigureAwait(false);
+                    Voyage? storedVoyage = await testDb.Driver.Voyages.ReadAsync(legacyVoyage.Id).ConfigureAwait(false);
+                    Mission? storedMember = await testDb.Driver.Missions.ReadAsync(legacyMember.Id).ConfigureAwait(false);
+                    AssertNotNull(storedVoyage, "legacy voyage fixture must persist");
+                    AssertNotNull(storedMember, "legacy mission fixture must persist");
+                    AssertEqual<string?>(null, storedVoyage!.TenantId);
+                    AssertEqual<string?>(null, storedVoyage.UserId);
+                    AssertEqual<string?>(null, storedMember!.TenantId);
+                    AssertEqual<string?>(null, storedMember.UserId);
+
+                    Func<JsonElement?, Task<object>>? statusHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = handler; },
+                        testDb.Driver,
+                        new MinimalAdmiralDouble(),
+                        null);
+                    AssertNotNull(statusHandler, "armada_voyage_status handler must be registered");
+
+                    AuthContext missionCaller = AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId,
+                        false, false, "Session");
+                    missionCaller.MissionId = anchor.Id;
+                    JsonElement summaryArgs = JsonSerializer.SerializeToElement(new { voyageId = legacyVoyage.Id });
+                    StatusResponse summary = await ReadVoyageStatusAsync(statusHandler!, missionCaller, summaryArgs).ConfigureAwait(false);
+                    AssertEqual(legacyVoyage.Id, summary.Voyage?.Id);
+                    AssertEqual(2, summary.TotalMissions);
+                    AssertEqual(1L, summary.MissionCountsByStatus![nameof(MissionStatusEnum.Failed)]);
+
+                    JsonElement detailArgs = JsonSerializer.SerializeToElement(new
+                    {
+                        voyageId = legacyVoyage.Id,
+                        summary = false,
+                        includeMissions = true
+                    });
+                    StatusResponse details = await ReadVoyageStatusAsync(statusHandler!, missionCaller, detailArgs).ConfigureAwait(false);
+                    AssertTrue(details.Missions!.Select(mission => mission.Id).ToHashSet(StringComparer.Ordinal)
+                        .SetEquals(new[] { anchor.Id, legacyMember.Id }),
+                        "mission caller sees the default-owned legacy null-owner voyage member");
+
+                    UserMaster otherOwner = await testDb.Driver.Users.CreateAsync(
+                        new UserMaster(Armada.Core.Constants.DefaultTenantId, "legacy-voyage-other-owner@example.com", "password")).ConfigureAwait(false);
+                    Voyage otherOwnerVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("legacy voyage foreign owner")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = otherOwner.Id
+                    }).ConfigureAwait(false);
+                    Mission linkedAnchor = await CreateVoyageStatusMissionAsync(
+                        testDb.Driver, otherOwnerVoyage.Id, Armada.Core.Constants.DefaultTenantId,
+                        Armada.Core.Constants.DefaultUserId, "owner anchor on foreign voyage", MissionStatusEnum.Pending).ConfigureAwait(false);
+                    missionCaller.MissionId = linkedAnchor.Id;
+                    StatusResponse denied = await ReadVoyageStatusAsync(
+                        statusHandler!, missionCaller,
+                        JsonSerializer.SerializeToElement(new { voyageId = otherOwnerVoyage.Id })).ConfigureAwait(false);
+                    AssertEqual("Voyage not found", denied.Error);
+                }
+            });
+
             await RunTest("VoyageStatusSummary_IncludesMissionCountsByAssignmentState_WithCorrectGrouping", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -615,8 +685,8 @@ namespace Armada.Test.Unit.Suites.Services
         private static async Task<Mission> CreateVoyageStatusMissionAsync(
             DatabaseDriver database,
             string voyageId,
-            string tenantId,
-            string userId,
+            string? tenantId,
+            string? userId,
             string title,
             MissionStatusEnum status)
         {

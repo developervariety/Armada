@@ -125,7 +125,7 @@ Mission-scoped credentials keep the owner's effective roles for internal workflo
 | `/api/v1/captains` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/missions` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/voyages` | ALL | Authenticated | Tenant-scoped |
-| `/api/v1/objectives`, `/api/v1/backlog`, `/api/v1/planning-sessions`, `/api/v1/voyages`, `/api/v1/objective-refinement-sessions`, `/api/v1/releases`, `/api/v1/deployments`, `/api/v1/incidents` | Writes | TenantAdmin; mission-scoped caller refused | REST refuses mission-context writes before route side effects. This includes objective creation, update, deletion, reorder and import, plus linked workflow writes. Reads and `POST .../enumerate` keep their normal caller scope. |
+| `/api/v1/objectives`, `/api/v1/backlog`, `/api/v1/planning-sessions`, `/api/v1/voyages`, `/api/v1/objective-refinement-sessions`, `/api/v1/releases`, `/api/v1/deployments`, `/api/v1/incidents` | Writes | TenantAdmin; mission-scoped caller refused | REST refuses mission-context writes before route side effects. This includes objective creation, update, deletion, reorder and import, plus linked workflow writes. Mission and voyage ID reads use the shared mission evidence scope. Mission callers cannot list or enumerate missions or voyages, or read aggregated mission history. Other reads keep their normal caller scope. |
 | `/api/v1/docks` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/signals` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/events` | ALL | Authenticated | Tenant-scoped |
@@ -530,6 +530,10 @@ Creates a new user and an associated bearer token credential.
 ---
 
 ### Tenant Management
+
+Tenant identifiers must contain at least one non-whitespace character.
+Tenant creation returns `400` for an empty or whitespace-only identifier before
+it stores the tenant, initial user, or credential. An omitted identifier is generated.
 
 > **Permission:** Global admin for list, create, update, delete. Authenticated users can read their own tenant.
 
