@@ -4,8 +4,11 @@ namespace Test.Shared.Suites.Services
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using SyslogLogging;
+    using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -206,6 +209,107 @@ namespace Test.Shared.Suites.Services
                 // RequireAuth guards against a null context and rejects it.
                 AuthorizationService svc = new AuthorizationService();
                 AssertThrows<UnauthorizedAccessException>(() => svc.RequireAuth(null!));
+            }));
+
+            cases.Add(CaseAsync("mission_session_role_rehydration_denies_objective_write_routes", "MissionSession Role Rehydration Denies Objective Writes And Preserves Read And Operator Access", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    TenantMetadata tenant = new TenantMetadata("Mission objective authorization tenant");
+                    await db.Tenants.CreateAsync(tenant).ConfigureAwait(false);
+
+                    UserMaster admin = new UserMaster(tenant.Id, "mission-objective-admin@example.com", "password")
+                    {
+                        IsAdmin = true
+                    };
+                    await db.Users.CreateAsync(admin).ConfigureAwait(false);
+
+                    SessionTokenService tokenService = new SessionTokenService();
+                    AuthenticateResult missionToken = tokenService.CreateMissionToken(tenant.Id, admin.Id, "msn_objective_authorization");
+                    AuthenticateResult operatorToken = tokenService.CreateToken(tenant.Id, admin.Id);
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    AuthenticationService authentication = new AuthenticationService(
+                        db, tokenService, new ArmadaSettings(), logging);
+
+                    // Exercise the real REST authentication path without depending on how roles are
+                    // stored in a mission context: it must retain the signed mission identity.
+                    AuthContext missionCaller = await authentication.AuthenticateAsync(
+                        "Bearer " + missionToken.Token, null, null).ConfigureAwait(false);
+                    AssertTrue(missionCaller.IsAuthenticated, "The mission session token is authenticated.");
+                    AssertEqual("msn_objective_authorization", missionCaller.MissionId);
+                    AssertTrue(missionCaller.IsAdmin, "The mission session keeps its owner's admin role for internal workflows.");
+
+                    AuthContext operatorCaller = await authentication.AuthenticateAsync(
+                        "Bearer " + operatorToken.Token, null, null).ConfigureAwait(false);
+                    AssertTrue(operatorCaller.IsAuthenticated, "The ordinary session token is authenticated.");
+                    AssertNull(operatorCaller.MissionId, "The ordinary session token has no mission scope.");
+                    AssertTrue(operatorCaller.IsAdmin, "The ordinary session token keeps the user's admin role.");
+
+                    AuthContext nonAdminMissionCaller = AuthContext.Authenticated(
+                        tenant.Id, "usr_mission_worker", false, false, "Session");
+                    nonAdminMissionCaller.MissionId = "msn_objective_worker";
+
+                    AuthorizationService authorization = new AuthorizationService();
+                    string[,] objectiveWrites =
+                    {
+                        { "POST", "/api/v1/objectives" },
+                        { "PUT", "/api/v1/objectives/obj_authorization_target" },
+                        { "DELETE", "/api/v1/objectives/obj_authorization_target" },
+                        { "POST", "/api/v1/objectives/reorder" },
+                        { "POST", "/api/v1/objectives/import/github" },
+                        { "POST", "/api/v1/objectives/obj_authorization_target/refinement-sessions" },
+                        { "POST", "/api/v1/backlog/obj_authorization_target/refinement-sessions" },
+                        { "POST", "/api/v1/objective-refinement-sessions/ors_authorization_target/apply" },
+                        { "DELETE", "/api/v1/objective-refinement-sessions/ors_authorization_target" },
+                        { "POST", "/api/v1/backlog" },
+                        { "PUT", "/api/v1/backlog/obj_authorization_target" },
+                        { "DELETE", "/api/v1/backlog/obj_authorization_target" },
+                        { "POST", "/api/v1/backlog/reorder" },
+                        { "POST", "/api/v1/planning-sessions" },
+                        { "POST", "/api/v1/planning-sessions/psn_authorization_target/dispatch" },
+                        { "POST", "/api/v1/voyages" },
+                        { "POST", "/api/v1/releases" },
+                        { "PUT", "/api/v1/releases/rel_authorization_target" },
+                        { "POST", "/api/v1/deployments" },
+                        { "PUT", "/api/v1/deployments/dpl_authorization_target" },
+                        { "POST", "/api/v1/incidents" },
+                        { "PUT", "/api/v1/incidents/inc_authorization_target" }
+                    };
+                    for (int i = 0; i < objectiveWrites.GetLength(0); i++)
+                    {
+                        string method = objectiveWrites[i, 0];
+                        string path = objectiveWrites[i, 1];
+                        AssertFalse(authorization.IsAuthorized(missionCaller, method, path),
+                            "A mission-scoped session must not authorize objective/backlog writes: " + method + " " + path);
+                        AssertFalse(authorization.IsAuthorized(nonAdminMissionCaller, method, path),
+                            "A non-admin mission-scoped session must not authorize objective/backlog writes: " + method + " " + path);
+                        AssertTrue(authorization.IsAuthorized(operatorCaller, method, path),
+                            "The same non-mission operator must retain objective/backlog write access: " + method + " " + path);
+                    }
+
+                    string[,] objectiveReads =
+                    {
+                        { "GET", "/api/v1/objectives" },
+                        { "GET", "/api/v1/objectives/obj_authorization_target" },
+                        { "GET", "/api/v1/backlog" },
+                        { "GET", "/api/v1/backlog/obj_authorization_target" },
+                        { "POST", "/api/v1/objectives/enumerate" },
+                        { "POST", "/api/v1/backlog/enumerate" },
+                        { "POST", "/api/v1/voyages/enumerate" },
+                        { "POST", "/api/v1/releases/enumerate" },
+                        { "POST", "/api/v1/deployments/enumerate" },
+                        { "POST", "/api/v1/incidents/enumerate" }
+                    };
+                    for (int i = 0; i < objectiveReads.GetLength(0); i++)
+                    {
+                        string method = objectiveReads[i, 0];
+                        string path = objectiveReads[i, 1];
+                        AssertTrue(authorization.IsAuthorized(missionCaller, method, path),
+                            "Mission-scoped sessions retain objective/backlog reads: " + method + " " + path);
+                    }
+                }
             }));
 
             return new TestSuiteDescriptor(

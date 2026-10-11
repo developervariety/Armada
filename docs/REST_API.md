@@ -103,6 +103,8 @@ Armada distinguishes three effective caller roles:
 
 Operational entities persist both `TenantId` and `UserId`. Those ownership columns are indexed and enforced by foreign keys across SQLite, PostgreSQL, SQL Server, and MySQL.
 
+Mission-scoped credentials keep the owner's effective roles for internal workflows. The REST authorization boundary also checks `AuthContext.MissionId`: it refuses mission-scoped writes to objectives and backlog, and to the planning, voyage, refinement, release, deployment, and incident routes that can link or change objective work. Objective and backlog reads remain available under the caller's normal scope, including `POST .../enumerate`.
+
 ### Authorization Matrix
 
 | Endpoint | Method | Permission | Notes |
@@ -123,6 +125,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/captains` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/missions` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/voyages` | ALL | Authenticated | Tenant-scoped |
+| `/api/v1/objectives`, `/api/v1/backlog`, `/api/v1/planning-sessions`, `/api/v1/voyages`, `/api/v1/objective-refinement-sessions`, `/api/v1/releases`, `/api/v1/deployments`, `/api/v1/incidents` | Writes | TenantAdmin; mission-scoped caller refused | REST refuses mission-context writes before route side effects. This includes objective creation, update, deletion, reorder and import, plus linked workflow writes. Reads and `POST .../enumerate` keep their normal caller scope. |
 | `/api/v1/docks` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/signals` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/events` | ALL | Authenticated | Tenant-scoped |

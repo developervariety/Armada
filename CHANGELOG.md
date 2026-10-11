@@ -47,6 +47,11 @@ upstream integrations and excludes changes already present at that baseline.
   confirmation with server-recorded identity, time and proof. Legacy skips block
   dispatch until reconfirmed. Changed stage lists or reasons clear prior proof;
   unchanged preparation round trips retain it.
+- REST refuses mission-scoped writes to objectives and backlog, including
+  reorder and GitHub import. It also refuses linked planning, voyage,
+  refinement, release, deployment and incident writes before route side
+  effects. Reads, enumerate requests, owner roles in internal workflows, and
+  MCP authorization keep their existing rules.
 - Judge rescue briefs protect report-only Evidence and Residual Risks sections,
   retain their actionable findings, and state when protected feedback exceeds
   the embedding cap.
