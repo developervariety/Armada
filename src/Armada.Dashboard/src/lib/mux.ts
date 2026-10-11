@@ -9,6 +9,7 @@ export interface MuxCaptainFormFields {
   muxAdapterType: string;
   muxTemperature: string;
   muxMaxTokens: string;
+  muxMaxTurns: string;
   muxSystemPromptPath: string;
   muxApprovalPolicy: string;
 }
@@ -20,6 +21,7 @@ export const EMPTY_MUX_CAPTAIN_FORM: MuxCaptainFormFields = {
   muxAdapterType: '',
   muxTemperature: '',
   muxMaxTokens: '',
+  muxMaxTurns: '',
   muxSystemPromptPath: '',
   muxApprovalPolicy: '',
 };
@@ -41,6 +43,7 @@ export function parseMuxCaptainOptions(runtimeOptionsJson: string | null | undef
       adapterType: parsed.adapterType ?? null,
       temperature: typeof parsed.temperature === 'number' ? parsed.temperature : null,
       maxTokens: typeof parsed.maxTokens === 'number' ? parsed.maxTokens : null,
+      maxTurns: typeof parsed.maxTurns === 'number' ? parsed.maxTurns : null,
       systemPromptPath: parsed.systemPromptPath ?? null,
       approvalPolicy: parsed.approvalPolicy ?? null,
     };
@@ -62,6 +65,7 @@ export function muxFormFromCaptain(captain: Pick<Captain, 'runtime' | 'runtimeOp
     muxAdapterType: options.adapterType ?? '',
     muxTemperature: options.temperature != null ? String(options.temperature) : '',
     muxMaxTokens: options.maxTokens != null ? String(options.maxTokens) : '',
+    muxMaxTurns: options.maxTurns != null ? String(options.maxTurns) : '',
     muxSystemPromptPath: options.systemPromptPath ?? '',
     muxApprovalPolicy: options.approvalPolicy ?? '',
   };
@@ -72,6 +76,7 @@ export function buildMuxRuntimeOptionsJson(runtime: string, fields: MuxCaptainFo
 
   const temperature = parseOptionalNumber(fields.muxTemperature);
   const maxTokens = parseOptionalInteger(fields.muxMaxTokens);
+  const maxTurns = parseOptionalInteger(fields.muxMaxTurns);
 
   const payload: MuxCaptainOptions = {
     schemaVersion: 1,
@@ -81,6 +86,7 @@ export function buildMuxRuntimeOptionsJson(runtime: string, fields: MuxCaptainFo
     adapterType: normalize(fields.muxAdapterType),
     temperature,
     maxTokens,
+    maxTurns,
     systemPromptPath: normalize(fields.muxSystemPromptPath),
     approvalPolicy: normalize(fields.muxApprovalPolicy),
   };

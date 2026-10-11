@@ -1861,6 +1861,7 @@ export interface MuxCaptainOptions {
   adapterType: string | null;
   temperature: number | null;
   maxTokens: number | null;
+  maxTurns: number | null;
   systemPromptPath: string | null;
   approvalPolicy: string | null;
 }

@@ -167,6 +167,7 @@ export default function Captains() {
       delete payload.muxAdapterType;
       delete payload.muxTemperature;
       delete payload.muxMaxTokens;
+      delete payload.muxMaxTurns;
       delete payload.muxSystemPromptPath;
       delete payload.muxApprovalPolicy;
       if (editing) await updateCaptain(editing.id, payload);

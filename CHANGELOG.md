@@ -13,6 +13,9 @@ upstream integrations and excludes changes already present at that baseline.
   configured endpoint label. Its one-retry budget follows the mission across
   captain assignments, and retry and failure facts retain the typed cause.
 
+- Dashboard captain forms retain the Mux turn cap across edits and offer only
+  approval policies supported by `mux print`.
+
 - Mux captain options reach `mux print`: configured adapter type, temperature,
   token limit, system prompt, and supported approval policy are emitted, and
   `--mux-max-turns` sets a clamped per-captain iteration limit. Unsupported

@@ -129,6 +129,19 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
             />
           </div>
           <div className="form-group">
+            <label htmlFor="mux-max-turns">{t('Mux Max Turns')}</label>
+            <input
+              id="mux-max-turns"
+              type="number"
+              min={1}
+              max={100}
+              step={1}
+              value={form.muxMaxTurns}
+              onChange={(event) => onChange({ muxMaxTurns: event.target.value })}
+              placeholder={t('Optional integer (1-100)')}
+            />
+          </div>
+          <div className="form-group">
             <label>{t('Mux System Prompt Path')}</label>
             <input
               value={form.muxSystemPromptPath}
@@ -144,9 +157,7 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
             >
               <option value="">{t('Default (auto)')}</option>
               <option value="auto">auto</option>
-              <option value="autoapprove">autoapprove</option>
               <option value="deny">deny</option>
-              <option value="ask">ask</option>
             </select>
           </div>
         </div>
