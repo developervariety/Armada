@@ -3449,13 +3449,9 @@ namespace Armada.Core.Services
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                string? failureCause = modelGatewayTimeout ? "provider_timeout" : failureKind switch
-                {
-                    RuntimeFailureKindEnum.UsageLimit => "runtime_usage_limit",
-                    RuntimeFailureKindEnum.AuthFailure => "runtime_auth_failure",
-                    RuntimeFailureKindEnum.Crash when exitCode.HasValue => "runtime_crash",
-                    _ => null
-                };
+                string? failureCause = modelGatewayTimeout ? "provider_timeout"
+                    : failureKind == RuntimeFailureKindEnum.Crash && !exitCode.HasValue ? null
+                    : MissionAttemptFactReasonCode.FromRuntimeFailure(failureKind);
                 await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, failureCause, _Logging, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "mission " + missionId + " marked failed after process exit"
                     + (hasRecoverableWork ? " (recoverable work preserved)" : ""));

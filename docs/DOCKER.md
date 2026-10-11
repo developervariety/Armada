@@ -418,6 +418,9 @@ the `auto` and `deny` approval policies; other configured values stop launch
 with an error. With no policy configured, Armada keeps the existing `--yolo`
 default.
 
+The Dashboard captain form retains the Mux turn cap when a captain is edited.
+Its advanced Mux fields accept an optional integer from 1 to 100.
+
 ## Database Client Tools
 
 Backup (`armada_backup`, `GET /api/v1/backup`, WebSocket `backup`) and the
@@ -483,6 +486,3 @@ The React dashboard makes API calls from the browser, not from the container. En
 
 **CORS errors:**
 The Armada server enables CORS on all routes by default. If you see CORS errors, verify you're accessing the correct port (7890 for the API).
-
-The Dashboard captain form retains the Mux turn cap when a captain is edited.
-Its advanced Mux fields accept an optional integer from 1 to 100.
