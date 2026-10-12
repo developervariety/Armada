@@ -124,9 +124,10 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Required items in Judge sections plus existing explicit NOT MET and Blocking items.
-        /// Correctness, Failure Modes and Tests list items are considered defects; Verdict carries
-        /// required changes. MET and explicitly non-blocking items are excluded. When the bound cannot
-        /// hold every item, the result names the omission instead of claiming completeness.
+        /// Correctness, Failure Modes and Tests list items and labeled findings are considered defects;
+        /// Verdict carries required changes. Passing test summaries, MET criteria and explicitly
+        /// non-blocking items are excluded. When the bound cannot hold every item, the result names the
+        /// omission instead of claiming completeness.
         /// </summary>
         /// <param name="review">Review or report text.</param>
         /// <param name="maxChars">Bound for the list.</param>
@@ -178,8 +179,8 @@ namespace Armada.Core.Services
                     || section == "Tests"
                     || section == "Evidence"
                     || section == "Residual Risks";
-                bool severityFinding = findingSectionItem && IsSeverityFinding(item);
-                bool sectionFinding = findingSectionItem && (listItem || severityFinding || IsUnmarkedTestGap(item, section))
+                bool labeledFinding = findingSectionItem && IsFindingLabel(item);
+                bool sectionFinding = findingSectionItem && (listItem || labeledFinding || IsUnmarkedTestGap(item, section))
                     || section == "Verdict"
                         && (ContainsAny(raw, "NEEDS_REVISION", "REQUIRED CHANGE", "MUST ") || (listItem && !ContainsAny(raw, "PASS")));
                 if (!notMetCriterion && !explicitBlocking && !sectionFinding) continue;
@@ -190,7 +191,7 @@ namespace Armada.Core.Services
                     i++;
                     finding.Append(' ').Append(lines[i].Trim());
                 }
-                if (severityFinding)
+                if (labeledFinding)
                 {
                     while (i + 1 < lines.Length)
                     {
@@ -202,7 +203,7 @@ namespace Armada.Core.Services
                         }
                         if (continuation.StartsWith("#", StringComparison.Ordinal)
                             || IsExplicitlyNonBlocking(continuation, continuation)
-                            || IsSeverityFinding(continuation)
+                            || IsFindingLabel(continuation)
                             || TryStripListPrefix(continuation, out _))
                         {
                             break;
@@ -401,10 +402,10 @@ namespace Armada.Core.Services
                 || Regex.IsMatch(line, @"\bDELIVERED\b", RegexOptions.IgnoreCase);
         }
 
-        private static bool IsSeverityFinding(string item)
+        private static bool IsFindingLabel(string item)
         {
             string normalized = item.Trim().TrimStart('*', '_').TrimStart();
-            return Regex.IsMatch(normalized, @"^P[0-3]\b", RegexOptions.IgnoreCase);
+            return Regex.IsMatch(normalized, @"^(?:P[0-3]|R\d+)\b", RegexOptions.IgnoreCase);
         }
 
         private static bool IsUnmarkedTestGap(string item, string section)
@@ -427,9 +428,20 @@ namespace Armada.Core.Services
         {
             string normalized = item.Trim().Trim('*', '_').Trim();
             if (section != "Tests") return false;
+            if (IsFindingLabel(normalized)) return false;
             return Regex.IsMatch(normalized, @"^no\s+tests?\s+failed[.!]?$", RegexOptions.IgnoreCase)
                 || Regex.IsMatch(normalized, @"^no\s+tests?\s+failed\s+to\s+(?:cover|assert)(?:\s+.+)?[.!]?$", RegexOptions.IgnoreCase)
-                || Regex.IsMatch(normalized, @"^no\s+tests?\s+(?:do|does)\s+not\s+cover(?:\s+.+)?[.!]?$", RegexOptions.IgnoreCase);
+                || Regex.IsMatch(normalized, @"^no\s+tests?\s+(?:do|does)\s+not\s+cover(?:\s+.+)?[.!]?$", RegexOptions.IgnoreCase)
+                || IsPassingTestSummary(normalized);
+        }
+
+        private static bool IsPassingTestSummary(string item)
+        {
+            return Regex.IsMatch(
+                    item,
+                    @"^[^:]+:\s*\d+\s+passed,\s*0\s+failed(?:;\s*baseline\s+\d+,\s*with\s+(?:all\s+)?\d+\s+added\s+cases?\s+executed)?[.!]?$",
+                    RegexOptions.IgnoreCase)
+                || Regex.IsMatch(item, @"^[^:]+:\s*\d+\s+scripts?,\s*0\s+issues?[.!]?$", RegexOptions.IgnoreCase);
         }
 
         private static bool IsExplicitSuccess(string item, string section)

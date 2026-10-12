@@ -188,6 +188,8 @@ Built-in pipelines let work move through the right level of review:
 
 The Judge must cite evidence for each acceptance criterion in the brief; duplicate
 claims and missing criteria refuse PASS. Brief trimming preserves the criteria.
+The gate reads each criterion's attached verdict; words quoted in the criterion
+or its evidence do not act as verdicts.
 See [Judge acceptance evidence](docs/PIPELINES.md#judge-acceptance-evidence).
 
 A Linter stage runs before the Judge in the pipelines that produce vessel code, so overengineering and style are caught before review. `FullPipeline` stays without a Linter as the minimal review shape.

@@ -2015,6 +2015,9 @@ namespace Armada.Test.Unit.Suites.Services
                 review.AppendLine("- The report lists each parent criterion with file:line evidence, or NOT DELIVERED. — MET.");
                 review.AppendLine(BuildBenignReviewPadding(15000));
                 review.AppendLine("## Correctness");
+                review.AppendLine("**R1: Existing shared metadata changes during a successful read.**");
+                review.AppendLine("The read at src/Example.cs:78 changes existing shared-memory metadata.");
+                review.AppendLine("Preserve existing sidecars and add a regression test.");
                 review.AppendLine("**P2: The restored snapshot can enter the wrong admission cap.**");
                 review.AppendLine();
                 review.AppendLine("The restore at src/Example.cs:77 treats an absent version as a current candidate.");
@@ -2042,6 +2045,10 @@ namespace Armada.Test.Unit.Suites.Services
                 review.AppendLine("- src/ExampleTests.cs:19 -- add the missing boundary test.");
                 review.AppendLine("- src/ExampleTests.cs:27 -- the null result has no assertion.");
                 review.AppendLine("Coverage misses historical version inference at src/ExampleTests.cs:31; add the restart regression.");
+                review.AppendLine("- P2: 10 passed, 0 failed.");
+                review.AppendLine("- Unit: 10 passed, 0 failed; baseline 8, with 2 added cases executed.");
+                review.AppendLine("- Web: 5 passed, 0 failed.");
+                review.AppendLine("- Script: 1 script, 0 issues.");
                 review.AppendLine("No test failed.");
                 review.AppendLine("No tests failed.");
                 review.AppendLine("- No test failed.");
@@ -2103,6 +2110,13 @@ namespace Armada.Test.Unit.Suites.Services
                 string findingBlock = description.Substring(findingStart, feedbackStart - findingStart);
                 AssertFalse(findingBlock.Contains("optional follow-up", StringComparison.Ordinal), "Explicitly non-blocking commentary is excluded from required fixes.");
                 AssertFalse(findingBlock.Contains("optional cleanup", StringComparison.Ordinal), "A bold Non-blocking label is excluded from required fixes.");
+                AssertContains("- **R1:", findingBlock, "The R1 item has its own finding entry.");
+                AssertContains("src/Example.cs:78", findingBlock, "An unbulleted bold R1 finding retains its evidence anchor in the findings list.");
+                AssertContains("Preserve existing sidecars", findingBlock, "An unbulleted bold R1 finding carries its required correction in the findings list.");
+                AssertContains("P2: 10 passed, 0 failed", findingBlock, "An explicitly labeled finding takes priority over a passing-summary shape.");
+                AssertFalse(findingBlock.Contains("Unit: 10 passed, 0 failed", StringComparison.Ordinal), "A passing unit summary is not listed as a defect.");
+                AssertFalse(findingBlock.Contains("Web: 5 passed, 0 failed", StringComparison.Ordinal), "A passing web summary is not listed as a defect.");
+                AssertFalse(findingBlock.Contains("Script: 1 script, 0 issues", StringComparison.Ordinal), "A passing script summary is not listed as a defect.");
                 AssertFalse(findingBlock.Contains("Test 0 covers", StringComparison.Ordinal), "A passed test result is not listed as a defect.");
                 AssertFalse(findingBlock.Contains("No test failed.\n", StringComparison.Ordinal), "An unbulleted positive statement that no test failed is not listed as a coverage gap.");
                 AssertFalse(findingBlock.Contains("No tests failed.\n", StringComparison.Ordinal), "An unbulleted positive statement that no tests failed is not listed as a coverage gap.");

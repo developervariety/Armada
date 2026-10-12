@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Judge acceptance checks read the verdict attached to each required criterion.
+  Literal `MET/NOT MET` instructions and evidence text do not cause false
+  rejection; a real `NOT MET` verdict still refuses PASS.
+
 - Merge commits never name a mission branch. Docks install a
   `prepare-commit-msg` hook that rewrites the first line of a merge message Git
   writes, so a captain's `git merge main` and a merge-queue merge no longer
@@ -50,9 +54,10 @@ upstream integrations and excludes changes already present at that baseline.
   before returning metadata, counts, or embedded details, including tokens
   whose owners are administrators.
 
-- Rescue finding lists retain unbulleted severity findings and test gaps.
-  Completed criteria stay out of the list when their descriptions contain
-  phrases such as "NOT DELIVERED".
+- Rescue finding lists retain unbulleted `R<number>` and severity findings with
+  their explanations and anchors. They omit passing test summaries and test
+  gaps do not become positive results. Completed criteria stay out of the list
+  when their descriptions contain phrases such as "NOT DELIVERED".
 
 - Dock boundary hook tests detect POSIX shells with a portable command and
   report unavailable tools as named skips instead of passing without execution.

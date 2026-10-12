@@ -37,7 +37,8 @@ artifact. The stage reads until `hasMore` is false and checks `complete` and
 12,000 characters. The brief keeps Correctness, Failure Modes, Tests, Evidence,
 Residual Risks and Verdict findings ahead of less actionable text; if protected findings exceed
 the cap, it marks the embedded list incomplete and points to the full output.
-Severity findings retain their unbulleted explanation and source anchors.
+Unbulleted `R<number>` and `P0`–`P3` findings retain their explanation and
+source anchors. Passing test summaries do not appear as required fixes.
 The final criterion result determines completion even when its description
 contains a failure-result phrase.
 Later stages can read the failed mission through the same-owner rescue chain.

@@ -15,7 +15,7 @@ namespace Armada.Core.Services
         public const string SectionName = "Acceptance Criteria";
 
         private static readonly Regex _NotMet = new Regex(@"\bNOT\s+MET\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        private static readonly Regex _Met = new Regex(@"\bMET\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex _Met = new Regex(@"\b(?:NOT\s+)?MET\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex _ObjectiveBriefStart = new Regex(
             @"^<!-- armada-objective-brief:[^>\r\n]+ -->\r?$",
             RegexOptions.Multiline | RegexOptions.CultureInvariant);
@@ -158,9 +158,6 @@ namespace Armada.Core.Services
             string? block = ExtractSection(agentOutput, SectionName);
             if (String.IsNullOrWhiteSpace(block))
                 return "Judge PASS verdict missing required review sections: " + SectionName;
-            if (_NotMet.IsMatch(block))
-                return "Judge PASS names a NOT MET acceptance criterion";
-
             HashSet<int> covered = new HashSet<int>();
             foreach (string raw in block.Replace("\r\n", "\n").Split('\n'))
             {
@@ -172,8 +169,11 @@ namespace Armada.Core.Services
                     string evidence = line.Substring(mark.Index + mark.Length);
                     for (int index = 0; index < expected.Count; index++)
                     {
-                        if (covered.Contains(index) || !String.Equals(claim, NormalizeClaim(expected[index]), StringComparison.OrdinalIgnoreCase))
+                        if (!String.Equals(claim, NormalizeClaim(expected[index]), StringComparison.OrdinalIgnoreCase))
                             continue;
+                        if (_NotMet.IsMatch(mark.Value))
+                            return "Judge PASS names a NOT MET acceptance criterion";
+                        if (covered.Contains(index)) break;
                         if (!HasEvidence(evidence))
                             return "Judge PASS acceptance criterion lacks file:line or command evidence";
                         covered.Add(index);

@@ -6,7 +6,7 @@ namespace Armada.Test.Unit.Suites.Services
 
     /// <summary>
     /// Pins the Judge acceptance-criteria walk: a PASS must mark every brief criterion MET,
-    /// and a NOT MET line forbids PASS. The walk is a real ground, not a heading-form miss.
+    /// and a NOT MET verdict for a required criterion forbids PASS.
     /// </summary>
     public sealed class JudgeAcceptanceWalkTests : TestSuite
     {
@@ -111,6 +111,28 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(JudgeAcceptanceWalk.ValidatePass(
                     "## Acceptance Criteria\n- Requirements are met: MET (Dockerfile:12)\n",
                     "## Acceptance Criteria\n- Requirements are met\n"));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("ValidatePass reads the verdict after criterion text containing NOT MET", () =>
+            {
+                string criterion = "Report each result with honest MET/NOT MET and its evidence";
+                string brief = "## Acceptance Criteria\n- " + criterion + "\n";
+                string review = "## Acceptance Criteria\n- " + criterion + ": MET (README.md:12)\n";
+                AssertNull(JudgeAcceptanceWalk.ValidatePass(review, brief));
+                AssertEqual("Judge PASS names a NOT MET acceptance criterion",
+                    JudgeAcceptanceWalk.ValidatePass(review.Replace(": MET (", ": NOT MET ("), brief));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("ValidatePass ignores NOT MET in evidence but rejects a contradictory criterion verdict", () =>
+            {
+                string review = PassReview.Replace("MET (CHANGELOG.md:12)",
+                    "MET (command: `check`; output verifies NOT MET is rejected)");
+                AssertNull(JudgeAcceptanceWalk.ValidatePass(review, BriefTwo));
+                string contradiction = review.Replace("## Verdict", "- Gate stays green: NOT MET (README.md:12)\n## Verdict");
+                AssertEqual("Judge PASS names a NOT MET acceptance criterion",
+                    JudgeAcceptanceWalk.ValidatePass(contradiction, BriefTwo));
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 

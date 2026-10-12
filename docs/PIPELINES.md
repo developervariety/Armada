@@ -111,8 +111,10 @@ The rescue findings list includes numbered or bulleted defects from
 Correctness, Failure Modes, Tests, Evidence, Residual Risks and Verdict, plus
 existing `NOT DELIVERED`,
 `NOT MET`, `NOT RESOLVED` and `Blocking` items. It keeps file and line anchors,
-places NOT MET criteria after defects, removes MET criteria and narration
-before shortening, and uses one list marker per item. The embedded full-review
+includes unbulleted `R<number>` and `P0`–`P3` findings with their explanation,
+excludes passing test summaries, places NOT MET criteria after defects, removes
+MET criteria and narration before shortening, and uses one list marker per item.
+The embedded full-review
 cap is 12,000 characters. When the report fits, the brief carries it whole.
 When it does not, the brief keeps the protected sections whole after removing
 narration and MET criteria. If those protected sections exceed the bound, the
@@ -187,7 +189,10 @@ handoff marker, with line endings normalized across hosts. It preserves generate
 handoff markers in an already-augmented description.
 Criteria that differ only by letter case remain separate requirements.
 Duplicate or unrelated claims do not cover a missing criterion.
-Any `NOT MET` refuses PASS. The gate checks the citation format; the Judge checks its truth.
+A `NOT MET` verdict for a required criterion refuses PASS, including a later
+entry that contradicts a `MET` entry. The same words inside the copied criterion
+or its evidence do not act as verdicts. The gate checks the citation format;
+the Judge checks its truth.
 
 Objective dispatch renders every acceptance criterion in full. It folds line
 breaks and other whitespace in each criterion into spaces so one stored item
