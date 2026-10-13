@@ -50,6 +50,7 @@ namespace Armada.Core.Services
         private DatabaseDriver _Database;
         private LoggingModule _Logging;
         private Dictionary<string, EmbeddedTemplate> _EmbeddedDefaults;
+        private Dictionary<string, string> _PreviousPersonaContents = new Dictionary<string, string>(StringComparer.Ordinal);
 
         #endregion
 
@@ -65,6 +66,12 @@ namespace Armada.Core.Services
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _EmbeddedDefaults = BuildEmbeddedDefaults();
+            foreach (KeyValuePair<string, EmbeddedTemplate> entry in _EmbeddedDefaults)
+            {
+                if (!PersonaPromptImprovements.Additions.ContainsKey(entry.Key)) continue;
+                _PreviousPersonaContents[entry.Key] = entry.Value.Content;
+                entry.Value.Content = PersonaPromptImprovements.Apply(entry.Key, entry.Value.Content);
+            }
         }
 
         #endregion
@@ -311,10 +318,28 @@ namespace Armada.Core.Services
             }
 
             await UpgradeLegacyPersonaTemplateReferencesAsync(token).ConfigureAwait(false);
+            await UpgradeBuiltInPersonaExecutionGuidanceAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInPersonaMemoryRecallAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInAskSystemAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInCommitPreambleAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInMissionRulesAsync(token).ConfigureAwait(false);
+        }
+
+        private async Task UpgradeBuiltInPersonaExecutionGuidanceAsync(CancellationToken token)
+        {
+            foreach (KeyValuePair<string, string> previous in _PreviousPersonaContents)
+            {
+                token.ThrowIfCancellationRequested();
+                PromptTemplate? existing = await _Database.PromptTemplates.ReadByNameAsync(previous.Key, token).ConfigureAwait(false);
+                if (existing == null || !existing.IsBuiltIn) continue;
+                string recall = previous.Key == "persona.recorder" ? String.Empty : _MemoryRecallGuidance;
+                if (!String.Equals(existing.Content, previous.Value, StringComparison.Ordinal)
+                    && !String.Equals(existing.Content, previous.Value + recall, StringComparison.Ordinal)) continue;
+                existing.Content = PersonaPromptImprovements.Apply(previous.Key, previous.Value) + recall;
+                existing.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.PromptTemplates.UpdateAsync(existing, token).ConfigureAwait(false);
+                _Logging.Debug(_Header + "upgraded untouched built-in persona execution guidance for '" + previous.Key + "'");
+            }
         }
 
         /// <summary>

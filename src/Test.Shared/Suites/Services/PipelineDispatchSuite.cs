@@ -1023,7 +1023,7 @@ namespace Test.Shared.Suites.Services
                         "Here is the plan.\n\n" +
                         "```armada-plan\n" +
                         "{\"missions\": [\n" +
-                        "  {\"title\": \"Add core model properties\", \"description\": \"Update Captain.cs and Mission.cs.\", \"dependsOn\": null},\n" +
+                        "  {\"title\": \"Add core model properties\", \"description\": \"Update Captain.cs and Mission.cs. AC-1: preserve stored values; run dotnet run --project src/Test.Automated; expected zero failures; evidence: existing model persistence.\", \"dependsOn\": null},\n" +
                         "  {\"title\": \"Extend secondary backends\", \"description\": \"Update PostgreSQL and MySQL. Depends on: Mission 9\", \"dependsOn\": 1},\n" +
                         "  {\"title\": \"Document the final behavior\", \"description\": \"Update README.md once the work is done.\", \"waitForOtherMissions\": true}\n" +
                         "]}\n" +
@@ -1041,6 +1041,8 @@ namespace Test.Shared.Suites.Services
                     Mission? ignored = afterArchitect.FirstOrDefault(m => m.Title == "Ignored legacy block [Worker]");
 
                     AssertNotNull(coreWorker, "Primary worker should exist");
+                    AssertContains("AC-1", coreWorker!.Description ?? String.Empty, "fan-out retains acceptance criteria inside parsed description");
+                    AssertContains("run dotnet run --project", coreWorker.Description ?? String.Empty, "fan-out retains execution instructions");
                     AssertNotNull(coreJudge, "Primary judge stage should exist");
                     AssertNotNull(backendWorker, "Dependent worker should exist");
                     AssertNotNull(docsWorker, "Deferred docs worker should exist");

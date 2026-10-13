@@ -1,0 +1,57 @@
+{
+  "mode": "applied",
+  "additionsSha256": "5a27c11ec150e71e33a040d424688f2d066a3e9b53db1689533fb0d7c61c497c",
+  "templates": [
+    {
+      "name": "persona.architect",
+      "action": "append",
+      "beforeSha256": "4eae6b8a894689fff530aa142110db3cf3b1a06df13755f0bee3f2d823de70aa",
+      "afterSha256": "ccab10beefdc6cb7788194c142fe7322da324375b7d0b34e3d16fa6d6fb02aa1"
+    },
+    {
+      "name": "persona.product_manager",
+      "action": "append",
+      "beforeSha256": "c9ea006fdbacefffb9445debc98934060962ae3ebbcbe11c0e0052bbcbc67c6e",
+      "afterSha256": "5c125f1bb80a89384230c3f9c2cd73ce9cdac73219dc38311c747f4fc569ca6d"
+    },
+    {
+      "name": "persona.worker",
+      "action": "append",
+      "beforeSha256": "a88cda50960517c1ce741f4540187d91e048460bec38a55a30284be30094feb1",
+      "afterSha256": "6eb1a5d33eed3bb9f446e0ff7269bf72fcb051bad07aea0bec4735c1cc2eaf26"
+    },
+    {
+      "name": "persona.judge",
+      "action": "append",
+      "beforeSha256": "10724612eef38538a2cb819d10dd80cb5f8bdcd6428b2da0790e9d1de689bb3d",
+      "afterSha256": "628ca520e2692ceaf05816d57a6a4a3dbc4d757bcb8bf2eb421662f2dbcee4a9"
+    },
+    {
+      "name": "persona.linter",
+      "action": "append",
+      "beforeSha256": "bb1b1f964b9d667e3640d332d37d7a898c8e019115577d189704319fec364327",
+      "afterSha256": "391d94e1125892f36ac2a52014f616e58441ff07a210704be30c826c1a53fdb9"
+    },
+    {
+      "name": "persona.test_engineer",
+      "action": "append",
+      "beforeSha256": "bf73344c3c6979d0892f7a45922fc713656be95bc7a0b371043656d9cbc81d73",
+      "afterSha256": "1dc84ed04204b039ba54410fdf6f2439fb88ceb3a6a11b0a00dae34bd07b3ec9"
+    },
+    {
+      "name": "persona.usability_engineer",
+      "action": "append",
+      "beforeSha256": "df2c2383ec5ce3729f578304f24928b8a63b8f61926bdb1c7d1878092254dd12",
+      "afterSha256": "c541f592ee66326e7cad954fcbb4f39e65f235f8e8433535bc6cc368a04d0303"
+    },
+    {
+      "name": "persona.recorder",
+      "action": "append",
+      "beforeSha256": "c26863362959086e5941bb169318082bf5bc5ce1f405681d049421e41df089f8",
+      "afterSha256": "c2649952965ec8f5409742b1f163d585941952dc07aa5bf45213d62e5defeb7d"
+    }
+  ],
+  "target": "http://view.homedns.org:8710",
+  "verifiedUtc": "2026-10-13T22:04:49.011240+00:00",
+  "application": "Existing live template contents preserved; canonical additions appended through REST. No binary replacement or restart."
+}

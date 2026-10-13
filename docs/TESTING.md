@@ -201,3 +201,11 @@ See [COMPATIBILITY.md](COMPATIBILITY.md).
 3. Track any created entities and temp paths (`TestTemp`) and clean them up in the case or the suite's after hook.
 4. Run just your suite with `ARMADA_TEST_SUITES=<suite id> dotnet run --project src/Test.Automated --framework net10.0`,
    then the full suite.
+
+## Persona prompt and handoff evaluations
+
+`python3 -m unittest discover -s scripts/common/tests` validates additive deployment safety and the paired evaluation harness without contacting a deployment or model. Backend prompt suites cover default seeding/upgrades, customization preservation, rendering/reset, and Architect fan-out payload retention.
+
+The optional live runner is `scripts/common/evaluate-prompt-handoffs.py`. Use `--base <backend-url> --captain-id <id> --output <external-report.json>` with interactive credentials, or `--local-codex --local-model <model> --output <external-report.json>` for read-only ephemeral local runs with shell/web disabled. Captain chat sends synthetic offline tasks and never dispatches missions. Baseline/improved pairs use empty history, identical task and captain, and unchanged runtime decoding settings; a changed reported model invalidates the pair. The Architect case also evaluates a fixed Worker prompt receiving only the parsed upstream description.
+
+Review unsupported claims, acceptance correctness, residual risks, and tool-call metrics manually. Lexical evidence coverage is a screening metric and cannot certify correctness or smaller-model suitability. Runtime defaults and synthetic tool restrictions are documented limitations. Keep report/secret files outside the repository unless their contents have been reviewed and sanitized.

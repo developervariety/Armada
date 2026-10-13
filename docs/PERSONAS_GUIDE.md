@@ -5,12 +5,26 @@ chain work through multi-stage pipelines, and customize every prompt the system 
 
 ---
 
+For an assessment of how the default prompts support less capable downstream models and tool-limited captains, see [Prompt and Handoff Improvements](../PROMPT_AND_HANDOFF_IMPROVEMENTS.md).
+
 ## Ordered captain priorities
 
 Personas can define `captainPriorities`, an ordered list of runtime/model/endpoint/minimum-tier matchers. Every supplied field in an entry must match. `priorityAvailability` chooses `FallThrough` or `WaitForFirstPriority`; `priorityExhaustion` chooses `Wait` or `UseEligibleCaptain`. The first-priority wait policy never uses lower entries or general fallback. Empty lists retain legacy default-captain behavior.
 
 A nonempty hierarchy replaces the persona default captain; explicit dispatch/voyage captain choices retain precedence. Routing is evaluated for every stage and Architect-generated mission, without binding a persona role to a provider. The hierarchy selects configured captains and does not change their model or endpoint. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md) for matching, precedence, configuration, and examples.
 
+
+### Editing priorities in the dashboard
+
+Open a persona and choose **Actions > Edit**. On desktop, persona settings and captain priorities appear side by side; the form stacks on smaller screens. Save and Cancel stay visible while the form scrolls.
+
+Choose a runtime beside **Add priority**, then refine its model, Mux endpoint, or minimum tier. Drag a card by its handle to reorder it, use the up/down arrows, or select its **Position** directly. Keyboard users can focus the handle and press Alt+Up or Alt+Down. The displayed order is the routing order. Configure unavailable-priority behavior below the cards, then save.
+
+### Evidence and downstream execution
+
+The default persona prompts require honest reporting of missing tools and unperformed checks. Architect mission descriptions carry the relevant product decisions, evidence, paths/interfaces, ordered implementation steps, examples, and acceptance checks independently. Product Manager separates research evidence from assumptions; Worker reports changed behavior and validation; Test Engineer maps criteria to tests and reports production defects; Judge gives reproducible findings and corrective actions; Linter follows actual repository tools and reports locations/results.
+
+Existing untouched defaults upgrade automatically in a build containing these improvements. Operator-edited templates retain their content during startup. Live deployments can receive the same additive guidance using `scripts/common/apply-prompt-improvements.py`; it previews changes by default, preserves existing template content and metadata, backs up outside the repository, and verifies read-back. A deployment still running an older binary has older embedded reset defaults, so avoid **Reset to Default** until that binary is updated, or reapply the script afterward. Existing generated mission instruction files are not rewritten by template updates.
 
 ## Table of Contents
 

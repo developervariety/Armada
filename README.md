@@ -1102,6 +1102,10 @@ Schema migrations run automatically at startup, and SQLite is backed up first. U
 | Security | [SECURITY.md](SECURITY.md), [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md) |
 | Contributing and testing | [docs/TESTING.md](docs/TESTING.md), [BUILDING_INSTALLERS.md](BUILDING_INSTALLERS.md), [docs/RELEASING.md](docs/RELEASING.md) |
 
+### Persona prompt and handoff quality
+
+Default persona guidance requires explicit evidence, tool limitations, self-contained Architect missions, executable acceptance checks, and actionable reviewer/test handoffs. See [Prompt and Handoff Improvements](PROMPT_AND_HANDOFF_IMPROVEMENTS.md) for the ranked plan, validation, live-template rollout, and replication procedure. Existing untouched defaults upgrade on startup; customized templates remain intact.
+
 ## Community
 
 Armada has a growing community building on and around it.

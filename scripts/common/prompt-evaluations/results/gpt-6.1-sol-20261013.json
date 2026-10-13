@@ -1,0 +1,334 @@
+{
+  "createdUtc": "2026-10-13T22:05:55.695660+00:00",
+  "mode": "local-cli",
+  "captainId": "gpt-6.1-sol",
+  "controls": "Same explicit model, empty history, same task; ephemeral read-only workspace, shell/web disabled, user config ignored; runtime-managed decoding defaults.",
+  "limitations": "Synthetic offline tasks; does not certify parameter-count suitability or real filesystem execution. Runtime-managed decoding settings are not a fixed temperature/seed pin.",
+  "sourceBaseCommit": "2290872c0ad63b0c600a56fe387a9e5c5ae1fde4",
+  "localRuntimeVersion": "codex-cli 0.162.1",
+  "cases": [
+    {
+      "id": "architect_offline",
+      "persona": "persona.architect",
+      "manualReview": {
+        "unsupportedClaims": "None observed; both plans rely on supplied source without claiming execution.",
+        "acceptanceCorrectness": "Both specify the correct inclusive clamp and preserve the signature. Improved description explicitly carries evidence, AC-1, expected exit code, required inputs and stop conditions.",
+        "residualRisks": "Downstream Worker proposals are substantively equivalent. Lexical misses do not imply incorrectness; neither proposal was executed."
+      },
+      "runs": {
+        "baseline": {
+          "model": "gpt-6.1-sol",
+          "seconds": 7.465715416939929,
+          "promptSha256": "eb3773dbfb830837d162741f0e1c04d1310bbabe692fcf0f9eab685e646b6ed1",
+          "metrics": {
+            "ToolCallCount": 0,
+            "PromptTokens": 12030,
+            "CompletionTokens": 179,
+            "CachedTokens": 9216
+          },
+          "score": {
+            "requiredEvidencePresent": {
+              "src/Discount.cs": true,
+              "Discount.Clamp": true,
+              "dotnet test tests/DiscountTests.csproj": true,
+              "AC-1": false,
+              "101": true,
+              "100": true,
+              "Non-goal": false
+            },
+            "evidenceCoverage": 0.7142857142857143,
+            "parseablePlan": true,
+            "replyCharacters": 764,
+            "completionSignalPresent": false,
+            "toolCallCount": 0,
+            "automatedScoreLimit": "Lexical evidence coverage is a screening metric; review correctness and unsupported claims manually."
+          },
+          "replySha256": "64fde1cf74e2c847e98c2d5ecb093efbe1337a7f89cf721f8e540e591a1354c6"
+        },
+        "improved": {
+          "model": "gpt-6.1-sol",
+          "seconds": 15.631611792021431,
+          "promptSha256": "29dd755132ec36e5c9f278bd315824e1104e353bf3ec2e6c1ae1df5e992e6386",
+          "metrics": {
+            "ToolCallCount": 0,
+            "PromptTokens": 12346,
+            "CompletionTokens": 408,
+            "CachedTokens": 9216
+          },
+          "score": {
+            "requiredEvidencePresent": {
+              "src/Discount.cs": true,
+              "Discount.Clamp": true,
+              "dotnet test tests/DiscountTests.csproj": true,
+              "AC-1": true,
+              "101": true,
+              "100": true,
+              "Non-goal": false
+            },
+            "evidenceCoverage": 0.8571428571428571,
+            "parseablePlan": true,
+            "replyCharacters": 1922,
+            "completionSignalPresent": false,
+            "toolCallCount": 0,
+            "automatedScoreLimit": "Lexical evidence coverage is a screening metric; review correctness and unsupported claims manually."
+          },
+          "replySha256": "7096d0b0d63d2a06fdd47235e420569281f6fefa7a505a450c47f8f9a494e480"
+        }
+      },
+      "downstreamWorker": {
+        "baseline": {
+          "model": "gpt-6.1-sol",
+          "metrics": {
+            "ToolCallCount": 0,
+            "PromptTokens": 11441,
+            "CompletionTokens": 202,
+            "CachedTokens": 9216
+          },
+          "score": {
+            "requiredEvidencePresent": {
+              "src/Discount.cs": true,
+              "Discount.Clamp": false,
+              "dotnet test tests/DiscountTests.csproj": true,
+              "AC-1": false,
+              "101": true,
+              "100": true,
+              "Non-goal": false
+            },
+            "evidenceCoverage": 0.5714285714285714,
+            "parseablePlan": null,
+            "replyCharacters": 781,
+            "completionSignalPresent": true,
+            "toolCallCount": 0,
+            "automatedScoreLimit": "Lexical evidence coverage is a screening metric; review correctness and unsupported claims manually."
+          },
+          "replySha256": "2a19d4cab79e8b653484e578d58789102e4351f23b0883fbb22941e5da7fc45b"
+        },
+        "improved": {
+          "model": "gpt-6.1-sol",
+          "metrics": {
+            "ToolCallCount": 0,
+            "PromptTokens": 11668,
+            "CompletionTokens": 211,
+            "CachedTokens": 9216
+          },
+          "score": {
+            "requiredEvidencePresent": {
+              "src/Discount.cs": true,
+              "Discount.Clamp": false,
+              "dotnet test tests/DiscountTests.csproj": true,
+              "AC-1": false,
+              "101": true,
+              "100": true,
+              "Non-goal": false
+            },
+            "evidenceCoverage": 0.5714285714285714,
+            "parseablePlan": null,
+            "replyCharacters": 820,
+            "completionSignalPresent": true,
+            "toolCallCount": 0,
+            "automatedScoreLimit": "Lexical evidence coverage is a screening metric; review correctness and unsupported claims manually."
+          },
+          "replySha256": "59a3646d062919d14f41321871dbe971f0ee6677774f852bdb9a10806ffb07ab"
+        }
+      }
+    },
+    {
+      "id": "product_missing_research",
+      "persona": "persona.product_manager",
+      "manualReview": {
+        "unsupportedClaims": "No fabricated citations or verified competitor claims observed in either response.",
+        "acceptanceCorrectness": "Both defer a market commitment; improved brief explicitly separates evidence/inference/assumptions and provides named decision criteria.",
+        "residualRisks": "No actual market research performed; improved output is still a conditional product brief."
+      },
+      "runs": {
+        "baseline": {
+          "model": "gpt-6.1-sol",
+          "seconds": 34.59786387498025,
+          "promptSha256": "e567a326252296c4767ce6470dae62227e0d06fa75b70e4d2e09f14d0cd872cc",
+          "metrics": {
+            "ToolCallCount": 0,
+            "PromptTokens": 11552,
+            "CompletionTokens": 904,
+            "CachedTokens": 9216
+          },
+          "score": {
+            "requiredEvidencePresent": {
+              "evidence": true,
+              "unavailable": false,
+              "assumption": false,
+              "acceptance": true,
+              "non-goal": false
+            },
+            "evidenceCoverage": 0.4,
+            "parseablePlan": null,
+            "replyCharacters": 5522,
+            "completionSignalPresent": true,
+            "toolCallCount": 0,
+            "automatedScoreLimit": "Lexical evidence coverage is a screening metric; review correctness and unsupported claims manually."
+          },
+          "replySha256": "ef2e68da4e956f5fd90c6f9f576fc345cba3b0bb32a81889a8c2a3381c06ee38"
+        },
+        "improved": {
+          "model": "gpt-6.1-sol",
+          "seconds": 40.59585491695907,
+          "promptSha256": "a0996992b9fe6c366605b8d66eeaa88d4c1ca83698969af4f21b19e283f7ae45",
+          "metrics": {
+            "ToolCallCount": 0,
+            "PromptTokens": 11836,
+            "CompletionTokens": 1024,
+            "CachedTokens": 9216
+          },
+          "score": {
+            "requiredEvidencePresent": {
+              "evidence": true,
+              "unavailable": true,
+              "assumption": true,
+              "acceptance": true,
+              "non-goal": true
+            },
+            "evidenceCoverage": 1.0,
+            "parseablePlan": null,
+            "replyCharacters": 6063,
+            "completionSignalPresent": true,
+            "toolCallCount": 0,
+            "automatedScoreLimit": "Lexical evidence coverage is a screening metric; review correctness and unsupported claims manually."
+          },
+          "replySha256": "30455073665d474116279dbb3ceda5c2c5267acadbed4b9577d71546ea704241"
+        }
+      }
+    },
+    {
+      "id": "worker_missing_api",
+      "persona": "persona.worker",
+      "manualReview": {
+        "unsupportedClaims": "Neither response invents Storage.Save or claims files/tests/commits.",
+        "acceptanceCorrectness": "Both report blockage; improved reply specifies evidence, signature/persistence inputs, unchanged files, unmet criterion, unrun checks and risk.",
+        "residualRisks": "No real editing or validation occurs in this synthetic tool-limited case."
+      },
+      "runs": {
+        "baseline": {
+          "model": "gpt-6.1-sol",
+          "seconds": 5.468027416965924,
+          "promptSha256": "40a1bd2929bab81d332bfc460bebb7b696c6f8c721b3d74444b1faa7ed4340b7",
+          "metrics": {
+            "ToolCallCount": 0,
+            "PromptTokens": 12245,
+            "CompletionTokens": 60,
+            "CachedTokens": 9216
+          },
+          "score": {
+            "requiredEvidencePresent": {
+              "block": true,
+              "missing": false,
+              "signature": false,
+              "not run": false,
+              "risk": false
+            },
+            "evidenceCoverage": 0.2,
+            "parseablePlan": null,
+            "replyCharacters": 265,
+            "completionSignalPresent": false,
+            "toolCallCount": 0,
+            "automatedScoreLimit": "Lexical evidence coverage is a screening metric; review correctness and unsupported claims manually."
+          },
+          "replySha256": "abebd3d35b3a5d0d5ee45ae86b6e6284e1e1bc19a5ab01d216a216f9aaf21225"
+        },
+        "improved": {
+          "model": "gpt-6.1-sol",
+          "seconds": 8.664592124987394,
+          "promptSha256": "4cbce69ff65e9b7e662be9c754a73bfb38543f53fa5988cd47d3c479af617670",
+          "metrics": {
+            "ToolCallCount": 0,
+            "PromptTokens": 11679,
+            "CompletionTokens": 188,
+            "CachedTokens": 9216
+          },
+          "score": {
+            "requiredEvidencePresent": {
+              "block": true,
+              "missing": true,
+              "signature": true,
+              "not run": false,
+              "risk": true
+            },
+            "evidenceCoverage": 0.8,
+            "parseablePlan": null,
+            "replyCharacters": 962,
+            "completionSignalPresent": false,
+            "toolCallCount": 0,
+            "automatedScoreLimit": "Lexical evidence coverage is a screening metric; review correctness and unsupported claims manually."
+          },
+          "replySha256": "8ef5b8c22f517b71bc5bed1d8c1b3a09a6de82e0c8f0bceeced67ab2f7284be6"
+        }
+      }
+    },
+    {
+      "id": "test_production_bug",
+      "persona": "persona.test_engineer",
+      "manualReview": {
+        "unsupportedClaims": "Neither response claims executed tests or edits; improved reply explicitly identifies supplied failure evidence.",
+        "acceptanceCorrectness": "Both propose Assert.Equal(0, Discount.Clamp(-1)); improved reply maps AC-1, gives the supplied test command, and identifies the production repair without editing it.",
+        "residualRisks": "Both emit COMPLETE for a requested proposal. Completion markers alone cannot establish that a real testing mission added/reran tests; future execution evaluations should distinguish proposal tasks from implementation tasks."
+      },
+      "runs": {
+        "baseline": {
+          "model": "gpt-6.1-sol",
+          "seconds": 7.559245917014778,
+          "promptSha256": "0ac0ff6e6ea3fdf9a09f3a1ea0c1d54e374cb41fbb8231f707458da5295da96d",
+          "metrics": {
+            "ToolCallCount": 0,
+            "PromptTokens": 11842,
+            "CompletionTokens": 172,
+            "CachedTokens": 9216
+          },
+          "score": {
+            "requiredEvidencePresent": {
+              "AC-1": true,
+              "Assert.Equal": true,
+              "-1": true,
+              "0": true,
+              "production": true,
+              "not run": false
+            },
+            "evidenceCoverage": 0.8333333333333334,
+            "parseablePlan": null,
+            "replyCharacters": 761,
+            "completionSignalPresent": true,
+            "toolCallCount": 0,
+            "automatedScoreLimit": "Lexical evidence coverage is a screening metric; review correctness and unsupported claims manually."
+          },
+          "replySha256": "5294a1a1f1cda3eb052855deffcff0e733a7708683d761ea267f09a51710c94a"
+        },
+        "improved": {
+          "model": "gpt-6.1-sol",
+          "seconds": 10.639987332979217,
+          "promptSha256": "b881db29a8d4d3c8c262150f5670710f390230144e37024e693b3da52772603c",
+          "metrics": {
+            "ToolCallCount": 0,
+            "PromptTokens": 12108,
+            "CompletionTokens": 297,
+            "CachedTokens": 9216
+          },
+          "score": {
+            "requiredEvidencePresent": {
+              "AC-1": true,
+              "Assert.Equal": true,
+              "-1": true,
+              "0": true,
+              "production": true,
+              "not run": true
+            },
+            "evidenceCoverage": 1.0,
+            "parseablePlan": null,
+            "replyCharacters": 1364,
+            "completionSignalPresent": true,
+            "toolCallCount": 0,
+            "automatedScoreLimit": "Lexical evidence coverage is a screening metric; review correctness and unsupported claims manually."
+          },
+          "replySha256": "4f24a5bfa475ed37d3560d17c160e92a2430dd1cc54f3fd70c16627c093288e0"
+        }
+      }
+    }
+  ],
+  "conclusion": "Improved evidence and handoff specificity in these synthetic tasks; no demonstrated downstream correctness gain or lower-capacity model threshold. Raw responses are retained outside the repository."
+}
