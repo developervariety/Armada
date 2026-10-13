@@ -298,6 +298,79 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("persona_execution_upgrade_preserves_customization", "Untouched persona defaults upgrade once while operator edits and non-built-in templates remain unchanged", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, new LoggingModule());
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                    Dictionary<string, string> previous = (Dictionary<string, string>)typeof(PromptTemplateService).GetField("_PreviousPersonaContents", flags)!.GetValue(service)!;
+                    foreach (KeyValuePair<string, string> entry in previous)
+                    {
+                        PromptTemplate row = (await testDb.Driver.PromptTemplates.ReadByNameAsync(entry.Key).ConfigureAwait(false))!;
+                        row.Content = entry.Value;
+                        await testDb.Driver.PromptTemplates.UpdateAsync(row).ConfigureAwait(false);
+                    }
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    foreach (string name in previous.Keys)
+                    {
+                        PromptTemplate row = (await testDb.Driver.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false))!;
+                        AssertContains(PersonaPromptImprovements.Marker, row.Content, name + " upgraded");
+                        string upgraded = row.Content;
+                        await service.SeedDefaultsAsync().ConfigureAwait(false);
+                        row = (await testDb.Driver.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false))!;
+                        AssertEqual(upgraded, row.Content, name + " upgrade is idempotent");
+                        row.Content = upgraded + "\nOperator-specific instructions.";
+                        await testDb.Driver.PromptTemplates.UpdateAsync(row).ConfigureAwait(false);
+                        await service.SeedDefaultsAsync().ConfigureAwait(false);
+                        row = (await testDb.Driver.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false))!;
+                        AssertEqual(upgraded + "\nOperator-specific instructions.", row.Content, name + " operator customization preserved");
+                        PromptTemplate reset = (await service.ResetToDefaultAsync(name).ConfigureAwait(false))!;
+                        AssertContains(PersonaPromptImprovements.Marker, reset.Content, name + " reset uses improved default");
+                    }
+                    PromptTemplate worker = (await testDb.Driver.PromptTemplates.ReadByNameAsync("persona.worker").ConfigureAwait(false))!;
+                    worker.Content = previous["persona.worker"];
+                    worker.IsBuiltIn = false;
+                    await testDb.Driver.PromptTemplates.UpdateAsync(worker).ConfigureAwait(false);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    worker = (await testDb.Driver.PromptTemplates.ReadByNameAsync("persona.worker").ConfigureAwait(false))!;
+                    AssertEqual(previous["persona.worker"], worker.Content, "non-built-in content not upgraded");
+                }
+            }));
+
+            cases.Add(CaseAsync("persona_guidance_rendered_for_limited_tools", "All persona briefs carry tool honesty; role-specific evidence and implementation contracts render without changing output protocols", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, new LoggingModule());
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    foreach (string name in PersonaPromptImprovements.Additions.Keys)
+                    {
+                        string rendered = await service.RenderAsync(name, new Dictionary<string, string> { ["MissionDescription"] = "A bounded offline task", ["Diff"] = "a verified diff", ["PreviousStageOutput"] = "supplied evidence" }).ConfigureAwait(false);
+                        AssertContains("Report unavailable tools", rendered, name + " unavailable checks are explicit");
+                        AssertContains("Never claim an inspection", rendered, name + " evidence honesty");
+                        AssertFalse(rendered.Contains("{MissionDescription}"), name + " objective rendered");
+                    }
+                    string architect = service.GetEmbeddedDefault("persona.architect")!;
+                    AssertContains("inside that mission's existing JSON description field", architect, "self-contained fan-out description");
+                    AssertContains("exact repository validation commands", architect, "executable checks");
+                    AssertContains("armada-plan", architect, "plan protocol preserved");
+                    string worker = service.GetEmbeddedDefault("persona.worker")!;
+                    AssertContains("changed files", worker, "worker handoff");
+                    AssertContains("precise blocker", worker, "bounded escalation");
+                    string product = service.GetEmbeddedDefault("persona.product_manager")!;
+                    AssertContains("publication/access date", product, "dated research evidence");
+                    AssertContains("stable identifiers", product, "measurable acceptance criteria");
+                    string testEngineer = service.GetEmbeddedDefault("persona.test_engineer")!;
+                    AssertContains("Do not weaken/delete assertions", testEngineer, "production defect honesty");
+                    AssertContains("named tests", testEngineer, "requirement mapping");
+                    AssertContains("smallest corrective action", service.GetEmbeddedDefault("persona.judge")!, "actionable judge repair");
+                    AssertContains("file/line references", service.GetEmbeddedDefault("persona.linter")!, "linter locations");
+                    AssertContains("[ARMADA:RESULT] COMPLETE", worker, "worker completion protocol preserved");
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Prompt Template Service",

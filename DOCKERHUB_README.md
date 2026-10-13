@@ -21,6 +21,8 @@
 
 Define an ordered hierarchy of preferred captain classes on each persona, matching runtime, model, Mux endpoint, and minimum capability tier. Configure whether busy classes permit lower priorities or wait for the first choice, and whether an exhausted hierarchy waits or allows any eligible captain. Pipelines and Architect-generated missions use the same routing. Existing personas retain their default-captain behavior until a hierarchy is configured. See [Captain routing](docs/CAPTAIN_ROUTING.md) for setup and examples.
 
+The dashboard persona editor uses a wide, responsive two-column form with draggable priority cards, keyboard/arrow reordering, direct position selection, and visible save actions. Persona prompts provide evidence and validation guidance for downstream captains. Existing untouched defaults upgrade automatically; operator-edited templates remain intact. The [prompt improvement plan](PROMPT_AND_HANDOFF_IMPROVEMENTS.md) includes live-template replication and rollback commands.
+
 ## What Armada is
 
 Armada coordinates AI coding agents (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, or a hosted model endpoint)

@@ -1,3 +1,4 @@
+import DialogShell from '../components/shared/DialogShell';
 import PersonaPriorityEditor from '../components/shared/PersonaPriorityEditor';
 import { personaRoutingForm, validatePersonaPriorities } from '../lib/personaPriorities';
 import { useState, useEffect, useMemo, useCallback } from 'react';
@@ -196,10 +197,11 @@ export default function Personas() {
       <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* Create/Edit Modal */}
-      {showForm && (
-        <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>{editing ? t('Edit Persona') : t('Create Persona')}</h3>
+      <DialogShell open={showForm} title={editing ? t('Edit Persona') : t('Create Persona')} onClose={() => setShowForm(false)} size="lg" className="persona-edit-dialog"
+        footer={<><button type="submit" form="persona-edit-form" className="btn btn-primary">{t('Save')}</button>
+          <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button></>}>
+        <form id="persona-edit-form" className="persona-edit-layout" onSubmit={handleSubmit}>
+          <div className="persona-edit-settings">
             <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required disabled={!!editing} /></label>
             <label>{t('Description')}
               <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} placeholder={t('Optional description of this persona...')} />
@@ -212,15 +214,11 @@ export default function Personas() {
                 ))}
               </select>
             </label>
-            <PersonaPriorityEditor value={routing} onChange={setRouting} />
             <ScopeSelect viewer={viewer} value={form.scope} onChange={(scope) => setForm({ ...form, scope })} />
-            <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Save')}</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
-            </div>
-          </form>
-        </div>
-      )}
+          </div>
+          <PersonaPriorityEditor value={routing} onChange={setRouting} />
+        </form>
+      </DialogShell>
 
       {/* JSON Viewer */}
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />

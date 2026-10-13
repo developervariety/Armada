@@ -117,6 +117,16 @@ All notable changes to Armada are documented in this file.
 - Updated REST/MCP contracts, dashboard/mobile/terminal editors, duplication, assignment diagnostics, and localized controls.
 - Added matching, availability, eligibility, persistence, API round-trip, and client interaction regression coverage.
 
+### Persona evidence and downstream execution
+- Default personas report unavailable tools and unperformed checks. Architect descriptions carry decisions/evidence, verified paths and interfaces, ordered steps, and executable acceptance checks; Product Manager requires measurable criteria and evidence-backed research when needed.
+- Worker, Test Engineer, Judge, and Linter report concrete validation and handoff evidence. Test Engineer reports production defects without weakening assertions or editing production code.
+- Untouched previous built-ins upgrade idempotently; operator customizations remain intact. Added a preview/apply/rollback replication script and paired prompt/handoff evaluation fixtures and runner.
+
+
+### Persona editor usability
+- Dashboard persona forms use a wider, responsive two-column dialog with Save and Cancel always visible.
+- Captain priority cards support drag and drop, arrow buttons, direct position selection, and Alt+Up/Down keyboard reordering. Choose the runtime before adding a priority; model and endpoint fields remain grouped with their class.
+
 ## v1.0.1 (2026-10-07)
 
 Focus: a landing-mode fix that was missed in 1.0.0. **Check your landing modes when upgrading**; see [Upgrading from 1.0.0](docs/MERGING.md#upgrading-from-100-landing-modes-fixed-in-101).

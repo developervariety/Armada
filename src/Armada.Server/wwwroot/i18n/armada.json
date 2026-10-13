@@ -2910,7 +2910,12 @@
         "a adds a priority; Enter edits; Del removes; Alt+Up/Down reorders.": "a añade; Enter edita; Del elimina; Alt+Arriba/Abajo cambia el orden.",
         "Wait for the first priority always waits, regardless of the exhaustion setting.": "Esperar la primera prioridad siempre espera, independientemente de la opción de agotamiento.",
         "Wait": "Esperar",
-        "Used only when captain priorities is empty.": "Se usa solo cuando la lista de prioridades de capitanes está vacía."
+        "Used only when captain priorities is empty.": "Se usa solo cuando la lista de prioridades de capitanes está vacía.",
+        "Drag to reorder, or use the arrows or position menu.": "Arrastra para reordenar o usa las flechas o el menú de posición.",
+        "Drag to reorder": "Arrastrar para reordenar",
+        "Position": "Posición",
+        "Mux only": "Solo Mux",
+        "Runtime for new priority": "Entorno de ejecución para la nueva prioridad"
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -4756,7 +4761,12 @@
         "a adds a priority; Enter edits; Del removes; Alt+Up/Down reorders.": "a 添加；Enter 编辑；Del 删除；Alt+上/下调整顺序。",
         "Wait for the first priority always waits, regardless of the exhaustion setting.": "等待第一优先级时始终等待，不受列表耗尽设置影响。",
         "Wait": "等待",
-        "Used only when captain priorities is empty.": "仅在队长优先级列表为空时使用。"
+        "Used only when captain priorities is empty.": "仅在队长优先级列表为空时使用。",
+        "Drag to reorder, or use the arrows or position menu.": "拖动排序，或使用箭头或位置菜单。",
+        "Drag to reorder": "拖动排序",
+        "Position": "位置",
+        "Mux only": "仅限 Mux",
+        "Runtime for new priority": "新优先级的运行时"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -6565,7 +6575,12 @@
         "a adds a priority; Enter edits; Del removes; Alt+Up/Down reorders.": "a 新增；Enter 編輯；Del 刪除；Alt+上/下調整順序。",
         "Wait for the first priority always waits, regardless of the exhaustion setting.": "等待第一優先順序時一律等待，不受清單用盡設定影響。",
         "Wait": "等待",
-        "Used only when captain priorities is empty.": "僅在隊長優先順序清單為空時使用。"
+        "Used only when captain priorities is empty.": "僅在隊長優先順序清單為空時使用。",
+        "Drag to reorder, or use the arrows or position menu.": "拖曳排序，或使用箭頭或位置選單。",
+        "Drag to reorder": "拖曳排序",
+        "Position": "位置",
+        "Mux only": "僅限 Mux",
+        "Runtime for new priority": "新優先順序的執行環境"
       },
       "sections": {}
     },
@@ -8334,7 +8349,12 @@
         "a adds a priority; Enter edits; Del removes; Alt+Up/Down reorders.": "a 新增；Enter 編輯；Del 刪除；Alt+上/下調整次序。",
         "Wait for the first priority always waits, regardless of the exhaustion setting.": "等第一優先次序時一定會等，唔受清單用盡設定影響。",
         "Wait": "等候",
-        "Used only when captain priorities is empty.": "只會喺隊長優先次序清單空白時使用。"
+        "Used only when captain priorities is empty.": "只會喺隊長優先次序清單空白時使用。",
+        "Drag to reorder, or use the arrows or position menu.": "拖曳排序，或使用箭頭或位置選單。",
+        "Drag to reorder": "拖曳排序",
+        "Position": "位置",
+        "Mux only": "僅限 Mux",
+        "Runtime for new priority": "新優先次序的執行環境"
       },
       "sections": {}
     },
@@ -10119,7 +10139,12 @@
         "a adds a priority; Enter edits; Del removes; Alt+Up/Down reorders.": "aで追加、Enterで編集、Delで削除、Alt+上下で並べ替え。",
         "Wait for the first priority always waits, regardless of the exhaustion setting.": "最優先の候補を待つ設定では、リスト終了時の設定に関係なく待機します。",
         "Wait": "待機",
-        "Used only when captain priorities is empty.": "キャプテンの優先順位リストが空の場合のみ使用します。"
+        "Used only when captain priorities is empty.": "キャプテンの優先順位リストが空の場合のみ使用します。",
+        "Drag to reorder, or use the arrows or position menu.": "ドラッグするか、矢印または位置メニューで並べ替えます。",
+        "Drag to reorder": "ドラッグして並べ替え",
+        "Position": "位置",
+        "Mux only": "Muxのみ",
+        "Runtime for new priority": "新しい優先順位のランタイム"
       },
       "sections": {}
     },
@@ -11895,7 +11920,12 @@
         "a adds a priority; Enter edits; Del removes; Alt+Up/Down reorders.": "a fügt hinzu; Enter bearbeitet; Entf entfernt; Alt+Auf/Ab verschiebt.",
         "Wait for the first priority always waits, regardless of the exhaustion setting.": "Auf die erste Priorität warten wartet immer, unabhängig von der Einstellung für eine erschöpfte Liste.",
         "Wait": "Warten",
-        "Used only when captain priorities is empty.": "Wird nur verwendet, wenn die Kapitänprioritäten leer sind."
+        "Used only when captain priorities is empty.": "Wird nur verwendet, wenn die Kapitänprioritäten leer sind.",
+        "Drag to reorder, or use the arrows or position menu.": "Zum Sortieren ziehen oder die Pfeile bzw. das Positionsmenü verwenden.",
+        "Drag to reorder": "Zum Sortieren ziehen",
+        "Position": "Position",
+        "Mux only": "Nur Mux",
+        "Runtime for new priority": "Laufzeit für die neue Priorität"
       },
       "sections": {}
     },
@@ -13671,7 +13701,12 @@
         "a adds a priority; Enter edits; Del removes; Alt+Up/Down reorders.": "a ajoute ; Entrée modifie ; Suppr supprime ; Alt+Haut/Bas réordonne.",
         "Wait for the first priority always waits, regardless of the exhaustion setting.": "Attendre la première priorité attend toujours, quel que soit le réglage de fin de liste.",
         "Wait": "Attendre",
-        "Used only when captain priorities is empty.": "Utilisé uniquement lorsque la liste des priorités des capitaines est vide."
+        "Used only when captain priorities is empty.": "Utilisé uniquement lorsque la liste des priorités des capitaines est vide.",
+        "Drag to reorder, or use the arrows or position menu.": "Faites glisser pour réordonner, ou utilisez les flèches ou le menu de position.",
+        "Drag to reorder": "Faire glisser pour réordonner",
+        "Position": "Position",
+        "Mux only": "Mux uniquement",
+        "Runtime for new priority": "Environnement pour la nouvelle priorité"
       },
       "sections": {}
     },
@@ -15447,7 +15482,12 @@
         "a adds a priority; Enter edits; Del removes; Alt+Up/Down reorders.": "a aggiunge; Invio modifica; Canc rimuove; Alt+Su/Giù riordina.",
         "Wait for the first priority always waits, regardless of the exhaustion setting.": "Attendi la prima priorità attende sempre, indipendentemente dall’impostazione di esaurimento.",
         "Wait": "Attendi",
-        "Used only when captain priorities is empty.": "Usato solo quando la lista delle priorità dei capitani è vuota."
+        "Used only when captain priorities is empty.": "Usato solo quando la lista delle priorità dei capitani è vuota.",
+        "Drag to reorder, or use the arrows or position menu.": "Trascina per riordinare oppure usa le frecce o il menu della posizione.",
+        "Drag to reorder": "Trascina per riordinare",
+        "Position": "Posizione",
+        "Mux only": "Solo Mux",
+        "Runtime for new priority": "Runtime per la nuova priorità"
       },
       "sections": {}
     }

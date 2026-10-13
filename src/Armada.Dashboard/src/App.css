@@ -9148,3 +9148,37 @@ thead tr.column-filter-row td input.col-filter { width: 0; min-width: 100%; }
 .persona-priority-class legend { padding: 0 0.35rem; font-weight: 600; color: var(--text); }
 .persona-priority-class .action-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .persona-priority-editor > button { margin: 0.5rem 0 1rem; }
+
+/* Persona settings and ordered routing stay side by side on larger screens. */
+.persona-edit-layout { display: grid; grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.4fr); gap: 1.5rem; align-items: start; }
+.persona-edit-settings { min-width: 0; }
+.persona-edit-layout label, .persona-priority-editor label { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.85rem; margin-bottom: 0.85rem; }
+.persona-edit-layout input, .persona-edit-layout select, .persona-edit-layout textarea, .persona-priority-editor input, .persona-priority-editor select { width: 100%; min-width: 0; }
+.persona-edit-layout textarea { resize: vertical; }
+.persona-priority-editor > legend { font-weight: 600; font-size: 1rem; }
+.persona-priority-editor > p { font-size: 0.8rem; margin: 0 0 0.5rem; }
+.persona-priority-list { display: grid; gap: 0.75rem; margin-top: 1rem; }
+.persona-priority-list .persona-priority-class { margin: 0; padding: 0.75rem; background: var(--bg-card); transition: border-color 120ms, box-shadow 120ms; }
+.persona-priority-list .persona-priority-drop-target { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+.persona-priority-toolbar { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+.persona-priority-drag { cursor: grab; font-size: 1.15rem; }
+.persona-priority-drag:active { cursor: grabbing; }
+.persona-priority-toolbar .persona-priority-position { display: flex; flex-direction: row; align-items: center; gap: 0.5rem; margin: 0; }
+.persona-priority-position select { width: 3.5rem; }
+.persona-priority-actions { display: flex; gap: 0.35rem; margin-left: auto; }
+.persona-priority-actions button { min-width: 32px; min-height: 32px; }
+.persona-priority-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 0.75rem; }
+.persona-priority-fields label { margin: 0; }
+.persona-priority-add { display: flex; gap: 0.75rem; align-items: flex-end; margin: 1rem 0; }
+.persona-priority-add label { flex: 1; margin: 0; }
+.persona-priority-add > button { flex-shrink: 0; }
+.persona-priority-policies { padding-top: 1rem; border-top: 1px solid var(--border); }
+@media (max-width: 760px) {
+  .persona-edit-layout { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .persona-edit-layout > .persona-priority-editor { border-top: 1px solid var(--border); padding-top: 1rem; }
+}
+@media (max-width: 420px) {
+  .persona-priority-fields { grid-template-columns: minmax(0, 1fr); }
+  .persona-priority-toolbar { flex-wrap: wrap; }
+  .persona-priority-actions button { min-width: 38px; min-height: 38px; }
+}

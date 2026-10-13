@@ -31,6 +31,36 @@ describe('Persona priority editor', () => {
     expect(payload().captainPriorities).toEqual([]);
   });
 
+  it('adds the selected runtime', () => {
+    render(<Harness />);
+    fireEvent.change(screen.getByLabelText('Runtime for new priority'), { target: { value: 'Mux' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add priority' }));
+    expect(payload().captainPriorities[0].runtime).toBe('Mux');
+    expect(screen.getByLabelText('Endpoint')).not.toBeDisabled();
+  });
+
+  it('moves to a chosen position and supports keyboard reordering', () => {
+    render(<Harness initial={personaRoutingForm({ captainPriorities: [{ runtime: 'ClaudeCode' }, { runtime: 'Codex' }, { runtime: 'Mux' }] })} />);
+    fireEvent.change(screen.getAllByLabelText('Position')[2], { target: { value: '0' } });
+    expect(payload().captainPriorities.map(p => p.runtime)).toEqual(['Mux', 'ClaudeCode', 'Codex']);
+    fireEvent.keyDown(screen.getAllByRole('button', { name: 'Drag to reorder' })[0], { key: 'ArrowDown', altKey: true });
+    expect(payload().captainPriorities.map(p => p.runtime)).toEqual(['ClaudeCode', 'Mux', 'Codex']);
+    fireEvent.keyDown(screen.getAllByRole('button', { name: 'Drag to reorder' })[0], { key: 'ArrowUp', altKey: true });
+    expect(payload().captainPriorities[0].runtime).toBe('ClaudeCode');
+  });
+
+  it('drags matching constraints together', () => {
+    render(<Harness initial={personaRoutingForm({ captainPriorities: [{ runtime: 'Codex' }, { runtime: 'Mux', model: 'gpt-oss:120b', endpoint: 'local' }] })} />);
+    const transfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+    fireEvent.dragStart(screen.getAllByRole('button', { name: 'Drag to reorder' })[1], { dataTransfer: transfer });
+    const first = screen.getByRole('group', { name: 'Priority 1' });
+    fireEvent.dragOver(first, { dataTransfer: transfer });
+    expect(first).toHaveClass('persona-priority-drop-target');
+    fireEvent.drop(first, { dataTransfer: transfer });
+    expect(payload().captainPriorities[0]).toMatchObject({ runtime: 'Mux', model: 'gpt-oss:120b', endpoint: 'local' });
+    expect(first).not.toHaveClass('persona-priority-drop-target');
+  });
+
   it('clears endpoint constraints when switching away from Mux', () => {
     render(<Harness initial={personaRoutingForm({ captainPriorities: [{ runtime: 'Mux', endpoint: 'local' }] })} />);
     fireEvent.change(screen.getByLabelText('Runtime'), { target: { value: 'Codex' } });

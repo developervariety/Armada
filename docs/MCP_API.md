@@ -5566,3 +5566,7 @@ Any MCP-compatible client can connect to the Armada MCP server using the HTTP tr
   }
 }
 ```
+
+### Persona prompt improvements
+
+The default persona guidance and additive replication procedure are documented in [Prompt and Handoff Improvements](../PROMPT_AND_HANDOFF_IMPROVEMENTS.md). Live prompt-template edits apply when future mission instructions are generated; they do not rewrite in-flight briefs. No request fields, output signals, plan schema, or endpoints change. Embedded defaults in upgraded builds include the guidance; startup upgrades only recognized untouched previous defaults and retains operator-edited templates.
