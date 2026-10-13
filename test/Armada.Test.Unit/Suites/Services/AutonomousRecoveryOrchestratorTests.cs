@@ -3608,6 +3608,19 @@ namespace Armada.Test.Unit.Suites.Services
             AssertEqual(1, incidentPage.Objects.Count, "The operator still needs an incident to act on.");
             string summary = incidentPage.Objects[0].Summary ?? String.Empty;
             AssertTrue(summary.Contains("Policy: block", StringComparison.Ordinal), "The incident must record the blocked policy. Summary: " + summary);
+            AssertTrue(summary.Contains("gate_class_not_rescuable", StringComparison.Ordinal),
+                "The incident must retain the stable gate-class reason. Summary: " + summary);
+
+            EnumerationResult<ArmadaEvent> blocked = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+            {
+                MissionId = failed.Id,
+                EventType = "autonomous_recovery.blocked",
+                PageNumber = 1,
+                PageSize = 10
+            }).ConfigureAwait(false);
+            AssertEqual(1, blocked.Objects.Count, "A blocked event records the gate-class decision.");
+            AssertTrue((blocked.Objects[0].Message ?? String.Empty).StartsWith("gate_class_not_rescuable:", StringComparison.Ordinal),
+                "The event must begin with the stable gate-class reason. Message: " + blocked.Objects[0].Message);
             return summary;
         }
 
