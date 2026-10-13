@@ -51,6 +51,22 @@ For a premise check's selected fact and unknown identity, use
 role respects explicit objective limits on test changes and preserves required,
 permitted validation; see [pipelines and personas](../README.md#pipelines-and-personas).
 
+## Judge lenses and bounded reviews
+
+Judge reviews use three lenses: correctness, safety and blast radius, and
+source fidelity. A single Judge uses all three. A parallel Judge group assigns
+one primary lens to each Judge in creation order, cycling through the three
+lenses. Each Judge also reviews through the other two lenses. Source-fidelity
+review checks ported values and test vectors against real source material.
+
+A Judge can block only when the review shows a real affected case in the
+actual code or corpus. A hypothetical case that cannot occur is a follow-up
+note. For each deliverable in a code, test, data or document change, the Judge
+cites the branch diff against its base. Presence at the branch tip alone does
+not prove delivery. A report required in a stage's final response is checked
+in that stage's mission output. The active Judge prompt defines the full
+review sections, evidence and verdict contract.
+
 ## Chapters
 
 These links open the tracked templates. On an installed deployment, read the
