@@ -285,7 +285,8 @@ namespace Armada.Core.Services
 
             // Captain availability: the same pool FindAvailableCaptainAsync draws from (idle captains), checked
             // without resolving or persisting a preferred captain.
-            List<Captain> allCaptains = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+            List<Captain> allCaptains = (await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false))
+                .Where(c => CaptainVisibleToMission(c, mission)).ToList();
             if (allCaptains.Count == 0)
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.NoCaptains;
@@ -296,7 +297,7 @@ namespace Armada.Core.Services
             List<Captain> idleCaptains = allCaptains.Where(c => c.State == CaptainStateEnum.Idle).ToList();
             if (idleCaptains.Count > 0)
             {
-                bool eligible = IsAnyCaptainEligible(idleCaptains, mission);
+                bool eligible = await IsAnyCaptainEligibleAsync(idleCaptains, mission, token).ConfigureAwait(false);
                 if (eligible)
                 {
                     blocker.Reason = MissionAssignmentBlockerReasonEnum.AwaitingDispatch;
@@ -308,7 +309,7 @@ namespace Armada.Core.Services
                 blocker.Summary = "Waiting for a captain: no idle captain may take this mission"
                     + (!String.IsNullOrEmpty(mission.Persona) ? " (persona " + mission.Persona + ")" : "")
                     + (mission.Tier.HasValue ? " (tier " + mission.Tier.Value + " or higher)" : "")
-                    + ". Check the captains' allowed personas and tiers.";
+                    + ". Check the persona's captain priorities and the captains' allowed personas and tiers.";
                 await DescribeCaptainsAsync(blocker, allCaptains, mission.TenantId, token).ConfigureAwait(false);
                 return blocker;
             }
@@ -493,7 +494,7 @@ namespace Armada.Core.Services
             await ResolvePreferredCaptainAsync(mission, token).ConfigureAwait(false);
 
             // Find an idle captain: the preferred captain when idle, otherwise fall back by persona/tier.
-            Captain? captain = await FindAvailableCaptainAsync(mission.Persona, mission.Tier, mission.RequestedCaptainId, token).ConfigureAwait(false);
+            Captain? captain = await FindAvailableCaptainAsync(mission, token).ConfigureAwait(false);
             if (captain == null)
             {
                 _Logging.Warn(_Header + "no idle captains available for mission " + mission.Id +
@@ -1995,7 +1996,7 @@ namespace Armada.Core.Services
             Persona? persona;
             try
             {
-                persona = await ReadPersonaByNameAsync(mission.TenantId, personaName, token).ConfigureAwait(false);
+                persona = await ReadPersonaByNameAsync(mission.TenantId, personaName, token, mission.UserId).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -3950,19 +3951,33 @@ namespace Armada.Core.Services
             }
         }
 
-        private bool IsAnyCaptainEligible(List<Captain> idleCaptains, Mission mission)
+        private async Task<bool> IsAnyCaptainEligibleAsync(List<Captain> idleCaptains, Mission mission, CancellationToken token)
         {
             // Mirrors FindAvailableCaptainAsync: a requested (dictated) captain that is idle is always eligible;
             // otherwise the persona fence and the tier floor apply.
-            if (!String.IsNullOrEmpty(mission.RequestedCaptainId) && idleCaptains.Any(c => c.Id == mission.RequestedCaptainId))
+            if (!String.IsNullOrEmpty(mission.RequestedCaptainId) && idleCaptains.Any(c => c.Id == mission.RequestedCaptainId && CaptainVisibleToMission(c, mission) &&
+                (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)))
                 return true;
 
-            IEnumerable<Captain> eligible = idleCaptains;
+            IEnumerable<Captain> eligible = idleCaptains.Where(c => CaptainVisibleToMission(c, mission) &&
+                (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow));
             if (!String.IsNullOrEmpty(mission.Persona))
                 eligible = eligible.Where(c => String.IsNullOrEmpty(c.AllowedPersonas) || CaptainAllowsPersona(c, mission.Persona));
             if (mission.Tier.HasValue)
                 eligible = eligible.Where(c => CaptainTierSelector.EffectiveTier(c) >= mission.Tier.Value);
+            if (String.IsNullOrEmpty(mission.RequestedCaptainId) && !String.IsNullOrEmpty(mission.Persona))
+            {
+                Persona? definition = await ReadPersonaByNameAsync(mission.TenantId, mission.Persona, token, mission.UserId).ConfigureAwait(false);
+                if (definition != null && definition.CaptainPriorities.Count > 0)
+                    return PersonaCaptainPrioritySelector.Select(definition, eligible.ToList()) != null ||
+                        (PersonaCaptainPrioritySelector.AllowsGeneralFallback(definition) && eligible.Any());
+            }
             return eligible.Any();
+        }
+
+        private static bool CaptainVisibleToMission(Captain captain, Mission mission)
+        {
+            return captain.TenantId == mission.TenantId && (captain.UserId == null || captain.UserId == mission.UserId);
         }
 
         private async Task DescribeCaptainsAsync(MissionAssignmentBlocker blocker, List<Captain> captains, string? tenantId, CancellationToken token)
@@ -4036,10 +4051,15 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<Captain?> FindAvailableCaptainAsync(string? persona, CaptainTierEnum? requiredTier, string? requestedCaptainId, CancellationToken token)
+        private async Task<Captain?> FindAvailableCaptainAsync(Mission mission, CancellationToken token)
         {
+            string? persona = mission.Persona;
+            CaptainTierEnum? requiredTier = mission.Tier;
+            string? requestedCaptainId = mission.RequestedCaptainId;
             // Only idle captains are eligible for assignment
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
+            idleCaptains = idleCaptains.Where(c => CaptainVisibleToMission(c, mission) &&
+                (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)).ToList();
             if (idleCaptains.Count == 0)
                 return null;
 
@@ -4078,6 +4098,26 @@ namespace Armada.Core.Services
             if (eligible.Count == 0)
             {
                 return null;
+            }
+
+            // Hierarchies apply only when dispatch did not explicitly request a captain.
+            if (String.IsNullOrEmpty(requestedCaptainId) && !String.IsNullOrEmpty(persona))
+            {
+                Persona? definition = await ReadPersonaByNameAsync(mission.TenantId, persona, token, mission.UserId).ConfigureAwait(false);
+                if (definition != null && definition.CaptainPriorities.Count > 0)
+                {
+                    List<Captain> priorityEligible = eligible.Where(c => !requiredTier.HasValue ||
+                        CaptainTierSelector.EffectiveTier(c) >= requiredTier.Value).ToList();
+                    Captain? selected = PersonaCaptainPrioritySelector.Select(definition, priorityEligible);
+                    if (selected != null)
+                    {
+                        int matchedIndex = definition.CaptainPriorities.FindIndex(p => PersonaCaptainPrioritySelector.Matches(p, selected));
+                        _Logging.Info(_Header + "persona " + persona + " selected captain " + selected.Id +
+                            " at priority " + (matchedIndex + 1));
+                        return selected;
+                    }
+                    if (!PersonaCaptainPrioritySelector.AllowsGeneralFallback(definition)) return null;
+                }
             }
 
             // Tier routing -- only when the mission explicitly requires a tier (so default dispatch is
@@ -4160,8 +4200,8 @@ namespace Armada.Core.Services
 
             if (String.IsNullOrEmpty(resolvedCaptainId))
             {
-                Persona? persona = await ReadPersonaByNameAsync(mission.TenantId, mission.Persona, token).ConfigureAwait(false);
-                if (persona != null && !String.IsNullOrEmpty(persona.DefaultCaptainId))
+                Persona? persona = await ReadPersonaByNameAsync(mission.TenantId, mission.Persona, token, mission.UserId).ConfigureAwait(false);
+                if (persona != null && persona.CaptainPriorities.Count == 0 && !String.IsNullOrEmpty(persona.DefaultCaptainId))
                     resolvedCaptainId = persona.DefaultCaptainId;
             }
 
@@ -4199,15 +4239,17 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<Persona?> ReadPersonaByNameAsync(string? tenantId, string personaName, CancellationToken token)
+        private async Task<Persona?> ReadPersonaByNameAsync(string? tenantId, string personaName, CancellationToken token, string? userId = null)
         {
             if (!String.IsNullOrEmpty(tenantId))
             {
                 Persona? scoped = await _Database.Personas.ReadByNameAsync(tenantId, personaName, token).ConfigureAwait(false);
-                if (scoped != null) return scoped;
+                if (scoped != null && (scoped.UserId == null || scoped.UserId == userId || scoped.Scope == Armada.Core.Enums.ScopeEnum.TenantWide)) return scoped;
             }
 
-            return await _Database.Personas.ReadByNameAsync(personaName, token).ConfigureAwait(false);
+            Persona? shared = await _Database.Personas.ReadByNameAsync(personaName, token).ConfigureAwait(false);
+            return shared != null && shared.TenantId == tenantId &&
+                (shared.UserId == null || shared.UserId == userId || shared.Scope == Armada.Core.Enums.ScopeEnum.TenantWide) ? shared : null;
         }
 
         private async Task<CaptainTierEnum?> CaptainEffectiveTierAsync(string captainId, CancellationToken token)

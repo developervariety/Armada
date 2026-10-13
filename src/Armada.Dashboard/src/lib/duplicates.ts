@@ -129,6 +129,10 @@ export function buildPersonaDuplicatePayload(persona: Persona): Partial<Persona>
     name: duplicateDisplayName(persona.name),
     description: persona.description ?? null,
     promptTemplateName: persona.promptTemplateName,
+    captainPriorities: (persona.captainPriorities ?? []).map(p => ({ ...p })),
+    priorityAvailability: persona.priorityAvailability ?? 'FallThrough',
+    priorityExhaustion: persona.priorityExhaustion ?? 'Wait',
+
   };
 }
 

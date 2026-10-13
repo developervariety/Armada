@@ -59,7 +59,7 @@ export function seedStepAssignments(
       next[personaName] = current[personaName];
     } else {
       const persona = personas.find((p) => p.name === personaName);
-      next[personaName] = { captainId: persona?.defaultCaptainId ?? null, fallbackTier: null };
+      next[personaName] = { captainId: persona?.captainPriorities?.length ? null : persona?.defaultCaptainId ?? null, fallbackTier: null };
     }
   }
   return next;

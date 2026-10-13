@@ -17,6 +17,10 @@
 
 ---
 
+## Persona captain priorities
+
+Define an ordered hierarchy of preferred captain classes on each persona, matching runtime, model, Mux endpoint, and minimum capability tier. Configure whether busy classes permit lower priorities or wait for the first choice, and whether an exhausted hierarchy waits or allows any eligible captain. Pipelines and Architect-generated missions use the same routing. Existing personas retain their default-captain behavior until a hierarchy is configured. See [Captain routing](docs/CAPTAIN_ROUTING.md) for setup and examples.
+
 ## What Armada is
 
 Armada coordinates AI coding agents (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, or a hosted model endpoint)
@@ -41,7 +45,7 @@ and a **dock** is the worktree a captain works in.
 | [`jchristn77/armada-dashboard`](https://hub.docker.com/r/jchristn77/armada-dashboard) | Standalone React dashboard served by nginx (unprivileged) | 8080 |
 | [`jchristn77/armada-proxy`](https://hub.docker.com/r/jchristn77/armada-proxy) | Armada.Proxy, a relay for reaching an Admiral that is not directly exposed | 7893 |
 
-Tags: `v1.0.0` and `latest`, multi-arch (`linux/amd64`, `linux/arm64/v8`). All three images run as non-root users
+Tags: `v1.1.0` and `latest`, multi-arch (`linux/amd64`, `linux/arm64/v8`). All three images run as non-root users
 (UID 1654 for the Admiral and proxy, 101 for the dashboard).
 
 Every image that serves HTTP includes `curl`, and the compose files define healthchecks that probe
@@ -81,7 +85,7 @@ logs to Loki, and Grafana comes with provisioned dashboards.
 
 ## Getting started
 
-Clone the repository for the compose files and default configuration. The compose files run the published `v1.0.0`
+Clone the repository for the compose files and default configuration. The compose files run the published `v1.1.0`
 images and the observability images:
 
 ```bash

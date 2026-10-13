@@ -109,6 +109,14 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## v1.1.0 - Persona priorities (2026-10-13)
+
+- Added ordered captain classes to personas, matching runtime, model, Mux endpoint, and minimum tier without assigning fixed providers to roles.
+- Added configurable busy-class policies (fall through or wait for the first class) and explicit exhausted-list behavior (wait or use eligible captains).
+- Added relational migration 83 for all four database providers and atomic parent/priority writes. Empty hierarchies preserve legacy routing; explicit dispatch overrides keep precedence.
+- Updated REST/MCP contracts, dashboard/mobile/terminal editors, duplication, assignment diagnostics, and localized controls.
+- Added matching, availability, eligibility, persistence, API round-trip, and client interaction regression coverage.
+
 ## v1.0.1 (2026-10-07)
 
 Focus: a landing-mode fix that was missed in 1.0.0. **Check your landing modes when upgrading**; see [Upgrading from 1.0.0](docs/MERGING.md#upgrading-from-100-landing-modes-fixed-in-101).

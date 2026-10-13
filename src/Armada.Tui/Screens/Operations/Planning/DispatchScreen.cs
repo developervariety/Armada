@@ -544,7 +544,8 @@ namespace Armada.Tui.Screens.Operations
                 string persona = steps[i];
                 string label = persona == "*" ? Tr("All steps") : persona;
                 SelectField<string> captain = NewSelect(Tr("Preferred captain for {{persona}}", LocalizationArgs.Of("persona", persona)), CaptainOptions(), null);
-                string? captainValue = _TouchedCaptain.Contains(persona) && _AssignedCaptain.TryGetValue(persona, out string? cv) ? cv : Reference.Personas.FirstOrDefault(p => p.Name == persona)?.DefaultCaptainId;
+                Persona? definition = Reference.Personas.FirstOrDefault(p => p.Name == persona);
+                string? captainValue = _TouchedCaptain.Contains(persona) && _AssignedCaptain.TryGetValue(persona, out string? cv) ? cv : definition?.CaptainPriorities.Count > 0 ? null : definition?.DefaultCaptainId;
                 captain.SetValue(captainValue ?? "");
                 if (captain.Selected == null) captain.SetValue("");
                 SelectField<string> tier = NewSelect(Tr("Fallback tier for {{persona}}", LocalizationArgs.Of("persona", persona)), TierOptions(), null);

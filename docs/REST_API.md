@@ -1,6 +1,6 @@
 # Armada REST API Reference
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Base URL:** `http://localhost:7890`
 **Content-Type:** `application/json`
 
@@ -1083,7 +1083,7 @@ voyages, and signals. The same scoping applies to the MCP `status` tool and the 
     "LatencyMs": null,
     "CapabilityManifest": {
       "ProtocolVersion": "2026-04-03",
-      "ArmadaVersion": "1.0.0",
+      "ArmadaVersion": "1.1.0",
       "Features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -1113,7 +1113,7 @@ Health check endpoint. **Does not require authentication.**
   "Timestamp": "2026-03-07T12:00:00Z",
   "StartUtc": "2026-03-07T08:00:00Z",
   "Uptime": "0.04:00:00",
-  "Version": "1.0.0",
+  "Version": "1.1.0",
   "Ports": {
     "Admiral": 7890,
     "Mcp": 7891
@@ -4255,7 +4255,7 @@ owner never carries an id the previous owner's app knows. Registering or reactiv
 # Register (or refresh) this phone
 curl -X POST http://localhost:7890/api/v1/push/devices \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
-  -d '{"Platform": "Ios", "ExpoPushToken": "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]", "DeviceName": "My iPhone", "AppVersion": "1.0.0", "Locale": "en-US"}'
+  -d '{"Platform": "Ios", "ExpoPushToken": "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]", "DeviceName": "My iPhone", "AppVersion": "1.1.0", "Locale": "en-US"}'
 
 # Send a test notification
 curl -X POST http://localhost:7890/api/v1/push/devices/pdv_abc123/test -H "Authorization: Bearer <token>"
@@ -5908,6 +5908,16 @@ Create a new persona.
 | `Name` | string | yes | Persona name |
 | `Description` | string | no | Persona description |
 | `PromptTemplateName` | string | yes | Name of the prompt template to use |
+| `DefaultCaptainId` | string? | no | Legacy preferred captain; superseded by a nonempty hierarchy |
+| `CaptainPriorities` | object[] | no | Ordered matching classes; defaults empty |
+| `PriorityAvailability` | enum | no | FallThrough (default) or WaitForFirstPriority |
+| `PriorityExhaustion` | enum | no | Wait (default) or UseEligibleCaptain; ignored by first-priority wait |
+
+Each priority has optional Runtime (AgentRuntimeEnum), Model (exact case-insensitive identifier, maximum 1024 characters), Endpoint (exact case-insensitive Mux endpoint, maximum 1024 characters; requires Runtime Mux), and MinimumTier (Economy, Standard, Premium). At least one field is required. Entries combine their fields with AND; array order defines priority. Invalid routing returns 400. Persona reads and enumerations return these fields, including an empty CaptainPriorities array for legacy personas.
+
+```json
+{"Name":"reviewer","PromptTemplateName":"persona.judge","CaptainPriorities":[{"Runtime":"Codex","MinimumTier":"Premium"},{"Runtime":"Mux","Endpoint":"local","Model":"gpt-oss:120b"}],"PriorityAvailability":"FallThrough","PriorityExhaustion":"Wait"}
+```
 
 **Response:** `201 Created` - Persona
 **Error:** `409 Conflict` - A persona with that name already exists (`Data`: [DuplicateEntityErrorDetail](#duplicateentityerrordetail) with `Code` `DuplicateEntity`, `EntityType` `Persona`, `Field` `Name`)
@@ -5922,7 +5932,7 @@ curl -X POST http://localhost:7890/api/v1/personas \
 
 #### PUT /api/v1/personas/{name}
 
-Update an existing persona.
+Update an existing persona. Omitted routing fields preserve their stored values; an empty CaptainPriorities array clears the hierarchy. Null routing fields also preserve their values. DefaultCaptainId retains its legacy null/omitted clearing behavior. Scope changes require administrator privileges.
 
 **Permission:** Authenticated
 
@@ -5937,9 +5947,14 @@ Update an existing persona.
 |---|---|---|---|
 | `Description` | string | no | Updated description |
 | `PromptTemplateName` | string | no | Updated prompt template name |
+| `DefaultCaptainId` | string? | no | Legacy preferred captain; null/omitted clears |
+| `CaptainPriorities` | object[]? | no | Ordered matching classes described under POST; omitted/null preserves, empty clears |
+| `PriorityAvailability` | enum? | no | FallThrough or WaitForFirstPriority; omitted/null preserves |
+| `PriorityExhaustion` | enum? | no | Wait or UseEligibleCaptain; omitted/null preserves |
+| `Scope` | enum? | no | TenantWide or UserSpecific; administrator-only change |
 
 **Response:** `200 OK` - Persona
-**Error:** `404` - Persona not found
+**Errors:** `400` - Invalid routing configuration; `403` - Caller may not edit this persona; `404` - Persona not found
 
 ```bash
 curl -X PUT http://localhost:7890/api/v1/personas/reviewer \
@@ -7822,7 +7837,7 @@ Return the interactive Swagger UI for the same OpenAPI surface.
 
 ## Per-Step Captain Selection
 
-Personas can carry a default captain, and dispatch can dictate which captain runs each pipeline step, with a capability-tier fallback when that captain is busy. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md) for the full model.
+Personas can carry an ordered captain hierarchy or a legacy default captain, and dispatch can dictate which captain runs each pipeline step, with a capability-tier fallback when that captain is busy. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md) for the full model.
 
 - `POST` / `PUT /api/v1/personas` accept and return `defaultCaptainId` (a `cpt_` id). An invalid captain id is rejected with `400`. `PUT` sets the field to the request value, so an omitted/null value clears the default.
 - `POST /api/v1/voyages` accepts `captainAssignments`, an array of `{ persona, captainId, fallbackTier }` binding each pipeline step (persona) to a preferred captain and a fallback tier (`Economy` | `Standard` | `Premium`). Each entry in `missions` may also carry `requestedCaptainId` and `tier`. The overrides are stored on the voyage and resolved at assignment time, including for fan-out missions.
@@ -8582,7 +8597,7 @@ Aggregate status summary returned by the status endpoint.
     "LatencyMs": null,
     "CapabilityManifest": {
       "ProtocolVersion": "2026-04-03",
-      "ArmadaVersion": "1.0.0",
+      "ArmadaVersion": "1.1.0",
       "Features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -8921,7 +8936,7 @@ A mobile app installation registered for push notifications (see [Push Notificat
   "Platform": "Ios",
   "ExpoPushToken": "ExponentPushToken[****wxyz]",
   "DeviceName": "My iPhone",
-  "AppVersion": "1.0.0",
+  "AppVersion": "1.1.0",
   "Locale": "en-US",
   "Categories": ["AskProposal", "CliPermission"],
   "Active": true,
@@ -9920,4 +9935,20 @@ Access-Control-Allow-Origin: *
 Access-Control-Allow-Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS
 Access-Control-Allow-Headers: Content-Type, X-Api-Key, X-Token, Authorization
 Access-Control-Expose-Headers: Retry-After
+```
+
+### .NET SDK persona priorities
+
+`Armada.Client` 1.1.0 uses the shared `Armada.Core.Models.Persona` contract. `CreatePersonaAsync`, `GetPersonaAsync`, `ListPersonasAsync`, and `UpdatePersonaAsync` carry `CaptainPriorities`, `PriorityAvailability`, and `PriorityExhaustion` without additional SDK methods. Read the persona before editing it, then pass the updated object to `UpdatePersonaAsync`; this method sends the complete persona, including its routing settings. Clear `CaptainPriorities` to restore legacy routing.
+
+```csharp
+Persona persona = (await client.GetPersonaAsync("reviewer"))!;
+persona.CaptainPriorities = new List<PersonaCaptainPriority>
+{
+    new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex },
+    new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Mux, Endpoint = "local", Model = "gpt-oss:120b" }
+};
+persona.PriorityAvailability = PersonaPriorityAvailabilityEnum.FallThrough;
+persona.PriorityExhaustion = PersonaPriorityExhaustionEnum.Wait;
+await client.UpdatePersonaAsync(persona.Name, persona);
 ```

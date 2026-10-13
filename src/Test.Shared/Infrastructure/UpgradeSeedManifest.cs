@@ -104,6 +104,9 @@ namespace Test.Shared.Infrastructure
         /// </summary>
         public string CustomPersonaDescription { get; set; } = "";
 
+        /// <summary>Legacy default captain read back from the baseline, or null for a baseline without that field.</summary>
+        public string? CustomPersonaDefaultCaptainId { get; set; } = null;
+
         /// <summary>
         /// Built-in persona whose description was edited.
         /// </summary>

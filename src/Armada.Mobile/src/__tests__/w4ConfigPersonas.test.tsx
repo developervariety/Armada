@@ -87,4 +87,19 @@ describe('Configuration > Personas', () => {
     expect(api.resetPromptTemplate).toHaveBeenCalledWith('persona.architect');
     await waitFor(() => expect(screen.getByText('Default.')).toBeTruthy());
   });
+  it('edits the priority hierarchy and saves the availability policy', async () => {
+    api.getPersona.mockResolvedValue(persona());
+    api.getPromptTemplate.mockResolvedValue(TEMPLATE);
+    api.updatePersona.mockResolvedValue(persona());
+    await renderW4Routes(ROUTES, '/personas/Architect');
+    await waitFor(() => expect(screen.getByTestId('persona-title')).toBeTruthy());
+    await fireEvent.press(screen.getByText('Captain priorities'));
+    const sheet = await screen.findByTestId('persona-priorities');
+    await fireEvent.press(within(sheet).getByText('Add priority'));
+    await act(async () => { await fireEvent.press(within(sheet).getByText('Save')); });
+    expect(api.updatePersona).toHaveBeenCalledWith('Architect', {
+      captainPriorities: [{ runtime: 'Codex' }], priorityAvailability: 'FallThrough', priorityExhaustion: 'Wait', defaultCaptainId: null,
+    });
+  });
+
 });

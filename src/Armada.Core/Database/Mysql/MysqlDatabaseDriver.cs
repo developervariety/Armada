@@ -739,7 +739,9 @@ namespace Armada.Core.Database.Mysql
                     82,
                     "Add Ask turn telemetry to ask_messages: ttft_ms, first_text_ms, streaming_ms, tokens_per_second, input_tokens, output_tokens, cached_tokens, tokens_estimated, cost_usd, tool_call_count, and tool_time_ms (all nullable)",
                     TableQueries.MigrationV82Statements
-                )
+                ),
+                new SchemaMigration(83, "Add ordered persona captain priorities and availability policies", TableQueries.MigrationV83Statements)
+
             };
         }
 

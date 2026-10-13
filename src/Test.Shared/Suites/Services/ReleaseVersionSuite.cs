@@ -37,7 +37,7 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
-            cases.Add(Case("product_version_and_shared_build_props_match_v090", "ProductVersion And Shared Build Props Match V090", TestTags.Positive, () =>
+            cases.Add(Case("product_version_and_shared_build_props_match_v110", "ProductVersion and shared build props match v1.1.0", TestTags.Positive, () =>
             {
                 string repoRoot = FindRepositoryRoot();
                 string propsContents = File.ReadAllText(Path.Combine(repoRoot, "src", "Directory.Build.props"));
@@ -48,7 +48,7 @@ namespace Test.Shared.Suites.Services
 
                 AssertTrue(versionMatches.Count == 1, "Directory.Build.props should contain exactly one Version element");
                 Match versionMatch = versionMatches[0];
-                AssertEqual("1.0.0", Constants.ProductVersion);
+                AssertEqual("1.1.0", Constants.ProductVersion);
                 AssertEqual(Constants.ProductVersion, versionMatch.Groups[1].Value.Trim());
                 AssertContains("<Version>" + Constants.ProductVersion + "</Version>", helmProjectContents, "Helm package version should align with the shared release version");
                 AssertEqual(Constants.ProductVersion, JsonHelper.Deserialize<NpmPackageVersionView>(dashboardPackageContents).Version, "Dashboard package.json should align with the shared release version");

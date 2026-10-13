@@ -4,6 +4,13 @@ This document walks through concrete examples for testing Armada pipelines end-t
 
 ---
 
+## Ordered captain priorities
+
+Personas can define `captainPriorities`, an ordered list of runtime/model/endpoint/minimum-tier matchers. Every supplied field in an entry must match. `priorityAvailability` chooses `FallThrough` or `WaitForFirstPriority`; `priorityExhaustion` chooses `Wait` or `UseEligibleCaptain`. The first-priority wait policy never uses lower entries or general fallback. Empty lists retain legacy default-captain behavior.
+
+A nonempty hierarchy replaces the persona default captain; explicit dispatch/voyage captain choices retain precedence. Routing is evaluated for every stage and Architect-generated mission, without binding a persona role to a provider. The hierarchy selects configured captains and does not change their model or endpoint. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md) for matching, precedence, configuration, and examples.
+
+
 ## Prerequisites
 
 - Armada server running (v1.0.0)

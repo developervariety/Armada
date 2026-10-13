@@ -2499,6 +2499,16 @@ export interface PromptTemplate {
   lastUpdateUtc: string;
 }
 
+export interface PersonaCaptainPriority {
+  runtime?: string | null;
+  model?: string | null;
+  endpoint?: string | null;
+  minimumTier?: string | null;
+}
+
+export type PersonaPriorityAvailability = 'FallThrough' | 'WaitForFirstPriority';
+export type PersonaPriorityExhaustion = 'Wait' | 'UseEligibleCaptain';
+
 export interface Persona {
   id: string;
   tenantId: string | null;
@@ -2510,6 +2520,9 @@ export interface Persona {
   isBuiltIn: boolean;
   active: boolean;
   defaultCaptainId?: string | null;
+  captainPriorities?: PersonaCaptainPriority[];
+  priorityAvailability?: PersonaPriorityAvailability;
+  priorityExhaustion?: PersonaPriorityExhaustion;
   createdUtc: string;
   lastUpdateUtc: string;
 }

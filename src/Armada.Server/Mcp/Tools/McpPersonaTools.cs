@@ -7,6 +7,7 @@ namespace Armada.Server.Mcp.Tools
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Enums;
     using Armada.Core.Services;
 
     /// <summary>
@@ -18,6 +19,23 @@ namespace Armada.Server.Mcp.Tools
         {
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        private static readonly object _PrioritySchema = new
+        {
+            type = "array",
+            description = "Ordered captain classes; at least one field per entry. Empty clears the hierarchy.",
+            items = new
+            {
+                type = "object",
+                properties = new
+                {
+                    runtime = new { type = "string", @enum = Enum.GetNames<AgentRuntimeEnum>() },
+                    model = new { type = "string", minLength = 1, maxLength = 1024 },
+                    endpoint = new { type = "string", minLength = 1, maxLength = 1024, description = "Named Mux endpoint; requires runtime Mux" },
+                    minimumTier = new { type = "string", @enum = Enum.GetNames<CaptainTierEnum>() }
+                }
+            }
         };
 
         /// <summary>
@@ -38,7 +56,10 @@ namespace Armada.Server.Mcp.Tools
                         name = new { type = "string", description = "Persona name (e.g. 'Worker', 'Architect', 'Judge')" },
                         description = new { type = "string", description = "Human-readable description of what this persona does" },
                         promptTemplateName = new { type = "string", description = "Prompt template name for this persona (references PromptTemplate.Name)" },
-                        defaultCaptainId = new { type = "string", description = "Optional default (preferred) captain id (cpt_ prefix) for this persona" }
+                        defaultCaptainId = new { type = "string", description = "Optional default (preferred) captain id (cpt_ prefix) for this persona" },
+                        captainPriorities = _PrioritySchema,
+                        priorityAvailability = new { type = "string", @enum = Enum.GetNames<PersonaPriorityAvailabilityEnum>() },
+                        priorityExhaustion = new { type = "string", @enum = Enum.GetNames<PersonaPriorityExhaustionEnum>() }
                     },
                     required = new[] { "name", "promptTemplateName" }
                 },
@@ -58,6 +79,11 @@ namespace Armada.Server.Mcp.Tools
                     if (request.Description != null)
                         persona.Description = request.Description;
                     persona.DefaultCaptainId = request.DefaultCaptainId;
+                    if (request.CaptainPriorities != null) persona.CaptainPriorities = request.CaptainPriorities;
+                    if (request.PriorityAvailability.HasValue) persona.PriorityAvailability = request.PriorityAvailability.Value;
+                    if (request.PriorityExhaustion.HasValue) persona.PriorityExhaustion = request.PriorityExhaustion.Value;
+                    string? routingError = PersonaCaptainPrioritySelector.Validate(persona);
+                    if (routingError != null) return (object)McpToolError.InvalidArgument(routingError);
                     await DuplicateEntityGuard.EnsurePersonaNameAvailableAsync(database, persona).ConfigureAwait(false);
                     persona = await database.Personas.CreateAsync(persona).ConfigureAwait(false);
                     return (object)persona;
@@ -97,7 +123,10 @@ namespace Armada.Server.Mcp.Tools
                         name = new { type = "string", description = "Persona name (used to look up the persona)" },
                         description = new { type = "string", description = "New description" },
                         promptTemplateName = new { type = "string", description = "New prompt template name" },
-                        defaultCaptainId = new { type = "string", description = "Default (preferred) captain id (cpt_ prefix) for this persona; empty string clears it" }
+                        defaultCaptainId = new { type = "string", description = "Default (preferred) captain id (cpt_ prefix) for this persona; empty string clears it" },
+                        captainPriorities = _PrioritySchema,
+                        priorityAvailability = new { type = "string", @enum = Enum.GetNames<PersonaPriorityAvailabilityEnum>() },
+                        priorityExhaustion = new { type = "string", @enum = Enum.GetNames<PersonaPriorityExhaustionEnum>() }
                     },
                     required = new[] { "name" }
                 },
@@ -123,6 +152,11 @@ namespace Armada.Server.Mcp.Tools
                     if (request.DefaultCaptainId != null)
                         persona.DefaultCaptainId = String.IsNullOrEmpty(request.DefaultCaptainId) ? null : request.DefaultCaptainId;
                     persona.LastUpdateUtc = DateTime.UtcNow;
+                    if (request.CaptainPriorities != null) persona.CaptainPriorities = request.CaptainPriorities;
+                    if (request.PriorityAvailability.HasValue) persona.PriorityAvailability = request.PriorityAvailability.Value;
+                    if (request.PriorityExhaustion.HasValue) persona.PriorityExhaustion = request.PriorityExhaustion.Value;
+                    string? routingError = PersonaCaptainPrioritySelector.Validate(persona);
+                    if (routingError != null) return (object)McpToolError.InvalidArgument(routingError);
                     persona = await database.Personas.UpdateAsync(persona).ConfigureAwait(false);
                     return (object)persona;
                 });

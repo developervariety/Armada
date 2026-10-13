@@ -1,35 +1,54 @@
-# Captain Routing and Per-Step Captain Selection
+# Captain Routing and Persona Priorities
 
-Armada assigns each mission to a captain when the health-check loop runs. By default that assignment is capability-based: a mission tagged with a persona goes to any idle captain that is allowed to serve that persona, optionally narrowed by a capability tier. Per-step captain selection sits on top of that model and lets an operator dictate which captain runs a given pipeline step, while keeping the pool-based fallback that stops one busy captain from stalling the whole voyage.
+Armada assigns pending missions to available captains. Personas define the role and can also define an ordered hierarchy of captain classes. A role does not imply a provider, model, or deployment location: any persona can prefer Codex, Claude Code, Mux, or another runtime in any order.
 
-## The routing model
+## Define a hierarchy
 
-Three things decide where a mission runs.
+Set `captainPriorities` on a persona through REST, MCP, or its configuration editor. Each entry matches all its supplied fields. Array order establishes priority; entries need at least one matching field.
 
-A **persona** names the role a step plays (Architect, Worker, TestEngineer, Judge, or one you define). Every pipeline stage is a persona, and every mission carries the persona of the stage that produced it.
+| Field | Meaning |
+|---|---|
+| `runtime` | Exact Armada runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint, or Custom |
+| `model` | Exact captain model identifier, ignoring case (maximum 1024 characters); no wildcard or substring matching |
+| `endpoint` | Exact named Mux endpoint, ignoring case (maximum 1024 characters); requires `runtime: Mux` |
+| `minimumTier` | Minimum effective Economy, Standard, or Premium tier; explicit captain tier overrides model classification |
 
-A **captain** declares what it can do: its runtime and model, an `AllowedPersonas` whitelist, a `PreferredPersona` bias, and a capability **tier** - Economy, Standard, or Premium, ordered cheapest to strongest. A captain with no tier set is classified from its model name. Tier is the lever that makes fallback meaningful, so set it on every captain you expect to route by capability.
+For example, a persona can prefer Codex, then Claude Code, then a Mux endpoint. Reverse the entries to prefer Mux. Model and endpoint fields select already-configured captains; routing does not modify their launch configuration. Configure the Mux captain's model and `RuntimeOptionsJson.endpoint` separately.
 
-A **preferred captain** is the operator's dictate for a step. It can come from three places, resolved in this order when a mission is created or first assigned:
+```json
+{
+  "captainPriorities": [
+    { "runtime": "Codex", "minimumTier": "Premium" },
+    { "runtime": "ClaudeCode", "minimumTier": "Premium" },
+    { "runtime": "Mux", "endpoint": "local", "model": "gpt-oss:120b" }
+  ],
+  "priorityAvailability": "FallThrough",
+  "priorityExhaustion": "Wait"
+}
+```
 
-1. an explicit captain on the dispatch payload (`MissionDescription.RequestedCaptainId`),
-2. the voyage's per-persona override chosen at dispatch (an override whose persona is empty or `*` applies to every step that has no exact match), then
-3. the persona's default captain (`Persona.DefaultCaptainId`).
+## Busy classes and exhausted hierarchies
 
-Whatever wins becomes the mission's `RequestedCaptainId`. If no fallback tier was given, the mission's fallback tier defaults to the preferred captain's own tier. The preferred captain applies to every mission of that persona in the voyage - including the extra Worker missions an Architect stage fans out, which inherit the persona default rather than falling back to unrouted.
+`priorityAvailability` defaults to `FallThrough`: Armada selects an eligible idle captain from the first entry with an available match, trying lower entries when earlier ones are busy, missing, quarantined, or otherwise ineligible. `WaitForFirstPriority` considers only the first entry and waits for it, including when no configured captain matches. It never falls through and ignores the exhaustion setting.
 
-## How assignment resolves
+With `FallThrough`, `priorityExhaustion: Wait` keeps unmatched work Pending until a later scheduling tick. `UseEligibleCaptain` explicitly permits normal persona/tier routing after every entry is exhausted. Empty priorities preserve legacy behavior regardless of these policies.
 
-When the Admiral tries to assign a mission it checks the preferred captain first. If that captain is idle, the mission runs on it, and the `AllowedPersonas` fence is deliberately ignored: you chose this captain, so Armada honors the choice even for a persona the captain would not normally accept. If the preferred captain is busy, assignment falls back to an idle captain at or above the mission's fallback tier, preferring the lowest eligible tier so a Premium captain is not spent on routine work. If the preferred captain no longer exists, Armada logs it and routes the mission normally. And if nothing idle satisfies the fallback tier, the mission stays Pending and is retried on the next tick rather than misassigned.
+All hierarchy candidates must satisfy mission ownership/tenant boundaries, AllowedPersonas, the mission's tier floor, and availability. Within a matched class, PreferredPersona breaks ties, followed by stable captain ID order. Hierarchy choices are reevaluated on every assignment attempt and are not saved as RequestedCaptainId.
 
-The mission detail page shows both sides of this: the **Preferred Captain** you asked for and the captain that actually ran it, with "(fell back to tier)" when they differ. While a mission is still Pending, the dashboard mission page and the TUI mission screen add a **Why This Mission Is Waiting** section from the server's assignment blocker (`assignmentBlocker` on `GET /api/v1/missions/{id}` and on voyage reads): the reason (for example `NoIdleCaptain`, `NoEligibleCaptain`, `VesselConcurrencyLimit`, or `DependencyNotFinished`), a summary, when it is expected to clear, and what each relevant captain or blocking mission is doing. That is usually the fastest way to see whether your fleet has enough of the right captains idle at the right moments.
+## Explicit overrides and legacy defaults
 
-## Setting it up
+An explicit mission RequestedCaptainId takes precedence, followed by the voyage's exact per-persona captain assignment, then its wildcard (`*`) assignment. Those choices retain legacy behavior: an available requested captain bypasses AllowedPersonas and tier checks; a busy or deleted one falls back through ordinary persona/tier routing. Ownership and quarantine checks still apply. These explicit overrides bypass the hierarchy.
 
-Give each persona a default captain from the persona detail page (the actions menu, Edit, then **Default Captain**). That default pre-fills the per-step **Captain Assignments** picker every time you dispatch a pipeline through Dispatch, where you can accept it, swap in a different captain, or set only a fallback tier. The setup wizard captures each captain's tier during first-run so a fresh install already routes sensibly; it does not ask you to bind persona defaults there - that is a deliberate second step you do once in the dashboard.
+A nonempty hierarchy supersedes Persona.DefaultCaptainId. Without a hierarchy, the default captain remains a preference: it is tried first and can fall back by tier. Dispatch pickers leave the captain on automatic routing when priorities are configured, even if a legacy default remains stored. An operator can still select an explicit override.
 
-For cost and accuracy, the pattern that holds up is roles times tiers. Fence cheap Economy captains to the mechanical, parallelizable roles (Worker, TestEngineer) and run several of them; reserve one or two strong Premium captains for the reasoning-heavy roles (Architect, Judge) and gate those stages with review. Leave routine work untiered so it drains to the cheapest capable captain, and reach for a preferred captain or a Premium fallback tier only where the work genuinely warrants it.
+Pipelines and Architect-generated Worker missions resolve their personas through the same assignment path. Repeated stages using the same persona use the same hierarchy. Configure different personas when their routing should differ.
 
-## API surface
+## Configuration and diagnostics
 
-Persona create/update (REST `POST /api/v1/personas` and `PUT /api/v1/personas/{name}`, MCP `create_persona` / `update_persona`) accept `defaultCaptainId`, validated against an existing captain. Dispatch (REST `POST /api/v1/voyages`, MCP `dispatch`) accepts a `captainAssignments` array of `{ persona, captainId, fallbackTier }` and an optional per-mission `requestedCaptainId` / `tier`. Mission reads expose both `requestedCaptainId` and `captainId`, and voyage reads carry the stored overrides. The schema columns backing all of this are added by startup migration 55 across SQLite, PostgreSQL, MySQL, and SQL Server.
+The dashboard's persona create/edit forms include ordered matching fields, add/remove/move controls, and availability policies. Mobile persona detail opens the same structured controls from Captain priorities. The terminal forms support add, edit, delete, and Alt+Up/Down ordering. Duplication copies the hierarchy and its policies.
+
+Persona create accepts all routing fields. Partial REST/MCP updates preserve omitted routing fields; `captainPriorities: []` clears the hierarchy. Invalid classes or enum values are rejected. Legacy defaultCaptainId clearing remains unchanged: REST null/omitted clears it, while MCP uses an empty string.
+
+A Pending mission's assignmentBlocker uses the hierarchy to decide whether any captain is eligible. Successful hierarchy assignment logs the persona, chosen captain ID, and matched priority number. No matches stay Pending rather than failing the pipeline. See [SCHEDULING.md](SCHEDULING.md) for other blockers.
+
+Startup migration 83 adds priority_availability and priority_exhaustion columns to personas and an ordered persona_captain_priorities child table across SQLite, PostgreSQL, MySQL, and SQL Server. Parent and child writes are atomic; deleting a persona cascades to its priorities. Existing personas receive an empty hierarchy and retain their routing behavior.

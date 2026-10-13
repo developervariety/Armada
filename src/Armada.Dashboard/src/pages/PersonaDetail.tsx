@@ -1,3 +1,5 @@
+import PersonaPriorityEditor from '../components/shared/PersonaPriorityEditor';
+import { personaRoutingForm, validatePersonaPriorities, prioritySummary } from '../lib/personaPriorities';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { createPersona, deletePersona, getPersona, getPromptTemplate, listCaptains, listPromptTemplates, resetPromptTemplate, updatePersona, updatePromptTemplate, apiErrorMessage } from '../api/client';
@@ -40,6 +42,8 @@ export default function PersonaDetail() {
   const [promptSaving, setPromptSaving] = useState(false);
   const [promptLoading, setPromptLoading] = useState(false);
   const [promptError, setPromptError] = useState('');
+
+  const [routing, setRouting] = useState(personaRoutingForm());
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -100,6 +104,7 @@ export default function PersonaDetail() {
   function openEdit() {
     if (!persona) return;
     setForm({ description: persona.description ?? '', promptTemplateName: persona.promptTemplateName ?? '', defaultCaptainId: persona.defaultCaptainId ?? null });
+    setRouting(personaRoutingForm(persona));
     setShowForm(true);
   }
 
@@ -107,7 +112,9 @@ export default function PersonaDetail() {
     e.preventDefault();
     if (!persona) return;
     try {
-      await updatePersona(persona.name, { description: form.description, promptTemplateName: form.promptTemplateName, defaultCaptainId: form.defaultCaptainId });
+      const validation = validatePersonaPriorities(routing.captainPriorities);
+      if (validation) throw new Error(t(validation));
+      await updatePersona(persona.name, { description: form.description, promptTemplateName: form.promptTemplateName, defaultCaptainId: form.defaultCaptainId, ...routing });
       setShowForm(false);
       pushToast('success', t('Persona "{{name}}" saved.', { name: persona.name }));
       load();
@@ -234,6 +241,7 @@ export default function PersonaDetail() {
                 ))}
               </select>
             </label>
+            <PersonaPriorityEditor value={routing} onChange={setRouting} />
             <label>{t('Default Captain')}
               <CaptainPicker
                 captains={captains}
@@ -242,7 +250,7 @@ export default function PersonaDetail() {
                 autoLabel={t('None (default routing)')}
               />
               <span className="text-dim" style={{ fontSize: '0.75rem', display: 'block', marginTop: '0.3rem' }}>
-                {t('Pre-fills the per-step captain at dispatch and becomes the preferred captain for missions of this persona.')}
+                {t('Used only when captain priorities is empty.')}
               </span>
             </label>
             <div className="modal-actions">
@@ -280,6 +288,12 @@ export default function PersonaDetail() {
           <span className="detail-label">{t('Default Captain')}</span>
           <span><CaptainRef captainId={persona.defaultCaptainId} captains={captains} autoLabel={t('None (default routing)')} /></span>
         </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Captain priorities')}</span>
+          <span>{(persona.captainPriorities ?? []).map(prioritySummary).join(' → ') || t('None (default routing)')}</span>
+        </div>
+        <div className="detail-field"><span className="detail-label">{t('When a priority is unavailable')}</span><span>{t(persona.priorityAvailability === 'WaitForFirstPriority' ? 'Wait for the first priority' : 'Try lower priorities')}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('When all priorities are unavailable')}</span><span>{t(persona.priorityAvailability === 'WaitForFirstPriority' || persona.priorityExhaustion !== 'UseEligibleCaptain' ? 'Wait' : 'Use any eligible captain')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Built-in')}</span>{persona.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">{t('No')}</span>}</div>
         <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={persona.active ? 'Active' : 'Inactive'} /></div>
         <div className="detail-field"><span className="detail-label">{t('Created')}</span><span title={persona.createdUtc}>{formatDateTime(persona.createdUtc)}</span></div>
