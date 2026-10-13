@@ -274,6 +274,374 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("priority_first_idle", "priority first idle", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(true, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(first.Id, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_busy_falls_through", "priority busy falls through", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    first.State = CaptainStateEnum.Working;
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(true, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(second.Id, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_busy_waits", "priority busy waits", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    first.State = CaptainStateEnum.Working; persona.PriorityAvailability = PersonaPriorityAvailabilityEnum.WaitForFirstPriority;
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(false, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(null, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_missing_waits", "priority missing waits", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Gemini; persona.PriorityAvailability = PersonaPriorityAvailabilityEnum.WaitForFirstPriority;
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(false, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(null, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_exhaustion_waits", "priority exhaustion waits", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Gemini; second.Runtime = AgentRuntimeEnum.Gemini;
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(false, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(null, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_exhaustion_general_fallback", "priority exhaustion general fallback", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Gemini; second.Runtime = AgentRuntimeEnum.Gemini; persona.PriorityExhaustion = PersonaPriorityExhaustionEnum.UseEligibleCaptain;
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(true, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(first.Id, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_tier_floor", "priority tier floor", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    first.Tier = CaptainTierEnum.Economy; mission.Tier = CaptainTierEnum.Premium;
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(true, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(second.Id, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_persona_fence", "priority persona fence", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    first.AllowedPersonas = "[\"OtherRole\"]";
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(true, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(second.Id, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_explicit_override", "priority explicit override", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    mission.RequestedCaptainId = second.Id;
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(true, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(second.Id, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_supersedes_default", "priority supersedes default", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    persona.DefaultCaptainId = second.Id;
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(true, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(first.Id, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_quarantined_skipped", "priority quarantined skipped", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    first.QuarantineUntilUtc = DateTime.UtcNow.AddHours(1);
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(true, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(second.Id, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_owner_fence", "priority owner fence", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    Captain first = await AddCaptainAsync(testDb.Driver, "first", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    first.Runtime = AgentRuntimeEnum.Codex;
+                    Captain second = await AddCaptainAsync(testDb.Driver, "second", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ClaudeCode });
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("OtherOwner")).ConfigureAwait(false);
+                    UserMaster other = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "other@example.com", "password")).ConfigureAwait(false);
+                    first.UserId = other.Id;
+                    await testDb.Driver.Captains.UpdateAsync(first).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(second).ConfigureAwait(false);
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    bool assigned = await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false);
+                    AssertEqual(true, assigned);
+                    Mission read = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(second.Id, read.CaptainId);
+                    if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
+                    if (!assigned)
+                    {
+                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
+                    }
+                }
+            }));
+            cases.Add(CaseAsync("priority_cross_tenant_fence", "Priority hierarchy never selects another tenant's captain", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                    TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Foreign tenant")).ConfigureAwait(false);
+                    Captain foreign = new Captain("foreign", AgentRuntimeEnum.Codex);
+                    foreign.TenantId = tenant.Id;
+                    await testDb.Driver.Captains.CreateAsync(foreign).ConfigureAwait(false);
+                    Persona persona = new Persona("TenantPriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                    Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                    AssertFalse(await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false));
+                    AssertNull((await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.CaptainId);
+                }
+            }));
+
             return new TestSuiteDescriptor(SuiteId, "Captain routing and per-step selection", cases);
         }
 

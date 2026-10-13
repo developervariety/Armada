@@ -1698,7 +1698,20 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('ask_messages', 'cost_usd') IS NULL ALTER TABLE ask_messages ADD cost_usd FLOAT NULL;",
                     @"IF COL_LENGTH('ask_messages', 'tool_call_count') IS NULL ALTER TABLE ask_messages ADD tool_call_count BIGINT NULL;",
                     @"IF COL_LENGTH('ask_messages', 'tool_time_ms') IS NULL ALTER TABLE ask_messages ADD tool_time_ms FLOAT NULL;"
-                )
+                ),
+                new SchemaMigration(83, "Add ordered persona captain priorities and availability policies",
+                    @"IF COL_LENGTH('personas', 'priority_availability') IS NULL ALTER TABLE personas ADD priority_availability VARCHAR(64) NOT NULL DEFAULT 'FallThrough';",
+                    @"IF COL_LENGTH('personas', 'priority_exhaustion') IS NULL ALTER TABLE personas ADD priority_exhaustion VARCHAR(64) NOT NULL DEFAULT 'Wait';",
+                    @"IF OBJECT_ID('persona_captain_priorities', 'U') IS NULL CREATE TABLE persona_captain_priorities (
+                        persona_id NVARCHAR(450) NOT NULL,
+                        priority_order INTEGER NOT NULL,
+                        runtime VARCHAR(64) NULL,
+                        model NVARCHAR(1024) NULL,
+                        endpoint NVARCHAR(1024) NULL,
+                        minimum_tier VARCHAR(64) NULL,
+                        PRIMARY KEY (persona_id, priority_order),
+                        FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE CASCADE
+                    );")
 
             };
         }

@@ -1,5 +1,8 @@
 namespace Armada.Server.Mcp
 {
+    using System.Collections.Generic;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
     /// <summary>
     /// MCP tool arguments for persona operations.
     /// </summary>
@@ -22,8 +25,16 @@ namespace Armada.Server.Mcp
 
         /// <summary>
         /// Optional default (preferred) captain id (cpt_ prefix) for this persona. Pre-fills the per-step
-        /// captain at dispatch and seeds the preferred captain for missions of this persona.
+        /// captain at dispatch and seeds the preferred captain when CaptainPriorities is empty.
         /// </summary>
         public string? DefaultCaptainId { get; set; }
+        /// <summary>Ordered captain matching classes. Empty clears; null preserves on update.</summary>
+        public List<PersonaCaptainPriority>? CaptainPriorities { get; set; }
+
+        /// <summary>Optional unavailable-class policy. Defaults to FallThrough on create.</summary>
+        public PersonaPriorityAvailabilityEnum? PriorityAvailability { get; set; }
+
+        /// <summary>Optional exhausted-list policy. Defaults to Wait on create.</summary>
+        public PersonaPriorityExhaustionEnum? PriorityExhaustion { get; set; }
     }
 }

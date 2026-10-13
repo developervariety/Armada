@@ -102,7 +102,7 @@ defines `armada-dashboard`, `prometheus`, `loki`, and `grafana`, each with a hea
 ```yaml
 services:
   armada-server:
-    image: jchristn77/armada-server:v1.0.0
+    image: jchristn77/armada-server:v1.1.0
     ports:
       - "7890:7890"
       - "7891:7891"
@@ -133,7 +133,7 @@ The proxy stack file is `docker/proxy/compose.yaml`:
 ```yaml
 services:
   armada-proxy:
-    image: jchristn77/armada-proxy:v1.0.0
+    image: jchristn77/armada-proxy:v1.1.0
     ports:
       - "7893:7893"
     environment:
@@ -290,7 +290,7 @@ docker compose logs -f armada-dashboard
 ```
 
 To pick up a new version, `git pull` and run `docker/update.sh` (or `docker\update.bat`). It pulls the images the compose
-file names (the release tags, for example `jchristn77/armada-server:v1.0.0`) and recreates the stack; `db/`, `logs/`, and the named
+file names (the release tags, for example `jchristn77/armada-server:v1.1.0`) and recreates the stack; `db/`, `logs/`, and the named
 volumes are kept. Pass a compose file relative to `docker/` to update another stack, for example
 `docker/update.sh armada/compose.split.yaml` or `docker/update.sh proxy/compose.yaml`.
 
@@ -356,25 +356,25 @@ scripts\windows\build-dashboard.bat
 
 ```bash
 Linux:
-./scripts/linux/build-server.sh v1.0.0
+./scripts/linux/build-server.sh v1.1.0
 
 macOS:
-./scripts/macos/build-server.sh v1.0.0
+./scripts/macos/build-server.sh v1.1.0
 
 Windows:
-scripts\windows\build-server.bat v1.0.0
+scripts\windows\build-server.bat v1.1.0
 
 Linux:
-./scripts/linux/build-dashboard.sh v1.0.0
+./scripts/linux/build-dashboard.sh v1.1.0
 
 macOS:
-./scripts/macos/build-dashboard.sh v1.0.0
+./scripts/macos/build-dashboard.sh v1.1.0
 
 Windows:
-scripts\windows\build-dashboard.bat v1.0.0
+scripts\windows\build-dashboard.bat v1.1.0
 ```
 
-This produces both `jchristn77/armada-server:latest` and `jchristn77/armada-server:v1.0.0` (and the same for the dashboard). After the push completes, each script pulls those tags back into the local registry so they are also available for local `docker run` / compose use.
+This produces both `jchristn77/armada-server:latest` and `jchristn77/armada-server:v1.1.0` (and the same for the dashboard). After the push completes, each script pulls those tags back into the local registry so they are also available for local `docker run` / compose use.
 
 ### Build everything at once
 
@@ -382,13 +382,13 @@ To build, push, and locally pull the server, dashboard, and proxy images in one 
 
 ```bash
 Linux:
-./scripts/linux/build-all.sh v1.0.0
+./scripts/linux/build-all.sh v1.1.0
 
 macOS:
-./scripts/macos/build-all.sh v1.0.0
+./scripts/macos/build-all.sh v1.1.0
 
 Windows:
-scripts\windows\build-all.bat v1.0.0
+scripts\windows\build-all.bat v1.1.0
 ```
 
 `build-all` covers the server, dashboard, and proxy images on every platform. Omit the tag argument to build and push `:latest` only.
@@ -398,11 +398,11 @@ scripts\windows\build-all.bat v1.0.0
 The repository root also carries `build-all`, `build-admiral`, `build-dashboard`, and `build-proxy` scripts, as `.bat` for Windows and `.sh` for Linux/macOS. Each requires an image tag and builds both that tag and `latest` on the `cloud-jchristn77-jchristn77` cloud builder for `linux/amd64` and `linux/arm64/v8`, pushes to Docker Hub, then pulls both tags back to refresh the local copy:
 
 ```bat
-build-all.bat v1.0.0
+build-all.bat v1.1.0
 ```
 
 ```bash
-./build-all.sh v1.0.0
+./build-all.sh v1.1.0
 ```
 
 `build-all` calls `build-admiral` (`jchristn77/armada-server`), `build-dashboard` (`jchristn77/armada-dashboard`), and then `build-proxy` (`jchristn77/armada-proxy`), stopping at the first failure.
@@ -423,7 +423,7 @@ docker build -f src/Armada.Proxy/Dockerfile -t armada-proxy:local .
 ```
 
 Run these from the repository root. The compose files run the published release tags (`image:
-jchristn77/armada-server:v1.0.0` and so on); to run a local build, change the service's `image:` to your tag, for
+jchristn77/armada-server:v1.1.0` and so on); to run a local build, change the service's `image:` to your tag, for
 example `armada-server:local`.
 
 ---

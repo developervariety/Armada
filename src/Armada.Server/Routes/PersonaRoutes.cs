@@ -133,6 +133,12 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Default captain '" + persona.DefaultCaptainId + "' not found" };
                 }
+                string? routingError = PersonaCaptainPrioritySelector.Validate(persona);
+                if (routingError != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = routingError };
+                }
                 persona.TenantId = ctx.TenantId;
                 persona.UserId = ctx.UserId;
                 persona.Scope = ScopedVisibility.ResolveCreateScope(ctx, persona.Scope);
@@ -145,14 +151,14 @@ namespace Armada.Server.Routes
                 .WithTag("Personas")
                 .WithSummary("Create a persona")
                 .WithDescription("Creates a new persona with a name, description, and prompt template reference.")
-                .WithRequestBody(OpenApiJson.BodyFor<Persona>("Persona data (Name, Description, PromptTemplateName)", true))
+                .WithRequestBody(OpenApiJson.BodyFor<Persona>("Persona data including optional ordered CaptainPriorities and availability/exhaustion policies", true))
                 .WithResponse(201, OpenApiJson.For<Persona>("Created persona"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("A persona with that name already exists (Data: DuplicateEntityErrorDetail)"))
                 .WithSecurity("ApiKey"));
 
             // Update persona by name
-            app.Put<Persona>("/api/v1/personas/{name}", async (ApiRequest req) =>
+            app.Put<PersonaUpdateRequest>("/api/v1/personas/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -164,7 +170,7 @@ namespace Armada.Server.Routes
                 Persona? existing = await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
                 if (existing == null || !ScopedVisibility.CanView(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
                 if (!ScopedVisibility.CanEdit(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 403; return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = "You may only modify your own personas; a tenant-wide persona requires a tenant admin." }; }
-                Persona body = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
+                PersonaUpdateRequest body = JsonSerializer.Deserialize<PersonaUpdateRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
                 if (!String.IsNullOrEmpty(body.DefaultCaptainId) && await _database.Captains.ReadAsync(body.DefaultCaptainId).ConfigureAwait(false) == null)
                 {
@@ -176,7 +182,16 @@ namespace Armada.Server.Routes
                 // Default captain is set to whatever the body carries (including null to clear the default),
                 // so the persona-detail editor can both assign and remove a default captain.
                 existing.DefaultCaptainId = body.DefaultCaptainId;
-                if (ctx.IsAdmin || ctx.IsTenantAdmin) existing.Scope = body.Scope;
+                if ((ctx.IsAdmin || ctx.IsTenantAdmin) && body.Scope.HasValue) existing.Scope = body.Scope.Value;
+                if (body.CaptainPriorities != null) existing.CaptainPriorities = body.CaptainPriorities;
+                if (body.PriorityAvailability.HasValue) existing.PriorityAvailability = body.PriorityAvailability.Value;
+                if (body.PriorityExhaustion.HasValue) existing.PriorityExhaustion = body.PriorityExhaustion.Value;
+                string? routingError = PersonaCaptainPrioritySelector.Validate(existing);
+                if (routingError != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = routingError };
+                }
                 existing.LastUpdateUtc = DateTime.UtcNow;
                 Persona updated = await _database.Personas.UpdateAsync(existing).ConfigureAwait(false);
                 return (object)updated;
@@ -184,9 +199,9 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Personas")
                 .WithSummary("Update a persona")
-                .WithDescription("Updates an existing persona by name. Only non-null fields are updated.")
+                .WithDescription("Updates a persona by name. Omitted routing fields are preserved; an empty CaptainPriorities list clears the hierarchy.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Persona name (e.g. Worker, Architect)"))
-                .WithRequestBody(OpenApiJson.BodyFor<Persona>("Updated persona data", true))
+                .WithRequestBody(OpenApiJson.BodyFor<PersonaUpdateRequest>("Updated persona data", true))
                 .WithResponse(200, OpenApiJson.For<Persona>("Updated persona"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())

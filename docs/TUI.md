@@ -490,3 +490,7 @@ An idle TUI uses about 1 percent of one core. If it uses more, check for screens
 ### Reporting a bug
 
 Help, Save screen snapshot... writes what the screen shows, as plain text at the terminal's size, to a file you choose (the text is taken before the save prompt opens). Attach it to the report together with Help, About Armada (TUI version, server, theme, credential store), `armada --version`, your terminal and operating system, `TERM`, `LANG`, and the terminal size, and the keys you pressed. A snapshot contains whatever was on screen, such as entity names, emails, and paths, so read it before you share it.
+
+## Persona routing configuration
+
+Persona detail exposes Captain priorities with ordered runtime, model, Mux endpoint, and minimum-tier matching fields. Add, remove, and reorder classes independently of the persona's role. Configure whether busy classes allow lower priorities and whether an exhausted hierarchy waits or permits any eligible captain. A first-priority wait always waits. Saving an empty list restores legacy routing, and duplication preserves the hierarchy. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md).

@@ -2077,6 +2077,23 @@ namespace Armada.Core.Database.Mysql.Queries
             @"ALTER TABLE ask_messages ADD COLUMN tool_time_ms DOUBLE NULL;"
         };
 
+        /// <summary>Ordered persona routing classes and availability policies.</summary>
+        public static readonly string[] MigrationV83Statements = new string[]
+        {
+            @"ALTER TABLE personas ADD COLUMN priority_availability VARCHAR(64) NOT NULL DEFAULT 'FallThrough';",
+            @"ALTER TABLE personas ADD COLUMN priority_exhaustion VARCHAR(64) NOT NULL DEFAULT 'Wait';",
+            @"CREATE TABLE IF NOT EXISTS persona_captain_priorities (
+                        persona_id VARCHAR(450) NOT NULL,
+                        priority_order INTEGER NOT NULL,
+                        runtime VARCHAR(64) NULL,
+                        model VARCHAR(1024) NULL,
+                        endpoint VARCHAR(1024) NULL,
+                        minimum_tier VARCHAR(64) NULL,
+                        PRIMARY KEY (persona_id, priority_order),
+                        FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE CASCADE
+                    );"
+        };
+
         /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>

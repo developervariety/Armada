@@ -9,6 +9,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
     using Armada.Core.Database.Interfaces;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
 
     /// <summary>
@@ -50,28 +51,38 @@ namespace Armada.Core.Database.SqlServer.Implementations
         public async Task<Persona> CreateAsync(Persona persona, CancellationToken token = default)
         {
             if (persona == null) throw new ArgumentNullException(nameof(persona));
+            string? routingError = PersonaCaptainPrioritySelector.Validate(persona);
+            if (routingError != null) throw new ArgumentException(routingError, nameof(persona));
             persona.LastUpdateUtc = DateTime.UtcNow;
 
             using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                using (SqlCommand cmd = conn.CreateCommand())
+                using (SqlTransaction transaction = (SqlTransaction)await conn.BeginTransactionAsync(token).ConfigureAwait(false))
                 {
-                    cmd.CommandText = @"INSERT INTO personas (id, tenant_id, user_id, scope, name, description, prompt_template_name, is_built_in, active, default_captain_id, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @scope, @name, @description, @prompt_template_name, @is_built_in, @active, @default_captain_id, @created_utc, @last_update_utc);";
-                    cmd.Parameters.AddWithValue("@id", persona.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)persona.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@scope", persona.Scope.ToString());
-                    cmd.Parameters.AddWithValue("@name", persona.Name);
-                    cmd.Parameters.AddWithValue("@description", (object?)persona.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
-                    cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@active", persona.Active ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(persona.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(persona.LastUpdateUtc));
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    using (SqlCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.Transaction = transaction;
+                        cmd.CommandText = @"INSERT INTO personas (id, tenant_id, user_id, scope, name, description, prompt_template_name, is_built_in, active, default_captain_id, priority_availability, priority_exhaustion, created_utc, last_update_utc)
+                            VALUES (@id, @tenant_id, @user_id, @scope, @name, @description, @prompt_template_name, @is_built_in, @active, @default_captain_id, @priority_availability, @priority_exhaustion, @created_utc, @last_update_utc);";
+                        cmd.Parameters.AddWithValue("@id", persona.Id);
+                        cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@user_id", (object?)persona.UserId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@scope", persona.Scope.ToString());
+                        cmd.Parameters.AddWithValue("@name", persona.Name);
+                        cmd.Parameters.AddWithValue("@description", (object?)persona.Description ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
+                        cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@active", persona.Active ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@priority_availability", persona.PriorityAvailability.ToString());
+                        cmd.Parameters.AddWithValue("@priority_exhaustion", persona.PriorityExhaustion.ToString());
+                        cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(persona.CreatedUtc));
+                        cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(persona.LastUpdateUtc));
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+                    await SavePrioritiesAsync(conn, transaction, persona, token).ConfigureAwait(false);
+                    await transaction.CommitAsync(token).ConfigureAwait(false);
                 }
             }
 
@@ -90,15 +101,16 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 {
                     cmd.CommandText = "SELECT * FROM personas WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
+                    Persona? result = null;
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                        if (await reader.ReadAsync(token).ConfigureAwait(false)) result = PersonaFromReader(reader);
                     }
+                    if (result != null) await LoadPrioritiesAsync(conn, result, token).ConfigureAwait(false);
+                    return result;
                 }
             }
 
-            return null;
         }
 
         /// <inheritdoc />
@@ -113,15 +125,16 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 {
                     cmd.CommandText = "SELECT * FROM personas WHERE name = @name;";
                     cmd.Parameters.AddWithValue("@name", name);
+                    Persona? result = null;
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                        if (await reader.ReadAsync(token).ConfigureAwait(false)) result = PersonaFromReader(reader);
                     }
+                    if (result != null) await LoadPrioritiesAsync(conn, result, token).ConfigureAwait(false);
+                    return result;
                 }
             }
 
-            return null;
         }
 
         /// <inheritdoc />
@@ -138,52 +151,65 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.CommandText = "SELECT * FROM personas WHERE tenant_id = @tenant_id AND name = @name;";
                     cmd.Parameters.AddWithValue("@tenant_id", tenantId);
                     cmd.Parameters.AddWithValue("@name", name);
+                    Persona? result = null;
                     using (SqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
-                        if (await reader.ReadAsync(token).ConfigureAwait(false))
-                            return PersonaFromReader(reader);
+                        if (await reader.ReadAsync(token).ConfigureAwait(false)) result = PersonaFromReader(reader);
                     }
+                    if (result != null) await LoadPrioritiesAsync(conn, result, token).ConfigureAwait(false);
+                    return result;
                 }
             }
 
-            return null;
         }
 
         /// <inheritdoc />
         public async Task<Persona> UpdateAsync(Persona persona, CancellationToken token = default)
         {
             if (persona == null) throw new ArgumentNullException(nameof(persona));
+            string? routingError = PersonaCaptainPrioritySelector.Validate(persona);
+            if (routingError != null) throw new ArgumentException(routingError, nameof(persona));
             persona.LastUpdateUtc = DateTime.UtcNow;
 
             using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                using (SqlCommand cmd = conn.CreateCommand())
+                using (SqlTransaction transaction = (SqlTransaction)await conn.BeginTransactionAsync(token).ConfigureAwait(false))
                 {
-                    cmd.CommandText = @"UPDATE personas SET
-                        tenant_id = @tenant_id,
-                        user_id = @user_id,
-                        scope = @scope,
-                        name = @name,
-                        description = @description,
-                        prompt_template_name = @prompt_template_name,
-                        is_built_in = @is_built_in,
-                        active = @active,
-                        default_captain_id = @default_captain_id,
-                        last_update_utc = @last_update_utc
-                        WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", persona.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)persona.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@scope", persona.Scope.ToString());
-                    cmd.Parameters.AddWithValue("@name", persona.Name);
-                    cmd.Parameters.AddWithValue("@description", (object?)persona.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
-                    cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@active", persona.Active ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(persona.LastUpdateUtc));
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    using (SqlCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.Transaction = transaction;
+                        cmd.CommandText = @"UPDATE personas SET
+                            tenant_id = @tenant_id,
+                            user_id = @user_id,
+                            scope = @scope,
+                            name = @name,
+                            description = @description,
+                            prompt_template_name = @prompt_template_name,
+                            is_built_in = @is_built_in,
+                            active = @active,
+                            default_captain_id = @default_captain_id,
+                                priority_availability = @priority_availability,
+                                priority_exhaustion = @priority_exhaustion,
+                            last_update_utc = @last_update_utc
+                            WHERE id = @id;";
+                        cmd.Parameters.AddWithValue("@id", persona.Id);
+                        cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@user_id", (object?)persona.UserId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@scope", persona.Scope.ToString());
+                        cmd.Parameters.AddWithValue("@name", persona.Name);
+                        cmd.Parameters.AddWithValue("@description", (object?)persona.Description ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
+                        cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@active", persona.Active ? 1 : 0);
+                        cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@priority_availability", persona.PriorityAvailability.ToString());
+                        cmd.Parameters.AddWithValue("@priority_exhaustion", persona.PriorityExhaustion.ToString());
+                        cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(persona.LastUpdateUtc));
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+                    await SavePrioritiesAsync(conn, transaction, persona, token).ConfigureAwait(false);
+                    await transaction.CommitAsync(token).ConfigureAwait(false);
                 }
             }
 
@@ -198,11 +224,16 @@ namespace Armada.Core.Database.SqlServer.Implementations
             using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                using (SqlCommand cmd = conn.CreateCommand())
+                using (SqlTransaction transaction = (SqlTransaction)await conn.BeginTransactionAsync(token).ConfigureAwait(false))
                 {
-                    cmd.CommandText = "DELETE FROM personas WHERE id = @id;";
-                    cmd.Parameters.AddWithValue("@id", id);
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    using (SqlCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.Transaction = transaction;
+                        cmd.CommandText = "DELETE FROM personas WHERE id = @id;";
+                        cmd.Parameters.AddWithValue("@id", id);
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+                    await transaction.CommitAsync(token).ConfigureAwait(false);
                 }
             }
         }
@@ -223,6 +254,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
                             results.Add(PersonaFromReader(reader));
                     }
+                    foreach (Persona result in results)
+                        await LoadPrioritiesAsync(conn, result, token).ConfigureAwait(false);
                 }
             }
 
@@ -277,6 +310,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         while (await reader.ReadAsync(token).ConfigureAwait(false))
                             results.Add(PersonaFromReader(reader));
                     }
+                    foreach (Persona result in results)
+                        await LoadPrioritiesAsync(conn, result, token).ConfigureAwait(false);
                 }
 
                 return EnumerationResult<Persona>.Create(query, results, totalCount);
@@ -341,9 +376,63 @@ namespace Armada.Core.Database.SqlServer.Implementations
             persona.IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]);
             persona.Active = Convert.ToBoolean(reader["active"]);
             persona.DefaultCaptainId = SqlServerDatabaseDriver.NullableString(reader["default_captain_id"]);
+            persona.PriorityAvailability = Enum.Parse<PersonaPriorityAvailabilityEnum>(reader["priority_availability"].ToString()!);
+            persona.PriorityExhaustion = Enum.Parse<PersonaPriorityExhaustionEnum>(reader["priority_exhaustion"].ToString()!);
             persona.CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!);
             persona.LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!);
             return persona;
+        }
+
+
+        private static async Task SavePrioritiesAsync(SqlConnection conn, SqlTransaction transaction, Persona persona, CancellationToken token)
+        {
+            using (SqlCommand cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = transaction;
+                cmd.CommandText = "DELETE FROM persona_captain_priorities WHERE persona_id = @persona_id;";
+                cmd.Parameters.AddWithValue("@persona_id", persona.Id);
+                await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }
+            for (int index = 0; index < persona.CaptainPriorities.Count; index++)
+            {
+                token.ThrowIfCancellationRequested();
+                PersonaCaptainPriority priority = persona.CaptainPriorities[index];
+                using (SqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.Transaction = transaction;
+                    cmd.CommandText = @"INSERT INTO persona_captain_priorities
+                        (persona_id, priority_order, runtime, model, endpoint, minimum_tier)
+                        VALUES (@persona_id, @priority_order, @runtime, @model, @endpoint, @minimum_tier);";
+                    cmd.Parameters.AddWithValue("@persona_id", persona.Id);
+                    cmd.Parameters.AddWithValue("@priority_order", index);
+                    cmd.Parameters.AddWithValue("@runtime", (object?)priority.Runtime?.ToString() ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@model", (object?)priority.Model ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@endpoint", (object?)priority.Endpoint ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@minimum_tier", (object?)priority.MinimumTier?.ToString() ?? DBNull.Value);
+                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static async Task LoadPrioritiesAsync(SqlConnection conn, Persona persona, CancellationToken token)
+        {
+            using (SqlCommand cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT * FROM persona_captain_priorities WHERE persona_id = @persona_id ORDER BY priority_order;";
+                cmd.Parameters.AddWithValue("@persona_id", persona.Id);
+                using (SqlDataReader reader = (SqlDataReader)await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                {
+                    while (await reader.ReadAsync(token).ConfigureAwait(false))
+                    {
+                        PersonaCaptainPriority priority = new PersonaCaptainPriority();
+                        priority.Runtime = reader["runtime"] == DBNull.Value ? null : Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
+                        priority.Model = reader["model"] == DBNull.Value ? null : reader["model"].ToString();
+                        priority.Endpoint = reader["endpoint"] == DBNull.Value ? null : reader["endpoint"].ToString();
+                        priority.MinimumTier = reader["minimum_tier"] == DBNull.Value ? null : Enum.Parse<CaptainTierEnum>(reader["minimum_tier"].ToString()!);
+                        persona.CaptainPriorities.Add(priority);
+                    }
+                }
+            }
         }
 
         #endregion

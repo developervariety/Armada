@@ -2,7 +2,7 @@
     "info": {
         "_postman_id": "armada-api-collection",
         "name": "Armada API",
-        "description": "Complete API collection for the Armada multi-agent orchestration system.\n\nVersion: 1.0.0\n\n## Setup\n1. Set the `baseUrl` variable to your Admiral server (default: `http://localhost:7890`)\n2. For bearer token auth, set `bearerToken` (the default credential token is `default`)\n3. For session token auth, use the Authenticate request and set `sessionToken` from the response\n4. Legacy: If API key authentication is enabled, set the `apiKey` variable (deprecated)\n5. Use the Status > Health Check request to verify connectivity\n\n## Role model\n- IsAdmin=true: global system-wide admin\n- IsAdmin=false and IsTenantAdmin=true: tenant-scoped admin\n- IsAdmin=false and IsTenantAdmin=false: regular user with self-service on own account and credentials\n\n## Data scoping\nArmada scopes data per user within a tenant, in two categories.\n\n**Category A - owned operational entities** (fleets, vessels, voyages, captains, missions, docks, signals, events, merge queue, objectives/backlog): a regular user sees/manages only rows they own; a tenant admin sees the whole tenant; a global admin sees everything. Enumeration is scoped from the caller's identity. Admins may narrow the view with the `userId` query filter (and a global admin with `tenantId`) on list/enumerate requests; these filters are ignored when they would exceed a regular user's own scope.\n\n**Category B - shared configuration entities** (model endpoints, playbooks, skills, prompt templates, personas, pipelines, workflow profiles, project profiles, runbooks): each object carries an ownership scope, `TenantWide` or `UserSpecific`, in a `scope` field (workflow profiles and project profiles use `ownershipScope`, because their `scope` field means application scope - Global/Fleet/Vessel). Reads for a regular user return all tenant-wide objects plus their own user-specific objects. A regular user may create only user-specific objects (the requested scope is coerced) and may edit/delete only their own; tenant-wide objects require a tenant admin. Only admins may change an object's ownership scope. Include `\"scope\": \"UserSpecific\"` or `\"scope\": \"TenantWide\"` in create/update bodies to set it (admins only for TenantWide).\n\nNote: MCP tools run as the MCP caller (credential identity, a mission-scoped token for mission captains, or the default tenant's tenant admin for unauthenticated loopback callers when Mcp.AllowUnauthenticatedLoopback is on), check a declared permission level per tool, and resolve entity ids in the caller's scope like REST.\n\n## Notes\n- Tenant, user, and credential protection is server-controlled through IsProtected\n- Immutable fields such as IDs, ownership columns, and creation timestamps are preserved server-side on update\n- Includes Objectives, Delivery workflow profiles, structured checks, environments, deployments, incidents, runbooks, releases, cross-entity history, Workspace, Planning Sessions, Request History, Mux runtime helpers, and OpenAPI discovery examples.",
+        "description": "Complete API collection for the Armada multi-agent orchestration system.\n\nVersion: 1.1.0\n\n## Setup\n1. Set the `baseUrl` variable to your Admiral server (default: `http://localhost:7890`)\n2. For bearer token auth, set `bearerToken` (the default credential token is `default`)\n3. For session token auth, use the Authenticate request and set `sessionToken` from the response\n4. Legacy: If API key authentication is enabled, set the `apiKey` variable (deprecated)\n5. Use the Status > Health Check request to verify connectivity\n\n## Role model\n- IsAdmin=true: global system-wide admin\n- IsAdmin=false and IsTenantAdmin=true: tenant-scoped admin\n- IsAdmin=false and IsTenantAdmin=false: regular user with self-service on own account and credentials\n\n## Data scoping\nArmada scopes data per user within a tenant, in two categories.\n\n**Category A - owned operational entities** (fleets, vessels, voyages, captains, missions, docks, signals, events, merge queue, objectives/backlog): a regular user sees/manages only rows they own; a tenant admin sees the whole tenant; a global admin sees everything. Enumeration is scoped from the caller's identity. Admins may narrow the view with the `userId` query filter (and a global admin with `tenantId`) on list/enumerate requests; these filters are ignored when they would exceed a regular user's own scope.\n\n**Category B - shared configuration entities** (model endpoints, playbooks, skills, prompt templates, personas, pipelines, workflow profiles, project profiles, runbooks): each object carries an ownership scope, `TenantWide` or `UserSpecific`, in a `scope` field (workflow profiles and project profiles use `ownershipScope`, because their `scope` field means application scope - Global/Fleet/Vessel). Reads for a regular user return all tenant-wide objects plus their own user-specific objects. A regular user may create only user-specific objects (the requested scope is coerced) and may edit/delete only their own; tenant-wide objects require a tenant admin. Only admins may change an object's ownership scope. Include `\"scope\": \"UserSpecific\"` or `\"scope\": \"TenantWide\"` in create/update bodies to set it (admins only for TenantWide).\n\nNote: MCP tools run as the MCP caller (credential identity, a mission-scoped token for mission captains, or the default tenant's tenant admin for unauthenticated loopback callers when Mcp.AllowUnauthenticatedLoopback is on), check a declared permission level per tool, and resolve entity ids in the caller's scope like REST.\n\n## Notes\n- Tenant, user, and credential protection is server-controlled through IsProtected\n- Immutable fields such as IDs, ownership columns, and creation timestamps are preserved server-side on update\n- Includes Objectives, Delivery workflow profiles, structured checks, environments, deployments, incidents, runbooks, releases, cross-entity history, Workspace, Planning Sessions, Request History, Mux runtime helpers, and OpenAPI discovery examples.",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
     "auth": {
@@ -313,6 +313,11 @@
             "key": "pushDeviceId",
             "value": "",
             "type": "string"
+        },
+        {
+            "key": "muxEndpoint",
+            "value": "local",
+            "description": "Named Mux endpoint used by persona priority examples. Configure a matching Mux captain before dispatch."
         }
     ],
     "item": [
@@ -938,7 +943,7 @@
                             "name": "Healthy",
                             "status": "OK",
                             "code": 200,
-                            "body": "{\n  \"Status\": \"healthy\",\n  \"Timestamp\": \"2026-03-07T12:00:00Z\",\n  \"StartUtc\": \"2026-03-07T08:00:00Z\",\n  \"Uptime\": \"0.04:00:00\",\n  \"Version\": \"1.0.0\",\n  \"Ports\": {\n    \"Admiral\": 7890,\n    \"Mcp\": 7891\n  },\n  \"RemoteTunnel\": {\n    \"Enabled\": false,\n    \"State\": \"Disabled\",\n    \"TunnelUrl\": null,\n    \"InstanceId\": \"armada-1f2e3d4c5b6a\",\n    \"LastError\": null,\n    \"ReconnectAttempts\": 0,\n    \"LatencyMs\": null\n  }\n}"
+                            "body": "{\n  \"Status\": \"healthy\",\n  \"Timestamp\": \"2026-03-07T12:00:00Z\",\n  \"StartUtc\": \"2026-03-07T08:00:00Z\",\n  \"Uptime\": \"0.04:00:00\",\n  \"Version\": \"1.1.0\",\n  \"Ports\": {\n    \"Admiral\": 7890,\n    \"Mcp\": 7891\n  },\n  \"RemoteTunnel\": {\n    \"Enabled\": false,\n    \"State\": \"Disabled\",\n    \"TunnelUrl\": null,\n    \"InstanceId\": \"armada-1f2e3d4c5b6a\",\n    \"LastError\": null,\n    \"ReconnectAttempts\": 0,\n    \"LatencyMs\": null\n  }\n}"
                         }
                     ]
                 },
@@ -965,7 +970,7 @@
                             "name": "System Status",
                             "status": "OK",
                             "code": 200,
-                            "body": "{\n  \"TotalCaptains\": 3,\n  \"IdleCaptains\": 1,\n  \"WorkingCaptains\": 2,\n  \"StalledCaptains\": 0,\n  \"ActiveVoyages\": 1,\n  \"MissionsByStatus\": {\n    \"Pending\": 2,\n    \"InProgress\": 2,\n    \"Complete\": 5\n  },\n  \"Voyages\": [],\n  \"RecentSignals\": [],\n  \"RemoteTunnel\": {\n    \"Enabled\": false,\n    \"State\": \"Disabled\",\n    \"TunnelUrl\": null,\n    \"InstanceId\": \"armada-1f2e3d4c5b6a\",\n    \"LastError\": null,\n    \"ReconnectAttempts\": 0,\n    \"LatencyMs\": null,\n    \"CapabilityManifest\": {\n      \"ProtocolVersion\": \"2026-04-03\",\n      \"ArmadaVersion\": \"1.0.0\",\n      \"Features\": [\n        \"remoteControl.handshake\",\n        \"remoteControl.heartbeat\",\n        \"status.health\",\n        \"status.snapshot\",\n        \"settings.remoteControl\"\n      ]\n    }\n  },\n  \"TimestampUtc\": \"2026-03-07T12:00:00Z\"\n}"
+                            "body": "{\n  \"TotalCaptains\": 3,\n  \"IdleCaptains\": 1,\n  \"WorkingCaptains\": 2,\n  \"StalledCaptains\": 0,\n  \"ActiveVoyages\": 1,\n  \"MissionsByStatus\": {\n    \"Pending\": 2,\n    \"InProgress\": 2,\n    \"Complete\": 5\n  },\n  \"Voyages\": [],\n  \"RecentSignals\": [],\n  \"RemoteTunnel\": {\n    \"Enabled\": false,\n    \"State\": \"Disabled\",\n    \"TunnelUrl\": null,\n    \"InstanceId\": \"armada-1f2e3d4c5b6a\",\n    \"LastError\": null,\n    \"ReconnectAttempts\": 0,\n    \"LatencyMs\": null,\n    \"CapabilityManifest\": {\n      \"ProtocolVersion\": \"2026-04-03\",\n      \"ArmadaVersion\": \"1.1.0\",\n      \"Features\": [\n        \"remoteControl.handshake\",\n        \"remoteControl.heartbeat\",\n        \"status.health\",\n        \"status.snapshot\",\n        \"settings.remoteControl\"\n      ]\n    }\n  },\n  \"TimestampUtc\": \"2026-03-07T12:00:00Z\"\n}"
                         }
                     ]
                 },
@@ -4767,7 +4772,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Platform\": \"Ios\",\n  \"ExpoPushToken\": \"ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]\",\n  \"DeviceName\": \"My iPhone\",\n  \"AppVersion\": \"1.0.0\",\n  \"Locale\": \"en-US\"\n}"
+                            "raw": "{\n  \"Platform\": \"Ios\",\n  \"ExpoPushToken\": \"ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]\",\n  \"DeviceName\": \"My iPhone\",\n  \"AppVersion\": \"1.1.0\",\n  \"Locale\": \"en-US\"\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/api/v1/push/devices",
@@ -7451,7 +7456,7 @@
                                 }
                             ]
                         },
-                        "description": "List personas with pagination."
+                        "description": "List personas with pagination.\n\nPersona routing: CaptainPriorities is an ordered list of runtime/model/Mux endpoint/minimum-tier classes. FallThrough tries lower classes when busy; WaitForFirstPriority waits strictly for the first. PriorityExhaustion defaults to Wait; UseEligibleCaptain permits general fallback. Empty priorities preserve legacy routing. On updates, omitted routing fields are preserved and an empty array clears priorities."
                     }
                 },
                 {
@@ -7480,7 +7485,7 @@
                                 "enumerate"
                             ]
                         },
-                        "description": "Enumerate personas with a JSON query body."
+                        "description": "Enumerate personas with a JSON query body.\n\nPersona routing: CaptainPriorities is an ordered list of runtime/model/Mux endpoint/minimum-tier classes. FallThrough tries lower classes when busy; WaitForFirstPriority waits strictly for the first. PriorityExhaustion defaults to Wait; UseEligibleCaptain permits general fallback. Empty priorities preserve legacy routing. On updates, omitted routing fields are preserved and an empty array clears priorities."
                     }
                 },
                 {
@@ -7509,7 +7514,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Name\": \"Platform Product Manager\",\n  \"Description\": \"Product manager variant for platform-oriented work.\",\n  \"PromptTemplateName\": \"persona.product_manager.copy\",\n  \"DefaultCaptainId\": \"{{captainId}}\"\n}"
+                            "raw": "{\n  \"Name\": \"Platform Product Manager\",\n  \"Description\": \"Product manager variant for platform-oriented work.\",\n  \"PromptTemplateName\": \"persona.product_manager.copy\",\n  \"DefaultCaptainId\": \"{{captainId}}\",\n  \"CaptainPriorities\": [\n    {\n      \"Runtime\": \"Codex\",\n      \"MinimumTier\": \"Premium\"\n    },\n    {\n      \"Runtime\": \"Mux\",\n      \"Endpoint\": \"{{muxEndpoint}}\",\n      \"Model\": \"gpt-oss:120b\"\n    }\n  ],\n  \"PriorityAvailability\": \"FallThrough\",\n  \"PriorityExhaustion\": \"Wait\"\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/api/v1/personas",
@@ -7522,7 +7527,7 @@
                                 "personas"
                             ]
                         },
-                        "description": "Create a persona and save its Name to personaName."
+                        "description": "Create a persona and save its Name to personaName.\n\nPersona routing: CaptainPriorities is an ordered list of runtime/model/Mux endpoint/minimum-tier classes. FallThrough tries lower classes when busy; WaitForFirstPriority waits strictly for the first. PriorityExhaustion defaults to Wait; UseEligibleCaptain permits general fallback. Empty priorities preserve legacy routing. On updates, omitted routing fields are preserved and an empty array clears priorities."
                     }
                 },
                 {
@@ -7542,7 +7547,7 @@
                                 "{{personaName}}"
                             ]
                         },
-                        "description": "Read one persona by name."
+                        "description": "Read one persona by name.\n\nPersona routing: CaptainPriorities is an ordered list of runtime/model/Mux endpoint/minimum-tier classes. FallThrough tries lower classes when busy; WaitForFirstPriority waits strictly for the first. PriorityExhaustion defaults to Wait; UseEligibleCaptain permits general fallback. Empty priorities preserve legacy routing. On updates, omitted routing fields are preserved and an empty array clears priorities."
                     }
                 },
                 {
@@ -7557,7 +7562,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Description\": \"Updated platform-oriented product manager persona.\",\n  \"PromptTemplateName\": \"persona.product_manager.copy\",\n  \"DefaultCaptainId\": \"{{captainId}}\"\n}"
+                            "raw": "{\n  \"Description\": \"Updated platform-oriented product manager persona.\",\n  \"PromptTemplateName\": \"persona.product_manager.copy\",\n  \"DefaultCaptainId\": \"{{captainId}}\",\n  \"CaptainPriorities\": [\n    {\n      \"Runtime\": \"Codex\",\n      \"MinimumTier\": \"Premium\"\n    },\n    {\n      \"Runtime\": \"Mux\",\n      \"Endpoint\": \"{{muxEndpoint}}\",\n      \"Model\": \"gpt-oss:120b\"\n    }\n  ],\n  \"PriorityAvailability\": \"FallThrough\",\n  \"PriorityExhaustion\": \"Wait\"\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/api/v1/personas/{{personaName}}",
@@ -7571,7 +7576,7 @@
                                 "{{personaName}}"
                             ]
                         },
-                        "description": "Update a persona by name."
+                        "description": "Update a persona by name.\n\nPersona routing: CaptainPriorities is an ordered list of runtime/model/Mux endpoint/minimum-tier classes. FallThrough tries lower classes when busy; WaitForFirstPriority waits strictly for the first. PriorityExhaustion defaults to Wait; UseEligibleCaptain permits general fallback. Empty priorities preserve legacy routing. On updates, omitted routing fields are preserved and an empty array clears priorities."
                     }
                 },
                 {
@@ -7591,7 +7596,7 @@
                                 "{{personaName}}"
                             ]
                         },
-                        "description": "Delete a custom persona."
+                        "description": "Delete a custom persona.\n\nPersona routing: CaptainPriorities is an ordered list of runtime/model/Mux endpoint/minimum-tier classes. FallThrough tries lower classes when busy; WaitForFirstPriority waits strictly for the first. PriorityExhaustion defaults to Wait; UseEligibleCaptain permits general fallback. Empty priorities preserve legacy routing. On updates, omitted routing fields are preserved and an empty array clears priorities."
                     }
                 }
             ]

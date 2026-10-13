@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Run a fleet of AI coding agents across all of your repositories: in parallel, isolated, reviewed, and on the record.</strong>
   <br />
-  <em>v1.0.0</em>
+  <em>v1.1.0</em>
 </p>
 
 <p align="center">
@@ -46,6 +46,10 @@ armada watch
 Three missions, three captains, three worktrees, three branches. Watch them in the terminal, the [dashboard](#quick-start), the [TUI](#terminal-ui), or the [mobile app](#mobile-app).
 
 ---
+
+## Persona captain priorities
+
+Define an ordered hierarchy of preferred captain classes on each persona, matching runtime, model, Mux endpoint, and minimum capability tier. Configure whether busy classes permit lower priorities or wait for the first choice, and whether an exhausted hierarchy waits or allows any eligible captain. Pipelines and Architect-generated missions use the same routing. Existing personas retain their default-captain behavior until a hierarchy is configured. See [Captain routing](docs/CAPTAIN_ROUTING.md) for setup and examples.
 
 ## Why Armada
 
@@ -705,7 +709,7 @@ Installing from source (above) is the path the project uses day to day. Release 
 | Windows | Harbor `.exe` (Inno Setup) and the Admiral server `.msi` (WiX) |
 | macOS | `Armada Harbor.app` in a `.dmg`, and the Admiral server `.pkg` |
 | Linux | `.deb` and `.rpm` packages for the CLI, Harbor, and the server |
-| Docker | Admiral, dashboard, and proxy images on Docker Hub (`jchristn77/armada-server`, `jchristn77/armada-dashboard`, `jchristn77/armada-proxy`; tags `v1.0.0` and `latest`). `docker/update.sh` or `docker/update.bat` pulls them and recreates the stack without touching its data |
+| Docker | Admiral, dashboard, and proxy images on Docker Hub (`jchristn77/armada-server`, `jchristn77/armada-dashboard`, `jchristn77/armada-proxy`; tags `v1.1.0` and `latest`). `docker/update.sh` or `docker/update.bat` pulls them and recreates the stack without touching its data |
 
 Each release carries a `SHA256SUMS` file. Installers are code-signed only when the release was built with signing credentials; an unsigned Windows installer shows a SmartScreen prompt ("More info", then "Run anyway"), and an unsigned macOS app or package must be allowed once in **System Settings > Privacy & Security** ("Open Anyway"). See [BUILDING_INSTALLERS.md](BUILDING_INSTALLERS.md).
 
@@ -1069,7 +1073,7 @@ docker compose down        # stop (data is kept)
 | `armada-dashboard` | 3000 | `http://localhost:3000/dashboard/` | Standalone React dashboard (nginx, proxies the API to `armada-server`) |
 | `prometheus` / `loki` / `grafana` | 9090 / 3100 / 3001 | `http://localhost:3001` | Observability stack (Grafana login `admin` / `admin`) |
 
-Data persists under `docker/armada/` (`db/`, `logs/`), and configuration is `docker/armada/armada.json` (restart `armada-server` after editing). `docker/armada/factory/reset.sh` (or `reset.bat`) deletes the local database and logs while keeping configuration. The compose files run the published `v1.0.0` images; to build images from source (`src/Armada.Server/Dockerfile`, `src/Armada.Dashboard/Dockerfile`, `src/Armada.Proxy/Dockerfile`) and for the volume layout, split mode, and the proxy stack, see [docs/DOCKER.md](docs/DOCKER.md).
+Data persists under `docker/armada/` (`db/`, `logs/`), and configuration is `docker/armada/armada.json` (restart `armada-server` after editing). `docker/armada/factory/reset.sh` (or `reset.bat`) deletes the local database and logs while keeping configuration. The compose files run the published `v1.1.0` images; to build images from source (`src/Armada.Server/Dockerfile`, `src/Armada.Dashboard/Dockerfile`, `src/Armada.Proxy/Dockerfile`) and for the volume layout, split mode, and the proxy stack, see [docs/DOCKER.md](docs/DOCKER.md).
 
 ## Upgrading / Migration
 

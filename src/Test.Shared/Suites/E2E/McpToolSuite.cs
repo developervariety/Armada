@@ -42,6 +42,31 @@ namespace Test.Shared.Suites.E2E
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("persona_priorities_roundtrip", "MCP persona priorities: create, partial update, clear, and validation", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                string session = await InitMcpSessionAsync(fx.McpClient).ConfigureAwait(false);
+                string name = "priority-" + Guid.NewGuid().ToString("N");
+                JsonElement created = await CallToolAsync(fx.McpClient, session, "create_persona", new
+                {
+                    name, promptTemplateName = "persona.worker",
+                    captainPriorities = new object[] { new { runtime = "Codex", minimumTier = "Premium" }, new { runtime = "Mux", endpoint = "test", model = "gpt-oss:120b" } },
+                    priorityAvailability = "WaitForFirstPriority", priorityExhaustion = "UseEligibleCaptain"
+                }).ConfigureAwait(false);
+                Persona persona = JsonHelper.Deserialize<Persona>(GetToolResultText(created));
+                AssertEqual(2, persona.CaptainPriorities.Count);
+                AssertEqual(PersonaPriorityAvailabilityEnum.WaitForFirstPriority, persona.PriorityAvailability);
+                JsonElement updated = await CallToolAsync(fx.McpClient, session, "update_persona", new { name, description = "changed" }).ConfigureAwait(false);
+                AssertEqual(2, JsonHelper.Deserialize<Persona>(GetToolResultText(updated)).CaptainPriorities.Count);
+                JsonElement invalid = await CallToolAsync(fx.McpClient, session, "update_persona", new { name, captainPriorities = new object[] { new { endpoint = "wrong" } } }).ConfigureAwait(false);
+                AssertEqual(McpToolErrorCodeEnum.InvalidArgument, McpToolResultProbe.FromText(GetToolResultText(invalid)).ErrorCode);
+                JsonElement unchanged = await CallToolAsync(fx.McpClient, session, "get_persona", new { name }).ConfigureAwait(false);
+                AssertEqual(2, JsonHelper.Deserialize<Persona>(GetToolResultText(unchanged)).CaptainPriorities.Count);
+                JsonElement cleared = await CallToolAsync(fx.McpClient, session, "update_persona", new { name, captainPriorities = Array.Empty<object>(), priorityAvailability = "FallThrough" }).ConfigureAwait(false);
+                AssertEqual(0, JsonHelper.Deserialize<Persona>(GetToolResultText(cleared)).CaptainPriorities.Count);
+                await CallToolAsync(fx.McpClient, session, "delete_persona", new { name }).ConfigureAwait(false);
+            }));
+
             cases.Add(CaseAsync("tools_list_returns_at_least_expected_armada_tools", "ToolsList_ReturnsAtLeastExpectedArmadaTools", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);

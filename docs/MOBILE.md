@@ -245,3 +245,7 @@ notifications are not available.
 | No **Save password and use Face ID** switch | Set up Face ID, Touch ID, or a strong (class 3) fingerprint on the device; Android face unlock that is not class 3 cannot protect a keystore key |
 | An Ask reply says the CLI "is not installed on the Admiral host" | The Admiral (for example a Docker image) has no agent CLI. Connect a Harbor on a machine where the CLI and its login live: Ask turns then run there (see [CAPTAINS.md](CAPTAINS.md#where-interactive-turns-run)) |
 | An Ask reply says "No Harbor is connected to run this captain" | `requireHarborForLaunch` is on and none of your Harbors that advertises the captain's runtime is connected. Start your Harbor, or check that its `AccessKey` is one of your credentials |
+
+## Persona routing configuration
+
+Persona detail exposes Captain priorities with ordered runtime, model, Mux endpoint, and minimum-tier matching fields. Add, remove, and reorder classes independently of the persona's role. Configure whether busy classes allow lower priorities and whether an exhausted hierarchy waits or permits any eligible captain. A first-priority wait always waits. Saving an empty list restores legacy routing, and duplication preserves the hierarchy. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md).

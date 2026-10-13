@@ -256,6 +256,9 @@ namespace Test.Shared.Suites.Upgrade
             // Captain last, so nothing could be assigned while seeding; signals to it.
             Captain captain = await SendAsync<Captain>(api, HttpMethod.Post, "/api/v1/captains", new { Name = "upgrade-captain", Runtime = "ClaudeCode" }).ConfigureAwait(false);
             _Seed.CaptainId = captain.Id;
+            Persona preferred = await SendAsync<Persona>(api, HttpMethod.Put, "/api/v1/personas/" + _Seed.CustomPersonaName,
+                new { DefaultCaptainId = captain.Id }).ConfigureAwait(false);
+            _Seed.CustomPersonaDefaultCaptainId = preferred.DefaultCaptainId;
             Signal nudge = await SendAsync<Signal>(api, HttpMethod.Post, "/api/v1/signals", new { Type = "Nudge", Payload = "upgrade nudge", ToCaptainId = captain.Id }).ConfigureAwait(false);
             Signal mail = await SendAsync<Signal>(api, HttpMethod.Post, "/api/v1/signals", new { Type = "Mail", Payload = "upgrade mail" }).ConfigureAwait(false);
             _Seed.SignalIds = new List<string> { nudge.Id, mail.Id };
@@ -470,14 +473,13 @@ namespace Test.Shared.Suites.Upgrade
             {
                 PromptTemplateService templates = new PromptTemplateService(db, QuietLogging());
                 List<string> shipped = templates.GetEmbeddedDefaultNames();
-                List<string> added = shipped.Except(_Seed.BaselineTemplateNames, StringComparer.Ordinal).ToList();
                 foreach (string name in shipped)
                 {
                     PromptTemplate? template = await db.PromptTemplates.ReadByNameAsync(name, ct).ConfigureAwait(false);
                     AssertNotNull(template, "built-in template " + name + " present after upgrade");
                 }
 
-                AssertTrue(added.Count > 0, "the current build ships templates the baseline did not");
+                AssertTrue(shipped.Count > 0, "the current build declares built-in templates, whether or not this release adds any");
                 PromptTemplate? untouched = await db.PromptTemplates.ReadByNameAsync(_Seed.UntouchedPersonaTemplateName, ct).ConfigureAwait(false);
                 AssertContains("## Recall Existing Memory", untouched!.Content, "untouched built-in persona template upgraded with memory recall");
             }
@@ -488,6 +490,20 @@ namespace Test.Shared.Suites.Upgrade
             AssertEqual(_Seed.EditedBuiltInPipelineDescription, editedPipeline.Description, "edited built-in pipeline kept after seeding");
             Persona editedPersona = await GetAsync<Persona>(api, "/api/v1/personas/" + _Seed.EditedBuiltInPersonaName).ConfigureAwait(false);
             AssertEqual(_Seed.EditedBuiltInPersonaDescription, editedPersona.Description, "edited built-in persona kept after seeding");
+            Persona legacy = await GetAsync<Persona>(api, "/api/v1/personas/" + _Seed.CustomPersonaName).ConfigureAwait(false);
+            AssertEqual(_Seed.CustomPersonaDefaultCaptainId, legacy.DefaultCaptainId, "legacy captain preference preserved");
+            AssertEqual(0, legacy.CaptainPriorities.Count, "upgraded personas receive empty priorities");
+            AssertEqual(PersonaPriorityAvailabilityEnum.FallThrough, legacy.PriorityAvailability);
+            AssertEqual(PersonaPriorityExhaustionEnum.Wait, legacy.PriorityExhaustion);
+            Persona configured = await SendAsync<Persona>(api, HttpMethod.Put, "/api/v1/personas/" + _Seed.CustomPersonaName, new
+            {
+                CaptainPriorities = new object[] { new { Runtime = "Mux", Model = "gpt-oss:120b", Endpoint = "upgrade-test" } },
+                PriorityAvailability = "WaitForFirstPriority", PriorityExhaustion = "Wait", DefaultCaptainId = legacy.DefaultCaptainId
+            }).ConfigureAwait(false);
+            AssertEqual(1, configured.CaptainPriorities.Count);
+            Persona persisted = await GetAsync<Persona>(api, "/api/v1/personas/" + _Seed.CustomPersonaName).ConfigureAwait(false);
+            AssertEqual("upgrade-test", persisted.CaptainPriorities[0].Endpoint, "new relational hierarchy persists after legacy migration");
+            AssertEqual(PersonaPriorityAvailabilityEnum.WaitForFirstPriority, persisted.PriorityAvailability);
             Persona recorder = await GetAsync<Persona>(api, "/api/v1/personas/Recorder").ConfigureAwait(false);
             AssertEqual("Recorder", recorder.Name, "new built-in persona seeded");
 

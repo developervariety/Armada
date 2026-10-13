@@ -1742,7 +1742,20 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE ask_messages ADD COLUMN IF NOT EXISTS tokens_estimated BOOLEAN NULL;",
                     @"ALTER TABLE ask_messages ADD COLUMN IF NOT EXISTS cost_usd DOUBLE PRECISION NULL;",
                     @"ALTER TABLE ask_messages ADD COLUMN IF NOT EXISTS tool_call_count BIGINT NULL;",
-                    @"ALTER TABLE ask_messages ADD COLUMN IF NOT EXISTS tool_time_ms DOUBLE PRECISION NULL;")
+                    @"ALTER TABLE ask_messages ADD COLUMN IF NOT EXISTS tool_time_ms DOUBLE PRECISION NULL;"),
+                new SchemaMigration(83, "Add ordered persona captain priorities and availability policies",
+                    @"ALTER TABLE personas ADD COLUMN IF NOT EXISTS priority_availability TEXT NOT NULL DEFAULT 'FallThrough';",
+                    @"ALTER TABLE personas ADD COLUMN IF NOT EXISTS priority_exhaustion TEXT NOT NULL DEFAULT 'Wait';",
+                    @"CREATE TABLE IF NOT EXISTS persona_captain_priorities (
+                        persona_id TEXT NOT NULL,
+                        priority_order INTEGER NOT NULL,
+                        runtime TEXT NULL,
+                        model TEXT NULL,
+                        endpoint TEXT NULL,
+                        minimum_tier TEXT NULL,
+                        PRIMARY KEY (persona_id, priority_order),
+                        FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE CASCADE
+                    );")
 
             };
         }

@@ -1,3 +1,5 @@
+import PersonaPriorityEditor from '../components/shared/PersonaPriorityEditor';
+import { personaRoutingForm, validatePersonaPriorities } from '../lib/personaPriorities';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listPersonas, listPromptTemplates, createPersona, updatePersona, deletePersona, apiErrorMessage } from '../api/client';
@@ -36,6 +38,8 @@ export default function Personas() {
   const [editing, setEditing] = useState<Persona | null>(null);
   const [form, setForm] = useState<{ name: string; description: string; promptTemplateName: string; scope: ScopeEnum }>({ name: '', description: '', promptTemplateName: '', scope: resolveCreateScope(viewer) });
   const [templateNames, setTemplateNames] = useState<string[]>([]);
+
+  const [routing, setRouting] = useState(personaRoutingForm());
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -81,13 +85,15 @@ export default function Personas() {
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('personas', load);
 
   // CRUD
-  function openCreate() { setForm({ name: '', description: '', promptTemplateName: '', scope: resolveCreateScope(viewer) }); setEditing(null); setShowForm(true); }
-  function openEdit(p: Persona) { setForm({ name: p.name, description: p.description ?? '', promptTemplateName: p.promptTemplateName, scope: p.scope }); setEditing(p); setShowForm(true); }
+  function openCreate() { setRouting(personaRoutingForm()); setForm({ name: '', description: '', promptTemplateName: '', scope: resolveCreateScope(viewer) }); setEditing(null); setShowForm(true); }
+  function openEdit(p: Persona) { setRouting(personaRoutingForm(p)); setForm({ name: p.name, description: p.description ?? '', promptTemplateName: p.promptTemplateName, scope: p.scope }); setEditing(p); setShowForm(true); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
-      const payload: Record<string, unknown> = { name: form.name, promptTemplateName: form.promptTemplateName, scope: form.scope };
+      const validation = validatePersonaPriorities(routing.captainPriorities);
+      if (validation) throw new Error(t(validation));
+      const payload: Record<string, unknown> = { ...routing, name: form.name, promptTemplateName: form.promptTemplateName, scope: form.scope };
       if (form.description) payload.description = form.description;
       if (editing) await updatePersona(editing.name, payload);
       else await createPersona(payload as Partial<Persona>);
@@ -206,6 +212,7 @@ export default function Personas() {
                 ))}
               </select>
             </label>
+            <PersonaPriorityEditor value={routing} onChange={setRouting} />
             <ScopeSelect viewer={viewer} value={form.scope} onChange={(scope) => setForm({ ...form, scope })} />
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">{t('Save')}</button>

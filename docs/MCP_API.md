@@ -1,6 +1,6 @@
 # Armada MCP API Reference
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Default URL:** `http://localhost:7891/mcp`
 **Protocol:** [Model Context Protocol](https://modelcontextprotocol.io/) (MCP), Streamable HTTP transport
 **Server Library:** Voltaic (McpHttpServer)
@@ -8,7 +8,7 @@
 
 ## Remote Control Note
 
-`v1.0.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.Proxy`.
+`v1.1.0` does not proxy Armada MCP traffic through the new remote-control tunnel or `Armada.Proxy`.
 
 Remote control in this release is limited to:
 
@@ -499,7 +499,7 @@ No parameters required.
     "LatencyMs": null,
     "CapabilityManifest": {
       "ProtocolVersion": "2026-04-03",
-      "ArmadaVersion": "1.0.0",
+      "ArmadaVersion": "1.1.0",
       "Features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -4289,7 +4289,10 @@ Create a custom persona.
     "name": { "type": "string", "description": "Persona name" },
     "description": { "type": "string", "description": "Persona description" },
     "promptTemplateName": { "type": "string", "description": "Name of the prompt template to use for this persona" },
-    "defaultCaptainId": { "type": "string", "description": "Optional default (preferred) captain id (cpt_ prefix) for this persona" }
+    "defaultCaptainId": { "type": "string", "description": "Optional default (preferred) captain id (cpt_ prefix) for this persona" },
+    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Named Mux endpoint; requires runtime Mux" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
+    "priorityAvailability": { "type": "string", "enum": ["FallThrough", "WaitForFirstPriority"] },
+    "priorityExhaustion": { "type": "string", "enum": ["Wait", "UseEligibleCaptain"] }
   },
   "required": ["name", "promptTemplateName"]
 }
@@ -4305,6 +4308,9 @@ Create a custom persona.
 **Response:** The newly created [Persona](#persona) object. A taken name returns `{ "Error": "A persona named '...' already exists.", "ErrorCode": "Conflict", "Code": "DuplicateEntity" }`.
 
 ---
+
+
+Optional `captainPriorities` supplies ordered matching classes; at least one field is required per entry. All fields in an entry must match. `priorityAvailability` defaults to `FallThrough`; `WaitForFirstPriority` waits strictly for the first entry and ignores `priorityExhaustion`. Exhaustion defaults to `Wait`; `UseEligibleCaptain` permits ordinary routing after all entries are exhausted. A nonempty hierarchy supersedes defaultCaptainId, while explicit dispatch captain assignments take precedence. Updates preserve omitted/null routing fields; an empty array clears priorities. Invalid settings return InvalidArgument without changing stored data. Persona results include the hierarchy and both policies. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md).
 
 ### get_persona
 
@@ -4343,7 +4349,10 @@ Update persona properties.
     "name": { "type": "string", "description": "Persona name" },
     "description": { "type": "string", "description": "New persona description" },
     "promptTemplateName": { "type": "string", "description": "New prompt template name" },
-    "defaultCaptainId": { "type": "string", "description": "Default (preferred) captain id (cpt_ prefix) for this persona; empty string clears it" }
+    "defaultCaptainId": { "type": "string", "description": "Default (preferred) captain id (cpt_ prefix) for this persona; empty string clears it" },
+    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Named Mux endpoint; requires runtime Mux" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
+    "priorityAvailability": { "type": "string", "enum": ["FallThrough", "WaitForFirstPriority"] },
+    "priorityExhaustion": { "type": "string", "enum": ["Wait", "UseEligibleCaptain"] }
   },
   "required": ["name"]
 }
@@ -4359,6 +4368,9 @@ Update persona properties.
 **Response:** Updated [Persona](#persona) object, or `{ "Error": "Persona not found: <name>", "ErrorCode": "NotFound" }`.
 
 ---
+
+
+Optional `captainPriorities` supplies ordered matching classes; at least one field is required per entry. All fields in an entry must match. `priorityAvailability` defaults to `FallThrough`; `WaitForFirstPriority` waits strictly for the first entry and ignores `priorityExhaustion`. Exhaustion defaults to `Wait`; `UseEligibleCaptain` permits ordinary routing after all entries are exhausted. A nonempty hierarchy supersedes defaultCaptainId, while explicit dispatch captain assignments take precedence. Updates preserve omitted/null routing fields; an empty array clears priorities. Invalid settings return InvalidArgument without changing stored data. Persona results include the hierarchy and both policies. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md).
 
 ### delete_persona
 

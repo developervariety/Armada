@@ -1,3 +1,5 @@
+import { PersonaPrioritySheet } from './PersonaPrioritySheet';
+import { prioritySummary } from '@dashboard/lib/personaPriorities';
 import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -46,6 +48,7 @@ export function PersonaDetailView({ name, embedded, onDeleted, onChanged }: Pers
   const { confirm, dialog } = useConfirm('persona-confirm');
   const captains = useReference<Captain>(() => listCaptains(ALL));
   const templateNames = useReference(() => listPromptTemplates(ALL)).map((x) => x.name);
+  const [priorityEditing, setPriorityEditing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [promptEditing, setPromptEditing] = useState(false);
   const [jsonOpen, setJsonOpen] = useState(false);
@@ -144,6 +147,7 @@ export function PersonaDetailView({ name, embedded, onDeleted, onChanged }: Pers
       <FieldCard>
         <Field label={t('Description')} value={p.description} testID="persona-description" />
         <Field label={t('Prompt Template Name')} value={p.promptTemplateName} onPress={p.promptTemplateName ? () => router.push(`/prompt-templates/${encodeURIComponent(p.promptTemplateName)}` as Href) : undefined} />
+        <Field label={t('Captain priorities')} value={(p.captainPriorities ?? []).map(prioritySummary).join(' → ') || t('None (default routing)')} onPress={editable ? () => setPriorityEditing(true) : undefined} />
         <Field label={t('Default Captain')} value={captainName} onPress={p.defaultCaptainId ? () => router.push(`/captains/${p.defaultCaptainId}` as Href) : undefined} />
         <Field label={t('Built-in')} value={p.isBuiltIn ? t('Yes') : t('No')} />
         <Field label={t('Created')} value={formatDateTime(p.createdUtc)} />
@@ -178,7 +182,7 @@ export function PersonaDetailView({ name, embedded, onDeleted, onChanged }: Pers
           { kind: 'select', key: 'promptTemplateName', label: t('Prompt Template Name'), required: true, placeholder: t('Select a template...'), options: templateOptions(t, templateNames) },
           {
             kind: 'select', key: 'defaultCaptainId', label: t('Default Captain'),
-            hint: t('Pre-fills the per-step captain at dispatch and becomes the preferred captain for missions of this persona.'),
+            hint: t('Used only when captain priorities is empty.'),
             options: [{ value: '', label: t('None (default routing)') }, ...captains.map((c) => ({ value: c.id, label: c.name }))],
           },
         ]}
@@ -216,6 +220,12 @@ export function PersonaDetailView({ name, embedded, onDeleted, onChanged }: Pers
           }
         }}
       />
+      {priorityEditing ? <PersonaPrioritySheet persona={p} onClose={() => setPriorityEditing(false)} onSave={async routing => {
+        await updatePersona(p.name, { ...routing, defaultCaptainId: p.defaultCaptainId });
+        pushToast('success', t('Persona "{{name}}" saved.', { name: p.name }));
+        onChanged?.();
+        await reload();
+      }} /> : null}
       <JsonSheet open={jsonOpen} title={t('Persona: {{name}}', { name: p.name })} data={p} onClose={() => setJsonOpen(false)} />
       {dialog}
     </DetailBody>

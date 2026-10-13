@@ -38,6 +38,7 @@ namespace Armada.Tui.Screens.Configuration
                 description.Placeholder = "Optional description of this persona...";
                 SelectField<string> template = RequiredSelect(form, "Prompt Template Name", TemplateOptions(templates), existing?.PromptTemplateName, "Select a template...");
                 SelectField<string> scope = form.Scope(existing?.Scope ?? ScopeRules.ResolveCreateScope(context.Session, null));
+                PersonaPriorityEditor priorities = new PersonaPriorityEditor(context, form, existing);
                 form.MarkClean();
                 string title = existing != null ? "Edit Persona" : "Create Persona";
                 string savedName = existing?.Name ?? "";
@@ -50,6 +51,7 @@ namespace Armada.Tui.Screens.Configuration
                         body.Description = EntityUi.Blank(description.Value) ?? "";
                         body.PromptTemplateName = template.Value ?? existing.PromptTemplateName;
                         body.Scope = chosenScope;
+                        priorities.Apply(body);
                         await context.Client.UpdatePersonaAsync(existing.Name, body, ct).ConfigureAwait(false);
                     }
                     else
@@ -59,6 +61,7 @@ namespace Armada.Tui.Screens.Configuration
                         body.Description = EntityUi.Blank(description.Value);
                         body.PromptTemplateName = template.Value ?? "";
                         body.Scope = ScopeRules.ResolveCreateScope(context.Session, chosenScope);
+                        priorities.Apply(body);
                         savedName = body.Name;
                         await context.Client.CreatePersonaAsync(body, ct).ConfigureAwait(false);
                     }
@@ -91,7 +94,8 @@ namespace Armada.Tui.Screens.Configuration
             TextAreaField description = form.Area("Description", persona.Description, 4);
             SelectField<string> template = RequiredSelect(form, "Prompt Template Name", TemplateOptions(templates), persona.PromptTemplateName, "Select a template...");
             SelectField<string> captain = form.Select("Default Captain", EntityLookups.Options(captains, c => c.Id, c => c.Name, c => c.Id), persona.DefaultCaptainId, "None (default routing)", false,
-                "Pre-fills the per-step captain at dispatch and becomes the preferred captain for missions of this persona.");
+                "Used only when captain priorities is empty.");
+            PersonaPriorityEditor priorities = new PersonaPriorityEditor(context, form, persona);
             form.MarkClean();
             EntityUi.ShowForm(context, "Edit Persona", form, "Save", async ct =>
             {
@@ -99,6 +103,7 @@ namespace Armada.Tui.Screens.Configuration
                 body.Description = description.Value;
                 body.PromptTemplateName = template.Value ?? persona.PromptTemplateName;
                 body.DefaultCaptainId = EntityUi.Blank(captain.Value);
+                priorities.Apply(body);
                 await context.Client.UpdatePersonaAsync(persona.Name, body, ct).ConfigureAwait(false);
                 return null;
             }, () =>
@@ -123,6 +128,9 @@ namespace Armada.Tui.Screens.Configuration
                 body.Name = DuplicateName(persona.Name);
                 body.Description = persona.Description;
                 body.PromptTemplateName = persona.PromptTemplateName;
+                body.CaptainPriorities = persona.CaptainPriorities.Select(p => new PersonaCaptainPriority { Runtime = p.Runtime, Model = p.Model, Endpoint = p.Endpoint, MinimumTier = p.MinimumTier }).ToList();
+                body.PriorityAvailability = persona.PriorityAvailability;
+                body.PriorityExhaustion = persona.PriorityExhaustion;
                 return context.Client.CreatePersonaAsync(body, ct);
             }, created =>
             {
@@ -188,6 +196,9 @@ namespace Armada.Tui.Screens.Configuration
             copy.IsBuiltIn = source.IsBuiltIn;
             copy.Active = source.Active;
             copy.DefaultCaptainId = source.DefaultCaptainId;
+            copy.CaptainPriorities = source.CaptainPriorities;
+            copy.PriorityAvailability = source.PriorityAvailability;
+            copy.PriorityExhaustion = source.PriorityExhaustion;
             copy.CreatedUtc = source.CreatedUtc;
             copy.LastUpdateUtc = source.LastUpdateUtc;
             return copy;

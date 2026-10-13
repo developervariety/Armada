@@ -1,6 +1,8 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Collections.Generic;
+    using Armada.Core.Enums;
     using System.Text.Json.Serialization;
 
     /// <summary>
@@ -83,6 +85,7 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// Optional default (preferred) captain for this persona, referenced by captain id (cpt_ prefix).
+        /// Applies only when CaptainPriorities is empty.
         /// At dispatch, each pipeline step for this persona is pre-filled with this captain, and any mission
         /// created for this persona inherits it as its preferred captain when none is explicitly dictated
         /// (including fan-out missions produced by an Architect stage). Null means no default; a dangling id
@@ -90,6 +93,22 @@ namespace Armada.Core.Models
         /// persona/tier routing.
         /// </summary>
         public string? DefaultCaptainId { get; set; } = null;
+
+        /// <summary>
+        /// Ordered captain classes for assignment. Empty preserves legacy default-captain routing.
+        /// A nonempty list supersedes DefaultCaptainId unless dispatch explicitly overrides the captain.
+        /// </summary>
+        public List<PersonaCaptainPriority> CaptainPriorities
+        {
+            get => _CaptainPriorities;
+            set => _CaptainPriorities = value ?? new List<PersonaCaptainPriority>();
+        }
+
+        /// <summary>Unavailable-class policy. Defaults to FallThrough.</summary>
+        public PersonaPriorityAvailabilityEnum PriorityAvailability { get; set; } = PersonaPriorityAvailabilityEnum.FallThrough;
+
+        /// <summary>Exhausted-list policy. Defaults to Wait; ignored by WaitForFirstPriority.</summary>
+        public PersonaPriorityExhaustionEnum PriorityExhaustion { get; set; } = PersonaPriorityExhaustionEnum.Wait;
 
         /// <summary>
         /// Creation timestamp in UTC.
@@ -105,6 +124,7 @@ namespace Armada.Core.Models
 
         #region Private-Members
 
+        private List<PersonaCaptainPriority> _CaptainPriorities = new List<PersonaCaptainPriority>();
         private string _Id = Constants.IdGenerator.GenerateKSortable("prs_", 24);
         private string _Name = "Worker";
         private string _PromptTemplateName = "persona.worker";

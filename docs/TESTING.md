@@ -31,6 +31,26 @@ suite is 348 tests.
 Database-backed tests run against SQLite in-process by default. The PostgreSQL, MySQL, and SQL Server
 drivers are exercised by the same descriptors through `--db-*` (see [Multi-Database Testing](#multi-database-testing)).
 
+## Persona priorities (1.1.0)
+
+The complete console suites pass on net8.0 and net10.0: 4,494 passed, zero failures, and nine provider/baseline-dependent skips out of 4,503 descriptors. Dashboard Vitest passes 751 tests; mobile Jest passes 1,201. The priority/routing/persistence subset also runs unchanged against SQLite, PostgreSQL, MySQL, and SQL Server, with 52 passing descriptors per provider, including the tenant-fence regression. The xUnit/NUnit adapters execute the same routing descriptors.
+
+`Services.PersonaCaptainPriority` covers ordered matching, model/endpoint/tier constraints, validation, availability/exhaustion policies, and relational round-trips. `Services.CaptainRouting` covers assignment, legacy and explicit override precedence, persona/tier fences, quarantine, ownership, and tenant isolation. `Services.PipelineDispatch` covers Architect-generated Workers; `E2E.PersonaPriorityApi` and `E2E.McpTool` cover configuration round-trips, rejected updates, and clearing. Client tests cover structured editing, ordering, duplication, localization, and default-picker behavior.
+
+```bash
+# Match the deterministic Unicode rendering expected by the terminal tests when your shell sets NO_COLOR.
+env -u NO_COLOR dotnet run --project src/Test.Automated --framework net10.0
+
+# Focused routing and configuration checks
+env -u NO_COLOR dotnet run --project src/Test.Automated --framework net10.0 -- \
+  --suites Services.PersonaCaptainPriority,Services.CaptainRouting,Services.PipelineDispatch,E2E.PersonaPriorityApi
+
+# Upgrade the current committed baseline to this checkout on each database provider.
+env -u NO_COLOR bash scripts/common/run-upgrade-test.sh --from-ref HEAD --providers all --framework net10.0
+```
+
+The upgrade command is meaningful while HEAD is the older baseline and the feature changes remain in the working tree. After committing the feature, pass the prior release commit or tag explicitly. Migration 83 preserves legacy persona defaults and creates empty priorities with FallThrough/Wait defaults; the upgrade descriptors also save and reread a new hierarchy after migration.
+
 ## Test Projects
 
 | Project | What It Covers |

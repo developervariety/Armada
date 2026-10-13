@@ -1779,9 +1779,26 @@ namespace Test.Shared.Suites.Services
                         .ToList();
 
                     AssertEqual(2, workerMissions.Count, "Architect fan-out should create two worker missions");
+                    Persona workerPersona = new Persona("Worker", "persona.worker");
+                    workerPersona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Mux, Model = "gpt-oss:120b", Endpoint = "fanout" });
+                    workerPersona.PriorityAvailability = PersonaPriorityAvailabilityEnum.WaitForFirstPriority;
+                    await testDb.Driver.Personas.CreateAsync(workerPersona).ConfigureAwait(false);
+                    ((CaptainService)captainService).OnLaunchAgent = (c, m, d) => Task.FromResult(12345);
+                    for (int index = 0; index < workerMissions.Count; index++)
+                    {
+                        Captain mux = new Captain("fanout-mux-" + index, AgentRuntimeEnum.Mux);
+                        mux.Model = "gpt-oss:120b";
+                        mux.RuntimeOptionsJson = "{\"endpoint\":\"fanout\"}";
+                        await testDb.Driver.Captains.CreateAsync(mux).ConfigureAwait(false);
+                    }
                     foreach (Mission workerMission in workerMissions)
                     {
                         AssertTrue(String.IsNullOrEmpty(workerMission.BranchName), "Architect-created worker missions should not inherit the architect branch");
+                        AssertTrue(await missionService.TryAssignAsync(workerMission, vessel).ConfigureAwait(false), "Fan-out worker should use its persona hierarchy");
+                        Mission assigned = (await testDb.Driver.Missions.ReadAsync(workerMission.Id).ConfigureAwait(false))!;
+                        Captain selected = (await testDb.Driver.Captains.ReadAsync(assigned.CaptainId!).ConfigureAwait(false))!;
+                        AssertEqual(AgentRuntimeEnum.Mux, selected.Runtime);
+                        AssertNull(assigned.RequestedCaptainId, "Fan-out hierarchy should not persist an explicit override");
                     }
                 }
             }));

@@ -39,6 +39,19 @@ namespace Test.Shared.Suites.Client
                 Persona builtIn = (await c.ListPersonasAsync())!.Objects.First();
                 Persona persona = (await c.CreatePersonaAsync(new Persona("ContractPersona" + s, builtIn.PromptTemplateName) { Description = "contract" }))!;
                 AssertEqual("ContractPersona" + s, (await c.GetPersonaAsync(persona.Name))?.Name, "get persona");
+                persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex, MinimumTier = CaptainTierEnum.Premium });
+                persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Mux, Model = "gpt-oss:120b", Endpoint = "local" });
+                persona.PriorityAvailability = PersonaPriorityAvailabilityEnum.WaitForFirstPriority;
+                persona.PriorityExhaustion = PersonaPriorityExhaustionEnum.Wait;
+                await c.UpdatePersonaAsync(persona.Name, persona);
+                Persona routedPersona = (await c.GetPersonaAsync(persona.Name))!;
+                AssertEqual(2, routedPersona.CaptainPriorities.Count, "SDK round-trips ordered priorities");
+                AssertEqual(AgentRuntimeEnum.Codex, routedPersona.CaptainPriorities[0].Runtime, "SDK preserves first runtime");
+                AssertEqual("local", routedPersona.CaptainPriorities[1].Endpoint, "SDK preserves Mux endpoint");
+                AssertEqual("gpt-oss:120b", routedPersona.CaptainPriorities[1].Model, "SDK preserves model");
+                AssertEqual(PersonaPriorityAvailabilityEnum.WaitForFirstPriority, routedPersona.PriorityAvailability, "SDK preserves availability policy");
+                persona.CaptainPriorities.Clear();
+                AssertEqual(0, (await c.UpdatePersonaAsync(persona.Name, persona))!.CaptainPriorities.Count, "SDK clears hierarchy with empty list");
                 persona.Description = "updated";
                 AssertEqual("updated", (await c.UpdatePersonaAsync(persona.Name, persona))?.Description, "update persona");
 

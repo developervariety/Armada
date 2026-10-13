@@ -112,11 +112,18 @@ namespace Test.Shared.Suites.Tui
                     ((InputField)dialog.Form.Rows.First(r => r.Label == "Name").Field!).Value = "Reviewer";
                     SelectField<string> template = (SelectField<string>)dialog.Form.Rows.First(r => r.Label == "Prompt Template Name").Field!;
                     template.Choose(template.Options.First(o => o.Value == "persona.worker"));
+                    RecordListField<Armada.Core.Models.PersonaCaptainPriority> priorities = (RecordListField<Armada.Core.Models.PersonaCaptainPriority>)dialog.Form.Rows.First(r => r.Label == "Captain priorities").Field!;
+                    priorities.SetItems(new[] { new Armada.Core.Models.PersonaCaptainPriority { Runtime = Armada.Core.Enums.AgentRuntimeEnum.Mux, Endpoint = "local", Model = "gpt-oss:120b" } });
+                    SelectField<string> availability = (SelectField<string>)dialog.Form.Rows.First(r => r.Label == "When a priority is unavailable").Field!;
+                    availability.Choose(availability.Options.First(o => o.Value == "WaitForFirstPriority"));
                     host.Press("ctrl+s");
                     TuiEntityFixtures.WaitFor(host, () => posted != null && !host.App.Modals.IsActive, "posted");
                     Armada.Core.Models.Persona sent = JsonHelper.Deserialize<Armada.Core.Models.Persona>(posted!);
                     AssertEqual("Reviewer", sent.Name, "name: " + posted);
                     AssertEqual("persona.worker", sent.PromptTemplateName, "template: " + posted);
+                    AssertEqual(1, sent.CaptainPriorities.Count);
+                    AssertEqual("local", sent.CaptainPriorities[0].Endpoint);
+                    AssertEqual(Armada.Core.Enums.PersonaPriorityAvailabilityEnum.WaitForFirstPriority, sent.PriorityAvailability);
                     AssertEqual("TenantWide", JsonShape.TopLevelProperty(posted!, "Scope")?.ScalarText, "scope sent explicitly (TenantWide is also the model default): " + posted);
                 }
             }));
