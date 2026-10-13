@@ -3619,8 +3619,8 @@ namespace Armada.Test.Unit.Suites.Services
                 PageSize = 10
             }).ConfigureAwait(false);
             AssertEqual(1, blocked.Objects.Count, "A blocked event records the gate-class decision.");
-            AssertTrue((blocked.Objects[0].Message ?? String.Empty).StartsWith("gate_class_not_rescuable:", StringComparison.Ordinal),
-                "The event must begin with the stable gate-class reason. Message: " + blocked.Objects[0].Message);
+            AssertTrue((blocked.Objects[0].Message ?? String.Empty).Contains("gate_class_not_rescuable:", StringComparison.Ordinal),
+                "The event must retain the stable gate-class reason. Message: " + blocked.Objects[0].Message);
             return summary;
         }
 

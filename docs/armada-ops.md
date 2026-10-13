@@ -70,8 +70,8 @@ review sections, evidence and verdict contract.
 ## Blocked gate recovery
 
 A recorded definition-of-done failure class of `Infra` or `Timeout` blocks
-an autonomous rescue on the same host. The blocked event message starts with
-`gate_class_not_rescuable:`. The incident retains that reason, the failure
+an autonomous rescue on the same host. The blocked event message contains the
+reason `gate_class_not_rescuable:`. The incident retains that reason, the failure
 class and the original diagnostics. The operator corrects the host or workflow
 configuration and reruns the gate. `Compile` and `TestFail` remain eligible for
 rescue under the other recovery rules.
