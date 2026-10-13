@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Blocked recovery for Infra and Timeout gate failures retains the stable
+  `gate_class_not_rescuable` reason in the event and incident, with the failure
+  class and operator guidance.
+
 - Judge acceptance checks read the verdict attached to each required criterion.
   Literal `MET/NOT MET` instructions and evidence text do not cause false
   rejection; a real `NOT MET` verdict still refuses PASS.

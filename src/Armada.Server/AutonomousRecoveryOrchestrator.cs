@@ -1252,8 +1252,8 @@ namespace Armada.Server
             // with no recorded class keeps the marker rules below.
             if (DefinitionOfDoneFailureClassifier.TryReadRecordedClass(reason, out DefinitionOfDoneFailureClassEnum gateClass)
                 && (gateClass == DefinitionOfDoneFailureClassEnum.Infra || gateClass == DefinitionOfDoneFailureClassEnum.Timeout))
-                return RecoveryDecision.Blocked("definition-of-done gate failure class " + gateClass
-                    + " is a host fault that a rescue on the same host would repeat: " + reason);
+                return RecoveryDecision.Blocked("gate_class_not_rescuable: definition-of-done gate failure class " + gateClass
+                    + " is a host fault that a rescue on the same host would repeat. Correct the host or workflow configuration and rerun the gate: " + reason);
             string markerText = FailureMarkerText(reason);
             if (IsEnvironmentalFailure(markerText))
                 return RecoveryDecision.Blocked("environmental or provisioning fault, which no captain can repair: " + reason);
