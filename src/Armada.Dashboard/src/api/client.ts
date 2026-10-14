@@ -10,6 +10,12 @@ import type {
   EnumerationResult,
   Fleet,
   Vessel,
+  CodeIndexStatus,
+  CodeSearchRequest,
+  CodeSearchResponse,
+  CodeGraphSymbolSearchResponse,
+  CodeGraphFileStructureResponse,
+  CodeGraphExploreResponse,
   BranchListResponse,
   BranchMergeStrategy,
   BranchWriteResult,
@@ -623,6 +629,19 @@ export const deleteFleetsBatch = (ids: string[]) => post<BatchDeleteResult>('/ap
 // ==================== Vessels ====================
 export const listVessels = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Vessel>>(`/api/v1/vessels${buildQuery(params)}`);
+// ==================== Code Index ====================
+export const getCodeIndexStatus = (vesselId: string) =>
+  get<CodeIndexStatus>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/status`);
+export const updateCodeIndex = (vesselId: string) =>
+  post<CodeIndexStatus>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/update`, {}, { timeout: 10 * 60 * 1000 });
+export const searchCodeIndex = (vesselId: string, data: CodeSearchRequest) =>
+  post<CodeSearchResponse>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/search`, data);
+export const searchCodeGraphSymbols = (vesselId: string, query: string, limit = 20, kind?: string, pathPrefix?: string) =>
+  post<CodeGraphSymbolSearchResponse>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/search-symbols`, { query, limit, kind, pathPrefix });
+export const getCodeGraphFiles = (vesselId: string, pathPrefix = '', limit = 100, includeSymbols = true) =>
+  post<CodeGraphFileStructureResponse>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/files`, { pathPrefix, limit, includeSymbols });
+export const exploreCodeGraph = (vesselId: string, query: string, maxDepth = 2, maxResults = 25, includeSource = true) =>
+  post<CodeGraphExploreResponse>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/explore`, { query, maxDepth, maxResults, includeSource });
 /** Every vessel matching the filters; the server caps a page and defaults to 10, so this reads each page. */
 export const listAllVessels = (filters?: ListFilters) =>
   listAllPages((pageNumber) => listVessels({ pageNumber, pageSize: ALL_PAGES_SIZE, filters }));

@@ -25,21 +25,21 @@ describe('navConfig', () => {
     const present = [
       '/', '/ask', '/inbox', '/planning', '/dispatch', '/missions',
       '/delivery', '/vessels', '/captains', '/configuration', '/activity',
-      '/jobs', '/api-explorer', '/server',
+      '/jobs', '/api-explorer', '/server', '/notifications', '/code-index',
       // Fork-only addition; see the file comment.
       '/chatroom',
     ];
     for (const target of present) {
       expect(allTargets).toContain(target);
     }
-    // Upstream's 14 consolidated destinations plus this fork's Chatroom;
-    // admin lives as tabs under Settings.
-    expect(commands).toHaveLength(15);
+    // The consolidated destinations plus Chatroom, Notifications history,
+    // and Code Index; admin lives as tabs under Settings.
+    expect(commands).toHaveLength(17);
   });
 
   it('no longer surfaces the folded-away pages as nav items', () => {
     const removed = [
-      '/notifications', '/code-index', '/token-usage',
+      '/token-usage',
       '/docks', '/doctor', '/fleets', '/workspace',
       '/history', '/requests', '/events', '/signals',
       '/workflow-profiles', '/project-profiles', '/skills', '/personas',

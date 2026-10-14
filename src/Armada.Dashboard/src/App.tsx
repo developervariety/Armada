@@ -59,6 +59,8 @@ const Skills = lazy(() => import('./pages/Skills'));
 const SkillDetail = lazy(() => import('./pages/SkillDetail'));
 const AskArmada = lazy(() => import('./pages/AskArmada'));
 const Inbox = lazy(() => import('./pages/Inbox'));
+const Notifications = lazy(() => import('./pages/Notifications'));
+const CodeIndex = lazy(() => import('./pages/CodeIndex'));
 const CheckRuns = lazy(() => import('./pages/CheckRuns'));
 const CheckRunDetail = lazy(() => import('./pages/CheckRunDetail'));
 const Environments = lazy(() => import('./pages/Environments'));
@@ -132,6 +134,7 @@ export default function App() {
                       <Route path="voyages/:id" element={<VoyageDetail />} />
 
                       <Route path="activity" element={<Activity />} />
+                      <Route path="token-usage" element={<Navigate to="/activity?source=tokens" replace />} />
                       <Route path="signals" element={<Navigate to="/activity?source=signals" replace />} />
                       <Route path="history" element={<Navigate to="/activity?source=history" replace />} />
                       <Route path="signals/:id" element={<SignalDetail />} />
@@ -184,7 +187,8 @@ export default function App() {
                       <Route path="api-explorer" element={<ApiExplorer />} />
                       <Route path="api-explorer/:operationId" element={<ApiExplorer />} />
 
-                      <Route path="notifications" element={<Navigate to="/inbox" replace />} />
+                      <Route path="notifications" element={<Notifications />} />
+                      <Route path="code-index" element={<CodeIndex />} />
 
                       <Route path="admin/tenants" element={<Navigate to="/server?tab=tenants" replace />} />
                       <Route path="admin/users" element={<Navigate to="/server?tab=users" replace />} />

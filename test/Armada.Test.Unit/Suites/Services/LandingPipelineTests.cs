@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Diagnostics;
+    using System.Globalization;
     using System.IO;
     using System.Linq;
     using Armada.Core.Database.Sqlite;
@@ -684,6 +685,11 @@ namespace Armada.Test.Unit.Suites.Services
                     try
                     {
                         string head = await InitNoOpRepoAsync(repoPath, captainBranch);
+                        long headCommitUnixSeconds = Int64.Parse(
+                            (await RunGitAsync(repoPath, "show", "-s", "--format=%ct", head).ConfigureAwait(false)).Trim(),
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture);
+                        DateTime headCommitUtc = DateTimeOffset.FromUnixTimeSeconds(headCommitUnixSeconds).UtcDateTime;
 
                         Vessel vessel = new Vessel("noop-rescue-vessel", "https://github.com/test/repo.git");
                         vessel.LocalPath = repoPath;
@@ -713,6 +719,7 @@ namespace Armada.Test.Unit.Suites.Services
                         mission.CaptainId = captain.Id;
                         mission.DockId = dock.Id;
                         mission.ParentMissionId = parent.Id;
+                        mission.StartedUtc = headCommitUtc.AddSeconds(1);
                         mission.Status = MissionStatusEnum.WorkProduced;
                         mission.CommitHash = head;
                         await testDb.Driver.Missions.CreateAsync(mission);
@@ -723,6 +730,8 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertNotNull(updated, "Mission should still exist");
                         AssertEqual(MissionStatusEnum.Failed, updated!.Status, "Zero-commit auto-rescue must end Failed, not Complete or LandingFailed");
                         AssertEqual("rescue_produced_no_commits", updated.FailureReason ?? "", "Failure reason must be rescue_produced_no_commits");
+                        AssertTrue(updated.StartedUtc.HasValue && updated.StartedUtc.Value > headCommitUtc,
+                            "The zero-work rescue start time must follow its actual integrated branch commit timestamp");
 
                         List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 100);
                         AssertTrue(events.Any(item => item.EventType == "mission.rescue_no_commits"), "Structured mission.rescue_no_commits event must be emitted");
@@ -774,6 +783,11 @@ namespace Armada.Test.Unit.Suites.Services
                     try
                     {
                         string head = await InitNoOpRepoAsync(repoPath, captainBranch);
+                        long headCommitUnixSeconds = Int64.Parse(
+                            (await RunGitAsync(repoPath, "show", "-s", "--format=%ct", head).ConfigureAwait(false)).Trim(),
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture);
+                        DateTime headCommitUtc = DateTimeOffset.FromUnixTimeSeconds(headCommitUnixSeconds).UtcDateTime;
 
                         Vessel vessel = new Vessel("noop-plain-vessel", "https://github.com/test/repo.git");
                         vessel.LocalPath = repoPath;
@@ -801,6 +815,7 @@ namespace Armada.Test.Unit.Suites.Services
                         mission.CaptainId = captain.Id;
                         mission.DockId = dock.Id;
                         mission.Persona = "Worker";
+                        mission.StartedUtc = headCommitUtc.AddSeconds(-1);
                         mission.Status = MissionStatusEnum.WorkProduced;
                         mission.CommitHash = head;
                         await testDb.Driver.Missions.CreateAsync(mission);
@@ -810,6 +825,8 @@ namespace Armada.Test.Unit.Suites.Services
                         Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id);
                         AssertNotNull(updated, "Mission should still exist");
                         AssertEqual(MissionStatusEnum.Complete, updated!.Status, "A non-rescue already-integrated mission must reconcile to Complete");
+                        AssertTrue(updated.StartedUtc.HasValue && updated.StartedUtc.Value < headCommitUtc,
+                            "The Worker start time must precede the actual integrated branch commit timestamp");
 
                         EnumerationResult<MergeEntry> queued = await testDb.Driver.MergeEntries.EnumerateAsync(
                             new EnumerationQuery { MissionId = mission.Id }).ConfigureAwait(false);
@@ -818,6 +835,17 @@ namespace Armada.Test.Unit.Suites.Services
 
                         List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 100);
                         AssertFalse(events.Any(item => item.EventType == "mission.rescue_no_commits"), "Non-rescue path must not emit the rescue no-commits event");
+                        AssertTrue(events.Any(item => item.EventType == "mission.noop_already_integrated"), "Verified Worker no-op must emit its reconciliation event");
+                        AuthContext auth = AuthContext.Authenticated(
+                            mission.TenantId ?? Armada.Core.Constants.DefaultTenantId,
+                            mission.UserId ?? Armada.Core.Constants.DefaultUserId,
+                            false,
+                            true,
+                            "UnitTest");
+                        EnumerationResult<Incident> incidents = await new IncidentService(testDb.Driver).EnumerateAsync(
+                            auth,
+                            new IncidentQuery { MissionId = mission.Id }).ConfigureAwait(false);
+                        AssertEqual(0, incidents.TotalRecords, "A verified Worker no-op must not create an incident record");
                     }
                     finally
                     {
@@ -906,6 +934,124 @@ namespace Armada.Test.Unit.Suites.Services
                         try { Directory.Delete(repoPath, true); } catch { /* best-effort */ }
                     }
                 }
+            });
+
+            // === MergeQueue already-integrated provenance ===
+
+            await RunTest("MergeQueueLanding_IntegratedWorkerCommitAfterStart_CompletesAndEmitsNoOpEvent", async () =>
+            {
+                await AssertNoOpLandingScenarioAsync(
+                    new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+                    new[] { new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc) },
+                    Array.Empty<DateTime>(),
+                    "Worker",
+                    false,
+                    MissionStatusEnum.Complete,
+                    null,
+                    "mission.noop_already_integrated",
+                    true).ConfigureAwait(false);
+            });
+
+            await RunTest("MergeQueueLanding_IntegratedWorkerCommitBeforeStart_RemainsLandingFailed", async () =>
+            {
+                await AssertNoOpLandingScenarioAsync(
+                    new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+                    new[] { new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+                    Array.Empty<DateTime>(),
+                    "Worker",
+                    false,
+                    MissionStatusEnum.LandingFailed,
+                    "no verified branch commit after mission start",
+                    "mission.landing_failed",
+                    false).ConfigureAwait(false);
+            });
+
+            await RunTest("MergeQueueLanding_IntegratedWorkerCommitAtStart_RemainsLandingFailed", async () =>
+            {
+                await AssertNoOpLandingScenarioAsync(
+                    new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+                    new[] { new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc) },
+                    Array.Empty<DateTime>(),
+                    "Worker",
+                    false,
+                    MissionStatusEnum.LandingFailed,
+                    "no verified branch commit after mission start",
+                    "mission.landing_failed",
+                    false).ConfigureAwait(false);
+            });
+
+            await RunTest("MergeQueueLanding_IntegratedWorkerWithMissingStart_RemainsLandingFailed", async () =>
+            {
+                await AssertNoOpLandingScenarioAsync(
+                    null,
+                    new[] { new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc) },
+                    Array.Empty<DateTime>(),
+                    "Worker",
+                    false,
+                    MissionStatusEnum.LandingFailed,
+                    "no verified branch commit after mission start",
+                    "mission.landing_failed",
+                    false).ConfigureAwait(false);
+            });
+
+            await RunTest("MergeQueueLanding_CommitAfterStartOnUnrelatedBranch_DoesNotComplete", async () =>
+            {
+                await AssertNoOpLandingScenarioAsync(
+                    new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+                    Array.Empty<DateTime>(),
+                    new[] { new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc) },
+                    "Worker",
+                    false,
+                    MissionStatusEnum.LandingFailed,
+                    "no verified branch commit after mission start",
+                    "mission.landing_failed",
+                    false).ConfigureAwait(false);
+            });
+
+            await RunTest("MergeQueueLanding_ReachablePostStartAncestorWithOlderTip_Completes", async () =>
+            {
+                await AssertNoOpLandingScenarioAsync(
+                    new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+                    new[]
+                    {
+                        new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc),
+                        new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                    },
+                    Array.Empty<DateTime>(),
+                    "Worker",
+                    false,
+                    MissionStatusEnum.Complete,
+                    null,
+                    "mission.noop_already_integrated",
+                    true).ConfigureAwait(false);
+            });
+
+            await RunTest("MergeQueueLanding_IntegratedJudgeWithPostStartCommit_RemainsLandingFailed", async () =>
+            {
+                await AssertNoOpLandingScenarioAsync(
+                    new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+                    new[] { new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc) },
+                    Array.Empty<DateTime>(),
+                    "Judge",
+                    false,
+                    MissionStatusEnum.LandingFailed,
+                    null,
+                    "mission.landing_failed",
+                    false).ConfigureAwait(false);
+            });
+
+            await RunTest("MergeQueueLanding_RescueWithPostStartCommit_CompletesAsAlreadyIntegrated", async () =>
+            {
+                await AssertNoOpLandingScenarioAsync(
+                    new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+                    new[] { new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc) },
+                    Array.Empty<DateTime>(),
+                    "Worker",
+                    true,
+                    MissionStatusEnum.Complete,
+                    null,
+                    "mission.noop_already_integrated",
+                    true).ConfigureAwait(false);
             });
 
             // === Landing records carry the mission owner's scope ===
@@ -1250,6 +1396,189 @@ namespace Armada.Test.Unit.Suites.Services
             await RunGitAsync(repoPath, "branch", captainBranch).ConfigureAwait(false);
             string head = await RunGitAsync(repoPath, "rev-parse", "main").ConfigureAwait(false);
             return head.Trim();
+        }
+
+        private async Task AssertNoOpLandingScenarioAsync(
+            DateTime? startedUtc,
+            DateTime[] reachableCommitTimesUtc,
+            DateTime[] unrelatedCommitTimesUtc,
+            string persona,
+            bool autoRescue,
+            MissionStatusEnum expectedStatus,
+            string? expectedFailureReason,
+            string expectedEventType,
+            bool expectCompletionEvent)
+        {
+            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+            {
+                StubGitService git = new StubGitService();
+                LoggingModule logging = CreateLogging();
+                ArmadaSettings settings = CreateSettings();
+                IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+                IMessageTemplateService templateService = new MessageTemplateService(logging);
+                MissionLandingHandler handler = new MissionLandingHandler(
+                    logging,
+                    testDb.Driver,
+                    settings,
+                    git,
+                    new StubMergeQueueService(),
+                    landingService,
+                    new AutoLandEvaluator(),
+                    new ConventionChecker(),
+                    new CriticalTriggerEvaluator(),
+                    templateService,
+                    null,
+                    dockService,
+                    new NoOpRemoteTriggerService(),
+                    null);
+
+                string repoPath = Path.Combine(Path.GetTempPath(), "armada_noop_provenance_" + Guid.NewGuid().ToString("N"));
+                string captainBranch = "armada/provenance-captain/msn_" + Guid.NewGuid().ToString("N");
+                try
+                {
+                    Directory.CreateDirectory(repoPath);
+                    await RunGitAsync(repoPath, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(repoPath, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(repoPath, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await CreateTimestampedCommitAsync(
+                        repoPath,
+                        "base.txt",
+                        new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)).ConfigureAwait(false);
+                    await RunGitAsync(repoPath, "branch", captainBranch).ConfigureAwait(false);
+
+                    if (unrelatedCommitTimesUtc.Length > 0)
+                    {
+                        await RunGitAsync(repoPath, "branch", "unrelated").ConfigureAwait(false);
+                        await RunGitAsync(repoPath, "checkout", "unrelated").ConfigureAwait(false);
+                        for (int index = 0; index < unrelatedCommitTimesUtc.Length; index++)
+                        {
+                            await CreateTimestampedCommitAsync(
+                                repoPath,
+                                "unrelated-" + index.ToString(CultureInfo.InvariantCulture) + ".txt",
+                                unrelatedCommitTimesUtc[index]).ConfigureAwait(false);
+                        }
+                        await RunGitAsync(repoPath, "checkout", "main").ConfigureAwait(false);
+                    }
+
+                    for (int index = 0; index < reachableCommitTimesUtc.Length; index++)
+                    {
+                        await CreateTimestampedCommitAsync(
+                            repoPath,
+                            "reachable-" + index.ToString(CultureInfo.InvariantCulture) + ".txt",
+                            reachableCommitTimesUtc[index]).ConfigureAwait(false);
+                    }
+                    await RunGitAsync(repoPath, "branch", "-f", captainBranch, "HEAD").ConfigureAwait(false);
+                    string head = (await RunGitAsync(repoPath, "rev-parse", "main").ConfigureAwait(false)).Trim();
+
+                    Vessel vessel = new Vessel("noop-provenance-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = repoPath;
+                    vessel.WorkingDirectory = repoPath;
+                    vessel.DefaultBranch = "main";
+                    vessel.LandingMode = LandingModeEnum.MergeQueue;
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("provenance-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.CaptainId = captain.Id;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_noop_provenance_wt_" + Guid.NewGuid().ToString("N"));
+                    dock.BranchName = captainBranch;
+                    dock.Active = true;
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Already integrated provenance mission");
+                    mission.VesselId = vessel.Id;
+                    mission.CaptainId = captain.Id;
+                    mission.DockId = dock.Id;
+                    mission.Persona = persona;
+                    mission.StartedUtc = startedUtc;
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.CommitHash = head;
+                    if (autoRescue)
+                        mission.Description = "Auto-rescue. <!-- ARMADA:AUTO-RESCUE -->";
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(mission, dock).ConfigureAwait(false);
+
+                    Mission? updated = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNotNull(updated, "Mission should still exist");
+                    AssertEqual(expectedStatus, updated!.Status, "Unexpected mission status for the no-op landing case");
+                    if (expectedStatus == MissionStatusEnum.Complete)
+                        AssertTrue(String.IsNullOrWhiteSpace(updated.FailureReason), "A successful no-op must not retain a failure reason");
+                    else
+                    {
+                        AssertFalse(String.IsNullOrWhiteSpace(updated.FailureReason), "A rejected no-op must retain a failure reason");
+                        if (expectedFailureReason != null)
+                            AssertContains(expectedFailureReason, updated.FailureReason ?? "", "Failure reason must preserve the no-op outcome");
+                    }
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 100).ConfigureAwait(false);
+                    AssertTrue(events.Any(item => item.EventType == expectedEventType), "Expected event was not emitted: " + expectedEventType);
+                    AssertEqual(expectCompletionEvent, events.Any(item => item.EventType == "mission.completed"),
+                        "Completion event must match the verified landing result");
+                    if (expectedStatus == MissionStatusEnum.Complete)
+                        AssertTrue(events.Any(item => item.EventType == "mission.noop_already_integrated"), "Successful reconciliation must emit the no-op event");
+                    else
+                        AssertFalse(events.Any(item => item.EventType == "mission.noop_already_integrated"), "An unverified no-op must not emit a success event");
+
+                    if (expectedStatus == MissionStatusEnum.Complete && !autoRescue)
+                    {
+                        AuthContext auth = AuthContext.Authenticated(
+                            mission.TenantId ?? Armada.Core.Constants.DefaultTenantId,
+                            mission.UserId ?? Armada.Core.Constants.DefaultUserId,
+                            false,
+                            true,
+                            "UnitTest");
+                        EnumerationResult<Incident> incidents = await new IncidentService(testDb.Driver).EnumerateAsync(
+                            auth,
+                            new IncidentQuery { MissionId = mission.Id }).ConfigureAwait(false);
+                        AssertEqual(0, incidents.TotalRecords, "A successful Worker no-op must not create an incident record");
+                    }
+
+                    EnumerationResult<MergeEntry> entries = await testDb.Driver.MergeEntries.EnumerateAsync(
+                        new EnumerationQuery { MissionId = mission.Id }).ConfigureAwait(false);
+                    AssertEqual(0, entries.Objects.Count, "An already-integrated branch must not create a merge-queue entry");
+                }
+                finally
+                {
+                    try { Directory.Delete(repoPath, true); } catch { /* best-effort */ }
+                }
+            }
+        }
+
+        private static async Task CreateTimestampedCommitAsync(string repoPath, string fileName, DateTime committedUtc)
+        {
+            await File.WriteAllTextAsync(Path.Combine(repoPath, fileName), "controlled commit time\n").ConfigureAwait(false);
+            await RunGitAsync(repoPath, "add", fileName).ConfigureAwait(false);
+
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = repoPath,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            startInfo.Environment["GIT_AUTHOR_DATE"] = committedUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+            startInfo.Environment["GIT_COMMITTER_DATE"] = committedUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+            startInfo.ArgumentList.Add("commit");
+            startInfo.ArgumentList.Add("-m");
+            startInfo.ArgumentList.Add("Controlled timestamp " + fileName);
+
+            using (Process process = new Process { StartInfo = startInfo })
+            {
+                process.Start();
+                string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                await process.WaitForExitAsync().ConfigureAwait(false);
+
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException("git commit failed (exit " + process.ExitCode + "): " + stderr.Trim() + stdout.Trim());
+            }
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)

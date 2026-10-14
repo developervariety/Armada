@@ -2,6 +2,7 @@ namespace Armada.Server
 {
     using System.Collections.Concurrent;
     using System.Diagnostics;
+    using System.Globalization;
     using System.IO;
     using System.Text.Json;
     using SyslogLogging;
@@ -1169,12 +1170,11 @@ namespace Armada.Server
             if (String.IsNullOrWhiteSpace(captainHead)) return null;
             if (!String.Equals(captainHead, targetHead, StringComparison.OrdinalIgnoreCase)) return null;
 
-            // An auto-rescue mission whose captain branch HEAD is identical to the target HEAD
-            // produced zero commits. Capturing the dock HEAD as CommitHash would otherwise make
-            // this look like a successful already-integrated landing, reconciling the rescue to
-            // Complete with CommitHash == target HEAD -- the exact false-positive being closed.
-            // Refuse the enqueue and surface a distinct reason so the transition fails the mission.
-            if (IsAutoRescueMission(mission))
+            bool hasPostStartCommit = !String.IsNullOrWhiteSpace(mission.CommitHash)
+                && await HasCommitsAfterStartAsync(vessel.LocalPath, captainHead, mission.StartedUtc).ConfigureAwait(false);
+            // A captured dock HEAD alone does not prove a rescue produced work. Require
+            // branch history after mission start before accepting an already-integrated result.
+            if (IsAutoRescueMission(mission) && !hasPostStartCommit)
             {
                 string rescueReason = "Auto-rescue mission " + mission.Id + " produced no commits: captain branch " +
                     (dock.BranchName ?? "(unknown)") + " is already at target branch " + targetBranch + " HEAD " + targetHead;
@@ -1186,7 +1186,43 @@ namespace Armada.Server
                 || persona.IndexOf("review", StringComparison.OrdinalIgnoreCase) >= 0;
             string reason = "No-op merge queue enqueue: captain branch " + (dock.BranchName ?? "(unknown)") +
                 " is already at target branch " + targetBranch + " HEAD " + targetHead;
-            return new MergeQueueNoOpDecision(!reviewOnly && !String.IsNullOrWhiteSpace(mission.CommitHash), reason, false);
+            bool producedCommits = !reviewOnly && hasPostStartCommit;
+            if (!hasPostStartCommit)
+                reason += "; no verified branch commit after mission start";
+            return new MergeQueueNoOpDecision(producedCommits, reason, false);
+        }
+
+        private async Task<bool> HasCommitsAfterStartAsync(string repoPath, string revision, DateTime? startedUtc)
+        {
+            if (!startedUtc.HasValue) return false;
+
+            DateTime start = startedUtc.Value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(startedUtc.Value, DateTimeKind.Utc) : startedUtc.Value;
+            // Git stores whole-second commit times and includes the since boundary. The next
+            // whole second therefore selects only commits strictly after the mission start.
+            long firstCommitSecond = new DateTimeOffset(start).ToUnixTimeSeconds() + 1;
+            try
+            {
+                BoundedProcessRequest request = new BoundedProcessRequest(
+                    GitProcessStartInfo.Create(repoPath, new[] { "rev-list", "--count",
+                        "--since-as-filter=@" + firstCommitSecond.ToString(CultureInfo.InvariantCulture), revision, "--" }),
+                    GitProcessTimeouts.Resolve())
+                {
+                    OutputLimitBytes = 64 * 1024
+                };
+                BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request).ConfigureAwait(false);
+                if (result.Succeeded && !result.Truncated && !result.OutputDrainTimedOut
+                    && Int64.TryParse(result.StandardOutput.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out long count))
+                    return count > 0;
+
+                _Logging.Warn(_Header + "could not verify branch commits after mission start in " + repoPath);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not verify branch commits after mission start in " + repoPath + ": " + ex.Message);
+                return false;
+            }
         }
 
         /// <summary>

@@ -15,6 +15,9 @@ vi.mock('./context/NotificationContext', () => ({ NotificationProvider: passThro
 vi.mock('./components/ProtectedRoute', () => ({ default: passThrough }));
 vi.mock('./components/shared/LoadingIndicator', () => ({ default: () => <div>loading</div> }));
 vi.mock('./pages/Inbox', () => ({ default: () => <div>inbox page</div> }));
+vi.mock('./pages/Notifications', () => ({ default: () => <div>notifications page</div> }));
+vi.mock('./pages/CodeIndex', () => ({ default: () => <div>code index page</div> }));
+vi.mock('./pages/Activity', () => ({ default: () => <div>activity page</div> }));
 vi.mock('./pages/Dashboard', () => ({ default: () => <div>home page</div> }));
 
 function LocationProbe() {
@@ -39,20 +42,21 @@ function renderAt(path: string) {
 describe('App routes', () => {
   afterEach(() => window.history.pushState({}, '', '/'));
 
-  it('sends the notifications path to the inbox', async () => {
+  it('keeps notification history separate from the inbox', async () => {
     renderAt('/notifications');
-    expect(await screen.findByText('inbox page')).toBeInTheDocument();
-    expect(screen.getByTestId('location')).toHaveTextContent('/inbox');
+    expect(await screen.findByText('notifications page')).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/notifications');
   });
 
-  it('routes neither the code index nor the token usage path', async () => {
-    for (const path of ['/code-index', '/token-usage']) {
-      const { container, unmount } = renderAt(path);
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(window.location.pathname).toBe(`/dashboard${path}`);
-      expect(screen.queryByTestId('location')).not.toBeInTheDocument();
-      expect(container).toBeEmptyDOMElement();
-      unmount();
-    }
+  it('opens the code index route', async () => {
+    renderAt('/code-index');
+    expect(await screen.findByText('code index page')).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/code-index');
+  });
+
+  it('redirects token usage links to the tokens activity source', async () => {
+    renderAt('/token-usage');
+    expect(await screen.findByText('activity page')).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/activity?source=tokens');
   });
 });

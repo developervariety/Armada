@@ -51,9 +51,10 @@ export const navSections: NavSection[] = [
   {
     key: 'operations',
     label: 'OPERATIONS',
-    matchers: ['/inbox', '/dispatch', '/planning', '/chatroom', '/backlog', '/objectives', '/voyages', '/missions', '/merge-queue'],
+    matchers: ['/inbox', '/notifications', '/dispatch', '/planning', '/chatroom', '/backlog', '/objectives', '/voyages', '/missions', '/merge-queue'],
     items: [
       { to: '/inbox', label: 'Needs You', tooltip: 'Reviews, failures, and stalls awaiting your attention', icon: icons.needsYou },
+      { to: '/notifications', label: 'Notifications', tooltip: 'Delivered state-change history', icon: icons.notifications },
       { to: '/chatroom', label: 'Chatroom', tooltip: 'Shared board where operator sessions and captains see who is doing what', icon: icons.ask },
       { to: '/planning', label: 'Planning', tooltip: 'Plan with a captain, preserve the transcript, and dispatch directly from the session', icon: icons.planning },
       { to: '/dispatch', label: 'Dispatch', tooltip: 'Send work to vessels; capture and refine backlog on the Backlog tab', icon: icons.dispatch },
@@ -71,10 +72,11 @@ export const navSections: NavSection[] = [
   {
     key: 'fleet',
     label: 'BUILD',
-    matchers: ['/fleets', '/vessels', '/workspace', '/captains', '/docks'],
+    matchers: ['/fleets', '/vessels', '/workspace', '/captains', '/docks', '/code-index'],
     items: [
       { to: '/vessels', label: 'Vessels', tooltip: 'Repositories grouped by fleet, plus the vessel workspace, on one surface', icon: icons.vessels },
       { to: '/captains', label: 'Captains', tooltip: 'AI coding agents that execute missions', icon: icons.captains },
+      { to: '/code-index', label: 'Code Index', tooltip: 'Search indexed source and graph structure across vessels', icon: icons.codeIndex },
     ],
   },
   {

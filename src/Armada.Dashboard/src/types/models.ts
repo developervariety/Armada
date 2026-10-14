@@ -137,6 +137,107 @@ export interface Vessel {
   lastUpdateUtc: string;
 }
 
+export interface CodeIndexStatus {
+  vesselId: string;
+  vesselName: string;
+  defaultBranch: string;
+  indexedCommitSha: string | null;
+  currentCommitSha: string | null;
+  indexedAtUtc: string | null;
+  freshness: string;
+  documentCount: number;
+  chunkCount: number;
+  indexDirectory: string;
+  lastError: string | null;
+}
+
+export interface CodeIndexRecord {
+  vesselId: string;
+  path: string;
+  commitSha: string;
+  contentHash: string;
+  language: string;
+  startLine: number;
+  endLine: number;
+  content: string;
+  isReferenceOnly: boolean;
+  embeddingVector?: number[] | null;
+}
+
+export interface CodeSearchResult {
+  score: number;
+  record: CodeIndexRecord;
+  excerpt: string;
+}
+
+export interface CodeSearchResponse {
+  status: CodeIndexStatus;
+  query: string;
+  results: CodeSearchResult[];
+  available: boolean;
+  unavailableReason: string | null;
+  message: string | null;
+}
+
+export interface CodeSearchRequest {
+  query: string;
+  limit?: number;
+  pathPrefix?: string | null;
+  language?: string | null;
+  includeContent?: boolean;
+  includeReferenceOnly?: boolean;
+}
+
+export interface CodeGraphSymbolRecord {
+  vesselId: string;
+  commitSha: string;
+  path: string;
+  kind: string;
+  simpleName: string;
+  qualifiedName: string;
+  startLine: number;
+  endLine: number;
+  contentHash: string;
+  language: string;
+  framework: string;
+  tags: string[];
+}
+
+export interface CodeGraphSymbolSearchResponse {
+  status: CodeIndexStatus;
+  query: string;
+  results: Array<{ symbol: CodeGraphSymbolRecord; score: number; reasons: string[] }>;
+  warnings: string[];
+}
+
+export interface CodeGraphFileStructureResponse {
+  status: CodeIndexStatus;
+  files: Array<{ path: string; language: string; symbolCount: number; symbols: CodeGraphSymbolRecord[] }>;
+  warnings: string[];
+}
+
+export interface CodeGraphExploreResponse {
+  status: CodeIndexStatus;
+  query: string;
+  resolvedSeedSymbols: CodeGraphSymbolRecord[];
+  files: Array<{
+    path: string;
+    symbols: CodeGraphSymbolRecord[];
+    sourceSections: Array<{ path: string; startLine: number; endLine: number; content: string }>;
+    score: number;
+  }>;
+  relationships: Array<{
+    vesselId: string;
+    commitSha: string;
+    kind: string;
+    sourceSymbol: string;
+    targetSymbol: string;
+    sourcePath: string;
+    sourceLine: number;
+  }>;
+  warnings: string[];
+}
+
 export interface Captain {
   id: string;
   tenantId: string | null;
