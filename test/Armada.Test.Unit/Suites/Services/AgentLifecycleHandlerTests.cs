@@ -858,6 +858,83 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HandleAgentOutput stores bounded Captain notes with mission scope", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    LoggingModule logging = CreateLogging();
+                    CoordinationService coordination = new CoordinationService(logging, testDb.Driver);
+                    handler.SetCoordinationService(coordination);
+
+                    TenantMetadata tenant = new TenantMetadata("Captain note tenant");
+                    await testDb.Driver.Tenants.CreateAsync(tenant).ConfigureAwait(false);
+                    Captain captain = new Captain("Captain note author", AgentRuntimeEnum.Cursor) { TenantId = tenant.Id };
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Voyage voyage = new Voyage("Captain note voyage") { TenantId = tenant.Id };
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                    Mission mission = new Mission("Captain note mission")
+                    {
+                        TenantId = tenant.Id,
+                        VoyageId = voyage.Id,
+                        VesselId = "vsl_captain_note_test",
+                        CaptainId = captain.Id
+                    };
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    int processId = 919192;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+                    string secret = new string('a', 24);
+                    handler.HandleAgentOutput(processId, "[ARMADA:NOTE] claim uses api_key=" + secret);
+                    await WaitForConditionAsync(async () =>
+                    {
+                        List<CoordinationMessage> current = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                        return current.Count == 1;
+                    }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+
+                    handler.HandleAgentOutput(processId, "[ARMADA:NOTE] second note in same output record\n[ARMADA:NOTE] third note in same output record");
+                    await WaitForConditionAsync(async () =>
+                    {
+                        List<CoordinationMessage> current = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                        return current.Count == 3;
+                    }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+
+                    handler.HandleAgentOutput(processId, "[ARMADA:NOTE]" + "malformed");
+                    handler.HandleAgentOutput(processId, "[ARMADA:NOTE] " + new string('x', 501));
+                    for (int i = 0; i < 21; i++)
+                        handler.HandleAgentOutput(processId, "[ARMADA:NOTE] outcome " + i);
+
+                    await WaitForConditionAsync(async () =>
+                    {
+                        List<CoordinationMessage> current = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                        return current.Count == 20;
+                    }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+
+                    List<CoordinationMessage> notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                    AssertEqual(20, notes.Count, "only twenty Captain notes are accepted for one mission");
+                    CoordinationMessage? authoredNote = notes.Find(message => message.Content.StartsWith("claim uses", StringComparison.Ordinal));
+                    AssertNotNull(authoredNote, "the normal lifecycle output path writes the claim note");
+                    AssertEqual(CoordinationAuthorTypeEnum.Captain, authoredNote!.AuthorType);
+                    AssertEqual(captain.Id, authoredNote.AuthorId);
+                    AssertEqual(captain.Name, authoredNote.AuthorName);
+                    AssertEqual(mission.Id, authoredNote.MissionId);
+                    AssertEqual(voyage.Id, authoredNote.VoyageId);
+                    AssertEqual(mission.VesselId, authoredNote.VesselId);
+                    AssertEqual(tenant.Id, authoredNote.TenantId);
+                    AssertTrue(notes.Exists(message => message.Content == "second note in same output record"), "each note marker on a multiline record is routed");
+                    AssertTrue(notes.Exists(message => message.Content == "third note in same output record"), "all note markers on a multiline record are routed");
+                    AssertNull(authoredNote.ToParticipantKey, "captain notes are broadcast board records, not private captain-to-captain messages");
+                    AssertFalse(authoredNote.Content.Contains(secret, StringComparison.Ordinal), "credential-shaped values are removed before storage");
+                    AssertFalse(notes.Exists(message => message.Content.Contains(new string('x', 501), StringComparison.Ordinal)), "over-limit notes are rejected");
+                    AssertFalse(notes.Exists(message => message.Content == "malformed"), "malformed markers are ignored by the parser");
+                    List<Signal> signals = await testDb.Driver.Signals.EnumerateRecentAsync(200).ConfigureAwait(false);
+                    AssertFalse(signals.Exists(signal => signal.Content.Contains(secret, StringComparison.Ordinal)), "raw note content is not copied to the progress-signal store");
+                    Captain unassignedCaptain = new Captain("Unassigned captain", AgentRuntimeEnum.Cursor);
+                    AssertNull(await coordination.PostCaptainNoteAsync(unassignedCaptain, mission, "forged note").ConfigureAwait(false), "a captain cannot write for a mission assigned to another captain");
+                    AssertNull(await coordination.PostCaptainNoteAsync(captain, mission, "  ").ConfigureAwait(false), "empty note content is rejected");
+                }
+            });
+
             await RunTest("HandleAgentOutput bounds single oversized runtime chunk", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

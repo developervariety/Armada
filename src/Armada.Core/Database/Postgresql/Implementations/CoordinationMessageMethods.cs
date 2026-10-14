@@ -148,6 +148,22 @@ namespace Armada.Core.Database.Postgresql.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<long> CountCaptainMessagesByMissionAsync(string missionId, CancellationToken token = default)
+        {
+            using (NpgsqlConnection conn = await _DataSource.OpenConnectionAsync(token).ConfigureAwait(false))
+            {
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = "SELECT COUNT(*) FROM coordination_messages WHERE mission_id = @mission_id AND author_type = 'Captain';";
+                    StoredValueBinder.Value(cmd, "@mission_id", missionId);
+                    object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    return Convert.ToInt64(result, CultureInfo.InvariantCulture);
+                }
+            }
+        }
+
+        /// <inheritdoc />
         public async Task DeleteAsync(string id, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));

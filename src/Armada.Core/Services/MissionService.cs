@@ -4982,14 +4982,15 @@ namespace Armada.Core.Services
             return
                 "## Board Notes\n" +
                 "\n" +
-                "Post short progress notes to the shared coordination board so operator sessions know what " +
-                "you are doing. One line each:\n" +
+                "Post a short claim note to the shared coordination board before you start work, then post " +
+                "an outcome note when you finish. One line each:\n" +
                 "\n" +
                 "`[ARMADA:NOTE] one-line note`\n" +
                 "\n" +
-                "- Use them at milestones: what you claimed, what you found, what landed, what is blocked.\n" +
-                "- Plain text only. No credentials, tokens, or absolute host paths.\n" +
-                "- Twenty per mission is the limit. They are visible to every session and the dashboard.\n";
+                "- Use the claim note to state the work you take. Use the outcome note to state what changed or why work stopped.\n" +
+                "- Plain text only, one line and at most 500 characters. Credentials are redacted. Do not include absolute host paths.\n" +
+                "- The limit is twenty notes for each mission. Notes are visible to operator sessions and the dashboard.\n" +
+                "- Notes are advisory records. They do not control a mission or send private messages to other captains.\n";
         }
 
         /// <summary>

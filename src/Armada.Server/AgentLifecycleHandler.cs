@@ -39,6 +39,7 @@ namespace Armada.Server
         private readonly TimeSpan _MissionHeartbeatPersistInterval = TimeSpan.FromSeconds(15);
         private ProviderProgressTracker? _ProviderProgress;
         private TerminalMarkerTracker? _TerminalMarkers;
+        private CoordinationService? _CoordinationService;
         private IHarborProcessHost? _HarborHost;
 
         // Mints the mission owner's scoped session token for a mission captain's MCP credential. Null in a
@@ -244,6 +245,13 @@ namespace Armada.Server
         public void SetTerminalMarkers(TerminalMarkerTracker tracker)
         {
             _TerminalMarkers = tracker ?? throw new ArgumentNullException(nameof(tracker));
+        }
+
+        /// <summary>Wire the shared coordination board for captain-authored notes.</summary>
+        /// <param name="coordinationService">Coordination board service.</param>
+        public void SetCoordinationService(CoordinationService coordinationService)
+        {
+            _CoordinationService = coordinationService ?? throw new ArgumentNullException(nameof(coordinationService));
         }
 
         /// <summary>
@@ -1343,6 +1351,41 @@ namespace Armada.Server
             if (String.Equals(signal.Type, PapercutParser.SignalType, StringComparison.OrdinalIgnoreCase))
             {
                 HandlePapercutSignal(captainId, missionId, signal.Value);
+                return;
+            }
+
+            if (String.Equals(signal.Type, "note", StringComparison.OrdinalIgnoreCase))
+            {
+                _Logging.Info(_Header + "board note from captain " + captainId + " for mission " + (missionId ?? "(unassigned)"));
+                string noteCaptainId = captainId;
+                string? noteMissionId = missionId;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        string? targetMissionId = noteMissionId;
+                        if (String.IsNullOrEmpty(targetMissionId))
+                        {
+                            Captain? owner = await _Database.Captains.ReadAsync(noteCaptainId).ConfigureAwait(false);
+                            targetMissionId = owner?.CurrentMissionId;
+                        }
+
+                        if (String.IsNullOrEmpty(targetMissionId)) return;
+                        CoordinationService? coordinationService = _CoordinationService;
+                        if (coordinationService == null) return;
+                        Captain? captain = await _Database.Captains.ReadAsync(noteCaptainId).ConfigureAwait(false);
+                        Mission? mission = await _Database.Missions.ReadAsync(targetMissionId).ConfigureAwait(false);
+                        if (captain == null || mission == null) return;
+
+                        CoordinationMessage? note = await coordinationService.PostCaptainNoteAsync(captain, mission, signal.Value).ConfigureAwait(false);
+                        if (note == null)
+                            _Logging.Warn(_Header + "rejected board note from captain " + noteCaptainId + " for mission " + targetMissionId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error processing captain board note: " + ex.Message);
+                    }
+                });
                 return;
             }
 

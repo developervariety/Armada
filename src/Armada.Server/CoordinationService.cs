@@ -8,6 +8,7 @@ namespace Armada.Server
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using SyslogLogging;
 
     /// <summary>
@@ -22,6 +23,9 @@ namespace Armada.Server
         private readonly DatabaseDriver _Database;
         private readonly WebSocket.ArmadaWebSocketHub? _WebSocketHub;
         private string _Header = "[CoordinationService] ";
+        private readonly KeyedAsyncLock _CaptainNoteLocks = new KeyedAsyncLock(StringComparer.Ordinal);
+        private const int _MaximumCaptainNoteLength = 500;
+        private const int _MaximumCaptainNotesPerMission = 20;
 
         /// <summary>
         /// Optional bridge to the AgentWake wake path. Invoked with the target
@@ -169,6 +173,41 @@ namespace Armada.Server
             }
 
             return message;
+        }
+
+        /// <summary>Store a bounded note from the captain assigned to a mission.</summary>
+        /// <param name="captain">Captain that emitted the marker.</param>
+        /// <param name="mission">Mapped mission.</param>
+        /// <param name="content">Untrusted marker content.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The stored note, or null when content is invalid or the mission limit is reached.</returns>
+        public async Task<CoordinationMessage?> PostCaptainNoteAsync(Captain captain, Mission mission, string content, CancellationToken token = default)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (String.IsNullOrWhiteSpace(mission.Id) || String.IsNullOrWhiteSpace(captain.Id)
+                || !String.Equals(mission.CaptainId, captain.Id, StringComparison.Ordinal)) return null;
+
+            string safeContent = PapercutParser.RedactSecrets(content ?? String.Empty).Trim();
+            if (safeContent.Length == 0 || safeContent.Length > _MaximumCaptainNoteLength) return null;
+
+            using (await _CaptainNoteLocks.AcquireAsync(mission.Id, token).ConfigureAwait(false))
+            {
+                long count = await _Database.CoordinationMessages.CountCaptainMessagesByMissionAsync(mission.Id, token).ConfigureAwait(false);
+                if (count >= _MaximumCaptainNotesPerMission) return null;
+
+                return await PostMessageAsync(
+                    DefaultRoomKey,
+                    CoordinationAuthorTypeEnum.Captain,
+                    captain.Id,
+                    captain.Name,
+                    safeContent,
+                    mission.VoyageId,
+                    mission.Id,
+                    mission.VesselId,
+                    tenantId: mission.TenantId ?? captain.TenantId,
+                    token: token).ConfigureAwait(false);
+            }
         }
 
         /// <summary>

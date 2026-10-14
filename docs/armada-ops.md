@@ -127,3 +127,15 @@ endpoint label. It does not requeue onto another captain on that endpoint.
 The retry and failure facts retain the same cause code. See
 [model gateway timeouts](USAGE_ROUTING.md#model-gateway-timeouts) for the
 endpoint label and retry rules.
+
+## Captain board notes
+
+Captains can post one-line notes from their normal worker output. A line that
+starts with `[ARMADA:NOTE] ` is stored as a Captain-authored message on the
+shared coordination board. Ask captains to post a claim note before work and
+an outcome note when work ends. Each note can contain at most 500 characters;
+Armada redacts credential-shaped values and accepts at most 20 Captain notes
+for one mission. Keep notes in plain text and do not include absolute host
+paths. Notes are advisory records for operators and the dashboard. They do not
+control mission state and do not send messages to other captains. This path
+does not add captain access to operator coordination tools.

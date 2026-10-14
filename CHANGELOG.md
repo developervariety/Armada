@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Captain `[ARMADA:NOTE]` output is stored on the coordination board with the
+  assigned captain and mission metadata. Notes redact credentials and enforce
+  500-character and 20-per-mission limits.
+
 - Blocked recovery for Infra and Timeout gate failures retains the stable
   `gate_class_not_rescuable` reason in the event and incident, with the failure
   class and operator guidance.

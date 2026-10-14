@@ -44,6 +44,9 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// <inheritdoc />
         public Task<List<CoordinationMessage>> EnumerateVisibleToAsync(string coordinationRoomId, string? participantKey, DateTime? afterUtc = null, int limit = 200, CancellationToken token = default) => throw NotSupported();
 
+        /// <inheritdoc />
+        public Task<long> CountCaptainMessagesByMissionAsync(string missionId, CancellationToken token = default) => throw NotSupported();
+
         private static NotSupportedException NotSupported()
         {
             return new NotSupportedException("The MySQL database provider does not store the coordination board; use SQLite or PostgreSQL.");

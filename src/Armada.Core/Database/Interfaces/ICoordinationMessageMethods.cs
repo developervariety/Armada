@@ -50,5 +50,8 @@ namespace Armada.Core.Database.Interfaces
         /// supplied, only messages created strictly after that instant are returned.
         /// </summary>
         Task<List<CoordinationMessage>> EnumerateByVoyageAsync(string voyageId, DateTime? afterUtc = null, int limit = 20, CancellationToken token = default);
+
+        /// <summary>Count captain-authored messages for a mission.</summary>
+        Task<long> CountCaptainMessagesByMissionAsync(string missionId, CancellationToken token = default);
     }
 }

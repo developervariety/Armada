@@ -142,6 +142,22 @@ namespace Armada.Core.Database.Sqlite.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<long> CountCaptainMessagesByMissionAsync(string missionId, CancellationToken token = default)
+        {
+            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqliteCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT COUNT(*) FROM coordination_messages WHERE mission_id = @mission_id AND author_type = 'Captain';";
+                    StoredValueBinder.Value(cmd, "@mission_id", missionId);
+                    object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    return Convert.ToInt64(result, System.Globalization.CultureInfo.InvariantCulture);
+                }
+            }
+        }
+
+        /// <inheritdoc />
         public async Task DeleteAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
