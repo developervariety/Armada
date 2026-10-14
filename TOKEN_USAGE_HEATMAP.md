@@ -12,8 +12,8 @@
 - [x] Visually verify desktop/tablet/phone, light/dark themes, German, keyboard navigation, and existing charts.
 - [x] Complete final backend, mobile, and database-provider checks; record results below.
 - [x] Build and publish server/dashboard/proxy images as `v1.1.0` and `latest`; republish server with SQL Server timestamp fix.
-- [ ] Update the screenshot server's containers (host access or operator recreation required).
-- [ ] Import 42 randomized days on the screenshot deployment and verify live summary/calendar.
+- [x] Screenshot deployment exposes the updated import endpoint.
+- [x] Import expanded historical dataset on the screenshot deployment and verify daily/recent summaries.
 
 ## Behavior and Implementation
 
@@ -29,4 +29,4 @@ The default 42-day generator varies weekdays, idle days, bursts, model mix, hour
 
 ## Validation Record
 
-Dashboard: 758 tests passed; production build passed. Browser QA passed at desktop, tablet, and phone sizes. Isolated API dataset: 1,830 records over 42 days (not yet imported on the screenshot deployment). Mobile: 1,203 tests passed, lint/type checks passed. Focused .NET 8/10 import/API/database/TUI checks passed; SQLite/PostgreSQL/MySQL/SQL Server parity passed (8 tests each). Full .NET 10 run: 4,500 passed, nine upgrade-baseline cases skipped, one stale parity-count assertion failed. After updating the count/manifests, all 25 focused parity/SDK/import/database/TUI cases passed; no unresolved failures. Live manifest contains 1,914 records in eight batches over 42 days, stored outside the repository; live endpoint still unavailable.
+Dashboard: 758 tests passed; production build passed. Browser QA passed at desktop, tablet, and phone sizes. Isolated API dataset: 1,830 records over 42 days (not yet imported on the screenshot deployment). Mobile: 1,203 tests passed, lint/type checks passed. Focused .NET 8/10 import/API/database/TUI checks passed; SQLite/PostgreSQL/MySQL/SQL Server parity passed (8 tests each). Full .NET 10 run: 4,500 passed, nine upgrade-baseline cases skipped, one stale parity-count assertion failed. After updating the count/manifests, all 25 focused parity/SDK/import/database/TUI cases passed; no unresolved failures. Live import completed: 5,742 randomized records (three times the original 1,914), in 23 batches over the historical 42-day period. Recent activity was added throughout the past two hours; verification found 64 records across all 13 overlapping ten-minute buckets. All 5,742 records are visible in the daily summary. Manifests, credentials, and receipts remain outside the repository.
