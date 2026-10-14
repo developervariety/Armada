@@ -413,6 +413,8 @@ namespace Armada.Core.Authorization
             Add("PUT", "/api/v1/credentials/{id}", "Credential", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("DELETE", "/api/v1/credentials/{id}", "Credential", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
 
+            Add("POST", "/api/v1/activity/synthetic", "TokenUsage", ResourceOperationEnum.Create, PermissionLevel.AdminOnly);
+
             // TokenUsageRoutes
             Add("GET", "/api/v1/token-usage/summary", "TokenUsage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/token-usage/synthetic", "TokenUsage", ResourceOperationEnum.Create, PermissionLevel.AdminOnly);

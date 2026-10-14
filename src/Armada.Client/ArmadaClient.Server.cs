@@ -17,6 +17,16 @@ namespace Armada.Client
     {
         #region Public-Methods
 
+        /// <summary>Generate historical synthetic activity without dispatching work. Global admin only.</summary>
+        /// <param name="request">Bounded, fixed-window generation profile.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Per-type insert counts and screenshot Harbor/vessel identifiers.</returns>
+        /// <exception cref="ArmadaApiException">Invalid profile, unauthorized caller, or API failure.</exception>
+        public Task<SyntheticActivityResult?> GenerateSyntheticActivityAsync(SyntheticActivityRequest request, CancellationToken token = default)
+        {
+            return PostAsync<SyntheticActivityResult>("/api/v1/activity/synthetic", request, null, token);
+        }
+
         /// <summary>
         /// Dashboard <c>getSettings</c>: GET '/api/v1/settings'.
         /// </summary>

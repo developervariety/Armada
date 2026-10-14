@@ -2459,6 +2459,8 @@ export interface SendSignalRequest {
 }
 
 export interface SettingsData {
+  dataRetentionDays?: number;
+  requestHistoryRetentionDays?: number;
   [key: string]: unknown;
 }
 

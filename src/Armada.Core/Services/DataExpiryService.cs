@@ -50,6 +50,17 @@ namespace Armada.Core.Services
 
         #endregion
 
+        /// <summary>Active retention period in days. Zero disables expiry; negative values are rejected.</summary>
+        public int RetentionDays
+        {
+            get { return _RetentionDays; }
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(value), "Retention days must be non-negative.");
+                _RetentionDays = value;
+            }
+        }
+
         #region Public-Methods
 
         /// <summary>

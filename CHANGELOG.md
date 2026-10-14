@@ -6,6 +6,13 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Synthetic activity load generator
+- Add a .NET 8/10 CLI with database/API targets and configurable density, entropy, seed and fixed history window.
+- Generate terminal missions, API history, events, read signals, Harbor jobs/link metrics and scoped tokens for all activity charts, with replayable profiles and recent-hour coverage.
+- Expose historical retention through settings and a CLI minimum-retention option so 42-day screenshot data survives cleanup.
+- Add global-admin-only `POST /api/v1/activity/synthetic`; decode encoded historical filters for mission and API charts.
+
+
 ### Token activity calendars
 - Add UTC daily token heatmaps to dashboard, mobile, and TUI utilization views, preserving existing monitoring charts and Harbor filters.
 - Add keyboard/day selection, token-type filters, accessible labels, and translated controls.

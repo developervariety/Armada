@@ -9,6 +9,12 @@ namespace Armada.Client.Models
     {
         #region Public-Members
 
+        /// <summary>Mission/event/signal retention in days; zero disables expiry. Null leaves it unchanged on update.</summary>
+        public int? DataRetentionDays { get; set; } = null;
+
+        /// <summary>API request-history retention in days; zero disables expiry. Null leaves it unchanged on update.</summary>
+        public int? RequestHistoryRetentionDays { get; set; } = null;
+
         /// <summary>
         /// REST port.
         /// </summary>

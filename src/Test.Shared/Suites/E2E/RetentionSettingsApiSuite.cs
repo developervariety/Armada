@@ -67,10 +67,18 @@ namespace Test.Shared.Suites.E2E
                         AssertEqual(90, after.Retention.ImportBatchRetentionDays, "omitted field takes its default");
 
                         AssertEqual(30, server.Settings.Retention.AskThreadArchiveAfterDays, "applied live to the running server");
+                        using (HttpResponseMessage keepHistory = await server.Client.PutAsync("/api/v1/settings", JsonHelper.ToJsonContent(new { DataRetentionDays = 60, RequestHistoryRetentionDays = 60 }), ct).ConfigureAwait(false)) AssertStatusCode(HttpStatusCode.OK, keepHistory, "historical chart retention");
+                        AssertEqual(60, server.Settings.DataRetentionDays, "mission history retained");
+                        AssertEqual(60, server.Settings.RequestHistoryRetentionDays, "API history retained");
+                        using (HttpResponseMessage invalidRetention = await server.Client.PutAsync("/api/v1/settings", JsonHelper.ToJsonContent(new { DataRetentionDays = -1, RequestHistoryRetentionDays = 120 }), ct).ConfigureAwait(false)) AssertStatusCode(HttpStatusCode.BadRequest, invalidRetention, "invalid retention rejected before mutation");
+                        AssertEqual(60, server.Settings.RequestHistoryRetentionDays, "rejected update leaves retention unchanged");
+
                         string settingsFile = Path.Combine(dataDir, "settings.json");
                         AssertTrue(File.Exists(settingsFile), "persisted to the server's settings file");
                         ArmadaSettings reloaded = await ArmadaSettings.LoadAsync(settingsFile).ConfigureAwait(false);
                         AssertEqual(30, reloaded.Retention.AskThreadArchiveAfterDays, "persisted archive days");
+                        AssertEqual(60, reloaded.DataRetentionDays, "persisted mission history retention");
+                        AssertEqual(60, reloaded.RequestHistoryRetentionDays, "persisted API history retention");
                         AssertEqual(3650, reloaded.Retention.AskThreadDeleteAfterDays, "persisted delete days");
 
                         HttpResponseMessage untouched = await server.Client.PutAsync("/api/v1/settings", JsonHelper.ToJsonContent(new { MaxCaptains = 3 }), ct).ConfigureAwait(false);

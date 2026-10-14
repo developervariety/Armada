@@ -26,6 +26,12 @@ namespace Armada.Server
     /// </summary>
     public class SettingsUpdateRequest
     {
+        /// <summary>Optional completed mission/event/signal retention in days; zero disables expiry.</summary>
+        public int? DataRetentionDays { get; set; }
+
+        /// <summary>Optional API request-history retention in days; zero disables expiry.</summary>
+        public int? RequestHistoryRetentionDays { get; set; }
+
         /// <summary>
         /// Admiral REST API port (1-65535).
         /// </summary>
