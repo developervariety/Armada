@@ -257,7 +257,7 @@ namespace Armada.Server
             // Ensure a local API key exists so trusted local clients (the armada CLI) can authenticate
             // to the REST API, and a session token encryption key exists so sign-ins survive a restart.
             // Both are generated once and persisted to settings.json (which the CLI also reads) in one save.
-            await EnsureLocalSecretsAsync().ConfigureAwait(false);
+            EnsureLocalSecrets();
 
             // Safe defaults: apply an initial admin password from the environment (headless installs), retire the
             // seeded "default" bearer token once the default password is gone, and refuse to listen on a non-loopback
@@ -387,7 +387,7 @@ namespace Armada.Server
             }
 
             // Initialize authentication services
-            // The key was generated and persisted by EnsureLocalSecretsAsync, so session tokens stay valid across restarts.
+            // The key was generated and persisted by EnsureLocalSecrets, so session tokens stay valid across restarts.
             _SessionTokenService = new SessionTokenService(_Settings.SessionTokenEncryptionKey);
             _AuthenticationService = new AuthenticationService(_Database, _SessionTokenService, _Settings, _Logging);
             _LoginRateLimiter = new LoginRateLimiter(_Settings.LoginRateLimit);
@@ -1124,7 +1124,7 @@ namespace Armada.Server
             throw new UnsafeListenerConfigurationException(message, _Settings.Rest.Hostname);
         }
 
-        private async Task EnsureLocalSecretsAsync()
+        private void EnsureLocalSecrets()
         {
             bool generatedApiKey = false;
             bool generatedSessionKey = false;
