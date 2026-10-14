@@ -6,6 +6,13 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Token activity calendars
+- Add UTC daily token heatmaps to dashboard, mobile, and TUI utilization views, preserving existing monitoring charts and Harbor filters.
+- Add keyboard/day selection, token-type filters, accessible labels, and translated controls.
+- Add admin-only idempotent synthetic-history import, typed SDK support, synthetic summary counts, and source-ID filtering.
+- Decode encoded token-usage time filters correctly, preventing historical requests from falling back to 24 hours.
+
+
 ### Ask Armada: slash commands that run, and New starts empty
 - Typing a command and pressing Return (or Send) now runs it in the dashboard, the mobile app, and the TUI. Before, commands ran only when tapped in the `/` menu and Send stayed disabled for anything starting with `/`. Return runs the highlighted menu entry (the first match; arrow keys move it on the dashboard and in the TUI) or the exact command typed, case-insensitive, with its arguments. An unknown command shows "Unknown command /foo. Type / to see commands" under the composer and keeps the text.
 - New local commands, listed in the same menu: `/new` (alias `/clear`) starts a new conversation with a fresh context and the same captain, `/help` opens the menu with every command, `/summarize`, `/rename <title>`, and `/archive` act on the open conversation (on a new, unsaved one they say there is nothing to act on yet), `/captain <name>` switches the captain by fuzzy name match or opens the picker when the name is ambiguous, and `/thinking on|off` sets Show thinking.

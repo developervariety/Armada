@@ -2601,6 +2601,14 @@
     },
     {
       "kind": "api",
+      "key": "importSyntheticTokenUsage",
+      "status": "implemented",
+      "tui": "ArmadaClient.ImportSyntheticTokenUsageAsync",
+      "workstream": "W0.2",
+      "notes": "Admin screenshot-history import through ArmadaClient; token calendars read tagged summary data"
+    },
+    {
+      "kind": "api",
       "key": "importVessels",
       "status": "implemented",
       "tui": "ArmadaClient.ImportVesselsAsync",

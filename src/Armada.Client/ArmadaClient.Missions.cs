@@ -77,6 +77,15 @@ namespace Armada.Client
             return GetAsync<TokenUsageSummaryResult>("/api/v1/token-usage/summary" + ArmadaQueryString.FromObject(query), null, token);
         }
 
+        /// <summary>Import tagged synthetic historical usage; requires global admin privileges and never calls a model.</summary>
+        /// <param name="request">Bounded ordered batch.</param>
+        /// <param name="token">Cancellation.</param>
+        /// <returns>Import receipt.</returns>
+        public Task<TokenUsageSyntheticResult?> ImportSyntheticTokenUsageAsync(TokenUsageSyntheticRequest request, CancellationToken token = default)
+        {
+            return PostAsync<TokenUsageSyntheticResult>("/api/v1/token-usage/synthetic", request, null, token);
+        }
+
         /// <summary>
         /// Dashboard <c>getMissionLandingPreview</c>: GET `/api/v1/missions/${encodeURIComponent(id)}/landing-preview`.
         /// </summary>

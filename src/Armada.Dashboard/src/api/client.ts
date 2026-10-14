@@ -20,6 +20,8 @@ import type {
   MissionSummary,
   MissionHistorySummaryResult,
   TokenUsageSummaryResult,
+  TokenUsageSyntheticRequest,
+  TokenUsageSyntheticResult,
   Voyage,
   Objective,
   GitHubActionsSyncRequest,
@@ -1014,7 +1016,7 @@ export const getMissionHistory = (params?: { fromUtc?: string; toUtc?: string; b
         .map(([key, value]) => [key, String(value)]),
     ),
   } : undefined)}`);
-export const getTokenUsage = (params?: { fromUtc?: string; toUtc?: string; bucketMinutes?: number; model?: string; runtime?: string; source?: string; vesselId?: string; captainId?: string; harborId?: string }) =>
+export const getTokenUsage = (params?: { fromUtc?: string; toUtc?: string; bucketMinutes?: number; model?: string; runtime?: string; source?: string; sourceId?: string; vesselId?: string; captainId?: string; harborId?: string }) =>
   get<TokenUsageSummaryResult>(`/api/v1/token-usage/summary${buildQuery(params ? {
     filters: Object.fromEntries(
       Object.entries(params)
@@ -1646,3 +1648,6 @@ export const getFleetActionRunTarget = (runId: string, targetId: string) =>
   get<FleetActionRunTarget>(`/api/v1/fleet-action-runs/${encodeURIComponent(runId)}/targets/${encodeURIComponent(targetId)}`);
 
 export const cancelFleetActionRun = (id: string) => post<FleetActionRun>(`/api/v1/fleet-action-runs/${encodeURIComponent(id)}/cancel`);
+
+/** Admin-only screenshot data import; never runs agents or calls inference providers. */
+export const importSyntheticTokenUsage = (data: TokenUsageSyntheticRequest) => post<TokenUsageSyntheticResult>('/api/v1/token-usage/synthetic', data);

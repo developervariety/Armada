@@ -1,3 +1,4 @@
+import { TokenActivityHeatmap } from '../activity/TokenActivityHeatmap';
 import { useMemo, useState } from 'react';
 import { StyleSheet, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
 import { getHarborMetrics } from '@dashboard/api/client';
@@ -435,6 +436,7 @@ export function HarborMetricsSection({ harborId }: { harborId: string }) {
               )}
             </View>
           </FieldCard>
+          <TokenActivityHeatmap harborId={harborId} />
         </>
       )}
     </View>

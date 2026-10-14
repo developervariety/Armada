@@ -38,6 +38,9 @@ namespace Armada.Core.Models
         /// </summary>
         public int EstimatedCount { get; set; }
 
+        /// <summary>Number of explicitly synthetic demonstration records in this window.</summary>
+        public int SyntheticCount { get; set; }
+
         /// <summary>
         /// Total input (prompt) tokens across the whole window.
         /// </summary>

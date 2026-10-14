@@ -1,3 +1,4 @@
+import TokenActivityHeatmap from '../components/activity/TokenActivityHeatmap';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
@@ -193,6 +194,8 @@ export default function TokenUsage() {
           <span className="token-usage-estimated-note">{t('{{estimated}} of {{total}} records estimated', { estimated: data!.estimatedCount, total: data!.recordCount })}</span>
         )}
       </div>
+
+      <TokenActivityHeatmap harborId={harborId} />
 
       {/* Chart 1 -- Usage over time. Title + axis labels live inside the SVG so the copied image includes them. */}
       <div className="token-usage-chart-card">

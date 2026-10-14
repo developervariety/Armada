@@ -31,6 +31,7 @@ namespace Test.Shared.Suites.Client
         /// </summary>
         private static readonly Dictionary<string, string> _CoveredElsewhere = new Dictionary<string, string>(StringComparer.Ordinal)
         {
+            ["ImportSyntheticTokenUsageAsync"] = "Live SDK import, replay, scope, summary, and conflict coverage in E2E.TokenUsageSyntheticApi",
             ["StopServerAsync"] = Destructive,
             ["RestartServerAsync"] = Destructive,
             ["ResetServerAsync"] = Destructive,

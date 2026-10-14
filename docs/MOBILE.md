@@ -249,3 +249,5 @@ notifications are not available.
 ## Persona routing configuration
 
 Persona detail exposes Captain priorities with ordered runtime, model, Mux endpoint, and minimum-tier matching fields. Add, remove, and reorder classes independently of the persona's role. Configure whether busy classes allow lower priorities and whether an exhausted hierarchy waits or permits any eligible captain. A first-priority wait always waits. Saving an empty list restores legacy routing, and duplication preserves the hierarchy. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md).
+
+Activity → Token Usage and Harbor Charts include UTC token calendars alongside existing charts. Choose 31/90/365 days and total/input/output/cached, scroll horizontally, and tap a day for exact counts. Synthetic records are identified in the calendar summary.

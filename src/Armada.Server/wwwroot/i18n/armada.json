@@ -2915,7 +2915,18 @@
         "Drag to reorder": "Arrastrar para reordenar",
         "Position": "Posición",
         "Mux only": "Solo Mux",
-        "Runtime for new priority": "Entorno de ejecución para la nueva prioridad"
+        "Runtime for new priority": "Entorno de ejecución para la nueva prioridad",
+        "Token activity": "Actividad de tokens",
+        "Token activity (UTC)": "Actividad de tokens (UTC)",
+        "Daily token totals (UTC)": "Totales diarios de tokens (UTC)",
+        "Last 3 months": "Últimos 3 meses",
+        "Last 12 months": "Últimos 12 meses",
+        "Heatmap metric": "Métrica del mapa de calor",
+        "Peak day": "Día máximo",
+        "Active days": "Días activos",
+        "Unable to load token activity.": "No se pudo cargar la actividad de tokens.",
+        "{{count}} synthetic usage records included": "Se incluyen {{count}} registros de uso sintético",
+        "Refresh token activity": "Actualizar actividad de tokens"
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -4766,7 +4777,18 @@
         "Drag to reorder": "拖动排序",
         "Position": "位置",
         "Mux only": "仅限 Mux",
-        "Runtime for new priority": "新优先级的运行时"
+        "Runtime for new priority": "新优先级的运行时",
+        "Token activity": "令牌活动",
+        "Token activity (UTC)": "令牌活动 (UTC)",
+        "Daily token totals (UTC)": "每日令牌总量 (UTC)",
+        "Last 3 months": "最近3个月",
+        "Last 12 months": "最近12个月",
+        "Heatmap metric": "热力图指标",
+        "Peak day": "峰值日",
+        "Active days": "活跃天数",
+        "Unable to load token activity.": "无法加载令牌活动。",
+        "{{count}} synthetic usage records included": "包含 {{count}} 条合成使用记录",
+        "Refresh token activity": "刷新令牌活动"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -6580,7 +6602,18 @@
         "Drag to reorder": "拖曳排序",
         "Position": "位置",
         "Mux only": "僅限 Mux",
-        "Runtime for new priority": "新優先順序的執行環境"
+        "Runtime for new priority": "新優先順序的執行環境",
+        "Token activity": "權杖活動",
+        "Token activity (UTC)": "權杖活動 (UTC)",
+        "Daily token totals (UTC)": "每日權杖總量 (UTC)",
+        "Last 3 months": "最近3個月",
+        "Last 12 months": "最近12個月",
+        "Heatmap metric": "熱力圖指標",
+        "Peak day": "尖峰日",
+        "Active days": "活躍天數",
+        "Unable to load token activity.": "無法載入權杖活動。",
+        "{{count}} synthetic usage records included": "包含 {{count}} 筆合成使用紀錄",
+        "Refresh token activity": "重新整理權杖活動"
       },
       "sections": {}
     },
@@ -8354,7 +8387,18 @@
         "Drag to reorder": "拖曳排序",
         "Position": "位置",
         "Mux only": "僅限 Mux",
-        "Runtime for new priority": "新優先次序的執行環境"
+        "Runtime for new priority": "新優先次序的執行環境",
+        "Token activity": "權杖活動",
+        "Token activity (UTC)": "權杖活動 (UTC)",
+        "Daily token totals (UTC)": "每日權杖總量 (UTC)",
+        "Last 3 months": "最近3個月",
+        "Last 12 months": "最近12個月",
+        "Heatmap metric": "熱力圖指標",
+        "Peak day": "高峰日",
+        "Active days": "活躍日數",
+        "Unable to load token activity.": "無法載入權杖活動。",
+        "{{count}} synthetic usage records included": "包含 {{count}} 筆合成使用紀錄",
+        "Refresh token activity": "重新整理權杖活動"
       },
       "sections": {}
     },
@@ -10144,7 +10188,18 @@
         "Drag to reorder": "ドラッグして並べ替え",
         "Position": "位置",
         "Mux only": "Muxのみ",
-        "Runtime for new priority": "新しい優先順位のランタイム"
+        "Runtime for new priority": "新しい優先順位のランタイム",
+        "Token activity": "トークンの活動",
+        "Token activity (UTC)": "トークンの活動 (UTC)",
+        "Daily token totals (UTC)": "日別トークン合計 (UTC)",
+        "Last 3 months": "過去3か月",
+        "Last 12 months": "過去12か月",
+        "Heatmap metric": "ヒートマップの指標",
+        "Peak day": "最大使用日",
+        "Active days": "活動日数",
+        "Unable to load token activity.": "トークンの活動を読み込めませんでした。",
+        "{{count}} synthetic usage records included": "合成使用データ {{count}} 件を含みます",
+        "Refresh token activity": "トークンの活動を更新"
       },
       "sections": {}
     },
@@ -11925,7 +11980,18 @@
         "Drag to reorder": "Zum Sortieren ziehen",
         "Position": "Position",
         "Mux only": "Nur Mux",
-        "Runtime for new priority": "Laufzeit für die neue Priorität"
+        "Runtime for new priority": "Laufzeit für die neue Priorität",
+        "Token activity": "Token-Aktivität",
+        "Token activity (UTC)": "Token-Aktivität (UTC)",
+        "Daily token totals (UTC)": "Tägliche Token-Summen (UTC)",
+        "Last 3 months": "Letzte 3 Monate",
+        "Last 12 months": "Letzte 12 Monate",
+        "Heatmap metric": "Heatmap-Metrik",
+        "Peak day": "Spitzentag",
+        "Active days": "Aktive Tage",
+        "Unable to load token activity.": "Token-Aktivität konnte nicht geladen werden.",
+        "{{count}} synthetic usage records included": "{{count}} synthetische Nutzungsdatensätze enthalten",
+        "Refresh token activity": "Token-Aktivität aktualisieren"
       },
       "sections": {}
     },
@@ -13706,7 +13772,18 @@
         "Drag to reorder": "Faire glisser pour réordonner",
         "Position": "Position",
         "Mux only": "Mux uniquement",
-        "Runtime for new priority": "Environnement pour la nouvelle priorité"
+        "Runtime for new priority": "Environnement pour la nouvelle priorité",
+        "Token activity": "Activité des tokens",
+        "Token activity (UTC)": "Activité des tokens (UTC)",
+        "Daily token totals (UTC)": "Totaux quotidiens de tokens (UTC)",
+        "Last 3 months": "3 derniers mois",
+        "Last 12 months": "12 derniers mois",
+        "Heatmap metric": "Mesure de la carte thermique",
+        "Peak day": "Jour maximal",
+        "Active days": "Jours actifs",
+        "Unable to load token activity.": "Impossible de charger l’activité des tokens.",
+        "{{count}} synthetic usage records included": "{{count}} enregistrements d’utilisation synthétique inclus",
+        "Refresh token activity": "Actualiser l’activité des tokens"
       },
       "sections": {}
     },
@@ -15487,7 +15564,18 @@
         "Drag to reorder": "Trascina per riordinare",
         "Position": "Posizione",
         "Mux only": "Solo Mux",
-        "Runtime for new priority": "Runtime per la nuova priorità"
+        "Runtime for new priority": "Runtime per la nuova priorità",
+        "Token activity": "Attività dei token",
+        "Token activity (UTC)": "Attività dei token (UTC)",
+        "Daily token totals (UTC)": "Totali giornalieri dei token (UTC)",
+        "Last 3 months": "Ultimi 3 mesi",
+        "Last 12 months": "Ultimi 12 mesi",
+        "Heatmap metric": "Metrica della mappa di calore",
+        "Peak day": "Giorno di picco",
+        "Active days": "Giorni attivi",
+        "Unable to load token activity.": "Impossibile caricare l’attività dei token.",
+        "{{count}} synthetic usage records included": "Inclusi {{count}} record di utilizzo sintetico",
+        "Refresh token activity": "Aggiorna attività dei token"
       },
       "sections": {}
     }
