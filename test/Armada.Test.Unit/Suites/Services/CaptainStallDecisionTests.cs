@@ -171,13 +171,28 @@ namespace Armada.Test.Unit.Suites.Services
                 null);
         }
 
-        private static AdmiralService CreateAdmiral(Scene scene, CaptainService captains, DispatchHold? hold = null, IResourcePressureAdmission? admission = null)
+        private static AdmiralService CreateAdmiral(Scene scene, CaptainService captains, DispatchHold? hold = null, IResourcePressureAdmission? admission = null,
+            ProviderProgressTracker? providerProgress = null, TerminalMarkerTracker? terminalMarkers = null)
         {
             LoggingModule logging = CreateLogging();
             IDockService docks = new DockService(logging, scene.Db, scene.Settings, scene.Git);
             MissionService missions = new MissionService(logging, scene.Db, scene.Settings, docks, captains, git: scene.Git, dispatchHold: hold);
-            return new AdmiralService(logging, scene.Db, scene.Settings, captains, missions, new VoyageService(logging, scene.Db), docks,
+            AdmiralService admiral = new AdmiralService(logging, scene.Db, scene.Settings, captains, missions, new VoyageService(logging, scene.Db), docks,
                 resourcePressureAdmission: admission, git: scene.Git, dispatchHold: hold);
+            if (providerProgress != null) admiral.SetProviderProgress(providerProgress);
+            if (terminalMarkers != null) admiral.SetTerminalMarkers(terminalMarkers);
+            return admiral;
+        }
+
+        private static async Task<ProviderProgressTracker> CreateStaleProviderProgressAsync(Scene scene, DateTime? progressUtc = null)
+        {
+            scene.Captain.Runtime = AgentRuntimeEnum.OpenCode;
+            scene.Captain.LastHeartbeatUtc = DateTime.UtcNow.AddMinutes(-1);
+            scene.Captain = await scene.Db.Captains.UpdateAsync(scene.Captain).ConfigureAwait(false);
+            scene.Git.CommitTimes[scene.Vessel.LocalPath + "|" + Branch] = DateTime.UtcNow.AddHours(-2);
+            ProviderProgressTracker tracker = new ProviderProgressTracker();
+            tracker.Record(scene.Captain.Id, progressUtc ?? DateTime.UtcNow.AddMinutes(-30));
+            return tracker;
         }
 
         // Admits everything and counts out-of-memory marks.
@@ -350,7 +365,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("AdmiralHeartbeatStall_QuietCaptainWithRecentDockWrites_IsNotKilledOrRestarted", async () =>
+            await RunTest("OpenCodeProviderStall_RecentDockWritesPreventRecovery", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -358,12 +373,16 @@ namespace Armada.Test.Unit.Suites.Services
                     ProcessSupervisor.RegisterSyntheticProcess(pid);
                     try
                     {
-                        Scene scene = await CreateSceneAsync(testDb, DockActivity.Recent, DateTime.UtcNow.AddMinutes(-30), pid).ConfigureAwait(false);
+                        Scene scene = await CreateSceneAsync(testDb, DockActivity.Recent, DateTime.UtcNow.AddMinutes(-1), pid).ConfigureAwait(false);
+                        scene.Captain.Runtime = AgentRuntimeEnum.OpenCode;
+                        scene.Captain = await scene.Db.Captains.UpdateAsync(scene.Captain).ConfigureAwait(false);
                         LoggingModule logging = CreateLogging();
                         CaptainService captains = new CaptainService(logging, scene.Db, scene.Settings, scene.Git, new DockService(logging, scene.Db, scene.Settings, scene.Git));
                         int stops = 0;
                         captains.OnStopAgent = _ => { stops++; return Task.CompletedTask; };
-                        AdmiralService admiral = CreateAdmiral(scene, captains);
+                        ProviderProgressTracker providerProgress = new ProviderProgressTracker();
+                        providerProgress.Record(scene.Captain.Id, DateTime.UtcNow.AddMinutes(-30));
+                        AdmiralService admiral = CreateAdmiral(scene, captains, providerProgress: providerProgress);
 
                         await admiral.HealthCheckAsync().ConfigureAwait(false);
 
@@ -375,6 +394,175 @@ namespace Armada.Test.Unit.Suites.Services
                         List<ArmadaEvent> cleared = await StallEventsAsync(scene, ClearedEvent).ConfigureAwait(false);
                         AssertEqual(1, cleared.Count, "the clearing is recorded");
                         AssertContains("dock_write", cleared[0].Message, "the event names the signal that cleared the stall");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.UnregisterSyntheticProcess(pid);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("OpenCodeProviderStall_FreshHeartbeatAndStaleProvider_StopsAndRequeuesThroughRecovery", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int pid = 88110010;
+                    const int relaunchedPid = 88110011;
+                    ProcessSupervisor.RegisterSyntheticProcess(pid);
+                    try
+                    {
+                        Scene scene = await CreateConfirmedStallSceneAsync(testDb, pid).ConfigureAwait(false);
+                        ProviderProgressTracker providerProgress = await CreateStaleProviderProgressAsync(scene).ConfigureAwait(false);
+                        LoggingModule logging = CreateLogging();
+                        CaptainService captains = new CaptainService(logging, scene.Db, scene.Settings, scene.Git, new DockService(logging, scene.Db, scene.Settings, scene.Git));
+                        int stops = 0;
+                        captains.OnStopAgent = _ => { stops++; return Task.CompletedTask; };
+                        captains.OnLaunchAgent = (_, _, _) =>
+                        {
+                            ProcessSupervisor.RegisterSyntheticProcess(relaunchedPid);
+                            return Task.FromResult(relaunchedPid);
+                        };
+                        CountingAdmission admission = new CountingAdmission();
+                        AdmiralService admiral = CreateAdmiral(scene, captains, admission: admission, providerProgress: providerProgress);
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                        AssertEqual(1, stops, "the actual health-recovery path stops a provider-silent process despite its fresh heartbeat");
+                        AssertEqual(1, (await scene.Db.Captains.ReadAsync(scene.Captain.Id).ConfigureAwait(false))!.RecoveryAttempts,
+                            "the existing bounded recovery policy owns the retry");
+                        await AssertRelaunchedMissionRunsAsync(scene, relaunchedPid, admission, "after provider-silent recovery").ConfigureAwait(false);
+                        AssertFalse(providerProgress.TryGet(scene.Captain.Id, out _), "the old process provider time is cleared before the relaunch");
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+                        AssertEqual(1, stops, "a relaunch with fresh output does not consume another attempt before it reports provider progress");
+                        List<ArmadaEvent> confirmed = await StallEventsAsync(scene, ConfirmedEvent).ConfigureAwait(false);
+                        AssertEqual(1, confirmed.Count, "the stop records the confirmed stall");
+                        AssertContains("provider progress 30", confirmed[0].Message, "the evidence records the stale provider timestamp");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.UnregisterSyntheticProcess(pid);
+                        ProcessSupervisor.UnregisterSyntheticProcess(relaunchedPid);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("OpenCodeProviderStall_StartupGracePreventsRecovery", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int pid = 88110012;
+                    ProcessSupervisor.RegisterSyntheticProcess(pid);
+                    try
+                    {
+                        Scene scene = await CreateSceneAsync(testDb, DockActivity.Old, DateTime.UtcNow.AddMinutes(-1), pid).ConfigureAwait(false);
+                        ProviderProgressTracker providerProgress = await CreateStaleProviderProgressAsync(scene).ConfigureAwait(false);
+                        scene.Mission.StartedUtc = DateTime.UtcNow.AddSeconds(-30);
+                        scene.Mission = await scene.Db.Missions.UpdateAsync(scene.Mission).ConfigureAwait(false);
+                        LoggingModule logging = CreateLogging();
+                        CaptainService captains = new CaptainService(logging, scene.Db, scene.Settings, scene.Git, new DockService(logging, scene.Db, scene.Settings, scene.Git));
+                        int stops = 0;
+                        captains.OnStopAgent = _ => { stops++; return Task.CompletedTask; };
+                        AdmiralService admiral = CreateAdmiral(scene, captains, providerProgress: providerProgress);
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                        AssertEqual(0, stops, "a stale prior provider timestamp does not stop a captain inside mission startup grace");
+                        AssertEqual(0, (await scene.Db.Captains.ReadAsync(scene.Captain.Id).ConfigureAwait(false))!.RecoveryAttempts,
+                            "startup grace does not spend a recovery attempt");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.UnregisterSyntheticProcess(pid);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("OpenCodeProviderStall_TerminalMarkerPreventsRecovery", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int pid = 88110013;
+                    ProcessSupervisor.RegisterSyntheticProcess(pid);
+                    try
+                    {
+                        Scene scene = await CreateConfirmedStallSceneAsync(testDb, pid).ConfigureAwait(false);
+                        ProviderProgressTracker providerProgress = await CreateStaleProviderProgressAsync(scene).ConfigureAwait(false);
+                        TerminalMarkerTracker terminalMarkers = new TerminalMarkerTracker();
+                        terminalMarkers.TryRecordFirst(scene.Mission.Id,
+                            new ProgressParser.ProgressSignal { Type = "result", Value = "COMPLETE" }, DateTime.UtcNow);
+                        LoggingModule logging = CreateLogging();
+                        CaptainService captains = new CaptainService(logging, scene.Db, scene.Settings, scene.Git, new DockService(logging, scene.Db, scene.Settings, scene.Git));
+                        int stops = 0;
+                        captains.OnStopAgent = _ => { stops++; return Task.CompletedTask; };
+                        AdmiralService admiral = CreateAdmiral(scene, captains, providerProgress: providerProgress, terminalMarkers: terminalMarkers);
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                        AssertEqual(0, stops, "a terminal marker keeps a completed stage out of provider-stall recovery");
+                        AssertEqual(0, (await scene.Db.Captains.ReadAsync(scene.Captain.Id).ConfigureAwait(false))!.RecoveryAttempts,
+                            "terminal output does not spend a recovery attempt");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.UnregisterSyntheticProcess(pid);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("OpenCodeProviderStall_RecentProviderProgressPreventsRecovery", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int pid = 88110014;
+                    ProcessSupervisor.RegisterSyntheticProcess(pid);
+                    try
+                    {
+                        Scene scene = await CreateSceneAsync(testDb, DockActivity.Old, DateTime.UtcNow.AddMinutes(-1), pid).ConfigureAwait(false);
+                        ProviderProgressTracker providerProgress = await CreateStaleProviderProgressAsync(scene, DateTime.UtcNow.AddMinutes(-1)).ConfigureAwait(false);
+                        LoggingModule logging = CreateLogging();
+                        CaptainService captains = new CaptainService(logging, scene.Db, scene.Settings, scene.Git, new DockService(logging, scene.Db, scene.Settings, scene.Git));
+                        int stops = 0;
+                        captains.OnStopAgent = _ => { stops++; return Task.CompletedTask; };
+                        AdmiralService admiral = CreateAdmiral(scene, captains, providerProgress: providerProgress);
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                        AssertEqual(0, stops, "recent provider progress keeps a healthy long OpenCode run alive");
+                        AssertEqual(0, (await scene.Db.Captains.ReadAsync(scene.Captain.Id).ConfigureAwait(false))!.RecoveryAttempts,
+                            "recent provider progress does not spend a recovery attempt");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.UnregisterSyntheticProcess(pid);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("OpenCodeProviderStall_RecentBranchCommitPreventsRecovery", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int pid = 88110015;
+                    ProcessSupervisor.RegisterSyntheticProcess(pid);
+                    try
+                    {
+                        Scene scene = await CreateSceneAsync(testDb, DockActivity.Old, DateTime.UtcNow.AddMinutes(-1), pid).ConfigureAwait(false);
+                        ProviderProgressTracker providerProgress = await CreateStaleProviderProgressAsync(scene).ConfigureAwait(false);
+                        scene.Git.CommitTimes[scene.Vessel.LocalPath + "|" + Branch] = DateTime.UtcNow.AddMinutes(-1);
+                        LoggingModule logging = CreateLogging();
+                        CaptainService captains = new CaptainService(logging, scene.Db, scene.Settings, scene.Git, new DockService(logging, scene.Db, scene.Settings, scene.Git));
+                        int stops = 0;
+                        captains.OnStopAgent = _ => { stops++; return Task.CompletedTask; };
+                        AdmiralService admiral = CreateAdmiral(scene, captains, providerProgress: providerProgress);
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                        AssertEqual(0, stops, "a recent branch commit remains valid work evidence during provider silence");
+                        AssertEqual(0, (await scene.Db.Captains.ReadAsync(scene.Captain.Id).ConfigureAwait(false))!.RecoveryAttempts,
+                            "recent branch work does not spend a recovery attempt");
+                        List<ArmadaEvent> cleared = await StallEventsAsync(scene, ClearedEvent).ConfigureAwait(false);
+                        AssertEqual(1, cleared.Count, "the provider stall is recorded as cleared");
+                        AssertContains("branch_tip", cleared[0].Message, "the branch tip is named as the clearing evidence");
                     }
                     finally
                     {

@@ -12,6 +12,10 @@ upstream integrations and excludes changes already present at that baseline.
 - Captain `[ARMADA:NOTE]` output is stored on the coordination board with the
   assigned captain and mission metadata. Notes redact credentials and enforce
   500-character and 20-per-mission limits.
+- The Admiral health check uses OpenCode provider-progress timestamps when it
+  decides whether to stop and recover a live captain. Startup grace, terminal
+  markers, dock writes, branch commits, and the bounded recovery limit remain
+  in effect.
 
 - Blocked recovery for Infra and Timeout gate failures retains the stable
   `gate_class_not_rescuable` reason in the event and incident, with the failure

@@ -113,6 +113,8 @@ namespace Armada.Core.Services
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _HealthCheckStepFailures =
             new System.Collections.Concurrent.ConcurrentDictionary<string, long>(StringComparer.Ordinal);
         private readonly DispatchHold? _DispatchHold;
+        private ProviderProgressTracker? _ProviderProgress;
+        private TerminalMarkerTracker? _TerminalMarkers;
 
         /// <inheritdoc />
         public DispatchHold? DispatchHold => _DispatchHold;
@@ -245,6 +247,20 @@ namespace Armada.Core.Services
                 || status == MissionStatusEnum.WorkProduced
                 || status == MissionStatusEnum.LandingFailed
                 || status == MissionStatusEnum.PullRequestOpen;
+        }
+
+        /// <summary>Wire the shared runtime provider-progress tracker used by health recovery.</summary>
+        /// <param name="tracker">Provider-progress tracker.</param>
+        public void SetProviderProgress(ProviderProgressTracker tracker)
+        {
+            _ProviderProgress = tracker ?? throw new ArgumentNullException(nameof(tracker));
+        }
+
+        /// <summary>Wire terminal output state so recovery leaves completed stages alone.</summary>
+        /// <param name="tracker">Terminal-marker tracker.</param>
+        public void SetTerminalMarkers(TerminalMarkerTracker tracker)
+        {
+            _TerminalMarkers = tracker ?? throw new ArgumentNullException(nameof(tracker));
         }
 
         /// <inheritdoc />
@@ -2186,10 +2202,33 @@ namespace Armada.Core.Services
                 if (captain.LastHeartbeatUtc.HasValue)
                 {
                     DateTime nowUtc = DateTime.UtcNow;
-                    if (CaptainStallEvaluator.ClassifyOutput(captain, null, _Settings.StallThresholdMinutes, nowUtc) != ProviderStallKind.None)
+                    DateTime? lastProviderProgressUtc = null;
+                    _ProviderProgress?.TryGet(captain.Id, out lastProviderProgressUtc);
+                    ProviderStallKind stallKind = CaptainStallEvaluator.ClassifyOutput(
+                        captain, lastProviderProgressUtc, _Settings.StallThresholdMinutes, nowUtc);
+                    if (stallKind == ProviderStallKind.ProviderSilentStall
+                        && mission != null
+                        && ProviderStallClassifier.IsWithinStartupGrace(mission.StartedUtc, nowUtc, _Settings.StallThresholdMinutes))
+                    {
+                        _Logging.Debug(_Header + "provider stall check skipped for captain " + captain.Id + " on mission " + mission.Id + " inside startup grace");
+                        return;
+                    }
+
+                    if (stallKind != ProviderStallKind.None
+                        && mission != null
+                        && _TerminalMarkers != null
+                        && _TerminalMarkers.TryGet(mission.Id, out TerminalMarkerRecord? terminalMarker)
+                        && terminalMarker != null)
+                    {
+                        _Logging.Debug(_Header + "provider stall check skipped for captain " + captain.Id + " on mission " + mission.Id
+                            + " after terminal marker [" + terminalMarker.MarkerType + "] " + terminalMarker.Value);
+                        return;
+                    }
+
+                    if (stallKind != ProviderStallKind.None)
                     {
                         CaptainStallDecision stall = await StallEvaluator.EvaluateAsync(
-                            captain, mission, _Settings.StallThresholdMinutes, nowUtc, token: token).ConfigureAwait(false);
+                            captain, mission, _Settings.StallThresholdMinutes, nowUtc, lastProviderProgressUtc, token).ConfigureAwait(false);
                         await StallEvaluator.RecordAsync(stall, "admiral_heartbeat_stall", captain, mission, token).ConfigureAwait(false);
                         if (!stall.IsStalled) return;
 
@@ -2201,6 +2240,8 @@ namespace Armada.Core.Services
                             // Kill the stalled process first. It is registered as superseded before the stop, so
                             // its exit, whenever it arrives, is not read as the mission's failure or an OOM kill.
                             await StopSupersededProcessAsync(captain, processId.Value, "before recovery", token).ConfigureAwait(false);
+                            // A restarted process must establish its own provider-progress baseline.
+                            _ProviderProgress?.Clear(captain.Id);
 
                             // A relaunch starts work, so it obeys the dispatch hold like every other dispatch.
                             DispatchHoldSnapshot? hold = _DispatchHold?.Snapshot();

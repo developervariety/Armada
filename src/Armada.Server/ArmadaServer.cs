@@ -365,6 +365,8 @@ namespace Armada.Server
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
             _BuildDriftService = new BuildDriftService(_Git, _Database, BuildInfo.RunningCommit, _Logging);
             AdmiralService admiralService = new AdmiralService(_Logging, _Database, _Settings, captainService, missionService, voyageService, dockService, escalationService, _BuildDriftService, captainQuarantineService, resourcePressureAdmission, null, _DispatchHold, intentionalStops: _IntentionalStops);
+            admiralService.SetProviderProgress(_ProviderProgress);
+            admiralService.SetTerminalMarkers(_TerminalMarkers);
             _Admiral = admiralService;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex);
