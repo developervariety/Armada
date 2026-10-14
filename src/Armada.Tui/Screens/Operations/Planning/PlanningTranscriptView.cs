@@ -66,6 +66,7 @@ namespace Armada.Tui.Screens.Operations
         private int _Height = 1;
         private List<int> _Starts = new List<int>();
         private int _Total = 0;
+        private readonly Dictionary<string, IReadOnlyList<StyledText>> _Markdown = new Dictionary<string, IReadOnlyList<StyledText>>(StringComparer.Ordinal);
 
         #endregion
 
@@ -227,7 +228,7 @@ namespace Armada.Tui.Screens.Operations
             for (int i = 0; i < messages.Count; i++)
             {
                 _Starts.Add(rows.Count);
-                foreach (StyledText line in MessageLines(messages[i], busy && messages[i].Id == lastAssistant, i == Cursor)) AddWrapped(rows, rowOwner, i, line, width);
+                foreach (StyledText line in MessageLines(messages[i], busy && messages[i].Id == lastAssistant, i == Cursor, Math.Max(1, width - 2))) AddWrapped(rows, rowOwner, i, line, width);
                 AddWrapped(rows, rowOwner, i, StyledText.Empty, width);
             }
 
@@ -289,7 +290,18 @@ namespace Armada.Tui.Screens.Operations
             }
         }
 
-        private List<StyledText> MessageLines(PlanningSessionMessage m, bool streaming, bool cursor)
+        private IReadOnlyList<StyledText> RenderMarkdown(string markdown, int width)
+        {
+            // Rendered on every frame, so lay each reply out once per text, width, and theme.
+            string key = width + "|" + Theme.Name + "|" + Theme.AsciiGlyphs + "|" + markdown.Length + "|" + markdown.GetHashCode();
+            if (_Markdown.TryGetValue(key, out IReadOnlyList<StyledText>? cached)) return cached;
+            if (_Markdown.Count > 500) _Markdown.Clear();
+            IReadOnlyList<StyledText> lines = ArmadaMarkdown.Render(markdown, width, Theme);
+            _Markdown[key] = lines;
+            return lines;
+        }
+
+        private List<StyledText> MessageLines(PlanningSessionMessage m, bool streaming, bool cursor, int width)
         {
             List<StyledText> lines = new List<StyledText>();
             bool assistant = PlanningLogic.IsAssistant(m);
@@ -327,7 +339,7 @@ namespace Armada.Tui.Screens.Operations
                     }
                 }
 
-                if (!String.IsNullOrWhiteSpace(m.Content)) lines.AddRange(MarkdownRenderer.Render(m.Content));
+                if (!String.IsNullOrWhiteSpace(m.Content)) lines.AddRange(RenderMarkdown(streaming ? ArmadaMarkdown.Streaming(m.Content) : m.Content, width));
                 else if (streaming) lines.Add(StyledText.From(T(_Owner.ThinkingPhrase), Theme.Info));
 
                 if (m.Metrics != null)

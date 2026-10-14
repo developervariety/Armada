@@ -16,6 +16,17 @@ All notable changes to Armada are documented in this file.
   so the menu bar shows Harbor's menus right away instead of only after switching away and back.
 - The header and About logo use a 256-pixel copy with high-quality scaling instead of shrinking the full-size image.
 
+### Terminal UI: width-aware Markdown (TUIKit 1.6.0)
+- Upgraded TUIKit to 1.6.0 (from 1.5.0). Every place the TUI shows Markdown now uses TUIKit's width-aware renderer
+  through one helper (`ArmadaMarkdown`), colored from the Armada theme and ASCII when ASCII glyphs are on: Ask replies,
+  Planning replies, mission descriptions and instructions, playbook previews, skill content, and other Markdown
+  viewers. GFM tables are drawn with borders and content-sized columns, nested lists and quotes keep their indent,
+  and the layout follows the panel width and reflows on resize instead of hard-wrapping each source line.
+- Mission logs render as Markdown, as on the dashboard; `r` shows the raw log and `y` still copies it raw.
+- The runbook Overview panel renders the overview Markdown instead of showing the raw text.
+- While Ask and Planning replies stream, a half-received table row is held back until its line is complete, so table
+  columns do not jump on every chunk.
+
 ### Synthetic activity load generator
 - Add a .NET 8/10 CLI with database/API targets and configurable density, entropy, seed and fixed history window.
 - Generate terminal missions, API history, events, read signals, Harbor jobs/link metrics and scoped tokens for all activity charts, with replayable profiles and recent-hour coverage.

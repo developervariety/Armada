@@ -10,8 +10,8 @@ namespace Armada.Tui.Widgets
 
     /// <summary>
     /// Detail pages' labeled values in sections (the dashboard's detail panels): a cursor row moves with Up/Down,
-    /// <c>y</c> raises <see cref="CopyRequested"/> with the row's value (IDs, branches, paths), long values wrap, and
-    /// values can carry a status style. Not thread-safe.
+    /// <c>y</c> raises <see cref="CopyRequested"/> with the row's value (IDs, branches, paths), long values wrap,
+    /// values can carry a status style, and Markdown values are laid out at the value column's width. Not thread-safe.
     /// </summary>
     public class DetailView : ArmadaWidget
     {
@@ -37,6 +37,7 @@ namespace Armada.Tui.Widgets
         private readonly List<DetailRow> _Rows = new List<DetailRow>();
         private int _Cursor = 0;
         private int _Scroll = 0;
+        private readonly Dictionary<DetailRow, KeyValuePair<int, IReadOnlyList<StyledText>>> _Markdown = new Dictionary<DetailRow, KeyValuePair<int, IReadOnlyList<StyledText>>>();
 
         #endregion
 
@@ -48,6 +49,7 @@ namespace Armada.Tui.Widgets
         public void Clear()
         {
             _Rows.Clear();
+            _Markdown.Clear();
             _Cursor = 0;
             _Scroll = 0;
         }
@@ -70,6 +72,16 @@ namespace Armada.Tui.Widgets
         public void Add(string label, string? value, Func<ArmadaTheme, CellStyle>? style = null)
         {
             _Rows.Add(new DetailRow(label, value, style, false));
+        }
+
+        /// <summary>
+        /// Add a labeled Markdown value, rendered at the value column's width; <c>y</c> copies the raw Markdown.
+        /// </summary>
+        /// <param name="label">English label.</param>
+        /// <param name="markdown">Markdown, or null for a dash.</param>
+        public void AddMarkdown(string label, string? markdown)
+        {
+            _Rows.Add(new DetailRow(label, markdown, null, false, true));
         }
 
         /// <summary>
@@ -128,7 +140,10 @@ namespace Armada.Tui.Widgets
             List<KeyValuePair<DetailRow, List<string>>> laid = new List<KeyValuePair<DetailRow, List<string>>>();
             foreach (DetailRow row in _Rows)
             {
-                List<string> lines = row.IsSection ? new List<string> { T(row.Label) } : TextCells.Wrap(String.IsNullOrEmpty(row.Value) ? "-" : row.Value, valueWidth);
+                IReadOnlyList<StyledText>? markdown = MarkdownLines(row, valueWidth);
+                List<string> lines = row.IsSection ? new List<string> { T(row.Label) }
+                    : markdown != null ? markdown.Select(l => l.ToPlainString()).ToList()
+                    : TextCells.Wrap(String.IsNullOrEmpty(row.Value) ? "-" : row.Value, valueWidth);
                 laid.Add(new KeyValuePair<DetailRow, List<string>>(row, lines));
             }
 
@@ -169,7 +184,9 @@ namespace Armada.Tui.Widgets
                     {
                         if (cursor) SurfaceText.FillRow(surface, 0, y, width, Theme.SelectionInactive);
                         if (i == 0) SurfaceText.Draw(surface, 0, y, T(row.Label), cursor ? Theme.SelectionInactive : Theme.Muted, labelWidth - 1);
-                        SurfaceText.Draw(surface, labelWidth, y, entry.Value[i], cursor ? valueStyle.WithBackground(Theme.SelectionInactive.Background) : valueStyle, valueWidth);
+                        CellStyle drawStyle = cursor ? valueStyle.WithBackground(Theme.SelectionInactive.Background) : valueStyle;
+                        if (row.IsMarkdown && _Markdown.TryGetValue(row, out KeyValuePair<int, IReadOnlyList<StyledText>> md) && i < md.Value.Count) surface.DrawStyledText(labelWidth, y, md.Value[i], drawStyle);
+                        else SurfaceText.Draw(surface, labelWidth, y, entry.Value[i], drawStyle, valueWidth);
                     }
 
                     y++;
@@ -177,6 +194,29 @@ namespace Armada.Tui.Widgets
 
                 valueIndex++;
             }
+        }
+
+        #endregion
+
+        #region Protected-Methods
+
+        /// <inheritdoc />
+        protected override void OnThemeChanged(ArmadaTheme theme)
+        {
+            _Markdown.Clear();
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private IReadOnlyList<StyledText>? MarkdownLines(DetailRow row, int width)
+        {
+            if (!row.IsMarkdown || String.IsNullOrWhiteSpace(row.Value)) return null;
+            if (_Markdown.TryGetValue(row, out KeyValuePair<int, IReadOnlyList<StyledText>> cached) && cached.Key == width) return cached.Value;
+            IReadOnlyList<StyledText> lines = ArmadaMarkdown.Render(row.Value, width, Theme);
+            _Markdown[row] = new KeyValuePair<int, IReadOnlyList<StyledText>>(width, lines);
+            return lines;
         }
 
         #endregion

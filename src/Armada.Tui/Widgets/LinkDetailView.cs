@@ -57,6 +57,17 @@ namespace Armada.Tui.Widgets
         }
 
         /// <summary>
+        /// Add a Markdown row, rendered at the value column's width.
+        /// </summary>
+        /// <param name="label">English label.</param>
+        /// <param name="markdown">Markdown, or null for a dash.</param>
+        public void Markdown(string label, string? markdown)
+        {
+            AddMarkdown(label, markdown);
+            _Actions.Add(null);
+        }
+
+        /// <summary>
         /// Add a row that runs an action on Enter (drawn as a link when an action is given).
         /// </summary>
         /// <param name="label">English label.</param>

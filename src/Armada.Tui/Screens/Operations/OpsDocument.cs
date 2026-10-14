@@ -33,6 +33,15 @@ namespace Armada.Tui.Screens.Operations
         }
 
         /// <summary>
+        /// Width the document is laid out at, in columns (Markdown is laid out at it). Default 80.
+        /// </summary>
+        public int Width
+        {
+            get { return _Width; }
+            set { _Width = Math.Max(1, value); }
+        }
+
+        /// <summary>
         /// Palette.
         /// </summary>
         public ArmadaTheme Theme { get; }
@@ -47,6 +56,7 @@ namespace Armada.Tui.Screens.Operations
         #region Private-Members
 
         private int _LabelWidth = 22;
+        private int _Width = 80;
 
         #endregion
 
@@ -145,14 +155,14 @@ namespace Armada.Tui.Screens.Operations
         }
 
         /// <summary>
-        /// Add rendered Markdown.
+        /// Add Markdown laid out at <see cref="Width"/>.
         /// </summary>
         /// <param name="markdown">Markdown.</param>
         /// <returns>This builder.</returns>
         public OpsDocument Markdown(string? markdown)
         {
             if (String.IsNullOrWhiteSpace(markdown)) return this;
-            Lines.AddRange(MarkdownRenderer.Render(markdown!));
+            Lines.AddRange(ArmadaMarkdown.Render(markdown, _Width, Theme));
             return this;
         }
 

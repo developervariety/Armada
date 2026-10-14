@@ -353,7 +353,7 @@ namespace Armada.Tui.Screens.Delivery
             Overview.Row("Runbook ID", r.Id, t => t.Code);
             Overview.Link("Playbook ID", r.PlaybookId, !String.IsNullOrEmpty(r.PlaybookId) ? () => Context.Navigate("/playbooks/" + r.PlaybookId) : (Action?)null);
             Overview.Section("Overview Markdown");
-            Overview.Row("Overview Markdown", EntityUi.Dash(r.OverviewMarkdown));
+            Overview.Markdown("Overview Markdown", r.OverviewMarkdown);
 
             ExecutionGrid.SetLocalRows(_Executions);
 

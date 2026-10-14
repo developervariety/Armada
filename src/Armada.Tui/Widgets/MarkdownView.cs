@@ -2,12 +2,13 @@ namespace Armada.Tui.Widgets
 {
     using System;
     using System.Collections.Generic;
+    using Armada.Tui.Text;
+    using Armada.Tui.Theming;
     using TUIKit;
-    using TUIKit.Content;
 
     /// <summary>
-    /// Renders Markdown (descriptions, summaries, playbooks, assistant replies) with TUIKit's renderer, wrapped to the
-    /// width and scrollable. <see cref="PlainText"/> is the raw Markdown (copy raw). Not thread-safe.
+    /// Renders Markdown (descriptions, summaries, playbooks, assistant replies) with TUIKit's width-aware renderer, laid
+    /// out at the view's width (it reflows on resize) and scrollable. <see cref="PlainText"/> is the raw Markdown (copy raw). Not thread-safe.
     /// </summary>
     public class MarkdownView : ScrollTextView
     {
@@ -58,8 +59,19 @@ namespace Armada.Tui.Widgets
         /// <inheritdoc />
         protected override IReadOnlyList<StyledText> BuildLines()
         {
-            if (String.IsNullOrWhiteSpace(_Markdown)) return new List<StyledText>();
-            return MarkdownRenderer.Render(_Markdown);
+            return BuildLines(80);
+        }
+
+        /// <inheritdoc />
+        protected override IReadOnlyList<StyledText> BuildLines(int width)
+        {
+            return ArmadaMarkdown.Render(_Markdown, width, Theme);
+        }
+
+        /// <inheritdoc />
+        protected override void OnThemeChanged(ArmadaTheme theme)
+        {
+            Invalidate();
         }
 
         #endregion

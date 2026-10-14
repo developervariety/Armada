@@ -257,6 +257,17 @@ namespace Armada.Tui.Widgets
         protected abstract IReadOnlyList<StyledText> BuildLines();
 
         /// <summary>
+        /// Build the styled lines for a known width. Override when the layout depends on the width (Markdown); rows
+        /// wider than the width are still wrapped. Defaults to <see cref="BuildLines()"/>.
+        /// </summary>
+        /// <param name="width">Width in columns.</param>
+        /// <returns>Lines.</returns>
+        protected virtual IReadOnlyList<StyledText> BuildLines(int width)
+        {
+            return BuildLines();
+        }
+
+        /// <summary>
         /// English text shown when there is no content.
         /// </summary>
         /// <returns>Text.</returns>
@@ -282,7 +293,7 @@ namespace Armada.Tui.Widgets
         {
             if (!_Dirty && width == _WrappedWidth) return;
             _Wrapped = new List<StyledText>();
-            foreach (StyledText line in BuildLines())
+            foreach (StyledText line in BuildLines(width))
             {
                 IReadOnlyList<StyledText> rows = line.Width <= width ? new List<StyledText> { line } : TextWrapper.Wrap(line, Math.Max(1, width));
                 _Wrapped.AddRange(rows);

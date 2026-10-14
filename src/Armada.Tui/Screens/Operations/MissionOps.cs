@@ -68,7 +68,7 @@ namespace Armada.Tui.Screens.Operations
         }
 
         /// <summary>
-        /// View a mission's log (line count, follow, copy).
+        /// View a mission's log (line count, follow, copy), rendered as Markdown like the dashboard (<c>r</c> shows it raw).
         /// </summary>
         /// <param name="id">Mission id.</param>
         /// <param name="title">Viewer title (translated).</param>
@@ -87,6 +87,7 @@ namespace Armada.Tui.Screens.Operations
                 ctx.Loc,
                 ctx.Theme.Current,
                 onTick);
+            modal.Viewer.Markdown = true;
             ctx.Modals.Show(modal, r => modal.Dispose());
             return modal;
         }

@@ -31,6 +31,11 @@ namespace Armada.Tui.Widgets
         /// </summary>
         public bool IsSection { get; }
 
+        /// <summary>
+        /// True when the value is Markdown, laid out at the value column's width.
+        /// </summary>
+        public bool IsMarkdown { get; }
+
         #endregion
 
         #region Constructors-and-Factories
@@ -43,11 +48,25 @@ namespace Armada.Tui.Widgets
         /// <param name="style">Style selector.</param>
         /// <param name="isSection">Section heading.</param>
         public DetailRow(string label, string? value, Func<ArmadaTheme, CellStyle>? style, bool isSection)
+            : this(label, value, style, isSection, false)
+        {
+        }
+
+        /// <summary>
+        /// Instantiate.
+        /// </summary>
+        /// <param name="label">Label.</param>
+        /// <param name="value">Value.</param>
+        /// <param name="style">Style selector.</param>
+        /// <param name="isSection">Section heading.</param>
+        /// <param name="isMarkdown">The value is Markdown.</param>
+        public DetailRow(string label, string? value, Func<ArmadaTheme, CellStyle>? style, bool isSection, bool isMarkdown)
         {
             Label = label ?? "";
             Value = value;
             Style = style;
             IsSection = isSection;
+            IsMarkdown = isMarkdown;
         }
 
         #endregion

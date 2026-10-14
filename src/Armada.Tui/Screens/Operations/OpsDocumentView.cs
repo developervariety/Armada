@@ -45,6 +45,12 @@ namespace Armada.Tui.Screens.Operations
         /// <inheritdoc />
         protected override IReadOnlyList<StyledText> BuildLines()
         {
+            return BuildLines(80);
+        }
+
+        /// <inheritdoc />
+        protected override IReadOnlyList<StyledText> BuildLines(int width)
+        {
             if (Builder == null)
             {
                 _Last = new List<StyledText>();
@@ -52,6 +58,7 @@ namespace Armada.Tui.Screens.Operations
             }
 
             OpsDocument doc = new OpsDocument(Theme, Localizer);
+            doc.Width = width;
             _Last = Builder(doc).Lines;
             return _Last;
         }

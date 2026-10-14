@@ -4,6 +4,8 @@ namespace Test.Shared.Suites.Tui
     using System.Collections.Generic;
     using System.Linq;
     using Armada.Tui.Modals;
+    using Armada.Tui.Text;
+    using Armada.Tui.Theming;
     using Armada.Tui.Widgets;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
@@ -15,6 +17,7 @@ namespace Test.Shared.Suites.Tui
     using ButtonRow = Armada.Tui.Widgets.ButtonRow;
     using ChartSeries = Armada.Tui.Widgets.ChartSeries;
     using FocusScope = Armada.Tui.Widgets.FocusScope;
+    using MarkdownView = Armada.Tui.Widgets.MarkdownView;
     using static Test.Shared.Infrastructure.Asserts;
 
     /// <summary>
@@ -285,6 +288,44 @@ namespace Test.Shared.Suites.Tui
                 chart.Labels.AddRange(new[] { "Mon", "Tue", "Wed", "Thu" });
                 AssertTrue(Snapshot.RenderWidget(chart, 40, 8).Contains("Complete: 11"), "legend total");
                 AssertTrue(chart.ToTextTable().Contains("Thu\t5"), "text table");
+            }));
+
+            cases.Add(TuiCase.Sync(Suite, "markdown", "Markdown is laid out at the view's width (tables, lists, logs, detail rows)", () =>
+            {
+                string table = "# Report\n\n| Key | Value |\n|---|---|\n| alpha | the first entry in this table |\n| beta | two |\n\n- outer\n  - inner item";
+                MarkdownView md = new MarkdownView(table);
+                string wide = Snapshot.RenderWidget(md, 60, 14);
+                AssertFalse(wide.Contains("|---|"), "table separator rendered, not shown raw");
+                AssertTrue(wide.Split('\n').Any(l => l.Contains("alpha") && l.Contains("the first entry")), "table row on one line when it fits");
+                AssertFalse(wide.Contains("# Report"), "heading marker hidden");
+                AssertTrue(wide.Contains("inner item"), "nested list");
+                AssertEqual(table, md.PlainText, "copy keeps the raw Markdown");
+
+                IReadOnlyList<StyledText> narrow = ArmadaMarkdown.Render(table, 24, new ArmadaTheme());
+                AssertTrue(narrow.All(l => l.Width <= 24), "no row wider than the width");
+                IReadOnlyList<StyledText> ascii = ArmadaMarkdown.Render(table, 40, new ArmadaTheme { AsciiGlyphs = true });
+                AssertTrue(ascii.All(l => l.ToPlainString().All(c => c < 128)), "ASCII theme draws ASCII glyphs");
+                AssertEqual(0, ArmadaMarkdown.Render("  ", 40, new ArmadaTheme()).Count, "blank renders nothing");
+                AssertEqual("| A | B |\n|---|---|\n", ArmadaMarkdown.Streaming("| A | B |\n|---|---|\n| 1 | tw"), "half-received table row held back");
+                AssertEqual("Some **text", ArmadaMarkdown.Streaming("Some **text"), "other partial lines render as they arrive");
+                AssertEqual("", ArmadaMarkdown.Streaming("| A"), "a lone partial row renders nothing yet");
+
+                LogViewer log = new LogViewer();
+                log.Markdown = true;
+                log.SetText("## Step\n\n| A | B |\n|---|---|\n| 1 | 2 |");
+                AssertFalse(Snapshot.RenderWidget(log, 40, 8).Contains("|---|"), "mission log rendered as Markdown");
+                log.HandleKey(KeyEvent.Char('r'));
+                AssertTrue(Snapshot.RenderWidget(log, 40, 8).Contains("|---|"), "r shows the raw log");
+                AssertTrue(log.PlainText.Contains("|---|"), "copy keeps the raw log");
+
+                LinkDetailView detail = new LinkDetailView();
+                detail.Section("Overview Markdown");
+                detail.Markdown("Overview", "**Restart** the `api` service\n\n1. drain\n2. restart");
+                string rendered = Snapshot.RenderWidget(detail, 60, 8);
+                AssertTrue(rendered.Contains("Restart the api service"), "inline Markdown rendered");
+                AssertFalse(rendered.Contains("**"), "emphasis markers hidden");
+                AssertTrue(rendered.Contains("restart"), "list rendered");
+                AssertEqual("**Restart** the `api` service\n\n1. drain\n2. restart", detail.CurrentValue(), "copy keeps the raw Markdown");
             }));
 
             cases.Add(TuiCase.Sync(Suite, "dialogs", "Confirm (typed delete) and error dialogs", () =>

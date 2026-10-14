@@ -157,26 +157,20 @@ namespace Armada.Tui.Screens.Ask
         }
 
         /// <summary>
-        /// Render Markdown wrapped to a width (cached).
+        /// Render Markdown laid out at a width (cached per text, width, and theme).
         /// </summary>
         /// <param name="markdown">Markdown.</param>
         /// <param name="width">Width.</param>
+        /// <param name="theme">Theme.</param>
         /// <returns>Lines.</returns>
-        public List<StyledText> Markdown(string markdown, int width)
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="theme"/> is null.</exception>
+        public List<StyledText> Markdown(string markdown, int width, ArmadaTheme theme)
         {
+            if (theme == null) throw new ArgumentNullException(nameof(theme));
             string text = markdown ?? "";
-            string key = width + "|" + text.Length + "|" + text.GetHashCode();
+            string key = width + "|" + theme.Name + "|" + theme.AsciiGlyphs + "|" + text.Length + "|" + text.GetHashCode();
             if (_Markdown.TryGetValue(key, out List<StyledText>? cached)) return cached;
-            List<StyledText> lines = new List<StyledText>();
-            if (text.Trim().Length > 0)
-            {
-                foreach (StyledText line in MarkdownRenderer.Render(text))
-                {
-                    if (line.Width <= width) lines.Add(line);
-                    else lines.AddRange(TextWrapper.Wrap(line, Math.Max(1, width)));
-                }
-            }
-
+            List<StyledText> lines = new List<StyledText>(ArmadaMarkdown.Render(text, width, theme));
             _Markdown[key] = lines;
             return lines;
         }
@@ -368,12 +362,12 @@ namespace Armada.Tui.Screens.Ask
             {
                 if (text.Length > 0 && (proposal == null || String.IsNullOrEmpty(proposal.SummaryText))) lines.AddRange(AskCardRenderer.Para(text, theme.Muted, w));
                 if (proposal != null) AddConfirmCard(block, lines, proposal, false, view, ask, theme, loc, nowUtc, w);
-                else lines.AddRange(Markdown(text.Length > 0 ? text : loc.T("A proposed action is loading..."), w));
+                else lines.AddRange(Markdown(text.Length > 0 ? text : loc.T("A proposed action is loading..."), w, theme));
             }
             else if (message.Kind == AskMessageKindEnum.ActionResult)
             {
                 lines.Add(Header(StyledText.From("* " + loc.T("Action result"), theme.Accent.WithAttribute(CellAttributes.Bold, true)), when, theme, w));
-                lines.AddRange(Markdown(text, w));
+                lines.AddRange(Markdown(text, w, theme));
                 if (proposal != null) AddConfirmCard(block, lines, proposal, true, view, ask, theme, loc, nowUtc, w);
             }
             else if (message.Kind == AskMessageKindEnum.WorkUpdate)
@@ -386,12 +380,12 @@ namespace Armada.Tui.Screens.Ask
                 }
 
                 lines.Add(Header(head, when, theme, w));
-                foreach (StyledText line in Markdown(text, w - 2)) lines.Add(StyledText.From("  ", theme.Muted).Append(line));
+                foreach (StyledText line in Markdown(text, w - 2, theme)) lines.Add(StyledText.From("  ", theme.Muted).Append(line));
             }
             else if (message.Kind == AskMessageKindEnum.Summary)
             {
                 lines.Add(Header(StyledText.From("= " + loc.T("Conversation summary"), theme.Accent.WithAttribute(CellAttributes.Bold, true)), when, theme, w));
-                lines.AddRange(Markdown(text, w));
+                lines.AddRange(Markdown(text, w, theme));
             }
             else if (message.Kind == AskMessageKindEnum.CliPermission)
             {
@@ -419,7 +413,7 @@ namespace Armada.Tui.Screens.Ask
             }
             else if (message.Role == AskMessageRoleEnum.System)
             {
-                lines.AddRange(Markdown(text, w).Select(l => l.Style(theme.Muted)));
+                lines.AddRange(Markdown(text, w, theme).Select(l => l.Style(theme.Muted)));
             }
             else
             {
@@ -439,7 +433,7 @@ namespace Armada.Tui.Screens.Ask
                 if (view.ExpandedStats.Contains(block.Key)) lines.AddRange(Statistics(message, theme, loc, w));
                 if (!String.IsNullOrWhiteSpace(message.ThinkingText)) lines.AddRange(Thinking(message.ThinkingText!, view.ExpandedThinking.Contains(block.Key), false, theme, loc, w));
                 if (proposal != null) AddConfirmCard(block, lines, proposal, false, view, ask, theme, loc, nowUtc, w);
-                lines.AddRange(Markdown(text, w));
+                lines.AddRange(Markdown(text, w, theme));
             }
 
             if (hostsCard && workId != null)
@@ -467,7 +461,7 @@ namespace Armada.Tui.Screens.Ask
             block.Lines.Add(head);
             block.Lines.Add(StyledText.From("  " + stream.Metrics(nowUtc).Describe(loc.T("first token"), loc.T("tok/s"), loc.T("tokens"), loc.T("total")), theme.Muted));
             if (stream.ThinkingLength > 0) block.Lines.AddRange(Thinking(stream.Thinking, !stream.Finished || view.ExpandedThinking.Contains("stream"), !stream.Finished, theme, loc, w));
-            if (text.Length > 0) block.Lines.AddRange(Markdown(text, w));
+            if (text.Length > 0) block.Lines.AddRange(Markdown(stream.Finished ? text : ArmadaMarkdown.Streaming(text), w, theme));
             if (!stream.Finished && text.Length > 0) block.Lines.Add(StyledText.From("_", theme.Accent));
             block.Lines.Add(StyledText.Empty);
             return block;
