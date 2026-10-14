@@ -2054,7 +2054,7 @@ namespace Armada.Server
                         // rest of this block, so it only runs for SQLite and each step is isolated.
                         if (_DataExpiry != null)
                         {
-                            try { await _DataExpiry.PurgeExpiredDataAsync(token).ConfigureAwait(false); }
+                            try { _DataExpiry.RetentionDays = _Settings.DataRetentionDays; await _DataExpiry.PurgeExpiredDataAsync(token).ConfigureAwait(false); }
                             catch (Exception expiryEx) when (!(expiryEx is OperationCanceledException)) { _Logging.Warn(_Header + "data expiry error: " + expiryEx.Message); }
                         }
 

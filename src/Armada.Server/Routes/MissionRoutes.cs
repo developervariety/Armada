@@ -318,8 +318,8 @@ namespace Armada.Server.Routes
                 }
 
                 MissionHistoryQuery query = new MissionHistoryQuery();
-                if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc)) query.FromUtc = fromUtc.ToUniversalTime();
-                if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc)) query.ToUtc = toUtc.ToUniversalTime();
+                if (DateTime.TryParse(Uri.UnescapeDataString(req.Query.GetValueOrDefault("fromUtc") ?? ""), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTime fromUtc)) query.FromUtc = fromUtc.ToUniversalTime();
+                if (DateTime.TryParse(Uri.UnescapeDataString(req.Query.GetValueOrDefault("toUtc") ?? ""), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTime toUtc)) query.ToUtc = toUtc.ToUniversalTime();
                 if (int.TryParse(req.Query.GetValueOrDefault("bucketMinutes"), out int bucketMinutes) && bucketMinutes > 0) query.BucketMinutes = bucketMinutes;
                 string? fleetId = req.Query.GetValueOrDefault("fleetId");
                 if (!String.IsNullOrEmpty(fleetId)) query.FleetId = fleetId;

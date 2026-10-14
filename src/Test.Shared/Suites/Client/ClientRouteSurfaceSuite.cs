@@ -28,6 +28,7 @@ namespace Test.Shared.Suites.Client
         /// </summary>
         private static readonly Dictionary<string, string> _NonSurfaceRequests = new Dictionary<string, string>(StringComparer.Ordinal)
         {
+            ["POST /api/v1/activity/synthetic"] = "Additive admin-only historical screenshot activity generation, outside the frozen 1.0 surface",
             ["POST /api/v1/token-usage/synthetic"] = "Additive admin-only synthetic data import, outside the frozen 1.0 surface",
             ["GET /dashboard/i18n/armada.json"] = "Static i18n catalog served with the dashboard, not a REST route",
             ["GET /proxy-api/v1/session/context"] = "Armada.Proxy route; against an Admiral the client reads 404 as not behind the proxy",

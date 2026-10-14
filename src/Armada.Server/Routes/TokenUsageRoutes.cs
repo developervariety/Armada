@@ -107,6 +107,26 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<TokenUsageRecord>>("Paginated token-usage records"))
                 .WithSecurity("ApiKey"));
 
+            app.Post<SyntheticActivityRequest>("/api/v1/activity/synthetic", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+                if (!ctx.IsAdmin) { req.Http.Response.StatusCode = 403; return BuildAuthError(req); }
+                try
+                {
+                    SyntheticActivityRequest body = JsonSerializer.Deserialize<SyntheticActivityRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                        ?? throw new ArgumentException("Synthetic activity profile is required.");
+                    return (object)await SyntheticActivityGenerator.GenerateAsync(_database, body, ctx.TenantId!, ctx.UserId!).ConfigureAwait(false);
+                }
+                catch (ArgumentException ex) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message }; }
+                catch (JsonException) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid synthetic activity JSON." }; }
+            }, api => api.WithTag("SyntheticActivity")
+                .WithSummary("Generate historical synthetic activity for screenshots")
+                .WithDescription("Global admin only. Generates terminal missions, requests, events, read signals, and disabled screenshot Harbor metrics without executing work. Fixed profiles replay without overwriting existing records.")
+                .WithRequestBody(OpenApiJson.BodyFor<SyntheticActivityRequest>("Generation profile", true))
+                .WithResponse(200, OpenApiJson.For<SyntheticActivityResult>("Generation receipt"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest()).WithSecurity("ApiKey"));
+
             app.Post<TokenUsageSyntheticRequest>("/api/v1/token-usage/synthetic", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);

@@ -45,6 +45,27 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("retention_live_update", "Changing active retention preserves screenshot history and validates negative input", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission mission = new Mission { Title = "Synthetic retention test", Status = MissionStatusEnum.Complete, CreatedUtc = DateTime.UtcNow.AddDays(-46), CompletedUtc = DateTime.UtcNow.AddDays(-45) };
+                    await testDb.Driver.Missions.CreateAsync(mission);
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    DataExpiryService service = new DataExpiryService(logging, testDb.ConnectionString, 30);
+                    service.RetentionDays = 60;
+                    await service.PurgeExpiredDataAsync();
+                    AssertNotNull(await testDb.Driver.Missions.ReadAsync(mission.Id));
+                    bool rejected = false;
+                    try { service.RetentionDays = -1; } catch (ArgumentOutOfRangeException) { rejected = true; }
+                    AssertTrue(rejected);
+                    service.RetentionDays = 30;
+                    await service.PurgeExpiredDataAsync();
+                    AssertNull(await testDb.Driver.Missions.ReadAsync(mission.Id));
+                }
+            }));
+
             cases.Add(CaseAsync("purge_removes_old_completed_voyages_and_missions", "PurgeExpiredDataAsync RemovesOldCompletedVoyagesAndMissions", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

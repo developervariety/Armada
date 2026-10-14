@@ -482,6 +482,14 @@ namespace Armada.Server.Routes
                 SettingsUpdateRequest body = JsonSerializer.Deserialize<SettingsUpdateRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as SettingsUpdateRequest.");
 
+                if (body.DataRetentionDays < 0 || body.RequestHistoryRetentionDays < 0)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Retention days must be non-negative; zero disables expiry." };
+                }
+                if (body.DataRetentionDays.HasValue) _settings.DataRetentionDays = body.DataRetentionDays.Value;
+                if (body.RequestHistoryRetentionDays.HasValue) _settings.RequestHistoryRetentionDays = body.RequestHistoryRetentionDays.Value;
+
                 if (body.AdmiralPort.HasValue)
                     _settings.AdmiralPort = body.AdmiralPort.Value;
 
@@ -694,6 +702,8 @@ namespace Armada.Server.Routes
         {
             return new
             {
+                DataRetentionDays = _settings.DataRetentionDays,
+                RequestHistoryRetentionDays = _settings.RequestHistoryRetentionDays,
                 AdmiralPort = _settings.AdmiralPort,
                 McpPort = _settings.McpPort,
                 MaxCaptains = _settings.MaxCaptains,

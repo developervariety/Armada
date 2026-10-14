@@ -3,6 +3,7 @@ namespace Armada.Server.Routes
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.Globalization;
     using System.Linq;
     using System.Text.Json;
     using WatsonWebserver;
@@ -271,9 +272,9 @@ namespace Armada.Server.Routes
                 query.IsSuccess = isSuccess;
             }
 
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc))
+            if (DateTime.TryParse(Uri.UnescapeDataString(req.Query.GetValueOrDefault("fromUtc") ?? ""), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))
+            if (DateTime.TryParse(Uri.UnescapeDataString(req.Query.GetValueOrDefault("toUtc") ?? ""), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
 
             return query;
@@ -318,7 +319,7 @@ namespace Armada.Server.Routes
 
         private static string? NormalizeEmpty(string? value)
         {
-            return String.IsNullOrWhiteSpace(value) ? null : value;
+            return String.IsNullOrWhiteSpace(value) ? null : Uri.UnescapeDataString(value);
         }
 
     }
