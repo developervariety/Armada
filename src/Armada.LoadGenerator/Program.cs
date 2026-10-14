@@ -78,7 +78,7 @@ namespace Armada.LoadGenerator
                     Density = Double.Parse(options.GetValueOrDefault("--density", "1"), CultureInfo.InvariantCulture),
                     Entropy = Double.Parse(options.GetValueOrDefault("--entropy", "1"), CultureInfo.InvariantCulture),
                     Seed = options.TryGetValue("--seed", out string? seed) ? Int32.Parse(seed, CultureInfo.InvariantCulture) : RandomNumberGenerator.GetInt32(Int32.MaxValue),
-                    ToUtc = options.TryGetValue("--to-utc", out string? to) ? DateTime.Parse(to, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal) : DateTime.UtcNow
+                    ToUtc = options.TryGetValue("--to-utc", out string? to) ? DateTime.Parse(to, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal) : DateTime.UtcNow.AddSeconds(-30)
                 };
                 SyntheticActivityGenerator.Validate(profile, DateTime.UtcNow);
                 if (profilePath != null) await File.WriteAllTextAsync(profilePath, JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true }), token).ConfigureAwait(false);
