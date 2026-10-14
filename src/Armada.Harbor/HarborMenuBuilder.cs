@@ -97,6 +97,11 @@ namespace Armada.Harbor
                 if (item.IsEnabled != enabled) item.IsEnabled = enabled;
                 string? tip = enabled ? null : _Host.DisabledReason(command);
                 if (!String.Equals(item.ToolTip, tip, StringComparison.Ordinal)) item.ToolTip = tip;
+                if (item.ToggleType == NativeMenuItemToggleType.Radio)
+                {
+                    bool isChecked = _Host.IsChecked(command);
+                    if (item.IsChecked != isChecked) item.IsChecked = isChecked;
+                }
             }
 
             string status = _Host.StatusLine;
@@ -132,7 +137,14 @@ namespace Armada.Harbor
                 else if (entry.Command.HasValue)
                 {
                     // Tray items get no shortcut: shortcuts work only while a Harbor window is focused.
-                    menu.Items.Add(Item(entry.Header, entry.Command.Value, tray ? HarborMenuKeyEnum.None : entry.Key));
+                    NativeMenuItem item = Item(entry.Header, entry.Command.Value, tray ? HarborMenuKeyEnum.None : entry.Key, entry.Shift);
+                    if (entry.IsRadio)
+                    {
+                        item.ToggleType = NativeMenuItemToggleType.Radio;
+                        item.IsChecked = _Host.IsChecked(entry.Command.Value);
+                    }
+
+                    menu.Items.Add(item);
                 }
             }
 
@@ -144,25 +156,32 @@ namespace Armada.Harbor
             switch (key)
             {
                 case HarborMenuKeyEnum.Comma: return Key.OemComma;
+                case HarborMenuKeyEnum.A: return Key.A;
+                case HarborMenuKeyEnum.C: return Key.C;
                 case HarborMenuKeyEnum.D: return Key.D;
                 case HarborMenuKeyEnum.I: return Key.I;
                 case HarborMenuKeyEnum.L: return Key.L;
                 case HarborMenuKeyEnum.M: return Key.M;
                 case HarborMenuKeyEnum.Q: return Key.Q;
                 case HarborMenuKeyEnum.R: return Key.R;
+                case HarborMenuKeyEnum.V: return Key.V;
                 case HarborMenuKeyEnum.W: return Key.W;
+                case HarborMenuKeyEnum.X: return Key.X;
+                case HarborMenuKeyEnum.Z: return Key.Z;
                 default: return null;
             }
         }
 
-        private NativeMenuItem Item(string header, HarborMenuCommandEnum command, HarborMenuKeyEnum shortcut)
+        private NativeMenuItem Item(string header, HarborMenuCommandEnum command, HarborMenuKeyEnum shortcut, bool shift)
         {
             NativeMenuItem item = new NativeMenuItem { Header = header };
             Key? key = ToKey(shortcut);
             if (key.HasValue)
             {
                 // Command on macOS, Control elsewhere.
-                item.Gesture = new KeyGesture(key.Value, _IsMacOS ? KeyModifiers.Meta : KeyModifiers.Control);
+                KeyModifiers modifiers = _IsMacOS ? KeyModifiers.Meta : KeyModifiers.Control;
+                if (shift) modifiers |= KeyModifiers.Shift;
+                item.Gesture = new KeyGesture(key.Value, modifiers);
             }
 
             item.Click += (sender, args) =>

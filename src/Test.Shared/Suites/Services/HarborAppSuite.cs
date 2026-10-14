@@ -57,17 +57,23 @@ namespace Test.Shared.Suites.Services
                         AssertEqual(1, trayCommands.Count(c => c == window), window + " appears once in the tray");
                     }
 
-                    // Every command is reachable from the menu bar or the tray; window controls only on macOS.
+                    // Every command is reachable from the menu bar or the tray; window controls and the Edit menu only on
+                    // macOS (text fields elsewhere handle their own editing shortcuts).
+                    HashSet<HarborMenuCommandEnum> macOnly = new HashSet<HarborMenuCommandEnum>
+                    {
+                        HarborMenuCommandEnum.MinimizeWindow, HarborMenuCommandEnum.CloseWindow, HarborMenuCommandEnum.ZoomWindow,
+                        HarborMenuCommandEnum.BringAllToFront, HarborMenuCommandEnum.Undo, HarborMenuCommandEnum.Redo,
+                        HarborMenuCommandEnum.Cut, HarborMenuCommandEnum.Copy, HarborMenuCommandEnum.Paste, HarborMenuCommandEnum.SelectAll
+                    };
                     foreach (HarborMenuCommandEnum command in Enum.GetValues(typeof(HarborMenuCommandEnum)))
                     {
-                        bool windowControl = command == HarborMenuCommandEnum.MinimizeWindow || command == HarborMenuCommandEnum.CloseWindow;
                         bool reachable = barCommands.Contains(command) || trayCommands.Contains(command);
-                        if (windowControl && !isMacOS) AssertFalse(reachable, command + " is macOS-only");
+                        if (macOnly.Contains(command) && !isMacOS) AssertFalse(reachable, command + " is macOS-only");
                         else AssertTrue(reachable, command + " is reachable (macOS " + isMacOS + ")");
                     }
 
                     List<string> bars = bar.Select(entry => entry.Header).ToList();
-                    AssertEqual(isMacOS ? "Harbor,View,Window,Help" : "Harbor,View,Help", String.Join(",", bars), "menu bar menus");
+                    AssertEqual(isMacOS ? "Harbor,Edit,View,Window,Help" : "Harbor,View,Help", String.Join(",", bars), "menu bar menus");
                     AssertTrue(bar.All(entry => entry.Children != null), "the menu bar holds only submenus");
                 }
             }));
@@ -78,7 +84,7 @@ namespace Test.Shared.Suites.Services
                 {
                     List<HarborMenuEntry> entries = Flatten(HarborMenuLayout.WindowMenu(isMacOS));
                     if (isMacOS) entries.AddRange(Flatten(HarborMenuLayout.ApplicationMenu()));
-                    List<HarborMenuKeyEnum> keys = entries.Where(e => e.Key != HarborMenuKeyEnum.None).Select(e => e.Key).ToList();
+                    List<string> keys = entries.Where(e => e.Key != HarborMenuKeyEnum.None).Select(e => (e.Shift ? "Shift+" : "") + e.Key).ToList();
                     AssertEqual(keys.Count, keys.Distinct().Count(), "no shortcut is used twice (macOS " + isMacOS + ")");
                     AssertEqual(HarborMenuKeyEnum.Comma, entries.First(e => e.Command == HarborMenuCommandEnum.Settings).Key, "Settings is Command/Control+,");
                     AssertEqual(HarborMenuKeyEnum.L, entries.First(e => e.Command == HarborMenuCommandEnum.Logs).Key, "Logs is Command/Control+L");
@@ -86,6 +92,19 @@ namespace Test.Shared.Suites.Services
                     List<HarborMenuCommandEnum> harborMenu = Commands(HarborMenuLayout.WindowMenu(isMacOS)[0].Children!);
                     AssertEqual(!isMacOS, harborMenu.Contains(HarborMenuCommandEnum.Settings), "Settings in the Harbor menu only without an app menu");
                     AssertEqual(!isMacOS, harborMenu.Contains(HarborMenuCommandEnum.Quit), "Quit in the Harbor menu only without an app menu");
+                }
+
+                List<HarborMenuEntry> edit = HarborMenuLayout.WindowMenu(true).First(e => e.Header == "Edit").Children!;
+                AssertEqual(HarborMenuKeyEnum.C, edit.First(e => e.Command == HarborMenuCommandEnum.Copy).Key, "Copy is Command+C");
+                HarborMenuEntry redo = edit.First(e => e.Command == HarborMenuCommandEnum.Redo);
+                AssertTrue(redo.Key == HarborMenuKeyEnum.Z && redo.Shift, "Redo is Shift+Command+Z");
+
+                foreach (bool isMacOS in new bool[] { true, false })
+                {
+                    List<HarborMenuEntry> appearance = HarborMenuLayout.WindowMenu(isMacOS).First(e => e.Header == "View").Children!
+                        .First(e => e.Header == "Appearance").Children!;
+                    AssertEqual("AppearanceSystem,AppearanceLight,AppearanceDark", String.Join(",", Commands(appearance)), "View > Appearance offers System, Light, Dark (macOS " + isMacOS + ")");
+                    AssertTrue(appearance.All(e => e.IsRadio), "the appearance choices are a radio group");
                 }
 
                 List<HarborMenuEntry> tray = HarborMenuLayout.TrayMenu();

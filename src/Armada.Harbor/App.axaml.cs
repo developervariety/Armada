@@ -53,6 +53,7 @@ namespace Armada.Harbor
         #region Private-Members
 
         private const string _DocumentationUrl = "https://github.com/jchristn/armada#readme";
+        private const string _ReportIssueUrl = "https://github.com/jchristn/armada/issues/new";
         private const int _DiagnosticsActivityLines = 60;
 
         private HarborAppSettings? _Settings;
@@ -98,7 +99,10 @@ namespace Armada.Harbor
                 _Window = new MainWindow(_Settings);
                 _Session = new HarborSession(_Settings, _Window);
                 _Session.Changed += (sender, args) => RefreshMenus();
-                if (_Menus != null) NativeMenu.SetMenu(_Window, _Menus.BuildWindowMenu());
+                // Every Harbor window (main, Status, Settings, About, dialogs) carries the menu bar, so the macOS
+                // menu bar keeps its menus whichever window is in front.
+                Window.WindowOpenedEvent.AddClassHandler<Window>((window, args) => AttachWindowMenu(window));
+                AttachWindowMenu(_Window);
 
                 if (Program.StartMinimized)
                 {
@@ -144,10 +148,22 @@ namespace Armada.Harbor
                 case HarborMenuCommandEnum.About:
                 case HarborMenuCommandEnum.OpenHarborFolder:
                 case HarborMenuCommandEnum.Documentation:
+                case HarborMenuCommandEnum.ReportIssue:
                 case HarborMenuCommandEnum.Quit:
+                case HarborMenuCommandEnum.BringAllToFront:
+                case HarborMenuCommandEnum.Undo:
+                case HarborMenuCommandEnum.Redo:
+                case HarborMenuCommandEnum.Cut:
+                case HarborMenuCommandEnum.Copy:
+                case HarborMenuCommandEnum.Paste:
+                case HarborMenuCommandEnum.SelectAll:
                     return true;
+                case HarborMenuCommandEnum.AppearanceSystem:
+                case HarborMenuCommandEnum.AppearanceLight:
+                case HarborMenuCommandEnum.AppearanceDark:
                 case HarborMenuCommandEnum.Settings:
                 case HarborMenuCommandEnum.Status:
+                case HarborMenuCommandEnum.Activity:
                 case HarborMenuCommandEnum.Logs:
                 case HarborMenuCommandEnum.CopyHarborId:
                 case HarborMenuCommandEnum.OpenDashboard:
@@ -162,10 +178,23 @@ namespace Armada.Harbor
                     return !String.IsNullOrEmpty(_Window?.McpUrl);
                 case HarborMenuCommandEnum.MinimizeWindow:
                 case HarborMenuCommandEnum.CloseWindow:
-                    return _Window != null;
+                case HarborMenuCommandEnum.ZoomWindow:
+                    return ActiveWindow() != null;
                 default:
                     return false;
             }
+        }
+
+        /// <summary>
+        /// True when the command is the current choice of a radio group: the saved color scheme.
+        /// </summary>
+        /// <param name="command">Command.</param>
+        /// <returns>True when checked.</returns>
+        public bool IsChecked(HarborMenuCommandEnum command)
+        {
+            if (_Settings == null) return false;
+            HarborAppearanceEnum? appearance = AppearanceFor(command);
+            return appearance.HasValue && appearance.Value == _Settings.Appearance;
         }
 
         /// <summary>
@@ -206,6 +235,9 @@ namespace Armada.Harbor
                 case HarborMenuCommandEnum.Status:
                     ShowStatus(StatusTabEnum.Overview);
                     break;
+                case HarborMenuCommandEnum.Activity:
+                    ShowStatus(StatusTabEnum.Activity);
+                    break;
                 case HarborMenuCommandEnum.Logs:
                     ShowStatus(StatusTabEnum.Logs);
                     break;
@@ -234,6 +266,9 @@ namespace Armada.Harbor
                 case HarborMenuCommandEnum.Documentation:
                     Report(PlatformShell.Open(_DocumentationUrl, out string? docsError), "open the documentation", docsError);
                     break;
+                case HarborMenuCommandEnum.ReportIssue:
+                    Report(PlatformShell.Open(_ReportIssueUrl, out string? issueError), "open the issue tracker", issueError);
+                    break;
                 case HarborMenuCommandEnum.CopyDiagnostics:
                     _ = CopyAsync(BuildDiagnostics(), "Diagnostics");
                     break;
@@ -242,6 +277,25 @@ namespace Armada.Harbor
                     break;
                 case HarborMenuCommandEnum.CloseWindow:
                     ActiveWindow()?.Close();
+                    break;
+                case HarborMenuCommandEnum.ZoomWindow:
+                    Zoom(ActiveWindow());
+                    break;
+                case HarborMenuCommandEnum.BringAllToFront:
+                    BringAllToFront();
+                    break;
+                case HarborMenuCommandEnum.Undo:
+                case HarborMenuCommandEnum.Redo:
+                case HarborMenuCommandEnum.Cut:
+                case HarborMenuCommandEnum.Copy:
+                case HarborMenuCommandEnum.Paste:
+                case HarborMenuCommandEnum.SelectAll:
+                    EditFocusedText(command);
+                    break;
+                case HarborMenuCommandEnum.AppearanceSystem:
+                case HarborMenuCommandEnum.AppearanceLight:
+                case HarborMenuCommandEnum.AppearanceDark:
+                    SetAppearance(AppearanceFor(command)!.Value);
                     break;
                 case HarborMenuCommandEnum.Quit:
                     _Desktop?.Shutdown();
@@ -268,6 +322,78 @@ namespace Armada.Harbor
 
             TrayIcons icons = new TrayIcons { _TrayIcon };
             TrayIcon.SetIcons(this, icons);
+        }
+
+        private void AttachWindowMenu(Window window)
+        {
+            if (_Menus == null || NativeMenu.GetMenu(window) != null) return;
+            NativeMenu menu = _Menus.BuildWindowMenu();
+            NativeMenu.SetMenu(window, menu);
+            window.Closed += (sender, args) => _Menus?.Release(menu);
+        }
+
+        private static HarborAppearanceEnum? AppearanceFor(HarborMenuCommandEnum command)
+        {
+            switch (command)
+            {
+                case HarborMenuCommandEnum.AppearanceSystem: return HarborAppearanceEnum.System;
+                case HarborMenuCommandEnum.AppearanceLight: return HarborAppearanceEnum.Light;
+                case HarborMenuCommandEnum.AppearanceDark: return HarborAppearanceEnum.Dark;
+                default: return null;
+            }
+        }
+
+        private void SetAppearance(HarborAppearanceEnum appearance)
+        {
+            if (_Session == null || _Session.Settings.Appearance == appearance) return;
+            HarborAppSettings edited = _Session.Settings.Clone();
+            edited.Appearance = appearance;
+            if (!_Session.ApplySettings(edited, out List<string> errors))
+            {
+                Report(false, "change the color scheme", String.Join("; ", errors));
+            }
+        }
+
+        private void EditFocusedText(HarborMenuCommandEnum command)
+        {
+            // The Edit menu's shortcuts are the menu's key equivalents on macOS, so the menu, not the text field,
+            // receives Command-C and the rest; pass them on to whatever text control has focus.
+            object? focused = ActiveWindow()?.FocusManager?.GetFocusedElement();
+            if (focused is TextBox text)
+            {
+                switch (command)
+                {
+                    case HarborMenuCommandEnum.Undo: text.Undo(); break;
+                    case HarborMenuCommandEnum.Redo: text.Redo(); break;
+                    case HarborMenuCommandEnum.Cut: text.Cut(); break;
+                    case HarborMenuCommandEnum.Copy: text.Copy(); break;
+                    case HarborMenuCommandEnum.Paste: text.Paste(); break;
+                    case HarborMenuCommandEnum.SelectAll: text.SelectAll(); break;
+                }
+            }
+            else if (focused is SelectableTextBlock block)
+            {
+                if (command == HarborMenuCommandEnum.Copy) block.Copy();
+                else if (command == HarborMenuCommandEnum.SelectAll) block.SelectAll();
+            }
+        }
+
+        private static void Zoom(Window? window)
+        {
+            if (window == null || !window.CanResize) return;
+            window.WindowState = window.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        }
+
+        private void BringAllToFront()
+        {
+            if (_Desktop == null) return;
+            Window? active = ActiveWindow();
+            foreach (Window window in _Desktop.Windows)
+            {
+                if (window.IsVisible && window != active) window.Activate();
+            }
+
+            active?.Activate();
         }
 
         private void RefreshMenus()
@@ -336,11 +462,9 @@ namespace Armada.Harbor
             if (_StatusWindow == null)
             {
                 StatusWindow window = new StatusWindow(_Session);
-                NativeMenu? menu = _Menus?.BuildWindowMenu();
-                if (menu != null) NativeMenu.SetMenu(window, menu);
+                AttachWindowMenu(window);
                 window.Closed += (sender, args) =>
                 {
-                    _Menus?.Release(menu);
                     _StatusWindow = null;
                     HarborDialog.HideFromDockWhenNoWindows();
                 };
@@ -358,11 +482,9 @@ namespace Armada.Harbor
             if (_SettingsWindow == null)
             {
                 SettingsWindow window = new SettingsWindow(_Session);
-                NativeMenu? menu = _Menus?.BuildWindowMenu();
-                if (menu != null) NativeMenu.SetMenu(window, menu);
+                AttachWindowMenu(window);
                 window.Closed += (sender, args) =>
                 {
-                    _Menus?.Release(menu);
                     _SettingsWindow = null;
                     HarborDialog.HideFromDockWhenNoWindows();
                 };
@@ -394,6 +516,7 @@ namespace Armada.Harbor
 
             MacActivationPolicy.ShowInDock();
             _About = new AboutWindow(_Settings, _Session?.Admiral, this);
+            AttachWindowMenu(_About);
             _About.Closed += (sender, args) =>
             {
                 _About = null;
@@ -405,9 +528,14 @@ namespace Armada.Harbor
 
         private Window? ActiveWindow()
         {
-            if (_StatusWindow != null && _StatusWindow.IsActive) return _StatusWindow;
-            if (_SettingsWindow != null && _SettingsWindow.IsActive) return _SettingsWindow;
-            if (_About != null && _About.IsActive) return _About;
+            if (_Desktop != null)
+            {
+                foreach (Window window in _Desktop.Windows)
+                {
+                    if (window.IsActive) return window;
+                }
+            }
+
             return _Window;
         }
 

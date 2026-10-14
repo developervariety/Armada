@@ -26,8 +26,9 @@ namespace Armada.Core.Hosting
         }
 
         /// <summary>
-        /// The window menu bar: Harbor, View, Window (macOS only), and Help. Without an application menu (Windows and
-        /// Linux), Settings and Quit go in the Harbor menu and About in Help.
+        /// The window menu bar: Harbor, Edit (macOS only), View, Window (macOS only), and Help, in the order macOS
+        /// apps use. Without an application menu (Windows and Linux), Settings and Quit go in the Harbor menu and About
+        /// in Help; text fields there handle their own editing shortcuts, so there is no Edit menu.
         /// </summary>
         /// <param name="isMacOS">True on macOS.</param>
         /// <returns>Entries (submenus).</returns>
@@ -44,7 +45,12 @@ namespace Armada.Core.Hosting
                 HarborMenuEntry.Item("Open Harbor Folder", HarborMenuCommandEnum.OpenHarborFolder)
             };
 
-            if (!isMacOS)
+            if (isMacOS)
+            {
+                harbor.Add(HarborMenuEntry.Separator());
+                harbor.Add(HarborMenuEntry.Item("Close Window", HarborMenuCommandEnum.CloseWindow, HarborMenuKeyEnum.W));
+            }
+            else
             {
                 harbor.Add(HarborMenuEntry.Separator());
                 harbor.Add(HarborMenuEntry.Item("Settings...", HarborMenuCommandEnum.Settings, HarborMenuKeyEnum.Comma));
@@ -55,7 +61,15 @@ namespace Armada.Core.Hosting
             List<HarborMenuEntry> view = new List<HarborMenuEntry>
             {
                 HarborMenuEntry.Item("Status", HarborMenuCommandEnum.Status, HarborMenuKeyEnum.I),
+                HarborMenuEntry.Item("Activity", HarborMenuCommandEnum.Activity),
                 HarborMenuEntry.Item("Logs", HarborMenuCommandEnum.Logs, HarborMenuKeyEnum.L),
+                HarborMenuEntry.Separator(),
+                HarborMenuEntry.Submenu("Appearance", new List<HarborMenuEntry>
+                {
+                    HarborMenuEntry.Radio("System", HarborMenuCommandEnum.AppearanceSystem),
+                    HarborMenuEntry.Radio("Light", HarborMenuCommandEnum.AppearanceLight),
+                    HarborMenuEntry.Radio("Dark", HarborMenuCommandEnum.AppearanceDark)
+                }),
                 HarborMenuEntry.Separator(),
                 HarborMenuEntry.Item("Open Dashboard", HarborMenuCommandEnum.OpenDashboard, HarborMenuKeyEnum.D)
             };
@@ -63,6 +77,8 @@ namespace Armada.Core.Hosting
             List<HarborMenuEntry> help = new List<HarborMenuEntry>
             {
                 HarborMenuEntry.Item("Armada Documentation", HarborMenuCommandEnum.Documentation),
+                HarborMenuEntry.Item("Report an Issue...", HarborMenuCommandEnum.ReportIssue),
+                HarborMenuEntry.Separator(),
                 HarborMenuEntry.Item("Copy Diagnostics", HarborMenuCommandEnum.CopyDiagnostics)
             };
 
@@ -74,18 +90,35 @@ namespace Armada.Core.Hosting
 
             List<HarborMenuEntry> menu = new List<HarborMenuEntry>
             {
-                HarborMenuEntry.Submenu("Harbor", harbor),
-                HarborMenuEntry.Submenu("View", view)
+                HarborMenuEntry.Submenu("Harbor", harbor)
             };
+
+            if (isMacOS)
+            {
+                menu.Add(HarborMenuEntry.Submenu("Edit", new List<HarborMenuEntry>
+                {
+                    HarborMenuEntry.Item("Undo", HarborMenuCommandEnum.Undo, HarborMenuKeyEnum.Z),
+                    HarborMenuEntry.Item("Redo", HarborMenuCommandEnum.Redo, HarborMenuKeyEnum.Z, true),
+                    HarborMenuEntry.Separator(),
+                    HarborMenuEntry.Item("Cut", HarborMenuCommandEnum.Cut, HarborMenuKeyEnum.X),
+                    HarborMenuEntry.Item("Copy", HarborMenuCommandEnum.Copy, HarborMenuKeyEnum.C),
+                    HarborMenuEntry.Item("Paste", HarborMenuCommandEnum.Paste, HarborMenuKeyEnum.V),
+                    HarborMenuEntry.Item("Select All", HarborMenuCommandEnum.SelectAll, HarborMenuKeyEnum.A)
+                }));
+            }
+
+            menu.Add(HarborMenuEntry.Submenu("View", view));
 
             if (isMacOS)
             {
                 menu.Add(HarborMenuEntry.Submenu("Window", new List<HarborMenuEntry>
                 {
                     HarborMenuEntry.Item("Minimize", HarborMenuCommandEnum.MinimizeWindow, HarborMenuKeyEnum.M),
-                    HarborMenuEntry.Item("Close", HarborMenuCommandEnum.CloseWindow, HarborMenuKeyEnum.W),
+                    HarborMenuEntry.Item("Zoom", HarborMenuCommandEnum.ZoomWindow),
                     HarborMenuEntry.Separator(),
-                    HarborMenuEntry.Item("Armada Harbor", HarborMenuCommandEnum.ShowWindow)
+                    HarborMenuEntry.Item("Armada Harbor", HarborMenuCommandEnum.ShowWindow),
+                    HarborMenuEntry.Separator(),
+                    HarborMenuEntry.Item("Bring All to Front", HarborMenuCommandEnum.BringAllToFront)
                 }));
             }
 

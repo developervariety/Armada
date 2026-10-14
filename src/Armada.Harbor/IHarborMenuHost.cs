@@ -20,6 +20,13 @@ namespace Armada.Harbor
         bool CanExecute(HarborMenuCommandEnum command);
 
         /// <summary>
+        /// True when the command is the current choice of a radio group (shown with a check mark).
+        /// </summary>
+        /// <param name="command">Command.</param>
+        /// <returns>True when checked.</returns>
+        bool IsChecked(HarborMenuCommandEnum command);
+
+        /// <summary>
         /// Why the command is unavailable, shown as the item's tooltip where the platform supports one; null when
         /// there is nothing useful to say.
         /// </summary>

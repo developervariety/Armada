@@ -19,6 +19,16 @@ namespace Armada.Core.Hosting
         Comma,
 
         /// <summary>
+        /// A (Select All).
+        /// </summary>
+        A,
+
+        /// <summary>
+        /// C (Copy).
+        /// </summary>
+        C,
+
+        /// <summary>
         /// D (Open Dashboard).
         /// </summary>
         D,
@@ -49,8 +59,23 @@ namespace Armada.Core.Hosting
         R,
 
         /// <summary>
+        /// V (Paste).
+        /// </summary>
+        V,
+
+        /// <summary>
         /// W (Close).
         /// </summary>
-        W
+        W,
+
+        /// <summary>
+        /// X (Cut).
+        /// </summary>
+        X,
+
+        /// <summary>
+        /// Z (Undo; with Shift, Redo).
+        /// </summary>
+        Z
     }
 }

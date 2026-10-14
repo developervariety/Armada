@@ -27,6 +27,16 @@ namespace Armada.Core.Hosting
         public HarborMenuKeyEnum Key { get; set; } = HarborMenuKeyEnum.None;
 
         /// <summary>
+        /// True when the shortcut also takes Shift.
+        /// </summary>
+        public bool Shift { get; set; } = false;
+
+        /// <summary>
+        /// True for one choice of a group shown with a check mark on the current choice (the host reports which).
+        /// </summary>
+        public bool IsRadio { get; set; } = false;
+
+        /// <summary>
         /// Items of a submenu; null for anything else.
         /// </summary>
         public List<HarborMenuEntry>? Children { get; set; } = null;
@@ -58,11 +68,26 @@ namespace Armada.Core.Hosting
         /// <param name="header">Text.</param>
         /// <param name="command">Command.</param>
         /// <param name="key">Shortcut key.</param>
+        /// <param name="shift">True when the shortcut also takes Shift.</param>
         /// <returns>The entry.</returns>
-        public static HarborMenuEntry Item(string header, HarborMenuCommandEnum command, HarborMenuKeyEnum key = HarborMenuKeyEnum.None)
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="header"/> is null or blank.</exception>
+        public static HarborMenuEntry Item(string header, HarborMenuCommandEnum command, HarborMenuKeyEnum key = HarborMenuKeyEnum.None, bool shift = false)
         {
             if (String.IsNullOrWhiteSpace(header)) throw new ArgumentNullException(nameof(header));
-            return new HarborMenuEntry { Header = header, Command = command, Key = key };
+            return new HarborMenuEntry { Header = header, Command = command, Key = key, Shift = shift };
+        }
+
+        /// <summary>
+        /// One choice of a group, checked when the host reports it current.
+        /// </summary>
+        /// <param name="header">Text.</param>
+        /// <param name="command">Command that selects the choice.</param>
+        /// <returns>The entry.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="header"/> is null or blank.</exception>
+        public static HarborMenuEntry Radio(string header, HarborMenuCommandEnum command)
+        {
+            if (String.IsNullOrWhiteSpace(header)) throw new ArgumentNullException(nameof(header));
+            return new HarborMenuEntry { Header = header, Command = command, IsRadio = true };
         }
 
         /// <summary>

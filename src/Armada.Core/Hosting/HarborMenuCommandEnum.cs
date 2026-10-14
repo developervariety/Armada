@@ -31,6 +31,11 @@ namespace Armada.Core.Hosting
         Status,
 
         /// <summary>
+        /// Open the Status window on its Activity tab.
+        /// </summary>
+        Activity,
+
+        /// <summary>
         /// Open the Status window on its Logs tab.
         /// </summary>
         Logs,
@@ -81,6 +86,61 @@ namespace Armada.Core.Hosting
         CloseWindow,
 
         /// <summary>
+        /// Zoom (maximize or restore) the active Harbor window.
+        /// </summary>
+        ZoomWindow,
+
+        /// <summary>
+        /// Bring every open Harbor window to the front.
+        /// </summary>
+        BringAllToFront,
+
+        /// <summary>
+        /// Undo the last edit in the focused text field.
+        /// </summary>
+        Undo,
+
+        /// <summary>
+        /// Redo the last undone edit in the focused text field.
+        /// </summary>
+        Redo,
+
+        /// <summary>
+        /// Cut the selection in the focused text field.
+        /// </summary>
+        Cut,
+
+        /// <summary>
+        /// Copy the selection in the focused text field.
+        /// </summary>
+        Copy,
+
+        /// <summary>
+        /// Paste into the focused text field.
+        /// </summary>
+        Paste,
+
+        /// <summary>
+        /// Select all text in the focused text field.
+        /// </summary>
+        SelectAll,
+
+        /// <summary>
+        /// Follow the operating system's color scheme.
+        /// </summary>
+        AppearanceSystem,
+
+        /// <summary>
+        /// Always use the light color scheme.
+        /// </summary>
+        AppearanceLight,
+
+        /// <summary>
+        /// Always use the dark color scheme.
+        /// </summary>
+        AppearanceDark,
+
+        /// <summary>
         /// Open the Armada documentation.
         /// </summary>
         Documentation,
@@ -89,6 +149,11 @@ namespace Armada.Core.Hosting
         /// Copy versions, paths, link state, and recent errors for a bug report.
         /// </summary>
         CopyDiagnostics,
+
+        /// <summary>
+        /// Open a new Armada issue in the browser.
+        /// </summary>
+        ReportIssue,
 
         /// <summary>
         /// Quit Harbor.

@@ -6,6 +6,13 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Harbor: a full macOS menu bar
+- Harbor's macOS menu bar now follows the standard Mac layout: Harbor (with Close Window), a new Edit menu (Undo, Redo,
+  Cut, Copy, Paste, Select All on the focused text field), View (Status, Activity, Logs, an Appearance submenu for
+  System, Light, or Dark, Open Dashboard), Window (Minimize, Zoom, Armada Harbor, Bring All to Front), and Help
+  (Documentation, Report an Issue, Copy Diagnostics).
+- Every Harbor window carries the menu bar, so the About window and dialogs no longer leave only the bare app menu.
+
 ### Synthetic activity load generator
 - Add a .NET 8/10 CLI with database/API targets and configurable density, entropy, seed and fixed history window.
 - Generate terminal missions, API history, events, read signals, Harbor jobs/link metrics and scoped tokens for all activity charts, with replayable profiles and recent-hour coverage.

@@ -35,6 +35,7 @@ namespace Armada.Harbor
         private readonly ComboBox _Appearance = new ComboBox { ItemsSource = new string[] { "Follow the system", "Light", "Dark" }, MinWidth = 180 };
         private readonly TextBlock _Message = new TextBlock { TextWrapping = TextWrapping.Wrap };
         private bool _Loading = false;
+        private HarborAppearanceEnum _SavedAppearance = HarborAppearanceEnum.System;
 
         #endregion
 
@@ -118,9 +119,12 @@ namespace Armada.Harbor
                 footer);
             Load(_Session.Settings);
 
+            AttachedToVisualTree += (sender, args) => _Session.Changed += OnSessionChanged;
+
             // An appearance previewed but not saved does not outlive the window.
             DetachedFromVisualTree += (sender, args) =>
             {
+                _Session.Changed -= OnSessionChanged;
                 if (Application.Current is App app) app.ApplyAppearance(_Session.Settings.Appearance);
             };
         }
@@ -128,6 +132,17 @@ namespace Armada.Harbor
         #endregion
 
         #region Private-Methods
+
+        private void OnSessionChanged(object? sender, EventArgs e)
+        {
+            // The color scheme was saved elsewhere (View > Appearance); show it here without touching other edits.
+            HarborAppearanceEnum saved = _Session.Settings.Appearance;
+            if (saved == _SavedAppearance) return;
+            _SavedAppearance = saved;
+            _Loading = true;
+            _Appearance.SelectedIndex = (int)saved;
+            _Loading = false;
+        }
 
         private static Grid Form()
         {
@@ -166,6 +181,7 @@ namespace Armada.Harbor
             _Heartbeat.Value = settings.HeartbeatIntervalMs;
             _MaxJobs.Value = settings.MaxConcurrentJobs;
             _Appearance.SelectedIndex = (int)settings.Appearance;
+            _SavedAppearance = settings.Appearance;
             _Loading = false;
             if (Application.Current is App app) app.ApplyAppearance(settings.Appearance);
             SetMessage(null, false);
