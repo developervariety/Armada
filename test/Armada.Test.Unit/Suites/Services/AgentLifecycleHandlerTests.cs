@@ -871,13 +871,17 @@ namespace Armada.Test.Unit.Suites.Services
                     await testDb.Driver.Tenants.CreateAsync(tenant).ConfigureAwait(false);
                     Captain captain = new Captain("Captain note author", AgentRuntimeEnum.Cursor) { TenantId = tenant.Id };
                     await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("Captain note vessel", "https://example.test/captain-note.git")
+                    {
+                        TenantId = tenant.Id
+                    }).ConfigureAwait(false);
                     Voyage voyage = new Voyage("Captain note voyage") { TenantId = tenant.Id };
                     await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
                     Mission mission = new Mission("Captain note mission")
                     {
                         TenantId = tenant.Id,
                         VoyageId = voyage.Id,
-                        VesselId = "vsl_captain_note_test",
+                        VesselId = vessel.Id,
                         CaptainId = captain.Id
                     };
                     await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
