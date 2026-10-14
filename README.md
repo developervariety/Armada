@@ -20,7 +20,10 @@
   <a href="#pipelines">Pipelines</a> |
   <a href="#terminal-ui">TUI</a> |
   <a href="#mobile-app">Mobile</a> |
+  <a href="#activity-and-monitoring">Activity</a> |
+  <a href="#screenshots">Screenshots</a> |
   <a href="#harbor-run-agents-on-your-machine">Harbor</a> |
+  <a href="#deployment">Deployment</a> |
   <a href="#cli-reference">CLI</a> |
   <a href="#rest-api">API</a> |
   <a href="#mcp-integration">MCP</a> |
@@ -46,10 +49,6 @@ armada watch
 Three missions, three captains, three worktrees, three branches. Watch them in the terminal, the [dashboard](#quick-start), the [TUI](#terminal-ui), or the [mobile app](#mobile-app).
 
 ---
-
-## Persona captain priorities
-
-Define an ordered hierarchy of preferred captain classes on each persona, matching runtime, model, Mux endpoint, and minimum capability tier. Configure whether busy classes permit lower priorities or wait for the first choice, and whether an exhausted hierarchy waits or allows any eligible captain. Pipelines and Architect-generated missions use the same routing. Existing personas retain their default-captain behavior until a hierarchy is configured. See [Captain routing](docs/CAPTAIN_ROUTING.md) for setup and examples.
 
 ## Why Armada
 
@@ -101,7 +100,7 @@ You want evidence, not anecdotes, about which agent and model handle your codeba
 - Register one captain per runtime or model: `armada captain add claude-1 --runtime claude`, `armada captain add codex-1 --runtime codex`, `armada captain add gemini-1 --runtime gemini`, or an `api` captain backed by a [model endpoint](docs/REST_API.md#model-endpoints) (Ollama, OpenAI-compatible, Anthropic, Bedrock, and others).
 - Dispatch the same task as several missions, each pinned to a different captain with a per-mission `requestedCaptainId` (MCP `dispatch` or `POST /api/v1/voyages`), and use landing mode `None` so every result stays on its own branch.
 - Compare the diffs (`armada diff <mission>`), Judge verdicts, mission runtimes, and token use (`token_usage_summary`), then keep the winner.
-- Route by cost in production: give each persona a default captain and a capability tier (Economy, Standard, Premium) so cheap captains take Worker and TestEngineer stages and strong ones take Architect and Judge. See [docs/CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md).
+- Route each role according to your own requirements: rank preferred runtime/model/endpoint classes on its persona, set a capability-tier floor, and choose busy-class and exhaustion policies. Any role can prefer a local or hosted model. See [Persona Captain Priorities](#persona-captain-priorities).
 
 ### Quality-minded developer: ship with gates you define
 
@@ -153,7 +152,7 @@ Armada does not replace your agent. It runs it. The comparison is with the work 
 **Orchestration**
 - Parallel dispatch of missions and voyages (batches) to many captains across many repositories.
 - [Pipelines](#pipelines) of personas, with human review gates you can turn on per stage.
-- Per-step captain selection with capability-tier fallback ([docs/CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md)).
+- Per-persona captain priorities with runtime/model/endpoint matching and configurable availability policies ([Persona Captain Priorities](#persona-captain-priorities)).
 - [Playbooks](#playbooks): reusable markdown guidance attached at dispatch time.
 - Planning sessions: chat with a captain, then dispatch the agreed plan without copy and paste.
 - Backlog of scoped objectives with acceptance criteria, optionally imported from GitHub issues or PRs.
@@ -207,7 +206,7 @@ Armada does not replace your agent. It runs it. The comparison is with the work 
 
 ### Prerequisites
 
-- [.NET 8.0+ SDK](https://dot.net/download)
+- [.NET 10 SDK](https://dot.net/download) for the default source install; .NET 8 is also supported with `--framework net8.0`.
 - At least one agent runtime on your PATH, signed in:
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
   - [Codex](https://github.com/openai/codex) (`codex`)
@@ -225,7 +224,7 @@ cd armada
 ./scripts/macos/install.sh      # Linux: ./scripts/linux/install.sh   Windows: scripts\windows\install.bat
 ```
 
-The install script builds the solution, deploys the dashboard, and installs the `armada` CLI as a global .NET tool. On Windows, pass a target framework first when only one SDK is installed (`scripts\windows\install.bat net8.0`; the default is `net10.0`). Prebuilt installers and Docker images are listed under [Deployment](#deployment).
+The install script builds the solution, deploys the dashboard, and installs the `armada` CLI as a global .NET tool. The default target is `net10.0`. With only .NET 8 installed, use `./scripts/macos/install.sh --framework net8.0` (Linux uses the same flag) or `scripts\windows\install.bat net8.0`. Prebuilt installers and Docker images are listed under [Deployment](#deployment).
 
 #### Behind an enterprise proxy or firewall
 
@@ -516,6 +515,10 @@ Every working persona is also told to recall the vessel's existing memory (the `
 | 3 | Fleet default | Applies to all repositories in the fleet unless overridden |
 | 4 (lowest) | System fallback | WorkerOnly |
 
+### Persona Captain Priorities
+
+Define an ordered hierarchy of preferred captain classes on each persona, matching runtime, model, Mux endpoint, and minimum capability tier. Configure whether busy classes permit lower priorities or wait for the first choice, and whether an exhausted hierarchy waits or allows any eligible captain. Pipelines and Architect-generated missions use the same routing. Existing personas retain their default-captain behavior until a hierarchy is configured. See [Captain routing](docs/CAPTAIN_ROUTING.md) for setup and examples.
+
 ### Custom Personas and Pipelines
 
 The built-ins are starting points. Create your own personas and compose them into pipelines (MCP tool calls shown):
@@ -531,9 +534,9 @@ create_pipeline name=SecureRelease stages='[{"personaName":"Worker"},{"personaNa
 
 Every prompt Armada sends is backed by an editable template, and the dashboard has a template editor with a parameter reference. Use the same approach for a PerformanceAnalyst, MigrationPlanner, DocsWriter, ReleaseManager, or any internal role. For the full reference, see [docs/PIPELINES.md](docs/PIPELINES.md) and [docs/PERSONAS_GUIDE.md](docs/PERSONAS_GUIDE.md).
 
-### Agent memory
+### Persona Prompts and Handoffs
 
-The Recorder persona writes durable **memory** that survives across sessions: episodic (what happened), semantic (standalone facts), and procedural (how-to) records with provenance, tags, and a salience used to order recall. Manage it over MCP (`search_memory`, `create_memory`, `update_memory`, `delete_memory`), REST (`/api/v1/memories`), or the dashboard under `Configuration > Memory`.
+Default persona guidance requires explicit evidence, tool limitations, self-contained Architect missions, executable acceptance checks, and actionable reviewer/test handoffs. See [Prompt and Handoff Improvements](PROMPT_AND_HANDOFF_IMPROVEMENTS.md) for the ranked plan, validation, live-template rollout, and replication procedure. Existing untouched defaults upgrade on startup; customized templates remain intact.
 
 ## Playbooks
 
@@ -544,6 +547,12 @@ Playbooks are tenant-scoped markdown instruction documents that you manage in th
 - File-based delivery gives the agent readable files without polluting repository history.
 
 Use them for architecture rules, coding standards, migration checklists, release procedures, or security requirements that should travel with the work.
+
+---
+
+## Agent Memory
+
+When included in a pipeline, the Recorder persona writes durable **memory** that survives across sessions: episodic (what happened), semantic (standalone facts), and procedural (how-to) records with provenance, tags, and a salience used to order recall. Manage it over MCP (`search_memory`, `create_memory`, `update_memory`, `delete_memory`), REST (`/api/v1/memories`), or the dashboard under `Configuration > Memory`.
 
 ---
 
@@ -631,6 +640,16 @@ Armada for iPhone, iPad, and Android phones and tablets (`src/Armada.Mobile`, Ex
 - `src/Armada.Mobile/parity.json` maps every dashboard surface to its mobile screen, and CI fails when the dashboard gains one the app does not cover.
 
 The app is not yet in the App Store or Google Play; install a build from whoever builds it for your organization, or build it yourself. See [docs/MOBILE.md](docs/MOBILE.md) for installing, connecting, push setup, security, and store builds.
+
+## Activity and Monitoring
+
+Mission history on the dashboard shows completed and failed work over time. Activity gathers the cross-entity timeline, API requests, events, signals, and model usage. Harbor Charts show jobs, concurrency, launch speed, link health, and tokens for one host.
+
+Token calendars supplement the existing monitoring charts in dashboard/mobile Activity → Token Usage and Harbor Charts. The TUI Token Usage tab shows daily activity; `u` opens the navigable calendar. See [token heatmaps and screenshot data](TOKEN_USAGE_HEATMAP.md).
+
+### Synthetic Activity for Screenshots
+
+Populate mission, API, event, signal, and Harbor activity charts with the [C# synthetic activity generator](docs/SYNTHETIC_ACTIVITY.md), using configurable database/API targets, density, entropy, seed, and history windows.
 
 ## Screenshots
 
@@ -728,10 +747,6 @@ Browse the dashboard, Harbor desktop app, and terminal UI. Expand a section to v
 
 See [docs/FLEET_ACTIONS.md](docs/FLEET_ACTIONS.md), [docs/VESSEL_HEALTH.md](docs/VESSEL_HEALTH.md), and the Vessel Import section of [docs/REST_API.md](docs/REST_API.md).
 
-### Rebuilding Armada from the Dashboard
-
-When Armada's own source is one of its vessels, set **Self Vessel ID** on the Server page and use **Rebuild Armada**: pick a branch, tag, or commit, and Armada builds it from a throwaway worktree into a fresh versioned slot while the current server keeps running, backs up the database, and cuts over only after a successful build. **Roll Back** reverts to the previous slot. Self-rebuild is experimental in 1.0. See [docs/SERVER_REBUILD.md](docs/SERVER_REBUILD.md).
-
 ## Internationalization
 
 The dashboard, TUI, and mobile app support live language selection and locale-aware date, time, and number formatting.
@@ -763,7 +778,7 @@ flowchart LR
 ```
 
 - **Local mode (default).** The Admiral and the agent processes share one machine; there is no Harbor and no link. This is the right mode for a developer running Armada where they code, and it is what every install path gives you.
-- **Split mode (experimental in 1.0).** The Admiral runs detached and Harbors connect to it from other hosts. Whenever a Harbor is connected, captain launches are routed to an eligible one; `requireHarborForLaunch` keeps them off the Admiral host. The `deploymentMode` setting is informational in 1.0. See [Harbor](#harbor-run-agents-on-your-machine) for what runs on a Harbor today.
+- **Split mode (experimental in 1.0).** The Admiral runs detached and Harbors connect to it from other hosts. Whenever a Harbor is connected, captain launches are routed to an eligible one; `requireHarborForLaunch` keeps them off the Admiral host. The `deploymentMode` setting is informational; routing also depends on connected Harbors and `requireHarborForLaunch`. See [Harbor](#harbor-run-agents-on-your-machine) for what runs on a Harbor today.
 
 ### Prebuilt installers and Docker images
 
@@ -795,15 +810,30 @@ To run the server as a user-scoped background service from your checkout, use th
 
 These publish `Armada.Server` into `~/.armada/bin` (`%USERPROFILE%\.armada\bin` on Windows) and the dashboard into `~/.armada/dashboard`. The remove scripts unregister the startup entry but keep the published files. `scripts/<os>/run-local.sh` (or `.bat`) builds and starts the server, then runs a Harbor in the foreground for exercising the Harbor link. See [docs/RUN_ON_STARTUP.md](docs/RUN_ON_STARTUP.md).
 
+<a id="running-locally-with-docker"></a>
+
 ### Deploy with Docker
+
+Docker Compose runs the server (and an optional standalone dashboard) in containers, so the host does not need the .NET SDK. You need [Docker](https://docs.docker.com/get-docker/) with Compose v2.
 
 ```bash
 cd docker/armada
-export ARMADA_INITIAL_ADMIN_PASSWORD='choose-a-strong-password'   # 8+ characters, or put it in docker/armada/.env
-docker compose up -d
+export ARMADA_INITIAL_ADMIN_PASSWORD='choose-a-strong-password'   # required; 8+ characters
+docker compose up -d       # start
+docker compose down        # stop (data is kept)
 ```
 
-The compose file refuses to start without `ARMADA_INITIAL_ADMIN_PASSWORD`, because the Admiral listens on all interfaces inside the container. Sign in as `admin@armada` with the password you set. This starts `armada-server` (7890, 7891 MCP, 9464 Prometheus scrape), an optional standalone `armada-dashboard` (3000), and a Prometheus, Loki, and Grafana stack. Configuration lives in `docker/armada/armada.json` and data under `docker/armada/`. See [Running Locally (with Docker)](#running-locally-with-docker) and [docs/DOCKER.md](docs/DOCKER.md).
+Sign in as `admin@armada` with the password you set. The compose file refuses to start without `ARMADA_INITIAL_ADMIN_PASSWORD`.
+
+| Service | Port | URL | Description |
+|---------|------|-----|-------------|
+| `armada-server` | 7890 | `http://localhost:7890/dashboard` | REST API, WebSocket (`/ws`), dashboard |
+| `armada-server` | 7891 | `http://localhost:7891/mcp` | MCP server (send a credential; the container is not loopback-bound) |
+| `armada-server` | 9464 | `http://localhost:9464/metrics` | Prometheus scrape endpoint |
+| `armada-dashboard` | 3000 | `http://localhost:3000/dashboard/` | Standalone React dashboard (nginx, proxies the API to `armada-server`) |
+| `prometheus` / `loki` / `grafana` | 9090 / 3100 / 3001 | `http://localhost:3001` | Observability stack (Grafana login `admin` / `admin`) |
+
+Data persists under `docker/armada/` (`db/`, `logs/`), and configuration is `docker/armada/armada.json` (restart `armada-server` after editing). `docker/armada/factory/reset.sh` (or `reset.bat`) deletes the local database and logs while keeping configuration. The compose files run the published `v1.1.0` images; to build images from source (`src/Armada.Server/Dockerfile`, `src/Armada.Dashboard/Dockerfile`, `src/Armada.Proxy/Dockerfile`) and for the volume layout, split mode, and the proxy stack, see [docs/DOCKER.md](docs/DOCKER.md).
 
 ### Harbor: run agents on your machine
 
@@ -856,52 +886,15 @@ In a browser: open the proxy URL, sign in with the proxy password, pick a connec
 
 ---
 
-## Architecture
+### Rebuilding Armada from the Dashboard
 
-| Project | Description |
-|---------|-------------|
-| **Armada.Core** | Domain models (including tenants, users, credentials), database interfaces and providers, service interfaces, settings |
-| **Armada.Runtimes** | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint; extensible via `IAgentRuntime`) |
-| **Armada.Server** | Admiral process: REST API and WebSocket ([Watson](https://github.com/jchristn/watson)), MCP server ([Voltaic](https://github.com/jchristn/voltaic)), Harbor link, embedded dashboard |
-| **Armada.Dashboard** | React dashboard (Vite), served by the Admiral at `/dashboard` and also available as a standalone container |
-| **Armada.Helm** | CLI ([Spectre.Console](https://spectreconsole.net/)), thin HTTP client to the Admiral; hosts `armada tui` |
-| **Armada.Tui** | Terminal UI (built on the TUIKit NuGet package) covering every dashboard screen ([docs/TUI.md](docs/TUI.md)) |
-| **Armada.Mobile** | iOS and Android app (Expo / React Native) sharing the dashboard's API client, types, and translations ([docs/MOBILE.md](docs/MOBILE.md)) |
-| **Armada.Client** | Typed .NET client for the REST API and WebSocket, used by the TUI |
-| **Armada.Harbor** | Avalonia tray app that links to the Admiral and runs agent processes, git, and worktrees on the developer's machine ([docs/HARBOR.md](docs/HARBOR.md)) |
-| **Armada.Proxy** | Optional remote-access portal and tunnel relay ([docs/REMOTE_MGMT.md](docs/REMOTE_MGMT.md)) |
+When Armada's own source is one of its vessels, set **Self Vessel ID** on the Server page and use **Rebuild Armada**: pick a branch, tag, or commit, and Armada builds it from a throwaway worktree into a fresh versioned slot while the current server keeps running, backs up the database, and cuts over only after a successful build. **Roll Back** reverts to the previous slot. Self-rebuild is experimental and targets configured native Windows deployments; Docker image updates are separate. See [docs/SERVER_REBUILD.md](docs/SERVER_REBUILD.md).
 
-### Data Model
+### Upgrading / Migration
 
-```mermaid
-erDiagram
-    FLEET ||--o{ VESSEL : contains
-    VESSEL ||--o{ DOCK : "has worktrees"
-    VESSEL ||--o{ MISSION : "is targeted by"
-    VOYAGE ||--o{ MISSION : groups
-    CAPTAIN |o--o{ MISSION : runs
-    CAPTAIN |o--o| DOCK : "works in"
-    HARBOR |o--o{ DOCK : pins
-    PIPELINE ||--|{ PIPELINE_STAGE : "ordered stages"
-    PERSONA ||--o{ PIPELINE_STAGE : "plays"
-    MISSION }o--o| MISSION : "depends on"
-```
+Schema migrations run automatically at startup, and SQLite is backed up first. Upgrade any 0.9.x release directly to 1.0; downgrades are not supported. Backups, restores, supported paths, and the upgrade test are in [docs/UPGRADING.md](docs/UPGRADING.md), and the release-by-release notes (v0.1.0 through v1.0.1) are in [Version-by-version upgrade notes](docs/UPGRADING.md#version-by-version-upgrade-notes). Every change is in [CHANGELOG.md](CHANGELOG.md).
 
-ID prefixes include `flt_` (fleet), `vsl_` (vessel), `cpt_` (captain), `msn_` (mission), `vyg_` (voyage), `dck_` (dock), `sig_` (signal), `mrg_` (merge entry), `evt_` (event), `hbr_` (Harbor), `ath_` (Ask thread), `usr_`, `ten_`, and `crd_`. Each mission carries the persona of its stage and depends on the previous stage's mission.
-
-### Technology Stack
-
-| Component | Technology | Notes |
-|-----------|-----------|-------|
-| Language | C# / .NET 8+ | Cross-platform |
-| Database | SQLite, PostgreSQL, SQL Server, MySQL | SQLite default; zero-install, embedded |
-| REST API + WebSocket | [Watson](https://github.com/jchristn/watson) | OpenAPI built-in |
-| MCP/JSON-RPC | [Voltaic](https://github.com/jchristn/voltaic) | Standards-compliant MCP server |
-| CLI | [Spectre.Console](https://spectreconsole.net/) | Rich terminal output |
-| Dashboard | React (Vite) | Shared API client with the mobile app |
-| Mobile | Expo / React Native | iOS and Android |
-| Logging | [SyslogLogging](https://github.com/jchristn/sysloglogging) | Structured logging |
-| ID Generation | [PrettyId](https://github.com/jchristn/prettyid) | Prefixed IDs (flt_, vsl_, cpt_, msn_, etc.) |
+**From 1.0.0 to 1.0.1: check your landing modes.** `LocalMerge` no longer pushes; the new `MergeAndPush` mode merges and then pushes (what `LocalMerge` did in 1.0.0) and is the global default. Nothing is migrated, so switch any vessel, voyage, or global `landingMode` that should keep pushing from `LocalMerge` to `MergeAndPush`. See [docs/MERGING.md](docs/MERGING.md#upgrading-from-100-landing-modes-fixed-in-101).
 
 ---
 
@@ -1093,24 +1086,34 @@ Setup guides: [Claude Code](docs/CLAUDE_CODE_AS_ORCHESTRATOR.md), [Codex](docs/C
 
 ---
 
-## Running Locally (without Docker)
+## Development
 
-Prerequisites: the [.NET 8.0+ SDK](https://dot.net/download) and at least one agent runtime on your PATH, or a registered inference endpoint for an `ApiEndpoint` captain.
+Build from source, run the shared test suites, or use the project map below to find the implementation you need. For installed or containerized use, see [Deployment](#deployment).
+
+<a id="running-locally-without-docker"></a>
+
+### Build and Run from Source
+
+Prerequisites: the [.NET 10 SDK](https://dot.net/download) to build both targets and at least one agent runtime on your PATH, or a registered inference endpoint for an `ApiEndpoint` captain.
 
 ```bash
 git clone https://github.com/jchristn/armada.git
 cd armada
 dotnet build src/Armada.sln
-dotnet run --project src/Armada.Server     # foreground dev session
+dotnet run --project src/Armada.Server --framework net10.0 # foreground dev session
 ```
 
-Open `http://localhost:7890/dashboard` (REST, dashboard, and WebSocket on 7890; MCP on 7891). Configuration is in `~/.armada/settings.json`. To install the CLI from the checkout without the install script:
+Open `http://127.0.0.1:7890/dashboard` (REST, dashboard, and WebSocket on 7890; MCP on 7891). Configuration is in `~/.armada/settings.json`. To install the CLI from the checkout without the install script:
 
 ```bash
-dotnet pack src/Armada.Helm -o ./nupkg
+dotnet pack src/Armada.Helm -p:TargetFrameworks=net10.0 -o ./nupkg
 dotnet tool install --global --add-source ./nupkg Armada.Helm
 armada doctor
 ```
+
+For a background service registered at login, see [Deploy locally](#deploy-locally) and [docs/RUN_ON_STARTUP.md](docs/RUN_ON_STARTUP.md).
+
+### Tests
 
 Run the tests:
 
@@ -1118,34 +1121,55 @@ Run the tests:
 dotnet run --project src/Test.Automated --framework net10.0
 ```
 
-For a background service registered at login, see [Deploy locally](#deploy-locally) and [docs/RUN_ON_STARTUP.md](docs/RUN_ON_STARTUP.md).
+For test suites, provider parity, and frontend checks, see [docs/TESTING.md](docs/TESTING.md).
 
-## Running Locally (with Docker)
+### Project Structure
 
-Docker Compose runs the server (and an optional standalone dashboard) in containers, so the host does not need the .NET SDK. You need [Docker](https://docs.docker.com/get-docker/) with Compose v2.
+| Project | Description |
+|---------|-------------|
+| **Armada.Core** | Domain models (including tenants, users, credentials), database interfaces and providers, service interfaces, settings |
+| **Armada.Runtimes** | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint; extensible via `IAgentRuntime`) |
+| **Armada.Server** | Admiral process: REST API and WebSocket ([Watson](https://github.com/jchristn/watson)), MCP server ([Voltaic](https://github.com/jchristn/voltaic)), Harbor link, embedded dashboard |
+| **Armada.Dashboard** | React dashboard (Vite), served by the Admiral at `/dashboard` and also available as a standalone container |
+| **Armada.Helm** | CLI ([Spectre.Console](https://spectreconsole.net/)), thin HTTP client to the Admiral; hosts `armada tui` |
+| **Armada.Tui** | Terminal UI (built on the TUIKit NuGet package) covering every dashboard screen ([docs/TUI.md](docs/TUI.md)) |
+| **Armada.Mobile** | iOS and Android app (Expo / React Native) sharing the dashboard's API client, types, and translations ([docs/MOBILE.md](docs/MOBILE.md)) |
+| **Armada.Client** | Typed .NET client for the REST API and WebSocket, used by the TUI |
+| **Armada.Harbor** | Avalonia tray app that links to the Admiral and runs agent processes, git, and worktrees on the developer's machine ([docs/HARBOR.md](docs/HARBOR.md)) |
+| **Armada.LoadGenerator** | CLI for synthetic screenshot activity through database or API targets ([docs/SYNTHETIC_ACTIVITY.md](docs/SYNTHETIC_ACTIVITY.md)) |
+| **Armada.Proxy** | Optional remote-access portal and tunnel relay ([docs/REMOTE_MGMT.md](docs/REMOTE_MGMT.md)) |
 
-```bash
-cd docker/armada
-export ARMADA_INITIAL_ADMIN_PASSWORD='choose-a-strong-password'   # required; 8+ characters
-docker compose up -d       # start
-docker compose down        # stop (data is kept)
+### Data Model
+
+```mermaid
+erDiagram
+    FLEET ||--o{ VESSEL : contains
+    VESSEL ||--o{ DOCK : "has worktrees"
+    VESSEL ||--o{ MISSION : "is targeted by"
+    VOYAGE ||--o{ MISSION : groups
+    CAPTAIN |o--o{ MISSION : runs
+    CAPTAIN |o--o| DOCK : "works in"
+    HARBOR |o--o{ DOCK : pins
+    PIPELINE ||--|{ PIPELINE_STAGE : "ordered stages"
+    PERSONA ||--o{ PIPELINE_STAGE : "plays"
+    MISSION }o--o| MISSION : "depends on"
 ```
 
-| Service | Port | URL | Description |
-|---------|------|-----|-------------|
-| `armada-server` | 7890 | `http://localhost:7890/dashboard` | REST API, WebSocket (`/ws`), dashboard |
-| `armada-server` | 7891 | `http://localhost:7891/mcp` | MCP server (send a credential; the container is not loopback-bound) |
-| `armada-server` | 9464 | `http://localhost:9464/metrics` | Prometheus scrape endpoint |
-| `armada-dashboard` | 3000 | `http://localhost:3000/dashboard/` | Standalone React dashboard (nginx, proxies the API to `armada-server`) |
-| `prometheus` / `loki` / `grafana` | 9090 / 3100 / 3001 | `http://localhost:3001` | Observability stack (Grafana login `admin` / `admin`) |
+ID prefixes include `flt_` (fleet), `vsl_` (vessel), `cpt_` (captain), `msn_` (mission), `vyg_` (voyage), `dck_` (dock), `sig_` (signal), `mrg_` (merge entry), `evt_` (event), `hbr_` (Harbor), `ath_` (Ask thread), `usr_`, `ten_`, and `crd_`. Each mission carries the persona of its stage and depends on the previous stage's mission.
 
-Data persists under `docker/armada/` (`db/`, `logs/`), and configuration is `docker/armada/armada.json` (restart `armada-server` after editing). `docker/armada/factory/reset.sh` (or `reset.bat`) deletes the local database and logs while keeping configuration. The compose files run the published `v1.1.0` images; to build images from source (`src/Armada.Server/Dockerfile`, `src/Armada.Dashboard/Dockerfile`, `src/Armada.Proxy/Dockerfile`) and for the volume layout, split mode, and the proxy stack, see [docs/DOCKER.md](docs/DOCKER.md).
+### Technology Stack
 
-## Upgrading / Migration
-
-Schema migrations run automatically at startup, and SQLite is backed up first. Upgrade any 0.9.x release directly to 1.0; downgrades are not supported. Backups, restores, supported paths, and the upgrade test are in [docs/UPGRADING.md](docs/UPGRADING.md), and the release-by-release notes (v0.1.0 through v1.0.1) are in [Version-by-version upgrade notes](docs/UPGRADING.md#version-by-version-upgrade-notes). Every change is in [CHANGELOG.md](CHANGELOG.md).
-
-**From 1.0.0 to 1.0.1: check your landing modes.** `LocalMerge` no longer pushes; the new `MergeAndPush` mode merges and then pushes (what `LocalMerge` did in 1.0.0) and is the global default. Nothing is migrated, so switch any vessel, voyage, or global `landingMode` that should keep pushing from `LocalMerge` to `MergeAndPush`. See [docs/MERGING.md](docs/MERGING.md#upgrading-from-100-landing-modes-fixed-in-101).
+| Component | Technology | Notes |
+|-----------|-----------|-------|
+| Language | C# / .NET 8+ | Cross-platform |
+| Database | SQLite, PostgreSQL, SQL Server, MySQL | SQLite default; zero-install, embedded |
+| REST API + WebSocket | [Watson](https://github.com/jchristn/watson) | OpenAPI built-in |
+| MCP/JSON-RPC | [Voltaic](https://github.com/jchristn/voltaic) | Standards-compliant MCP server |
+| CLI | [Spectre.Console](https://spectreconsole.net/) | Rich terminal output |
+| Dashboard | React (Vite) | Shared API client with the mobile app |
+| Mobile | Expo / React Native | iOS and Android |
+| Logging | [SyslogLogging](https://github.com/jchristn/sysloglogging) | Structured logging |
+| ID Generation | [PrettyId](https://github.com/jchristn/prettyid) | Prefixed IDs (flt_, vsl_, cpt_, msn_, etc.) |
 
 ---
 
@@ -1166,11 +1190,8 @@ Schema migrations run automatically at startup, and SQLite is backed up first. U
 | APIs | [docs/REST_API.md](docs/REST_API.md), [docs/MCP_API.md](docs/MCP_API.md), [docs/WEBSOCKET_API.md](docs/WEBSOCKET_API.md), [docs/API_SURFACE_1.0.md](docs/API_SURFACE_1.0.md), [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) |
 | Operating an install | [docs/OPERATIONS.md](docs/OPERATIONS.md), [docs/DOCKER.md](docs/DOCKER.md), [docs/RUN_ON_STARTUP.md](docs/RUN_ON_STARTUP.md), [docs/UPGRADING.md](docs/UPGRADING.md), [docs/TELEMETRY.md](docs/TELEMETRY.md) |
 | Security | [SECURITY.md](SECURITY.md), [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md) |
+| Activity and screenshot data | [TOKEN_USAGE_HEATMAP.md](TOKEN_USAGE_HEATMAP.md), [docs/SYNTHETIC_ACTIVITY.md](docs/SYNTHETIC_ACTIVITY.md) |
 | Contributing and testing | [docs/TESTING.md](docs/TESTING.md), [BUILDING_INSTALLERS.md](BUILDING_INSTALLERS.md), [docs/RELEASING.md](docs/RELEASING.md) |
-
-### Persona prompt and handoff quality
-
-Default persona guidance requires explicit evidence, tool limitations, self-contained Architect missions, executable acceptance checks, and actionable reviewer/test handoffs. See [Prompt and Handoff Improvements](PROMPT_AND_HANDOFF_IMPROVEMENTS.md) for the ranked plan, validation, live-template rollout, and replication procedure. Existing untouched defaults upgrade on startup; customized templates remain intact.
 
 ## Community
 
@@ -1200,7 +1221,3 @@ When filing an issue, include:
 ## License
 
 Armada is released under the [MIT License](LICENSE.md). See the LICENSE.md file for details.
-
-Token calendars supplement the existing monitoring charts in dashboard/mobile Activity → Token Usage and Harbor Charts. The TUI Token Usage tab shows daily activity; `u` opens the navigable calendar. See [token heatmaps and screenshot data](TOKEN_USAGE_HEATMAP.md).
-
-Populate mission, API, event, signal, and Harbor activity charts with the [C# synthetic activity generator](docs/SYNTHETIC_ACTIVITY.md), using configurable database/API targets, density, entropy, seed, and history windows.
