@@ -132,10 +132,11 @@ endpoint label and retry rules.
 
 Captains can post one-line notes from their normal worker output. A line that
 starts with `[ARMADA:NOTE] ` is stored as a Captain-authored message on the
-shared coordination board. Ask captains to post a claim note before work and
-an outcome note when work ends. Each note can contain at most 500 characters;
-Armada redacts credential-shaped values and accepts at most 20 Captain notes
-for one mission. Keep notes in plain text and do not include absolute host
-paths. Notes are advisory records for operators and the dashboard. They do not
-control mission state and do not send messages to other captains. This path
-does not add captain access to operator coordination tools.
+shared coordination board when board storage is available (SQLite or
+PostgreSQL). Ask captains to post a claim note before work and an outcome note
+when work ends. Each note can contain at most 500 characters; Armada redacts
+credential-shaped values and accepts at most 20 Captain notes for one mission.
+Keep notes in plain text and do not include absolute host paths. Notes are
+advisory records for operators and the dashboard. They do not control mission
+state and do not send messages to other captains. This path does not add
+captain access to operator coordination tools.
