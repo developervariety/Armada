@@ -440,6 +440,7 @@ namespace Armada.Harbor
         {
             if (_Window == null) return;
             MacActivationPolicy.ShowInDock();
+            MacActivationPolicy.Activate();
             _Window.Show();
             _Window.WindowState = WindowState.Normal;
             _Window.Activate();
@@ -500,6 +501,7 @@ namespace Armada.Harbor
         {
             // On macOS a window only comes forward while the app is a regular (Dock) app.
             MacActivationPolicy.ShowInDock();
+            MacActivationPolicy.Activate();
             window.Show();
             if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
             window.Activate();
@@ -515,6 +517,7 @@ namespace Armada.Harbor
             }
 
             MacActivationPolicy.ShowInDock();
+            MacActivationPolicy.Activate();
             _About = new AboutWindow(_Settings, _Session?.Admiral, this);
             AttachWindowMenu(_About);
             _About.Closed += (sender, args) =>

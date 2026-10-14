@@ -9,7 +9,8 @@
   <StackPanel Margin="22" Spacing="16">
 
     <StackPanel Orientation="Horizontal" Spacing="14">
-      <Image Source="/Assets/logo.png" Width="56" Height="56" VerticalAlignment="Center" />
+      <Image Source="/Assets/logo-256.png" Width="56" Height="56" VerticalAlignment="Center"
+             RenderOptions.BitmapInterpolationMode="HighQuality" />
       <StackPanel VerticalAlignment="Center" Spacing="2">
         <TextBlock Text="Armada Harbor" FontSize="22" FontWeight="Bold" />
         <SelectableTextBlock x:Name="VersionText" Text="Version" FontSize="12"

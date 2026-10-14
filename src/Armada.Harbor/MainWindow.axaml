@@ -14,7 +14,8 @@
 
     <!-- Who this is, and the secondary places to go. -->
     <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto">
-      <Image Grid.Column="0" Source="/Assets/logo.png" Width="30" Height="30" VerticalAlignment="Center" />
+      <Image Grid.Column="0" Source="/Assets/logo-256.png" Width="30" Height="30" VerticalAlignment="Center"
+             RenderOptions.BitmapInterpolationMode="HighQuality" />
       <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center" Spacing="0">
         <TextBlock Text="Armada Harbor" FontSize="15" FontWeight="SemiBold" />
         <TextBlock x:Name="MachineText" Classes="dim" FontSize="12" Text="Runs Armada's agents on this computer"

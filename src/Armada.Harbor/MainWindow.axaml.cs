@@ -252,6 +252,9 @@ namespace Armada.Harbor
             // Once the window is on screen (and the native application has finished launching), make sure Harbor has
             // a Dock icon and app menu; a policy set earlier in startup can be reset by LSUIElement.
             MacActivationPolicy.ShowInDock();
+            // Bring Harbor forward; otherwise the app that launched it (a terminal) stays active and keeps the menu bar.
+            MacActivationPolicy.Activate();
+            Activate();
             // Connect automatically on startup so an operator does not have to click Connect; the link loop
             // reconnects on its own after transient drops.
             StartConnecting(true);

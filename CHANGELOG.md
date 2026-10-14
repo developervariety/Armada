@@ -12,6 +12,9 @@ All notable changes to Armada are documented in this file.
   System, Light, or Dark, Open Dashboard), Window (Minimize, Zoom, Armada Harbor, Bring All to Front), and Help
   (Documentation, Report an Issue, Copy Diagnostics).
 - Every Harbor window carries the menu bar, so the About window and dialogs no longer leave only the bare app menu.
+- Harbor now becomes the active app when its window opens (including from `scripts/macos/run-harbor.sh` and the tray),
+  so the menu bar shows Harbor's menus right away instead of only after switching away and back.
+- The header and About logo use a 256-pixel copy with high-quality scaling instead of shrinking the full-size image.
 
 ### Synthetic activity load generator
 - Add a .NET 8/10 CLI with database/API targets and configurable density, entropy, seed and fixed history window.
