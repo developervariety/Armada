@@ -69,7 +69,7 @@ Every image that serves HTTP includes `curl`, and the compose files define healt
 ## Architecture
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/jchristn/armada/main/assets/screenshot-1.png" alt="Armada dashboard" width="800" />
+  <img src="https://raw.githubusercontent.com/jchristn/armada/main/assets/screenshot-dashboard-1.png" alt="Armada dashboard" width="800" />
 </p>
 
 The Admiral is a single .NET process. It stores everything in SQLite by default (PostgreSQL, MySQL, and SQL Server

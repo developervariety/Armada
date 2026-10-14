@@ -634,18 +634,84 @@ The app is not yet in the App Store or Google Play; install a build from whoever
 
 ## Screenshots
 
+Browse the dashboard, Harbor desktop app, and terminal UI. Expand a section to view its screenshots.
+
 <details>
-<summary>Dashboard screenshots (from an earlier dashboard build)</summary>
+<summary>Dashboard (8 screenshots)</summary>
 
-<br />
+### System status and mission history
 
-![System status with recent missions](assets/screenshot-1.png)
+![System status and mission history](assets/screenshot-dashboard-1.png)
 
-![Mission log viewer](assets/screenshot-2.png)
+### Ask Armada conversation and status report
 
-![Mission diff viewer](assets/screenshot-3.png)
+![Ask Armada conversation and status report](assets/screenshot-dashboard-2.png)
 
-![Editing a vessel's project context and style guide](assets/screenshot-4.png)
+### Fleet action configuration
+
+![Fleet action configuration](assets/screenshot-dashboard-3.png)
+
+### Architect persona prompt template
+
+![Architect persona prompt template](assets/screenshot-dashboard-4.png)
+
+### API request detail and redacted headers
+
+![API request detail and redacted headers](assets/screenshot-dashboard-5.png)
+
+### API request activity and summary
+
+![API request activity and summary](assets/screenshot-dashboard-6.png)
+
+### Token activity heatmap
+
+![Token activity heatmap](assets/screenshot-dashboard-7.png)
+
+### Token usage over time and by model
+
+![Token usage over time and by model](assets/screenshot-dashboard-8.png)
+
+</details>
+
+<details>
+<summary>Harbor desktop app (4 screenshots)</summary>
+
+### Harbor connection and activity log
+
+![Harbor connection and activity log](assets/screenshot-harbor-1.png)
+
+### Harbor status overview and connection settings
+
+![Harbor status overview and connection settings](assets/screenshot-harbor-2.png)
+
+### Harbor activity and jobs over time
+
+![Harbor activity and jobs over time](assets/screenshot-harbor-3.png)
+
+### Harbor token usage and launch speed
+
+![Harbor token usage and launch speed](assets/screenshot-harbor-4.png)
+
+</details>
+
+<details>
+<summary>Terminal UI (TUI) (4 screenshots)</summary>
+
+### TUI sign-in screen
+
+![TUI sign-in screen](assets/screenshot-tui-1.png)
+
+### TUI server settings
+
+![TUI server settings](assets/screenshot-tui-2.png)
+
+### TUI token activity heatmap and charts
+
+![TUI token activity heatmap and charts](assets/screenshot-tui-3.png)
+
+### TUI usability engineer persona
+
+![TUI usability engineer persona](assets/screenshot-tui-4.png)
 
 </details>
 
