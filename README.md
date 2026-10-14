@@ -1134,3 +1134,5 @@ When filing an issue, include:
 ## License
 
 Armada is released under the [MIT License](LICENSE.md). See the LICENSE.md file for details.
+
+Token calendars supplement the existing monitoring charts in dashboard/mobile Activity → Token Usage and Harbor Charts. The TUI Token Usage tab shows daily activity; `u` opens the navigable calendar. See [token heatmaps and screenshot data](TOKEN_USAGE_HEATMAP.md).

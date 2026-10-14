@@ -11834,6 +11834,24 @@
                         }
                     },
                     "response": []
+                },
+                {
+                    "name": "Import synthetic token usage (global admin)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{baseUrl}}/api/v1/token-usage/synthetic",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"BatchId\": \"screenshot-demo\",\n  \"Records\": [\n    {\n      \"Model\": \"demo\",\n      \"Runtime\": \"mux\",\n      \"CreatedUtc\": \"2026-10-01T12:00:00Z\",\n      \"InputTokens\": 1000,\n      \"OutputTokens\": 200,\n      \"CachedTokens\": 400\n    }\n  ]\n}"
+                        },
+                        "description": "Global admin only. Use a unique batch ID and a UTC timestamp within the past 366 days. Identical retries are idempotent; changed content returns 409."
+                    }
                 }
             ]
         },

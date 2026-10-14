@@ -302,6 +302,9 @@ describe('Activity > Events, Signals, Token Usage', () => {
     expect(screen.getByText('1 of 4 records estimated')).toBeTruthy();
     expect(within(screen.getByTestId('tokens-by-model')).getByText('opus')).toBeTruthy();
     expect(api.getTokenUsage).toHaveBeenCalledWith(expect.objectContaining({ bucketMinutes: 15 }));
+    expect(api.getTokenUsage).toHaveBeenCalledWith(expect.objectContaining({ bucketMinutes: 1440 }));
+    await waitFor(() => expect(screen.getAllByTestId(/^tokens-heat-day-/)).toHaveLength(365));
+    await fireEvent.press(screen.getAllByTestId(/^tokens-heat-day-/)[0]);
     await fireEvent.press(screen.getByTestId('tokens-range-week'));
     await waitFor(() => expect(api.getTokenUsage).toHaveBeenLastCalledWith(expect.objectContaining({ bucketMinutes: 120 })));
   });

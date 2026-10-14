@@ -593,6 +593,8 @@ No parameters required.
 
 ### token_usage_summary
 
+For daily token heatmaps, supply explicit `fromUtc`/`toUtc` and `bucketMinutes: 1440`. Optional `sourceId` isolates a synthetic batch; `syntheticCount` reports included synthetic rows. Synthetic imports are available only through the global-admin REST endpoint, not MCP.
+
 Summarize model token usage over a time window. Returns time buckets (each with a per-model breakdown), a whole-window per-model aggregate ordered most-used first, and grand totals. Use it to answer *"how many tokens has each model used?"* or *"what's our token usage over the last week?"*.
 
 Counts are normalized across providers: `input` covers prompt tokens, `output` covers completion tokens, `cached` is the cache-read subset of input (informational), and `total` is input + output. Counts are measured where the runtime reports usage (for example Claude Code) and estimated from text length otherwise; `EstimatedCount` reports how many aggregated records were estimated.
@@ -609,7 +611,8 @@ Counts are normalized across providers: `input` covers prompt tokens, `output` c
     "bucketMinutes": { "type": "number", "description": "Time-bucket width in minutes; fractional allowed, e.g. 0.5 for 30-second buckets (default 60)" },
     "model": { "type": "string", "description": "Filter to one model" },
     "runtime": { "type": "string", "description": "Filter to one runtime (for example claudecode, codex, mux)" },
-    "source": { "type": "string", "description": "Filter to one source: mission, chat, or planning" },
+    "source": { "type": "string", "description": "Filter to one source: mission, chat, planning, or synthetic" },
+    "sourceId": { "type": "string", "description": "Filter to one source ID, such as synthetic:<batchId>" },
     "vesselId": { "type": "string", "description": "Filter to one vessel (vsl_ prefix)" },
     "captainId": { "type": "string", "description": "Filter to one captain (cpt_ prefix)" },
     "harborId": { "type": "string", "description": "Filter to work that ran on one Harbor (hbr_ prefix)" }

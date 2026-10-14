@@ -1,3 +1,4 @@
+import { TokenActivityHeatmap } from './TokenActivityHeatmap';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { getTokenUsage } from '@dashboard/api/client';
@@ -92,6 +93,8 @@ export function TokenUsageTab() {
       {(data?.estimatedCount ?? 0) > 0 ? (
         <AppText variant="caption" muted style={styles.pad}>{t('{{estimated}} of {{total}} records estimated', { estimated: data?.estimatedCount ?? 0, total: data?.recordCount ?? 0 })}</AppText>
       ) : null}
+
+      <TokenActivityHeatmap />
 
       <FieldCard title={t('Usage over time')}>
         {loading && !data ? <AppText muted style={styles.inner}>{t('Loading token usage...')}</AppText> : buckets.length === 0 || series.length === 0 ? (

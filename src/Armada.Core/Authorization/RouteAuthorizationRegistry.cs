@@ -415,6 +415,7 @@ namespace Armada.Core.Authorization
 
             // TokenUsageRoutes
             Add("GET", "/api/v1/token-usage/summary", "TokenUsage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/token-usage/synthetic", "TokenUsage", ResourceOperationEnum.Create, PermissionLevel.AdminOnly);
             Add("GET", "/api/v1/token-usage", "TokenUsage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/token-usage/delete/by-filter", "TokenUsage", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
 

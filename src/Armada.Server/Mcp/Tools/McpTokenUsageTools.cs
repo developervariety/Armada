@@ -44,7 +44,8 @@ namespace Armada.Server.Mcp.Tools
                         bucketMinutes = new { type = "number", description = "Time-bucket width in minutes; fractional allowed, e.g. 0.5 for 30-second buckets (default 60)" },
                         model = new { type = "string", description = "Filter to one model" },
                         runtime = new { type = "string", description = "Filter to one runtime (for example claudecode, codex, mux)" },
-                        source = new { type = "string", description = "Filter to one source: mission, chat, or planning" },
+                        source = new { type = "string", description = "Filter to one source: mission, chat, planning, or synthetic" },
+                        sourceId = new { type = "string", description = "Exact work or synthetic batch identifier" },
                         vesselId = new { type = "string", description = "Filter to one vessel (vsl_ prefix)" },
                         captainId = new { type = "string", description = "Filter to one captain (cpt_ prefix)" },
                         harborId = new { type = "string", description = "Filter to work that ran on one Harbor (hbr_ prefix)" }
@@ -84,6 +85,7 @@ namespace Armada.Server.Mcp.Tools
                     query.Model = String.IsNullOrWhiteSpace(request.Model) ? null : request.Model;
                     query.Runtime = String.IsNullOrWhiteSpace(request.Runtime) ? null : request.Runtime;
                     query.Source = String.IsNullOrWhiteSpace(request.Source) ? null : request.Source;
+                    query.SourceId = String.IsNullOrWhiteSpace(request.SourceId) ? null : request.SourceId;
                     query.VesselId = String.IsNullOrWhiteSpace(request.VesselId) ? null : request.VesselId;
                     query.CaptainId = String.IsNullOrWhiteSpace(request.CaptainId) ? null : request.CaptainId;
                     query.HarborId = String.IsNullOrWhiteSpace(request.HarborId) ? null : request.HarborId;

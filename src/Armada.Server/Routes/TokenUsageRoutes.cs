@@ -66,7 +66,8 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("bucketMinutes", "Bucket width in minutes; fractional allowed, e.g. 0.5 for 30-second buckets (default 15)", false))
                 .WithParameter(OpenApiParameterMetadata.Query("model", "Optional model filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("runtime", "Optional runtime filter", false))
-                .WithParameter(OpenApiParameterMetadata.Query("source", "Optional source filter (mission, chat, planning)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("source", "Optional source filter (mission, chat, planning, synthetic)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("sourceId", "Optional exact work or synthetic batch identifier", false))
                 .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Optional vessel filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("captainId", "Optional captain filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("harborId", "Optional Harbor filter: usage of work that ran on this Harbor", false))
@@ -96,13 +97,38 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size", false, OpenApiSchemaMetadata.Integer()))
                 .WithParameter(OpenApiParameterMetadata.Query("model", "Optional model filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("runtime", "Optional runtime filter", false))
-                .WithParameter(OpenApiParameterMetadata.Query("source", "Optional source filter (mission, chat, planning)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("source", "Optional source filter (mission, chat, planning, synthetic)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("sourceId", "Optional exact work or synthetic batch identifier", false))
                 .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Optional vessel filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("captainId", "Optional captain filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("harborId", "Optional Harbor filter: usage of work that ran on this Harbor", false))
                 .WithParameter(OpenApiParameterMetadata.Query("fromUtc", "Optional lower bound UTC timestamp", false))
                 .WithParameter(OpenApiParameterMetadata.Query("toUtc", "Optional upper bound UTC timestamp", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<TokenUsageRecord>>("Paginated token-usage records"))
+                .WithSecurity("ApiKey"));
+
+            app.Post<TokenUsageSyntheticRequest>("/api/v1/token-usage/synthetic", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+                if (!ctx.IsAdmin) { req.Http.Response.StatusCode = 403; return BuildAuthError(req); }
+                try
+                {
+                    TokenUsageSyntheticRequest body = JsonSerializer.Deserialize<TokenUsageSyntheticRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                        ?? throw new ArgumentException("Synthetic import body is required.");
+                    return (object)await TokenUsageSyntheticImporter.ImportAsync(_database.TokenUsage, body, ctx.TenantId!, ctx.UserId!, DateTime.UtcNow).ConfigureAwait(false);
+                }
+                catch (ArgumentException ex) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message }; }
+                catch (JsonException) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid synthetic import JSON." }; }
+                catch (TokenUsageSyntheticConflictException ex) { req.Http.Response.StatusCode = 409; return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = ex.Message }; }
+            }, api => api
+                .WithTag("TokenUsage")
+                .WithSummary("Import explicitly synthetic usage for screenshots")
+                .WithDescription("Admin-only import of 1-500 historical simulated records. No inference calls or mission dispatch. Sources and ownership are assigned by the server; identical ordered batches are idempotent.")
+                .WithRequestBody(OpenApiJson.BodyFor<TokenUsageSyntheticRequest>("Synthetic batch", true))
+                .WithResponse(200, OpenApiJson.For<TokenUsageSyntheticResult>("Synthetic import receipt"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("Batch identifier conflicts with existing content"))
                 .WithSecurity("ApiKey"));
 
             app.Post<TokenUsageQuery>("/api/v1/token-usage/delete/by-filter", async (ApiRequest req) =>
@@ -167,15 +193,16 @@ namespace Armada.Server.Routes
             query.Model = NormalizeEmpty(req.Query.GetValueOrDefault("model"));
             query.Runtime = NormalizeEmpty(req.Query.GetValueOrDefault("runtime"));
             query.Source = NormalizeEmpty(req.Query.GetValueOrDefault("source"));
+            query.SourceId = NormalizeEmpty(req.Query.GetValueOrDefault("sourceId"));
             query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId"));
             query.CaptainId = NormalizeEmpty(req.Query.GetValueOrDefault("captainId"));
             query.HarborId = NormalizeEmpty(req.Query.GetValueOrDefault("harborId"));
             query.TenantId = NormalizeEmpty(req.Query.GetValueOrDefault("tenantId"));
             query.UserId = NormalizeEmpty(req.Query.GetValueOrDefault("userId"));
 
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc))
+            if (DateTime.TryParse(DecodeQuery(req.Query.GetValueOrDefault("fromUtc")), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))
+            if (DateTime.TryParse(DecodeQuery(req.Query.GetValueOrDefault("toUtc")), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
 
             return query;
@@ -192,9 +219,14 @@ namespace Armada.Server.Routes
             }
         }
 
+        private static string? DecodeQuery(string? value)
+        {
+            return value == null ? null : Uri.UnescapeDataString(value);
+        }
+
         private static string? NormalizeEmpty(string? value)
         {
-            return String.IsNullOrWhiteSpace(value) ? null : value;
+            return String.IsNullOrWhiteSpace(value) ? null : DecodeQuery(value);
         }
     }
 }

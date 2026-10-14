@@ -40,7 +40,10 @@ namespace Armada.Server.Mcp
         /// <summary>
         /// Optional source filter (mission, chat, planning).
         /// </summary>
-        public string? Source { get; set; } = null;
+        public string? Source { get; set; }
+
+        /// <summary>Optional exact work or synthetic batch identifier.</summary>
+        public string? SourceId { get; set; } = null;
 
         /// <summary>
         /// Optional vessel filter.

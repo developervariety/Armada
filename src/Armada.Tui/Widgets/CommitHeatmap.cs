@@ -62,6 +62,9 @@ namespace Armada.Tui.Widgets
         /// </summary>
         public string Summary { get; set; } = "";
 
+        /// <summary>Optional selected-day text for a calendar measuring something other than commits.</summary>
+        public Func<DateTime, string>? DayDescription { get; set; } = null;
+
         /// <summary>
         /// Style of <see cref="Summary"/>, or null for the accent.
         /// </summary>
@@ -371,7 +374,7 @@ namespace Armada.Tui.Widgets
             int count = CountOn(Selected);
             Dictionary<string, object?> args = new Dictionary<string, object?>(StringComparer.Ordinal);
             args["count"] = count;
-            string selected = Selected.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + ": " + Localizer.T("{count, plural, one {# commit} other {# commits}}", args);
+            string selected = DayDescription != null ? DayDescription(Selected) : Selected.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + ": " + Localizer.T("{count, plural, one {# commit} other {# commits}}", args);
             string legendLess = T("Less") + " ";
             string legendMore = " " + T("More");
             int legendWidth = TextCells.Width(legendLess) + 5 * 2 - 1 + TextCells.Width(legendMore);

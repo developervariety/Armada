@@ -9182,3 +9182,15 @@ thead tr.column-filter-row td input.col-filter { width: 0; min-width: 100%; }
   .persona-priority-toolbar { flex-wrap: wrap; }
   .persona-priority-actions button { min-width: 38px; min-height: 38px; }
 }
+
+.token-activity-card { padding: 1rem 1.25rem; }
+.token-activity-header { display:flex; justify-content:space-between; align-items:start; gap:1rem; flex-wrap:wrap; }
+.token-activity-header h3 { margin:0 0 0.4rem; }
+.token-activity-header p { margin:0; font-size:0.8rem; }
+.token-activity-controls { display:flex; align-items:end; gap:0.6rem; flex-wrap:wrap; }
+.token-activity-controls label { display:flex; flex-direction:column; gap:0.3rem; font-size:0.8rem; }
+.token-activity-stats { display:flex; gap:1.25rem; flex-wrap:wrap; margin:1rem 0; font-size:0.85rem; }
+.token-activity-scroll { padding-bottom:0.6rem; }
+.token-activity-footer { display:flex; gap:1rem; justify-content:space-between; flex-wrap:wrap; font-size:0.8rem; margin-top:0.5rem; }
+.token-activity-legend { display:flex; align-items:center; gap:0.3rem; }
+.token-activity-card button.vhist-heat-cell { padding:0; min-width:0; }

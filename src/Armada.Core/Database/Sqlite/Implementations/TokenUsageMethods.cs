@@ -282,6 +282,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 conditions.Add("source = @source");
                 parameters.Add(new SqliteParameter("@source", query.Source));
             }
+            if (!string.IsNullOrWhiteSpace(query.SourceId))
+            {
+                conditions.Add("source_id = @source_id");
+                parameters.Add(new SqliteParameter("@source_id", query.SourceId));
+            }
             if (!string.IsNullOrWhiteSpace(query.VesselId))
             {
                 conditions.Add("vessel_id = @vessel_id");

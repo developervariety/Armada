@@ -446,6 +446,7 @@ export interface TokenUsageSummaryResult {
   totalTokens: number;
   buckets: TokenUsageBucket[];
   byModel: TokenUsageModelBreakdown[];
+  syntheticCount?: number;
 }
 
 export interface Voyage {
@@ -3589,3 +3590,8 @@ export interface VesselCommitQuery {
   /** Page size 1..200 (server default 50). */
   limit?: number | null;
 }
+
+/** Admin-only, explicitly synthetic demonstration import. */
+export interface TokenUsageSyntheticRecord { model: string; runtime?: string | null; createdUtc: string; inputTokens: number; outputTokens: number; cachedTokens: number }
+export interface TokenUsageSyntheticRequest { batchId: string; records: TokenUsageSyntheticRecord[] }
+export interface TokenUsageSyntheticResult { batchId: string; sourceId: string; created: number; existing: number; fromUtc: string; toUtc: string; totalTokens: number }

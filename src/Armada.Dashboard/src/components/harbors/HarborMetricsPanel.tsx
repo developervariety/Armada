@@ -1,3 +1,4 @@
+import TokenActivityHeatmap from '../activity/TokenActivityHeatmap';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getHarborMetrics } from '../../api/client';
@@ -253,6 +254,7 @@ export default function HarborMetricsPanel({ harborId, initialRange = '24h' }: H
                 formatValue={formatTokens}
               />
             )}
+            <TokenActivityHeatmap harborId={harborId} />
           </div>
         </>
       )}

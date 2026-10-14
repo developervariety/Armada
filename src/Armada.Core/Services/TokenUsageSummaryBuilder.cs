@@ -30,7 +30,8 @@ namespace Armada.Core.Services
                 ToUtc = safeQuery.ToUtc,
                 BucketMinutes = safeQuery.BucketMinutes <= 0 ? 15 : safeQuery.BucketMinutes,
                 RecordCount = safeRecords.Count,
-                EstimatedCount = safeRecords.Count(record => record.Estimated)
+                EstimatedCount = safeRecords.Count(record => record.Estimated),
+                SyntheticCount = safeRecords.Count(record => record.Source == "synthetic")
             };
 
             // Grand totals and whole-window per-model aggregate.

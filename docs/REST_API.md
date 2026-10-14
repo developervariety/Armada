@@ -7782,12 +7782,21 @@ Return token usage aggregated into time buckets (each with a per-model breakdown
 
 **Permission:** Authenticated
 
-- Query: `fromUtc`, `toUtc`, `bucketMinutes`, `model`, `runtime`, `source`, `vesselId`, `captainId`, `harborId`, `tenantId`, `userId`
+- Query: `fromUtc`, `toUtc`, `bucketMinutes`, `model`, `runtime`, `source`, `sourceId`, `vesselId`, `captainId`, `harborId`, `tenantId`, `userId`
 - `harborId` keeps the usage of work that ran on that Harbor (mission runs, chat and Ask turns, and planning turns
   launched there)
 - Defaults: last 24 hours, 15-minute buckets
-- `source` is one of `mission`, `chat`, `planning`
-- Response: `200 OK` - `TokenUsageSummaryResult` (fields: `fromUtc`, `toUtc`, `bucketMinutes`, `recordCount`, `estimatedCount`, `inputTokens`, `outputTokens`, `cachedTokens`, `totalTokens`, `buckets[]`, `byModel[]`)
+- `source` is one of `mission`, `chat`, `planning`, `synthetic`
+- Response: `200 OK` - `TokenUsageSummaryResult` (fields: `fromUtc`, `toUtc`, `bucketMinutes`, `recordCount`, `estimatedCount`, `syntheticCount`, `inputTokens`, `outputTokens`, `cachedTokens`, `totalTokens`, `buckets[]`, `byModel[]`)
+
+#### POST /api/v1/token-usage/synthetic
+
+**Permission:** Global admin only. Imports screenshot history without model execution.
+Body: `{ "BatchId": "demo-unique", "Records": [{ "Model": "demo", "Runtime": "mux", "CreatedUtc": "2026-10-01T12:00:00Z", "InputTokens": 1000, "OutputTokens": 200, "CachedTokens": 400 }] }`.
+
+Batch IDs are 1–80 alphanumeric/dash/underscore characters; 1–500 records per request, timestamps within the past 366 days, counts 0–1,000,000,000. Server assigns tenant/user, synthetic source, source ID, estimated flag, and deterministic IDs. Total equals input + output; cached tokens are informational. Identical retries return existing counts; changed content returns 409. Invalid input returns 400 before writes. Response includes batch/source IDs, created/existing counts, UTC bounds, and total tokens. SDK: `ImportSyntheticTokenUsageAsync`; TypeScript: `importSyntheticTokenUsage`.
+
+Daily heatmaps request explicit UTC dates and `bucketMinutes=1440`. `syntheticCount` identifies included synthetic rows; `sourceId` filters a particular batch. See [generator procedure](../TOKEN_USAGE_HEATMAP.md).
 
 #### GET /api/v1/token-usage
 
@@ -7795,7 +7804,7 @@ List token-usage records in the caller's scope.
 
 **Permission:** Authenticated
 
-- Query: `pageNumber`, `pageSize`, `model`, `runtime`, `source`, `vesselId`, `captainId`, `harborId`, `fromUtc`, `toUtc`
+- Query: `pageNumber`, `pageSize`, `model`, `runtime`, `source`, `sourceId`, `vesselId`, `captainId`, `harborId`, `fromUtc`, `toUtc`
 - Response: `200 OK` - `EnumerationResult<TokenUsageRecord>`
 
 #### POST /api/v1/token-usage/delete/by-filter

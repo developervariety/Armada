@@ -2649,6 +2649,14 @@
     },
     {
       "kind": "api",
+      "key": "importSyntheticTokenUsage",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4",
+      "notes": "Admin screenshot-data import is an operator script/API workflow; mobile reads its tagged usage summaries."
+    },
+    {
+      "kind": "api",
       "key": "importVessels",
       "status": "implemented",
       "mobile": "src/screens/vessels/import",

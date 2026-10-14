@@ -63,6 +63,13 @@ namespace Armada.Tui.Screens.Activity
         /// </summary>
         public TokenUsageModelChart ModelChart { get; } = new TokenUsageModelChart();
 
+        /// <summary>Daily UTC calendar for the last 365 days, independent of chart range.</summary>
+        public TokenActivityHeatmap Heatmap { get; } = new TokenActivityHeatmap();
+
+        /// <summary>Last daily summary.</summary>
+        public TokenUsageSummaryResult? HeatmapData { get; private set; }
+
+
         /// <summary>
         /// Last result, or null.
         /// </summary>
@@ -97,6 +104,7 @@ namespace Armada.Tui.Screens.Activity
                     new KeyValuePair<string, string>("t", "Metric"),
                     new KeyValuePair<string, string>("b", "Bars/lines"),
                     new KeyValuePair<string, string>("y", "Copy"),
+                    new KeyValuePair<string, string>("u", "Token activity"),
                     new KeyValuePair<string, string>("e", "Export CSV"),
                 };
                 if (HarborId.Length > 0) hints.Insert(0, new KeyValuePair<string, string>("x", "All Harbors"));
@@ -128,6 +136,7 @@ namespace Armada.Tui.Screens.Activity
             Header.AddButton("Copy model chart", CopyModelChart);
             Header.AddButton("Export CSV", ExportCsv, "e");
             Header.AddButton("Refresh", Load, "F5");
+            Header.AddButton("Token activity", ShowTokenActivity, "u");
             AddFixed(Header, w => Header.HeightFor(w));
             HarborId = route.Query.TryGetValue("harborId", out string? harborId) && !String.IsNullOrWhiteSpace(harborId) ? harborId.Trim() : "";
             _HarborNote.Translate = false;
@@ -164,6 +173,11 @@ namespace Armada.Tui.Screens.Activity
             _Note.Translate = false;
             AddFixed(_Note, w => _Note.Text.Length > 0 ? 1 : 0);
             AddFixed(ModelChart, w => Math.Min(12, ModelChart.PreferredHeight) + 1);
+            Heatmap.CanFocus = false;
+            AddFixed(new TextBlock("Token activity (UTC)", t => t.Accent), w => 1);
+            AddFixed(Heatmap, w => CommitHeatmap.PreferredHeight);
+            Heatmap.SetUsage(null, Context.Clock.UtcNow.Date.AddDays(-364), Context.Clock.UtcNow.Date);
+            Heatmap.Select(Context.Clock.UtcNow.Date);
             TimeChart.Title = "Usage over time";
             TimeChart.ValueFormatter = v => TokenUsageFormat.Tokens(v);
             TimeChart.EmptyText = "No token usage for this time range";
@@ -198,6 +212,7 @@ namespace Armada.Tui.Screens.Activity
             commands.Add(allHarbors);
             commands.Add(new ArmadaCommand(ScreenKey + ".metric", "Toggle metric (total / by token type)", CommandMenuEnum.Actions, () => SetMetric(MetricField.Value == "byType" ? "total" : "byType"), "t"));
             commands.Add(new ArmadaCommand(ScreenKey + ".shape", "Toggle stacked bars / lines", CommandMenuEnum.Actions, () => SetShape(ShapeField.Value == "lines" ? "bars" : "lines"), "b"));
+            commands.Add(new ArmadaCommand(ScreenKey + ".token-activity", "Token activity", CommandMenuEnum.Actions, ShowTokenActivity, "u"));
             commands.Add(new ArmadaCommand(ScreenKey + ".copy", "Copy chart", CommandMenuEnum.Actions, CopyTimeChart, "y"));
             commands.Add(new ArmadaCommand(ScreenKey + ".copy-model", "Copy model chart", CommandMenuEnum.Actions, CopyModelChart));
             commands.Add(new ArmadaCommand(ScreenKey + ".export-csv", "Export CSV", CommandMenuEnum.Actions, ExportCsv, "e"));
@@ -244,6 +259,32 @@ namespace Armada.Tui.Screens.Activity
             if (option != null) ShapeField.Choose(option);
         }
 
+        /// <summary>Open the token calendar, including when a short terminal hides the inline chart.</summary>
+        public void ShowTokenActivity()
+        {
+            DateTime today = Context.Clock.UtcNow.Date;
+            Context.Modals.Show(new TokenActivityDialog(Context, HeatmapData, today.AddDays(-364), today));
+        }
+
+        private void LoadHeatmap()
+        {
+            DateTime end = Context.Clock.UtcNow;
+            string harbor = HarborId;
+            TokenUsageQuery query = new TokenUsageQuery { FromUtc = end.Date.AddDays(-364), ToUtc = end, BucketMinutes = 1440, HarborId = harbor.Length > 0 ? harbor : null };
+            Heatmap.Summary = Context.Loc.T("Loading token usage...");
+            ScreenOps.Quiet(Context, async () =>
+            {
+                try { return await Context.Client.GetTokenUsageAsync(query).ConfigureAwait(false); }
+                catch (Armada.Client.ArmadaApiException) { return null; }
+            }, result =>
+            {
+                if (HarborId != harbor) return;
+                HeatmapData = result;
+                Heatmap.SetUsage(result, end.Date.AddDays(-364), end.Date);
+                if (result == null) Heatmap.Summary = Context.Loc.T("Unable to load token activity.");
+            });
+        }
+
         /// <summary>
         /// The query for the current range ending now.
         /// </summary>
@@ -266,6 +307,7 @@ namespace Armada.Tui.Screens.Activity
         public void Load()
         {
             TokenUsageQuery query = BuildQuery();
+            LoadHeatmap();
             Loading = true;
             Rebuild();
             ScreenOps.Quiet(Context, async () =>

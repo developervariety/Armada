@@ -205,7 +205,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@cached_tokens", record.CachedTokens);
             cmd.Parameters.AddWithValue("@total_tokens", record.TotalTokens);
             cmd.Parameters.AddWithValue("@estimated", record.Estimated);
-            cmd.Parameters.AddWithValue("@created_utc", record.CreatedUtc);
+            cmd.Parameters.Add("@created_utc", System.Data.SqlDbType.DateTime2).Value = record.CreatedUtc;
         }
 
         private static TokenUsageRecord RecordFromReader(SqlDataReader reader)
@@ -264,6 +264,11 @@ namespace Armada.Core.Database.SqlServer.Implementations
             {
                 conditions.Add("source = @source");
                 parameters.Add(new SqlParameter("@source", query.Source));
+            }
+            if (!string.IsNullOrWhiteSpace(query.SourceId))
+            {
+                conditions.Add("source_id = @source_id");
+                parameters.Add(new SqlParameter("@source_id", query.SourceId));
             }
             if (!string.IsNullOrWhiteSpace(query.VesselId))
             {

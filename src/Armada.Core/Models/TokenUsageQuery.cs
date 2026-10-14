@@ -34,6 +34,9 @@ namespace Armada.Core.Models
         /// </summary>
         public string? Source { get; set; } = null;
 
+        /// <summary>Exact originating work or synthetic batch identifier filter.</summary>
+        public string? SourceId { get; set; } = null;
+
         /// <summary>
         /// Vessel filter.
         /// </summary>

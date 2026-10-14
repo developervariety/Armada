@@ -17,6 +17,7 @@ import { LINK_STATE_LABELS, formatDurationMs, linkStrip, sparklineRuns, tokenUsa
 
 vi.mock('../../api/client', () => ({
   getHarborMetrics: vi.fn(),
+  getTokenUsage: vi.fn().mockResolvedValue({ buckets: [], totalTokens: 0, recordCount: 0 }),
 }));
 
 const localeValue = {

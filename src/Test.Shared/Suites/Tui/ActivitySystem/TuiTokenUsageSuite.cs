@@ -84,6 +84,24 @@ namespace Test.Shared.Suites.Tui.ActivitySystem
                 }
             }));
 
+            cases.Add(TuiCase.Sync(Suite, "calendar_inspector", "Token calendar has an independent daily query and remains accessible on short terminals", () =>
+            {
+                StubHttpHandler stub = Stub();
+                using TuiTestHost host = TuiCase.SignedIn(80, 24, "/activity?source=tokens", stub);
+                TokenUsageScreen screen = Current<TokenUsageScreen>(host);
+                AssertTrue(host.PumpUntil(() => screen.HeatmapData != null), "daily data loaded");
+                AssertTrue(stub.Saw("GET", "/api/v1/token-usage/summary", r => r.QueryValue("bucketMinutes") == "1440"), "calendar request");
+                host.Press("u");
+                AssertTrue(host.WaitForText("Daily token totals (UTC)"), "inspector opens");
+                TuiScreenDump.Write("token-activity-heatmap", host.Screen());
+                host.Press("t");
+                AssertTrue(host.WaitForText("Input"), "metric cycles");
+                host.Press("Left");
+                host.Press("esc");
+                TuiScreenDump.Write("token-activity-return", host.Screen());
+                AssertTrue(host.WaitForText("Usage over time"), "monitoring charts still available");
+            }));
+
             return new TestSuiteDescriptor(suiteId: Suite, displayName: "TUI Token Usage", cases: cases);
         }
 
