@@ -38,7 +38,7 @@ goto :collect
 
 :run
 echo [run-tui] Building the Armada CLI (%FRAMEWORK%)...
-dotnet build "%REPO_ROOT%\src\Armada.Helm\Armada.Helm.csproj" --framework %FRAMEWORK%
+dotnet build "%REPO_ROOT%\src\Armada.Helm\Armada.Helm.csproj" %ARMADA_DOTNET_FRAMEWORK_ARGS%
 if errorlevel 1 (
     endlocal
     exit /b 1

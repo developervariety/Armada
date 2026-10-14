@@ -38,7 +38,7 @@ goto :collect
 
 :run
 echo [run-harbor] Building Armada Harbor (%FRAMEWORK%)...
-dotnet build "%REPO_ROOT%\src\Armada.Harbor\Armada.Harbor.csproj" --framework %FRAMEWORK%
+dotnet build "%REPO_ROOT%\src\Armada.Harbor\Armada.Harbor.csproj" %ARMADA_DOTNET_FRAMEWORK_ARGS%
 if errorlevel 1 (
     endlocal
     exit /b 1

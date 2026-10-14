@@ -23,9 +23,9 @@ set "BASE_URL=%ARMADA_BASE_URL%"
 if "%BASE_URL%"=="" set "BASE_URL=http://localhost:7890"
 
 echo [run-local] Building server + Harbor (framework %FRAMEWORK%)...
-dotnet build "%REPO_ROOT%\src\Armada.Server\Armada.Server.csproj" --framework %FRAMEWORK%
+dotnet build "%REPO_ROOT%\src\Armada.Server\Armada.Server.csproj" %ARMADA_DOTNET_FRAMEWORK_ARGS%
 if errorlevel 1 exit /b 1
-dotnet build "%REPO_ROOT%\src\Armada.Harbor\Armada.Harbor.csproj" --framework %FRAMEWORK%
+dotnet build "%REPO_ROOT%\src\Armada.Harbor\Armada.Harbor.csproj" %ARMADA_DOTNET_FRAMEWORK_ARGS%
 if errorlevel 1 exit /b 1
 
 if "%ARMADA_SKIP_DASHBOARD%"=="1" (

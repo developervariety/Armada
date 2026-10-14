@@ -18,7 +18,7 @@ run_helm() {
     return
   fi
 
-  if dotnet run --project "$REPO_ROOT/src/Armada.Helm" -f "$ARMADA_TARGET_FRAMEWORK" -- "$@"; then
+  if dotnet run --project "$REPO_ROOT/src/Armada.Helm" $ARMADA_DOTNET_FRAMEWORK_ARGS -- "$@"; then
     return 0
   fi
 
@@ -51,7 +51,7 @@ run_helm server stop || true
 
 echo
 echo "[update] Reinstalling Armada tool and redeploying dashboard..."
-"$SCRIPT_DIR/reinstall.sh"
+"$SCRIPT_DIR/reinstall.sh" $ARMADA_FORWARD_FRAMEWORK_ARGS
 
 echo
 echo "[update] Starting Armada server..."

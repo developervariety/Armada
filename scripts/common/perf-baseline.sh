@@ -73,8 +73,8 @@ fi
 
 if [ "$DO_BUILD" -eq 1 ]; then
   echo "[perf] building Release (${FRAMEWORK})"
-  dotnet build "${REPO_ROOT}/src/Armada.Server/Armada.Server.csproj" -c Release -f "$FRAMEWORK" --nologo -v q >/dev/null
-  dotnet build "${REPO_ROOT}/src/Armada.PerfSeed/Armada.PerfSeed.csproj" -c Release -f "$FRAMEWORK" --nologo -v q >/dev/null
+  dotnet build "${REPO_ROOT}/src/Armada.Server/Armada.Server.csproj" -c Release -f "$FRAMEWORK" -p:TargetFramework="$FRAMEWORK" -p:TargetFrameworks="$FRAMEWORK" --nologo -v q >/dev/null
+  dotnet build "${REPO_ROOT}/src/Armada.PerfSeed/Armada.PerfSeed.csproj" -c Release -f "$FRAMEWORK" -p:TargetFramework="$FRAMEWORK" -p:TargetFrameworks="$FRAMEWORK" --nologo -v q >/dev/null
 fi
 
 echo "[perf] seeding ${DATA_DIR}"

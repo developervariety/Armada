@@ -12,7 +12,7 @@ armada_resolve_framework "$@"
 
 echo
 echo "[publish-server] Publishing Armada.Server (${ARMADA_TARGET_FRAMEWORK}) to ${PUBLISH_DIR}..."
-dotnet publish "${REPO_ROOT}/src/Armada.Server" -c Release -f "$ARMADA_TARGET_FRAMEWORK" -o "${PUBLISH_DIR}"
+dotnet publish "${REPO_ROOT}/src/Armada.Server" -c Release $ARMADA_DOTNET_FRAMEWORK_ARGS -o "${PUBLISH_DIR}"
 
 echo
 echo "[publish-server] Deploying dashboard assets..."

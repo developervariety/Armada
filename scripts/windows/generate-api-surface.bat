@@ -45,5 +45,5 @@ goto parse
 echo Usage: scripts\windows\generate-api-surface.bat [net10.0 ^| -f net10.0 ^| --framework net10.0] [--out ^<dir^>] 1>&2
 exit /b 1
 :run
-dotnet run --project "%REPO_ROOT%\src\Test.Automated" --framework %FRAMEWORK% -- --generate-api-surface "%OUT_DIR%"
+dotnet run --project "%REPO_ROOT%\src\Test.Automated" --framework %FRAMEWORK% -p:TargetFramework=%FRAMEWORK% -p:TargetFrameworks=%FRAMEWORK% -- --generate-api-surface "%OUT_DIR%"
 exit /b %errorlevel%

@@ -34,7 +34,10 @@ armada_resolve_framework() {
 
     export ARMADA_TARGET_FRAMEWORK
     export ARMADA_FORWARD_FRAMEWORK_ARGS="--framework ${ARMADA_TARGET_FRAMEWORK}"
+    # Pass these to every dotnet build, publish, pack, test, or (building) run: overriding TargetFrameworks keeps restore
+    # from evaluating the other framework, which an SDK without it (for example .NET 8 only) rejects with NETSDK1045.
     export ARMADA_DOTNET_MSBUILD_FRAMEWORK_ARGS="-p:TargetFramework=${ARMADA_TARGET_FRAMEWORK} -p:TargetFrameworks=${ARMADA_TARGET_FRAMEWORK}"
+    export ARMADA_DOTNET_FRAMEWORK_ARGS="--framework ${ARMADA_TARGET_FRAMEWORK} ${ARMADA_DOTNET_MSBUILD_FRAMEWORK_ARGS}"
 
     # Also honor an "ignore TLS certificate" flag (-k / --insecure) from the same command line, so every
     # script that resolves a framework transparently supports it too.

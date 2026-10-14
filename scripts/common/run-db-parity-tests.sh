@@ -60,7 +60,7 @@ rand_port() { echo $(( (RANDOM % 26000) + 33000 )); }
 run_suite() {
   local label="$1"; shift
   local out="${RESULT_DIR}/${label}.txt"
-  ( cd "$REPO_ROOT" && dotnet run --project "$TEST_PROJECT" --framework "$FRAMEWORK" -c Debug ${DOTNET_NO_BUILD} -- \
+  ( cd "$REPO_ROOT" && dotnet run --project "$TEST_PROJECT" --framework "$FRAMEWORK" -p:TargetFramework="$FRAMEWORK" -p:TargetFrameworks="$FRAMEWORK" -c Debug ${DOTNET_NO_BUILD} -- \
       --suites Database "$@" ) > "$out" 2>&1
   local code=$?
   local total
@@ -112,7 +112,7 @@ wait_ready() {
 DOTNET_NO_BUILD=""
 if [ "$DO_BUILD" -eq 1 ]; then
   echo "==> Building test project (${FRAMEWORK})"
-  ( cd "$REPO_ROOT" && dotnet build "$TEST_PROJECT" --framework "$FRAMEWORK" -c Debug --nologo -v q ) || { echo "Build failed"; exit 1; }
+  ( cd "$REPO_ROOT" && dotnet build "$TEST_PROJECT" --framework "$FRAMEWORK" -p:TargetFramework="$FRAMEWORK" -p:TargetFrameworks="$FRAMEWORK" -c Debug --nologo -v q ) || { echo "Build failed"; exit 1; }
 fi
 DOTNET_NO_BUILD="--no-build"
 

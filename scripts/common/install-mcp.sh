@@ -10,7 +10,7 @@ armada_resolve_framework "$@"
 
 echo
 echo "[install-mcp] Configuring Armada MCP for Claude Code, Codex, Gemini, and Cursor (${ARMADA_TARGET_FRAMEWORK})..."
-dotnet run --project "$REPO_ROOT/src/Armada.Helm" -f "$ARMADA_TARGET_FRAMEWORK" -- mcp install --yes
+dotnet run --project "$REPO_ROOT/src/Armada.Helm" $ARMADA_DOTNET_FRAMEWORK_ARGS -- mcp install --yes
 
 echo
 echo "[install-mcp] Completed."

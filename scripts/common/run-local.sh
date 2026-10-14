@@ -22,8 +22,8 @@ BASE_URL="${ARMADA_BASE_URL:-http://localhost:7890}"
 HEALTH_URL="${BASE_URL%/}/api/v1/status/health"
 
 echo "[run-local] Building server + Harbor (framework ${FRAMEWORK})..."
-dotnet build "${REPO_ROOT}/src/Armada.Server/Armada.Server.csproj" --framework "${FRAMEWORK}"
-dotnet build "${REPO_ROOT}/src/Armada.Harbor/Armada.Harbor.csproj" --framework "${FRAMEWORK}"
+dotnet build "${REPO_ROOT}/src/Armada.Server/Armada.Server.csproj" ${ARMADA_DOTNET_FRAMEWORK_ARGS}
+dotnet build "${REPO_ROOT}/src/Armada.Harbor/Armada.Harbor.csproj" ${ARMADA_DOTNET_FRAMEWORK_ARGS}
 
 if [ "${ARMADA_SKIP_DASHBOARD:-0}" = "1" ]; then
     echo "[run-local] Skipping dashboard build (ARMADA_SKIP_DASHBOARD=1)."

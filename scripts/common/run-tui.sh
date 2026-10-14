@@ -17,7 +17,7 @@ shift "${ARMADA_FRAMEWORK_ARGS_CONSUMED}"
 FRAMEWORK="${ARMADA_TARGET_FRAMEWORK}"
 
 echo "[run-tui] Building the Armada CLI (${FRAMEWORK})..."
-dotnet build "${REPO_ROOT}/src/Armada.Helm/Armada.Helm.csproj" --framework "${FRAMEWORK}"
+dotnet build "${REPO_ROOT}/src/Armada.Helm/Armada.Helm.csproj" ${ARMADA_DOTNET_FRAMEWORK_ARGS}
 
 echo "[run-tui] Starting armada tui (${FRAMEWORK})..."
 exec dotnet run --project "${REPO_ROOT}/src/Armada.Helm" --framework "${FRAMEWORK}" --no-build -- tui "$@"

@@ -17,7 +17,7 @@ shift "${ARMADA_FRAMEWORK_ARGS_CONSUMED}"
 FRAMEWORK="${ARMADA_TARGET_FRAMEWORK}"
 
 echo "[run-harbor] Building Armada Harbor (${FRAMEWORK})..."
-dotnet build "${REPO_ROOT}/src/Armada.Harbor/Armada.Harbor.csproj" --framework "${FRAMEWORK}"
+dotnet build "${REPO_ROOT}/src/Armada.Harbor/Armada.Harbor.csproj" ${ARMADA_DOTNET_FRAMEWORK_ARGS}
 
 echo "[run-harbor] Starting Armada Harbor (${FRAMEWORK})..."
 exec dotnet run --project "${REPO_ROOT}/src/Armada.Harbor" --framework "${FRAMEWORK}" --no-build -- "$@"

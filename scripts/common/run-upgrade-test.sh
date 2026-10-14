@@ -84,11 +84,11 @@ mkdir -p "$WORK/baseline/src/UpgradeBaselineHost"
 cp "$SCRIPT_DIR/upgrade-baseline-host/UpgradeBaselineHost.csproj" "$SCRIPT_DIR/upgrade-baseline-host/Program.cs" "$WORK/baseline/src/UpgradeBaselineHost/"
 
 echo "==> Building baseline host (${FRAMEWORK})"
-( cd "$WORK/baseline/src" && dotnet build UpgradeBaselineHost/UpgradeBaselineHost.csproj -c Release -f "$FRAMEWORK" -o "$WORK/baseline-bin" --nologo -v q ) \
+( cd "$WORK/baseline/src" && dotnet build UpgradeBaselineHost/UpgradeBaselineHost.csproj -c Release -f "$FRAMEWORK" -p:TargetFramework="$FRAMEWORK" -p:TargetFrameworks="$FRAMEWORK" -o "$WORK/baseline-bin" --nologo -v q ) \
   > "$WORK/baseline-build.log" 2>&1 || { echo "Baseline build failed:"; tail -40 "$WORK/baseline-build.log"; exit 1; }
 
 echo "==> Building test runner (${FRAMEWORK})"
-( cd "$REPO_ROOT" && dotnet build src/Test.Automated --framework "$FRAMEWORK" -c Debug --nologo -v q ) \
+( cd "$REPO_ROOT" && dotnet build src/Test.Automated --framework "$FRAMEWORK" -p:TargetFramework="$FRAMEWORK" -p:TargetFrameworks="$FRAMEWORK" -c Debug --nologo -v q ) \
   > "$WORK/runner-build.log" 2>&1 || { echo "Test runner build failed:"; tail -40 "$WORK/runner-build.log"; exit 1; }
 
 export ARMADA_UPGRADE_BASELINE_HOST="$WORK/baseline-bin/UpgradeBaselineHost.dll"

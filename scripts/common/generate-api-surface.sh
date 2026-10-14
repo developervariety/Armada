@@ -43,4 +43,4 @@ done
 mkdir -p "$OUT_DIR"
 OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
-dotnet run --project "$REPO_ROOT/src/Test.Automated" --framework "$ARMADA_TARGET_FRAMEWORK" -- --generate-api-surface "$OUT_DIR"
+dotnet run --project "$REPO_ROOT/src/Test.Automated" $ARMADA_DOTNET_FRAMEWORK_ARGS -- --generate-api-surface "$OUT_DIR"
