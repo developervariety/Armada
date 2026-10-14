@@ -928,7 +928,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(notes.Exists(message => message.Content.Contains(new string('x', 501), StringComparison.Ordinal)), "over-limit notes are rejected");
                     AssertFalse(notes.Exists(message => message.Content == "malformed"), "malformed markers are ignored by the parser");
                     List<Signal> signals = await testDb.Driver.Signals.EnumerateRecentAsync(200).ConfigureAwait(false);
-                    AssertFalse(signals.Exists(signal => signal.Content.Contains(secret, StringComparison.Ordinal)), "raw note content is not copied to the progress-signal store");
+                    AssertFalse(signals.Exists(signal => signal.Payload.Contains(secret, StringComparison.Ordinal)), "raw note content is not copied to the progress-signal store");
                     Captain unassignedCaptain = new Captain("Unassigned captain", AgentRuntimeEnum.Cursor);
                     AssertNull(await coordination.PostCaptainNoteAsync(unassignedCaptain, mission, "forged note").ConfigureAwait(false), "a captain cannot write for a mission assigned to another captain");
                     AssertNull(await coordination.PostCaptainNoteAsync(captain, mission, "  ").ConfigureAwait(false), "empty note content is rejected");
