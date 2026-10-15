@@ -4704,7 +4704,23 @@ namespace Armada.Core.Services
                 if (worker == null && PersonaCatalog.Matches(cursor.Persona, PersonaCatalog.Worker)) worker = cursor;
             }
 
-            if (worker == null || rounds >= _MaxJudgeReworkRounds) return false;
+            if (worker == null) return false;
+
+            // The Worker persona (often a local model) gets _MaxJudgeReworkRounds tries. After that, one escalated
+            // round goes to the frontier captain that planned this voyage (its Architect, else Product Manager), so
+            // a fix the local model could not get past review still lands. Then the chain fails.
+            bool escalated = voyageMissions.Any(m => m.Title.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal)
+                && m.Title.Contains(_EscalatedMarker, StringComparison.Ordinal) && IsAncestorOf(m, judge, byId));
+            if (escalated || rounds > _MaxJudgeReworkRounds) return false;
+            string? escalateTo = null;
+            if (rounds == _MaxJudgeReworkRounds)
+            {
+                Mission? planner = voyageMissions.FirstOrDefault(m => PersonaCatalog.Matches(m.Persona, PersonaCatalog.Architect) && !String.IsNullOrEmpty(m.CaptainId))
+                    ?? voyageMissions.FirstOrDefault(m => PersonaCatalog.Matches(m.Persona, PersonaCatalog.ProductManager) && !String.IsNullOrEmpty(m.CaptainId));
+                if (planner == null) return false;
+                escalateTo = planner.CaptainId;
+            }
+
             int round = rounds + 1;
             string baseTitle = worker.Title.Replace(" [Worker]", "", StringComparison.Ordinal);
             if (baseTitle.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal))
@@ -4714,7 +4730,7 @@ namespace Armada.Core.Services
             }
 
             string taskSpec = StripPipelineHandoff(worker.Description);
-            Mission rework = new Mission(_ReworkTitlePrefix + round + ": " + baseTitle + " [Worker]",
+            Mission rework = new Mission(_ReworkTitlePrefix + round + (escalateTo != null ? _EscalatedMarker : "") + ": " + baseTitle,
                 taskSpec + "\n\n## Rework round " + round + " requested by the Judge\n"
                 + "A reviewer checked this branch and asked for the changes in its review below (the previous stage output). "
                 + "Fix exactly what it lists, keep everything that is already right, run the tests, and commit. Do not start over.");
@@ -4724,6 +4740,7 @@ namespace Armada.Core.Services
             rework.VesselId = judge.VesselId;
             rework.Persona = PersonaCatalog.Worker;
             rework.Tier = worker.Tier;
+            rework.RequestedCaptainId = escalateTo;
             rework.DependsOnMissionId = judge.Id;
             rework.RequiresReview = false;
             rework = await _Database.Missions.CreateAsync(rework, token).ConfigureAwait(false);
@@ -4753,6 +4770,20 @@ namespace Armada.Core.Services
         }
 
         private const string _ReworkTitlePrefix = "[Worker] Rework ";
+
+        private const string _EscalatedMarker = " (escalated)";
+
+        private static bool IsAncestorOf(Mission candidate, Mission descendant, Dictionary<string, Mission> byId)
+        {
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+            for (Mission? cursor = descendant; cursor != null && !String.IsNullOrEmpty(cursor.DependsOnMissionId) && seen.Add(cursor.Id);)
+            {
+                if (cursor.DependsOnMissionId == candidate.Id) return true;
+                cursor = byId.TryGetValue(cursor.DependsOnMissionId!, out Mission? up) ? up : null;
+            }
+
+            return false;
+        }
 
         private static string StripPipelineHandoff(string? description)
         {

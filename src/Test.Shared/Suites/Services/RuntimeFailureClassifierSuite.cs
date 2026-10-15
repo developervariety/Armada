@@ -77,7 +77,9 @@ namespace Test.Shared.Suites.Services
 
             cases.Add(Case("unknown_status_and_type_is_crash", "A provider error with an unknown status and type is Crash", TestTags.Negative, () =>
             {
-                AssertEqual(RuntimeFailureKindEnum.Crash, RuntimeFailureClassifier.Classify(1, new RuntimeProviderError { HttpStatusCode = 500, ErrorType = "api_error" }));
+                AssertEqual(RuntimeFailureKindEnum.Crash, RuntimeFailureClassifier.Classify(1, new RuntimeProviderError { HttpStatusCode = 418, ErrorType = "teapot_error" }));
+                // A 5xx usually clears on the next request (for example a local server that could not parse a tool call).
+                AssertEqual(RuntimeFailureKindEnum.Transient, RuntimeFailureClassifier.Classify(1, new RuntimeProviderError { HttpStatusCode = 500, ErrorType = "api_error" }));
                 AssertEqual(RuntimeFailureKindEnum.Crash, RuntimeFailureClassifier.Classify(1, new RuntimeProviderError { Message = "rate limit 429 billing permission denied" }));
             }));
 

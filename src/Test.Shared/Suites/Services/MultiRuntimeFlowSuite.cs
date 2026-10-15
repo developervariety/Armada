@@ -249,6 +249,32 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(MissionStatusEnum.Failed, exhausted!.Status, "after two rework rounds the chain fails");
             }));
 
+            cases.Add(CaseAsync("judge_rework_escalates_to_planner", "When the Worker's rework rounds are used up, one escalated round goes to the captain that planned the voyage; after it the chain fails", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                h.Missions.OnGetMissionOutput = _ => "## Affected Case\nFile: a.py:1\nStill wrong.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("pipeline") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                Captain claude = await CreateCaptainAsync(testDb, "Claude", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Plan [Architect]", "plan") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Architect", Status = MissionStatusEnum.WorkProduced, CaptainId = claude.Id }).ConfigureAwait(false);
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("Do it [Worker]", "Write a.py.") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, BranchName = "b" }).ConfigureAwait(false);
+                Mission r1 = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Rework 1: Do it", "x") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, DependsOnMissionId = worker.Id, BranchName = "b" }).ConfigureAwait(false);
+                Mission r2 = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Rework 2: Do it", "x") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, DependsOnMissionId = r1.Id, BranchName = "b" }).ConfigureAwait(false);
+                Captain codex = await CreateCaptainAsync(testDb, "Codex", AgentRuntimeEnum.Codex, CaptainStateEnum.Working).ConfigureAwait(false);
+                Mission judge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, codex, "Judge", false).ConfigureAwait(false);
+                judge.DependsOnMissionId = r2.Id;
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+                await h.Missions.HandleCompletionAsync(codex, judge.Id).ConfigureAwait(false);
+                List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                Mission? escalated = all.Find(m => m.DependsOnMissionId == judge.Id);
+                AssertNotNull(escalated, "an escalated rework follows");
+                AssertContains("(escalated)", escalated.Title);
+                AssertEqual(claude.Id, escalated.RequestedCaptainId, "the planner's captain takes the last round");
+                AssertNotEqual(MissionStatusEnum.Failed, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.Status);
+            }));
+
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Multi-Runtime Flow", cases: cases);
         }
 
