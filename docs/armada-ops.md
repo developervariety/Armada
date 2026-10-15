@@ -41,6 +41,14 @@ Unbulleted `R<number>` and `P0`–`P3` findings retain their explanation and
 source anchors. Passing test summaries do not appear as required fixes.
 The final criterion result determines completion even when its description
 contains a failure-result phrase.
+Every rescue stage carries the current owning objective brief. Binding revision
+requirements belong on that objective, rather than only in coordination chat.
+Declared execution requirements are checked before rescue dispatch. Missing
+requirements leave an `execution_unavailable` incident without launching work or
+spending the recovery attempt. Reconsideration uses the original failure's
+lookback window; after that window, the operator dispatches new work from the
+objective and preserved branch. This checks declared environment facts, not
+service reachability.
 Later stages can read the failed mission through the same-owner rescue chain.
 The marked rescue root names the additional failed-parent grant. Existing
 direct-parent and dependency reads remain available within each caller's

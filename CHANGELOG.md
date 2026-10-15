@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Rescue stages use the current owning objective contract and share objective
+  preview's execution requirement checks. Missing resources leave a named
+  incident without creating rescue work or spending a recovery attempt.
+
 - Successful no-op reconciliation records the completion note `no-op integration: work already at target`, while logs retain the detailed decision reason.
 
 - SQLite coordination room creation ignores only a duplicate room key, so concurrent provisioning keeps the existing room and still reports other constraint failures.

@@ -107,6 +107,19 @@ instructs every rescue stage to read it with `armada_mission_output` before it
 edits or re-verifies. The tool returns the safely redacted output in pages; the
 stage continues until `hasMore` is false and checks `complete` and `sha256`.
 
+Every rescue stage receives the current owning objective's canonical brief.
+The objective named by the original voyage takes precedence over an umbrella
+that lists the same voyage. Save binding revision requirements on the objective;
+coordination chat does not become an acceptance contract.
+
+Rescue admission checks declared execution requirements through the same
+read-only environment probe as objective preview. A missing requirement leaves
+an `execution_unavailable` incident and event, creates no rescue work, and spends
+no recovery attempt. Sweeps can reconsider it within the original failure's
+lookback window. After that window, an operator dispatches a new voyage or rescue
+from the objective and preserved work. Executable and path checks do not prove
+that a Docker daemon or database service is reachable.
+
 The rescue findings list includes numbered or bulleted defects from
 Correctness, Failure Modes, Tests, Evidence, Residual Risks and Verdict, plus
 existing `NOT DELIVERED`,
