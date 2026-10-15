@@ -6987,6 +6987,21 @@ Delete a refinement session and its transcript. Active sessions are stopped firs
 
 Workflow profiles define how a vessel or fleet builds, tests, versions, deploys, rolls back, and verifies itself. These routes back `Configuration > Workflow Profiles` and the preflight/resolution logic used by structured checks.
 
+**Default profiles.** Every vessel gets a workflow profile out of the box. When a vessel is created, and on every server start, Armada gives each vessel that no active profile applies to (none scoped to the vessel, its fleet, or every vessel) a `Vessel`-scoped, `IsDefault` profile named `<vessel>: <toolchain>`. The toolchain is recognized from the repository's files: the vessel's working directory, else its bare clone, else a shallow clone of `RepoUrl` that fetches the file list only. Templates (`SourceTemplate`):
+
+| `SourceTemplate` | Recognized by (checked in this order) | Lint / build / unit test / package |
+|---|---|---|
+| `dotnet` | any `.sln`, `.slnx`, `.csproj`, or `.fsproj` (the shallowest is the target) | `dotnet format "<target>" --verify-no-changes` / `dotnet build "<target>" -c Release` / `dotnet test "<target>" -c Release` / `dotnet pack "<target>" -c Release -o artifacts` |
+| `node` | `package.json` at the root | `npm run lint --if-present` / `npm ci && npm run build --if-present` / `npm test --if-present` / `npm pack` |
+| `go` | `go.mod` at the root | `go vet ./...` / `go build ./...` / `go test ./...` / none |
+| `rust` | `Cargo.toml` at the root | `cargo clippy` / `cargo build --release` / `cargo test` / `cargo package` |
+| `maven` | `pom.xml` at the root | none / `mvn -B package -DskipTests` / `mvn -B test` / `mvn -B package` |
+| `gradle` | `build.gradle` or `build.gradle.kts` at the root | none / `./gradlew build -x test` (`gradle` without a wrapper) / `./gradlew test` / `./gradlew assemble` |
+| `python` | `pyproject.toml`, `setup.py`, or `requirements.txt` at the root | `python -m ruff check .` / `python -m pip install -r requirements.txt` (else `-e .`) / `python -m pytest` / `python -m build` (with `pyproject.toml`) |
+| `generic` | anything else, or files that could not be read | none; named `<vessel>: no commands yet`, and its description says to add the vessel's commands |
+
+A `generic` profile is replaced with the matching template once the toolchain can be recognized. A profile a person created is never touched, and editing a default profile (`PUT`) clears its `SourceTemplate`, so Armada leaves it alone from then on.
+
 #### GET /api/v1/workflow-profiles
 
 List workflow profiles in the caller scope.

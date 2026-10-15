@@ -1761,7 +1761,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE model_endpoints ADD COLUMN IF NOT EXISTS auth_username TEXT;",
                     @"ALTER TABLE model_endpoints ADD COLUMN IF NOT EXISTS auth_header_name TEXT;",
                     @"ALTER TABLE model_endpoints ADD COLUMN IF NOT EXISTS auth_query_parameter TEXT;",
-                    @"ALTER TABLE model_endpoints ADD COLUMN IF NOT EXISTS auth_headers_json TEXT;")
+                    @"ALTER TABLE model_endpoints ADD COLUMN IF NOT EXISTS auth_headers_json TEXT;"),
+                new SchemaMigration(85, "Add source_template to workflow_profiles for profiles Armada creates from its built-in templates",
+                    @"ALTER TABLE workflow_profiles ADD COLUMN IF NOT EXISTS source_template TEXT;")
 
             };
         }

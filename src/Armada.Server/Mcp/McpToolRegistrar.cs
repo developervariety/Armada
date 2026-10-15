@@ -69,6 +69,9 @@ namespace Armada.Server.Mcp
         /// <param name="stopServerUnavailableMessage">When <paramref name="onStop"/> is null and this is set, stop_server is
         /// still registered and answers a typed Unavailable error with this message (used by the standalone stdio server,
         /// so its tool list matches the HTTP server's).</param>
+        /// <param name="askThreads">Optional Ask Armada conversation service; with the turn coordinator and action service it enables the Ask tools.</param>
+        /// <param name="askTurns">Optional Ask Armada turn coordinator.</param>
+        /// <param name="askActions">Optional Ask Armada action service.</param>
         /// <param name="cliPermissionService">Optional CLI permission service; without it the CLI permission tools are
         /// registered and answer a typed Unavailable error.</param>
         public static void RegisterAll(
@@ -101,7 +104,10 @@ namespace Armada.Server.Mcp
             VesselHealthService? vesselHealthService = null,
             IFleetCategorizationService? fleetCategorizationService = null,
             string? stopServerUnavailableMessage = null,
-            CliPermissionService? cliPermissionService = null)
+            CliPermissionService? cliPermissionService = null,
+            Armada.Core.Services.Ask.AskThreadService? askThreads = null,
+            Armada.Server.Ask.AskTurnCoordinator? askTurns = null,
+            Armada.Server.Ask.AskActionService? askActions = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             register = MapToolExceptions(MarkExperimental(register));
@@ -137,6 +143,7 @@ namespace Armada.Server.Mcp
             McpFleetActionTools.Register(register, fleetActionService);
             if (vesselHealthService != null) McpVesselHealthTools.Register(register, vesselHealthService);
             McpCliPermissionTools.Register(register, database, cliPermissionService);
+            if (askThreads != null && askTurns != null && askActions != null) McpAskTools.Register(register, askThreads, askTurns, askActions);
         }
 
         /// <summary>

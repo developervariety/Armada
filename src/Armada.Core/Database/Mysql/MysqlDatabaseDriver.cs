@@ -741,7 +741,8 @@ namespace Armada.Core.Database.Mysql
                     TableQueries.MigrationV82Statements
                 ),
                 new SchemaMigration(83, "Add ordered persona captain priorities and availability policies", TableQueries.MigrationV83Statements),
-                new SchemaMigration(84, "Add authentication type, settings, and extra headers to model_endpoints", TableQueries.MigrationV84Statements)
+                new SchemaMigration(84, "Add authentication type, settings, and extra headers to model_endpoints", TableQueries.MigrationV84Statements),
+                new SchemaMigration(85, "Add source_template to workflow_profiles for profiles Armada creates from its built-in templates", TableQueries.MigrationV85Statements)
 
             };
         }

@@ -153,6 +153,7 @@ namespace Armada.Server
         private VesselHostResolver? _VesselHosts = null;
         private RequestHistoryCaptureService _RequestHistoryCapture = null!;
         private WorkflowProfileService _WorkflowProfileService = null!;
+        private DefaultWorkflowProfileProvisioner _DefaultWorkflowProfiles = null!;
         private ProjectProfileService _ProjectProfileService = null!;
         private VesselReadinessService _VesselReadinessService = null!;
         private Armada.Core.Services.Health.VesselHealthService _VesselHealthService = null!;
@@ -296,6 +297,14 @@ namespace Armada.Server
             _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);
             _ProjectProfileService = new ProjectProfileService(_Database, _Logging);
             _VesselReadinessService = new VesselReadinessService(_Database, _WorkflowProfileService, _Logging);
+            // Every vessel gets a workflow profile out of the box: new vessels right after they are created, existing
+            // ones in a background sweep after startup (see StartAsync).
+            _DefaultWorkflowProfiles = new DefaultWorkflowProfileProvisioner(_Database, _WorkflowProfileService, _Logging);
+            if (_VesselService is VesselService vesselCreator)
+            {
+                DefaultWorkflowProfileProvisioner provisioner = _DefaultWorkflowProfiles;
+                vesselCreator.AfterCreate = vessel => _ = Task.Run(() => provisioner.EnsureAsync(vessel));
+            }
             _EnvironmentService = new DeploymentEnvironmentService(_Database, _WorkflowProfileService, _Logging);
             _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging);
 
@@ -677,6 +686,25 @@ namespace Armada.Server
             // scheduling the accept loop.
             _App.Start(_TokenSource.Token);
             _Logging.Info(_Header + "REST API started on port " + _Settings.AdmiralPort);
+
+            // Give existing vessels without a workflow profile one from the matching built-in template (reading each
+            // repository's file list can clone, so this runs in the background and never delays startup).
+            CancellationToken sweepToken = _TokenSource.Token;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(15), sweepToken).ConfigureAwait(false);
+                    await _DefaultWorkflowProfiles.SweepAsync(sweepToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "default workflow profile sweep failed: " + ex.Message);
+                }
+            });
 
             // Initialize MCP server
             // HttpListener cannot bind the literal 0.0.0.0 (the MCP listener silently never started in containers
@@ -1795,7 +1823,10 @@ namespace Armada.Server
                 _VesselHealthService,
                 _FleetCategorizationService,
                 null,
-                _CliPermissions);
+                _CliPermissions,
+                _AskThreads,
+                _AskTurns,
+                _AskActions);
         }
 
         /// <summary>

@@ -200,6 +200,51 @@ namespace Test.Shared.Suites.E2E
                 await a.DeleteAsync("/api/v1/voyages/" + work.EntityId).ConfigureAwait(false);
             }));
 
+            cases.Add(CaseAsync("mcp_tools_manage_threads", "MCP tools list, read, create, update, message, and delete the caller's own Ask conversations, and never another user's", async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                E2ETenantUser alice = await E2ETenantUser.CreateAsync(fx.AuthClient, "askmcp").ConfigureAwait(false);
+                E2ETenantUser bob = await E2ETenantUser.CreateAsync(fx.AuthClient, "askmcpbob", true, alice.TenantId).ConfigureAwait(false);
+                Armada.Core.Services.SessionTokenService tokens = new Armada.Core.Services.SessionTokenService(fx.SessionTokenEncryptionKey);
+                string aliceToken = tokens.CreateToken(alice.TenantId, alice.UserId).Token!;
+                string bobToken = tokens.CreateToken(bob.TenantId, bob.UserId).Token!;
+
+                using (Armada.Runtimes.Mcp.McpToolClient mcp = new Armada.Runtimes.Mcp.McpToolClient("http://127.0.0.1:" + fx.McpPort + "/mcp", aliceToken))
+                using (Armada.Runtimes.Mcp.McpToolClient other = new Armada.Runtimes.Mcp.McpToolClient("http://127.0.0.1:" + fx.McpPort + "/mcp", bobToken))
+                {
+                    await mcp.InitializeAsync().ConfigureAwait(false);
+                    await other.InitializeAsync().ConfigureAwait(false);
+
+                    AskThread first = JsonHelper.Deserialize<AskThread>(await mcp.CallToolAsync("create_ask_thread", "{\"title\":\"Over MCP\"}").ConfigureAwait(false));
+                    AskThread second = JsonHelper.Deserialize<AskThread>(await mcp.CallToolAsync("create_ask_thread", "{}").ConfigureAwait(false));
+                    AssertEqual("Over MCP", first.Title);
+
+                    EnumerationResult<AskThread> listed = JsonHelper.Deserialize<EnumerationResult<AskThread>>(await mcp.CallToolAsync("list_ask_threads", "{\"pageSize\":50}").ConfigureAwait(false));
+                    AssertTrue(listed.Objects.Any(t => t.Id == first.Id) && listed.Objects.Any(t => t.Id == second.Id), "both listed for the owner");
+
+                    AskThread renamed = JsonHelper.Deserialize<AskThread>(await mcp.CallToolAsync("update_ask_thread", "{\"threadId\":\"" + first.Id + "\",\"title\":\"Renamed\",\"pinned\":true}").ConfigureAwait(false));
+                    AssertEqual("Renamed", renamed.Title);
+                    AssertTrue(renamed.Pinned, "pinned");
+
+                    string detail = await mcp.CallToolAsync("get_ask_thread", "{\"threadId\":\"" + first.Id + "\"}").ConfigureAwait(false);
+                    AssertTrue(detail.Contains(first.Id, StringComparison.Ordinal), "detail for the owner");
+                    string messages = await mcp.CallToolAsync("list_ask_messages", "{\"threadId\":\"" + first.Id + "\"}").ConfigureAwait(false);
+                    AssertFalse(messages.Contains("NotFound", StringComparison.Ordinal), "messages readable: " + messages);
+                    string actions = await mcp.CallToolAsync("list_ask_quick_actions", "{}").ConfigureAwait(false);
+                    AssertTrue(actions.TrimStart().StartsWith("[", StringComparison.Ordinal), "quick actions listed");
+
+                    string stranger = await other.CallToolAsync("get_ask_thread", "{\"threadId\":\"" + first.Id + "\"}").ConfigureAwait(false);
+                    AssertTrue(stranger.Contains("NotFound", StringComparison.Ordinal), "another user cannot read it: " + stranger);
+                    string strangerDelete = await other.CallToolAsync("delete_ask_threads", "{\"threadIds\":[\"" + first.Id + "\"]}").ConfigureAwait(false);
+                    AssertTrue(strangerDelete.Contains("\"deletedCount\":0", StringComparison.Ordinal), "another user cannot delete it: " + strangerDelete);
+
+                    string deleted = await mcp.CallToolAsync("delete_ask_threads", "{\"threadIds\":[\"" + first.Id + "\",\"" + second.Id + "\"]}").ConfigureAwait(false);
+                    AssertTrue(deleted.Contains("\"deletedCount\":2", StringComparison.Ordinal), "both deleted: " + deleted);
+                    string gone = await mcp.CallToolAsync("get_ask_thread", "{\"threadId\":\"" + first.Id + "\"}").ConfigureAwait(false);
+                    AssertTrue(gone.Contains("NotFound", StringComparison.Ordinal), "gone after delete");
+                }
+            }));
+
             cases.Add(CaseAsync("thread_scoped_mcp_token_gates_tools", "A thread-scoped token is MCP-only and turns state-changing calls into proposals", async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);

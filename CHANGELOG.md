@@ -10,6 +10,18 @@ All notable changes to Armada are documented in this file.
 
 ## v1.1.0 (2026-10-15)
 
+### Ask Armada over MCP
+- Ask Armada conversations can now be managed entirely over MCP, the same as from the dashboard, TUI, and mobile app. Sixteen new tools: `list_ask_threads`, `get_ask_thread`, `create_ask_thread`, `update_ask_thread` (rename, pin, archive, captain, auto-approve), `delete_ask_thread`, `delete_ask_threads`, `list_ask_messages`, `send_ask_message` (optionally waits up to 600 seconds for the reply), `cancel_ask_turn`, `summarize_ask_thread`, `mark_ask_thread_read`, `list_ask_quick_actions`, `run_ask_quick_action`, `approve_ask_proposal`, `reject_ask_proposal`, and `get_ask_work`.
+- Each tool acts as the caller on the caller's own conversations. Another user's conversation answers `NotFound`, and bulk deletion reports it under `notFound` without touching it.
+- A captain answering inside a conversation may use the five readers. The state-changing Ask tools are refused there outright, so a captain can never approve or reject its own proposals, start turns, or change or delete conversations.
+- See [MCP_API.md](docs/MCP_API.md#ask-armada).
+
+### Default workflow profiles out of the box
+- Every vessel now gets a workflow profile without anyone writing one. When a vessel is created, and on every server start, a vessel that no profile applies to gets a vessel-scoped default profile with lint, build, test, and package commands for its toolchain: .NET, Node.js, Go, Rust, Maven, Gradle, or Python. Armada recognizes the toolchain from the repository's files (the working directory, the bare clone, or a file-list-only shallow clone).
+- A repository Armada cannot recognize gets a profile with no commands, which is replaced once its toolchain can be recognized. Profiles people created are never touched, and editing a default profile makes it yours: Armada leaves it alone from then on.
+- New `WorkflowProfile.SourceTemplate` field (schema migration 85 on every database) records which template made a profile; it is cleared when the profile is edited.
+- See [REST_API.md](docs/REST_API.md#workflow-profiles).
+
 ### Page size is remembered
 - The "n / page" choice is saved for each table and reused on every later visit. A table you have not sized yet starts with the size you last chose anywhere.
 - Before, Missions, Voyages, Captains, Docks, Signals, Events, Merge Queue, Request History, Prompt Templates, Memories, Tenants, Users, Credentials, the vessel import screens, and every list built on the shared table hook went back to the default on each visit.

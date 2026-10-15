@@ -55,7 +55,20 @@ namespace Test.Shared.Suites.E2E
             ["get_cli_permission_request"] = "CLI permission request (CliPermissionService scopes by caller; covered by Services.CliPermissionService)",
             ["decide_cli_permission_request"] = "CLI permission request (CliPermissionService scopes by caller; covered by Services.CliPermissionService)",
             ["update_cli_permission_rule"] = "CLI permission rule (CliPermissionService scopes by caller; covered by Services.CliPermissionService)",
-            ["delete_cli_permission_rule"] = "CLI permission rule (CliPermissionService scopes by caller; covered by Services.CliPermissionService)"
+            ["delete_cli_permission_rule"] = "CLI permission rule (CliPermissionService scopes by caller; covered by Services.CliPermissionService)",
+            ["approve_ask_proposal"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["cancel_ask_turn"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["delete_ask_thread"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["delete_ask_threads"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["get_ask_thread"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["get_ask_work"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["list_ask_messages"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["mark_ask_thread_read"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["reject_ask_proposal"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["run_ask_quick_action"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["send_ask_message"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["summarize_ask_thread"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
+            ["update_ask_thread"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)"
         };
 
         // Tools that take an id only as an optional filter or reference and otherwise act on the caller's own scope:

@@ -1717,7 +1717,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('model_endpoints','auth_username') IS NULL ALTER TABLE model_endpoints ADD auth_username NVARCHAR(256) NULL;",
                     @"IF COL_LENGTH('model_endpoints','auth_header_name') IS NULL ALTER TABLE model_endpoints ADD auth_header_name NVARCHAR(256) NULL;",
                     @"IF COL_LENGTH('model_endpoints','auth_query_parameter') IS NULL ALTER TABLE model_endpoints ADD auth_query_parameter NVARCHAR(256) NULL;",
-                    @"IF COL_LENGTH('model_endpoints','auth_headers_json') IS NULL ALTER TABLE model_endpoints ADD auth_headers_json NVARCHAR(MAX) NULL;")
+                    @"IF COL_LENGTH('model_endpoints','auth_headers_json') IS NULL ALTER TABLE model_endpoints ADD auth_headers_json NVARCHAR(MAX) NULL;"),
+                new SchemaMigration(85, "Add source_template to workflow_profiles for profiles Armada creates from its built-in templates",
+                    @"IF COL_LENGTH('workflow_profiles','source_template') IS NULL ALTER TABLE workflow_profiles ADD source_template VARCHAR(64) NULL;")
 
             };
         }

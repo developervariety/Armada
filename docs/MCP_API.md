@@ -125,6 +125,23 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [update_cli_permission_rule](#update_cli_permission_rule)
     - [delete_cli_permission_rule](#delete_cli_permission_rule)
     - [set_captain_cli_permission_policy](#set_captain_cli_permission_policy)
+  - **Ask Armada**
+    - [list_ask_threads](#list_ask_threads)
+    - [get_ask_thread](#get_ask_thread)
+    - [create_ask_thread](#create_ask_thread)
+    - [update_ask_thread](#update_ask_thread)
+    - [delete_ask_thread](#delete_ask_thread)
+    - [delete_ask_threads](#delete_ask_threads)
+    - [list_ask_messages](#list_ask_messages)
+    - [send_ask_message](#send_ask_message)
+    - [cancel_ask_turn](#cancel_ask_turn)
+    - [summarize_ask_thread](#summarize_ask_thread)
+    - [mark_ask_thread_read](#mark_ask_thread_read)
+    - [list_ask_quick_actions](#list_ask_quick_actions)
+    - [run_ask_quick_action](#run_ask_quick_action)
+    - [approve_ask_proposal](#approve_ask_proposal)
+    - [reject_ask_proposal](#reject_ask_proposal)
+    - [get_ask_work](#get_ask_work)
   - **Merge Queue**
     - [get_merge_entry](#get_merge_entry)
     - [enqueue_merge](#enqueue_merge)
@@ -366,13 +383,16 @@ handler is registered through the Ask gate, which checks that claim:
   `get_mission_log`, `get_model_endpoint`, `get_objective`, `get_persona`, `get_pipeline`, `get_playbook`,
   `get_prompt_template`, `get_release`, `get_runbook`, `get_runbook_execution`, `get_vessel`), and the `list_*` readers
   (`list_backlog`, `list_backlog_refinement_sessions`, `list_objectives`, `list_prompt_templates`,
-  `list_cli_permission_requests`, `list_cli_permission_rules`, plus `get_cli_permission_request`). The list lives in
+  `list_cli_permission_requests`, `list_cli_permission_rules`, plus `get_cli_permission_request`), and the Ask Armada
+  readers (`list_ask_threads`, `get_ask_thread`, `list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`). The list lives in
   `AskToolPolicy`; any tool not on it (including tools added later) is treated as state-changing.
 - **`cli_permission_prompt`** (the captain CLI's own permission prompt) runs without becoming a proposal: an approver
   answers it as a [CLI permission request](#cli-permissions).
 - **CLI permission decisions, rules, and policies** (`decide_cli_permission_request`, `create_cli_permission_rule`,
   `update_cli_permission_rule`, `delete_cli_permission_rule`, `set_captain_cli_permission_policy`) are refused with
-  `ErrorCode` `Forbidden` and never proposed, so a captain cannot get its own prompts approved.
+  `ErrorCode` `Forbidden` and never proposed, so a captain cannot get its own prompts approved. The state-changing
+  [Ask Armada tools](#ask-armada) are refused the same way, so a captain cannot approve or reject its own proposals,
+  start turns, or change or delete conversations.
 - **Any other tool**, when the thread's `AutoApprove` is off, is **not executed**. A `Pending` proposal and an
   `ActionProposal` message are created, `ask.proposal` is sent to the owner, and the tool returns this text to the
   captain:
@@ -1106,6 +1126,180 @@ Set or clear a captain's CLI tool permission policy. `Bypass` runs the CLI with 
 **Response:** the [Captain](REST_API.md#captain) with `CliPermissionPolicy`.
 
 ---
+
+## Ask Armada
+
+These tools manage Ask Armada conversations (`ath_`) over MCP, the same operations the dashboard, TUI, and mobile app
+offer through [the REST API](REST_API.md#ask-armada-threads): list, read, start, rename, pin, archive, and delete
+conversations, send messages and wait for the reply, stop or summarize a turn, run quick actions, and approve or reject
+the actions Armada proposes. Every tool acts as the calling user on that user's own conversations; another user's
+conversation answers `NotFound`, exactly as if it did not exist, and `delete_ask_threads` reports it under `notFound`.
+Errors are `McpToolError`s: `InvalidArgument` (a required field is missing), `NotFound`, `Forbidden`, `Conflict` (a
+turn is already running, or the proposal was already decided), and `Unavailable` (the turn could not be started). The
+stdio server does not register these tools.
+
+A captain answering inside a conversation may call the five readers (`list_ask_threads`, `get_ask_thread`,
+`list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`); every other tool here is refused with `Forbidden` and
+never proposed, so a captain cannot approve its own proposals, start turns, or change conversations (see
+[Ask Armada thread-scoped calls](#ask-armada-thread-scoped-calls)).
+
+### list_ask_threads
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `search` | string | No | Text to match in conversation titles |
+| `includeArchived` | boolean | No | Include archived conversations (default `false`) |
+| `pageNumber` | integer | No | Page number, 1-based (default 1) |
+| `pageSize` | integer | No | Results per page (default 25) |
+
+**Response:** `EnumerationResult<AskThread>`, pinned first, then most recent activity, with unread counts.
+
+### get_ask_thread
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID (`ath_`) |
+
+**Response:** `AskThreadDetail`: the conversation, its recent messages, its action proposals, and its tracked work.
+
+### create_ask_thread
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `title` | string | No | Title; Armada names the conversation from its first message otherwise |
+| `captainId` | string | No | Captain that answers; the server's Ask captain otherwise. A captain the caller cannot see is `NotFound` |
+| `autoApprove` | boolean | No | Run proposed actions without asking |
+
+**Response:** the new `AskThread`.
+
+### update_ask_thread
+
+Only the fields supplied change.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `title` | string | No | New title |
+| `captainId` | string | No | Captain that answers from now on |
+| `clearCaptain` | boolean | No | `true` to go back to the server's default Ask captain |
+| `autoApprove` | boolean | No | Run proposed actions without asking |
+| `pinned` | boolean | No | Pin or unpin |
+| `archived` | boolean | No | Archive or unarchive |
+
+**Response:** the updated `AskThread`.
+
+### delete_ask_thread
+
+Permanently deletes the conversation and its messages, stopping its turn if one is running. This cannot be undone.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+
+**Response:** `{ "status": "Deleted", "threadId": "ath_..." }`.
+
+### delete_ask_threads
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadIds` | string[] | Yes | Conversation IDs |
+
+**Response:** `{ "status": "Deleted", "deletedCount": 2, "deleted": [...], "notFound": [...] }`. IDs that do not exist
+or belong to someone else are listed under `notFound` and left alone.
+
+### list_ask_messages
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `beforeSequence` | integer | No | Return messages before this sequence number (pass the lowest one you have to page back) |
+| `pageSize` | integer | No | Messages per page (default 50) |
+
+**Response:** `AskMessagePage { Messages, HasMore }`, newest page first.
+
+### send_ask_message
+
+Sends a message; the conversation's captain answers in the background.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `content` | string | Yes | Message text |
+| `showThinking` | boolean | No | Include the captain's reasoning in the reply |
+| `waitSeconds` | integer | No | Seconds to wait for the reply, 0 to 600 (default 0) |
+
+**Response:** with `waitSeconds` 0, the started turn (`202` body of the REST call). Otherwise
+`{ "completed": true, "turn": {...}, "recentMessages": AskMessagePage }` once the turn ends or the wait runs out
+(`completed` is `false` then; read the reply later with `list_ask_messages`). `Conflict` while a turn is already
+running.
+
+### cancel_ask_turn
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+
+Stops the running turn. **Response:** `{ "cancelled": true }`; `Conflict` when no turn is running.
+
+### summarize_ask_thread
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+
+Asks the captain to summarize the conversation so far, as a background turn. **Response:** the started turn.
+
+### mark_ask_thread_read
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+
+**Response:** the `AskThread` with `UnreadCount` 0.
+
+### list_ask_quick_actions
+
+No parameters. **Response:** the quick actions a conversation can run directly, each an Armada tool with its argument
+form.
+
+### run_ask_quick_action
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `toolName` | string | Yes | A tool from `list_ask_quick_actions` |
+| `arguments` | object | No | The tool's arguments |
+
+The action becomes a proposal in the conversation that runs when approved, or at once when the conversation
+auto-approves. **Response:** the proposal.
+
+### approve_ask_proposal
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `proposalId` | string | Yes | Proposal ID (`aap_`) |
+
+Runs the proposed tool now, as the approving user. **Response:** the proposal with its outcome. `Conflict` when it was
+already decided or has expired.
+
+### reject_ask_proposal
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `proposalId` | string | Yes | Proposal ID (`aap_`) |
+
+The proposed tool never runs. **Response:** the rejected proposal.
+
+### get_ask_work
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `threadId` | string | Yes | Conversation ID |
+| `workId` | string | Yes | Tracked work ID (a voyage, mission, or fleet action run the conversation started) |
+
+**Response:** the current snapshot of that work.
 
 ### dispatch
 

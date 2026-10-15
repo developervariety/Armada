@@ -2104,6 +2104,12 @@ namespace Armada.Core.Database.Mysql.Queries
             "ALTER TABLE model_endpoints ADD COLUMN auth_headers_json LONGTEXT NULL;"
         };
 
+        /// <summary>Migration v85: source_template on workflow_profiles.</summary>
+        public static readonly string[] MigrationV85Statements = new string[]
+        {
+            "ALTER TABLE workflow_profiles ADD COLUMN source_template VARCHAR(64) NULL;"
+        };
+
         /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>

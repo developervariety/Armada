@@ -77,7 +77,14 @@ namespace Armada.Core.Services.Ask
             "list_backlog",
             "list_backlog_refinement_sessions",
             "list_objectives",
-            "list_prompt_templates"
+            "list_prompt_templates",
+
+            // Ask Armada readers
+            "list_ask_threads",
+            "get_ask_thread",
+            "list_ask_messages",
+            "list_ask_quick_actions",
+            "get_ask_work"
         };
 
         private static readonly HashSet<string> _GateExempt = new HashSet<string>(StringComparer.Ordinal)
@@ -94,7 +101,21 @@ namespace Armada.Core.Services.Ask
             "create_cli_permission_rule",
             "update_cli_permission_rule",
             "delete_cli_permission_rule",
-            "set_captain_cli_permission_policy"
+            "set_captain_cli_permission_policy",
+
+            // A captain answering in a conversation must never approve or reject its own proposals, start turns (its
+            // own included), or change or delete conversations.
+            "create_ask_thread",
+            "update_ask_thread",
+            "delete_ask_thread",
+            "delete_ask_threads",
+            "send_ask_message",
+            "cancel_ask_turn",
+            "summarize_ask_thread",
+            "mark_ask_thread_read",
+            "run_ask_quick_action",
+            "approve_ask_proposal",
+            "reject_ask_proposal"
         };
 
         #endregion

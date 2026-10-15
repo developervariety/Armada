@@ -53,6 +53,23 @@ namespace Armada.Core.Authorization
             Add("get_runbook", "Runbook", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_vessel", "Vessel", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("inbox", "Inbox", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            // Ask Armada conversations are private: the services scope every call to the caller's own conversations.
+            Add("list_ask_threads", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("get_ask_thread", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("create_ask_thread", "AskThread", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
+            Add("update_ask_thread", "AskThread", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
+            Add("delete_ask_thread", "AskThread", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
+            Add("delete_ask_threads", "AskThread", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
+            Add("list_ask_messages", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("send_ask_message", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
+            Add("cancel_ask_turn", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
+            Add("summarize_ask_thread", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
+            Add("mark_ask_thread_read", "AskThread", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
+            Add("list_ask_quick_actions", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("run_ask_quick_action", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
+            Add("approve_ask_proposal", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
+            Add("reject_ask_proposal", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
+            Add("get_ask_work", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_backlog_refinement_sessions", "ObjectiveRefinementSession", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_backlog", "Objective", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_objectives", "Objective", ResourceOperationEnum.Read, PermissionLevel.Authenticated);

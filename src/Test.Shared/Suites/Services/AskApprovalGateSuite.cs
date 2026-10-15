@@ -51,6 +51,23 @@ namespace Test.Shared.Suites.Services
                 return Task.CompletedTask;
             }));
 
+            cases.Add(CaseAsync("ask_management_tools_in_a_conversation", "In a conversation a captain may read Ask conversations but never approve its own proposals or change conversations", TestTags.Negative, () =>
+            {
+                foreach (string tool in new[] { "list_ask_threads", "get_ask_thread", "list_ask_messages", "list_ask_quick_actions", "get_ask_work" })
+                {
+                    AssertTrue(AskToolPolicy.IsReadOnly(tool), tool + " is read-only");
+                    AssertFalse(AskToolPolicy.IsThreadForbidden(tool), tool + " is allowed");
+                }
+
+                foreach (string tool in new[] { "approve_ask_proposal", "reject_ask_proposal", "send_ask_message", "cancel_ask_turn", "run_ask_quick_action", "create_ask_thread", "update_ask_thread", "delete_ask_thread", "delete_ask_threads", "summarize_ask_thread", "mark_ask_thread_read" })
+                {
+                    AssertFalse(AskToolPolicy.IsReadOnly(tool), tool + " is not read-only");
+                    AssertTrue(AskToolPolicy.IsThreadForbidden("mcp__armada__" + tool), tool + " is refused in a conversation");
+                }
+
+                return Task.CompletedTask;
+            }));
+
             cases.Add(CaseAsync("read_only_tool_runs", "A read-only tool runs normally on a thread-scoped call", TestTags.Positive, async () =>
             {
                 using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);

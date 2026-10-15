@@ -45,14 +45,14 @@ namespace Armada.Core.Database.Sqlite.Implementations
             await conn.OpenAsync(token).ConfigureAwait(false);
             using SqliteCommand cmd = conn.CreateCommand();
             cmd.CommandText = @"INSERT INTO workflow_profiles
-                (id, tenant_id, user_id, name, description, scope, ownership_scope, fleet_id, vessel_id, is_default, active,
+                (id, tenant_id, user_id, name, description, scope, ownership_scope, fleet_id, vessel_id, is_default, active, source_template,
                  language_hints_json, lint_command, build_command, unit_test_command, integration_test_command,
                  e2e_test_command, package_command, publish_artifact_command, release_versioning_command,
                  changelog_generation_command, migration_command, security_scan_command, performance_command,
                  deployment_verification_command, rollback_verification_command, required_secrets_json,
                  expected_artifacts_json, environments_json, created_utc, last_update_utc)
                 VALUES
-                (@id, @tenant_id, @user_id, @name, @description, @scope, @ownership_scope, @fleet_id, @vessel_id, @is_default, @active,
+                (@id, @tenant_id, @user_id, @name, @description, @scope, @ownership_scope, @fleet_id, @vessel_id, @is_default, @active, @source_template,
                  @language_hints_json, @lint_command, @build_command, @unit_test_command, @integration_test_command,
                  @e2e_test_command, @package_command, @publish_artifact_command, @release_versioning_command,
                  @changelog_generation_command, @migration_command, @security_scan_command, @performance_command,
@@ -105,6 +105,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 vessel_id = @vessel_id,
                 is_default = @is_default,
                 active = @active,
+                source_template = @source_template,
                 language_hints_json = @language_hints_json,
                 lint_command = @lint_command,
                 build_command = @build_command,
@@ -281,6 +282,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@vessel_id", (object?)profile.VesselId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@is_default", profile.IsDefault ? 1 : 0);
             cmd.Parameters.AddWithValue("@active", profile.Active ? 1 : 0);
+            cmd.Parameters.AddWithValue("@source_template", (object?)profile.SourceTemplate ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@language_hints_json", Serialize(profile.LanguageHints));
             cmd.Parameters.AddWithValue("@lint_command", (object?)profile.LintCommand ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@build_command", (object?)profile.BuildCommand ?? DBNull.Value);
@@ -316,6 +318,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 VesselId = SqliteDatabaseDriver.NullableString(reader["vessel_id"]),
                 IsDefault = Convert.ToInt64(reader["is_default"]) == 1,
                 Active = Convert.ToInt64(reader["active"]) == 1,
+                SourceTemplate = reader["source_template"] == DBNull.Value ? null : reader["source_template"].ToString(),
                 LintCommand = SqliteDatabaseDriver.NullableString(reader["lint_command"]),
                 BuildCommand = SqliteDatabaseDriver.NullableString(reader["build_command"]),
                 UnitTestCommand = SqliteDatabaseDriver.NullableString(reader["unit_test_command"]),

@@ -84,6 +84,13 @@ namespace Armada.Core.Models
         public bool Active { get; set; } = true;
 
         /// <summary>
+        /// Built-in template Armada created this profile from (for example "dotnet" or "generic"; see
+        /// <c>WorkflowProfileTemplates</c>), or null for a profile a person created. Armada replaces a "generic" one
+        /// when it can later recognize the vessel's toolchain, and never changes a profile once it has been edited.
+        /// </summary>
+        public string? SourceTemplate { get; set; } = null;
+
+        /// <summary>
         /// Optional language/runtime hints.
         /// </summary>
         public List<string> LanguageHints { get; set; } = new List<string>();

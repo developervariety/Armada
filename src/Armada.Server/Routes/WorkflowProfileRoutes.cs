@@ -300,6 +300,8 @@ namespace Armada.Server.Routes
                 existing.RequiredInputs = incoming.RequiredInputs ?? new List<WorkflowInputReference>();
                 existing.ExpectedArtifacts = incoming.ExpectedArtifacts ?? new List<string>();
                 existing.Environments = incoming.Environments ?? new List<WorkflowEnvironmentProfile>();
+                // Once a person edits a profile Armada created, it is theirs: Armada never replaces it automatically.
+                existing.SourceTemplate = null;
                 existing.LastUpdateUtc = DateTime.UtcNow;
 
                 WorkflowProfileValidationResult validation = await _workflowProfiles.ValidateAsync(existing).ConfigureAwait(false);

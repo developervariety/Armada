@@ -33,6 +33,16 @@ namespace Armada.Core.Services
 
         #endregion
 
+        #region Public-Members
+
+        /// <summary>
+        /// Called with each vessel this service creates (for example to give it a default workflow profile). Must return
+        /// quickly; start longer work in the background.
+        /// </summary>
+        public Action<Vessel>? AfterCreate { get; set; } = null;
+
+        #endregion
+
         #region Public-Methods
 
         /// <inheritdoc />
@@ -55,7 +65,10 @@ namespace Armada.Core.Services
 
             vessel.NormalizeGitHubTokenOverride();
             await DuplicateEntityGuard.EnsureVesselNameAvailableAsync(_Database, vessel, token).ConfigureAwait(false);
-            return await _Database.Vessels.CreateAsync(vessel, token).ConfigureAwait(false);
+            Vessel created = await _Database.Vessels.CreateAsync(vessel, token).ConfigureAwait(false);
+            Action<Vessel>? afterCreate = AfterCreate;
+            if (afterCreate != null) afterCreate(created);
+            return created;
         }
 
         /// <summary>
