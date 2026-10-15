@@ -3041,6 +3041,7 @@ namespace Armada.Core.Services
             voyage.CompletedUtc = DateTime.UtcNow;
             voyage.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+            if (voyage.Status == VoyageStatusEnum.Complete) await PipelineStageSettler.SettleAsync(_Database, missions, token).ConfigureAwait(false);
             _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + voyage.Status + " during mission completion");
         }
 

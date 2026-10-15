@@ -275,6 +275,21 @@ namespace Test.Shared.Suites.Services
                 AssertNotEqual(MissionStatusEnum.Failed, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.Status);
             }));
 
+            cases.Add(CaseAsync("finished_voyage_settles_intermediate_stages", "When a voyage completes, handed-off intermediate stages become Complete; a final WorkProduced result is left alone", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("done")).ConfigureAwait(false);
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("w", "w") { VesselId = vessel.Id, VoyageId = voyage.Id, Status = MissionStatusEnum.WorkProduced }).ConfigureAwait(false);
+                Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("j", "j") { VesselId = vessel.Id, VoyageId = voyage.Id, Status = MissionStatusEnum.Complete, DependsOnMissionId = worker.Id }).ConfigureAwait(false);
+                Mission standalone = await testDb.Driver.Missions.CreateAsync(new Mission("s", "s") { VesselId = vessel.Id, VoyageId = voyage.Id, Status = MissionStatusEnum.WorkProduced }).ConfigureAwait(false);
+
+                int settled = await PipelineStageSettler.SettleAsync(testDb.Driver, await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(1, settled);
+                AssertEqual(MissionStatusEnum.Complete, (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!.Status, "the handed-off stage is settled");
+                AssertEqual(MissionStatusEnum.WorkProduced, (await testDb.Driver.Missions.ReadAsync(standalone.Id).ConfigureAwait(false))!.Status, "a final result on its branch is kept");
+            }));
+
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Multi-Runtime Flow", cases: cases);
         }
 
