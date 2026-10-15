@@ -56,6 +56,15 @@ namespace Test.Shared.Suites.Services
                 await AssertThrowsAsync<TimeoutException>(() => service.ProbeAsync("gpt-oss:20b", new MuxCaptainOptions { Endpoint = "local" }, null, CancellationToken.None)).ConfigureAwait(false);
             }));
 
+            cases.Add(CaseAsync("contract_versions_1_and_2", "Mux contract versions 1 and 2 are read; others are refused", TestTags.Positive, () =>
+            {
+                AssertTrue(MuxCliService.SupportsContractVersion(1), "version 1");
+                AssertTrue(MuxCliService.SupportsContractVersion(2), "version 2 only adds fields");
+                AssertFalse(MuxCliService.SupportsContractVersion(0), "version 0");
+                AssertFalse(MuxCliService.SupportsContractVersion(3), "a future version");
+                return Task.CompletedTask;
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.MuxCliService",
                 displayName: "Mux CLI Service",

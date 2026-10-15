@@ -15,7 +15,7 @@ namespace Test.Shared.Suites.Services
     /// Descriptors for <see cref="ChatTurnTelemetryRecorder"/>, the shared per-turn telemetry of Ask Armada, captain
     /// chat, and planning turns, driven by scripted runtime output on a manual monotonic clock: Claude Code stream-json
     /// with a result usage block and cost, Codex exec --json items and turn.completed usage, OpenCode step_finish usage
-    /// summed across steps, Mux (whose whole-context estimate is never taken as usage), and a plain-text runtime with no
+    /// summed across steps, Mux (its contract 2 run_completed usage is taken; its whole-context estimate never is), and a plain-text runtime with no
     /// usage at all (estimated tokens). Also covers the tool call count and tool time.
     /// </summary>
     public sealed class ChatTurnTelemetryRecorderSuite : IArmadaTestSuite
@@ -169,6 +169,40 @@ namespace Test.Shared.Suites.Services
                 AssertNull(recorder.OutputTokens, "no usage taken from run_completed");
                 AssertEqual(true, m.TokensEstimated);
                 AssertTrue(m.CompletionTokens < 10, "estimate from the two-character reply, not 45000");
+            }));
+
+            cases.Add(Case("mux_v2_usage_reported", "Mux contract 2: run_completed usage is the reported usage and cost; the context estimate still is not", TestTags.Positive, () =>
+            {
+                ManualMonotonicTimeProvider clock = new ManualMonotonicTimeProvider();
+                ChatTurnTelemetryRecorder recorder = new ChatTurnTelemetryRecorder(clock);
+                recorder.ObserveLine(AgentRuntimeEnum.Mux, "{\"eventType\":\"run_started\",\"contractVersion\":2,\"model\":\"gpt-oss:20b\"}");
+                clock.AdvanceMs(400);
+                recorder.ObserveLine(AgentRuntimeEnum.Mux, "{\"eventType\":\"assistant_text\",\"contractVersion\":2,\"text\":\"Done.\"}");
+                recorder.ObserveLine(AgentRuntimeEnum.Mux, "{\"eventType\":\"run_completed\",\"contractVersion\":2,\"status\":\"completed\",\"finalEstimatedTokens\":45000,\"compactionCount\":1,"
+                    + "\"usage\":{\"inputTokens\":1234,\"outputTokens\":567,\"cachedTokens\":512,\"reasoningTokens\":0,\"totalTokens\":1801,\"estimatedTokens\":1750,\"costUsd\":0.008237}}");
+
+                CaptainChatMetrics m = recorder.Build("Done.", null);
+                AssertEqual(1234L, recorder.InputTokens, "input");
+                AssertEqual(567L, recorder.OutputTokens, "output, not the 45000 context estimate");
+                AssertEqual(512L, recorder.CachedTokens, "cached");
+                AssertEqual(false, m.TokensEstimated, "reported, not estimated");
+                AssertTrue(m.CostUsd.HasValue && Math.Abs(m.CostUsd.Value - 0.008237) < 1e-9, "cost from mux pricing");
+            }));
+
+            cases.Add(Case("mux_mission_output_usage_summed", "A mission's mux output with two runs sums both runs' reported usage", TestTags.Positive, () =>
+            {
+                string output = String.Join("\n", new[]
+                {
+                    "{\"eventType\":\"assistant_text\",\"contractVersion\":2,\"text\":\"one\"}",
+                    "{\"eventType\":\"run_completed\",\"contractVersion\":2,\"usage\":{\"inputTokens\":100,\"outputTokens\":10,\"cachedTokens\":0,\"costUsd\":0.001}}",
+                    "plain progress text",
+                    "{\"eventType\":\"run_completed\",\"contractVersion\":2,\"usage\":{\"inputTokens\":200,\"outputTokens\":20,\"cachedTokens\":50}}"
+                });
+                ChatTurnTelemetryRecorder recorder = new ChatTurnTelemetryRecorder();
+                foreach (string line in output.Split('\n')) recorder.ObserveLine(AgentRuntimeEnum.Mux, line);
+                AssertEqual(300L, recorder.InputTokens);
+                AssertEqual(30L, recorder.OutputTokens);
+                AssertEqual(50L, recorder.CachedTokens);
             }));
 
             cases.Add(Case("first_values_kept_and_capped", "Only the first output and text count, and neither exceeds the total", TestTags.Negative, () =>

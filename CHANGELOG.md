@@ -10,6 +10,14 @@ All notable changes to Armada are documented in this file.
 
 ## v1.1.0 (2026-10-15)
 
+### Mux contract version 2 and its token usage
+- Saving a Mux captain against a mux that speaks structured output contract version 2 no longer fails with "Mux returned structured output contract version 2, but Armada currently supports version 1". Armada reads versions 1 and 2; version 2 only adds fields.
+- The fields version 2 adds are now used. The `usage` block on `run_completed` (input, output, cached, and reasoning tokens, plus cost) becomes the reported usage:
+  - for Ask and captain chat turns and planning turns with Mux captains;
+  - for missions, which before were always estimated from text length. A mission run by Claude Code, Codex, OpenCode, or Mux now records the usage its runtime reports wherever the output carries one.
+- Token usage records from these runs are no longer flagged as estimated, and chat metrics show mux's cost.
+- Mux commands Armada runs on a Harbor (endpoint list, endpoint show, and the validation probe) are labeled, so the Harbor's log lists them at summary level, for example "Mux endpoint list: mux endpoint list ... -> exit 0", instead of only at detail level.
+
 ### Model endpoints: authentication types and extra headers
 - Model endpoints now choose how they authenticate instead of offering a single "API key" box:
   - **Provider default:** what the box did before, and what existing endpoints keep. Ollama, OpenAI-compatible, and Voyage AI send it as `Authorization: Bearer`; Anthropic sends `x-api-key`; Gemini sends `x-goog-api-key`.

@@ -911,7 +911,7 @@ namespace Armada.Server
                 assistantMessage.Metrics = telemetry.Build(assistantMessage.Content, null);
 
                 // Best-effort token accounting for the planning turn: the runtime's reported usage where it has one
-                // (Claude Code's result event), otherwise output estimated from the reply.
+                // (Claude Code's result event, Codex, OpenCode, mux's run_completed usage), otherwise output estimated from the reply.
                 await Armada.Core.Services.TokenUsageCapture.CaptureAsync(
                     _Database, _Logging, "planning",
                     model: captain.Model,

@@ -12,6 +12,21 @@ namespace Armada.Core.Services
     /// </summary>
     public class MuxCliService
     {
+        #region Public-Members
+
+        /// <summary>
+        /// Oldest mux structured output contract Armada reads.
+        /// </summary>
+        public const int MinimumContractVersion = 1;
+
+        /// <summary>
+        /// Newest mux structured output contract Armada reads. Version 2 only adds fields (the token usage block on the
+        /// run summary and the run_completed event, and the --no-stats switch), so the version 1 parser reads it.
+        /// </summary>
+        public const int MaximumContractVersion = 2;
+
+        #endregion
+
         #region Private-Members
 
         private readonly string _Header = "[MuxCliService] ";
@@ -88,6 +103,7 @@ namespace Armada.Core.Services
                 MuxCommandBuilder.BuildProbeArguments(model, options),
                 _DefaultTimeout,
                 workingDirectory,
+                "Mux probe of endpoint " + options.Endpoint,
                 token).ConfigureAwait(false);
 
             MuxProbeResult? result = DeserializeJson<MuxProbeResult>(execution.Stdout, execution.Stderr);
@@ -114,6 +130,7 @@ namespace Armada.Core.Services
                 MuxCommandBuilder.BuildEndpointListArguments(configDirectory),
                 _DefaultTimeout,
                 null,
+                "Mux endpoint list",
                 token).ConfigureAwait(false);
 
             MuxEndpointListResult? result = DeserializeJson<MuxEndpointListResult>(execution.Stdout, execution.Stderr);
@@ -141,6 +158,7 @@ namespace Armada.Core.Services
                 MuxCommandBuilder.BuildEndpointShowArguments(endpointName, configDirectory),
                 _DefaultTimeout,
                 null,
+                "Mux endpoint " + endpointName,
                 token).ConfigureAwait(false);
 
             MuxEndpointShowResult? result = DeserializeJson<MuxEndpointShowResult>(execution.Stdout, execution.Stderr);
@@ -157,7 +175,18 @@ namespace Armada.Core.Services
             };
         }
 
+        /// <summary>
+        /// Whether Armada reads a mux structured output contract version.
+        /// </summary>
+        /// <param name="contractVersion">Version mux reported.</param>
+        /// <returns>True when supported.</returns>
+        public static bool SupportsContractVersion(int contractVersion)
+        {
+            return contractVersion >= MinimumContractVersion && contractVersion <= MaximumContractVersion;
+        }
+
         #endregion
+
 
         #region Private-Methods
 
@@ -165,14 +194,19 @@ namespace Armada.Core.Services
             List<string> arguments,
             TimeSpan timeout,
             string? workingDirectory,
+            string label,
             CancellationToken token)
         {
+            // A labeled Command (not routine git work) so a Harbor's log lists it at summary level as, for example,
+            // "Mux endpoint list: mux endpoint list ... -> exit 0".
             HostCommandRequest request = new HostCommandRequest
             {
                 Executable = "mux",
                 Arguments = arguments,
                 WorkingDirectory = String.IsNullOrWhiteSpace(workingDirectory) ? String.Empty : workingDirectory!,
-                TimeoutMs = (int)timeout.TotalMilliseconds
+                TimeoutMs = (int)timeout.TotalMilliseconds,
+                Kind = HostCommandKindEnum.Command,
+                Label = label
             };
 
             HostCommandResult result;

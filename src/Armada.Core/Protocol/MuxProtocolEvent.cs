@@ -143,6 +143,18 @@ namespace Armada.Core.Protocol
         public int? ToolCallCount { get; set; } = null;
 
         /// <summary>
+        /// Token usage for the run (run_completed, contract version 2 with stats on), or null.
+        /// </summary>
+        [JsonPropertyName("usage")]
+        public MuxRunUsage? Usage { get; set; } = null;
+
+        /// <summary>
+        /// Context compactions during the run (run_completed), or null.
+        /// </summary>
+        [JsonPropertyName("compactionCount")]
+        public int? CompactionCount { get; set; } = null;
+
+        /// <summary>
         /// Error code (error), or null.
         /// </summary>
         [JsonPropertyName("code")]

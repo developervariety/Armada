@@ -54,7 +54,7 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(result.Success, "the Harbor's mux answered");
                 AssertEqual("homedns-gpt-oss-20b", result.Endpoints[0].Name);
                 AssertEqual(1, asked.Count, "one Harbor was asked");
-                AssertEqual("hbr_mine:mux", asked[0], "mux ran on the caller's Harbor");
+                AssertEqual("hbr_mine:mux:Command:Mux endpoint list", asked[0], "mux ran on the caller's Harbor as a labeled command its log shows at summary level");
             }));
 
             cases.Add(CaseAsync("standalone_runs_locally", "With no Harbor connected and Harbors not required, mux runs on the Admiral host", TestTags.Positive, async () =>
@@ -114,7 +114,7 @@ namespace Test.Shared.Suites.Services
             {
                 if (message is HarborGitRequest git)
                 {
-                    asked.Add(harborId + ":" + git.Executable);
+                    asked.Add(harborId + ":" + git.Executable + ":" + git.Kind + ":" + git.Label);
                     return manager.OnMessageAsync(harborId, new HarborGitResult
                     {
                         CorrelationId = git.CorrelationId,

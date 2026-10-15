@@ -330,6 +330,15 @@ namespace Armada.Core.Services
                 MarkText();
             else if (evt.EventType == MuxProtocolEvent.AssistantThinking || evt.EventType == MuxProtocolEvent.ToolCallProposed)
                 MarkOutput();
+            else if (evt.EventType == MuxProtocolEvent.RunCompleted && evt.Usage != null)
+            {
+                // Contract version 2: the provider-reported counts and mux's cost for the whole run. (finalEstimatedTokens
+                // is a whole-context estimate, not usage, and is never used.)
+                long? input = evt.Usage.InputTokens;
+                long? output = evt.Usage.OutputTokens;
+                if (!input.HasValue && !output.HasValue && evt.Usage.TotalTokens.HasValue) output = evt.Usage.TotalTokens;
+                AddUsage(input, output, evt.Usage.CachedTokens, evt.Usage.CostUsd);
+            }
         }
 
         /// <summary>

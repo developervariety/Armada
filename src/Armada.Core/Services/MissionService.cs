@@ -1317,8 +1317,12 @@ namespace Armada.Core.Services
                     mission.AgentOutput = agentOutput;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
-                    // Best-effort token accounting for the mission run. Mission output is human-readable
-                    // (no provider usage report), so both counts are estimated from text length and flagged.
+                    // Best-effort token accounting for the mission run: the runtime's own usage report where its
+                    // output carries one (mux contract 2 run_completed usage, or a Claude Code / Codex / OpenCode
+                    // usage event), otherwise both counts are estimated from text length and flagged.
+                    ChatTurnTelemetryRecorder reported = new ChatTurnTelemetryRecorder();
+                    foreach (string line in agentOutput.Split('\n'))
+                        reported.ObserveLine(captain.Runtime, line.TrimEnd('\r'));
                     await TokenUsageCapture.CaptureAsync(
                         _Database, _Logging, "mission",
                         model: captain.Model,
@@ -1328,9 +1332,9 @@ namespace Armada.Core.Services
                         vesselId: String.IsNullOrEmpty(mission.VesselId) ? null : mission.VesselId,
                         captainId: captain.Id,
                         sourceId: mission.Id,
-                        inputTokens: null,
-                        outputTokens: null,
-                        cachedTokens: null,
+                        inputTokens: reported.InputTokens,
+                        outputTokens: reported.OutputTokens,
+                        cachedTokens: reported.CachedTokens,
                         inputText: mission.Description,
                         outputText: agentOutput,
                         token: token,

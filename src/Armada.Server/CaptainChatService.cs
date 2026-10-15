@@ -658,9 +658,10 @@ namespace Armada.Server
 
                 // All timing is on the recorder's one monotonic base, so time to first token never exceeds the total
                 // and streaming always resolves. Real token counts come only from a runtime's own usage report (Claude
-                // Code's result event, Codex's turn.completed, OpenCode's step_finish); otherwise the shared builder
-                // estimates completion tokens from the reply, matching planning-session metrics. (Mux's
-                // finalEstimatedTokens is a whole-context estimate, not the reply, and is never used.)
+                // Code's result event, Codex's turn.completed, OpenCode's step_finish, mux's run_completed usage in
+                // contract version 2); otherwise the shared builder estimates completion tokens from the reply, matching
+                // planning-session metrics. (Mux's finalEstimatedTokens is a whole-context estimate, not the reply, and is
+                // never used.)
                 List<AskMessageToolCall> finishedToolCalls = toolCalls.ToList();
                 CaptainChatMetrics metrics = telemetry.Build(reply, finishedToolCalls);
                 long? realOutputTokens = telemetry.OutputTokens;

@@ -1730,10 +1730,10 @@ namespace Armada.Server
             try
             {
                 MuxProbeResult probe = await new MuxCliService(_Logging, host.Executor).ProbeAsync(captain, host.WorkingDirectory, token).ConfigureAwait(false);
-                if (probe.ContractVersion != 1)
+                if (!MuxCliService.SupportsContractVersion(probe.ContractVersion))
                 {
                     return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.UnsupportedContractVersion, "Mux returned structured output contract version " + probe.ContractVersion +
-                        ", but Armada currently supports version 1.");
+                        ", but Armada supports versions " + MuxCliService.MinimumContractVersion + " to " + MuxCliService.MaximumContractVersion + ".");
                 }
 
                 if (!probe.Success)
