@@ -607,7 +607,8 @@ namespace Armada.Server.Mcp.Tools
                     PathPrefix = PathPrefix,
                     Language = Language,
                     IncludeContent = IncludeContent,
-                    IncludeReferenceOnly = IncludeReferenceOnly
+                    IncludeReferenceOnly = IncludeReferenceOnly,
+                    IncludeEmbeddings = IncludeEmbeddings
                 };
             }
         }
@@ -640,7 +641,8 @@ namespace Armada.Server.Mcp.Tools
                     PathPrefix = PathPrefix,
                     Language = Language,
                     IncludeContent = IncludeContent,
-                    IncludeReferenceOnly = IncludeReferenceOnly
+                    IncludeReferenceOnly = IncludeReferenceOnly,
+                    IncludeEmbeddings = IncludeEmbeddings
                 };
             }
         }

@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Explicit MCP code-search debug requests return independent embedding vector
+  copies within normal result limits. Default search and context-pack results
+  remain vector-free.
+
 - Rescue stages use the current owning objective contract and share objective
   preview's execution requirement checks. Missing resources leave a named
   incident without creating rescue work or spending a recovery attempt.

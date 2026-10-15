@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -371,7 +372,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("SearchAsync_ResultRecords_DoNotCarryEmbeddingVectors", async () =>
+            await RunTest("SearchAsync_DefaultOmits_ExplicitMcpDebugReturnsIndependentVectors", async () =>
             {
                 string dataRoot = NewTempDirectory("armada-code-index-data-");
 
@@ -429,16 +430,94 @@ namespace Armada.Test.Unit.Suites.Services
                             IncludeContent = true
                         }).ConfigureAwait(false);
 
-                        AssertTrue(response.Results.Count >= 2, "Expected both chunks to rank so semantic scoring is exercised");
+                        AssertEqual(2, response.Results.Count, "Both chunks should rank so semantic scoring is exercised");
                         foreach (CodeSearchResult result in response.Results)
                         {
                             AssertTrue(
                                 result.Record.EmbeddingVector == null,
-                                "Search result record must not carry an EmbeddingVector; vectors must not escape into retained responses");
+                                "Default search result record must not carry an EmbeddingVector");
                             AssertTrue(
                                 !String.IsNullOrEmpty(result.Record.Content),
                                 "IncludeContent=true should still return content alongside the dropped vector");
                         }
+
+                        Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                        McpCodeIndexTools.Register(
+                            (string name, string description, object schema, Func<JsonElement?, Task<object>> handler) => handlers[name] = handler,
+                            service);
+
+                        JsonElement defaultArgs = JsonSerializer.SerializeToElement(new
+                        {
+                            vesselId = vessel.Id,
+                            query = "SearchKeyword",
+                            limit = 10,
+                            includeContent = true
+                        });
+                        string defaultJson = JsonSerializer.Serialize(await handlers["armada_code_search"](defaultArgs).ConfigureAwait(false));
+                        AssertTrue(
+                            !defaultJson.Contains("EmbeddingVector", StringComparison.OrdinalIgnoreCase),
+                            "Default MCP search must not retain or serialize embedding vectors");
+
+                        JsonElement debugArgs = JsonSerializer.SerializeToElement(new
+                        {
+                            vesselId = vessel.Id,
+                            query = "SearchKeyword",
+                            limit = 10,
+                            includeContent = true,
+                            includeEmbeddings = true
+                        });
+                        CodeSearchResponse debugResponse = (CodeSearchResponse)await handlers["armada_code_search"](debugArgs).ConfigureAwait(false);
+                        AssertEqual(response.Query, debugResponse.Query, "Explicit debug search must preserve the query");
+                        AssertEqual(response.Status.Freshness, debugResponse.Status.Freshness, "Explicit debug search must preserve status");
+                        AssertEqual(response.Results.Count, debugResponse.Results.Count, "Explicit debug search must preserve the result count");
+                        for (int i = 0; i < response.Results.Count; i++)
+                        {
+                            CodeSearchResult expected = response.Results[i];
+                            CodeSearchResult actual = debugResponse.Results[i];
+                            AssertEqual(expected.Record.Path, actual.Record.Path, "Explicit debug search must preserve ranking");
+                            AssertEqual(expected.Score, actual.Score, "Explicit debug search must preserve scores");
+                            AssertEqual(expected.Excerpt, actual.Excerpt, "Explicit debug search must preserve excerpts");
+                            AssertEqual(expected.Record.VesselId, actual.Record.VesselId, "Explicit debug search must preserve metadata");
+                            AssertEqual(expected.Record.CommitSha, actual.Record.CommitSha, "Explicit debug search must preserve metadata");
+                            AssertEqual(expected.Record.ContentHash, actual.Record.ContentHash, "Explicit debug search must preserve metadata");
+                            AssertEqual(expected.Record.Language, actual.Record.Language, "Explicit debug search must preserve metadata");
+                            AssertEqual(expected.Record.StartLine, actual.Record.StartLine, "Explicit debug search must preserve metadata");
+                            AssertEqual(expected.Record.EndLine, actual.Record.EndLine, "Explicit debug search must preserve metadata");
+                            AssertEqual(expected.Record.Freshness, actual.Record.Freshness, "Explicit debug search must preserve metadata");
+                            AssertEqual(expected.Record.IndexedAtUtc, actual.Record.IndexedAtUtc, "Explicit debug search must preserve metadata");
+                            AssertEqual(expected.Record.IsReferenceOnly, actual.Record.IsReferenceOnly, "Explicit debug search must preserve metadata");
+                            AssertEqual(expected.Record.Content, actual.Record.Content, "Explicit debug search must preserve requested content");
+                            AssertTrue(actual.Record.EmbeddingVector != null, "Explicit MCP debug search must return the indexed vector");
+                            AssertEqual(3, actual.Record.EmbeddingVector!.Length, "Debug vector length");
+                            if (String.Equals(actual.Record.Path, "alpha.cs", StringComparison.Ordinal))
+                            {
+                                AssertEqual(1F, actual.Record.EmbeddingVector[0]);
+                                AssertEqual(0F, actual.Record.EmbeddingVector[1]);
+                            }
+                            else
+                            {
+                                AssertEqual("beta.cs", actual.Record.Path);
+                                AssertEqual(0F, actual.Record.EmbeddingVector[0]);
+                                AssertEqual(1F, actual.Record.EmbeddingVector[1]);
+                            }
+                        }
+
+                        AssertFalse(
+                            ReferenceEquals(debugResponse.Results[0].Record.EmbeddingVector, debugResponse.Results[1].Record.EmbeddingVector),
+                            "Different results must not share an embedding array");
+                        debugResponse.Results[0].Record.EmbeddingVector![0] = 0F;
+
+                        JsonElement boundedArgs = JsonSerializer.SerializeToElement(new
+                        {
+                            vesselId = vessel.Id,
+                            query = "SearchKeyword",
+                            limit = 1,
+                            includeEmbeddings = true
+                        });
+                        CodeSearchResponse boundedResponse = (CodeSearchResponse)await handlers["armada_code_search"](boundedArgs).ConfigureAwait(false);
+                        AssertEqual(1, boundedResponse.Results.Count, "Debug vectors must follow the normal result limit");
+                        AssertEqual("alpha.cs", boundedResponse.Results[0].Record.Path);
+                        AssertEqual(1F, boundedResponse.Results[0].Record.EmbeddingVector![0], "Response mutation must not change the stored vector");
                     }
                 }
                 finally
@@ -600,13 +679,80 @@ namespace Armada.Test.Unit.Suites.Services
                             IncludeContent = true
                         }).ConfigureAwait(false);
 
-                        AssertTrue(response.Results.Count >= 2, "Expected both fleet vessels to contribute a result");
+                        AssertEqual(2, response.Results.Count, "Both fleet vessels must contribute a result");
                         foreach (FleetCodeSearchResult result in response.Results)
                         {
                             AssertTrue(
                                 result.Record.EmbeddingVector == null,
                                 "Fleet search result record must not carry an EmbeddingVector; the merged response must not root the fleet's vectors");
                         }
+
+                        Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                        McpCodeIndexTools.Register(
+                            (string name, string description, object schema, Func<JsonElement?, Task<object>> handler) => handlers[name] = handler,
+                            service);
+
+                        JsonElement defaultArgs = JsonSerializer.SerializeToElement(new
+                        {
+                            fleetId,
+                            query = "SearchKeyword",
+                            limit = 10
+                        });
+                        string defaultJson = JsonSerializer.Serialize(await handlers["armada_fleet_code_search"](defaultArgs).ConfigureAwait(false));
+                        AssertTrue(
+                            !defaultJson.Contains("EmbeddingVector", StringComparison.OrdinalIgnoreCase),
+                            "Default MCP fleet search must not retain or serialize embedding vectors");
+
+                        JsonElement debugArgs = JsonSerializer.SerializeToElement(new
+                        {
+                            fleetId,
+                            query = "SearchKeyword",
+                            limit = 10,
+                            includeContent = true,
+                            includeEmbeddings = true
+                        });
+                        FleetCodeSearchResponse debugResponse = (FleetCodeSearchResponse)await handlers["armada_fleet_code_search"](debugArgs).ConfigureAwait(false);
+
+                        AssertEqual(response.FleetId, debugResponse.FleetId, "Explicit fleet debug search must preserve fleet metadata");
+                        AssertEqual(response.Query, debugResponse.Query, "Explicit fleet debug search must preserve the query");
+                        AssertEqual(response.Results.Count, debugResponse.Results.Count, "Both fleet requests must return the same result count");
+                        for (int i = 0; i < response.Results.Count; i++)
+                        {
+                            FleetCodeSearchResult expected = response.Results[i];
+                            FleetCodeSearchResult actual = debugResponse.Results[i];
+                            AssertEqual(expected.VesselId, actual.VesselId, "Explicit fleet debug search must preserve vessel ordering");
+                            AssertEqual(expected.VesselName, actual.VesselName, "Explicit fleet debug search must preserve vessel metadata");
+                            AssertEqual(expected.Score, actual.Score, "Explicit fleet debug search must preserve scores");
+                            AssertEqual(expected.Excerpt, actual.Excerpt, "Explicit fleet debug search must preserve excerpts");
+                            AssertEqual(expected.Record.VesselId, actual.Record.VesselId, "Explicit fleet debug search must preserve record metadata");
+                            AssertEqual(expected.Record.Path, actual.Record.Path, "Explicit fleet debug search must preserve record ordering");
+                            AssertEqual(expected.Record.CommitSha, actual.Record.CommitSha, "Explicit fleet debug search must preserve record metadata");
+                            AssertEqual(expected.Record.ContentHash, actual.Record.ContentHash, "Explicit fleet debug search must preserve record metadata");
+                            AssertEqual(expected.Record.Language, actual.Record.Language, "Explicit fleet debug search must preserve record metadata");
+                            AssertEqual(expected.Record.StartLine, actual.Record.StartLine, "Explicit fleet debug search must preserve record metadata");
+                            AssertEqual(expected.Record.EndLine, actual.Record.EndLine, "Explicit fleet debug search must preserve record metadata");
+                            AssertEqual(expected.Record.Freshness, actual.Record.Freshness, "Explicit fleet debug search must preserve record metadata");
+                            AssertEqual(expected.Record.IndexedAtUtc, actual.Record.IndexedAtUtc, "Explicit fleet debug search must preserve record metadata");
+                            AssertEqual(expected.Record.IsReferenceOnly, actual.Record.IsReferenceOnly, "Explicit fleet debug search must preserve record metadata");
+                            AssertEqual(expected.Record.Content, actual.Record.Content, "Explicit fleet debug search must preserve requested content");
+                            AssertTrue(actual.Record.EmbeddingVector != null, "Explicit fleet debug search must return the indexed vector");
+                            AssertEqual(1F, actual.Record.EmbeddingVector![0]);
+                        }
+                        AssertFalse(
+                            ReferenceEquals(debugResponse.Results[0].Record.EmbeddingVector, debugResponse.Results[1].Record.EmbeddingVector),
+                            "Different fleet results must not share an embedding array");
+                        debugResponse.Results[0].Record.EmbeddingVector![0] = 0F;
+
+                        JsonElement boundedArgs = JsonSerializer.SerializeToElement(new
+                        {
+                            fleetId,
+                            query = "SearchKeyword",
+                            limit = 1,
+                            includeEmbeddings = true
+                        });
+                        FleetCodeSearchResponse boundedResponse = (FleetCodeSearchResponse)await handlers["armada_fleet_code_search"](boundedArgs).ConfigureAwait(false);
+                        AssertEqual(1, boundedResponse.Results.Count, "Fleet debug vectors must follow the normal fleet result limit");
+                        AssertEqual(1F, boundedResponse.Results[0].Record.EmbeddingVector![0], "Response mutation must not change the stored fleet vector");
                     }
                 }
                 finally

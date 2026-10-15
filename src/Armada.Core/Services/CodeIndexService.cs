@@ -597,16 +597,10 @@ namespace Armada.Core.Services
 
                 if (score <= 0) continue;
 
-                CodeIndexRecord outputRecord = CopyRecord(record);
-                if (!request.IncludeContent)
-                {
-                    outputRecord.Content = "";
-                }
-
                 results.Add(new CodeSearchResult
                 {
                     Score = score,
-                    Record = outputRecord,
+                    Record = record,
                     Excerpt = BuildExcerpt(record.Content, terms)
                 });
             }
@@ -616,6 +610,17 @@ namespace Armada.Core.Services
                 .ThenBy(r => r.Record.Path, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(r => r.Record.StartLine)
                 .Take(limit)
+                .Select(r =>
+                {
+                    CodeIndexRecord outputRecord = CopyRecord(r.Record, request.IncludeEmbeddings);
+                    if (!request.IncludeContent) outputRecord.Content = "";
+                    return new CodeSearchResult
+                    {
+                        Score = r.Score,
+                        Record = outputRecord,
+                        Excerpt = r.Excerpt
+                    };
+                })
                 .ToList();
 
             return new CodeSearchResponse
@@ -763,7 +768,8 @@ namespace Armada.Core.Services
                         PathPrefix = request.PathPrefix,
                         Language = request.Language,
                         IncludeContent = request.IncludeContent,
-                        IncludeReferenceOnly = request.IncludeReferenceOnly
+                        IncludeReferenceOnly = request.IncludeReferenceOnly,
+                        IncludeEmbeddings = request.IncludeEmbeddings
                     };
 
                     CodeSearchResponse search = await SearchAsync(vesselRequest, token).ConfigureAwait(false);
@@ -3559,7 +3565,7 @@ namespace Armada.Core.Services
             return excerpt;
         }
 
-        private CodeIndexRecord CopyRecord(CodeIndexRecord record)
+        private CodeIndexRecord CopyRecord(CodeIndexRecord record, bool includeEmbeddingVector)
         {
             return new CodeIndexRecord
             {
@@ -3574,13 +3580,12 @@ namespace Armada.Core.Services
                 IndexedAtUtc = record.IndexedAtUtc,
                 IsReferenceOnly = record.IsReferenceOnly,
                 Content = record.Content,
-                // EmbeddingVector is deliberately not carried onto records that escape a
-                // search / context-pack response. The vector is only needed in-method for
-                // cosine scoring (done against the source record before this copy) and is
-                // never serialized to callers. Sharing the reference here lets a retained
-                // response root one float[] per result, which compounds across the search
-                // hot path; dropping it bounds the escaping payload to lightweight metadata.
-                EmbeddingVector = null
+                // Retained responses omit vectors unless a caller explicitly requests them
+                // for debugging. Never expose the index-owned array: a deliberate copy keeps
+                // caller mutation from changing the in-memory search records.
+                EmbeddingVector = includeEmbeddingVector && record.EmbeddingVector != null
+                    ? (float[])record.EmbeddingVector.Clone()
+                    : null
             };
         }
 

@@ -43,6 +43,11 @@ namespace Armada.Core.Models
         /// </summary>
         public bool IncludeReferenceOnly { get; set; } = false;
 
+        /// <summary>
+        /// Include independent copies of embedding vectors for explicit debugging.
+        /// </summary>
+        public bool IncludeEmbeddings { get; set; } = false;
+
         #endregion
     }
 }
