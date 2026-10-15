@@ -72,6 +72,7 @@ namespace Armada.Server
         private readonly DispatchHold? _DispatchHold;
         private readonly TerminalMarkerTracker? _TerminalMarkers;
         private readonly CaptainStallEvaluator _StallEvaluator;
+        private readonly ICaptainExecutionEnvironmentProbe _ExecutionEnvironment;
 
         /// <summary>
         /// The D1 <c>failure_cause</c> typed-decision adapter, when wired. Null keeps recovery on its
@@ -155,7 +156,8 @@ namespace Armada.Server
             CheckRunService? checkRuns = null,
             Func<Mission, string, string?, CancellationToken, Task<JudgeFollowUp>>? captureJudgeFollowUp = null,
             DispatchHold? dispatchHold = null,
-            TerminalMarkerTracker? terminalMarkers = null)
+            TerminalMarkerTracker? terminalMarkers = null,
+            ICaptainExecutionEnvironmentProbe? executionEnvironment = null)
         {
             _DispatchHold = dispatchHold;
             _TerminalMarkers = terminalMarkers;
@@ -164,6 +166,7 @@ namespace Armada.Server
             _Incidents = incidents ?? throw new ArgumentNullException(nameof(incidents));
             _Runbooks = runbooks ?? throw new ArgumentNullException(nameof(runbooks));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _ExecutionEnvironment = executionEnvironment ?? new LocalCaptainExecutionEnvironmentProbe(_Settings);
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _MergeQueue = mergeQueue;
             _Git = git;
@@ -1068,6 +1071,24 @@ namespace Armada.Server
                     }
                 }
 
+                Objective? owningObjective = null;
+                if (decision.DispatchRescue && !latest.IsReadOnlyMode)
+                {
+                    owningObjective = await ResolveOwningObjectiveAsync(latest, token).ConfigureAwait(false);
+                    List<ObjectiveDispatchPreviewIssue> executionIssues = ObjectiveExecutionRequirementsValidator.Evaluate(
+                        owningObjective?.Preparation?.ExecutionRequirements,
+                        _ExecutionEnvironment);
+                    if (executionIssues.Count > 0)
+                    {
+                        await DeferRescueForExecutionRequirementsAsync(
+                            auth,
+                            latest,
+                            executionIssues,
+                            token).ConfigureAwait(false);
+                        return true;
+                    }
+                }
+
                 Incident incident = await EnsureIncidentAsync(auth, latest, decision, token).ConfigureAwait(false);
                 await LinkIncidentToOwningObjectivesAsync(auth, latest, incident, token).ConfigureAwait(false);
 
@@ -1125,7 +1146,7 @@ namespace Armada.Server
                 Mission rescue;
                 try
                 {
-                    rescue = await DispatchRescueMissionAsync(latest, incident, rescueStartFromRef, token).ConfigureAwait(false);
+                    rescue = await DispatchRescueMissionAsync(latest, incident, rescueStartFromRef, owningObjective, token).ConfigureAwait(false);
                 }
                 catch (DispatchHoldActiveException held)
                 {
@@ -1636,6 +1657,42 @@ namespace Armada.Server
             return created;
         }
 
+        private async Task DeferRescueForExecutionRequirementsAsync(
+            AuthContext auth,
+            Mission mission,
+            List<ObjectiveDispatchPreviewIssue> issues,
+            CancellationToken token)
+        {
+            string reason = "execution_unavailable: " + String.Join(", ", issues
+                .Select(issue => issue.Code)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(code => code, StringComparer.Ordinal));
+            List<Incident> active = await _Incidents.EnumerateActiveAsync(auth, new IncidentQuery
+            {
+                MissionId = mission.Id
+            }, token).ConfigureAwait(false);
+            if (active.Any(item => (item.RecoveryNotes ?? String.Empty).Contains(reason, StringComparison.Ordinal)))
+                return;
+
+            RecoveryDecision blocked = RecoveryDecision.Blocked(reason);
+            Incident incident = await EnsureIncidentAsync(auth, mission, blocked, token).ConfigureAwait(false);
+            await LinkIncidentToOwningObjectivesAsync(auth, mission, incident, token).ConfigureAwait(false);
+
+            string note = "Autonomous rescue deferred: " + reason + ". No rescue mission was created and no recovery attempt was spent. "
+                + "Recovery sweeps can retry while the original failure remains inside the configured lookback. "
+                + "After that window, an operator must resume the failure. This is an execution-resource deferral, not a dispatch hold.";
+            await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+            {
+                RecoveryNotes = AppendNote(incident.RecoveryNotes, note)
+            }, token).ConfigureAwait(false);
+            await EmitEventAsync(
+                "autonomous_recovery.rescue_deferred_execution_unavailable",
+                "Autonomous rescue for failed mission " + mission.Id + " was deferred: " + reason + ". No rescue was created and no recovery attempt was spent.",
+                mission,
+                incident.Id,
+                token).ConfigureAwait(false);
+        }
+
         private async Task EnsureReadOnlyJudgeFollowUpAsync(Mission mission, CancellationToken token)
         {
             if (!mission.IsReadOnlyMode
@@ -1805,11 +1862,12 @@ namespace Armada.Server
             Mission failedMission,
             Incident incident,
             string? startFromRef,
+            Objective? owningObjective,
             CancellationToken token)
         {
             int attemptNumber = failedMission.RecoveryAttempts + 1;
             string rescuePersona = ResolveRescuePersona(failedMission.Persona, failedMission.FailureReason);
-            Objective? owningObjective = await ResolveOwningObjectiveAsync(failedMission, token).ConfigureAwait(false);
+            owningObjective ??= await ResolveOwningObjectiveAsync(failedMission, token).ConfigureAwait(false);
             List<SelectedPlaybook> rescuePlaybooks = await ResolveRescuePlaybooksAsync(
                 failedMission,
                 owningObjective,
@@ -1839,7 +1897,9 @@ namespace Armada.Server
                 StageOrder = recoveryWorkerStage?.Order,
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Title = "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 100),
-                Description = BuildRescueDescription(failedMission, incident, attemptNumber),
+                Description = AppendCurrentObjectiveBrief(
+                    BuildRescueDescription(failedMission, incident, attemptNumber),
+                    owningObjective),
                 StartFromRef = startFromRef,
                 Mode = failedMission.Mode,
                 RequiresReview = recoveryWorkerStage?.RequiresReview ?? false,
@@ -1879,16 +1939,37 @@ namespace Armada.Server
         private async Task<Objective?> ResolveOwningObjectiveAsync(Mission failedMission, CancellationToken token)
         {
             List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
-            List<Objective> matches = objectives
+            List<Objective> sameOwner = objectives
                 .Where(item => item != null
-                    && ((item.MissionIds?.Contains(failedMission.Id, StringComparer.Ordinal) ?? false)
-                        || (!String.IsNullOrWhiteSpace(failedMission.VoyageId)
-                            && (item.VoyageIds?.Contains(failedMission.VoyageId, StringComparer.Ordinal) ?? false))))
+                    && String.Equals(item.TenantId ?? Constants.DefaultTenantId,
+                        failedMission.TenantId ?? Constants.DefaultTenantId, StringComparison.Ordinal)
+                    && String.Equals(item.UserId ?? Constants.DefaultUserId,
+                        failedMission.UserId ?? Constants.DefaultUserId, StringComparison.Ordinal))
+                .ToList();
+
+            if (!String.IsNullOrWhiteSpace(failedMission.VoyageId))
+            {
+                Voyage? parentVoyage = await _Database.Voyages.ReadAsync(failedMission.VoyageId, token).ConfigureAwait(false);
+                Objective? voyageObjective = VoyageObjectiveResolver.Choose(
+                    sameOwner,
+                    failedMission.VoyageId,
+                    VoyageObjectiveResolver.ReadBriefObjectiveId(parentVoyage?.Description));
+                if (voyageObjective != null) return voyageObjective;
+            }
+
+            List<Objective> matches = sameOwner
+                .Where(item => item.MissionIds?.Contains(failedMission.Id, StringComparer.Ordinal) ?? false)
                 .OrderByDescending(item => !String.IsNullOrWhiteSpace(item.SuggestedPipelineId))
-                .ThenByDescending(item => item.MissionIds?.Contains(failedMission.Id, StringComparer.Ordinal) ?? false)
                 .ThenBy(item => item.Id, StringComparer.Ordinal)
                 .ToList();
             return matches.FirstOrDefault();
+        }
+
+        private static string AppendCurrentObjectiveBrief(string description, Objective? objective)
+        {
+            return objective == null
+                ? description
+                : ObjectiveBriefRenderer.AppendToMissionDescription(description, objective);
         }
 
         private async Task<Pipeline?> ResolveRecoveryPipelineAsync(
