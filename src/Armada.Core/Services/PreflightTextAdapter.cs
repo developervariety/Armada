@@ -21,13 +21,14 @@ namespace Armada.Core.Services
     /// Q12, and the Q13 owner-question choice), each phrased as the DEFECT so a high answer means a
     /// brief problem.
     ///
-    /// The adapter only ever ADDS preview issues or posts an owner-addressed note; it never removes a
-    /// deterministic issue, never dispatches, and never lands. The deterministic preview is the
+    /// The adapter only ever ADDS preview issues; it never removes a deterministic issue, never
+    /// dispatches, and never lands. Q4 and Q13 model readings are advisory Warnings even in Gate mode.
+    /// Other flagged text questions can add blocking Errors in Gate mode. The deterministic preview is the
     /// fallback in every non-gate case: Off adds nothing and makes no call; an unavailable model adds
     /// nothing and records one unavailable event; a below-threshold answer adds nothing and records one
-    /// shadow event. In Gate mode a question answered at or above the decision threshold becomes an
-    /// Error issue <see cref="ModelFlagIssueCode"/> that the autonomous scheduler already skips on, and
-    /// a Q13 <c>needs_owner_ruling</c> also posts an owner-addressed board note. The adapter never
+    /// shadow event. In Gate mode a blocking question answered at or above the decision threshold becomes
+    /// an Error issue <see cref="ModelFlagIssueCode"/> that the autonomous scheduler already skips on. A
+    /// Q4 or Q13 model flag never blocks dispatch or posts an owner-addressed board note. The adapter never
     /// throws into the caller.
     /// </summary>
     public sealed class PreflightTextAdapter
@@ -59,7 +60,6 @@ namespace Armada.Core.Services
         private readonly TypedDecisionSettings _Settings;
         private readonly ITypedDecisionClient _Client;
         private readonly TypedDecisionRecorder _Recorder;
-        private readonly IOwnerDecisionNotePoster? _OwnerNotePoster;
         private readonly LoggingModule _Logging;
 
         // The text-half battery. Each entry is a noul phrased as the defect: a high answer names a
@@ -73,7 +73,7 @@ namespace Armada.Core.Services
                 "the premise contradicts the facts", "the premise matches the facts"),
             new PreflightNoul("q4", 4,
                 "A premise or a deliverable is not observable from a dock: it is gitignored, in an unprovisioned sibling, or behind a tool the container lacks.",
-                "a premise or deliverable is unobservable from a dock", "everything is observable from a dock"),
+                "a premise or deliverable is unobservable from a dock", "everything is observable from a dock", blocksDispatch: false),
             new PreflightNoul("q5", 5,
                 "A stage section permits for one artifact class what another stage section forbids for the same class.",
                 "the stages disagree on an artifact class", "the stages agree"),
@@ -104,19 +104,16 @@ namespace Armada.Core.Services
         /// <param name="settings">Typed-decision settings section.</param>
         /// <param name="client">Typed-decision client (the null client when the system is off).</param>
         /// <param name="recorder">Recorder for the per-call typed-decision event.</param>
-        /// <param name="ownerNotePoster">Owner-addressed board-note poster for a Q13 owner ruling; null skips the note.</param>
         /// <param name="logging">Logging module.</param>
         public PreflightTextAdapter(
             TypedDecisionSettings settings,
             ITypedDecisionClient client,
             TypedDecisionRecorder recorder,
-            IOwnerDecisionNotePoster? ownerNotePoster,
             LoggingModule logging)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Client = client ?? throw new ArgumentNullException(nameof(client));
             _Recorder = recorder ?? throw new ArgumentNullException(nameof(recorder));
-            _OwnerNotePoster = ownerNotePoster;
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
@@ -126,8 +123,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Consult the model for the text-half preflight battery and, in Gate mode at or above the
-        /// decision threshold, add one Error issue per flagged question to the preview and post an
-        /// owner-addressed board note for a Q13 owner ruling. The deterministic preview passed in is
+        /// decision threshold, add blocking Error issues and advisory Warning issues to the preview.
+        /// Q4 and Q13 are always advisory and do not post owner-addressed notes. The deterministic preview passed in is
         /// returned unchanged in every other case. Never throws into the caller.
         /// </summary>
         /// <param name="objective">The objective being previewed.</param>
@@ -205,11 +202,11 @@ namespace Armada.Core.Services
             PreflightModelReading reading = Interpret(decision, cfg.GateThreshold);
             bool gate = cfg.Mode == TypedDecisionModeEnum.Gate;
 
-            // Apply the reading to the preview. In Gate a flagged question is a blocking Error issue
-            // the scheduler skips on; in Shadow the same flag is an advisory Warning the operator sees.
+            // Keep uncertain dock-observability and owner-question readings visible without letting
+            // the classifier block dispatch. Other questions retain the Gate blocking behavior.
             foreach (PreflightFlag flag in reading.Flags)
             {
-                if (gate)
+                if (gate && flag.BlocksDispatch)
                 {
                     AddIssue(result, ModelFlagIssueCode, ReadinessSeverityEnum.Error,
                         "Dispatch preflight model flag on question " + flag.QuestionNumber + ": " + flag.Defect,
@@ -224,29 +221,16 @@ namespace Armada.Core.Services
                 }
             }
 
-            // The Q13 owner-question choice is separate from the nouls: needs_owner_ruling and
-            // needs_repo_fact are each a blocking flag in Gate, and needs_owner_ruling also posts an
-            // owner-addressed board note so the question reaches the owner.
-            bool ownerRuling = false;
+            // Q13 is already supported by the deterministic preflight and recorded owner answers.
+            // The model may add a visible warning, but it cannot block dispatch or create an owner task.
             if (reading.Q13Flagged)
             {
-                if (gate)
-                {
-                    AddIssue(result, ModelFlagIssueCode, ReadinessSeverityEnum.Error,
-                        "Dispatch preflight model flag on question 13: the objective has an open " + reading.Q13Choice
-                            + " that must be settled before dispatch.",
-                        "q13");
-                    ownerRuling = String.Equals(reading.Q13Choice, _Q13NeedsOwnerRuling, StringComparison.Ordinal);
-                }
-                else
-                {
-                    AddIssue(result, "preflight_q13_model", ReadinessSeverityEnum.Warning,
-                        "Dispatch preflight model note on question 13: an open " + reading.Q13Choice + " may exist.",
-                        "q13");
-                }
+                AddIssue(result, "preflight_q13_model", ReadinessSeverityEnum.Warning,
+                    "Dispatch preflight model note on question 13: an open " + reading.Q13Choice + " may exist.",
+                    "q13");
             }
 
-            bool applied = gate && (reading.Flags.Count > 0 || reading.Q13Flagged);
+            bool applied = gate && reading.Flags.Any(flag => flag.BlocksDispatch);
             if (applied)
             {
                 await SafeRecordAsync(() => _Recorder.RecordGatedAsync(
@@ -254,14 +238,11 @@ namespace Armada.Core.Services
             }
             else
             {
-                string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
+                string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow
+                    ? "shadow_mode"
+                    : reading.HasAdvisory ? "advisory_only" : "below_threshold";
                 await SafeRecordAsync(() => _Recorder.RecordShadowAsync(
                     BuildContext(objective, vessel, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), outcome, token)).ConfigureAwait(false);
-            }
-
-            if (ownerRuling)
-            {
-                await PostOwnerRulingNoteAsync(objective, vessel, result, token).ConfigureAwait(false);
             }
         }
 
@@ -334,7 +315,7 @@ namespace Armada.Core.Services
                 double value = NoulValue(answer);
                 if (value > reading.MaxConfidence) reading.MaxConfidence = value;
                 if (value >= threshold)
-                    reading.Flags.Add(new PreflightFlag(noul.Number, noul.Defect, value));
+                    reading.Flags.Add(new PreflightFlag(noul.Number, noul.Defect, value, noul.BlocksDispatch));
             }
 
             if (answers.TryGetValue(_Q13Id, out TypedAnswer? q13) && q13 != null)
@@ -359,23 +340,6 @@ namespace Armada.Core.Services
             if (answer.Noul.HasValue) return answer.Noul.Value;
             if (answer.Confidence.HasValue) return answer.Confidence.Value;
             return 0.0;
-        }
-
-        private async Task PostOwnerRulingNoteAsync(Objective objective, Vessel vessel, ObjectiveDispatchPreview result, CancellationToken token)
-        {
-            if (_OwnerNotePoster == null) return;
-            try
-            {
-                string content = "Owner decision needed before dispatching objective " + objective.Id
-                    + " (" + (objective.Title ?? "untitled") + ") on vessel " + vessel.Name
-                    + ": the dispatch preflight model reports an open question only the owner can answer."
-                    + " The objective is held; record the ruling on the row, then re-preview.";
-                await _OwnerNotePoster.PostOwnerDecisionAsync(content, result.VesselId, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "owner-ruling board note failed: " + ex.Message);
-            }
         }
 
         private Task SafeRecordAsync(Func<Task> record)
@@ -426,7 +390,7 @@ namespace Armada.Core.Services
 
         private sealed class PreflightNoul
         {
-            public PreflightNoul(string id, int number, string instructions, string trueMeaning, string falseMeaning)
+            public PreflightNoul(string id, int number, string instructions, string trueMeaning, string falseMeaning, bool blocksDispatch = true)
             {
                 Id = id;
                 Number = number;
@@ -434,6 +398,7 @@ namespace Armada.Core.Services
                 Defect = instructions;
                 TrueMeaning = trueMeaning;
                 FalseMeaning = falseMeaning;
+                BlocksDispatch = blocksDispatch;
             }
 
             public string Id { get; }
@@ -442,20 +407,23 @@ namespace Armada.Core.Services
             public string Defect { get; }
             public string TrueMeaning { get; }
             public string FalseMeaning { get; }
+            public bool BlocksDispatch { get; }
         }
 
         private sealed class PreflightFlag
         {
-            public PreflightFlag(int questionNumber, string defect, double value)
+            public PreflightFlag(int questionNumber, string defect, double value, bool blocksDispatch)
             {
                 QuestionNumber = questionNumber;
                 Defect = defect;
                 Value = value;
+                BlocksDispatch = blocksDispatch;
             }
 
             public int QuestionNumber { get; }
             public string Defect { get; }
             public double Value { get; }
+            public bool BlocksDispatch { get; }
         }
 
         private sealed class PreflightModelReading
@@ -464,6 +432,7 @@ namespace Armada.Core.Services
             public bool Q13Flagged { get; set; }
             public string? Q13Choice { get; set; }
             public double MaxConfidence { get; set; }
+            public bool HasAdvisory => Q13Flagged || Flags.Any(flag => !flag.BlocksDispatch);
 
             public string VerdictLabel
             {

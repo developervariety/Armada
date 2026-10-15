@@ -152,6 +152,7 @@ captain override or the persona's default captain with its fallback tier floor,
 and the tier floor a pinned model no captain runs sets. A compatible captain
 does not have to be idle for the objective to be ready; idle state is capacity.
 Operator and autonomous objective dispatch use this same preflight.
+The Jev text check can add blocking issues, but its Q4 dock-observability and Q13 owner-question findings are warnings. Deterministic preflight facts and recorded owner answers remain authoritative.
 Question 1 resolves ordinary citations at the target repository revision.
 Parent-relative citations resolve only when the objective requires that sibling
 and the target vessel declares the same sibling path; Armada checks the path at

@@ -9,6 +9,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Objective preflight keeps Jev Q4 dock-observability and Q13 owner-question findings as visible warnings in Gate mode. They do not block dispatch or create an owner note; other high text-question findings remain blocking.
+
 - SQLite coordination room creation ignores only a duplicate room key, so concurrent provisioning keeps the existing room and still reports other constraint failures.
 
 - The dashboard exposes Code Index and Notifications history pages, and routes

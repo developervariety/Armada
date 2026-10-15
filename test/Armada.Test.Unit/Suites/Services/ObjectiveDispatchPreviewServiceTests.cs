@@ -1410,7 +1410,7 @@ namespace Armada.Test.Unit.Suites.Services
                     tdSettings.Decisions[PreflightTextAdapter.DecisionPoint].GateThreshold = 0.80;
                     TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule());
                     harness.Service.PreflightAdapter = new PreflightTextAdapter(
-                        tdSettings, client, recorder, new FakeOwnerDecisionNotePoster(), new LoggingModule());
+                        tdSettings, client, recorder, new LoggingModule());
 
                     ObjectiveDispatchPreview after = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
 

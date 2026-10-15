@@ -247,7 +247,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }),
                 new StandaloneSender(PreflightTextAdapter.DecisionPoint, "dispatch_preview", true, async (db, settings, client, vesselId, body) =>
                 {
-                    PreflightTextAdapter adapter = new PreflightTextAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()), new FakeOwnerDecisionNotePoster(), Quiet());
+                    PreflightTextAdapter adapter = new PreflightTextAdapter(settings, client, new TypedDecisionRecorder(db, Quiet()), Quiet());
                     await adapter.EvaluateAsync(new Objective { Id = "obj_egress", Title = "Port the decoder", Description = body, VesselIds = new List<string> { vesselId } },
                         VesselOf(vesselId), null, new ObjectiveDispatchPreview { VesselId = vesselId }, CancellationToken.None).ConfigureAwait(false);
                 }),
@@ -461,7 +461,7 @@ namespace Armada.Test.Unit.Suites.Services
                         FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Unavailable("http_429"));
                         if (seam == "preflight")
                         {
-                            PreflightTextAdapter adapter = new PreflightTextAdapter(StandaloneSettings(), client, new TypedDecisionRecorder(db.Driver, Quiet()), new FakeOwnerDecisionNotePoster(), Quiet());
+                            PreflightTextAdapter adapter = new PreflightTextAdapter(StandaloneSettings(), client, new TypedDecisionRecorder(db.Driver, Quiet()), Quiet());
                             await adapter.EvaluateAsync(objective, VesselOf(AllowedVessel), null, new ObjectiveDispatchPreview { VesselId = AllowedVessel }, CancellationToken.None).ConfigureAwait(false);
                         }
                         else
