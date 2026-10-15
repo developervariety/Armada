@@ -564,7 +564,7 @@ namespace Armada.Server
                                 _Logging.Info(_Header + "mission " + mission.Id + " merge-queue enqueue is a no-op already integrated case: " + noOpDecision.Reason);
                                 try
                                 {
-                                    ArmadaEvent noOpEvent = new ArmadaEvent("mission.noop_already_integrated", noOpDecision.Reason);
+                                    ArmadaEvent noOpEvent = new ArmadaEvent("mission.noop_already_integrated", "no-op integration: work already at target");
                                     Armada.Core.Services.EventOwnerScope.ApplyFromMission(noOpEvent, mission);
                                     noOpEvent.EntityType = "mission";
                                     noOpEvent.EntityId = mission.Id;
