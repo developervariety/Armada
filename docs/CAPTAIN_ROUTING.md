@@ -47,6 +47,10 @@ If launching the chosen captain fails (for example its CLI is not installed on t
 
 A captain that exits because its model endpoint failed transiently (HTTP 500, 502, 503, or 504, a dropped connection, a timeout) or because a mux run reached its iteration or token budget is relaunched in the same dock, with its edits so far intact and a note in its instructions to inspect `git status` and `git diff` and continue, up to `maxRecoveryAttempts` times. The voyage keeps running; only when the attempts are used up does the mission fail. Iteration and budget stops do not count toward the captain's crash-loop quarantine.
 
+## Checks and escalation for local models
+
+A Mux or API-endpoint captain that finishes a work stage (any persona except Product Manager, Architect, Judge, and Recorder) is checked before the stage moves on: the vessel's workflow-profile `BuildCommand` and `UnitTestCommand` run in the dock (on its Harbor), with a 15-minute limit. A failure resumes the captain with the command output. When a local-model stage still cannot finish after its resumes, its work is committed on the branch and the mission is handed, with a note, to the captain that ran the voyage's Architect (else Product Manager) stage, once. Only after that does the mission fail.
+
 ## Explicit overrides and legacy defaults
 
 An explicit mission RequestedCaptainId takes precedence, followed by the voyage's exact per-persona captain assignment, then its wildcard (`*`) assignment. Those choices retain legacy behavior: an available requested captain bypasses AllowedPersonas and tier checks; a busy or deleted one falls back through ordinary persona/tier routing. Ownership and quarantine checks still apply. These explicit overrides bypass the hierarchy.

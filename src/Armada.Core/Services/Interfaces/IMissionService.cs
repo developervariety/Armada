@@ -114,6 +114,30 @@ namespace Armada.Core.Services.Interfaces
         Task RegenerateInstructionsAsync(Mission mission, Captain captain, Dock dock, CancellationToken token = default);
 
         /// <summary>
+        /// Commit whatever a captain left uncommitted in a mission's dock (on the dock's Harbor for a Harbor-hosted dock),
+        /// so the work survives when the dock is reclaimed. Judge and Architect docks are left alone.
+        /// </summary>
+        /// <param name="mission">Mission.</param>
+        /// <param name="captain">Captain whose work it is.</param>
+        /// <param name="dock">The mission's dock.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Task.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when an argument is null.</exception>
+        Task CommitDockWorkAsync(Mission mission, Captain captain, Dock dock, CancellationToken token = default);
+
+        /// <summary>
+        /// Check the work a local-model captain (Mux, API endpoint) produced in a work stage before it moves on: run the
+        /// vessel's workflow-profile build and unit-test commands in the mission's dock. Frontier runtimes, planning and
+        /// review personas, and vessels without those commands are not checked.
+        /// </summary>
+        /// <param name="mission">Mission.</param>
+        /// <param name="captain">Captain that just finished it.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A description of the failure with the command output, or null when the check passed or did not apply.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when mission or captain is null.</exception>
+        Task<string?> VerifyStageWorkAsync(Mission mission, Captain captain, CancellationToken token = default);
+
+        /// <summary>
         /// Deny a mission that is waiting at a review gate.
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>

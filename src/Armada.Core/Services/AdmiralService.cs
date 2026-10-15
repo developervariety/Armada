@@ -891,6 +891,26 @@ namespace Armada.Core.Services
 
             if (exitCode == 0)
             {
+                // A local model that says it is done is checked first: when the vessel's build or unit tests fail in
+                // the dock, the captain is resumed with the output (or the stage escalated to the voyage's planner)
+                // instead of handing broken code to the next stage.
+                if (mission != null)
+                {
+                    string? checkFailure = await _Missions.VerifyStageWorkAsync(mission, captain, token).ConfigureAwait(false);
+                    if (checkFailure != null)
+                    {
+                        if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts && await TryResumeInPlaceAsync(captain, mission, checkFailure, token).ConfigureAwait(false))
+                            return;
+                        if (await TryEscalateToPlannerAsync(captain, mission, checkFailure, token).ConfigureAwait(false))
+                        {
+                            await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+                            return;
+                        }
+
+                        _Logging.Warn(_Header + "mission " + missionId + " still fails its stage check with no resumes or escalation left; handing it on for review");
+                    }
+                }
+
                 // Clean exit — delegate to the normal completion flow
                 _Logging.Info(_Header + "agent process " + processId + " exited cleanly for mission " + missionId + " — handling completion");
                 await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
@@ -928,6 +948,16 @@ namespace Armada.Core.Services
                     && captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts
                     && await TryResumeInPlaceAsync(captain, mission, failureReason, token).ConfigureAwait(false))
                 {
+                    return;
+                }
+
+                // The resumes are used up and the captain still cannot finish (often a local model): hand one last
+                // attempt, on the same branch with the work so far, to the frontier captain that planned the voyage.
+                if ((exitInfo.FailureKind == RuntimeFailureKindEnum.Transient || exitInfo.FailureKind == RuntimeFailureKindEnum.TaskFailure)
+                    && mission != null
+                    && await TryEscalateToPlannerAsync(captain, mission, failureReason, token).ConfigureAwait(false))
+                {
+                    await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
                     return;
                 }
 
@@ -1894,7 +1924,9 @@ namespace Armada.Core.Services
 
             int attempt = captain.RecoveryAttempts + 1;
             string note = "\n\n## Earlier attempt " + attempt + " stopped\n" + failureReason.Trim()
-                + "\nYour work so far is still in the working tree. Run git status and git diff to see it, keep what is right, and continue the mission from there. Do not start over.";
+                + "\nYour work so far is still in the working tree. Run git status and git diff to see it, keep what is right, and continue the mission from there. Do not start over."
+                + " Every line in git diff was written by you during this mission: you may change or remove it, even where the instructions say not to change existing lines (that means lines that were there before the mission started)."
+                + " Write files with plain content only, never with the line numbers that read_file shows.";
             mission.Description = (mission.Description ?? String.Empty) + note;
             mission.ProcessId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
@@ -1917,6 +1949,64 @@ namespace Armada.Core.Services
             await _Captains.TryRecoverAsync(captain, token).ConfigureAwait(false);
             Mission? after = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
             return after != null && after.Status != MissionStatusEnum.Failed;
+        }
+
+        private const string _EscalatedHeading = "## Escalated to ";
+
+        private async Task<bool> TryEscalateToPlannerAsync(Captain captain, Mission mission, string failureReason, CancellationToken token)
+        {
+            // Planning and review stages are not escalated; only stages that do the work.
+            if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Architect)
+                || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.ProductManager) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Recorder))
+                return false;
+            if (String.IsNullOrEmpty(mission.VoyageId) || (mission.Description ?? String.Empty).Contains(_EscalatedHeading, StringComparison.Ordinal)) return false;
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId!, token).ConfigureAwait(false);
+            Mission? planner = voyageMissions.FirstOrDefault(m => PersonaCatalog.Matches(m.Persona, PersonaCatalog.Architect) && !String.IsNullOrEmpty(m.CaptainId) && m.CaptainId != captain.Id)
+                ?? voyageMissions.FirstOrDefault(m => PersonaCatalog.Matches(m.Persona, PersonaCatalog.ProductManager) && !String.IsNullOrEmpty(m.CaptainId) && m.CaptainId != captain.Id);
+            if (planner == null) return false;
+            Captain? plannerCaptain = await _Database.Captains.ReadAsync(planner.CaptainId!, token).ConfigureAwait(false);
+            if (plannerCaptain == null) return false;
+
+            // Keep the work so far on the branch before the dock goes.
+            Dock? dock = String.IsNullOrEmpty(mission.DockId) ? null : await _Database.Docks.ReadAsync(mission.DockId!, token).ConfigureAwait(false);
+            if (dock != null)
+            {
+                try
+                {
+                    await _Missions.CommitDockWorkAsync(mission, captain, dock, token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is IOException || ex is TimeoutException)
+                {
+                    _Logging.Warn(_Header + "could not commit mission " + mission.Id + "'s work before escalating: " + ex.Message);
+                }
+            }
+
+            MissionStatusEnum observedStatus = mission.Status;
+            await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+
+            mission.Description = (mission.Description ?? String.Empty) + "\n\n" + _EscalatedHeading + plannerCaptain.Name + "\n"
+                + captain.Name + " could not finish this mission (" + failureReason.Trim() + "). Its work so far is committed on this branch and may not build yet. "
+                + "Review it with git log and git diff against the base branch, fix what is wrong, and finish the mission.";
+            mission.RequestedCaptainId = plannerCaptain.Id;
+            mission.Status = MissionStatusEnum.Pending;
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.FailureReason = null;
+            mission.FailureKind = null;
+            mission.StartedUtc = null;
+            mission.CompletedUtc = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, new MissionStatusEnum[] { observedStatus }, token).ConfigureAwait(false))
+                return false;
+
+            _Logging.Warn(_Header + "mission " + mission.Id + ": " + captain.Name + " could not finish after its resumes (" + failureReason + "); escalating to " + plannerCaptain.Name);
+            await EmitEventAsync("mission.escalated", "Mission escalated to " + plannerCaptain.Name + " after " + captain.Name + " could not finish: " + mission.Title,
+                entityType: "mission", entityId: mission.Id, captainId: plannerCaptain.Id, missionId: mission.Id,
+                vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+            return true;
         }
 
         private async Task HandleInterruptedProcessExitAsync(

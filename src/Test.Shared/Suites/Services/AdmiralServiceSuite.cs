@@ -472,6 +472,107 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("stage_check_resumes_local_model_on_failing_build", "A Mux stage that exits 0 but leaves the vessel's build failing is resumed with the build output; a passing build or a frontier captain proceeds", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxRecoveryAttempts = 2;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    LoggingModule logging = CreateLogging();
+                    IDockService dockService = new DockService(logging, db, settings, git);
+                    CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
+                    int relaunches = 0;
+                    captainService.OnLaunchAgent = (_, _, _) => { relaunches++; return Task.FromResult(8000 + relaunches); };
+                    MissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
+                    AdmiralService service = new AdmiralService(logging, db, settings, captainService, missionService, new VoyageService(logging, db), dockService);
+
+                    Vessel vessel = await db.Vessels.CreateAsync(new Vessel("check-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    WorkflowProfile profile = new WorkflowProfile { Name = "check", Scope = WorkflowProfileScopeEnum.Vessel, VesselId = vessel.Id, IsDefault = true, Active = true, BuildCommand = "echo 'error CS1513: } expected' && exit 3" };
+                    await db.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("check") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+
+                    async Task<Mission> RunningAsync(Captain captain)
+                    {
+                        Dock dock = new Dock(vessel.Id);
+                        dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_check_dock_" + Guid.NewGuid().ToString("N"));
+                        Directory.CreateDirectory(dock.WorktreePath);
+                        dock.Active = true;
+                        dock = await db.Docks.CreateAsync(dock).ConfigureAwait(false);
+                        Mission m = await db.Missions.CreateAsync(new Mission("Worker on a local model", "Do it.") { VoyageId = voyage.Id, VesselId = vessel.Id, Persona = "Worker", Status = MissionStatusEnum.InProgress, ProcessId = 4242, DockId = dock.Id }).ConfigureAwait(false);
+                        captain.State = CaptainStateEnum.Working;
+                        captain.CurrentMissionId = m.Id;
+                        captain.CurrentDockId = dock.Id;
+                        captain.ProcessId = 4242;
+                        await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        return m;
+                    }
+
+                    Captain mux = new Captain("mux", AgentRuntimeEnum.Mux);
+                    Mission mission = await RunningAsync(mux).ConfigureAwait(false);
+                    await service.HandleProcessExitAsync(4242, 0, mux.Id, mission.Id).ConfigureAwait(false);
+                    Mission? resumed = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.InProgress, resumed!.Status, "a failing build resumes the local model");
+                    AssertEqual(1, relaunches);
+                    AssertContains("stage check failed", resumed.Description ?? "");
+                    AssertContains("CS1513", resumed.Description ?? "", "the build output reaches the model");
+
+                    // A frontier captain is not checked: it proceeds to completion.
+                    Captain claude = new Captain("claude", AgentRuntimeEnum.ClaudeCode);
+                    Mission frontier = await RunningAsync(claude).ConfigureAwait(false);
+                    await service.HandleProcessExitAsync(4242, 0, claude.Id, frontier.Id).ConfigureAwait(false);
+                    Mission? done = await db.Missions.ReadAsync(frontier.Id).ConfigureAwait(false);
+                    AssertNotEqual(MissionStatusEnum.InProgress, done!.Status, "a frontier captain's clean exit is not re-run");
+                    AssertEqual(1, relaunches);
+
+                    // A passing build lets the local model's stage proceed.
+                    profile.BuildCommand = "true";
+                    await db.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                    Captain mux2 = new Captain("mux2", AgentRuntimeEnum.Mux);
+                    Mission passing = await RunningAsync(mux2).ConfigureAwait(false);
+                    await service.HandleProcessExitAsync(4242, 0, mux2.Id, passing.Id).ConfigureAwait(false);
+                    Mission? passed = await db.Missions.ReadAsync(passing.Id).ConfigureAwait(false);
+                    AssertNotEqual(MissionStatusEnum.InProgress, passed!.Status, "a passing check proceeds");
+                    AssertEqual(1, relaunches);
+                }
+            }));
+
+            cases.Add(CaseAsync("stuck_local_worker_escalates_to_planner", "A Mux Worker that keeps failing after its resumes is handed, on the same branch, to the captain that planned the voyage", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxRecoveryAttempts = 1;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Vessel vessel = await db.Vessels.CreateAsync(new Vessel("esc-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("esc") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    Captain claude = await db.Captains.CreateAsync(new Captain("claude", AgentRuntimeEnum.ClaudeCode) { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+                    await db.Missions.CreateAsync(new Mission("Plan [Architect]", "plan") { VoyageId = voyage.Id, VesselId = vessel.Id, Persona = "Architect", Status = MissionStatusEnum.WorkProduced, CaptainId = claude.Id }).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id) { WorktreePath = Path.Combine(Path.GetTempPath(), "armada_esc_dock_" + Guid.NewGuid().ToString("N")), Active = true };
+                    Directory.CreateDirectory(dock.WorktreePath);
+                    dock = await db.Docks.CreateAsync(dock).ConfigureAwait(false);
+                    Mission worker = await db.Missions.CreateAsync(new Mission("Build it [Worker]", "Do it.") { VoyageId = voyage.Id, VesselId = vessel.Id, Persona = "Worker", Status = MissionStatusEnum.InProgress, ProcessId = 4242, DockId = dock.Id, BranchName = "armada/mux/w" }).ConfigureAwait(false);
+                    Captain mux = await db.Captains.CreateAsync(new Captain("mux", AgentRuntimeEnum.Mux) { State = CaptainStateEnum.Working, CurrentMissionId = worker.Id, CurrentDockId = dock.Id, ProcessId = 4242, RecoveryAttempts = 1 }).ConfigureAwait(false);
+
+                    RuntimeProviderError endpoint500 = new RuntimeProviderError { HttpStatusCode = 500, ErrorType = "llm_error", Reason = "the model endpoint rejected the request" };
+                    await service.HandleProcessExitAsync(4242, RuntimeFailureClassifier.Decide(1, endpoint500), mux.Id, worker.Id).ConfigureAwait(false);
+
+                    Mission? escalated = await db.Missions.ReadAsync(worker.Id).ConfigureAwait(false);
+                    AssertNotEqual(MissionStatusEnum.Failed, escalated!.Status, "the stuck Worker is not failed");
+                    AssertEqual(claude.Id, escalated.RequestedCaptainId, "the planner's captain takes it over");
+                    AssertEqual("armada/mux/w", escalated.BranchName, "on the same branch");
+                    AssertContains("## Escalated to claude", escalated.Description ?? "");
+                    try { Directory.Delete(dock.WorktreePath, true); } catch { }
+                }
+            }));
+
             cases.Add(Case("runtime_failure_classifier_transient_and_task_failures", "Endpoint 5xx and connection errors are Transient; iteration and budget stops are TaskFailure", TestTags.Positive, () =>
             {
                 AssertEqual(RuntimeFailureKindEnum.Transient, RuntimeFailureClassifier.Classify(1, new RuntimeProviderError { HttpStatusCode = 500, ErrorType = "llm_error" }));

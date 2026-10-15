@@ -4804,6 +4804,87 @@ namespace Armada.Core.Services
             return String.IsNullOrWhiteSpace(mission.Persona) ? PersonaCatalog.Worker : mission.Persona!.Trim();
         }
 
+        /// <inheritdoc />
+        public async Task<string?> VerifyStageWorkAsync(Mission mission, Captain captain, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (captain.Runtime != AgentRuntimeEnum.Mux && captain.Runtime != AgentRuntimeEnum.ApiEndpoint) return null;
+            if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Architect)
+                || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.ProductManager) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Recorder))
+                return null;
+            if (String.IsNullOrEmpty(mission.DockId) || String.IsNullOrEmpty(mission.VesselId)) return null;
+
+            try
+            {
+                Dock? dock = await _Database.Docks.ReadAsync(mission.DockId!, token).ConfigureAwait(false);
+                Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
+                if (dock == null || vessel == null || String.IsNullOrEmpty(dock.WorktreePath)) return null;
+
+                AuthContext system = new AuthContext { IsAuthenticated = true, IsAdmin = true, TenantId = vessel.TenantId };
+                WorkflowProfile? profile = await new WorkflowProfileService(_Database, _Logging).ResolveForVesselAsync(system, vessel, null, token).ConfigureAwait(false);
+                if (profile == null) return null;
+                List<string> commands = new List<string>();
+                if (!String.IsNullOrWhiteSpace(profile.BuildCommand)) commands.Add(profile.BuildCommand!.Trim());
+                if (!String.IsNullOrWhiteSpace(profile.UnitTestCommand)) commands.Add(profile.UnitTestCommand!.Trim());
+                if (commands.Count == 0) return null;
+
+                DockHost? harborHost = HarborHostFor(dock);
+                IHostCommandExecutor executor = harborHost != null ? harborHost.Commands : _LocalCommands;
+                bool windows = OperatingSystem.IsWindows();
+                if (harborHost != null && !String.IsNullOrEmpty(dock.HarborId))
+                {
+                    Harbor? harbor = await _Database.Harbors.ReadAsync(dock.HarborId!, token).ConfigureAwait(false);
+                    windows = FleetActionShellCommandBuilder.IsWindowsPlatform(harbor?.OsPlatform);
+                }
+
+                foreach (string command in commands)
+                {
+                    HostCommandResult result = await executor.RunAsync(new HostCommandRequest
+                    {
+                        Executable = windows ? "cmd.exe" : "/bin/sh",
+                        WorkingDirectory = dock.WorktreePath!,
+                        Arguments = windows ? new List<string> { "/c", command } : new List<string> { "-lc", command },
+                        TimeoutMs = (int)_StageVerificationTimeout.TotalMilliseconds,
+                        Kind = HostCommandKindEnum.CheckRun,
+                        Label = "Stage check: " + command
+                    }, token).ConfigureAwait(false);
+                    if (result.TimedOut)
+                    {
+                        _Logging.Warn(_Header + "stage check for mission " + mission.Id + " timed out running " + command + "; not blocking the stage");
+                        return null;
+                    }
+
+                    if (result.ExitCode != 0)
+                    {
+                        string output = ((result.StandardOutput ?? "") + "\n" + (result.StandardError ?? "")).Trim();
+                        if (output.Length > 3000) output = "...\n" + output.Substring(output.Length - 3000);
+                        _Logging.Warn(_Header + "stage check for mission " + mission.Id + " failed: " + command + " exited " + result.ExitCode);
+                        return "The stage check failed: `" + command + "` exited with code " + result.ExitCode + " in the working tree. Its output:\n```\n" + output + "\n```\nFix the cause, run the command again until it succeeds, and commit.";
+                    }
+                }
+
+                _Logging.Info(_Header + "stage check for mission " + mission.Id + " passed (" + String.Join("; ", commands) + ")");
+                return null;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is IOException || ex is TimeoutException)
+            {
+                _Logging.Warn(_Header + "stage check for mission " + mission.Id + " could not run: " + ex.Message);
+                return null;
+            }
+        }
+
+        private static readonly TimeSpan _StageVerificationTimeout = TimeSpan.FromMinutes(15);
+
+        /// <inheritdoc />
+        public Task CommitDockWorkAsync(Mission mission, Captain captain, Dock dock, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (dock == null) throw new ArgumentNullException(nameof(dock));
+            return CommitLeftoverWorkAsync(mission, captain, dock, token);
+        }
+
         private async Task CommitLeftoverWorkAsync(Mission mission, Captain captain, Dock dock, CancellationToken token)
         {
             // A judge reports through its verdict and an architect through its plan: neither should change the branch.
