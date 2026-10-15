@@ -14,6 +14,7 @@ import {
   listWorkflowProfiles,
 } from '../api/client';
 import MuxRuntimeFields from './captains/MuxRuntimeFields';
+import { captainModelPlaceholder, captainModelTooltip } from '../lib/captainForm';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, type MuxCaptainFormFields } from '../lib/mux';
 import { SETUP_LANDING_MODES, setupLandingModeHint, setupLandingWorkingDirectoryError } from '../lib/setupLanding';
 import { idShort, normalizeMissionResponse, relevantWorkflowProfiles, SETTLED_MISSION_STATUSES, SETUP_STEPS, SETUP_TOOLTIPS, upsertById } from '../lib/setupWizard';
@@ -891,12 +892,12 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
             </div>
           </div>
           <div className="form-group">
-            <label title={t(tooltips.model)}>{t('Model')}</label>
-            <input aria-label={t(tooltips.model)}
-              title={t(tooltips.model)}
+            <label title={t(captainModelTooltip(captainForm.runtime))}>{t('Model')}</label>
+            <input aria-label={t('Model')}
+              title={t(captainModelTooltip(captainForm.runtime))}
               value={captainForm.model}
               onChange={(event) => setCaptainForm({ ...captainForm, model: event.target.value })}
-              placeholder={t('Optional runtime-specific model override')}
+              placeholder={t(captainModelPlaceholder(captainForm.runtime))}
             />
           </div>
           <div className="form-group">

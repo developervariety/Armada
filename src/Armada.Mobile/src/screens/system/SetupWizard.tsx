@@ -35,6 +35,7 @@ import { ALL } from '../../resource/lookups';
 import { errorText } from '../../resource/useLoad';
 import { useTheme } from '../../theme/ThemeContext';
 import { radius, spacing } from '../../theme/typography';
+import { captainModelPlaceholder, captainModelTooltip } from '@dashboard/lib/captainForm';
 
 type ResourceMode = 'existing' | 'new';
 type ResultKind = 'success' | 'error' | 'info';
@@ -426,7 +427,7 @@ export function SetupWizard() {
           <>
             <TextField label={t('Captain Name')} hint={tip('captainName')} value={captainForm.name} onChangeText={(name) => setCaptainForm({ ...captainForm, name })} testID="setup-captain-name" />
             <SelectField label={t('Runtime')} hint={tip('runtime')} value={captainForm.runtime} options={RUNTIMES} placeholder={t('Select runtime...')} onChange={(runtime) => setCaptainForm({ ...captainForm, runtime })} closeLabel={t('Close')} testID="setup-captain-runtime" />
-            <TextField label={t('Model')} hint={tip('model')} value={captainForm.model} onChangeText={(model) => setCaptainForm({ ...captainForm, model })} placeholder={t('Optional runtime-specific model override')} autoCapitalize="none" />
+            <TextField label={t('Model')} hint={t(captainModelTooltip(captainForm.runtime))} value={captainForm.model} onChangeText={(model) => setCaptainForm({ ...captainForm, model })} placeholder={t(captainModelPlaceholder(captainForm.runtime))} autoCapitalize="none" />
             <SelectField
               label={t('Capability Tier')}
               hint={t('Capability tier for routing. Cheaper tiers handle routine work; stronger tiers handle complex work and serve as fallback when a preferred captain is busy.')}
@@ -439,7 +440,7 @@ export function SetupWizard() {
             {muxRuntime ? (
               <>
                 <TextField label={t('Mux Config Directory')} hint={t('Optional mux config directory override. Leave blank to use mux defaults.')} value={captainForm.muxConfigDirectory} onChangeText={(muxConfigDirectory) => setCaptainForm({ ...captainForm, muxConfigDirectory })} placeholder={t('Optional path, e.g. C:\\Users\\you\\.mux')} autoCapitalize="none" />
-                <TextField label={t('Mux Endpoint')} hint={muxHint || t('Named mux endpoint to validate and launch for this captain.')} value={captainForm.muxEndpoint} onChangeText={(muxEndpoint) => setCaptainForm({ ...captainForm, muxEndpoint })} placeholder={t('Required endpoint name')} autoCapitalize="none" testID="setup-captain-mux-endpoint" />
+                <TextField label={t('Mux Endpoint')} hint={muxHint || t('Name of a saved mux endpoint (as listed by mux endpoint list), passed to mux as --endpoint. The endpoint name goes here, not in Model; Model only overrides the model this endpoint serves.')} value={captainForm.muxEndpoint} onChangeText={(muxEndpoint) => setCaptainForm({ ...captainForm, muxEndpoint })} placeholder={t('Required endpoint name')} autoCapitalize="none" testID="setup-captain-mux-endpoint" />
                 {muxEndpoints.length > 0 ? (
                   <SelectField label={t('Mux Endpoint')} value={captainForm.muxEndpoint} options={muxEndpoints.map((e) => ({ value: e.name, label: e.name, description: `${e.adapterType} ${e.model}` }))} onChange={(muxEndpoint) => setCaptainForm({ ...captainForm, muxEndpoint })} closeLabel={t('Close')} />
                 ) : null}

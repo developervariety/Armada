@@ -9,6 +9,8 @@ import {
   captainFormError,
   captainFormErrorMessage,
   captainFormFromCaptain,
+  captainModelPlaceholder,
+  captainModelTooltip,
   cliPolicyChanged,
   emptyCaptainForm,
   REASONING_EFFORTS,
@@ -115,8 +117,8 @@ export function CaptainFormSheet({ open, captain, onClose, onSaved }: CaptainFor
         label={t('Model')}
         value={form.model}
         onChangeText={(v) => patch({ model: v })}
-        placeholder={form.runtime === 'ApiEndpoint' ? t('Optional; overrides the endpoint model') : t('e.g., gpt-5.4-mini')}
-        hint={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}
+        placeholder={t(captainModelPlaceholder(form.runtime))}
+        hint={t(captainModelTooltip(form.runtime))}
         autoCapitalize="none"
         autoCorrect={false}
         testID="captain-form-model"

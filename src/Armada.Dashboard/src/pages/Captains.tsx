@@ -23,7 +23,7 @@ import CliPermissionPolicySelect from '../components/cliPermissions/CliPermissio
 import { canCaptainStartPlanning } from '../lib/captains';
 import { isMuxRuntime } from '../lib/mux';
 import { supportsAutoApproveSwitch } from '../lib/captainApproval';
-import { buildCaptainCreatePayload, buildCaptainPayload, captainFormError, captainFormErrorMessage, captainFormFromCaptain, cliPolicyChanged, emptyCaptainForm, type CaptainFormState } from '../lib/captainForm';
+import { buildCaptainCreatePayload, buildCaptainPayload, captainFormError, captainFormErrorMessage, captainFormFromCaptain, captainModelPlaceholder, captainModelTooltip, cliPolicyChanged, emptyCaptainForm, type CaptainFormState } from '../lib/captainForm';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
 type SortDir = 'asc' | 'desc';
@@ -461,9 +461,9 @@ export default function Captains() {
                   <option value="ApiEndpoint">API Endpoint</option>
                 </select>
               </label>
-              <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
+              <label title={t(captainModelTooltip(form.runtime))}>
                 {t('Model')}
-                <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={form.runtime === 'ApiEndpoint' ? t('Optional; overrides the endpoint model') : t('e.g., gpt-5.4-mini')} />
+                <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} title={t(captainModelTooltip(form.runtime))} aria-label={t('Model')} placeholder={t(captainModelPlaceholder(form.runtime))} />
               </label>
             </div>
             {form.runtime === 'ApiEndpoint' && (

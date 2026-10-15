@@ -33,6 +33,27 @@ export const CAPTAIN_RUNTIMES: { value: string; label: string }[] = [
   { value: 'ApiEndpoint', label: 'API Endpoint' },
 ];
 
+/** English tooltip for the captain Model field (translate with t()); what the value means depends on the runtime. */
+export const CAPTAIN_MODEL_TOOLTIP = 'Optional AI model identifier. Leave blank to let the runtime choose its default model.';
+/** Mux: the model is a --model override, not the endpoint name (that is the Mux Endpoint field). */
+export const CAPTAIN_MODEL_TOOLTIP_MUX = 'Optional model name passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). This is not the mux endpoint name: choose the endpoint in the Mux Endpoint field. Leave blank to use the endpoint\'s own model.';
+/** API endpoint captains: the model overrides the one configured on the selected inference endpoint. */
+export const CAPTAIN_MODEL_TOOLTIP_API_ENDPOINT = 'Optional model name that overrides the model configured on the selected inference endpoint. Choose the endpoint itself in the Inference Endpoint field. Leave blank to use the endpoint\'s model.';
+
+/** English tooltip for the Model field for a runtime. */
+export function captainModelTooltip(runtime: string | null | undefined): string {
+  if (isMuxRuntime(runtime)) return CAPTAIN_MODEL_TOOLTIP_MUX;
+  if (runtime === 'ApiEndpoint') return CAPTAIN_MODEL_TOOLTIP_API_ENDPOINT;
+  return CAPTAIN_MODEL_TOOLTIP;
+}
+
+/** English placeholder for the Model field for a runtime. */
+export function captainModelPlaceholder(runtime: string | null | undefined): string {
+  if (isMuxRuntime(runtime)) return 'Optional; overrides the mux endpoint model';
+  if (runtime === 'ApiEndpoint') return 'Optional; overrides the endpoint model';
+  return 'e.g., gpt-5.4-mini';
+}
+
 export const REASONING_EFFORTS = ['Off', 'Minimal', 'Low', 'Medium', 'High'];
 export const CAPTAIN_TIERS = ['Economy', 'Standard', 'Premium'];
 

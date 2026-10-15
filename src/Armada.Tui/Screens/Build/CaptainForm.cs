@@ -238,6 +238,8 @@ namespace Armada.Tui.Screens.Build
 
             FormRow endpointRow = dialog.Form.Rows.First(r => ReferenceEquals(r.Field, endpoint));
             FormRow muxRow = dialog.Form.Rows.First(r => ReferenceEquals(r.Field, muxRefresh));
+            FormRow modelRow = dialog.Form.Rows.First(r => ReferenceEquals(r.Field, model));
+            FormRow muxEndpointRow = dialog.Form.Rows.First(r => ReferenceEquals(r.Field, muxEndpoint));
             string muxHint = "";
             bool muxLoading = false;
 
@@ -246,7 +248,12 @@ namespace Armada.Tui.Screens.Build
                 AgentRuntimeEnum? r = runtime.Value;
                 bool isMux = r == AgentRuntimeEnum.Mux;
                 bool isApi = r == AgentRuntimeEnum.ApiEndpoint;
-                model.Placeholder = isApi ? "Optional; overrides the endpoint model" : "e.g., gpt-5.4-mini";
+                model.Placeholder = isMux ? "Optional; overrides the mux endpoint model" : isApi ? "Optional; overrides the endpoint model" : "e.g., gpt-5.4-mini";
+                // Mux and API endpoint captains name their endpoint in a separate field; Model only overrides its model.
+                modelRow.Hint = isMux
+                    ? "Optional model name passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). This is not the mux endpoint name: choose the endpoint in the Mux Endpoint field. Leave blank to use the endpoint's own model."
+                    : isApi ? "Optional model name that overrides the model configured on the selected inference endpoint. Choose the endpoint itself in the Inference Endpoint field. Leave blank to use the endpoint's model." : null;
+                muxEndpointRow.Hint = isMux ? "Name of a saved mux endpoint (as listed by mux endpoint list), passed to mux as --endpoint. The endpoint name goes here, not in Model; Model only overrides the model this endpoint serves." : null;
                 endpoint.Visible = isApi;
                 endpointRow.Hint = isApi && inference.Count == 0 ? "No inference endpoints configured. Add one under Configuration > Endpoints first." : null;
                 autoApprove.Visible = SupportsAutoApprove(r);

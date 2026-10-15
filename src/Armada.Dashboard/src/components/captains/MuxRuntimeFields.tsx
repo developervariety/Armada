@@ -3,6 +3,9 @@ import { listMuxEndpoints } from '../../api/client';
 import { isMuxRuntime, type MuxCaptainFormFields } from '../../lib/mux';
 import type { MuxEndpointInfo } from '../../types/models';
 
+/** English tooltip for the Mux Endpoint field: this, not Model, is where the endpoint name goes. */
+const MUX_ENDPOINT_TOOLTIP = 'Name of a saved mux endpoint (as listed by mux endpoint list), passed to mux as --endpoint. The endpoint name goes here, not in Model; Model only overrides the model this endpoint serves.';
+
 interface MuxRuntimeFieldsProps {
   runtime: string;
   form: MuxCaptainFormFields;
@@ -68,8 +71,9 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
           />
         </div>
         <div className="form-group">
-          <label title={t('Named mux endpoint to validate and launch for this captain.')}>{t('Mux Endpoint')}</label>
+          <label title={t(MUX_ENDPOINT_TOOLTIP)}>{t('Mux Endpoint')}</label>
           <input aria-label={t('Mux Endpoint')}
+            title={t(MUX_ENDPOINT_TOOLTIP)}
             list="mux-endpoint-options"
             value={form.muxEndpoint}
             onChange={(event) => onChange({ muxEndpoint: event.target.value })}

@@ -33,7 +33,7 @@ import CliPermissionPolicySelect from '../components/cliPermissions/CliPermissio
 import { policyLabel } from '../lib/cliPermissions';
 import { EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, parseMuxCaptainOptions, type MuxCaptainFormFields } from '../lib/mux';
 import { supportsAutoApproveSwitch } from '../lib/captainApproval';
-import { buildCaptainPayload, captainDetailActions, captainFormError, captainFormErrorMessage, captainFormFromCaptain, cliPolicyChanged } from '../lib/captainForm';
+import { buildCaptainPayload, captainDetailActions, captainFormError, captainFormErrorMessage, captainFormFromCaptain, captainModelPlaceholder, captainModelTooltip, cliPolicyChanged } from '../lib/captainForm';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
 const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'Custom'];
@@ -319,9 +319,9 @@ export default function CaptainDetail() {
               {t('System Instructions')}
               <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder={t('e.g., You are a testing specialist. Always run tests before committing...')} />
             </label>
-            <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
+            <label title={t(captainModelTooltip(form.runtime))}>
               {t('Model')}
-              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
+              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} title={t(captainModelTooltip(form.runtime))} aria-label={t('Model')} placeholder={t(captainModelPlaceholder(form.runtime))} />
             </label>
             <label>
               {t('Reasoning effort')}
