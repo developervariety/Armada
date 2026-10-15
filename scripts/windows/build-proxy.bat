@@ -15,7 +15,7 @@ if "%TAG%"=="" (
     echo Building %IMAGE%:latest
     docker buildx build ^
         --builder cloud-jchristn77-jchristn77 ^
-        --platform linux/amd64 ^
+        --platform linux/amd64,linux/arm64/v8 ^
         -f src/Armada.Proxy/Dockerfile ^
         -t %IMAGE%:latest ^
         --push ^
@@ -24,7 +24,7 @@ if "%TAG%"=="" (
     echo Building %IMAGE%:latest and %IMAGE%:%TAG%
     docker buildx build ^
         --builder cloud-jchristn77-jchristn77 ^
-        --platform linux/amd64 ^
+        --platform linux/amd64,linux/arm64/v8 ^
         -f src/Armada.Proxy/Dockerfile ^
         -t %IMAGE%:latest ^
         -t %IMAGE%:%TAG% ^

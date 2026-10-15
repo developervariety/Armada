@@ -9,7 +9,7 @@ cd "$REPO_ROOT"
 if [ -z "$TAG" ]; then
     echo "Building jchristn77/armada-proxy:latest"
     docker buildx build \
-        --platform linux/amd64 \
+        --platform linux/amd64,linux/arm64/v8 \
         -f src/Armada.Proxy/Dockerfile \
         -t jchristn77/armada-proxy:latest \
         --push \
@@ -17,7 +17,7 @@ if [ -z "$TAG" ]; then
 else
     echo "Building jchristn77/armada-proxy:latest and jchristn77/armada-proxy:${TAG}"
     docker buildx build \
-        --platform linux/amd64 \
+        --platform linux/amd64,linux/arm64/v8 \
         -f src/Armada.Proxy/Dockerfile \
         -t jchristn77/armada-proxy:latest \
         -t "jchristn77/armada-proxy:${TAG}" \

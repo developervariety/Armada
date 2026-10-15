@@ -106,8 +106,8 @@ pushed with `scripts/macos/build-all.sh <tag>` (or the `linux` / `windows` equiv
 `jchristn77/armada-dashboard`, and `jchristn77/armada-proxy`; the repository-root `build-all.sh <tag>` builds the
 same three on the cloud builder (see [DOCKER.md](DOCKER.md#building-images-from-source)). Push the images before
 pushing a commit whose compose files name the new tag: the compose files pull those tags rather than building. The release workflow does not
-build or push Docker images, so run one of these for every release. The `scripts/` proxy build is `linux/amd64`
-only; use the repository-root `build-proxy.sh` for a multi-architecture proxy image.
+build or push Docker images, so run one of these for every release. The `scripts/` builds, the proxy
+included, target `linux/amd64` and `linux/arm64/v8`.
 
 On macOS, `scripts/macos/build-harbor-app.sh` builds the Harbor `.app` and `.dmg` for both architectures and checks
 the result: the image verifies, the drag-to-install layout, every required `Info.plist` key (bundle id, version,

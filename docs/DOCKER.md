@@ -328,7 +328,7 @@ Both scripts prompt for confirmation, stop containers, and delete local SQLite d
 
 ## Building Images from Source
 
-Build scripts are split by platform under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`. Shared shell implementations live under `scripts/common/`. They build with `docker buildx` (server and dashboard for `linux/amd64` and `linux/arm64/v8`; the proxy for `linux/amd64` only), push to Docker Hub, and then pull the pushed tags back into the local Docker registry so the same images are available locally. You need a `docker buildx` builder that can target those platforms and a `docker login` with push rights to `jchristn77`.
+Build scripts are split by platform under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`. Shared shell implementations live under `scripts/common/`. They build with `docker buildx` (server, dashboard, and proxy for `linux/amd64` and `linux/arm64/v8`), push to Docker Hub, and then pull the pushed tags back into the local Docker registry so the same images are available locally. You need a `docker buildx` builder that can target those platforms and a `docker login` with push rights to `jchristn77`.
 
 ### Build latest only
 
