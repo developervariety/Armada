@@ -8,7 +8,9 @@ namespace Armada.Tui.Widgets
     using TUIKit.Widgets;
 
     /// <summary>
-    /// The Armada focus router (TUIKit gap U1: TabView, SplitView, and ScrollView do not forward keys to children). A
+    /// The Armada focus router. TUIKit's own <c>FocusScope</c> (which Armada uses for <c>IsTabStop</c>) is sealed, holds
+    /// only <c>IFocusable</c> children, and records no placements, so it cannot hit-test mouse presses, act as a region
+    /// host, or re-enter a lone container stop when wrapping. A
     /// scope owns an ordered set of child widgets, routes keys to the focused child first, moves focus with
     /// <c>Tab</c>/<c>Shift+Tab</c> (bubbling to the parent scope at either end unless <see cref="Wrap"/> is set),
     /// hit-tests mouse presses against the rectangles recorded when children were placed, and keeps

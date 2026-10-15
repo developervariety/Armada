@@ -35,6 +35,14 @@ All notable changes to Armada are documented in this file.
 - Ask and Planning transcripts cache laid-out replies with TUIKit's `MarkdownLayoutCache` (through
   `ArmadaMarkdownCache`): least-recently-used eviction instead of clearing everything at a size limit, keys compared
   by full text instead of a hash, and a theme switch or ASCII toggle lays replies out again.
+- Markdown colors and ASCII glyphs come from TUIKit's `MarkdownRenderOptions.WithTheme` over the Armada palette
+  (`ThemeService.BuildTuiKitTheme`) instead of Armada's own copy of the mapping; links keep the Armada link color.
+- TUIKit widgets inside Armada screens (text fields, editors, checkboxes, panes, and others that follow the TUIKit
+  theme) now receive the Armada palette through TUIKit's theme hook before Armada's own role overrides, so their
+  placeholder, disabled, and focus colors match the palette instead of TUIKit's defaults.
+- Log viewers follow the tail with TUIKit's `TailFollow`: while a followed log is scrolled up or paused with `f`, new
+  lines are counted as "N new below" instead of moving the view, and `End` or scrolling back to the last line follows
+  again (as the Ask transcript already does).
 
 ### Synthetic activity load generator
 - Add a .NET 8/10 CLI with database/API targets and configurable density, entropy, seed and fixed history window.

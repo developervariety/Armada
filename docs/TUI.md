@@ -132,7 +132,7 @@ Every list has a heading and subtitle, a toolbar, the filter row, and the shared
 
 Detail screens show the record's title and status, a subtitle, the header buttons the dashboard shows, and the record's panels as tabs (`[` and `]`, or `Alt+1` to `Alt+9`). `.` opens the full action menu, the dashboard's More menu included. Forms open as dialogs: `Tab` moves between fields, `Enter` or `Space` opens a select, multi-line fields take `Enter` for a new line and `Ctrl+E` for `$EDITOR`, `Ctrl+S` submits, and `Esc` cancels. Validation messages appear under the field, and server errors appear above the buttons or in the error dialog with the request id.
 
-Logs open in the log viewer: `+` and `-` step through 100, 200, 500, and 1000 lines, `f` follows (refreshing every second until the mission finishes, then one last refresh), `r` toggles readable formatting, `/` searches, and `y` copies. Diffs open in the diff viewer, where `]` and `[` jump between files.
+Logs open in the log viewer: `+` and `-` step through 100, 200, 500, and 1000 lines, `f` follows (refreshing every second until the mission finishes, then one last refresh), `r` toggles readable formatting, `/` searches, and `y` copies. While a log you are following is scrolled up (or paused with `f`), new lines are counted as "N new below" instead of moving the view; `End` or scrolling back to the last line follows again. Diffs open in the diff viewer, where `]` and `[` jump between files.
 
 ### Home
 

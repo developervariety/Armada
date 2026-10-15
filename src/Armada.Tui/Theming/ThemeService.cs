@@ -167,7 +167,7 @@ namespace Armada.Tui.Theming
                 palette.Accent,
                 palette.Border,
                 palette.Muted,
-                palette.AsciiBorders,
+                palette.AsciiBorders || palette.AsciiGlyphs,
                 palette.Success,
                 palette.Warning,
                 palette.Error,

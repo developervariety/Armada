@@ -7,8 +7,11 @@ namespace Armada.Tui.Theming
     using TUIKit.Widgets;
 
     /// <summary>
-    /// Pushes an <see cref="ArmadaTheme"/> into TUIKit widget instances, whose colors are per-instance style
-    /// properties rather than theme lookups (TUIKit gap U5). Unknown widget types are left unchanged.
+    /// Pushes an <see cref="ArmadaTheme"/> into a widget. Armada widgets take the palette directly. A TUIKit widget
+    /// that follows the application theme (<see cref="TUIKit.Theming.IThemeable"/>) first gets the palette as a TUIKit
+    /// theme (<see cref="ThemeService.BuildTuiKitTheme"/>); the Armada roles TUIKit has no theme role for (input
+    /// fields, diff lines, chart colors, dialog frames) are then set on the widget's style properties. Unknown widget
+    /// types are left unchanged.
     /// Thread-safe (stateless); call on the UI loop thread because widgets are not thread-safe.
     /// </summary>
     public static class ThemeApplicator
@@ -24,13 +27,16 @@ namespace Armada.Tui.Theming
         public static void Apply(object? target, ArmadaTheme theme)
         {
             if (theme == null) throw new ArgumentNullException(nameof(theme));
+            if (target == null) return;
+            if (target is IThemeable themeable)
+            {
+                themeable.ApplyTheme(theme);
+                return;
+            }
+
+            if (target is TUIKit.Theming.IThemeable kit) kit.ApplyTheme(ThemeService.BuildTuiKitTheme(theme));
             switch (target)
             {
-                case null:
-                    return;
-                case IThemeable themeable:
-                    themeable.ApplyTheme(theme);
-                    return;
                 case TextField field:
                     field.NormalStyle = theme.Input;
                     return;

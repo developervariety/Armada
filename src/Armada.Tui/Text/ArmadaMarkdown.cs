@@ -45,7 +45,9 @@ namespace Armada.Tui.Text
         }
 
         /// <summary>
-        /// Render options for a theme: styles from its palette and the ASCII preset when it uses ASCII glyphs or borders.
+        /// Render options for a theme: TUIKit's theme-derived styles with foreground colors only (so the view's own
+        /// background, a panel, a dialog, or a cursor row, shows through), the ASCII glyphs when the theme uses ASCII
+        /// glyphs or borders, and links in the Armada link color.
         /// </summary>
         /// <param name="theme">Palette.</param>
         /// <returns>New options.</returns>
@@ -53,41 +55,9 @@ namespace Armada.Tui.Text
         public static MarkdownRenderOptions Options(ArmadaTheme theme)
         {
             if (theme == null) throw new ArgumentNullException(nameof(theme));
-            MarkdownRenderOptions options = theme.AsciiGlyphs || theme.AsciiBorders ? MarkdownRenderOptions.Ascii() : new MarkdownRenderOptions();
-            options.Styles = Styles(theme);
+            MarkdownRenderOptions options = new MarkdownRenderOptions().WithTheme(ThemeService.BuildTuiKitTheme(theme));
+            options.Styles.Link = new CellStyle(theme.Link.Foreground, Color.Default, theme.Link.Attributes).WithAttribute(CellAttributes.Underline, true);
             return options;
-        }
-
-        #endregion
-
-        #region Private-Methods
-
-        private static MarkdownStyles Styles(ArmadaTheme theme)
-        {
-            // TUIKit's MarkdownStyles.FromTheme mapping, with foreground and attributes only, so the view's own
-            // background (panel, dialog, cursor row) shows through.
-            MarkdownStyles styles = MarkdownStyles.Default;
-            styles.Text = Fg(theme.Text);
-            styles.Heading1 = Fg(theme.Accent).WithAttribute(CellAttributes.Bold, true);
-            styles.Heading = Fg(theme.Info).WithAttribute(CellAttributes.Bold, true);
-            styles.CodeBlock = Fg(theme.Success);
-            styles.InlineCode = Fg(theme.Warning);
-            styles.Bullet = Fg(theme.Accent);
-            styles.Quote = Fg(theme.Muted);
-            styles.Rule = Fg(theme.Border);
-            styles.TaskOpen = Fg(theme.Accent);
-            styles.TaskDone = Fg(theme.Success);
-            styles.Link = Fg(theme.Link).WithAttribute(CellAttributes.Underline, true);
-            styles.LinkUrl = Fg(theme.Muted);
-            styles.CodeLanguage = Fg(theme.Muted);
-            styles.TableHeader = Fg(theme.Accent).WithAttribute(CellAttributes.Bold, true);
-            styles.TableBorder = Fg(theme.Border);
-            return styles;
-        }
-
-        private static CellStyle Fg(CellStyle style)
-        {
-            return new CellStyle(style.Foreground, Color.Default, style.Attributes);
         }
 
         #endregion

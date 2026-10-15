@@ -10,7 +10,8 @@ namespace Armada.Tui.Shell
     /// The TUI's input and render loop (W8.5): the same steps as TUIKit's <c>RunAsync</c> (pump input and posted work,
     /// compose, sleep), but a <see cref="FrameGovernor"/> decides whether each tick composes a frame and how long the
     /// loop sleeps, so an idle TUI wakes about 40 times a second to poll input and composes a few frames a second
-    /// instead of 60. TUIKit's loop has no hook for this (TUIKit gap U8). The loop ends on <see cref="RequestStop"/>,
+    /// instead of 60. TUIKit's <c>IdleFps</c> slows only composing (input is still polled at the full frame rate) and has
+    /// no unfocused-terminal interval, so it does not replace the governor. The loop ends on <see cref="RequestStop"/>,
     /// cancellation, or Ctrl+C delivered as a signal. Use one instance per run; not reentrant.
     /// </summary>
     public class TuiRunLoop

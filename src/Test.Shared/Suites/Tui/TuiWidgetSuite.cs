@@ -278,6 +278,22 @@ namespace Test.Shared.Suites.Tui
                 log.HandleKey(KeyEvent.Special(KeyCode.Home));
                 AssertFalse(log.Follow, "home stops following");
                 AssertTrue(Snapshot.RenderWidget(log, 40, 5).Contains("line 0"), "top");
+                for (int i = 50; i < 53; i++) log.Append("line " + i);
+                string detached = Snapshot.RenderWidget(log, 40, 5);
+                AssertEqual(3, log.NewBelow, "rows added while scrolled up are counted");
+                AssertTrue(detached.Contains("line 0") && detached.Contains("3 new below"), "the view stays put and shows the count");
+                log.HandleKey(KeyEvent.Special(KeyCode.End));
+                AssertTrue(log.Follow && log.NewBelow == 0, "End returns to the tail");
+                AssertTrue(Snapshot.RenderWidget(log, 40, 5).Contains("line 52"), "following again");
+                log.HandleKey(KeyEvent.Char('f'));
+                AssertFalse(log.Follow, "f pauses following");
+                log.Append("line 53");
+                AssertFalse(Snapshot.RenderWidget(log, 40, 5).Contains("line 53"), "paused view does not move");
+                AssertEqual(1, log.NewBelow, "paused view counts new rows");
+                for (int i = 0; i < 3; i++) log.HandleKey(KeyEvent.Special(KeyCode.Down));
+                AssertTrue(log.Follow, "scrolling back to the last row resumes following");
+                JsonViewer still = new JsonViewer("{\"a\": 1}");
+                AssertFalse(still.Follow, "viewers without follow never follow");
 
                 MarkdownView md = new MarkdownView("# Title\n\n- item one\n- item two");
                 AssertTrue(Snapshot.RenderWidget(md, 40, 6).Contains("item two"), "markdown");

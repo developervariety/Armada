@@ -11,7 +11,8 @@ namespace Armada.Tui.Widgets
     using TUIKit.Widgets;
 
     /// <summary>
-    /// Single-line text field with grapheme-aware editing and cell-width scrolling (CJK-safe, TUIKit gap U9), optional
+    /// Single-line text field with grapheme-aware editing and cell-width scrolling (CJK-safe; TUIKit's <c>TextField</c>
+    /// has no prefill selection, Ctrl editing keys, reveal, validation, or per-grapheme masking), optional
     /// masking for passwords and tokens (<c>Ctrl+R</c> toggles reveal), a placeholder, inline validation, and change
     /// and submit events. Keys: Left/Right, Home/End (Ctrl+A/Ctrl+E), Backspace/Delete, Ctrl+U clear, Ctrl+W delete
     /// word, Enter submits. A value set with <see cref="Prefill"/> is shown selected: the first typed character or paste

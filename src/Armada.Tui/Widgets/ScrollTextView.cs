@@ -2,6 +2,7 @@ namespace Armada.Tui.Widgets
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Linq;
     using Armada.Tui.Text;
     using TUIKit;
@@ -12,22 +13,41 @@ namespace Armada.Tui.Widgets
     /// <summary>
     /// Base for read-only scrolling viewers (JSON, Markdown, logs, diffs): wraps styled lines to the width, scrolls
     /// with Up/Down/PgUp/PgDn/Home/End and the wheel, searches with <c>/</c> or <c>Ctrl+F</c> (<c>n</c>/<c>N</c> for
-    /// next/previous), and optionally follows the tail. Not thread-safe.
+    /// next/previous), and optionally follows the tail with TUIKit's <see cref="TailFollow"/>: while detached, rows added
+    /// below are counted and shown as "N new below". Not thread-safe.
     /// </summary>
     public abstract class ScrollTextView : ArmadaWidget, IKeyHintSource, ITextEntry
     {
         #region Public-Members
 
         /// <summary>
-        /// Keep the view scrolled to the end as content grows (logs). Toggle with <c>f</c> when
-        /// <see cref="AllowFollow"/> is set.
+        /// Keep the view scrolled to the end as content grows (logs). Setting true returns to the tail; setting false
+        /// detaches, and rows added afterwards count toward <see cref="NewBelow"/>. With <see cref="AllowFollow"/>,
+        /// <c>f</c> toggles it, <c>End</c> resumes it, and scrolling back down to the last row resumes it. Off by
+        /// default.
         /// </summary>
-        public bool Follow { get; set; } = false;
+        public bool Follow
+        {
+            get { return _Tail.IsFollowing; }
+            set
+            {
+                if (value) _Tail.ReturnToTail();
+                else _Tail.OnJumpedAway();
+            }
+        }
 
         /// <summary>
-        /// Allow <c>f</c> to toggle follow mode.
+        /// Allow <c>f</c> to toggle follow mode, and resume following when the view is scrolled back to the end.
         /// </summary>
         public bool AllowFollow { get; set; } = false;
+
+        /// <summary>
+        /// Rows added below the view since it stopped following (zero while following).
+        /// </summary>
+        public int NewBelow
+        {
+            get { return _Tail.NewItemsBelow; }
+        }
 
         /// <summary>
         /// First visible wrapped row.
@@ -71,6 +91,19 @@ namespace Armada.Tui.Widgets
         private string _Search = "";
         private bool _Searching = false;
         private int _Match = -1;
+        private readonly TailFollow _Tail = new TailFollow();
+
+        #endregion
+
+        #region Constructors-and-Factories
+
+        /// <summary>
+        /// Instantiate, not following.
+        /// </summary>
+        protected ScrollTextView()
+        {
+            _Tail.OnJumpedAway();
+        }
 
         #endregion
 
@@ -239,9 +272,11 @@ namespace Armada.Tui.Widgets
                 SurfaceText.FillRow(surface, 0, height - 1, width, Theme.StatusBar);
                 SurfaceText.Draw(surface, 0, height - 1, prompt, Theme.StatusBar, width);
             }
-            else if (AllowFollow && Follow && height > 1)
+            else if (AllowFollow && height > 1 && (Follow || NewBelow > 0))
             {
-                string tag = "[" + T("follow") + "]";
+                string tag = Follow
+                    ? "[" + T("follow") + "]"
+                    : "[" + T("{{count}} new below").Replace("{{count}}", NewBelow.ToString(CultureInfo.InvariantCulture)) + "  (End)]";
                 SurfaceText.Draw(surface, Math.Max(0, width - TextCells.Width(tag)), height - 1, tag, Theme.Accent.WithBackground(BackgroundColor()), width);
             }
         }
@@ -292,6 +327,8 @@ namespace Armada.Tui.Widgets
         private void EnsureWrapped(int width)
         {
             if (!_Dirty && width == _WrappedWidth) return;
+            int previous = _Wrapped.Count;
+            bool contentChanged = _Dirty && width == _WrappedWidth;
             _Wrapped = new List<StyledText>();
             foreach (StyledText line in BuildLines(width))
             {
@@ -302,12 +339,24 @@ namespace Armada.Tui.Widgets
             _WrappedPlain = _Wrapped.Select(l => l.ToPlainString()).ToList();
             _WrappedWidth = width;
             _Dirty = false;
+
+            // New content (not a re-wrap after a resize) is what the follow state counts as new below.
+            if (contentChanged && _Wrapped.Count > previous) _Tail.OnContentAppended(_Wrapped.Count - previous);
+            else if (contentChanged && _Wrapped.Count < previous) _Tail.OnContentRemoved(previous - _Wrapped.Count);
         }
 
         private void ScrollBy(int delta)
         {
             _Scroll = Math.Max(0, _Scroll + delta);
-            if (delta < 0) Follow = false;
+            if (!AllowFollow)
+            {
+                if (delta < 0) Follow = false;
+                return;
+            }
+
+            int max = Math.Max(0, _Wrapped.Count - _Height);
+            _Scroll = Math.Min(_Scroll, max);
+            _Tail.OnViewportMoved(_Scroll, max);
         }
 
         private void BeginSearch()
