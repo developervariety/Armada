@@ -43,7 +43,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.CommandText = @"INSERT INTO coordination_rooms
                         (id, tenant_id, user_id, key, name, description, created_utc, last_update_utc)
                         VALUES
-                        (@id, @tenant_id, @user_id, @key, @name, @description, @created_utc, @last_update_utc);";
+                        (@id, @tenant_id, @user_id, @key, @name, @description, @created_utc, @last_update_utc)
+                        ON CONFLICT (key) DO NOTHING;";
                     CoordinationRoomColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_rooms"), room);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }

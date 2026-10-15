@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Database
 {
     using System;
     using System.Collections.Generic;
+    using System.Data.Common;
     using System.Threading.Tasks;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
@@ -41,6 +42,51 @@ namespace Armada.Test.Unit.Suites.Database
                     CoordinationRoom? byKey = await db.CoordinationRooms.ReadByKeyAsync("fleet");
                     AssertNotNull(byKey);
                     AssertEqual(room.Id, byKey!.Id);
+                }
+            });
+
+            await RunTest("Room create keeps the winner after stale reads and rejects duplicate ids", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+
+                    AssertNull(await db.CoordinationRooms.ReadByKeyAsync("fleet"));
+                    AssertNull(await db.CoordinationRooms.ReadByKeyAsync("fleet"));
+
+                    CoordinationRoom winner = new CoordinationRoom
+                    {
+                        Id = "room_winner",
+                        Key = "fleet",
+                        Name = "First room"
+                    };
+                    await db.CoordinationRooms.CreateAsync(winner);
+
+                    CoordinationRoom competitor = new CoordinationRoom
+                    {
+                        Id = "room_competitor",
+                        Key = "fleet",
+                        Name = "Competing room"
+                    };
+                    await db.CoordinationRooms.CreateAsync(competitor);
+
+                    CoordinationRoom? stored = await db.CoordinationRooms.ReadByKeyAsync("fleet");
+                    AssertNotNull(stored);
+                    AssertEqual(winner.Id, stored!.Id);
+                    AssertEqual(winner.Name, stored.Name);
+
+                    CoordinationRoom duplicateId = new CoordinationRoom
+                    {
+                        Id = winner.Id,
+                        Key = "another-room",
+                        Name = "Duplicate id"
+                    };
+                    await AssertThrowsAsync<DbException>(() => db.CoordinationRooms.CreateAsync(duplicateId));
+
+                    List<CoordinationRoom> rooms = await db.CoordinationRooms.EnumerateAsync();
+                    AssertEqual(1, rooms.Count);
+                    AssertEqual(winner.Id, rooms[0].Id);
+                    AssertEqual(winner.Name, rooms[0].Name);
                 }
             });
 

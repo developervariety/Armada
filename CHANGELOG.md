@@ -9,6 +9,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- SQLite coordination room creation ignores only a duplicate room key, so concurrent provisioning keeps the existing room and still reports other constraint failures.
+
 - The dashboard exposes Code Index and Notifications history pages, and routes
   `/token-usage` to the token-filtered Activity page. Index searches clear old
   results when the vessel changes and show why an index is unavailable.
