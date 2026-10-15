@@ -32,7 +32,7 @@ export function parsePlaybooksParam(raw: string): SelectedPlaybook[] {
     if (!item || typeof item !== 'object') continue;
     const candidate = item as { playbookId?: unknown; deliveryMode?: unknown };
     if (typeof candidate.playbookId !== 'string' || !candidate.playbookId) continue;
-    const mode = MODES.find((m) => m === candidate.deliveryMode) ?? 'InlineFullContent';
+    const mode = MODES.find((m) => m === candidate.deliveryMode) ?? 'InstructionWithReference';
     result.push({ playbookId: candidate.playbookId, deliveryMode: mode });
   }
   return result;

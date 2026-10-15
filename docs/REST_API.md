@@ -8805,7 +8805,7 @@ Playbook selection metadata stored on a voyage or mission request.
 | Field | Type | Description |
 |---|---|---|
 | `PlaybookId` | string | Selected playbook ID |
-| `DeliveryMode` | [PlaybookDeliveryModeEnum](#playbookdeliverymodeenum) | How the playbook is delivered to the model |
+| `DeliveryMode` | [PlaybookDeliveryModeEnum](#playbookdeliverymodeenum) | How the playbook is delivered to the model; `InstructionWithReference` when omitted |
 
 ---
 
@@ -9137,7 +9137,7 @@ Ownership scope for Category B configuration entities (see [Data Scoping](#data-
 | Value | Description |
 |---|---|
 | `InlineFullContent` | Include the entire markdown body directly in the rendered mission instructions |
-| `InstructionWithReference` | Materialize the playbook outside the worktree and instruct the model to read the resolved path |
+| `InstructionWithReference` | **Default.** Materialize the playbook outside the worktree and instruct the model to read the resolved path (on a Harbor, where the captain cannot read the Admiral's files, it is attached into the dock instead) |
 | `AttachIntoWorktree` | Materialize the playbook under the dock worktree and instruct the model to read it there |
 
 ---

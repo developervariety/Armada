@@ -182,7 +182,7 @@ namespace Armada.Tui.Screens.Operations
         }
 
         /// <summary>
-        /// Parse <c>id:mode</c> lines (mode defaults to InlineFullContent).
+        /// Parse <c>id:mode</c> lines (mode defaults to InstructionWithReference).
         /// </summary>
         /// <param name="value">Text.</param>
         /// <returns>Playbooks.</returns>
@@ -197,7 +197,7 @@ namespace Armada.Tui.Screens.Operations
                 SelectedPlaybook p = new SelectedPlaybook();
                 p.PlaybookId = id;
                 string mode = parts.Length > 1 ? parts[1].Trim() : "";
-                p.DeliveryMode = Enum.TryParse(mode, true, out PlaybookDeliveryModeEnum m) ? m : PlaybookDeliveryModeEnum.InlineFullContent;
+                p.DeliveryMode = Enum.TryParse(mode, true, out PlaybookDeliveryModeEnum m) ? m : PlaybookDeliveryModeEnum.InstructionWithReference;
                 list.Add(p);
             }
 

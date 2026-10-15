@@ -32,7 +32,7 @@ export function PlaybookPicker({ value, onChange, disabled, testID = 'playbooks'
   const { colors } = useTheme();
   const playbooks = useLiveResource(async () => (await listPlaybooks({ pageSize: 9999 })).objects ?? [], []);
   const [draftId, setDraftId] = useState('');
-  const [draftMode, setDraftMode] = useState<PlaybookDeliveryMode>('InlineFullContent');
+  const [draftMode, setDraftMode] = useState<PlaybookDeliveryMode>('InstructionWithReference');
 
   const all = playbooks.data ?? [];
   const active = all.filter((p) => p.active !== false);
@@ -45,7 +45,7 @@ export function PlaybookPicker({ value, onChange, disabled, testID = 'playbooks'
     if (disabled || !draftId) return;
     onChange([...value, { playbookId: draftId, deliveryMode: draftMode }]);
     setDraftId('');
-    setDraftMode('InlineFullContent');
+    setDraftMode('InstructionWithReference');
   };
 
   return (

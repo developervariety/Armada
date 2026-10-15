@@ -556,7 +556,7 @@ namespace Armada.Tui.Screens.Operations
             TitleField.Validator = v => String.IsNullOrWhiteSpace(v) ? "Backlog item title is required." : null;
             _Rank.Validator = v => String.IsNullOrWhiteSpace(v) || Int32.TryParse(v.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int r) ? null : "Enter a number.";
             _Tags.Placeholder = "key:value (one per line)";
-            _Playbooks.Placeholder = "playbook-id:InlineFullContent";
+            _Playbooks.Placeholder = "playbook-id:InstructionWithReference";
             foreach (OpsTextArea area in new OpsTextArea[] { DescriptionField, _Tags, _RefinementSummary, _Acceptance, _NonGoals, _Rollout, _Evidence, _Playbooks, _RefinementPrompt, Composer })
             {
                 area.ExternalEditor = (text, done) => EditExternally(text, done);

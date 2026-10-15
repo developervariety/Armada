@@ -87,7 +87,7 @@ namespace Armada.Tui.Screens.Operations
             _Host.Show(picker, r =>
             {
                 if (!(r is SelectOption<string> chosen)) return;
-                PickMode(PlaybookDeliveryModeEnum.InlineFullContent, mode =>
+                PickMode(PlaybookDeliveryModeEnum.InstructionWithReference, mode =>
                 {
                     SelectedPlaybook item = new SelectedPlaybook();
                     item.PlaybookId = chosen.Value;

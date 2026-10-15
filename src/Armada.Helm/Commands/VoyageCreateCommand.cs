@@ -84,7 +84,7 @@ namespace Armada.Helm.Commands
                 if (string.IsNullOrWhiteSpace(rawSelection)) continue;
 
                 string token = rawSelection.Trim();
-                PlaybookDeliveryModeEnum mode = PlaybookDeliveryModeEnum.InlineFullContent;
+                PlaybookDeliveryModeEnum mode = PlaybookDeliveryModeEnum.InstructionWithReference;
                 int modeSeparator = token.LastIndexOf(':');
                 if (modeSeparator > 0)
                 {

@@ -72,7 +72,7 @@ namespace Armada.Server.Mcp.Tools
                                 properties = new
                                 {
                                     playbookId = new { type = "string", description = "Playbook ID (pbk_ prefix)" },
-                                    deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" }
+                                    deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference (default), or AttachIntoWorktree" }
                                 },
                                 required = new[] { "playbookId", "deliveryMode" }
                             }

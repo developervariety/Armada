@@ -122,7 +122,7 @@ describe('Dispatch', () => {
       vesselId: 'vsl_b',
       missions: [{ vesselId: 'vsl_b', title: 'Do it', description: 'Do it', priority: 42 }],
       pipeline: 'Reviewed',
-      selectedPlaybooks: [{ playbookId: 'pbk_1', deliveryMode: 'InlineFullContent' }],
+      selectedPlaybooks: [{ playbookId: 'pbk_1', deliveryMode: 'InstructionWithReference' }],
       captainAssignments: [
         { persona: 'Worker', captainId: 'cpt_1', fallbackTier: null },
         { persona: 'Judge', captainId: null, fallbackTier: 'Standard' },

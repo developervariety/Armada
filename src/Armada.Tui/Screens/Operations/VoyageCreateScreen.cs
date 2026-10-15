@@ -155,7 +155,7 @@ namespace Armada.Tui.Screens.Operations
                 new SelectOption<string>("InstructionWithReference", Tr("Instruction With Reference"), Tr("Tell the model to read the materialized playbook path outside the worktree.")),
                 new SelectOption<string>("AttachIntoWorktree", Tr("Attach Into Worktree"), Tr("Materialize the playbook in `.armada/playbooks/` and instruct the model to read it there.")),
             });
-            DeliveryMode.SetValue("InlineFullContent");
+            DeliveryMode.SetValue("InstructionWithReference");
             Reference.Changed += (s, name) => ApplyReference(name);
             Reference.Ensure("vessels", "pipelines", "playbooks");
             AddMissionFields();
@@ -235,7 +235,7 @@ namespace Armada.Tui.Screens.Operations
             if (!String.IsNullOrEmpty(Pipeline.Value)) req.Pipeline = Pipeline.Value;
             if (Enum.TryParse<LandingModeEnum>(LandingMode.Value ?? "", out LandingModeEnum landingMode)) req.LandingMode = landingMode;
             req.Missions = missions;
-            PlaybookDeliveryModeEnum mode = Enum.TryParse(DeliveryMode.Value, out PlaybookDeliveryModeEnum dm) ? dm : PlaybookDeliveryModeEnum.InlineFullContent;
+            PlaybookDeliveryModeEnum mode = Enum.TryParse(DeliveryMode.Value, out PlaybookDeliveryModeEnum dm) ? dm : PlaybookDeliveryModeEnum.InstructionWithReference;
             if (Playbooks.Values.Count > 0)
             {
                 req.SelectedPlaybooks = Playbooks.Values.Select(id => new SelectedPlaybook { PlaybookId = id, DeliveryMode = mode }).ToList();

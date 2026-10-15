@@ -4,7 +4,7 @@ import { listPlaybooks } from '../../api/client';
 import { listAll } from '../../api/paging';
 import type { Playbook, PlaybookDeliveryMode, SelectedPlaybook } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
-import { activePlaybooksOf, availablePlaybooks, PLAYBOOK_DELIVERY_MODES as DELIVERY_MODE_COPY, playbookOptionsForRow } from '../../lib/playbookSelection';
+import { activePlaybooksOf, availablePlaybooks, DEFAULT_PLAYBOOK_DELIVERY_MODE, PLAYBOOK_DELIVERY_MODES as DELIVERY_MODE_COPY, playbookOptionsForRow } from '../../lib/playbookSelection';
 
 interface PlaybookSelectorProps {
   value: SelectedPlaybook[];
@@ -18,7 +18,7 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [draftPlaybookId, setDraftPlaybookId] = useState('');
-  const [draftDeliveryMode, setDraftDeliveryMode] = useState<PlaybookDeliveryMode>('InlineFullContent');
+  const [draftDeliveryMode, setDraftDeliveryMode] = useState<PlaybookDeliveryMode>(DEFAULT_PLAYBOOK_DELIVERY_MODE);
 
   useEffect(() => {
     let mounted = true;
@@ -100,7 +100,7 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
       },
     ]);
     setDraftPlaybookId('');
-    setDraftDeliveryMode('InlineFullContent');
+    setDraftDeliveryMode(DEFAULT_PLAYBOOK_DELIVERY_MODE);
   }
 
   return (

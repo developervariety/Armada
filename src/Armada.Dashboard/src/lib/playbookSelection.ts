@@ -18,7 +18,7 @@ export const PLAYBOOK_DELIVERY_MODES: Record<PlaybookDeliveryMode, { label: stri
   },
 };
 
-export const DEFAULT_PLAYBOOK_DELIVERY_MODE: PlaybookDeliveryMode = 'InlineFullContent';
+export const DEFAULT_PLAYBOOK_DELIVERY_MODE: PlaybookDeliveryMode = 'InstructionWithReference';
 
 /** Playbooks that can be attached (inactive ones are hidden). */
 export function activePlaybooksOf(playbooks: readonly Playbook[]): Playbook[] {

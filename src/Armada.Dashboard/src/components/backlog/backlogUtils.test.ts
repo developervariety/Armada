@@ -73,7 +73,7 @@ describe('backlogUtils', () => {
     ])).toBe('pb_inline:InlineFullContent\npb_reference:InstructionWithReference');
     expect(parseSuggestedPlaybooks('pb_inline:InlineFullContent\npb_default')).toEqual([
       { playbookId: 'pb_inline', deliveryMode: 'InlineFullContent' },
-      { playbookId: 'pb_default', deliveryMode: 'InlineFullContent' },
+      { playbookId: 'pb_default', deliveryMode: 'InstructionWithReference' },
     ]);
   });
 

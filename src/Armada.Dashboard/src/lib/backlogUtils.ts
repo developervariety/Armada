@@ -57,7 +57,7 @@ export function parseSuggestedPlaybooks(value: string): SelectedPlaybook[] {
       if (!playbookId) return null;
       return {
         playbookId,
-        deliveryMode: (deliveryMode || 'InlineFullContent') as SelectedPlaybook['deliveryMode'],
+        deliveryMode: (deliveryMode || 'InstructionWithReference') as SelectedPlaybook['deliveryMode'],
       };
     })
     .filter((item): item is SelectedPlaybook => item !== null);

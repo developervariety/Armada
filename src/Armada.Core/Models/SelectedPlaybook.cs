@@ -13,8 +13,8 @@ namespace Armada.Core.Models
         public string PlaybookId { get; set; } = "";
 
         /// <summary>
-        /// Delivery mode to use for this selection.
+        /// Delivery mode to use for this selection. Defaults to InstructionWithReference when omitted.
         /// </summary>
-        public PlaybookDeliveryModeEnum DeliveryMode { get; set; } = PlaybookDeliveryModeEnum.InlineFullContent;
+        public PlaybookDeliveryModeEnum DeliveryMode { get; set; } = PlaybookDeliveryModeEnum.InstructionWithReference;
     }
 }

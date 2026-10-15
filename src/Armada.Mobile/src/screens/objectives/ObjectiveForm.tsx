@@ -168,7 +168,7 @@ export function ObjectiveForm({ form, onChange, reference, objective, canManage 
             hint={t('Other backlog items that must be resolved before this work can move forward.')}
             testID="objective-form-blocked-by"
           />
-          <TextField label={t('Suggested Playbooks')} value={form.suggestedPlaybooks} onChangeText={(v) => set('suggestedPlaybooks', v)} editable={!ro} {...multiline} autoCapitalize="none" placeholder="playbook-id:InlineFullContent" hint={t('Playbooks to carry into planning or dispatch. Use playbook-id:delivery-mode entries.')} testID="objective-form-playbooks" />
+          <TextField label={t('Suggested Playbooks')} value={form.suggestedPlaybooks} onChangeText={(v) => set('suggestedPlaybooks', v)} editable={!ro} {...multiline} autoCapitalize="none" placeholder="playbook-id:InstructionWithReference" hint={t('Playbooks to carry into planning or dispatch. Use playbook-id:delivery-mode entries.')} testID="objective-form-playbooks" />
         </View>
       </Section>
     </View>

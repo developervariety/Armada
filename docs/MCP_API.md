@@ -5379,7 +5379,7 @@ Paginated result wrapper returned by `enumerate`.
 | Field | Type | Description |
 |---|---|---|
 | `PlaybookId` | string | Selected playbook ID |
-| `DeliveryMode` | [PlaybookDeliveryModeEnum](#playbookdeliverymodeenum) | How the playbook is delivered to the model |
+| `DeliveryMode` | [PlaybookDeliveryModeEnum](#playbookdeliverymodeenum) | How the playbook is delivered to the model; `InstructionWithReference` when omitted |
 
 #### MissionPlaybookSnapshot
 
@@ -5631,7 +5631,7 @@ Returned by `health_check_model_endpoints`.
 | Value | Description |
 |---|---|
 | `InlineFullContent` | Include the full markdown body directly in the rendered mission instructions |
-| `InstructionWithReference` | Materialize the playbook outside the worktree and instruct the model to read the resolved path |
+| `InstructionWithReference` | **Default.** Materialize the playbook outside the worktree and instruct the model to read the resolved path (on a Harbor, where the captain cannot read the Admiral's files, it is attached into the dock instead) |
 | `AttachIntoWorktree` | Materialize the playbook under the dock worktree and instruct the model to read it there |
 
 #### CaptainStateEnum

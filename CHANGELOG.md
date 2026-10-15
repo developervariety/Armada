@@ -10,6 +10,9 @@ All notable changes to Armada are documented in this file.
 
 ## v1.1.0 (2026-10-15)
 
+### Playbooks are delivered by reference by default
+- A playbook added in Dispatch, voyage creation, planning, backlog, or objectives now defaults to "Instruction With Reference" instead of "Inline Full Content": the captain is told to read the playbook file rather than having its full text pasted into every mission's instructions. You can still pick inline per playbook. This applies to the dashboard, the TUI, the mobile app, `armada voyage create`, and REST/MCP selections that leave `DeliveryMode` out. On a Harbor the playbook is attached into the dock, as before.
+
 ### Ask Armada over MCP
 - Ask Armada conversations can now be managed entirely over MCP, the same as from the dashboard, TUI, and mobile app. Sixteen new tools: `list_ask_threads`, `get_ask_thread`, `create_ask_thread`, `update_ask_thread` (rename, pin, archive, captain, auto-approve), `delete_ask_thread`, `delete_ask_threads`, `list_ask_messages`, `send_ask_message` (optionally waits up to 600 seconds for the reply), `cancel_ask_turn`, `summarize_ask_thread`, `mark_ask_thread_read`, `list_ask_quick_actions`, `run_ask_quick_action`, `approve_ask_proposal`, `reject_ask_proposal`, and `get_ask_work`.
 - Each tool acts as the caller on the caller's own conversations. Another user's conversation answers `NotFound`, and bulk deletion reports it under `notFound` without touching it.
