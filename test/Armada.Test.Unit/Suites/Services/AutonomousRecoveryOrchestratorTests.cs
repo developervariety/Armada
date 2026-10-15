@@ -1848,6 +1848,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, incidentPage.Objects.Count, "The original failure still has an operator incident.");
                 AssertContains("execution_unavailable", incidentPage.Objects[0].RecoveryNotes ?? String.Empty,
                     "The incident records the stable execution-resource reason.");
+                AssertContains("dispatch a new voyage or rescue", incidentPage.Objects[0].RecoveryNotes ?? String.Empty,
+                    "The incident gives an operator a valid action after the automatic retry window.");
 
                 List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(failed.Id, 100).ConfigureAwait(false);
                 AssertEqual(1, events.Count(item => item.EventType == "autonomous_recovery.rescue_deferred_execution_unavailable"),
