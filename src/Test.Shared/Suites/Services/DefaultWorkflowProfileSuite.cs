@@ -82,8 +82,17 @@ namespace Test.Shared.Suites.Services
                     WorkflowProfile? generic = await provisioner.EnsureAsync(vessel).ConfigureAwait(false);
                     AssertNotNull(generic, "a generic profile is attached");
                     AssertEqual(WorkflowProfileTemplates.Generic, generic.SourceTemplate);
-                    AssertNull(generic.BuildCommand, "generic has no commands");
+                    AssertNull(generic.BuildCommand, "generic has no build command");
+                    AssertEqual("git diff --check", generic.LintCommand);
+                    WorkflowProfileValidationResult validation = await profiles.ValidateAsync(generic).ConfigureAwait(false);
+                    AssertTrue(validation.IsValid, "the generic profile passes the server's validation: " + String.Join("; ", validation.Errors));
                     AssertNull(await provisioner.EnsureAsync(vessel).ConfigureAwait(false), "nothing changes while it is still unrecognized");
+
+                    foreach (string key in new[] { WorkflowProfileTemplates.DotNet, WorkflowProfileTemplates.Node, WorkflowProfileTemplates.Python, WorkflowProfileTemplates.Go, WorkflowProfileTemplates.Rust, WorkflowProfileTemplates.Maven, WorkflowProfileTemplates.Gradle, WorkflowProfileTemplates.Generic })
+                    {
+                        WorkflowProfileValidationResult each = await profiles.ValidateAsync(WorkflowProfileTemplates.Build(vessel, null, key)).ConfigureAwait(false);
+                        AssertTrue(each.IsValid, key + " passes validation: " + String.Join("; ", each.Errors));
+                    }
 
                     await File.WriteAllTextAsync(Path.Combine(dir, "go.mod"), "module x").ConfigureAwait(false);
                     WorkflowProfile? upgraded = await provisioner.EnsureAsync(vessel).ConfigureAwait(false);

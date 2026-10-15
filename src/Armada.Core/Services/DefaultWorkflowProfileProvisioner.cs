@@ -16,7 +16,7 @@ namespace Armada.Core.Services
     /// fleet, or every vessel) gets one built from the matching <see cref="WorkflowProfileTemplates"/> template, chosen
     /// from the repository's files: the vessel's working directory, else its bare clone, else a shallow clone of its
     /// repository URL that fetches the file list but no file contents. A vessel Armada could not recognize gets the
-    /// generic profile (no commands), which is replaced once its toolchain can be recognized. Profiles a person created
+    /// generic profile (only a whitespace and conflict-marker check), which is replaced once its toolchain can be recognized. Profiles a person created
     /// or edited are never touched. Run on startup and after a vessel is created. Thread-safe; one run at a time.
     /// </summary>
     public class DefaultWorkflowProfileProvisioner

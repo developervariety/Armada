@@ -7,8 +7,8 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// The workflow profiles Armada creates out of the box: one per common toolchain (.NET, Node.js, Python, Go, Rust,
-    /// Maven, Gradle) with that ecosystem's usual lint, build, test, and package commands, and a generic profile with no
-    /// commands for a repository Armada cannot recognize. <see cref="DefaultWorkflowProfileProvisioner"/> picks one from a
+    /// Maven, Gradle) with that ecosystem's usual lint, build, test, and package commands, and a generic profile for a
+    /// repository Armada cannot recognize, whose only command is a whitespace and conflict-marker check. <see cref="DefaultWorkflowProfileProvisioner"/> picks one from a
     /// vessel's files and attaches it to the vessel. Thread-safe.
     /// </summary>
     public static class WorkflowProfileTemplates
@@ -155,10 +155,11 @@ namespace Armada.Core.Services
                     profile.Description = "Created by Armada for a Gradle project" + evidence + ". Edit the commands if this project builds differently.";
                     break;
                 default:
-                    profile.Name = vessel.Name + ": no commands yet";
+                    profile.Name = vessel.Name + ": basic checks";
+                    profile.LintCommand = "git diff --check";
                     profile.SourceTemplate = Generic;
                     profile.Description = "Created by Armada because no recognizable build files were found" + evidence
-                        + ". Missions dispatch normally; add this vessel's lint, build, test, and package commands here to enable checks and deployments. Armada replaces this profile automatically once it can recognize the repository.";
+                        + ". Its only command (git diff --check) fails on conflict markers and whitespace errors in uncommitted changes. Missions dispatch normally; add this vessel's build, test, and package commands here to enable real checks and deployments. Armada replaces this profile automatically once it can recognize the repository.";
                     break;
             }
 

@@ -18,7 +18,7 @@ All notable changes to Armada are documented in this file.
 
 ### Default workflow profiles out of the box
 - Every vessel now gets a workflow profile without anyone writing one. When a vessel is created, and on every server start, a vessel that no profile applies to gets a vessel-scoped default profile with lint, build, test, and package commands for its toolchain: .NET, Node.js, Go, Rust, Maven, Gradle, or Python. Armada recognizes the toolchain from the repository's files (the working directory, the bare clone, or a file-list-only shallow clone).
-- A repository Armada cannot recognize gets a profile with no commands, which is replaced once its toolchain can be recognized. Profiles people created are never touched, and editing a default profile makes it yours: Armada leaves it alone from then on.
+- A repository Armada cannot recognize gets a "basic checks" profile whose only command is `git diff --check`, which is replaced once its toolchain can be recognized. Profiles people created are never touched, and editing a default profile makes it yours: Armada leaves it alone from then on.
 - New `WorkflowProfile.SourceTemplate` field (schema migration 85 on every database) records which template made a profile; it is cleared when the profile is edited.
 - See [REST_API.md](docs/REST_API.md#workflow-profiles).
 

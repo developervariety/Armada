@@ -6998,7 +6998,7 @@ Workflow profiles define how a vessel or fleet builds, tests, versions, deploys,
 | `maven` | `pom.xml` at the root | none / `mvn -B package -DskipTests` / `mvn -B test` / `mvn -B package` |
 | `gradle` | `build.gradle` or `build.gradle.kts` at the root | none / `./gradlew build -x test` (`gradle` without a wrapper) / `./gradlew test` / `./gradlew assemble` |
 | `python` | `pyproject.toml`, `setup.py`, or `requirements.txt` at the root | `python -m ruff check .` / `python -m pip install -r requirements.txt` (else `-e .`) / `python -m pytest` / `python -m build` (with `pyproject.toml`) |
-| `generic` | anything else, or files that could not be read | none; named `<vessel>: no commands yet`, and its description says to add the vessel's commands |
+| `generic` | anything else, or files that could not be read | `git diff --check` (conflict markers and whitespace errors in uncommitted changes) / none / none / none; named `<vessel>: basic checks`, and its description says to add the vessel's commands |
 
 A `generic` profile is replaced with the matching template once the toolchain can be recognized. A profile a person created is never touched, and editing a default profile (`PUT`) clears its `SourceTemplate`, so Armada leaves it alone from then on.
 
