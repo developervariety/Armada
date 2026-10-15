@@ -95,6 +95,19 @@ corresponding filled file without `.example` from its configured docs root.
 | 10 | [Safety Rules](ops/10-safety-rules.example.md) | Before any cancel, delete, purge, restore, rollback, or server stop. |
 | 11 | [Verification Checklist](ops/11-verification-checklist.example.md) | Before reporting completion of any objective or task. |
 
+## Dashboard routes and already-integrated work
+
+The dashboard provides Code Index at `/code-index` and notification history at
+`/notifications`. The `/token-usage` path redirects to `/activity?source=tokens`.
+Code Index reports why a selected vessel's index is unavailable and discards
+responses from a previous vessel selection.
+
+An implementation mission whose branch already matches the merge-queue target
+requires a recorded delivery commit and a reachable commit made strictly after
+`Mission.StartedUtc`. Git commit time supplies this check. Missing or unreadable
+history fails closed. Review stages and rescues with no substantive work cannot
+use this path.
+
 ## Verify a continuation base
 
 Set `StartFromRef` on the objective, or supply `missions[].startFromRef` at

@@ -309,6 +309,9 @@ A 2026-09-19 census of 1,129 real Claude Code sessions found zero
 
 Armada owns a repository code index for dispatch-time retrieval:
 
+- The dashboard Code Index page at `/code-index` shows index status and searches
+  the selected vessel. It lists every vessel and reports an unavailable index
+  with its reason. Search and status responses stay with the selected vessel.
 - `armada_code_search` searches indexed chunks for a vessel.
 - `armada_context_pack` builds dispatch-ready markdown and returns a prestaged `_briefing/context-pack.md`.
 - `armada_fleet_code_search` and `armada_fleet_context_pack` retrieve across a fleet.
@@ -332,6 +335,16 @@ Armada can leave work for manual inspection or land it through configured modes:
 | `None` | Stop at `WorkProduced`; the branch remains available for manual integration. |
 
 Landing features include auto-land predicates, protected-path checks, convention and critical-trigger gates, PR fallback, target-branch-drift retry, durable landing jobs, restart recovery, branch cleanup policies, pull-request reconciliation, and merge-queue purge/cancel tools.
+
+When a mission branch already matches its merge-queue target, an implementation
+mission must have a recorded delivery commit and reachable branch history with
+a commit made strictly after its start time. Missing start time or unreadable
+history refuses the no-op landing. Review stages and rescues with no substantive
+work remain refused.
+
+The dashboard Notifications page at `/notifications` shows notification history
+and provides read and clear actions. The legacy `/token-usage` path redirects to
+`/activity?source=tokens`.
 
 ### Structured Delivery Operations
 

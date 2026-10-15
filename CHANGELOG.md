@@ -9,6 +9,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The dashboard exposes Code Index and Notifications history pages, and routes
+  `/token-usage` to the token-filtered Activity page. Index searches clear old
+  results when the vessel changes and show why an index is unavailable.
+- Merge-queue no-op detection accepts already-integrated implementation work
+  only when its reachable branch history includes a commit made after the
+  mission started. Missing or unreadable history, review stages, and rescues
+  with no substantive work remain refused.
+
 - Captain `[ARMADA:NOTE]` output is stored on the coordination board with the
   assigned captain and mission metadata. Notes redact credentials and enforce
   500-character and 20-per-mission limits.
