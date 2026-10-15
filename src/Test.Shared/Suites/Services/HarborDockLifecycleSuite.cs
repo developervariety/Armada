@@ -3,6 +3,7 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
@@ -156,6 +157,39 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(gh.Count > 0, "gh ran on the Harbor");
                 AssertEqual(run.Dock.WorktreePath, gh[0].WorkingDirectory, "gh ran in the Harbor dock");
                 AssertFalse(await HarborDockGitFixture.TreeHasFileAsync(git.Checkout, "refs/heads/main", "landed.txt").ConfigureAwait(false), "nothing was merged locally");
+            }));
+
+            cases.Add(CaseAsync("merge_queue_processes_on_harbor", "A merge queue entry for a Harbor dock is merged and pushed from the Harbor's repository, not from an Admiral clone", TestTags.Positive, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_land_queue").ConfigureAwait(false);
+                LandingRun run = await s.RunLandingAsync("hbr_land_queue", LandingModeEnum.MergeQueue).ConfigureAwait(false);
+
+                MergeEntry entry = (await s.MergeQueue.ListAsync().ConfigureAwait(false)).Single(e => e.MissionId == run.Mission.Id);
+                MergeEntry? processed = await s.MergeQueue.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                AssertNotNull(processed, "processed");
+                AssertEqual(MergeStatusEnum.Landed, processed.Status, processed.TestOutput);
+                AssertTrue(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "landed.txt").ConfigureAwait(false), "pushed to the origin's main");
+                AssertFalse(Directory.Exists(Path.Combine(git.AdmiralData, "repos")), "no Admiral-side clone was used");
+            }));
+
+            cases.Add(CaseAsync("merge_queue_names_disconnected_harbor", "A merge queue entry whose branch is on a Harbor that is not connected fails with a reason naming the Harbor and what to do", TestTags.Negative, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                LandingRun run;
+                using (InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_queue_gone").ConfigureAwait(false))
+                {
+                    run = await s.RunLandingAsync("hbr_queue_gone", LandingModeEnum.MergeQueue).ConfigureAwait(false);
+                }
+
+                MergeEntry entry = (await s.MergeQueue.ListAsync().ConfigureAwait(false)).Single(e => e.MissionId == run.Mission.Id);
+                MergeEntry? processed = await s.MergeQueue.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                AssertNotNull(processed, "processed");
+                AssertEqual(MergeStatusEnum.Failed, processed.Status);
+                AssertContains("not connected", processed.TestOutput ?? "");
+                AssertContains("retry", processed.TestOutput ?? "");
             }));
 
             cases.Add(CaseAsync("local_merge_refuses_dirty_checkout", "LocalMerge into a Harbor checkout with uncommitted changes is refused and the changes are kept", TestTags.Negative, async () =>
@@ -343,6 +377,8 @@ namespace Test.Shared.Suites.Services
 
             public MissionLandingHandler Landing { get; }
 
+            public MergeQueueService MergeQueue { get; }
+
             public CommittingHarborJobRunner Runner { get; } = new CommittingHarborJobRunner();
 
             public FakeGhHostCommandExecutor Gh { get; } = new FakeGhHostCommandExecutor();
@@ -373,7 +409,8 @@ namespace Test.Shared.Suites.Services
                     (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
                 Handler.SetHarborConnections(Manager);
 
-                Landing = new MissionLandingHandler(Logging, db.Driver, Settings, gitService, new MergeQueueService(Logging, db.Driver, Settings, gitService),
+                MergeQueue = new MergeQueueService(Logging, db.Driver, Settings, gitService) { DockHosts = hosts };
+                Landing = new MissionLandingHandler(Logging, db.Driver, Settings, gitService, MergeQueue,
                     new MessageTemplateService(Logging), null, Docks, null) { DockHosts = hosts };
 
                 Missions.ResolveDockPlacementAsync = Handler.ResolveDockPlacementAsync;

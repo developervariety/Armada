@@ -18,6 +18,16 @@ namespace Armada.Core.Services
     /// </summary>
     public class MergeQueueService : IMergeQueueService
     {
+        #region Public-Members
+
+        /// <summary>
+        /// Where docks live. An entry whose mission ran in a Harbor dock is processed on that Harbor, in the repository
+        /// that holds its branch. Without it every entry is processed in the Admiral's own clone of the vessel.
+        /// </summary>
+        public DockHostResolver? DockHosts { get; set; } = null;
+
+        #endregion
+
         #region Private-Members
 
         private string _Header = "[MergeQueue] ";
@@ -228,13 +238,24 @@ namespace Armada.Core.Services
             // Clean up git branches associated with this entry
             if (!String.IsNullOrEmpty(entry.BranchName))
             {
-                string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
-                if (!String.IsNullOrEmpty(repoPath))
+                MergeQueueHost? host = null;
+                try
                 {
+                    host = await ResolveHostAsync(entry, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Debug(_Header + "branch cleanup for " + entry.Id + " skipped: " + ex.Message);
+                }
+
+                if (host != null)
+                {
+                    string repoPath = host.RepoPath;
+
                     // Delete remote branch
                     try
                     {
-                        await RunGitAsync(repoPath, token, "push", "origin", "--delete", entry.BranchName).ConfigureAwait(false);
+                        await RunGitAsync(host, repoPath, token, "push", "origin", "--delete", entry.BranchName).ConfigureAwait(false);
                         _Logging.Debug(_Header + "deleted remote branch " + entry.BranchName);
                     }
                     catch (Exception ex)
@@ -245,7 +266,7 @@ namespace Armada.Core.Services
                     // Delete local branch
                     try
                     {
-                        await _Git.DeleteLocalBranchAsync(repoPath, entry.BranchName, token).ConfigureAwait(false);
+                        await RunGitAsync(host, repoPath, token, "branch", "-D", entry.BranchName).ConfigureAwait(false);
                         _Logging.Debug(_Header + "deleted local branch " + entry.BranchName);
                     }
                     catch (Exception ex)
@@ -379,27 +400,13 @@ namespace Armada.Core.Services
             if (entries.Count == 0) return;
 
             MergeEntry first = entries[0];
-            string? repoPath = await GetRepoPathAsync(first, token).ConfigureAwait(false);
-
-            if (repoPath == null)
-            {
-                _Logging.Warn(_Header + "unable to resolve repo path for vessel " + first.VesselId + " -- failing all entries");
-                foreach (MergeEntry entry in entries)
-                {
-                    entry.Status = MergeStatusEnum.Failed;
-                    entry.TestOutput = "Unable to resolve repository path for vessel " + first.VesselId;
-                    entry.CompletedUtc = DateTime.UtcNow;
-                    entry.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
-                }
-                return;
-            }
-
             _Logging.Debug(_Header + "processing " + entries.Count + " entries for " + first.TargetBranch + " on vessel " + (first.VesselId ?? "default"));
 
+            // Each entry resolves its own host: a vessel's queue can hold entries from missions that ran on this machine
+            // and on different Harbors.
             foreach (MergeEntry entry in entries)
             {
-                await ProcessEntryAsync(entry, repoPath, token).ConfigureAwait(false);
+                await ProcessEntryAsync(entry, token).ConfigureAwait(false);
             }
         }
 
@@ -410,25 +417,42 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task ProcessEntryAsync(MergeEntry entry, CancellationToken token)
         {
-            string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
-            if (repoPath == null)
+            MergeQueueHost? host;
+            try
             {
-                entry.Status = MergeStatusEnum.Failed;
-                entry.TestOutput = "Unable to resolve repository path for vessel " + entry.VesselId;
-                entry.CompletedUtc = DateTime.UtcNow;
-                entry.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                host = await ResolveHostAsync(entry, token).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                await FailUnprocessedAsync(entry, ex.Message, token).ConfigureAwait(false);
                 return;
             }
 
-            await ProcessEntryAsync(entry, repoPath, token).ConfigureAwait(false);
+            if (host == null)
+            {
+                await FailUnprocessedAsync(entry, "Unable to resolve repository path for vessel " + entry.VesselId, token).ConfigureAwait(false);
+                return;
+            }
+
+            await ProcessEntryAsync(entry, host, token).ConfigureAwait(false);
+        }
+
+        private async Task FailUnprocessedAsync(MergeEntry entry, string reason, CancellationToken token)
+        {
+            _Logging.Warn(_Header + "cannot process " + entry.Id + ": " + reason);
+            entry.Status = MergeStatusEnum.Failed;
+            entry.TestOutput = reason;
+            entry.CompletedUtc = DateTime.UtcNow;
+            entry.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
         }
 
         /// <summary>
         /// Core single-entry processing with a known repo path.
         /// </summary>
-        private async Task ProcessEntryAsync(MergeEntry entry, string repoPath, CancellationToken token)
+        private async Task ProcessEntryAsync(MergeEntry entry, MergeQueueHost host, CancellationToken token)
         {
+            string repoPath = host.RepoPath;
             string entryTag = entry.Id + " branch " + entry.BranchName;
             _Logging.Debug(_Header + "processing " + entryTag);
 
@@ -442,18 +466,28 @@ namespace Armada.Core.Services
             // attempted against the current state of the target branch.
             string worktreeId = "mq_" + entry.Id + "_" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
             string integrationBranch = "armada/merge-queue/" + worktreeId;
-            string integrationPath = Path.Combine(_Settings.DocksDirectory, "_merge-queue", worktreeId);
+            string integrationPath = host.IntegrationPath(worktreeId);
 
             try
             {
-                // Fetch latest so the target branch ref is up to date
-                await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+                if (host.IsHarbor)
+                {
+                    // The Harbor's repository is often the user's own checkout: leave its branches alone and build the
+                    // integration worktree straight from the remote's target branch.
+                    await RunGitAsync(host, repoPath, token, "fetch", "origin").ConfigureAwait(false);
+                    await RunGitAsync(host, repoPath, token, "worktree", "add", "-b", integrationBranch, integrationPath, "origin/" + entry.TargetBranch).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Fetch latest so the target branch ref is up to date
+                    await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
 
-                // Create a temporary worktree from the current target branch
-                await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
+                    // Create a temporary worktree from the current target branch
+                    await _Git.CreateWorktreeAsync(repoPath, integrationPath, integrationBranch, entry.TargetBranch, token).ConfigureAwait(false);
+                }
 
                 // Merge the entry's branch
-                bool mergeOk = await MergeBranchAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
+                bool mergeOk = await MergeBranchAsync(host, integrationPath, entry.BranchName, token).ConfigureAwait(false);
                 if (!mergeOk)
                 {
                     _Logging.Warn(_Header + "merge conflict for " + entryTag);
@@ -462,7 +496,7 @@ namespace Armada.Core.Services
                     entry.CompletedUtc = DateTime.UtcNow;
                     entry.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
-                    await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(host, repoPath, integrationPath, integrationBranch, token).ConfigureAwait(false);
                     await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed,
                         "Merge queue entry " + entry.Id + ": merge conflict with " + entry.TargetBranch, token, entry.TenantId).ConfigureAwait(false);
                     return;
@@ -483,7 +517,7 @@ namespace Armada.Core.Services
                         EntityType = "MergeEntry",
                         EntityId = entry.Id
                     }, _Logging, token).ConfigureAwait(false);
-                    TestResult testResult = await RunTestsAsync(integrationPath, testCommand, token).ConfigureAwait(false);
+                    TestResult testResult = await RunTestsAsync(host, integrationPath, testCommand, token).ConfigureAwait(false);
                     if (testResult.ExitCode != 0)
                     {
                         _Logging.Warn(_Header + "tests FAILED for " + entryTag + " (exit " + testResult.ExitCode + ")");
@@ -493,7 +527,7 @@ namespace Armada.Core.Services
                         entry.CompletedUtc = DateTime.UtcNow;
                         entry.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
-                        await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                        await CleanupWorktreeAsync(host, repoPath, integrationPath, integrationBranch, token).ConfigureAwait(false);
                         await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed,
                             "Merge queue entry " + entry.Id + ": tests failed (exit " + testResult.ExitCode + ")", token, entry.TenantId).ConfigureAwait(false);
                         return;
@@ -503,10 +537,10 @@ namespace Armada.Core.Services
                 }
 
                 // Land immediately -- push the integration branch to update the target
-                await LandEntryAsync(entry, repoPath, integrationBranch, token).ConfigureAwait(false);
+                await LandEntryAsync(entry, host, integrationBranch, token).ConfigureAwait(false);
 
                 // Cleanup
-                await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                await CleanupWorktreeAsync(host, repoPath, integrationPath, integrationBranch, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -518,7 +552,7 @@ namespace Armada.Core.Services
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
 
                 // Best-effort cleanup
-                await CleanupWorktreeAsync(integrationPath, token).ConfigureAwait(false);
+                await CleanupWorktreeAsync(host, repoPath, integrationPath, integrationBranch, token).ConfigureAwait(false);
                 await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed,
                     "Merge queue entry " + entry.Id + ": " + ex.Message, token, entry.TenantId).ConfigureAwait(false);
             }
@@ -527,11 +561,11 @@ namespace Armada.Core.Services
         /// <summary>
         /// Land a single entry by pushing the integration branch to the target.
         /// </summary>
-        private async Task LandEntryAsync(MergeEntry entry, string repoPath, string integrationBranch, CancellationToken token)
+        private async Task LandEntryAsync(MergeEntry entry, MergeQueueHost host, string integrationBranch, CancellationToken token)
         {
             try
             {
-                await RunGitAsync(repoPath, token, "push", "origin", integrationBranch + ":" + entry.TargetBranch).ConfigureAwait(false);
+                await RunGitAsync(host, host.RepoPath, token, "push", "origin", integrationBranch + ":" + entry.TargetBranch).ConfigureAwait(false);
 
                 entry.Status = MergeStatusEnum.Landed;
                 entry.CompletedUtc = DateTime.UtcNow;
@@ -600,24 +634,62 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<bool> MergeBranchAsync(string worktreePath, string branchName, CancellationToken token)
+        private async Task<bool> MergeBranchAsync(MergeQueueHost host, string worktreePath, string branchName, CancellationToken token)
         {
             try
             {
-                await RunGitAsync(worktreePath, token, "merge", "--no-ff", branchName).ConfigureAwait(false);
+                await RunGitAsync(host, worktreePath, token, "merge", "--no-ff", branchName).ConfigureAwait(false);
                 return true;
+            }
+            catch (TimeoutException)
+            {
+                throw;
+            }
+            catch (InvalidOperationException ex) when (host.IsHarbor && ex.Message.Contains("not something we can merge", StringComparison.OrdinalIgnoreCase))
+            {
+                // The branch was pushed and then removed locally: merge the pushed copy.
+                try
+                {
+                    await RunGitAsync(host, worktreePath, token, "merge", "--no-ff", "origin/" + branchName).ConfigureAwait(false);
+                    return true;
+                }
+                catch
+                {
+                    try { await RunGitAsync(host, worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
+                    catch { }
+                    return false;
+                }
             }
             catch
             {
                 // Abort the failed merge
-                try { await RunGitAsync(worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
+                try { await RunGitAsync(host, worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
                 catch { }
                 return false;
             }
         }
 
-        private async Task<TestResult> RunTestsAsync(string workingDir, string testCommand, CancellationToken token)
+        private async Task<TestResult> RunTestsAsync(MergeQueueHost host, string workingDir, string testCommand, CancellationToken token)
         {
+            if (host.IsHarbor)
+            {
+                _Logging.Debug(_Header + "running tests on Harbor " + host.HarborId + ": " + testCommand + " in " + workingDir);
+                HostCommandResult hostResult = await host.Commands!.RunAsync(new HostCommandRequest
+                {
+                    Executable = host.IsWindows ? "cmd.exe" : "/bin/sh",
+                    WorkingDirectory = workingDir,
+                    Arguments = host.IsWindows ? new List<string> { "/c", testCommand } : new List<string> { "-lc", testCommand },
+                    TimeoutMs = (int)_OperationTimeout.TotalMilliseconds,
+                    Kind = HostCommandKindEnum.CheckRun,
+                    Label = "Merge queue tests"
+                }, token).ConfigureAwait(false);
+                if (hostResult.TimedOut)
+                    throw new TimeoutException("merge-queue test run '" + testCommand + "' timed out after " + _OperationTimeout.TotalSeconds.ToString("0") + "s on Harbor " + host.HarborId);
+                string hostOutput = hostResult.StandardOutput;
+                if (!String.IsNullOrEmpty(hostResult.StandardError)) hostOutput += "\n--- STDERR ---\n" + hostResult.StandardError;
+                return new TestResult(hostResult.ExitCode, hostOutput);
+            }
+
             _Logging.Debug(_Header + "running tests: " + testCommand + " in " + workingDir);
 
             ProcessStartInfo startInfo = new ProcessStartInfo
@@ -659,6 +731,29 @@ namespace Armada.Core.Services
                     }
                 }
             }
+        }
+
+        private async Task RunGitAsync(MergeQueueHost host, string workingDir, CancellationToken token, params string[] args)
+        {
+            if (!host.IsHarbor)
+            {
+                await RunGitAsync(workingDir, token, args).ConfigureAwait(false);
+                return;
+            }
+
+            HostCommandResult result = await host.Commands!.RunAsync(new HostCommandRequest
+            {
+                Executable = "git",
+                WorkingDirectory = workingDir,
+                Arguments = new List<string>(args),
+                TimeoutMs = (int)_OperationTimeout.TotalMilliseconds,
+                Label = "Merge queue: git " + (args.Length > 0 ? args[0] : "")
+            }, token).ConfigureAwait(false);
+            string display = String.Join(" ", args);
+            if (result.TimedOut)
+                throw new TimeoutException("git " + display + " timed out after " + _OperationTimeout.TotalSeconds.ToString("0") + "s on Harbor " + host.HarborId);
+            if (result.ExitCode != 0)
+                throw new InvalidOperationException("git " + display + " failed on Harbor " + host.HarborId + ": " + (result.StandardError ?? "").Trim());
         }
 
         private async Task RunGitAsync(string workingDir, CancellationToken token, params string[] args)
@@ -708,16 +803,84 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task CleanupWorktreeAsync(string worktreePath, CancellationToken token)
+        private async Task CleanupWorktreeAsync(MergeQueueHost host, string repoPath, string worktreePath, string integrationBranch, CancellationToken token)
         {
+            if (!host.IsHarbor)
+            {
+                try
+                {
+                    await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "cleanup error for " + worktreePath + ": " + ex.ToString());
+                }
+
+                return;
+            }
+
             try
             {
-                await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+                await RunGitAsync(host, repoPath, token, "worktree", "remove", "--force", worktreePath).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "cleanup error for " + worktreePath + ": " + ex.ToString());
+                _Logging.Warn(_Header + "cleanup error for " + worktreePath + " on Harbor " + host.HarborId + ": " + ex.Message);
             }
+
+            try
+            {
+                await RunGitAsync(host, repoPath, token, "branch", "-D", integrationBranch).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "integration branch " + integrationBranch + " not deleted on Harbor " + host.HarborId + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Where an entry is processed: the Harbor whose dock produced the mission branch, else the Admiral's clone.
+        /// Null when the vessel cannot be found.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">Thrown when the branch is on a Harbor that is not connected, or
+        /// the Admiral has no clone of the vessel.</exception>
+        private async Task<MergeQueueHost?> ResolveHostAsync(MergeEntry entry, CancellationToken token)
+        {
+            Dock? dock = await MissionDockAsync(entry, token).ConfigureAwait(false);
+            if (dock != null && DockHosts != null && DockHostResolver.IsHarborDock(dock))
+            {
+                string harborId = dock.HarborId!;
+                Harbor? harbor = await _Database.Harbors.ReadAsync(harborId, token).ConfigureAwait(false);
+                string harborName = harbor?.Name ?? harborId;
+                if (DockHosts.Harbors == null || !DockHosts.Harbors.IsConnected(harborId))
+                    throw new InvalidOperationException("Branch " + entry.BranchName + " is in Harbor " + harborName + "'s repository " + dock.RepositoryPath
+                        + ", and that Harbor is not connected. Start Harbor on that computer and connect it, then retry this entry.");
+
+                DockHost dockHost = DockHosts.ForDock(dock);
+                string worktreePath = dock.WorktreePath ?? dock.RepositoryPath!;
+                int cut = Math.Max(worktreePath.LastIndexOf('/'), worktreePath.LastIndexOf('\\'));
+                string integrationRoot = cut > 0 ? worktreePath.Substring(0, cut) : dock.RepositoryPath!;
+                bool windows = FleetActionShellCommandBuilder.IsWindowsPlatform(harbor?.OsPlatform);
+                return new MergeQueueHost(dock.RepositoryPath!, integrationRoot, harborId, dockHost.Commands, windows);
+            }
+
+            string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
+            if (repoPath == null) return null;
+            if (!Directory.Exists(repoPath))
+                throw new InvalidOperationException("The Admiral has no clone of this vessel at " + repoPath
+                    + " (missions on it ran elsewhere, or none has run on this server yet), so the merge queue cannot process branch "
+                    + entry.BranchName + " here.");
+            return new MergeQueueHost(repoPath, Path.Combine(_Settings.DocksDirectory, "_merge-queue"), null, null, OperatingSystem.IsWindows());
+        }
+
+        private async Task<Dock?> MissionDockAsync(MergeEntry entry, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(entry.MissionId)) return null;
+            Mission? mission = !String.IsNullOrEmpty(entry.TenantId)
+                ? await _Database.Missions.ReadAsync(entry.TenantId, entry.MissionId, token).ConfigureAwait(false)
+                : await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+            if (mission == null || String.IsNullOrEmpty(mission.DockId)) return null;
+            return await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
         }
 
         private async Task<string?> GetRepoPathAsync(MergeEntry entry, CancellationToken token)

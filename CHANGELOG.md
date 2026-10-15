@@ -10,6 +10,10 @@ All notable changes to Armada are documented in this file.
 
 ## v1.1.0 (2026-10-15)
 
+### Merge queue works for missions that ran on a Harbor
+- A merge queue entry from a mission that ran on a Harbor failed with "An error occurred trying to start process '/usr/bin/git' with working directory '/app/data/repos/<vessel>.git'", because the queue always worked in the Admiral's own clone, which a central server does not have when the work happens on your computer. The entry is now processed on that Harbor, in the repository that holds the branch. The queue builds a temporary integration worktree from `origin/<target>` (your checkout's branches are left alone), merges, runs the test command there, and pushes to the origin.
+- If that Harbor is not connected, the entry fails with a reason naming the Harbor and saying to reconnect and retry. An entry for a vessel the Admiral has no clone of now says so, instead of the raw process error.
+
 ### Playbooks are delivered by reference by default
 - A playbook added in Dispatch, voyage creation, planning, backlog, or objectives now defaults to "Instruction With Reference" instead of "Inline Full Content": the captain is told to read the playbook file rather than having its full text pasted into every mission's instructions. You can still pick inline per playbook. This applies to the dashboard, the TUI, the mobile app, `armada voyage create`, and REST/MCP selections that leave `DeliveryMode` out. On a Harbor the playbook is attached into the dock, as before.
 

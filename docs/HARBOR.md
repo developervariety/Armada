@@ -402,8 +402,11 @@ merges the mission branch into it, **MergeAndPush** then pushes it, and **PullRe
 from the dock. As with a working directory on the Admiral, a merge into a checkout with uncommitted changes is refused
 (the mission becomes `LandingFailed` and the branch is kept). A vessel served from the Harbor's own clone has no
 checkout to merge into, so LocalMerge and MergeAndPush leave the work on the branch (`WorkProduced`); use PullRequest
-landing or map the vessel to a checkout. MergeQueue landing still runs on the Admiral and does not see Harbor-side
-branches.
+landing or map the vessel to a checkout. **MergeQueue** landing processes the entry on the same Harbor: in the
+repository that holds the branch, the queue fetches the origin, creates a temporary integration worktree from
+`origin/<target>` next to the dock (your checkout's own branches are not touched), merges the mission branch, runs the
+merge queue test command there, and pushes the result to the target branch on the origin. While that Harbor is not
+connected the entry fails with a reason naming it; reconnect the Harbor and retry the entry.
 
 If no connected eligible Harbor can serve the vessel, the earlier behavior applies: with `requireHarborForLaunch` on the
 mission waits (Pending) and the Admiral logs why, for example "Harbor Mac (hbr_...) cannot serve vessel app: it has no
@@ -475,7 +478,8 @@ the vessel (the captain then runs in that dock there), or on the Admiral host. W
 Harbor able to serve the vessel, the session or build fails at once with the reason instead of starting without the
 code.
 
-What stays on the Admiral: the merge queue (it tests and merges in the Admiral's own clone), fleet actions (they run on
+What stays on the Admiral: merge queue entries from missions that ran on the Admiral (they are tested and merged in the
+Admiral's own clone), fleet actions (they run on
 the vessel's preferred Harbor in the working directory as configured), objective refinement sessions (they run in a
 scratch directory when the working directory is not on the captain's host), and workflow inputs (environment variables
 and files a workflow profile requires are checked on the Admiral, where secrets are resolved). A Harbor from before
