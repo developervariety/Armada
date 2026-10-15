@@ -1674,18 +1674,14 @@ namespace Armada.Server
             if (active.Any(item => (item.RecoveryNotes ?? String.Empty).Contains(reason, StringComparison.Ordinal)))
                 return;
 
-            RecoveryDecision blocked = RecoveryDecision.Blocked(reason);
-            Incident incident = await EnsureIncidentAsync(auth, mission, blocked, token).ConfigureAwait(false);
-            await LinkIncidentToOwningObjectivesAsync(auth, mission, incident, token).ConfigureAwait(false);
-
-            string note = "Autonomous rescue deferred: " + reason + ". No rescue mission was created and no recovery attempt was spent. "
+            string guidance = "No rescue mission was created and no recovery attempt was spent. "
                 + "Recovery sweeps can retry while the original failure remains inside the configured lookback. "
                 + "After that window, an operator must dispatch a new voyage or rescue from the objective and preserved work. "
                 + "This is an execution-resource deferral, not a dispatch hold.";
-            await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
-            {
-                RecoveryNotes = AppendNote(incident.RecoveryNotes, note)
-            }, token).ConfigureAwait(false);
+            RecoveryDecision blocked = RecoveryDecision.Blocked(reason + ". " + guidance);
+            Incident incident = await EnsureIncidentAsync(auth, mission, blocked, token).ConfigureAwait(false);
+            await LinkIncidentToOwningObjectivesAsync(auth, mission, incident, token).ConfigureAwait(false);
+
             await EmitEventAsync(
                 "autonomous_recovery.rescue_deferred_execution_unavailable",
                 "Autonomous rescue for failed mission " + mission.Id + " was deferred: " + reason + ". No rescue was created and no recovery attempt was spent.",
