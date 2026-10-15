@@ -34,11 +34,28 @@ export const CAPTAIN_RUNTIMES: { value: string; label: string }[] = [
 ];
 
 /** English tooltip for the captain Model field (translate with t()); what the value means depends on the runtime. */
-export const CAPTAIN_MODEL_TOOLTIP = 'Optional AI model identifier. Leave blank to let the runtime choose its default model.';
+export const CAPTAIN_MODEL_TOOLTIP = 'Optional model name passed to the runtime, for example sonnet or gpt-5.4-mini. Leave blank to use the runtime\'s default model. Also used to guess the tier when Tier is Auto.';
 /** Mux: the model is a --model override, not the endpoint name (that is the Mux Endpoint field). */
-export const CAPTAIN_MODEL_TOOLTIP_MUX = 'Optional model name passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). This is not the mux endpoint name: choose the endpoint in the Mux Endpoint field. Leave blank to use the endpoint\'s own model.';
+export const CAPTAIN_MODEL_TOOLTIP_MUX = 'Optional model passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). Put the endpoint name in Mux Endpoint, not here. Blank uses the endpoint\'s model.';
 /** API endpoint captains: the model overrides the one configured on the selected inference endpoint. */
-export const CAPTAIN_MODEL_TOOLTIP_API_ENDPOINT = 'Optional model name that overrides the model configured on the selected inference endpoint. Choose the endpoint itself in the Inference Endpoint field. Leave blank to use the endpoint\'s model.';
+export const CAPTAIN_MODEL_TOOLTIP_API_ENDPOINT = 'Optional model name that overrides the model set on the chosen inference endpoint, for example gpt-5.4-mini. Choose the endpoint in Inference Endpoint. Blank uses the endpoint\'s model.';
+
+/** English tooltip for the captain Name field. */
+export const CAPTAIN_NAME_TOOLTIP = 'Display name for this captain, shown in lists, logs and mission assignments, for example claude-1 or codex-reviewer. Required.';
+/** English tooltip for the captain Runtime field. */
+export const CAPTAIN_RUNTIME_TOOLTIP = 'The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.';
+/** English tooltip for the captain Inference Endpoint field (API endpoint captains). */
+export const CAPTAIN_INFERENCE_ENDPOINT_TOOLTIP = 'Required for API Endpoint captains: the inference endpoint (provider, URL and model) this captain sends its requests to. Add or edit endpoints under Configuration > Endpoints.';
+/** English tooltip for the captain Reasoning effort field. */
+export const CAPTAIN_REASONING_EFFORT_TOOLTIP = 'How much the model reasons before answering, mapped to the runtime\'s own control (Claude Code thinking budget, Codex reasoning effort, Mux --effort). Higher is slower and costs more. Runtime default sends nothing.';
+/** English tooltip for the captain Capability tier field. */
+export const CAPTAIN_TIER_TOOLTIP = 'Cost and capability class dispatch uses to match missions to captains: Economy for routine work, Standard for general work, Premium for complex work. Auto guesses it from the model name (Standard if unknown).';
+/** English tooltip for the captain auto-approve switch. */
+export const CAPTAIN_AUTO_APPROVE_TOOLTIP = 'On: the CLI runs with its permission-bypass flag, so its shell commands and edits run without asking. Off: it runs in its safer mode and commands that need approval are refused.';
+/** English tooltip for the captain CLI tool permissions field. */
+export const CAPTAIN_CLI_POLICY_TOOLTIP = 'How this captain\'s own shell, web and file tools are allowed: Refuse, Approve in Armada (a person approves each request), Bypass (admins only), or Inherit the auto-approve switch and server default.';
+/** English tooltip for the captain System Instructions field. */
+export const CAPTAIN_SYSTEM_INSTRUCTIONS_TOOLTIP = 'Optional text added to every mission prompt this captain gets, before the vessel context and mission details. Use it to specialize behavior or add guardrails. Blank adds nothing.';
 
 /** English tooltip for the Model field for a runtime. */
 export function captainModelTooltip(runtime: string | null | undefined): string {

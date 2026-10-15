@@ -194,15 +194,15 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
 
   const footer = step === 'configure' ? (
     <>
-      <button type="button" className="btn" onClick={onClose}>{t('Cancel')}</button>
-      <button type="button" className="btn btn-primary" onClick={goToConfirm} disabled={actionsLoading && mode === 'saved'}>
+      <button type="button" className="btn" onClick={onClose} title={t('Close without running anything.')}>{t('Cancel')}</button>
+      <button type="button" className="btn btn-primary" onClick={goToConfirm} disabled={actionsLoading && mode === 'saved'} title={t('Check the inputs and show a summary to confirm. Nothing runs yet.')}>
         {t('Review and run')}
       </button>
     </>
   ) : (
     <>
-      <button type="button" className="btn" onClick={() => setStep('configure')} disabled={submitting}>{t('Back')}</button>
-      <button type="button" className={`btn ${effectiveKind === 'Command' ? 'btn-danger' : 'btn-primary'}`} onClick={() => void start()} disabled={submitting}>
+      <button type="button" className="btn" onClick={() => setStep('configure')} disabled={submitting} title={t('Return to the options to change them.')}>{t('Back')}</button>
+      <button type="button" className={`btn ${effectiveKind === 'Command' ? 'btn-danger' : 'btn-primary'}`} onClick={() => void start()} disabled={submitting} title={effectiveKind === 'Command' ? t('Start the run now. The command executes in each vessel checkout and cannot be undone; you can cancel the run to stop pending vessels.') : t('Start the run now. Captain voyages are dispatched per vessel; you can cancel the run later.')}>
         {submitting ? t('Starting...') : t('{count, plural, one {Run on # vessel} other {Run on # vessels}}', { count })}
       </button>
     </>
@@ -224,11 +224,11 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
       {step === 'configure' && (
         <>
           <div className="segmented" role="radiogroup" aria-label={t('Action source')}>
-            <label className={`segmented-option${mode === 'saved' ? ' active' : ''}`}>
+            <label className={`segmented-option${mode === 'saved' ? ' active' : ''}`} title={t('Run one of the saved fleet actions.')}>
               <input type="radio" name="run-mode" checked={mode === 'saved'} onChange={() => setMode('saved')} />
               <span>{t('Saved action')}</span>
             </label>
-            <label className={`segmented-option${mode === 'adhoc' ? ' active' : ''}`}>
+            <label className={`segmented-option${mode === 'adhoc' ? ' active' : ''}`} title={t('Type a one-off command or prompt for this run only. It is not saved as an action.')}>
               <input type="radio" name="run-mode" checked={mode === 'adhoc'} onChange={() => setMode('adhoc')} />
               <span>{t('Ad hoc')}</span>
             </label>
@@ -242,8 +242,9 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
                 </div>
               )}
               <label className="form-field">
-                <span className="form-label">{t('Action')}</span>
+                <span className="form-label" title={t('The saved action to run on the selected vessels.')}>{t('Action')}</span>
                 <select
+                  title={t('The saved action to run on the selected vessels.')}
                   value={selectedActionId}
                   onChange={(e) => setSelectedActionId(e.target.value)}
                   disabled={actionsLoading}
@@ -263,10 +264,10 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
                     <CodeStatusBadge label={t(KIND_LABELS[selectedAction.kind])} tone={selectedAction.kind === 'Command' ? 'warning' : 'info'} icon={selectedAction.kind === 'Command' ? 'alert' : 'info'} title={t(KIND_DESCRIPTIONS[selectedAction.kind])} />
                     {selectedAction.description && <span className="text-dim">{selectedAction.description}</span>}
                   </div>
-                  <pre className="code-block" data-i18n-skip="true">{bodyText}</pre>
+                  <pre className="code-block" data-i18n-skip="true" title={t('The command or prompt this action runs, before template variables are filled in.')}>{bodyText}</pre>
                   {selectedAction.kind === 'Command' && (
-                    <label className="checkbox-row">
-                      <input type="checkbox" checked={effectiveCleanTree} onChange={(e) => setCleanTreeOverride(e.target.checked)} />
+                    <label className="checkbox-row" title={t('When on, any vessel whose checkout has uncommitted or untracked changes is skipped, so the command never touches unsaved work.')}>
+                      <input type="checkbox" title={t('When on, any vessel whose checkout has uncommitted or untracked changes is skipped, so the command never touches unsaved work.')} checked={effectiveCleanTree} onChange={(e) => setCleanTreeOverride(e.target.checked)} />
                       <span>{t('Skip vessels with uncommitted changes (clean-tree check)')}</span>
                     </label>
                   )}
@@ -278,8 +279,8 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
           {mode === 'adhoc' && (
             <div className="form-stack">
               <label className="form-field">
-                <span className="form-label">{t('Name')}</span>
-                <input value={adHoc.name} onChange={(e) => setAdHoc({ ...adHoc, name: e.target.value })} maxLength={200} placeholder={t('e.g. Show git status')} aria-invalid={Boolean(showError('name'))} />
+                <span className="form-label" title={t('Label for this run in the Runs list, for example Show git status.')}>{t('Name')}</span>
+                <input title={t('Label for this run in the Runs list, for example Show git status.')} value={adHoc.name} onChange={(e) => setAdHoc({ ...adHoc, name: e.target.value })} maxLength={200} placeholder={t('e.g. Show git status')} aria-invalid={Boolean(showError('name'))} />
                 {showError('name') && <span className="field-error">{t(errors.name)}</span>}
               </label>
               <div className="segmented" role="radiogroup" aria-label={t('Kind')}>
@@ -293,18 +294,18 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
               <p className="text-dim form-help">{t(KIND_DESCRIPTIONS[adHoc.kind])}</p>
               {adHoc.kind === 'Command' ? (
                 <label className="form-field">
-                  <span className="form-label">{t('Command text')}</span>
-                  <textarea className="mono" rows={4} value={adHoc.commandText} onChange={(e) => setAdHoc({ ...adHoc, commandText: e.target.value })} placeholder="git status -sb" spellCheck={false} aria-invalid={Boolean(showError('body'))} />
+                  <span className="form-label" title={t('Shell command run in each vessel working directory, for example git status -sb. Template variables such as {{vessel.name}} are filled in per vessel.')}>{t('Command text')}</span>
+                  <textarea title={t('Shell command run in each vessel working directory, for example git status -sb. Template variables such as {{vessel.name}} are filled in per vessel.')} className="mono" rows={4} value={adHoc.commandText} onChange={(e) => setAdHoc({ ...adHoc, commandText: e.target.value })} placeholder="git status -sb" spellCheck={false} aria-invalid={Boolean(showError('body'))} />
                 </label>
               ) : (
                 <>
                   <label className="form-field">
-                    <span className="form-label">{t('Prompt template')}</span>
-                    <textarea rows={6} value={adHoc.promptTemplate} onChange={(e) => setAdHoc({ ...adHoc, promptTemplate: e.target.value })} aria-invalid={Boolean(showError('body'))} />
+                    <span className="form-label" title={t('Instructions for the captain, used as the mission description for each vessel. Template variables are filled in per vessel.')}>{t('Prompt template')}</span>
+                    <textarea title={t('Instructions for the captain, used as the mission description for each vessel. Template variables are filled in per vessel.')} rows={6} value={adHoc.promptTemplate} onChange={(e) => setAdHoc({ ...adHoc, promptTemplate: e.target.value })} aria-invalid={Boolean(showError('body'))} />
                   </label>
                   <label className="form-field">
-                    <span className="form-label">{t('Pipeline')}</span>
-                    <select value={adHoc.pipelineId} onChange={(e) => setAdHoc({ ...adHoc, pipelineId: e.target.value })}>
+                    <span className="form-label" title={t('Pipeline the voyages run through. Vessel default uses the vessel or fleet default pipeline.')}>{t('Pipeline')}</span>
+                    <select title={t('Pipeline the voyages run through. Vessel default uses the vessel or fleet default pipeline.')} value={adHoc.pipelineId} onChange={(e) => setAdHoc({ ...adHoc, pipelineId: e.target.value })}>
                       <option value="">{t('Vessel default')}</option>
                       {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
@@ -318,12 +319,12 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
               {adHoc.kind === 'Command' && (
                 <div className="form-grid-2">
                   <label className="form-field">
-                    <span className="form-label">{t('Timeout (seconds)')}</span>
-                    <input type="number" min={5} max={7200} value={adHoc.timeoutSeconds} onChange={(e) => setAdHoc({ ...adHoc, timeoutSeconds: e.target.value })} aria-invalid={Boolean(showError('timeout'))} />
+                    <span className="form-label" title={t('Seconds the command may run on one vessel before it is killed and marked Timed out (5-7200).')}>{t('Timeout (seconds)')}</span>
+                    <input title={t('Seconds the command may run on one vessel before it is killed and marked Timed out (5-7200).')} type="number" min={5} max={7200} value={adHoc.timeoutSeconds} onChange={(e) => setAdHoc({ ...adHoc, timeoutSeconds: e.target.value })} aria-invalid={Boolean(showError('timeout'))} />
                     {showError('timeout') && <span className="field-error">{t(errors.timeout)}</span>}
                   </label>
-                  <label className="checkbox-row form-checkbox-aligned">
-                    <input type="checkbox" checked={adHoc.requiresCleanWorkingTree} onChange={(e) => setAdHoc({ ...adHoc, requiresCleanWorkingTree: e.target.checked })} />
+                  <label className="checkbox-row form-checkbox-aligned" title={t('When on, any vessel whose checkout has uncommitted or untracked changes is skipped, so the command never touches unsaved work.')}>
+                    <input type="checkbox" title={t('When on, any vessel whose checkout has uncommitted or untracked changes is skipped, so the command never touches unsaved work.')} checked={adHoc.requiresCleanWorkingTree} onChange={(e) => setAdHoc({ ...adHoc, requiresCleanWorkingTree: e.target.checked })} />
                     <span>{t('Skip vessels with uncommitted changes (clean-tree check)')}</span>
                   </label>
                 </div>
@@ -332,8 +333,8 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
           )}
 
           <label className="form-field run-action-concurrency">
-            <span className="form-label">{t('Concurrency')}</span>
-            <input type="number" min={1} max={32} value={concurrency} onChange={(e) => setConcurrency(e.target.value)} aria-invalid={Boolean(showError('concurrency'))} aria-describedby="run-action-concurrency-help" />
+            <span className="form-label" title={effectiveKind === 'Command' ? t('How many vessels run the command at the same time (1-32). The Admiral-wide limit also applies.') : t('How many voyages from this run may be active at once (1-32).')}>{t('Concurrency')}</span>
+            <input title={effectiveKind === 'Command' ? t('How many vessels run the command at the same time (1-32). The Admiral-wide limit also applies.') : t('How many voyages from this run may be active at once (1-32).')} type="number" min={1} max={32} value={concurrency} onChange={(e) => setConcurrency(e.target.value)} aria-invalid={Boolean(showError('concurrency'))} aria-describedby="run-action-concurrency-help" />
             <span id="run-action-concurrency-help" className="text-dim form-help">
               {effectiveKind === 'Command'
                 ? t('How many vessels run the command at the same time (1-32). The Admiral-wide limit also applies.')
@@ -343,7 +344,7 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
           </label>
 
           <div className="run-action-preview">
-            <div className="form-label">
+            <div className="form-label" title={t('The command or prompt with template variables filled in for the first selected vessel, so you can check it before running.')}>
               {previewVessel
                 ? t('Preview for {{name}}', { name: previewVessel.name })
                 : t('Preview')}
@@ -380,8 +381,8 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
           )}
           <pre className="code-block" data-i18n-skip="true">{bodyText}</pre>
           <dl className="run-action-confirm-facts">
-            <dt>{t('Vessels')}</dt><dd>{count.toLocaleString()}</dd>
-            <dt>{t('Concurrency')}</dt><dd>{concurrencyNumber.toLocaleString()}</dd>
+            <dt title={t('Number of vessels this run will act on.')}>{t('Vessels')}</dt><dd>{count.toLocaleString()}</dd>
+            <dt title={t('How many vessels are worked on at once.')}>{t('Concurrency')}</dt><dd>{concurrencyNumber.toLocaleString()}</dd>
           </dl>
         </div>
       )}

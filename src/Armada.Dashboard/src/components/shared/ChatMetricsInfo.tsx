@@ -42,7 +42,7 @@ export default function ChatMetricsInfo({ metrics, tools, rows: givenRows }: { m
         type="button"
         className="chat-metrics-info-btn"
         onClick={() => setOpen((v) => !v)}
-        title={t('Turn statistics')}
+        title={t('Show statistics for this reply: response times, token counts and speed, and how many tools it ran.')}
         aria-label={t('Turn statistics')}
         aria-expanded={open}
       >

@@ -143,13 +143,13 @@ export default function Voyages() {
 
   const columns: DataTableColumn<Voyage>[] = [
     {
-      key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Voyage title -- click to sort'),
+      key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Name of the voyage, a batch of related missions dispatched together. Click to sort.'),
       cellClassName: 'cell-title', cellTitle: (v) => v.title,
-      filter: <input type="text" className="col-filter" aria-label={t('Title')} value={table.colFilters.title ?? ''} onChange={e => table.setColFilter('title', e.target.value)} placeholder={t('Search...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Title')} title={t('Show only voyages on this page whose title contains this text. Not case sensitive.')} value={table.colFilters.title ?? ''} onChange={e => table.setColFilter('title', e.target.value)} placeholder={t('Search...')} />,
       render: (v) => <strong className="line-clamp-2">{v.title}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique voyage ID (vyg_ prefix). Use it with the REST API, MCP tools and the armada CLI.'), cellClassName: 'mono text-dim table-id-cell',
       render: (v) => (
         <span className="id-display">
           <span className="id-value" title={v.id}>{v.id}</span>
@@ -158,30 +158,30 @@ export default function Voyages() {
       ),
     },
     {
-      key: 'status', label: t('Status'), sortKey: 'status', headerTitle: t('Status -- click to sort'), cellClassName: 'cell-nowrap',
+      key: 'status', label: t('Status'), sortKey: 'status', headerTitle: t('Open while missions are being set up, InProgress while any run, then Complete, Failed (some missions failed) or Cancelled. Click to sort.'), cellClassName: 'cell-nowrap',
       clearFilter: () => table.setColFilter('status', ''),
-      filter: <input type="text" className="col-filter" aria-label={t('Status')} value={table.colFilters.status ?? ''} onChange={e => table.setColFilter('status', e.target.value)} placeholder={t('Search...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Status')} title={t('Show only voyages on this page whose status contains this text, for example InProgress.')} value={table.colFilters.status ?? ''} onChange={e => table.setColFilter('status', e.target.value)} placeholder={t('Search...')} />,
       render: (v) => <StatusBadge status={v.status} />,
     },
     {
       key: 'landingMode', label: t('Landing Mode'),
-      headerTitle: t('How the voyage\'s missions land; Default uses the vessel\'s mode, then the global setting'),
+      headerTitle: t('How this voyage\'s missions land: LocalMerge, MergeAndPush, PullRequest, MergeQueue or None. Default means each vessel\'s own mode, then the server default.'),
       cellClassName: 'text-dim cell-nowrap',
       // One line: the mode (or "Default" when inherited); the short summary and full explanation are in the tooltip.
       render: (v) => {
         const info = findLandingMode(landingModes, v.landingMode);
-        return <span className="cell-one-line" title={`${info.short} -- ${info.description}`}>{v.landingMode || t('Default')}</span>;
+        return <span className="cell-one-line" title={`${info.short}. ${info.description}`}>{v.landingMode || t('Default')}</span>;
       },
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open, view status or JSON, cancel or purge a voyage.'), fixed: true, interactive: true, className: 'text-right',
       render: (v) => (
         <ActionMenu id={`voyage-${v.id}`} items={[
-          { label: 'View Detail', onClick: () => navigate(`/voyages/${v.id}`) },
-          { label: 'View Status', onClick: () => handleViewStatus(v.id) },
-          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Voyage')}: ${v.title}`, data: v }) },
-          { label: 'Cancel', danger: true, onClick: () => handleCancel(v.id, v.title) },
-          { label: 'Purge', danger: true, onClick: () => handlePurge(v.id, v.title) },
+          { label: 'View Detail', title: 'Open the voyage page with its missions, progress and landing settings.', onClick: () => navigate(`/voyages/${v.id}`) },
+          { label: 'View Status', title: 'Show the voyage\'s progress summary from the server as raw JSON.', onClick: () => handleViewStatus(v.id) },
+          { label: 'View JSON', title: 'Show the raw voyage record as the API returns it.', onClick: () => setJsonData({ open: true, title: `${t('Voyage')}: ${v.title}`, data: v }) },
+          { label: 'Cancel', danger: true, title: 'Cancel the voyage and its pending and assigned missions. Missions already running are not stopped. The records are kept.', onClick: () => handleCancel(v.id, v.title) },
+          { label: 'Purge', danger: true, title: 'Permanently delete the voyage and all of its missions. Refused while the voyage or any mission is still active. Cannot be undone.', onClick: () => handlePurge(v.id, v.title) },
         ]} />
       ),
     },
@@ -196,11 +196,11 @@ export default function Voyages() {
           <>
             <UserScopeFilter value={userScope} onChange={(id) => { setUserScope(id); setPageNumber(1); }} />
             {table.selected.length > 0 && (
-              <button className="btn btn-sm btn-danger" onClick={handleBulkCancel}>
+              <button className="btn btn-sm btn-danger" onClick={handleBulkCancel} title={t('Cancel every selected voyage and its pending and assigned missions. You confirm first; the records are kept.')}>
                 {t('Cancel Selected')} ({table.selected.length})
               </button>
             )}
-            <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')}>+ {t('Voyage')}</button>
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')} title={t('Create a voyage: a named batch of missions for one vessel that are dispatched together.')}>+ {t('Voyage')}</button>
           </>
         )}
       />
@@ -234,14 +234,14 @@ export default function Voyages() {
         }}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle="Refresh voyage data"
+        refreshTitle="Reload the voyage list from the server now."
         selection={{
           isSelected: (v) => table.selected.includes(v.id),
           onToggle: (v) => table.toggleSelect(v.id),
           allSelected: table.allSelected,
           onToggleAll: (checked) => (checked ? table.selectAll() : table.clearSelection()),
           selectAllLabel: t('Select all voyages'),
-          rowLabel: () => t('Select this voyage'),
+          rowLabel: () => t('Select this voyage for Cancel Selected.'),
         }}
         emptyMessage={t('No voyages match the current filters.')}
         placeholder={voyages.length > 0 ? undefined : <p className="text-dim">{loading ? t('Loading...') : t('No voyages found.')}</p>}

@@ -134,7 +134,7 @@ const AskMessageList = forwardRef<AskMessageListHandle, AskMessageListProps>(fun
     <div ref={scrollRef} className="ask-transcript" onScroll={onScroll} tabIndex={0} aria-label={t('Conversation messages')}>
       {hasMore && (
         <div className="ask-load-older">
-          <button type="button" className="btn btn-sm" onClick={requestOlder} disabled={loadingOlder}>
+          <button type="button" className="btn btn-sm" onClick={requestOlder} disabled={loadingOlder} title={t('Show older messages in this conversation.')}>
             {loadingOlder ? t('Loading earlier messages...') : t('Load earlier messages')}
           </button>
         </div>
@@ -189,7 +189,7 @@ const AskMessageList = forwardRef<AskMessageListHandle, AskMessageListProps>(fun
             <div className="ask-bubble-head text-dim"><span>{captainName || t('Captain')}</span></div>
             {streaming.thinking && (
               <details className="chat-thinking" open={!streaming.finished}>
-                <summary className="text-dim">{streaming.finished ? t('Thinking') : t('Thinking…')}</summary>
+                <summary className="text-dim" title={t('Show the reasoning the captain wrote before its reply. Shown because Show thinking is on.')}>{streaming.finished ? t('Thinking') : t('Thinking…')}</summary>
                 <div className="ask-thinking-text">{streaming.thinking}</div>
               </details>
             )}

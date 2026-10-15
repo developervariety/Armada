@@ -98,12 +98,12 @@ export default function BrowseTree({ selected, onToggle, allowWorktrees }: Brows
             ) : (
               <span className="browse-tree-expand-spacer" aria-hidden="true" />
             )}
-            <label className={`browse-tree-label${disabled ? ' disabled' : ''}`} title={entry.path}>
-              <input type="checkbox" checked={checked} disabled={disabled && !checked} onChange={() => onToggle(entry.path)} />
+            <label className={`browse-tree-label${disabled ? ' disabled' : ''}`} title={t('{{path}}: check to search this folder for git repositories.', { path: entry.path })}>
+              <input title={t('{{path}}: check to search this folder for git repositories.', { path: entry.path })} type="checkbox" checked={checked} disabled={disabled && !checked} onChange={() => onToggle(entry.path)} />
               <span className="browse-tree-name" data-i18n-skip="true">{entry.name}</span>
             </label>
-            {entry.isGitRepository && <CodeStatusBadge label={t('Git repository')} tone="success" icon="check" />}
-            {entry.isWorktree && <CodeStatusBadge label={t('Worktree')} tone="warning" icon="alert" title={disabled ? t('Worktrees are excluded unless you allow them below.') : undefined} />}
+            {entry.isGitRepository && <CodeStatusBadge label={t('Git repository')} tone="success" icon="check" title={t('This folder is a git repository and can be imported as a vessel.')} />}
+            {entry.isWorktree && <CodeStatusBadge label={t('Worktree')} tone="warning" icon="alert" title={disabled ? t('This folder is a git worktree or submodule of another repository. Worktrees are excluded unless you allow them below.') : t('This folder is a git worktree or submodule of another repository.')} />}
           </div>
           {node?.expanded && (
             <ul className="browse-tree-children">
@@ -111,7 +111,7 @@ export default function BrowseTree({ selected, onToggle, allowWorktrees }: Brows
               {node.error && (
                 <li className="field-error browse-tree-empty" style={{ paddingLeft: `${(depth + 1) * 1.1 + 1.6}rem` }}>
                   {node.error}{' '}
-                  <button type="button" className="btn btn-sm" onClick={() => void loadNode(entry)}>{t('Retry')}</button>
+                  <button type="button" className="btn btn-sm" onClick={() => void loadNode(entry)} title={t('Try listing this folder again.')}>{t('Retry')}</button>
                 </li>
               )}
               {node.entries && renderEntries(node.entries, depth + 1)}
@@ -127,7 +127,7 @@ export default function BrowseTree({ selected, onToggle, allowWorktrees }: Brows
       {rootLoading && <p className="text-dim">{t('Loading allowed roots...')}</p>}
       {rootError && (
         <div className="alert alert-error" role="alert">
-          {rootError} <button type="button" className="btn btn-sm" onClick={() => void loadRoots()}>{t('Retry')}</button>
+          {rootError} <button type="button" className="btn btn-sm" onClick={() => void loadRoots()} title={t('Try loading the allowed import folders again.')}>{t('Retry')}</button>
         </div>
       )}
       {roots && roots.length === 0 && <p className="text-dim">{t('No browsable folders. An administrator can configure allowed roots under Settings > Import.')}</p>}

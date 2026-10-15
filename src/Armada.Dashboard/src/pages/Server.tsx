@@ -463,55 +463,55 @@ export default function Server() {
     {
       key: 'version',
       label: 'Version',
-      help: 'Currently running Armada server build version.',
+      help: 'Armada version the Admiral server is running.',
       value: health?.version || '-',
     },
     {
       key: 'api-url',
       label: 'API URL',
-      help: 'Base URL of the Armada REST API serving this dashboard.',
+      help: 'Address this dashboard was loaded from; REST API calls go to the same origin under /api/v1.',
       value: window.location.origin,
     },
     {
       key: 'admiral-port',
       label: 'Admiral Port',
-      help: 'REST API port currently serving the Armada dashboard and API.',
+      help: 'Port the running Admiral is listening on for the REST API and dashboard. A saved change below shows here only after a restart.',
       value: String(health?.ports?.admiral || window.location.port || '-'),
     },
     {
       key: 'mcp-port',
       label: 'MCP Port',
-      help: 'Port currently serving the Armada MCP HTTP endpoint.',
+      help: 'Port the running Admiral is listening on for MCP clients. A saved change below shows here only after a restart.',
       value: String(health?.ports?.mcp || '-'),
     },
     {
       key: 'websocket-port',
       label: 'WebSocket Port',
-      help: 'Port currently serving the Armada WebSocket endpoint.',
+      help: 'Port serving the /ws WebSocket that pushes live updates to the dashboard and clients. It is the same as the Admiral port.',
       value: String(health?.ports?.webSocket || '-'),
     },
     {
       key: 'tunnel-state',
       label: 'Tunnel State',
-      help: 'Current outbound tunnel connection state reported by the server.',
+      help: 'Current state of the outbound tunnel to Armada.Proxy, such as Connected, Connecting, or Disabled.',
       value: translateRemoteTunnelState(remoteTunnelEnabled, health?.remoteTunnel?.state),
     },
     {
       key: 'tunnel-instance',
       label: 'Tunnel Instance',
-      help: 'Remote tunnel instance identifier currently advertised to Armada.Proxy.',
+      help: 'Name this Admiral is listed under in Armada.Proxy. Set Instance ID Override below to choose it.',
       value: health?.remoteTunnel?.instanceId || '-',
     },
     {
       key: 'tunnel-latency',
       label: 'Tunnel Latency',
-      help: 'Most recent measured round-trip latency for the remote tunnel.',
+      help: 'Round-trip time of the latest tunnel heartbeat to Armada.Proxy. High values make remote pages slow.',
       value: health?.remoteTunnel?.latencyMs != null ? `${health.remoteTunnel.latencyMs.toLocaleString()} ms` : '-',
     },
     {
       key: 'tunnel-last-heartbeat',
       label: 'Tunnel Last Heartbeat',
-      help: 'Timestamp of the most recent remote tunnel heartbeat.',
+      help: 'When the last tunnel heartbeat was answered. An old time while connected suggests the link has stalled.',
       value: health?.remoteTunnel?.lastHeartbeatUtc ? formatAbsoluteTime(health.remoteTunnel.lastHeartbeatUtc) : '-',
     },
   ];
@@ -533,7 +533,7 @@ export default function Server() {
         actions={(
           <>
             <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
-            <RefreshButton onRefresh={loadData} title={t('Refresh server data')} />
+            <RefreshButton onRefresh={loadData} title={t('Reload health, settings, and tunnel status from the Admiral. Unsaved edits on this page are replaced.')} />
           </>
         )}
       />
@@ -551,7 +551,7 @@ export default function Server() {
 
       {/* Health Status Cards */}
       <div className="card-grid">
-        <div className="card" title={t('Current health status of the admiral server')}>
+        <div className="card" title={t('Health reported by the Admiral health endpoint. Anything other than Healthy means a core check failed; run Doctor for details.')}>
           <div className="card-label">{t('Health')}</div>
           <div className="card-value" style={{ fontSize: '1.2rem' }}>
             {health ? translateHealthStatus(health.status) : t('Loading...')}
@@ -563,7 +563,7 @@ export default function Server() {
           )}
         </div>
 
-        <div className="card" title={t('How long the server has been running')}>
+        <div className="card" title={t('How long the Admiral process has been running since its last start or restart.')}>
           <div className="card-label">{t('Uptime')}</div>
           <div className="card-value" style={{ fontSize: '1.2rem' }}>
             {health?.uptime || '-'}
@@ -575,7 +575,7 @@ export default function Server() {
           )}
         </div>
 
-        <div className="card" title={t('Current connection method to the server')}>
+        <div className="card" title={t('How this dashboard talks to the Admiral. Live means a WebSocket pushes updates instantly; Online (HTTP) means pages poll on their refresh interval.')}>
           <div className="card-label">{t('Connection')}</div>
           <div className="card-value" style={{ fontSize: '1.2rem' }}>
             <span
@@ -586,7 +586,7 @@ export default function Server() {
           </div>
         </div>
 
-        <div className="card" title={t('Current outbound remote-control tunnel status')}>
+        <div className="card" title={t('State of the outbound tunnel to Armada.Proxy that allows remote access to this Admiral. Disabled unless Enable Remote Tunnel is on below.')}>
           <div className="card-label">{t('Remote Tunnel')}</div>
           <div className="card-value" style={{ fontSize: '1.2rem' }}>
             {translateRemoteTunnelState(remoteTunnelEnabled, health?.remoteTunnel?.state)}
@@ -614,7 +614,7 @@ export default function Server() {
           <fieldset disabled={remoteSettingsLocked} style={{ border: 'none', margin: 0, padding: 0 }}>
             <div className="settings-grid">
               <div className="form-group">
-                <label title={t('REST API port used by the Armada server and dashboard.')}>{t('Admiral Port')}</label>
+                <label title={t('TCP port for the REST API, dashboard and WebSocket (default 7890). Takes effect after the Admiral restarts; clients and Harbors must then use the new port.')}>{t('Admiral Port')}</label>
                 <input aria-label={t('REST API port (1-65535)')}
                   type="number"
                   value={settings.admiralPort}
@@ -623,11 +623,11 @@ export default function Server() {
                   }
                   min={1}
                   max={65535}
-                  title={t('REST API port (1-65535)')}
+                  title={t('TCP port for the REST API, dashboard and WebSocket (default 7890). Takes effect after the Admiral restarts; clients and Harbors must then use the new port.')}
                 />
               </div>
               <div className="form-group">
-                <label title={t('Port used by the Armada MCP HTTP endpoint.')}>{t('MCP Port')}</label>
+                <label title={t('TCP port for the MCP server that agents and tools connect to (default 7891). Takes effect after the Admiral restarts; update MCP client configs to match.')}>{t('MCP Port')}</label>
                 <input aria-label={t('MCP server port (1-65535)')}
                   type="number"
                   value={settings.mcpPort}
@@ -636,11 +636,11 @@ export default function Server() {
                   }
                   min={1}
                   max={65535}
-                  title={t('MCP server port (1-65535)')}
+                  title={t('TCP port for the MCP server that agents and tools connect to (default 7891). Takes effect after the Admiral restarts; update MCP client configs to match.')}
                 />
               </div>
               <div className="form-group">
-                <label title={t('Maximum number of captains Armada may keep registered at once. Set to 0 for no fixed limit.')}>{t('Max Captains')}</label>
+                <label title={t('Cap on total captains when Armada auto-creates captains to keep its idle pool filled (default 5). 0 means no cap. Captains you add by hand are not blocked.')}>{t('Max Captains')}</label>
                 <input aria-label={t('Maximum captains (0 = unlimited)')}
                   type="number"
                   value={settings.maxCaptains}
@@ -648,14 +648,14 @@ export default function Server() {
                     setSettings({ ...settings, maxCaptains: parseInt(e.target.value) || 0 })
                   }
                   min={0}
-                  title={t('Maximum captains (0 = unlimited)')}
+                  title={t('Cap on total captains when Armada auto-creates captains to keep its idle pool filled (default 5). 0 means no cap. Captains you add by hand are not blocked.')}
                 />
               </div>
             </div>
             <button
               className="btn-primary btn-sm"
               onClick={handleSaveServerConfig}
-              title={t('Save server configuration changes')}
+              title={t('Save the ports and captain cap above. Port changes take effect after the Admiral restarts.')}
             >
               {t('Save Server Config')}
             </button>
@@ -673,11 +673,11 @@ export default function Server() {
           <fieldset disabled={remoteSettingsLocked} style={{ border: 'none', margin: 0, padding: 0 }}>
             <div className="settings-grid">
               <div className="form-group">
-                <label title={t('The vessel holding Armada source. Select none to disable rebuild.')}>{t('Self Vessel ID')}</label>
+                <label title={t('The vessel whose repository holds Armada source code. Rebuild Armada builds from it. Choose none to turn off rebuilding.')}>{t('Self Vessel ID')}</label>
                 <select aria-label={t('The vessel that holds Armada source')}
                   value={settings.selfVesselId ?? ''}
                   onChange={(e) => setSettings({ ...settings, selfVesselId: e.target.value })}
-                  title={t('The vessel that holds Armada source')}
+                  title={t('The vessel whose repository holds Armada source code. Rebuild Armada builds from it. Choose none to turn off rebuilding.')}
                 >
                   <option value="">{t('-- none --')}</option>
                   {vessels.map((v) => (
@@ -686,20 +686,20 @@ export default function Server() {
                 </select>
               </div>
               <div className="form-group">
-                <label title={t('Number of published build slots to keep on disk for rollback.')}>{t('Slot Retention')}</label>
+                <label title={t('How many published builds to keep on disk so you can roll back (default 3, minimum 1). Older builds are deleted after a successful rebuild.')}>{t('Slot Retention')}</label>
                 <input aria-label={t('Number of build slots to retain (minimum 1)')}
                   type="number"
                   value={settings.rebuildSlotRetentionCount ?? 3}
                   onChange={(e) => setSettings({ ...settings, rebuildSlotRetentionCount: parseInt(e.target.value) || 1 })}
                   min={1}
-                  title={t('Number of build slots to retain (minimum 1)')}
+                  title={t('How many published builds to keep on disk so you can roll back (default 3, minimum 1). Older builds are deleted after a successful rebuild.')}
                 />
               </div>
             </div>
             <button
               className="btn-primary btn-sm"
               onClick={handleSaveRebuildSettings}
-              title={t('Save rebuild settings')}
+              title={t('Save the source vessel and slot retention used by Rebuild Armada. Does not start a rebuild.')}
             >
               {t('Save Rebuild Settings')}
             </button>
@@ -714,7 +714,7 @@ export default function Server() {
           <fieldset disabled={remoteSettingsLocked} style={{ border: 'none', margin: 0, padding: 0 }}>
             <div className="settings-grid">
               <div className="form-group">
-                <label title={t('How often Armada runs its health and dispatch checks.')}>{t('Heartbeat Interval (seconds)')}</label>
+                <label title={t('Seconds between Admiral health checks of captains and missions (default 10, minimum 5). Lower reacts faster to stalls but does more work.')}>{t('Heartbeat Interval (seconds)')}</label>
                 <input aria-label={t('Health check interval, minimum 5 seconds')}
                   type="number"
                   value={settings.heartbeatIntervalSeconds}
@@ -725,11 +725,11 @@ export default function Server() {
                     })
                   }
                   min={5}
-                  title={t('Health check interval, minimum 5 seconds')}
+                  title={t('Seconds between Admiral health checks of captains and missions (default 10, minimum 5). Lower reacts faster to stalls but does more work.')}
                 />
               </div>
               <div className="form-group">
-                <label title={t('How long a captain may go without meaningful progress before Armada considers it stalled.')}>{t('Stall Threshold (minutes)')}</label>
+                <label title={t('Minutes a working captain may go without a heartbeat before it is treated as stalled, stopped and recovered (default 10, minimum 1).')}>{t('Stall Threshold (minutes)')}</label>
                 <input aria-label={t('Minutes before a captain is considered stalled')}
                   type="number"
                   value={settings.stallThresholdMinutes}
@@ -740,11 +740,11 @@ export default function Server() {
                     })
                   }
                   min={1}
-                  title={t('Minutes before a captain is considered stalled')}
+                  title={t('Minutes a working captain may go without a heartbeat before it is treated as stalled, stopped and recovered (default 10, minimum 1).')}
                 />
               </div>
               <div className="form-group">
-                <label title={t('How long an idle captain may sit unused before Armada automatically removes it. Set to 0 to disable auto-removal.')}>{t('Idle Captain Timeout (seconds)')}</label>
+                <label title={t('Seconds an idle captain is kept before it is removed automatically. 0 (the default) keeps idle captains indefinitely.')}>{t('Idle Captain Timeout (seconds)')}</label>
                 <input aria-label={t('Auto-remove idle captains after this many seconds (0 = disabled)')}
                   type="number"
                   value={settings.idleCaptainTimeoutSeconds}
@@ -755,7 +755,7 @@ export default function Server() {
                     })
                   }
                   min={0}
-                  title={t('Auto-remove idle captains after this many seconds (0 = disabled)')}
+                  title={t('Seconds an idle captain is kept before it is removed automatically. 0 (the default) keeps idle captains indefinitely.')}
                 />
               </div>
               <DefaultLandingModeField value={settings.landingMode} onChange={(landingMode) => setSettings({ ...settings, landingMode })} />
@@ -763,7 +763,7 @@ export default function Server() {
             <button
               className="btn-primary btn-sm"
               onClick={handleSaveAgentSettings}
-              title={t('Save agent settings changes')}
+              title={t('Save the agent timing and default landing mode. They apply to the running Admiral immediately.')}
             >
               {t('Save Agent Settings')}
             </button>
@@ -780,7 +780,7 @@ export default function Server() {
           <fieldset disabled={remoteSettingsLocked} style={{ border: 'none', margin: 0, padding: 0 }}>
             <div className="settings-grid">
               <div className="form-group">
-                <label title={t('How long an idle planning session may sit with no running process before Armada automatically ends it.')}>{t('Idle Session Timeout (minutes)')}</label>
+                <label title={t('Minutes an idle planning session with no running process stays open before it is ended automatically (default 60). 0 turns this off.')}>{t('Idle Session Timeout (minutes)')}</label>
                 <input aria-label={t('Minutes before an idle planning session is automatically ended (0 = disabled)')}
                   type="number"
                   value={settings.planningSessionInactivityTimeoutMinutes}
@@ -791,11 +791,11 @@ export default function Server() {
                     })
                   }
                   min={0}
-                  title={t('Minutes before an idle planning session is automatically ended (0 = disabled)')}
+                  title={t('Minutes an idle planning session with no running process stays open before it is ended automatically (default 60). 0 turns this off.')}
                 />
               </div>
               <div className="form-group">
-                <label title={t('Safety-net timeout for stale planning sessions with no running process, even when the normal idle timeout is disabled.')}>{t('Abandonment Timeout (minutes)')}</label>
+                <label title={t('Safety net: minutes before a stale planning session with no running process is ended even when the idle timeout is off (default 240). 0 turns this off.')}>{t('Abandonment Timeout (minutes)')}</label>
                 <input aria-label={t('Minutes before a stale planning session is force-ended (0 = disabled)')}
                   type="number"
                   value={settings.planningSessionAbandonmentTimeoutMinutes}
@@ -806,11 +806,11 @@ export default function Server() {
                     })
                   }
                   min={0}
-                  title={t('Minutes before a stale planning session is force-ended (0 = disabled)')}
+                  title={t('Safety net: minutes before a stale planning session with no running process is ended even when the idle timeout is off (default 240). 0 turns this off.')}
                 />
               </div>
               <div className="form-group">
-                <label title={t('How long ended or failed planning sessions are retained before Armada deletes them automatically.')}>{t('Transcript Retention (days)')}</label>
+                <label title={t('Days to keep stopped or failed planning sessions and their transcripts before they are deleted (default 0, which keeps them forever).')}>{t('Transcript Retention (days)')}</label>
                 <input aria-label={t('Days to keep stopped or failed planning sessions before deleting them (0 = disabled)')}
                   type="number"
                   value={settings.planningSessionRetentionDays}
@@ -821,14 +821,14 @@ export default function Server() {
                     })
                   }
                   min={0}
-                  title={t('Days to keep stopped or failed planning sessions before deleting them (0 = disabled)')}
+                  title={t('Days to keep stopped or failed planning sessions and their transcripts before they are deleted (default 0, which keeps them forever).')}
                 />
               </div>
             </div>
             <button
               className="btn-primary btn-sm"
               onClick={handleSavePlanningSessionSettings}
-              title={t('Save planning session lifecycle settings')}
+              title={t('Save the three planning session timers above. They apply immediately.')}
             >
               {t('Save Planning Session Settings')}
             </button>
@@ -885,9 +885,10 @@ export default function Server() {
           <fieldset disabled={remoteSettingsLocked} style={{ border: 'none', margin: 0, padding: 0 }}>
             <div className="settings-grid">
               <div className="form-group">
-                <label className="settings-checkbox-label" title={t('Open an outbound remote-management tunnel from this Armada instance to Armada.Proxy.')}>
+                <label className="settings-checkbox-label" title={t('Open an outbound tunnel from this Admiral to Armada.Proxy so it can be managed remotely. Turning it on or off asks for confirmation.')}>
                   <input
                     type="checkbox"
+                    title={t('Open an outbound tunnel from this Admiral to Armada.Proxy so it can be managed remotely. Turning it on or off asks for confirmation.')}
                     checked={settings.remoteControl.enabled}
                     onChange={(e) => handleRemoteTunnelEnabledChange(e.target.checked)}
                   />
@@ -895,7 +896,7 @@ export default function Server() {
                 </label>
               </div>
               <div className="form-group">
-                <label title={t('Armada.Proxy base URL or explicit /tunnel endpoint used for remote management.')}>{t('Tunnel URL')}</label>
+                <label title={t('Armada.Proxy address this Admiral connects out to, for example https://proxy.example.com. http and https become ws and wss, and /tunnel is added if missing.')}>{t('Tunnel URL')}</label>
                 <input aria-label={t('Proxy base URL or tunnel endpoint. http/https will be normalized to ws/wss and /tunnel will be added automatically when needed.')}
                   type="text"
                   value={settings.remoteControl.tunnelUrl ?? ''}
@@ -909,11 +910,11 @@ export default function Server() {
                     })
                   }
                   placeholder={DEFAULT_REMOTE_TUNNEL_URL}
-                  title={t('Proxy base URL or tunnel endpoint. http/https will be normalized to ws/wss and /tunnel will be added automatically when needed.')}
+                  title={t('Armada.Proxy address this Admiral connects out to, for example https://proxy.example.com. http and https become ws and wss, and /tunnel is added if missing.')}
                 />
               </div>
               <div className="form-group">
-                <label title={t('Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.')}>{t('Instance ID Override')}</label>
+                <label title={t('Name this deployment shows under in Armada.Proxy, for example home-lab. Leave blank to let Armada derive a stable one from this machine.')}>{t('Instance ID Override')}</label>
                 <input aria-label={t('Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.')}
                   type="text"
                   value={settings.remoteControl.instanceId ?? ''}
@@ -927,11 +928,11 @@ export default function Server() {
                     })
                   }
                   placeholder={t('Leave blank for auto-generated')}
-                  title={t('Optional stable deployment identifier advertised to Armada.Proxy. Leave blank to let Armada derive one automatically.')}
+                  title={t('Name this deployment shows under in Armada.Proxy, for example home-lab. Leave blank to let Armada derive a stable one from this machine.')}
                 />
               </div>
               <div className="form-group">
-                <label title={t('Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.')}>{t('Instance Enrollment Token')}</label>
+                <label title={t('Extra admission token, needed only when the proxy requires instance enrollment. Leave blank otherwise. Stored as a secret.')}>{t('Instance Enrollment Token')}</label>
                 <div className="settings-secret-field">
                   <input aria-label={t('Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.')}
                     type={revealedRemoteField === 'enrollmentToken' ? 'text' : 'password'}
@@ -946,13 +947,13 @@ export default function Server() {
                       })
                     }
                     placeholder={t('Optional bootstrap token')}
-                    title={t('Optional extra admission token used only when Armada.Proxy requires instance enrollment tokens.')}
+                    title={t('Extra admission token, needed only when the proxy requires instance enrollment. Leave blank otherwise. Stored as a secret.')}
                   />
                   <button
                     type="button"
                     className="settings-secret-toggle"
                     aria-label={t(revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token')}
-                    title={t(revealedRemoteField === 'enrollmentToken' ? 'Hide enrollment token' : 'Show enrollment token')}
+                    title={t('Press and hold to show the enrollment token; it hides again when you let go.')}
                     onPointerDown={(e) => {
                       e.preventDefault();
                       beginRevealRemoteField('enrollmentToken');
@@ -970,7 +971,7 @@ export default function Server() {
                 </div>
               </div>
               <div className="form-group">
-                <label title={t('Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.')}>{t('Proxy Shared Password')}</label>
+                <label title={t('Shared secret this Admiral uses to sign in to Armada.Proxy; the same password unlocks browser access through the proxy. Blank means armadaadmin, so change it.')}>{t('Proxy Shared Password')}</label>
                 <div className="settings-secret-field">
                   <input aria-label={t('Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.')}
                     type={revealedRemoteField === 'password' ? 'text' : 'password'}
@@ -985,13 +986,13 @@ export default function Server() {
                       })
                     }
                     placeholder={t('Defaults to armadaadmin')}
-                    title={t('Shared secret used to authenticate this Armada instance to Armada.Proxy and to unlock Armada.Proxy browser access.')}
+                    title={t('Shared secret this Admiral uses to sign in to Armada.Proxy; the same password unlocks browser access through the proxy. Blank means armadaadmin, so change it.')}
                   />
                   <button
                     type="button"
                     className="settings-secret-toggle"
                     aria-label={t(revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password')}
-                    title={t(revealedRemoteField === 'password' ? 'Hide shared password' : 'Show shared password')}
+                    title={t('Press and hold to show the shared password; it hides again when you let go.')}
                     onPointerDown={(e) => {
                       e.preventDefault();
                       beginRevealRemoteField('password');
@@ -1009,7 +1010,7 @@ export default function Server() {
                 </div>
               </div>
               <div className="form-group">
-                <label title={t('How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.')}>{t('Connect Timeout (seconds)')}</label>
+                <label title={t('Seconds to wait for the tunnel connection to open before the attempt counts as failed and a retry is scheduled (default 15, 5-300).')}>{t('Connect Timeout (seconds)')}</label>
                 <input aria-label={t('How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.')}
                   type="number"
                   value={settings.remoteControl.connectTimeoutSeconds}
@@ -1024,11 +1025,11 @@ export default function Server() {
                   }
                   min={5}
                   max={300}
-                  title={t('How long Armada waits for the proxy tunnel connection to open before treating the attempt as failed.')}
+                  title={t('Seconds to wait for the tunnel connection to open before the attempt counts as failed and a retry is scheduled (default 15, 5-300).')}
                 />
               </div>
               <div className="form-group">
-                <label title={t('How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.')}>{t('Heartbeat Interval (seconds)')}</label>
+                <label title={t('Seconds between tunnel heartbeats that keep the connection alive and measure latency (default 30, 5-300).')}>{t('Heartbeat Interval (seconds)')}</label>
                 <input aria-label={t('How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.')}
                   type="number"
                   value={settings.remoteControl.heartbeatIntervalSeconds}
@@ -1043,11 +1044,11 @@ export default function Server() {
                   }
                   min={5}
                   max={300}
-                  title={t('How often Armada sends tunnel heartbeats to keep the connection alive and measure latency.')}
+                  title={t('Seconds between tunnel heartbeats that keep the connection alive and measure latency (default 30, 5-300).')}
                 />
               </div>
               <div className="form-group">
-                <label title={t('Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.')}>{t('Reconnect Base Delay (seconds)')}</label>
+                <label title={t('Seconds to wait before the first reconnect after a tunnel failure; later retries back off from here (default 5).')}>{t('Reconnect Base Delay (seconds)')}</label>
                 <input aria-label={t('Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.')}
                   type="number"
                   value={settings.remoteControl.reconnectBaseDelaySeconds}
@@ -1062,11 +1063,11 @@ export default function Server() {
                   }
                   min={1}
                   max={300}
-                  title={t('Initial reconnect backoff after a tunnel failure. Later retries grow from this base delay.')}
+                  title={t('Seconds to wait before the first reconnect after a tunnel failure; later retries back off from here (default 5).')}
                 />
               </div>
               <div className="form-group">
-                <label title={t('Maximum reconnect backoff between tunnel retry attempts.')}>{t('Reconnect Max Delay (seconds)')}</label>
+                <label title={t('Longest wait between tunnel reconnect attempts, however many have failed (default 60).')}>{t('Reconnect Max Delay (seconds)')}</label>
                 <input aria-label={t('Maximum reconnect backoff between tunnel retry attempts.')}
                   type="number"
                   value={settings.remoteControl.reconnectMaxDelaySeconds}
@@ -1081,13 +1082,14 @@ export default function Server() {
                   }
                   min={1}
                   max={3600}
-                  title={t('Maximum reconnect backoff between tunnel retry attempts.')}
+                  title={t('Longest wait between tunnel reconnect attempts, however many have failed (default 60).')}
                 />
               </div>
               <div className="form-group">
-                <label className="settings-checkbox-label" title={t('Allow self-signed or otherwise invalid TLS certificates for https/wss tunnel endpoints. Use only in trusted environments.')}>
+                <label className="settings-checkbox-label" title={t('Accept self-signed or invalid TLS certificates from the proxy. Anyone on the network path could then impersonate it; use only for local testing.')}>
                   <input
                     type="checkbox"
+                    title={t('Accept self-signed or invalid TLS certificates from the proxy. Anyone on the network path could then impersonate it; use only for local testing.')}
                     checked={settings.remoteControl.allowInvalidCertificates}
                     onChange={(e) =>
                       setSettings({
@@ -1106,7 +1108,7 @@ export default function Server() {
           {settings.remoteControl.enabled && (
             <div className="settings-config-block tunnel-status-card">
               <div className="settings-config-header tunnel-status-card-header">
-                <span className="text-muted">{t('Tunnel Status')}</span>
+                <span className="text-muted" title={t('Live state of the tunnel to Armada.Proxy, as last reported by the Admiral.')}>{t('Tunnel Status')}</span>
                 <span
                   className="mono"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
@@ -1125,7 +1127,7 @@ export default function Server() {
             <button
               className="btn-primary btn-sm"
               onClick={handleSaveRemoteControlSettings}
-              title={t('Save remote-control tunnel configuration')}
+              title={t('Save the tunnel settings. The Admiral reconnects to the proxy with the new values right away.')}
             >
               {t('Save Remote Control Settings')}
             </button>
@@ -1156,11 +1158,11 @@ export default function Server() {
               </div>
               <div className="settings-config-block" style={{ margin: '0.75rem' }}>
                 <div className="settings-config-header">
-                  <span className="text-muted">HTTP</span>
+                  <span className="text-muted" title={t('Config for clients that connect to the running Admiral over HTTP. The Admiral must be reachable at this URL.')}>HTTP</span>
                   <button
                     className="btn-sm"
                     onClick={() => copyAndToast(getMcpConfigHttp(client.key))}
-                    title={t('Copy {{title}} HTTP config to clipboard', { title: client.title })}
+                    title={t('Copy the {{title}} HTTP setup. Use it where shown above (a config file, or a command to run) so {{title}} can use Armada tools.', { title: client.title })}
                   >
                     {t('Copy')}
                   </button>
@@ -1169,11 +1171,11 @@ export default function Server() {
               </div>
               <div className="settings-config-block" style={{ margin: '0 0.75rem 0.75rem' }}>
                 <div className="settings-config-header">
-                  <span className="text-muted">STDIO</span>
+                  <span className="text-muted" title={t('Config for clients that launch Armada as a local process and talk over standard input and output. Needs the armada CLI installed on that machine.')}>STDIO</span>
                   <button
                     className="btn-sm"
                     onClick={() => copyAndToast(getMcpConfigStdio(client.key))}
-                    title={t('Copy {{title}} STDIO config to clipboard', { title: client.title })}
+                    title={t('Copy the {{title}} STDIO setup. Use it where shown above (a config file, or a command to run) so {{title}} can use Armada tools.', { title: client.title })}
                   >
                     {t('Copy')}
                   </button>
@@ -1188,38 +1190,38 @@ export default function Server() {
       {/* System Paths */}
       {settings && (
         <div className="settings-section" style={{ marginTop: '1.5rem' }}>
-          <h3>{t('System Paths')}</h3>
+          <h3 title={t('Where the Admiral stores its files on the server. Read-only here; change them in settings.json and restart the Admiral.')}>{t('System Paths')}</h3>
           <div className="detail-grid">
             <div className="detail-field">
-              <span className="detail-label" title={t('Path to the Armada data directory.')}>{t('Data Directory')}</span>
+              <span className="detail-label" title={t('Root folder for Armada data on the Admiral host. The other paths default to folders inside it.')}>{t('Data Directory')}</span>
               <span className="id-display">
                 <span className="mono">{settings.dataDirectory || '-'}</span>
                 {settings.dataDirectory && <CopyButton text={settings.dataDirectory} title={t('Copy path')} />}
               </span>
             </div>
             <div className="detail-field">
-              <span className="detail-label" title={t('Path to the Armada SQLite database file.')}>{t('Database Path')}</span>
+              <span className="detail-label" title={t('SQLite database file the Admiral uses when the database provider is SQLite.')}>{t('Database Path')}</span>
               <span className="id-display">
                 <span className="mono">{settings.databasePath || '-'}</span>
                 {settings.databasePath && <CopyButton text={settings.databasePath} title={t('Copy path')} />}
               </span>
             </div>
             <div className="detail-field">
-              <span className="detail-label" title={t('Path where Armada writes server and captain logs.')}>{t('Log Directory')}</span>
+              <span className="detail-label" title={t('Folder for Admiral and captain log files.')}>{t('Log Directory')}</span>
               <span className="id-display">
                 <span className="mono">{settings.logDirectory || '-'}</span>
                 {settings.logDirectory && <CopyButton text={settings.logDirectory} title={t('Copy path')} />}
               </span>
             </div>
             <div className="detail-field">
-              <span className="detail-label" title={t('Path where Armada stores captain worktrees and docks.')}>{t('Docks Directory')}</span>
+              <span className="detail-label" title={t('Folder where git worktrees (docks) are created for captains to work in, one per mission.')}>{t('Docks Directory')}</span>
               <span className="id-display">
                 <span className="mono">{settings.docksDirectory || '-'}</span>
                 {settings.docksDirectory && <CopyButton text={settings.docksDirectory} title={t('Copy path')} />}
               </span>
             </div>
             <div className="detail-field">
-              <span className="detail-label" title={t('Path where Armada stores cloned repositories.')}>{t('Repos Directory')}</span>
+              <span className="detail-label" title={t('Folder holding the bare clones of each vessel repository that docks are created from.')}>{t('Repos Directory')}</span>
               <span className="id-display">
                 <span className="mono">{settings.reposDirectory || '-'}</span>
                 {settings.reposDirectory && <CopyButton text={settings.reposDirectory} title={t('Copy path')} />}
@@ -1242,7 +1244,7 @@ export default function Server() {
               className="btn btn-sm"
               onClick={handleBackup}
               disabled={backupLoading}
-              title={t('Create a backup ZIP of the database and download it')}
+              title={t('Download a ZIP with a snapshot of the database and settings.json. The file includes secrets such as tokens, so store it safely.')}
             >
               {backupLoading ? t('Backing up...') : t('Backup Now')}
             </button>
@@ -1250,7 +1252,7 @@ export default function Server() {
               className="btn btn-danger btn-sm"
               onClick={handleRestoreClick}
               disabled={remoteProxyMode}
-              title={remoteProxyMode ? t('Restore from Backup is blocked in proxy mode') : t('Restore the database from a backup ZIP file')}
+              title={remoteProxyMode ? t('Restore from Backup is blocked in proxy mode') : t('Replace the current database and settings with a backup ZIP you choose. Data written since that backup is lost.')}
             >
               {t('Restore from Backup')}
             </button>
@@ -1281,14 +1283,14 @@ export default function Server() {
               onClick={() => {
                 window.dispatchEvent(new CustomEvent('armada:open-setup-wizard'));
               }}
-              title={remoteProxyMode ? t('Setup Wizard is only available when connected directly to Armada.Server') : t('Re-open the first-run setup guide')}
+              title={remoteProxyMode ? t('Setup Wizard is only available when connected directly to Armada.Server') : t('Reopen the first-run guide that walks through adding a fleet, vessels, and captains. Changes nothing until you complete a step.')}
             >
               {t('Setup Wizard')}
             </button>
             <button
               className="btn btn-sm"
               onClick={handleHealthCheck}
-              title={t('Run a health check and display the result')}
+              title={t('Ask the Admiral for its health now and show the result. Read-only.')}
             >
               {t('Health Check')}
             </button>
@@ -1296,7 +1298,7 @@ export default function Server() {
               className="btn btn-sm"
               disabled={remoteProxyMode}
               onClick={handleRestartServer}
-              title={remoteProxyMode ? t('Restart Server is blocked in proxy mode') : t('Restart the admiral server process')}
+              title={remoteProxyMode ? t('Restart Server is blocked in proxy mode') : t('Start a replacement Admiral process and stop this one; the dashboard and API are unavailable for a moment while it comes back. Asks first.')}
             >
               {t('Restart Server')}
             </button>
@@ -1305,7 +1307,7 @@ export default function Server() {
                 value={branches.some((b) => b.name === buildRef) ? buildRef : ''}
                 onChange={(e) => setBuildRef(e.target.value)}
                 disabled={remoteProxyMode}
-                title={t('Branch to build. Choose a branch or type a tag/commit in the box.')}
+                title={t('Branch of the source vessel to build. current HEAD builds whatever is checked out; for a tag or commit, type it in the box next to this.')}
               >
                 <option value="">{t('current HEAD')}</option>
                 {branches.map((b) => (
@@ -1322,13 +1324,13 @@ export default function Server() {
               placeholder={t('ref (blank = HEAD)')}
               disabled={remoteProxyMode}
               style={{ width: 160 }}
-              title={t('Branch, tag, or commit to build. Leave blank to build the current HEAD.')}
+              title={t('Git ref to build, for example main, v1.2.0, or a commit hash. Blank builds the current HEAD of the source vessel.')}
             />
             <button
               className="btn btn-sm"
               disabled={remoteProxyMode}
               onClick={handleRebuild}
-              title={remoteProxyMode ? t('Rebuild Armada is blocked in proxy mode') : t('Rebuild the admiral from source and cut over to the new build')}
+              title={remoteProxyMode ? t('Rebuild Armada is blocked in proxy mode') : t('Build the Admiral from the source vessel at the chosen ref into a new slot, back up the database, then switch over. A failed build leaves the server running. Asks first.')}
             >
               {t('Rebuild Armada')}
             </button>
@@ -1336,7 +1338,7 @@ export default function Server() {
               <button
                 className="btn btn-sm"
                 onClick={() => { setRebuildLogOpen(true); refreshRebuildStatus(); }}
-                title={t('View the latest rebuild log')}
+                title={t('Open the output of the latest rebuild, including build errors.')}
               >
                 {t('Build Log')}
               </button>
@@ -1346,7 +1348,7 @@ export default function Server() {
                 className="btn btn-danger btn-sm"
                 disabled={remoteProxyMode}
                 onClick={handleRollback}
-                title={remoteProxyMode ? t('Rollback is blocked in proxy mode') : t('Roll back to the previous build')}
+                title={remoteProxyMode ? t('Rollback is blocked in proxy mode') : t('Go back to the previous build and restart. If the rebuild changed the database schema, the pre-rebuild backup is restored and newer data is lost. Asks first.')}
               >
                 {t('Roll Back')}
               </button>
@@ -1355,7 +1357,7 @@ export default function Server() {
               className="btn btn-danger btn-sm"
               disabled={remoteProxyMode}
               onClick={handleStopServer}
-              title={remoteProxyMode ? t('Stop Server is blocked in proxy mode') : t('Shut down the admiral server process')}
+              title={remoteProxyMode ? t('Stop Server is blocked in proxy mode') : t('Shut down the Admiral. Captains stop, and the dashboard and API stay offline until someone starts it again on the host. Asks first.')}
             >
               {t('Stop Server')}
             </button>
@@ -1363,7 +1365,7 @@ export default function Server() {
               className="btn btn-danger btn-sm"
               disabled={remoteProxyMode}
               onClick={handleFactoryReset}
-              title={remoteProxyMode ? t('Factory Reset is blocked in proxy mode') : t('Delete all data and reset to factory defaults')}
+              title={remoteProxyMode ? t('Factory Reset is blocked in proxy mode') : t('Permanently delete the database, logs, docks, and repo clones. Settings are kept. Cannot be undone; download a backup first. Asks first.')}
             >
               {t('Factory Reset')}
             </button>

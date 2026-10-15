@@ -29,7 +29,7 @@ import {
   type HealthFilters,
   type TriState,
 } from '../lib/health/healthFilters';
-import { HEALTH_STATUSES, formatCount, msg, severityLabel, statusLabel } from '../lib/health/healthText';
+import { HEALTH_STATUSES, STATUS_DESCRIPTIONS, formatCount, msg, severityLabel, statusLabel } from '../lib/health/healthText';
 import { describeEvaluationStart, useHealthEvaluation } from '../lib/health/useHealthEvaluation';
 import RunActionModal from '../components/fleetActions/RunActionModal';
 
@@ -268,14 +268,14 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
     return HEALTH_STATUSES.filter((s) => next.includes(s));
   }
 
-  const statusOptions = HEALTH_STATUSES.map((s) => ({ value: s, label: statusLabel(t, s) }));
+  const statusOptions = HEALTH_STATUSES.map((s) => ({ value: s, label: statusLabel(t, s), title: `${statusLabel(t, s)}: ${t(STATUS_DESCRIPTIONS[s])}` }));
 
   // ---- Columns ----
   const columns: ColumnDef[] = [
     {
       key: 'vessel',
       label: msg('Vessel'),
-      title: msg('Vessel name; opens the vessel page'),
+      title: msg('Vessel name. Click the name to open the vessel page, or the row to open its health report.'),
       sort: 'VesselName',
       className: 'vh-col-vessel',
       render: (row) => (
@@ -288,7 +288,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
       // Used to be a second line under the vessel name; its own one-line column now.
       key: 'branch',
       label: msg('Branch'),
-      title: msg('Checked-out branch'),
+      title: msg('Branch checked out in the graded checkout (the working directory, or the bare clone when there is none).'),
       cellClassName: 'mono text-dim',
       render: (row) => (row.currentBranch
         ? <span className="cell-one-line vh-branch" title={`${t('Checked-out branch')}: ${row.currentBranch}`}>{row.currentBranch}</span>
@@ -297,7 +297,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
     {
       key: 'fleet',
       label: msg('Fleet'),
-      title: msg('Fleet the vessel belongs to'),
+      title: msg('Fleet the vessel belongs to. Click to open the fleet.'),
       sort: 'FleetName',
       className: 'vh-col-fleet',
       render: (row) => (row.fleetId
@@ -307,14 +307,14 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
     {
       key: 'overall',
       label: msg('Overall'),
-      title: msg('Worst status among the scored criteria, after overrides'),
+      title: msg('Overall grade: the worst status among the scored checks, after manual overrides. Unknown and Not applicable never fail a vessel.'),
       sort: 'OverallStatus',
       render: (row) => <HealthStatusBadge status={row.overallStatus} />,
     },
     {
       key: 'divergence',
       label: msg('Divergence'),
-      title: msg('Commits ahead of and behind the default branch'),
+      title: msg('Commits ahead of and behind origin/default branch. Behind warns from 1 commit and fails from 21 by default; both ahead and behind fails.'),
       sort: 'Divergence',
       render: (row) => {
         if ((row.aheadOfDefault === null || row.aheadOfDefault === undefined) && (row.behindDefault === null || row.behindDefault === undefined)) {
@@ -334,7 +334,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
     {
       key: 'dirty',
       label: msg('Dirty'),
-      title: msg('Uncommitted changes in the evaluated checkout'),
+      title: msg('Uncommitted changes in the graded checkout. Modified tracked files fail; untracked files alone warn. A dash means a bare clone or not measured.'),
       sort: 'IsDirty',
       render: (row) => {
         if (row.isDirty === null || row.isDirty === undefined) return <span className="text-dim" title={t('Not measured')}>-</span>;
@@ -349,7 +349,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
     {
       key: 'branches',
       label: msg('Branches'),
-      title: msg('Local branches, with stale branches in parentheses'),
+      title: msg('Local branches, with stale ones (no commit within 90 days by default) in parentheses. Leftover armada/* captain branches also warn.'),
       sort: 'BranchCount',
       render: (row) => (row.branchCount === null || row.branchCount === undefined
         ? <span className="text-dim">-</span>
@@ -363,7 +363,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
     {
       key: 'dependencies',
       label: msg('Dependencies'),
-      title: msg('Outdated packages, with major drift in parentheses'),
+      title: msg('Outdated NuGet and npm packages, with those a major version behind in parentheses. Any major drift fails.'),
       sort: 'OutdatedCount',
       render: (row) => (
         <span className="vh-cell-stack">
@@ -380,7 +380,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
     {
       key: 'vulnerabilities',
       label: msg('Vulnerabilities'),
-      title: msg('Vulnerable packages and the highest severity'),
+      title: msg('Packages with known security advisories, and the worst severity. High or Critical fails; Low or Moderate warns.'),
       sort: 'VulnerableCount',
       render: (row) => (
         <span className="vh-cell-stack">
@@ -397,21 +397,21 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
     {
       key: 'tests',
       label: msg('Tests'),
-      title: msg('Test infrastructure and the latest test run'),
+      title: msg('Whether tests exist and the latest Armada test check passed. No tests fails; tests without a passing run warn.'),
       sort: 'TestInfraStatus',
       render: (row) => <HealthStatusBadge status={row.testInfraStatus} compact title={t('Test infrastructure')} />,
     },
     {
       key: 'ci',
       label: msg('CI'),
-      title: msg('Continuous integration configuration'),
+      title: msg('Whether a CI definition (GitHub Actions, Azure Pipelines, GitLab CI or Jenkins) exists. Not scored by default.'),
       sort: 'CiStatus',
       render: (row) => <HealthStatusBadge status={row.ciStatus} compact title={t('Continuous integration')} />,
     },
     {
       key: 'lastCommit',
       label: msg('Last commit'),
-      title: msg('Time of the last commit on the checked-out branch'),
+      title: msg('When the newest commit on the checked-out branch was made. Informational only. Hover a cell for the exact time.'),
       sort: 'LastCommitUtc',
       render: (row) => (row.lastCommitUtc
         ? <span title={formatDateTime(row.lastCommitUtc)}>{formatRelativeTime(row.lastCommitUtc)}</span>
@@ -420,7 +420,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
     {
       key: 'evaluated',
       label: msg('Evaluated'),
-      title: msg('When this vessel was last evaluated'),
+      title: msg('When this vessel was last graded. Grades refresh every 6 hours by default, or when you re-evaluate.'),
       sort: 'EvaluatedUtc',
       render: (row) => (row.evaluatedUtc
         ? <span title={formatDateTime(row.evaluatedUtc)}>{formatRelativeTime(row.evaluatedUtc)}</span>
@@ -444,6 +444,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
       label: t('Actions'),
       fixed: true,
       interactive: true,
+      headerTitle: t('Open the health report, branches, override or re-evaluate a vessel.'),
       header: <span className="vh-col-actions-label">{t('Actions')}</span>,
       headerClassName: 'text-right vh-col-actions-head',
       cellClassName: 'text-right',
@@ -453,12 +454,12 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
 
   function rowActions(row: VesselHealthRow) {
     return [
-      { label: msg('View details'), onClick: () => openDetail(row) },
-      { label: msg('Branches'), onClick: () => setBranches({ vesselId: row.vesselId, vesselName: row.vesselName ?? row.vesselId }) },
-      { label: msg('Override...'), onClick: () => openDetail(row, 'overrides'), disabled: !isTenantAdmin },
-      { label: msg('Re-evaluate'), onClick: () => { void startEvaluation([row.vesselId]); }, disabled: !isTenantAdmin || evaluation.running },
-      { label: msg('Open vessel'), onClick: () => navigate(`/vessels/${encodeURIComponent(row.vesselId)}`) },
-      { label: msg('View JSON'), onClick: () => setJsonView({ title: t('Health: {{name}}', { name: row.vesselName ?? row.vesselId }), data: row }) },
+      { label: msg('View details'), title: msg('Open the health report for this vessel with every check and its reason.'), onClick: () => openDetail(row) },
+      { label: msg('Branches'), title: msg('List branches with ahead/behind counts, push a branch, or merge one branch into another.'), onClick: () => setBranches({ vesselId: row.vesselId, vesselName: row.vesselName ?? row.vesselId }) },
+      { label: msg('Override...'), title: msg('Set a check status by hand for this vessel. Tenant admins only.'), onClick: () => openDetail(row, 'overrides'), disabled: !isTenantAdmin },
+      { label: msg('Re-evaluate'), title: msg('Grade this vessel again now, including package checks. Tenant admins only.'), onClick: () => { void startEvaluation([row.vesselId]); }, disabled: !isTenantAdmin || evaluation.running },
+      { label: msg('Open vessel'), title: msg('Go to the vessel page, where you can edit its settings.'), onClick: () => navigate(`/vessels/${encodeURIComponent(row.vesselId)}`) },
+      { label: msg('View JSON'), title: msg('Show the raw health row as JSON.'), onClick: () => setJsonView({ title: t('Health: {{name}}', { name: row.vesselName ?? row.vesselId }), data: row }) },
     ];
   }
 
@@ -470,14 +471,14 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
   const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.includes(id));
 
   const summaryTiles: Array<{ key: string; value: number; status: VesselHealthStatus; text?: string; hint: string }> = summary ? [
-    { key: 'fail', value: summary.fail, status: 'Fail', hint: msg('Show vessels that fail') },
-    { key: 'warn', value: summary.warn, status: 'Warn', hint: msg('Show vessels with warnings') },
-    { key: 'pass', value: summary.pass, status: 'Pass', hint: msg('Show healthy vessels') },
-    { key: 'unknown', value: summary.unknown, status: 'Unknown', hint: msg('Show vessels whose status is unknown (includes never-evaluated vessels)') },
+    { key: 'fail', value: summary.fail, status: 'Fail', hint: msg('Vessels whose overall grade is Fail: at least one scored check needs attention. Click to show only them; click again to clear.') },
+    { key: 'warn', value: summary.warn, status: 'Warn', hint: msg('Vessels whose worst scored check is Warn: worth a look soon. Click to show only them; click again to clear.') },
+    { key: 'pass', value: summary.pass, status: 'Pass', hint: msg('Vessels that pass every scored check. Click to show only them; click again to clear.') },
+    { key: 'unknown', value: summary.unknown, status: 'Unknown', hint: msg('Vessels whose scored checks could not run, or that were never evaluated. Click to show only them; click again to clear.') },
     ...(summary.notApplicable > 0
-      ? [{ key: 'notApplicable', value: summary.notApplicable, status: 'NotApplicable' as VesselHealthStatus, hint: msg('Show vessels where no scored criterion applies') }]
+      ? [{ key: 'notApplicable', value: summary.notApplicable, status: 'NotApplicable' as VesselHealthStatus, hint: msg('Vessels where none of the scored checks apply, for example a bare clone with no recognizable project. Click to filter.') }]
       : []),
-    { key: 'notEvaluated', value: summary.notEvaluated, status: 'Unknown', text: msg('Not evaluated'), hint: msg('Never-evaluated vessels have Unknown status; this shows all Unknown vessels') },
+    { key: 'notEvaluated', value: summary.notEvaluated, status: 'Unknown', text: msg('Not evaluated'), hint: msg('Vessels never evaluated yet. They count as Unknown; clicking shows every Unknown vessel, not only these.') },
   ] : [];
 
   const lastJob = evaluation.lastJob;
@@ -496,7 +497,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
                 className="btn btn-primary btn-sm"
                 disabled={evaluation.running || evaluation.starting}
                 onClick={() => { void startEvaluation(); }}
-                title={evaluation.running ? t('An evaluation is already running.') : t('Evaluate every active vessel now, including dependency checks.')}
+                title={evaluation.running ? t('An evaluation is already running.') : t('Grade every active vessel now, including the slow package and vulnerability checks. Runs in the background; dependency checks can take a minute per repository.')}
               >
                 {evaluation.running ? t('Evaluating...') : t('Evaluate all')}
               </button>
@@ -527,7 +528,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
         })}
         {summaryError && !summary && <span className="text-dim">{t('Summary unavailable.')}</span>}
         <div className="vh-summary-meta">
-          {summary && <span>{t('{{count}} vessels', { count: formatCount(locale, summary.totalVessels) })}</span>}
+          {summary && <span title={t('Vessels counted in the tiles: every vessel in the tenant, including ones never evaluated.')}>{t('{{count}} vessels', { count: formatCount(locale, summary.totalVessels) })}</span>}
           {evaluation.running ? (
             <span className="vh-progress" role="status" aria-live="polite">
               <span className="vh-progress-label">
@@ -538,7 +539,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
               </span>
             </span>
           ) : lastJob ? (
-            <span className="text-dim" title={lastJob.completedUtc ? formatDateTime(lastJob.completedUtc) : undefined}>
+            <span className="text-dim" title={lastJob.completedUtc ? t('Last evaluation job finished {{when}}. Scheduled evaluations run every 6 hours by default.', { when: formatDateTime(lastJob.completedUtc) }) : undefined}>
               {t('Last evaluation {{when}}', { when: formatRelativeTime(lastJob.completedUtc ?? lastJob.lastUpdateUtc) })}
             </span>
           ) : null}
@@ -552,7 +553,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
             <div className="text-dim">{t('Run an evaluation to grade every vessel. Dependency checks can take a minute per repository.')}</div>
           </div>
           {isTenantAdmin && (
-            <button type="button" className="btn btn-primary btn-sm" disabled={evaluation.running} onClick={() => { void startEvaluation(); }}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={evaluation.running} onClick={() => { void startEvaluation(); }} title={t('Grade every active vessel now. Runs in the background; package checks can take a minute per repository.')}>
               {t('Evaluate now')}
             </button>
           )}
@@ -563,7 +564,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
         <div className="vh-empty">
           <h3>{t('No vessels yet')}</h3>
           <p className="text-dim">{t('Import repositories to start tracking their health.')}</p>
-          <Link className="btn btn-primary" to="/vessels/import">{t('Import repositories')}</Link>
+          <Link className="btn btn-primary" to="/vessels/import" title={t('Scan folders on the Admiral host for git repositories and create a vessel for each one you pick. You review the list before anything is created.')}>{t('Import repositories')}</Link>
         </div>
       ) : (
         <>
@@ -575,9 +576,10 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
               value={nameDraft}
               placeholder={t('Vessel name contains')}
               aria-label={t('Vessel name contains')}
+              title={t('Show only vessels whose name contains this text, e.g. api. Not case sensitive.')}
               onChange={(e) => setNameDraft(e.target.value)}
             />
-            <select value={filters.fleetId} aria-label={t('Fleet')} title={t('Fleet')} onChange={(e) => patchFilters({ fleetId: e.target.value })}>
+            <select value={filters.fleetId} aria-label={t('Fleet')} title={t('Show only vessels in this fleet.')} onChange={(e) => patchFilters({ fleetId: e.target.value })}>
               <option value="">{t('All fleets')}</option>
               {fleetOptions.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
@@ -587,6 +589,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
               options={statusOptions}
               selected={filters.overall}
               ariaLabel={t('Overall status filter')}
+              title={t('Show only vessels whose overall grade is one of the checked statuses. None checked shows all.')}
               onToggle={(v) => patchFilters({ overall: toggleStatus(filters.overall, v) })}
               onClear={() => patchFilters({ overall: [] })}
             />
@@ -596,6 +599,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
               options={statusOptions}
               selected={filters.deps}
               ariaLabel={t('Dependency status filter')}
+              title={t('Show only vessels whose Dependencies grade is one of the checked statuses. None checked shows all.')}
               onToggle={(v) => patchFilters({ deps: toggleStatus(filters.deps, v) })}
               onClear={() => patchFilters({ deps: [] })}
             />
@@ -605,35 +609,36 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
               options={statusOptions}
               selected={filters.tests}
               ariaLabel={t('Test status filter')}
+              title={t('Show only vessels whose Test infrastructure grade is one of the checked statuses. None checked shows all.')}
               onToggle={(v) => patchFilters({ tests: toggleStatus(filters.tests, v) })}
               onClear={() => patchFilters({ tests: [] })}
             />
-            <label className="vh-inline-field">
+            <label className="vh-inline-field" title={t('Show only vessels with (Yes) or without (No) uncommitted changes in the graded checkout.')}>
               <span>{t('Dirty')}</span>
-              <select value={filters.dirty} onChange={(e) => patchFilters({ dirty: e.target.value as TriState })}>
+              <select title={t('Show only vessels with (Yes) or without (No) uncommitted changes in the graded checkout.')} value={filters.dirty} onChange={(e) => patchFilters({ dirty: e.target.value as TriState })}>
                 <option value="">{t('Any')}</option>
                 <option value="yes">{t('Yes')}</option>
                 <option value="no">{t('No')}</option>
               </select>
             </label>
-            <label className="vh-inline-field">
+            <label className="vh-inline-field" title={t('Show only vessels that have, or lack, a CI definition such as GitHub Actions.')}>
               <span>{t('CI')}</span>
-              <select value={filters.ci} onChange={(e) => patchFilters({ ci: e.target.value as TriState })}>
+              <select title={t('Show only vessels that have, or lack, a CI definition such as GitHub Actions.')} value={filters.ci} onChange={(e) => patchFilters({ ci: e.target.value as TriState })}>
                 <option value="">{t('Any')}</option>
                 <option value="yes">{t('Has CI')}</option>
                 <option value="no">{t('No CI')}</option>
               </select>
             </label>
-            <label className="vh-inline-field">
+            <label className="vh-inline-field" title={t('Filter by position against the default branch: only ahead, only behind, both (diverged), or even.')}>
               <span>{t('Divergence')}</span>
-              <select value={filters.divergence} onChange={(e) => patchFilters({ divergence: e.target.value as HealthFilters['divergence'] })}>
+              <select title={t('Filter by position against the default branch: only ahead, only behind, both (diverged), or even.')} value={filters.divergence} onChange={(e) => patchFilters({ divergence: e.target.value as HealthFilters['divergence'] })}>
                 <option value="">{t('Any')}</option>
                 {DIVERGENCE_FILTERS.map((d) => (
                   <option key={d} value={d}>{t(d === 'Ahead' ? msg('Ahead only') : d === 'Behind' ? msg('Behind only') : d === 'Diverged' ? msg('Diverged') : msg('Even'))}</option>
                 ))}
               </select>
             </label>
-            <label className="vh-inline-field">
+            <label className="vh-inline-field" title={t('Show only vessels whose local branch count is within this range. Leave a box blank for no limit on that side.')}>
               <span>{t('Branches')}</span>
               <input
                 type="number"
@@ -643,6 +648,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
                 value={minDraft}
                 placeholder={t('Min')}
                 aria-label={t('Minimum branch count')}
+                title={t('Fewest local branches a vessel may have to be shown, e.g. 5. Blank means no minimum.')}
                 onChange={(e) => setMinDraft(e.target.value)}
               />
               <span aria-hidden="true">-</span>
@@ -654,6 +660,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
                 value={maxDraft}
                 placeholder={t('Max')}
                 aria-label={t('Maximum branch count')}
+                title={t('Most local branches a vessel may have to be shown. Blank means no maximum.')}
                 onChange={(e) => setMaxDraft(e.target.value)}
               />
             </label>
@@ -664,7 +671,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
                 value={filters.commitAfter}
                 max={filters.commitBefore || undefined}
                 aria-label={t('Last commit on or after')}
-                title={t('Last commit on or after')}
+                title={t('Show only vessels whose last commit is on or after this date.')}
                 onChange={(e) => patchFilters({ commitAfter: e.target.value })}
               />
               <span aria-hidden="true">-</span>
@@ -673,7 +680,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
                 value={filters.commitBefore}
                 min={filters.commitAfter || undefined}
                 aria-label={t('Last commit on or before')}
-                title={t('Last commit on or before')}
+                title={t('Show only vessels whose last commit is on or before this date, e.g. to find repositories nobody has touched in a year.')}
                 onChange={(e) => patchFilters({ commitBefore: e.target.value })}
               />
             </label>
@@ -682,6 +689,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
                 type="button"
                 className="btn btn-sm"
                 onClick={() => updateFilters({ ...DEFAULT_HEALTH_FILTERS, sortBy: filters.sortBy, sortDesc: filters.sortDesc })}
+                title={t('Reset every filter so all vessels show. The sort order is kept.')}
               >
                 {t('Clear filters')}
               </button>
@@ -691,7 +699,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
           {error && (
             <div className="alert alert-error vh-inline-alert" role="alert">
               <span>{t('Could not load vessel health: {{message}}', { message: error })}</span>
-              <button type="button" className="btn btn-sm" onClick={() => void loadRows()}>{t('Retry')}</button>
+              <button type="button" className="btn btn-sm" onClick={() => void loadRows()} title={t('Try loading vessel health again.')}>{t('Retry')}</button>
             </div>
           )}
 
@@ -700,15 +708,15 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
               <span className="vh-bulk-count">{t(selected.length === 1 ? msg('{{count}} vessel selected') : msg('{{count}} vessels selected'), { count: formatCount(locale, selected.length) })}</span>
               {isTenantAdmin && (
                 <>
-                  <button type="button" className="btn btn-sm btn-primary" disabled={evaluation.running || evaluation.starting} onClick={() => { void reevaluateSelected(); }}>
+                  <button type="button" className="btn btn-sm btn-primary" disabled={evaluation.running || evaluation.starting} onClick={() => { void reevaluateSelected(); }} title={t('Grade only the selected vessels now, including package checks. Runs in the background.')}>
                     {t('Re-evaluate selected')}
                   </button>
-                  <button type="button" className="btn btn-sm" onClick={() => runAction([...selected])} title={t('Run a fleet action against the selected vessels')}>
+                  <button type="button" className="btn btn-sm" onClick={() => runAction([...selected])} title={t('Run a fleet action on the selected vessels, such as dispatching a cleanup mission that uses each vessel health summary.')}>
                     {t('Run action...')}
                   </button>
                 </>
               )}
-              <button type="button" className="btn btn-sm" onClick={() => setSelected([])}>{t('Clear selection')}</button>
+              <button type="button" className="btn btn-sm" onClick={() => setSelected([])} title={t('Uncheck all selected vessels.')}>{t('Clear selection')}</button>
             </div>
           )}
 
@@ -737,7 +745,7 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
             }}
             autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
             onRefresh={refreshAll}
-            refreshTitle={msg('Refresh vessel health')}
+            refreshTitle={msg('Reload the health table and summary tiles from the latest stored grades. This does not re-run any checks.')}
             selection={{
               isSelected: (row) => selected.includes(row.vesselId),
               onToggle: (row) => setSelected((s) => (s.includes(row.vesselId) ? s.filter((x) => x !== row.vesselId) : [...s, row.vesselId])),

@@ -64,11 +64,16 @@ export default function CopyButton({
     });
   }, [onClick, text]);
 
+  // The bare default names no value; say what will be copied when it is short enough to read.
+  const idle = title === 'Copy to clipboard' && text && text.length <= 120
+    ? t('Copy {{text}} to the clipboard.', { text })
+    : t(title);
   return (
     <button
       className={`${className}${copied ? ' copied' : ''}`}
       onClick={handleCopy}
-      title={copied ? t('Copied!') : t(title)}
+      title={copied ? t('Copied!') : idle}
+      aria-label={t(title)}
       type="button"
     />
   );

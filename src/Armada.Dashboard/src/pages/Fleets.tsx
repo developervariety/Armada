@@ -164,12 +164,12 @@ export default function Fleets() {
 
   const columns: DataTableColumn<FleetWithCount>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Fleet name -- click to sort'),
+      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Fleet name. Click to sort; type in the box below to filter.'),
       filter: <input type="text" className="col-filter" aria-label={t('Name')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
       render: (f) => <strong>{f.name}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), headerTitle: t('Fleet ID (flt_...), used by the CLI, API and MCP tools.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (f) => (
         <span className="id-display">
           <span className="id-value" title={f.id}>{f.id}</span>
@@ -178,28 +178,28 @@ export default function Fleets() {
       ),
     },
     {
-      key: 'description', label: t('Description'), sortKey: 'description', headerTitle: t('Description -- click to sort'),
+      key: 'description', label: t('Description'), sortKey: 'description', headerTitle: t('Fleet description. Click to sort; type in the box below to filter.'),
       cellClassName: 'text-dim truncate-cell',
       clearFilter: () => table.setColFilter('description', ''),
       filter: <input type="text" className="col-filter" aria-label={t('Description')} value={table.colFilters.description ?? ''} onChange={e => table.setColFilter('description', e.target.value)} placeholder={t('Filter...')} />,
       render: (f) => f.description ? <span className="truncate-text" title={f.description}>{f.description}</span> : '-',
     },
-    { key: 'vessels', label: t('Vessels'), sortKey: '_vesselCount', headerTitle: t('Vessel count -- click to sort'), render: (f) => f._vesselCount },
-    { key: 'active', label: t('Active'), render: (f) => (f.active !== false ? t('Yes') : t('No')) },
+    { key: 'vessels', label: t('Vessels'), sortKey: '_vesselCount', headerTitle: t('Number of vessels (repositories) in the fleet. Click to sort.'), render: (f) => f._vesselCount },
+    { key: 'active', label: t('Active'), headerTitle: t('Whether the fleet is marked active. This is a label only; it does not stop dispatches to its vessels.'), render: (f) => (f.active !== false ? t('Yes') : t('No')) },
     {
-      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('Created date -- click to sort'),
+      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('When the fleet was created. Hover a cell for the exact time; click to sort.'),
       cellClassName: 'text-dim cell-nowrap', cellTitle: (f) => formatDateTime(f.createdUtc),
       render: (f) => formatRelativeTime(f.createdUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open, edit, duplicate, inspect or delete a fleet.'), fixed: true, interactive: true, className: 'text-right',
       render: (f) => (
         <ActionMenu id={`fleet-${f.id}`} items={[
-          { label: 'View Detail', onClick: () => navigate(`/fleets/${f.id}`) },
-          { label: 'Edit', onClick: () => openEdit(f) },
-          { label: 'Duplicate', onClick: () => void handleDuplicate(f) },
-          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Fleet')}: ${f.name}`, data: f }) },
-          { label: 'Delete', danger: true, onClick: () => handleDelete(f.id, f.name) },
+          { label: 'View Detail', title: 'Open the fleet page with its vessels and settings.', onClick: () => navigate(`/fleets/${f.id}`) },
+          { label: 'Edit', title: 'Change the fleet name, description or default pipeline.', onClick: () => openEdit(f) },
+          { label: 'Duplicate', title: 'Create a new fleet with the same description and default pipeline. Vessels are not copied.', onClick: () => void handleDuplicate(f) },
+          { label: 'View JSON', title: 'Show the raw fleet record as JSON.', onClick: () => setJsonData({ open: true, title: `${t('Fleet')}: ${f.name}`, data: f }) },
+          { label: 'Delete', title: 'Delete the fleet after you confirm. Its vessels are kept and left without a fleet.', danger: true, onClick: () => handleDelete(f.id, f.name) },
         ]} />
       ),
     },
@@ -213,11 +213,11 @@ export default function Fleets() {
         actions={(
           <>
             {table.selected.length > 0 && (
-              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} title={t('Delete every checked fleet after you confirm. Their vessels are kept and left without a fleet.')}>
                 {t('Delete Selected')} ({table.selected.length})
               </button>
             )}
-            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Fleet')}</button>
+            <button className="btn btn-primary btn-sm" onClick={openCreate} title={t('Create a new fleet to group related vessels.')}>+ {t('Fleet')}</button>
           </>
         )}
       />
@@ -229,10 +229,10 @@ export default function Fleets() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Fleet') : t('Create Fleet')}</h3>
-            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label>{t('Description')}<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
-            <label>{t('Default Pipeline')}
-              <select value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })}>
+            <label title={t('Fleet name shown across Armada and used to pick the fleet in dispatch, e.g. Payments or Web Frontends. Required.')}>{t('Name')}<input title={t('Fleet name shown across Armada and used to pick the fleet in dispatch, e.g. Payments or Web Frontends. Required.')} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+            <label title={t('Optional note about what the repositories in this fleet have in common. Shown in the fleet list.')}>{t('Description')}<input title={t('Optional note about what the repositories in this fleet have in common. Shown in the fleet list.')} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+            <label title={t('Pipeline used for dispatches to vessels in this fleet when the vessel itself has no default pipeline. None means a single Worker stage.')}>{t('Default Pipeline')}
+              <select title={t('Pipeline used for dispatches to vessels in this fleet when the vessel itself has no default pipeline. None means a single Worker stage.')} value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })}>
                 <option value="">{t('None (WorkerOnly)')}</option>
                 {pipelines.map(p => (
                   <option key={p.id} value={p.id}>{p.name} ({p.stages.map(s => s.personaName).join(' -> ')})</option>
@@ -240,8 +240,8 @@ export default function Fleets() {
               </select>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Save')}</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" title={editing ? t('Save your changes to this fleet.') : t('Create the fleet. Add vessels to it from the fleet page or the vessel form.')}>{t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)} title={t('Close without saving.')}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -275,7 +275,7 @@ export default function Fleets() {
         pagination={table.paginationProps}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle={t('Refresh fleet data')}
+        refreshTitle={t('Reload the fleet list and vessel counts now.')}
         selection={{
           isSelected: (f) => table.selected.includes(f.id),
           onToggle: (f) => table.toggleSelect(f.id),

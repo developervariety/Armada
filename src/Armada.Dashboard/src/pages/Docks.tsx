@@ -138,7 +138,7 @@ export default function Docks() {
 
   const columns: DataTableColumn<Dock>[] = [
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), headerTitle: t('Dock ID (dck_...), used by the CLI, API and MCP tools.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (d) => (
         <span className="id-display">
           <span className="id-value" title={d.id}>{d.id}</span>
@@ -147,44 +147,44 @@ export default function Docks() {
       ),
     },
     {
-      key: 'vessel', label: t('Vessel'), interactive: true,
+      key: 'vessel', label: t('Vessel'), headerTitle: t('Repository this worktree was created from. Click to open the vessel.'), interactive: true,
       render: (d) => d.vesselId ? <a href="#" onClick={e => { e.preventDefault(); navigate(`/vessels/${d.vesselId}`); }}>{vesselName(d.vesselId)}</a> : '-',
     },
     {
-      key: 'captain', label: t('Captain'), interactive: true,
+      key: 'captain', label: t('Captain'), headerTitle: t('Captain currently using this dock. A dash means it is not assigned. Click to open the captain.'), interactive: true,
       render: (d) => d.captainId ? <a href="#" onClick={e => { e.preventDefault(); navigate(`/captains/${d.captainId}`); }}>{captainName(d.captainId)}</a> : '-',
     },
     {
-      key: 'branchName', label: t('Branch'), sortKey: 'branchName', headerTitle: t('Branch name -- click to sort'),
+      key: 'branchName', label: t('Branch'), sortKey: 'branchName', headerTitle: t('Branch checked out in the worktree, usually the mission branch. Click to sort; type in the box below to filter.'),
       cellClassName: 'mono text-dim table-url-cell',
       clearFilter: () => table.setColFilter('branchName', ''),
       filter: <input type="text" className="col-filter" aria-label={t('Branch')} value={table.colFilters.branchName ?? ''} onChange={e => table.setColFilter('branchName', e.target.value)} placeholder={t('Filter...')} />,
       render: (d) => d.branchName ? (
         <span className="id-display">
           <span className="url-value" title={d.branchName}>{d.branchName}</span>
-          <CopyButton text={d.branchName} onClick={e => e.stopPropagation()} title={t('Copy branch')} />
+          <CopyButton text={d.branchName} onClick={e => e.stopPropagation()} />
         </span>
       ) : '-',
     },
     {
-      key: 'worktreePath', label: t('Worktree Path'), cellClassName: 'mono text-dim', cellTitle: (d) => d.worktreePath || '',
+      key: 'worktreePath', label: t('Worktree Path'), headerTitle: t('Folder holding the git worktree, on the Admiral host or on the Harbor that owns the dock. Type in the box below to filter.'), cellClassName: 'mono text-dim', cellTitle: (d) => d.worktreePath || '',
       clearFilter: () => table.setColFilter('worktreePath', ''),
       filter: <input type="text" className="col-filter" aria-label={t('Worktree Path')} value={table.colFilters.worktreePath ?? ''} onChange={e => table.setColFilter('worktreePath', e.target.value)} placeholder={t('Filter...')} />,
       render: (d) => <span className="cell-clip"><span>{d.worktreePath || '-'}</span></span>,
     },
-    { key: 'active', label: t('Active'), sortKey: 'active', headerTitle: t('Active status -- click to sort'), render: (d) => (d.active ? t('Yes') : t('No')) },
+    { key: 'active', label: t('Active'), sortKey: 'active', headerTitle: t('Whether the dock is active and usable by a captain.'), render: (d) => (d.active ? t('Yes') : t('No')) },
     {
-      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('Created -- click to sort'),
+      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('When the dock was provisioned. Hover a cell for the exact time; click to sort.'),
       cellClassName: 'text-dim cell-nowrap', cellTitle: (d) => formatDateTime(d.createdUtc),
       render: (d) => formatRelativeTime(d.createdUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open, inspect or delete a dock.'), fixed: true, interactive: true, className: 'text-right',
       render: (d) => (
         <ActionMenu id={`dock-${d.id}`} items={[
-          { label: 'View Detail', onClick: () => navigate(`/docks/${d.id}`) },
-          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Dock')}: ${d.id}`, data: d }) },
-          { label: 'Delete', danger: true, onClick: () => handleDelete(d.id) },
+          { label: 'View Detail', title: 'Open the dock page with its branch, worktree path and starting point.', onClick: () => navigate(`/docks/${d.id}`) },
+          { label: 'View JSON', title: 'Show the raw dock record as JSON.', onClick: () => setJsonData({ open: true, title: `${t('Dock')}: ${d.id}`, data: d }) },
+          { label: 'Delete', title: 'Remove this dock and its worktree folder after you confirm. Commits on its branch stay in the repository; uncommitted files in the worktree are lost. Refused while a captain is using it.', danger: true, onClick: () => handleDelete(d.id) },
         ]} />
       ),
     },
@@ -199,7 +199,7 @@ export default function Docks() {
           <>
             <UserScopeFilter value={userScope} onChange={(id) => { setUserScope(id); setPageNumber(1); }} />
             {table.selected.length > 0 && (
-              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} title={t('Remove every checked dock and its worktree folder after you confirm. Branches are kept; uncommitted files are lost. Docks in use by a captain are skipped.')}>
                 {t('Delete Selected')} ({table.selected.length})
               </button>
             )}
@@ -234,7 +234,7 @@ export default function Docks() {
         }}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle={t('Refresh dock data')}
+        refreshTitle={t('Reload the dock list now.')}
         selection={{
           isSelected: (d) => table.selected.includes(d.id),
           onToggle: (d) => table.toggleSelect(d.id),

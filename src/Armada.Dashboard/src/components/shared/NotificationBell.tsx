@@ -63,7 +63,9 @@ export default function NotificationBell() {
         type="button"
         className="notif-bell-btn"
         onClick={() => setOpen((prev) => !prev)}
-        title={t('Notifications')}
+        title={unreadCount > 0
+          ? t('{{count}} unread notifications about mission, voyage and captain changes. Click to see the latest.', { count: unreadCount })
+          : t('Recent mission, voyage and captain changes, kept in this browser. Click to see the latest.')}
         aria-label={t('Notifications')}
         aria-haspopup="true"
         aria-expanded={open}
@@ -87,6 +89,7 @@ export default function NotificationBell() {
                 className="btn-link"
                 onClick={markAllRead}
                 disabled={unreadCount === 0}
+                title={t('Mark every notification as read and clear the unread count. The list is kept.')}
               >
                 {t('Mark all read')}
               </button>
@@ -95,6 +98,7 @@ export default function NotificationBell() {
                 className="btn-link"
                 onClick={clearHistory}
                 disabled={notifications.length === 0}
+                title={t('Delete the notification history in this browser. Missions and other records are not affected.')}
               >
                 {t('Clear')}
               </button>
@@ -110,8 +114,9 @@ export default function NotificationBell() {
                     className={`notif-dropdown-item${!n.read ? ' unread' : ''}`}
                     onClick={() => handleClick(n)}
                     role="menuitem"
+                    title={notificationRoute(n) ? t('{{title}}: {{message}} Click to mark it read and open the record.', { title: n.title, message: n.message }) : t('{{title}}: {{message}} Click to mark it read.', { title: n.title, message: n.message })}
                   >
-                    <span className={`notif-severity-dot ${severityDotClass(n.severity)}`} />
+                    <span className={`notif-severity-dot ${severityDotClass(n.severity)}`} aria-hidden="true" />
                     <span className="notif-dropdown-item-body">
                       <span className="notif-dropdown-item-title">{n.title}</span>
                       <span className="notif-dropdown-item-message">{n.message}</span>

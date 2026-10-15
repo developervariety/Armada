@@ -17,9 +17,9 @@ function panel(node: ReactNode): ReactNode {
  */
 export default function MissionsHub() {
   const tabs: TabDef[] = [
-    { key: 'missions', label: 'Missions', render: () => panel(<Missions />) },
-    { key: 'voyages', label: 'Voyages', render: () => panel(<Voyages />) },
-    { key: 'merge-queue', label: 'Merge Queue', render: () => panel(<MergeQueue />) },
+    { key: 'missions', label: 'Missions', tooltip: 'Individual units of work assigned to captains, with their status, branch, and output.', render: () => panel(<Missions />) },
+    { key: 'voyages', label: 'Voyages', tooltip: 'Batches of related missions dispatched together, with their combined progress.', render: () => panel(<Voyages />) },
+    { key: 'merge-queue', label: 'Merge Queue', tooltip: 'Finished mission branches waiting to be tested and merged into their vessel\'s default branch.', render: () => panel(<MergeQueue />) },
   ];
 
   return <Tabs tabs={tabs} defaultTabKey="missions" ariaLabel="Mission sections" />;

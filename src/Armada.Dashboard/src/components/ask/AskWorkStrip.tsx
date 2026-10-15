@@ -20,7 +20,7 @@ export default function AskWorkStrip({ work, onSelect }: AskWorkStripProps) {
 
   return (
     <section className="ask-work-strip" aria-label={t('Work in this conversation')}>
-      <button type="button" className="ask-work-strip-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+      <button type="button" className="ask-work-strip-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)} title={open ? t('Hide the list of work started from this conversation.') : t('Show the voyages, missions, and fleet action runs started from this conversation and their status.')}>
         <span className={`ask-chevron${open ? ' is-open' : ''}`} aria-hidden="true">&#9656;</span>
         <span>{t('Work in this conversation')}</span>
         <span className="text-dim">
@@ -37,7 +37,7 @@ export default function AskWorkStrip({ work, onSelect }: AskWorkStripProps) {
                 type="button"
                 className="ask-work-chip"
                 onClick={() => onSelect(item)}
-                title={t('Show the live card for {{title}}', { title: item.title || item.entityId })}
+                title={t('Scroll to the live status card for {{title}} in the conversation.', { title: item.title || item.entityId })}
               >
                 {isWorkActive(item) && <span className="ask-live-dot" aria-hidden="true" />}
                 <span className="ask-work-chip-type text-dim">{entityLabel(item.entityType)}</span>

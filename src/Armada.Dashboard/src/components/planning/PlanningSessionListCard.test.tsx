@@ -73,7 +73,7 @@ describe('PlanningSessionListCard', () => {
     renderCard({ onSelect, onEndSession });
 
     await user.click(screen.getByRole('button', { name: /Recent Sessions/ }));
-    await user.click(screen.getByTitle('Actions'));
+    await user.click(screen.getByRole('button', { name: 'Actions' }));
     await user.click(screen.getByRole('menuitem', { name: 'End Session' }));
 
     expect(onEndSession).toHaveBeenCalledTimes(1);
@@ -87,7 +87,7 @@ describe('PlanningSessionListCard', () => {
     renderCard({ onDeleteSession });
 
     await user.click(screen.getByRole('button', { name: /Recent Sessions/ }));
-    await user.click(screen.getByTitle('Actions'));
+    await user.click(screen.getByRole('button', { name: 'Actions' }));
     await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
 
     expect(onDeleteSession).toHaveBeenCalledTimes(1);

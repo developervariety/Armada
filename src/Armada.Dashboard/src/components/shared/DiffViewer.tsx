@@ -94,8 +94,8 @@ export default function DiffViewer({ open, title, rawDiff, loading, onClose }: D
               <span className="diff-stat-files">
                 {files.length} {t(files.length === 1 ? 'file changed' : 'files changed')}
               </span>
-              <span className="diff-stat-add">+{totalAdditions}</span>
-              <span className="diff-stat-del">-{totalDeletions}</span>
+              <span className="diff-stat-add" title={t('Lines added across all files in this diff.')}>+{totalAdditions}</span>
+              <span className="diff-stat-del" title={t('Lines removed across all files in this diff.')}>-{totalDeletions}</span>
             </div>
           )}
           <div className="viewer-actions">
@@ -103,11 +103,12 @@ export default function DiffViewer({ open, title, rawDiff, loading, onClose }: D
               <button
                 className={`btn btn-sm${copied ? ' copied' : ''}`}
                 onClick={handleCopy}
+                title={t('Copy the whole diff as plain unified-diff text, for example to apply with git apply.')}
               >
                 {copied ? t('Copied!') : t('Copy Raw')}
               </button>
             )}
-            <button className="btn btn-sm" onClick={onClose}>{t('Close')}</button>
+            <button className="btn btn-sm" onClick={onClose} title={t('Close the diff. Nothing is changed.')}>{t('Close')}</button>
           </div>
         </div>
         <div className="diff-modal-body">

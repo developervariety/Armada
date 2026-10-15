@@ -13,7 +13,7 @@ export default function CliPermissionCountdown({ expiresUtc, active }: CliPermis
   const remaining = useCountdown(expiresUtc, active);
   if (!active || remaining === null || !expiresUtc) return null;
   return (
-    <span className={`cli-perm-countdown${remaining <= 60 ? ' is-urgent' : ''}`} title={formatDateTime(expiresUtc)}>
+    <span className={`cli-perm-countdown${remaining <= 60 ? ' is-urgent' : ''}`} title={t('Time left before this request expires and is denied automatically. Expires at {{time}}.', { time: formatDateTime(expiresUtc) })}>
       {remaining > 0 ? t('Expires in {{time}}', { time: formatCountdown(remaining) }) : t('Expiring now')}
     </span>
   );

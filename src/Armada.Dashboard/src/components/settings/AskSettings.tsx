@@ -72,8 +72,8 @@ export default function AskSettings({ ask, locked, onSaved, notify }: AskSetting
     const range = ASK_RANGES[field];
     return (
       <div className="form-group">
-        <label htmlFor={id}>{label}</label>
-        <input id={id} type="number" min={range.min} max={range.max} value={draft[field]} onChange={(e) => setNumber(field, e.target.value)} aria-invalid={Boolean(error)} aria-describedby={`${id}-help`} />
+        <label htmlFor={id} title={help}>{label}</label>
+        <input id={id} title={help} type="number" min={range.min} max={range.max} value={draft[field]} onChange={(e) => setNumber(field, e.target.value)} aria-invalid={Boolean(error)} aria-describedby={`${id}-help`} />
         <span id={`${id}-help`} className={error ? 'field-error' : 'text-dim form-help'}>
           {error ? t('Must be a whole number from {{min}} to {{max}}.', { min: range.min.toLocaleString(), max: range.max.toLocaleString() }) : help}
         </span>
@@ -84,8 +84,8 @@ export default function AskSettings({ ask, locked, onSaved, notify }: AskSetting
   function toggle(id: string, field: AskToggleField, label: string, help: string) {
     return (
       <div className="form-group">
-        <label className="settings-checkbox" htmlFor={id}>
-          <input id={id} type="checkbox" checked={draft[field]} onChange={(e) => setToggle(field, e.target.checked)} aria-describedby={`${id}-help`} />
+        <label className="settings-checkbox" htmlFor={id} title={help}>
+          <input id={id} title={help} type="checkbox" checked={draft[field]} onChange={(e) => setToggle(field, e.target.checked)} aria-describedby={`${id}-help`} />
           {' '}{label}
         </label>
         <span id={`${id}-help`} className="text-dim form-help">{help}</span>
@@ -110,10 +110,10 @@ export default function AskSettings({ ask, locked, onSaved, notify }: AskSetting
           {numberInput('ask-turn-timeout', 'turnTimeoutMinutes', t('Turn timeout (minutes)'), t('Longest a captain turn may run before it is stopped and marked failed (1-120, default 15).'))}
         </div>
         <div className="settings-actions">
-          <button type="button" className="btn-primary btn-sm" onClick={() => void save()} disabled={!valid || saving || !dirty}>
+          <button type="button" className="btn-primary btn-sm" onClick={() => void save()} disabled={!valid || saving || !dirty} title={t('Save this section to the Admiral. It applies immediately; other sections are saved separately.')}>
             {saving ? t('Saving...') : t('Save Ask Armada Settings')}
           </button>
-          {dirty && <button type="button" className="btn btn-sm" onClick={() => { setDirty(false); setDraft(askDraftFrom(ask)); }}>{t('Discard changes')}</button>}
+          {dirty && <button type="button" className="btn btn-sm" onClick={() => { setDirty(false); setDraft(askDraftFrom(ask)); }} title={t('Throw away the unsaved edits in this section and show the saved values again.')}>{t('Discard changes')}</button>}
           {dirty && <span className="text-dim">{t('Unsaved changes')}</span>}
         </div>
       </fieldset>

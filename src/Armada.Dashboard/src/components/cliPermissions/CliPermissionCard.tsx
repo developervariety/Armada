@@ -42,9 +42,16 @@ export default function CliPermissionCard({ request, onDecided, highlighted, sho
     >
       <div className="ask-confirm-header">
         <span className="ask-confirm-label">{pending ? t('Permission needed') : t('CLI permission')}</span>
-        <code className="ask-confirm-tool">{request.toolName || t('tool')}</code>
+        <code className="ask-confirm-tool" title={t('The CLI tool the captain wants to use, such as Bash for a shell command, Edit for a file change, or WebFetch for a URL.')}>{request.toolName || t('tool')}</code>
         <span className="ask-confirm-status">
-          <span className={`tag cli-perm-status is-${normalized}`}>{requestStatusLabel(t, status)}</span>
+          <span className={`tag cli-perm-status is-${normalized}`} title={
+            normalized === 'pending' ? t('Waiting for a decision. The captain is paused on this call until someone decides or it expires.')
+              : normalized === 'allowed' ? t('The call was allowed and the captain ran it.')
+                : normalized === 'denied' ? t('The call was denied and did not run.')
+                  : normalized === 'expired' ? t('Nobody decided before the timeout, so the call was denied and did not run.')
+                    : normalized === 'cancelled' ? t('The turn or mission ended, or the captain withdrew the call, before a decision.')
+                      : undefined
+          }>{requestStatusLabel(t, status)}</span>
         </span>
         <CliPermissionCountdown expiresUtc={request.expiresUtc} active={pending} />
       </div>
@@ -52,38 +59,38 @@ export default function CliPermissionCard({ request, onDecided, highlighted, sho
       {summary && (
         <div className="ask-confirm-pre-wrap cli-perm-summary">
           <pre id={summaryId} className="ask-confirm-pre">{summary}</pre>
-          <CopyButton text={summary} title={t('Copy command')} />
+          <CopyButton text={summary} title={t('Copy the command or summary of this request to the clipboard.')} />
         </div>
       )}
 
       <dl className="cli-perm-meta">
         {request.captainName || request.captainId ? (
           <div>
-            <dt>{t('Captain')}</dt>
+            <dt title={t('The captain that asked to run this tool.')}>{t('Captain')}</dt>
             <dd>{request.captainId ? <Link to={`/captains/${encodeURIComponent(request.captainId)}`}>{request.captainName || request.captainId}</Link> : request.captainName}</dd>
           </div>
         ) : null}
         {request.vesselId && (
           <div>
-            <dt>{t('Vessel')}</dt>
+            <dt title={t('The repository the captain was working in.')}>{t('Vessel')}</dt>
             <dd><Link to={`/vessels/${encodeURIComponent(request.vesselId)}`}>{request.vesselName || request.vesselId}</Link></dd>
           </div>
         )}
         {request.missionId && (
           <div>
-            <dt>{t('Mission')}</dt>
+            <dt title={t('The mission the captain was running when it asked.')}>{t('Mission')}</dt>
             <dd><Link to={`/missions/${encodeURIComponent(request.missionId)}`}>{request.missionTitle || request.missionId}</Link></dd>
           </div>
         )}
         {showThread && request.threadId && (
           <div>
-            <dt>{t('Conversation')}</dt>
+            <dt title={t('The Ask Armada conversation whose turn made this request.')}>{t('Conversation')}</dt>
             <dd><Link to={`/ask/${encodeURIComponent(request.threadId)}`}>{request.threadTitle || request.threadId}</Link></dd>
           </div>
         )}
         {request.createdUtc && (
           <div>
-            <dt>{t('Asked')}</dt>
+            <dt title={t('When the captain made the request.')}>{t('Asked')}</dt>
             <dd><time dateTime={request.createdUtc} title={formatDateTime(request.createdUtc)}>{formatRelativeTime(request.createdUtc)}</time></dd>
           </div>
         )}
@@ -91,10 +98,10 @@ export default function CliPermissionCard({ request, onDecided, highlighted, sho
 
       {input && input !== '{}' && (
         <details className="ask-confirm-details">
-          <summary>{t('Input')}</summary>
+          <summary title={t('Show the full tool input the captain sent, as JSON. Secrets are redacted.')}>{t('Input')}</summary>
           <div className="ask-confirm-pre-wrap">
             <pre className="ask-confirm-pre">{input}</pre>
-            <CopyButton text={request.inputText ?? ''} title={t('Copy input')} />
+            <CopyButton text={request.inputText ?? ''} title={t('Copy the tool input JSON to the clipboard.')} />
           </div>
         </details>
       )}

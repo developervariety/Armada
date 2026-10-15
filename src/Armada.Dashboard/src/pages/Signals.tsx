@@ -193,7 +193,7 @@ export default function Signals() {
   }
 
   function colFilterInput(key: 'type' | 'from' | 'to' | 'payload', label: string) {
-    return <input type="text" className="col-filter" aria-label={label} placeholder={t('Filter...')} value={colFilters[key]} onChange={e => setColFilters({ ...colFilters, [key]: e.target.value })} />;
+    return <input type="text" className="col-filter" aria-label={label} title={t('Show only signals on this page whose {{column}} contains this text.', { column: label })} placeholder={t('Filter...')} value={colFilters[key]} onChange={e => setColFilters({ ...colFilters, [key]: e.target.value })} />;
   }
 
   function captainLink(id: string | null) {
@@ -204,7 +204,7 @@ export default function Signals() {
 
   const columns: DataTableColumn<Signal>[] = [
     {
-      key: 'id', label: t('ID'), required: true, sortKey: 'id', cellClassName: 'mono table-id-cell',
+      key: 'id', label: t('ID'), required: true, sortKey: 'id', headerTitle: t('Unique signal ID (sig_ prefix). Click to sort.'), cellClassName: 'mono table-id-cell',
       render: (sig) => (
         <span className="id-display" style={{ color: 'var(--primary)' }}>
           <span className="id-value" title={sig.id}>{sig.id}</span>
@@ -213,38 +213,38 @@ export default function Signals() {
       ),
     },
     {
-      key: 'type', label: t('Type'), sortKey: 'type', cellClassName: 'cell-nowrap',
+      key: 'type', label: t('Type'), sortKey: 'type', headerTitle: t('Kind of signal, such as Assignment, Progress, Completion, Error, Heartbeat, Nudge or Mail. Click to sort.'), cellClassName: 'cell-nowrap',
       clearFilter: () => setColFilters(f => ({ ...f, type: '' })), filter: colFilterInput('type', t('Type')),
-      render: (sig) => <span className={`status status-${(sig.type || '').toLowerCase()}`}>{sig.type}</span>,
+      render: (sig) => <span className={`status status-${(sig.type || '').toLowerCase()}`} title={t('Signal type. Nudge and Mail are sent by people; the other types are sent by Armada as missions progress.')}>{sig.type}</span>,
     },
     {
-      key: 'from', label: t('From'), sortKey: 'fromCaptainId', interactive: true,
+      key: 'from', label: t('From'), sortKey: 'fromCaptainId', headerTitle: t('Captain that sent the signal, or Admiral when Armada or a person sent it. Click to sort.'), interactive: true,
       clearFilter: () => setColFilters(f => ({ ...f, from: '' })), filter: colFilterInput('from', t('From')),
       render: (sig) => captainLink(sig.fromCaptainId),
     },
     {
-      key: 'to', label: t('To'), sortKey: 'toCaptainId', interactive: true,
+      key: 'to', label: t('To'), sortKey: 'toCaptainId', headerTitle: t('Captain the signal is addressed to, or Admiral when it went to the Admiral or was a broadcast. Click to sort.'), interactive: true,
       clearFilter: () => setColFilters(f => ({ ...f, to: '' })), filter: colFilterInput('to', t('To')),
       render: (sig) => captainLink(sig.toCaptainId),
     },
-    { key: 'read', label: t('Read'), render: (sig) => (sig.read ? t('Yes') : t('No')) },
+    { key: 'read', label: t('Read'), headerTitle: t('Whether the signal has been marked read. Use Mark Read in the row menu to clear unread signals.'), render: (sig) => (sig.read ? t('Yes') : t('No')) },
     {
-      key: 'payload', label: t('Payload'), cellClassName: 'truncate-cell', cellTitle: (sig) => sig.payload || undefined,
+      key: 'payload', label: t('Payload'), headerTitle: t('Message content. Hover a cell to read all of it.'), cellClassName: 'truncate-cell', cellTitle: (sig) => sig.payload || undefined,
       clearFilter: () => setColFilters(f => ({ ...f, payload: '' })), filter: colFilterInput('payload', t('Payload')),
       render: (sig) => <span className="truncate-text">{sig.payload || '-'}</span>,
     },
     {
-      key: 'created', label: t('Time'), sortKey: 'createdUtc', cellClassName: 'text-muted cell-nowrap', cellTitle: (sig) => formatDateTime(sig.createdUtc),
+      key: 'created', label: t('Time'), sortKey: 'createdUtc', headerTitle: t('When the signal was sent. Hover a cell for the exact time. Click to sort.'), cellClassName: 'text-muted cell-nowrap', cellTitle: (sig) => formatDateTime(sig.createdUtc),
       render: (sig) => formatRelativeTime(sig.createdUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true,
+      key: 'actions', label: t('Actions'), headerTitle: t('Open, mark read, view JSON or delete a signal.'), fixed: true, interactive: true,
       render: (sig) => (
         <ActionMenu id={`signal-${sig.id}`} items={[
-          { label: 'View Detail', onClick: () => navigate(`/signals/${sig.id}`) },
-          ...(!sig.read ? [{ label: 'Mark Read', onClick: () => handleMarkRead(sig.id) }] : []),
-          { label: 'View JSON', onClick: () => setJsonView({ title: `${t('Signal')}: ${sig.id}`, data: sig }) },
-          { label: 'Delete', danger: true, onClick: () => setConfirmAction({ message: t('Delete signal {{id}}?', { id: sig.id }), action: async () => { try { await deleteSignalsBatch([sig.id]); pushToast('warning', t('Signal {{id}} deleted.', { id: sig.id })); setConfirmAction(null); load(); } catch { setError(t('Delete failed.')); setConfirmAction(null); } } }) },
+          { label: 'View Detail', title: 'Open the signal page with its full payload and sender details.', onClick: () => navigate(`/signals/${sig.id}`) },
+          ...(!sig.read ? [{ label: 'Mark Read', title: 'Mark this signal as read so it no longer counts as unread.', onClick: () => handleMarkRead(sig.id) }] : []),
+          { label: 'View JSON', title: 'Show the raw signal record as the API returns it.', onClick: () => setJsonView({ title: `${t('Signal')}: ${sig.id}`, data: sig }) },
+          { label: 'Delete', danger: true, title: 'Permanently delete this signal. You confirm first.', onClick: () => setConfirmAction({ message: t('Delete signal {{id}}?', { id: sig.id }), action: async () => { try { await deleteSignalsBatch([sig.id]); pushToast('warning', t('Signal {{id}} deleted.', { id: sig.id })); setConfirmAction(null); load(); } catch { setError(t('Delete failed.')); setConfirmAction(null); } } }) },
         ]} />
       ),
     },
@@ -260,11 +260,11 @@ export default function Signals() {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {selected.length > 0 && (
-            <button className="btn-sm btn-danger" onClick={handleBulkDelete}>
+            <button className="btn-sm btn-danger" onClick={handleBulkDelete} title={t('Permanently delete the selected signals. You confirm first.')}>
               {t('Delete Selected')} ({selected.length})
             </button>
           )}
-          <button className="btn-primary" onClick={() => { setSendForm({ type: 'Nudge', payload: '', toCaptainId: '' }); setShowSendModal(true); }}>
+          <button className="btn-primary" onClick={() => { setSendForm({ type: 'Nudge', payload: '', toCaptainId: '' }); setShowSendModal(true); }} title={t('Send a signal (message) to a captain or as a broadcast.')}>
             + {t('Signal')}
           </button>
         </div>
@@ -274,20 +274,20 @@ export default function Signals() {
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <select aria-label={t('All Types')} value={filterType} onChange={e => { setFilterType(e.target.value); setPage(1); }} style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}>
+        <select aria-label={t('All Types')} title={t('Show only signals of this type. Filters on the server across every page.')} value={filterType} onChange={e => { setFilterType(e.target.value); setPage(1); }} style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}>
           <option value="">{t('All Types')}</option>
           {SIGNAL_TYPES.map(signalType => <option key={signalType} value={signalType}>{t(signalType)}</option>)}
         </select>
-        <select aria-label={t('All Captains')} value={filterToCaptain} onChange={e => { setFilterToCaptain(e.target.value); setPage(1); }} style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}>
+        <select aria-label={t('All Captains')} title={t('Show only signals addressed to this captain.')} value={filterToCaptain} onChange={e => { setFilterToCaptain(e.target.value); setPage(1); }} style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}>
           <option value="">{t('All Captains')}</option>
           {captains.map(c => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
         </select>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, cursor: 'pointer' }}>
-          <input type="checkbox" checked={filterUnreadOnly} onChange={e => { setFilterUnreadOnly(e.target.checked); setPage(1); }} style={{ width: 'auto' }} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, cursor: 'pointer' }} title={t('Show only signals that have not been marked read.')}>
+          <input type="checkbox" title={t('Show only signals that have not been marked read.')} checked={filterUnreadOnly} onChange={e => { setFilterUnreadOnly(e.target.checked); setPage(1); }} style={{ width: 'auto' }} />
           {t('Unread Only')}
         </label>
         {(filterType || filterToCaptain || filterUnreadOnly) && (
-          <button className="btn-sm" onClick={resetFilters}>{t('Clear Filters')}</button>
+          <button className="btn-sm" onClick={resetFilters} title={t('Reset the type, captain and unread filters so all signals show.')}>{t('Clear Filters')}</button>
         )}
         <UserScopeFilter value={userScope} onChange={(id) => { setUserScope(id); setPage(1); }} />
       </div>
@@ -306,14 +306,14 @@ export default function Signals() {
         }}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle={t('Refresh signals')}
+        refreshTitle={t('Reload the signal list from the server now.')}
         selection={{
           isSelected: (sig) => selected.includes(sig.id),
           onToggle: (sig) => toggleSelection(sig.id),
           allSelected: selected.length > 0 && selected.length === sorted.length,
           onToggleAll: (checked) => (checked ? selectAll() : clearSelection()),
           selectAllLabel: t('Select all signals'),
-          rowLabel: () => t('Select this signal'),
+          rowLabel: () => t('Select this signal for Delete Selected.'),
         }}
         placeholder={sorted.length > 0 ? undefined : <p className="text-muted" style={{ padding: 20 }}>{loading ? t('Loading...') : t('No signals found.')}</p>}
       />
@@ -323,26 +323,26 @@ export default function Signals() {
         <div className="modal-overlay" onClick={() => setShowSendModal(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSend}>
             <h3>{t('Send Signal')}</h3>
-            <label>
+            <label title={t('Kind of signal: Assignment, Progress, Completion, Error and Heartbeat are normally sent by Armada itself; Nudge is a short one-off note and Mail is a message kept until read.')}>
               {t('Type')}
-              <select value={sendForm.type} onChange={e => setSendForm({ ...sendForm, type: e.target.value })} style={{ marginTop: 4 }}>
+              <select title={t('Kind of signal: Assignment, Progress, Completion, Error and Heartbeat are normally sent by Armada itself; Nudge is a short one-off note and Mail is a message kept until read.')} value={sendForm.type} onChange={e => setSendForm({ ...sendForm, type: e.target.value })} style={{ marginTop: 4 }}>
                 {SIGNAL_TYPES.map(signalType => <option key={signalType} value={signalType}>{t(signalType)}</option>)}
               </select>
             </label>
-            <label>
+            <label title={t('Text of the message. Plain text or JSON. Optional. Example: Please rebase onto main before continuing.')}>
               {t('Payload')}
-              <textarea value={sendForm.payload || ''} onChange={e => setSendForm({ ...sendForm, payload: e.target.value })} rows={4} style={{ marginTop: 4, resize: 'vertical' }} />
+              <textarea title={t('Text of the message. Plain text or JSON. Optional. Example: Please rebase onto main before continuing.')} value={sendForm.payload || ''} onChange={e => setSendForm({ ...sendForm, payload: e.target.value })} rows={4} style={{ marginTop: 4, resize: 'vertical' }} />
             </label>
-            <label>
+            <label title={t('Captain to address the signal to. Admiral (broadcast) records it with no single recipient.')}>
               {t('To Captain (optional)')}
-              <select value={sendForm.toCaptainId || ''} onChange={e => setSendForm({ ...sendForm, toCaptainId: e.target.value || undefined })} style={{ marginTop: 4 }}>
+              <select title={t('Captain to address the signal to. Admiral (broadcast) records it with no single recipient.')} value={sendForm.toCaptainId || ''} onChange={e => setSendForm({ ...sendForm, toCaptainId: e.target.value || undefined })} style={{ marginTop: 4 }}>
                 <option value="">{t('Admiral (broadcast)')}</option>
                 {captains.map(c => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
               </select>
             </label>
             <div className="modal-actions">
-              <button type="button" className="btn-sm" onClick={() => setShowSendModal(false)}>{t('Cancel')}</button>
-              <button type="submit" className="btn-primary" disabled={sendLoading}>{sendLoading ? t('Sending...') : t('Send')}</button>
+              <button type="button" className="btn-sm" onClick={() => setShowSendModal(false)} title={t('Close without sending.')}>{t('Cancel')}</button>
+              <button type="submit" className="btn-primary" disabled={sendLoading} title={t('Send the signal now. It appears in this list right away.')}>{sendLoading ? t('Sending...') : t('Send')}</button>
             </div>
           </form>
         </div>

@@ -203,7 +203,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
     <div className="pagination-bar data-table-toolbar">
       <div className="pagination-info">
         {count !== null && (
-          <span className="pagination-records">
+          <span className="pagination-records" title={t('Number of rows in this list, after any filters.')}>
             {t(count === 1 ? '{{count}} record' : '{{count}} records', { count: count.toLocaleString() })}
           </span>
         )}
@@ -222,8 +222,11 @@ export default function DataTable<T>(props: DataTableProps<T>) {
     const content = column.header ?? column.label;
     if (!column.sortKey || !sort) return content;
     const active = sort.field === column.sortKey;
+    const sortHint = active
+      ? (sort.dir === 'asc' ? t('Sorted ascending; click to sort descending.') : t('Sorted descending; click to sort ascending.'))
+      : t('Click to sort by this column.');
     return (
-      <button type="button" className="th-sort-btn" title={column.headerTitle} onClick={() => sort.onSort(column.sortKey!)}>
+      <button type="button" className="th-sort-btn" title={column.headerTitle ? `${column.headerTitle} ${sortHint}` : sortHint} onClick={() => sort.onSort(column.sortKey!)}>
         {content}
         <span aria-hidden="true" className={`th-sort-icon${active ? ' th-sort-active' : ''}`}>{sortIndicator(active, sort.dir)}</span>
       </button>

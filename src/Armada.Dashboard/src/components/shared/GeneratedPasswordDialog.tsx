@@ -42,12 +42,12 @@ export default function GeneratedPasswordDialog({ open, title, message, email, p
       title={title}
       onClose={close}
       dismissible={false}
-      footer={<button type="button" className="btn btn-primary" onClick={close}>{t('I have saved it')}</button>}
+      footer={<button type="button" className="btn btn-primary" onClick={close} title={t('Close this dialog. The password is not stored anywhere and cannot be shown again, so copy it first.')}>{t('I have saved it')}</button>}
     >
       <div className="alert alert-warning" role="note">{message}</div>
       <label>
         {t('Admin email')}
-        <input type="text" value={email} readOnly aria-label={t('Admin email')} />
+        <input type="text" value={email} readOnly aria-label={t('Admin email')} title={t('Email to sign in with for this account, together with the password below.')} />
       </label>
       <label>
         {t('Password')}
@@ -58,11 +58,12 @@ export default function GeneratedPasswordDialog({ open, title, message, email, p
             value={password}
             readOnly
             aria-label={t('Generated password')}
+            title={t('Password the server generated for this account. It is shown only once; click to select it.')}
             autoComplete="off"
             spellCheck={false}
             onFocus={e => e.currentTarget.select()}
           />
-          <button type="button" className="btn btn-sm" onClick={copy}>{copyState === 'copied' ? t('Copied!') : t('Copy password')}</button>
+          <button type="button" className="btn btn-sm" onClick={copy} title={t('Copy the password to the clipboard so you can store it in a password manager.')}>{copyState === 'copied' ? t('Copied!') : t('Copy password')}</button>
         </span>
       </label>
       {copyState === 'failed' && (

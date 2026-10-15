@@ -410,41 +410,41 @@ export default function MissionDetail() {
               <button className="btn btn-sm btn-primary" onClick={() => setReviewDecision({ comment: mission.reviewComment || '' })} title={t('Decide this review gate: approve, conditionally approve, request more work, or deny (which fails the pipeline).')}>{t('Resolve Review')}</button>
             )}
             {canMarkComplete && (
-              <button className="btn btn-sm btn-primary" onClick={handleMarkComplete} title={t('Graduate this mission out of Review to Complete')}>{t('Mark Complete')}</button>
+              <button className="btn btn-sm btn-primary" onClick={handleMarkComplete} title={t('Move this mission from Review to Complete without landing anything. Use it when the work has already been merged.')}>{t('Mark Complete')}</button>
             )}
-            <button className="btn btn-sm" onClick={handleViewDiff} title={t('View mission diff')}>{t('Diff')}</button>
-            <button className="btn btn-sm" onClick={handleViewLog} title={t('View mission log')}>{t('Log')}</button>
-            <button className="btn btn-sm" onClick={handleViewInstructions} title={t('View mission instructions')}>{t('Instructions')}</button>
+            <button className="btn btn-sm" onClick={handleViewDiff} title={t('Show the code changes this mission made, from its worktree or the snapshot saved when it finished.')}>{t('Diff')}</button>
+            <button className="btn btn-sm" onClick={handleViewLog} title={t('Show the captain\'s session log for this mission, newest 200 lines by default.')}>{t('Log')}</button>
+            <button className="btn btn-sm" onClick={handleViewInstructions} title={t('Show the instruction file Armada generated for the captain, such as CLAUDE.md or AGENTS.md, including the mission description.')}>{t('Instructions')}</button>
             {mission.vesselId && (
-              <button className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } })}>
+              <button className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } })} title={t('Open Checks with this mission\'s vessel, branch and commit filled in, to run a build, test or other check against its work.')}>
                 {t('Run Check')}
               </button>
             )}
             {showLand && (
-              <Button className="btn btn-sm btn-primary" onClick={handleLand} title={t('Rebase the mission branch and merge it into the target branch, then complete the mission')}>{landLabel}</Button>
+              <Button className="btn btn-sm btn-primary" onClick={handleLand} title={t('Rebase the mission branch onto its target branch and land it using the vessel\'s landing mode (merge, pull request or merge queue).')}>{landLabel}</Button>
             )}
             {showManualMerge && (
               <button className="btn btn-sm btn-primary" onClick={() => setBranchesOpen(true)} title={t('This vessel lands by hand (Landing Mode None). Merge the mission branch in Manage Branches; the mission completes once its branch is merged.')}>{t('Merge in Manage Branches')}</button>
             )}
             <ActionMenu id={`mission-action-${mission.id}`} items={[
-              { label: 'Edit', onClick: openEdit },
+              { label: 'Edit', title: 'Change the mission title, description (the captain\'s instructions) and priority.', onClick: openEdit },
               ...(canResolveReview ? [
-                { label: 'Resolve Review', onClick: () => setReviewDecision({ comment: mission.reviewComment || '' }) },
+                { label: 'Resolve Review', title: 'Decide this review gate: approve, conditionally approve, request more work, or deny (which fails the pipeline).', onClick: () => setReviewDecision({ comment: mission.reviewComment || '' }) },
               ] : []),
               ...(canMarkComplete ? [
-                { label: 'Mark Complete', onClick: handleMarkComplete },
+                { label: 'Mark Complete', title: 'Move this mission from Review to Complete without landing anything. Use it when the work has already been merged.', onClick: handleMarkComplete },
               ] : []),
-              { label: 'View Diff', onClick: handleViewDiff },
-              { label: 'View Log', onClick: handleViewLog },
-              { label: 'View Instructions', onClick: handleViewInstructions },
-              ...(mission.vesselId ? [{ label: 'Run Check', onClick: () => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } }) }] : []),
-              { label: 'Transition Status', onClick: () => setShowTransition(true) },
-              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Mission: {{title}}', { title: mission.title }), data: mission }) },
-              { label: 'Restart', onClick: handleRestart },
-              ...(showLand ? [{ label: mission.status === 'LandingFailed' ? 'Retry Landing' : 'Land', onClick: handleLand }] : []),
-              ...(showManualMerge ? [{ label: 'Merge in Manage Branches', onClick: () => setBranchesOpen(true) }] : []),
-              { label: 'Purge', danger: true, onClick: handlePurge },
-              { label: 'Delete', danger: true, onClick: handleDelete },
+              { label: 'View Diff', title: 'Show the code changes this mission made, from its worktree or the snapshot saved when it finished.', onClick: handleViewDiff },
+              { label: 'View Log', title: 'Show the captain\'s session log for this mission, newest 200 lines by default.', onClick: handleViewLog },
+              { label: 'View Instructions', title: 'Show the instruction file Armada generated for the captain, such as CLAUDE.md or AGENTS.md, including the mission description.', onClick: handleViewInstructions },
+              ...(mission.vesselId ? [{ label: 'Run Check', title: 'Open Checks with this mission\'s vessel, branch and commit filled in, to run a build, test or other check against its work.', onClick: () => navigate('/checks', { state: { prefill: { vesselId: mission.vesselId, missionId: mission.id, voyageId: mission.voyageId || null, branchName: mission.branchName || null, commitHash: mission.commitHash || null, label: mission.title } } }) }] : []),
+              { label: 'Transition Status', title: 'Move the mission to another status by hand, such as InProgress to Failed. Only valid moves are accepted. Use it to correct a stuck mission.', onClick: () => setShowTransition(true) },
+              { label: 'View JSON', title: 'Show the raw mission record as the API returns it.', onClick: () => setJsonData({ open: true, title: t('Mission: {{title}}', { title: mission.title }), data: mission }) },
+              { label: 'Restart', title: 'Reset a Failed or Cancelled mission to Pending so it is dispatched again. Clears its captain, branch, pull request and timing.', onClick: handleRestart },
+              ...(showLand ? [{ label: mission.status === 'LandingFailed' ? 'Retry Landing' : 'Land', title: 'Rebase the mission branch onto its target branch and land it using the vessel\'s landing mode (merge, pull request or merge queue).', onClick: handleLand }] : []),
+              ...(showManualMerge ? [{ label: 'Merge in Manage Branches', title: 'Open Manage Branches with this mission\'s branch selected so you can merge it by hand. The vessel\'s landing mode is None.', onClick: () => setBranchesOpen(true) }] : []),
+              { label: 'Purge', danger: true, title: 'Permanently delete the mission and clean up its branch, worktree and other resources. This cannot be undone.', onClick: handlePurge },
+              { label: 'Delete', danger: true, title: 'Cancel the mission: its status becomes Cancelled and the record is kept. Use Purge to remove it for good.', onClick: handleDelete },
             ]} />
           </>
         }
@@ -474,12 +474,12 @@ export default function MissionDetail() {
       <div className="card landing-preview-card">
         <div className="readiness-panel-header">
           <div>
-            <h3>{t('Landing Preview')}</h3>
-            <div className="readiness-panel-meta">
+            <h3 title={t('What would happen if this mission landed now, based on the vessel\'s landing mode, branch protection and check rules. Nothing is merged by viewing it.')}>{t('Landing Preview')}</h3>
+            <div className="readiness-panel-meta" title={t('Mission branch, then the target branch it would land into.')}>
               {landingPreview?.sourceBranch ? `${landingPreview.sourceBranch} -> ${landingPreview.targetBranch}` : mission.branchName || t('No branch selected')}
             </div>
           </div>
-          <span className={`readiness-pill ${landingPill.className}`}>
+          <span className={`readiness-pill ${landingPill.className}`} title={t('Overall landing outlook for this mission, from the preview and its current status.')}>
             {landingPill.label}
           </span>
         </div>
@@ -490,21 +490,21 @@ export default function MissionDetail() {
         ) : (
           <>
             <div className="readiness-summary-row">
-              <span>{t('Branch category')}: {landingPreview.branchCategory}</span>
-              <span>{t('Landing mode')}: {landingPreview.landingMode || t('Inherited')}</span>
-              <span>{t('Cleanup')}: {landingPreview.branchCleanupPolicy || t('Inherited')}</span>
-              {landingPreview.expectedLandingAction && <span>{t('Action')}: {landingPreview.expectedLandingAction}</span>}
-              <span>{landingPreview.requirePassingChecksToLand ? t('Passing checks required') : t('Passing checks optional')}</span>
+              <span title={t('Kind of target branch (for example Default or Release), which decides which landing rules apply.')}>{t('Branch category')}: {landingPreview.branchCategory}</span>
+              <span title={t('How the work lands: LocalMerge, MergeAndPush, PullRequest, MergeQueue or None (merge by hand). Inherited means the voyage, vessel or server default applies.')}>{t('Landing mode')}: {landingPreview.landingMode || t('Inherited')}</span>
+              <span title={t('What happens to the mission branch after it lands, such as deleting it locally or on the remote. Inherited means the default applies.')}>{t('Cleanup')}: {landingPreview.branchCleanupPolicy || t('Inherited')}</span>
+              {landingPreview.expectedLandingAction && <span title={t('The landing step Armada expects to take once all policies are applied.')}>{t('Action')}: {landingPreview.expectedLandingAction}</span>}
+              <span title={t('Whether the vessel blocks landing until a check run for this work has passed.')}>{landingPreview.requirePassingChecksToLand ? t('Passing checks required') : t('Passing checks optional')}</span>
             </div>
             <div className="readiness-summary-row">
-              <span>{landingPreview.targetBranchProtected ? t('Protected target branch') : t('Target branch not protected')}</span>
-              {landingPreview.protectedBranchMatch && <span>{t('Policy')}: <span className="mono">{landingPreview.protectedBranchMatch}</span></span>}
-              {landingPreview.requirePullRequestForProtectedBranches && <span>{t('PR required for protected branches')}</span>}
-              {landingPreview.requireMergeQueueForReleaseBranches && <span>{t('Merge queue required for release branches')}</span>}
+              <span title={t('Whether the target branch matches one of the vessel\'s protected-branch patterns, which can force pull-request landing.')}>{landingPreview.targetBranchProtected ? t('Protected target branch') : t('Target branch not protected')}</span>
+              {landingPreview.protectedBranchMatch && <span title={t('Protected-branch pattern that matched the target branch.')}>{t('Policy')}: <span className="mono">{landingPreview.protectedBranchMatch}</span></span>}
+              {landingPreview.requirePullRequestForProtectedBranches && <span title={t('This vessel lands into protected branches only through a pull request, never a direct merge.')}>{t('PR required for protected branches')}</span>}
+              {landingPreview.requireMergeQueueForReleaseBranches && <span title={t('This vessel lands into release branches only through the merge queue, which tests each change before merging.')}>{t('Merge queue required for release branches')}</span>}
             </div>
             {landingPreview.latestCheckSummary && (
               <div className="landing-preview-latest-check">
-                <strong>{t('Latest check')}</strong>
+                <strong title={t('Most recent check run (build, test or similar) linked to this mission\'s work.')}>{t('Latest check')}</strong>
                 <div className="text-dim">{landingPreview.latestCheckSummary}</div>
               </div>
             )}
@@ -514,7 +514,7 @@ export default function MissionDetail() {
                   <div key={`${issue.code}-${index}`} className={`readiness-issue ${issue.severity.toLowerCase()}`}>
                     <div className="readiness-issue-title-row">
                       <strong>{issue.title}</strong>
-                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`}>{issue.severity}</span>
+                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`} title={t('Error blocks landing; Warning is worth checking but does not block it.')}>{issue.severity}</span>
                     </div>
                     <div className="text-dim">{issue.message}</div>
                   </div>
@@ -559,12 +559,12 @@ export default function MissionDetail() {
         <div className="modal-overlay" onClick={() => setEditModal(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSaveEdit}>
             <h3>{t('Edit Mission')}</h3>
-            <label>{t('Title')}<input value={editTitle} onChange={e => setEditTitle(e.target.value)} required /></label>
-            <label>{t('Description')}<textarea value={editDescription} onChange={e => setEditDescription(e.target.value)} rows={3} /></label>
-            <label>{t('Priority')}<input type="number" value={editPriority} onChange={e => setEditPriority(Number(e.target.value))} min={0} max={1000} /></label>
+            <label title={t('Short name for the mission, shown in lists and notifications. Required.')}>{t('Title')}<input value={editTitle} onChange={e => setEditTitle(e.target.value)} required title={t('Short name for the mission, shown in lists and notifications. Required.')} /></label>
+            <label title={t('Instructions the captain works from. A captain already running keeps the instructions it started with; restart to apply changes.')}>{t('Description')}<textarea value={editDescription} onChange={e => setEditDescription(e.target.value)} rows={3} title={t('Instructions the captain works from. A captain already running keeps the instructions it started with; restart to apply changes.')} /></label>
+            <label title={t('Dispatch order from 0 to 1000. Lower numbers are assigned to a captain first; the default is 100.')}>{t('Priority')}<input type="number" value={editPriority} onChange={e => setEditPriority(Number(e.target.value))} min={0} max={1000} title={t('Dispatch order from 0 to 1000. Lower numbers are assigned to a captain first; the default is 100.')} /></label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? t('Saving...') : t('Save')}</button>
-              <button type="button" className="btn" onClick={() => setEditModal(false)}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={editSaving} title={t('Save the title, description and priority changes.')}>{editSaving ? t('Saving...') : t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setEditModal(false)} title={t('Close without saving your changes.')}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -576,9 +576,9 @@ export default function MissionDetail() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h3>{t('Transition Mission Status')}</h3>
             <p className="text-dim">{t('Current status')}: <StatusBadge status={mission.status} /></p>
-            <label style={{ marginTop: 12 }}>
+            <label style={{ marginTop: 12 }} title={t('Status to move the mission to. The server rejects moves that are not valid from the current status.')}>
               {t('New Status')}
-              <select value={transitionStatus} onChange={e => setTransitionStatus(e.target.value)}>
+              <select value={transitionStatus} onChange={e => setTransitionStatus(e.target.value)} title={t('Status to move the mission to. The server rejects moves that are not valid from the current status.')}>
                 <option value="">{t('Select status...')}</option>
                 {MISSION_STATUSES.map(s => (
                   <option key={s} value={s}>{t(s)}</option>
@@ -586,8 +586,8 @@ export default function MissionDetail() {
               </select>
             </label>
             <div className="modal-actions">
-              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionStatus} title={t('Force the mission into the selected status, bypassing the normal workflow. Use this only to correct a stuck mission.')}>{t('Transition')}</button>
-              <button className="btn" onClick={() => setShowTransition(false)}>{t('Cancel')}</button>
+              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionStatus} title={t('Move the mission to the selected status now. Use this only to correct a mission stuck in the wrong state.')}>{t('Transition')}</button>
+              <button className="btn" onClick={() => setShowTransition(false)} title={t('Close without changing the mission status.')}>{t('Cancel')}</button>
             </div>
           </div>
         </div>
@@ -600,9 +600,10 @@ export default function MissionDetail() {
             <p className="text-dim">
               {t('Choose how to resolve this review gate. Your feedback is carried into the next step or the re-run.')}
             </p>
-            <label style={{ marginTop: 12 }}>
+            <label style={{ marginTop: 12 }} title={t('Your review notes. They are saved on the mission and passed to the next step or the re-run. Required for Conditionally Approve and More Work Required.')}>
               {t('Feedback')}
               <textarea
+                title={t('Your review notes. They are saved on the mission and passed to the next step or the re-run. Required for Conditionally Approve and More Work Required.')}
                 value={reviewDecision.comment}
                 rows={8}
                 onChange={event => setReviewDecision(current => current ? { ...current, comment: event.target.value } : current)}
@@ -616,11 +617,11 @@ export default function MissionDetail() {
               <li><strong>{t('Deny')}</strong> {t('- reject this stage and fail the pipeline.')}</li>
             </ul>
             <div className="modal-actions review-verdict-actions">
-              <Button className="btn btn-primary" onClick={() => submitReview('approve')}>{t('Approve')}</Button>
-              <Button className="btn" onClick={() => submitReview('conditional')} disabled={!reviewDecision.comment.trim()} title={!reviewDecision.comment.trim() ? t('Add feedback first') : undefined}>{t('Conditionally Approve')}</Button>
-              <Button className="btn" onClick={() => submitReview('morework')} disabled={!reviewDecision.comment.trim()} title={!reviewDecision.comment.trim() ? t('Add feedback first') : undefined}>{t('More Work Required')}</Button>
-              <Button className="btn btn-danger" onClick={() => submitReview('deny')}>{t('Deny')}</Button>
-              <button className="btn" onClick={() => setReviewDecision(null)}>{t('Cancel')}</button>
+              <Button className="btn btn-primary" onClick={() => submitReview('approve')} title={t('Accept this stage. The pipeline moves to its next stage, or to landing if this is the last one.')}>{t('Approve')}</Button>
+              <Button className="btn" onClick={() => submitReview('conditional')} disabled={!reviewDecision.comment.trim()} title={!reviewDecision.comment.trim() ? t('Write feedback first. Conditionally Approve continues the pipeline and hands your feedback to the next step.') : t('Continue the pipeline; the next step receives your feedback and must take it into account.')}>{t('Conditionally Approve')}</Button>
+              <Button className="btn" onClick={() => submitReview('morework')} disabled={!reviewDecision.comment.trim()} title={!reviewDecision.comment.trim() ? t('Write feedback first. More Work Required re-runs this same step with your feedback.') : t('Send this step back to Pending to be redone with your feedback.')}>{t('More Work Required')}</Button>
+              <Button className="btn btn-danger" onClick={() => submitReview('deny')} title={t('Reject this stage and fail the pipeline. Later stages do not run.')}>{t('Deny')}</Button>
+              <button className="btn" onClick={() => setReviewDecision(null)} title={t('Close without deciding. The mission stays in Review.')}>{t('Cancel')}</button>
             </div>
           </div>
         </div>
@@ -629,10 +630,10 @@ export default function MissionDetail() {
       {mission.prUrl && (
         <div className="card" style={{ marginTop: '1rem', marginBottom: '1rem' }}>
           <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-            <h3>{t('GitHub Pull Request')}</h3>
+            <h3 title={t('Review and check status Armada read from GitHub for this mission\'s pull request.')}>{t('GitHub Pull Request')}</h3>
             <div className="inline-actions">
-              <a className="btn btn-sm" href={mission.prUrl} target="_blank" rel="noreferrer">{t('Open GitHub')}</a>
-              <button className="btn btn-sm" disabled={loadingGitHubPullRequest} onClick={() => mission.id && void getMissionGitHubPullRequest(mission.id).then(setGitHubPullRequest).catch(() => setGitHubPullRequest(null))}>
+              <a className="btn btn-sm" href={mission.prUrl} target="_blank" rel="noreferrer" title={t('Open the pull request on GitHub in a new tab.')}>{t('Open GitHub')}</a>
+              <button className="btn btn-sm" disabled={loadingGitHubPullRequest} onClick={() => mission.id && void getMissionGitHubPullRequest(mission.id).then(setGitHubPullRequest).catch(() => setGitHubPullRequest(null))} title={t('Fetch the latest reviews, checks and mergeability for this pull request from GitHub.')}>
                 {loadingGitHubPullRequest ? t('Refreshing...') : t('Refresh')}
               </button>
             </div>
@@ -645,16 +646,16 @@ export default function MissionDetail() {
             <>
               <div className="detail-grid" style={{ marginBottom: '0.75rem' }}>
                 <div className="detail-field"><span className="detail-label">{t('Repository')}</span><span>{gitHubPullRequest.repository}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Review Status')}</span><span>{gitHubPullRequest.reviewStatus}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('State')}</span><span>{gitHubPullRequest.state}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Mergeability')}</span><span>{gitHubPullRequest.mergeableState || '-'}</span></div>
+                <div className="detail-field"><span className="detail-label" title={t('Overall review decision on the pull request, such as Approved or Changes requested.')}>{t('Review Status')}</span><span>{gitHubPullRequest.reviewStatus}</span></div>
+                <div className="detail-field"><span className="detail-label" title={t('Whether the pull request is open, closed or merged on GitHub.')}>{t('State')}</span><span>{gitHubPullRequest.state}</span></div>
+                <div className="detail-field"><span className="detail-label" title={t('GitHub\'s view of whether the pull request can merge now, for example clean, blocked or dirty (has conflicts).')}>{t('Mergeability')}</span><span>{gitHubPullRequest.mergeableState || '-'}</span></div>
               </div>
               <div className="text-dim" style={{ marginBottom: '0.75rem' }}>
                 {gitHubPullRequest.title}
               </div>
               <div className="detail-grid">
                 <div className="card">
-                  <h4>{t('Reviews')}</h4>
+                  <h4 title={t('Each reviewer and the state of their latest review.')}>{t('Reviews')}</h4>
                   {gitHubPullRequest.reviews.length === 0 ? <div className="text-dim">{t('No reviews')}</div> : (
                     <div style={{ display: 'grid', gap: '0.45rem' }}>
                       {gitHubPullRequest.reviews.map((review, index) => (
@@ -666,7 +667,7 @@ export default function MissionDetail() {
                   )}
                 </div>
                 <div className="card">
-                  <h4>{t('Checks')}</h4>
+                  <h4 title={t('CI checks GitHub reports for the pull request, with status and conclusion.')}>{t('Checks')}</h4>
                   {gitHubPullRequest.checks.length === 0 ? <div className="text-dim">{t('No provider checks')}</div> : (
                     <div style={{ display: 'grid', gap: '0.45rem' }}>
                       {gitHubPullRequest.checks.map((check, index) => (
@@ -686,23 +687,23 @@ export default function MissionDetail() {
       {/* Mission Info */}
       <div className="detail-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
         <div className="detail-field">
-          <span className="detail-label">{t('ID')}</span>
+          <span className="detail-label" title={t('Unique mission ID (msn_ prefix). Use it with the REST API, MCP tools and the armada CLI.')}>{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{mission.id}</span>
             <CopyButton text={mission.id} />
           </span>
         </div>
-        <div className="detail-field"><span className="detail-label">{t('Tenant ID')}</span><span className="mono">{mission.tenantId || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Tenant (organization) that owns this mission. Only users in that tenant, and global admins, can see it.')}>{t('Tenant ID')}</span><span className="mono">{mission.tenantId || '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">{t('Status')}</span>
+          <span className="detail-label" title={t('Where the mission is in its lifecycle, from Pending (waiting for a captain) to Complete, Failed or Cancelled.')}>{t('Status')}</span>
           <StatusBadge status={mission.status} />
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Mode')}</span>
+          <span className="detail-label" title={t('Implementation changes code and lands a diff. Audit and Research are read-only and produce a written report instead.')}>{t('Mode')}</span>
           <span>{t(mission.mode || 'Implementation')}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Review Gate')}</span>
+          <span className="detail-label" title={t('Whether a person must approve this mission before its pipeline continues. Set by the pipeline stage that created it.')}>{t('Review Gate')}</span>
           <span>
             {mission.requiresReview
               ? <StatusBadge status={mission.status === 'Review' ? 'Waiting Review' : 'Required'} />
@@ -710,24 +711,24 @@ export default function MissionDetail() {
           </span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('On Deny')}</span>
+          <span className="detail-label" title={t('What a denied review does: Retry stage sends this step back to be redone; Fail pipeline stops the whole pipeline.')}>{t('On Deny')}</span>
           <span>{mission.requiresReview ? (mission.reviewDenyAction === 'FailPipeline' ? t('Fail pipeline') : t('Retry stage')) : <span className="text-dim">-</span>}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Review Requested')}</span>
+          <span className="detail-label" title={t('When the mission last entered Review and started waiting for a decision.')}>{t('Review Requested')}</span>
           <span>{mission.reviewRequestedUtc ? formatDateTime(mission.reviewRequestedUtc) : '-'}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Reviewed')}</span>
+          <span className="detail-label" title={t('When the most recent review decision was made.')}>{t('Reviewed')}</span>
           <span>{mission.reviewedUtc ? formatDateTime(mission.reviewedUtc) : '-'}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Reviewed By')}</span>
+          <span className="detail-label" title={t('User ID of whoever made the most recent review decision.')}>{t('Reviewed By')}</span>
           <span className="mono">{mission.reviewedByUserId || '-'}</span>
         </div>
         {mission.failureReason && (
           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
-            <span className="detail-label">{t('Failure Reason')}</span>
+            <span className="detail-label" title={t('Why the mission failed or could not land, as recorded when it failed.')}>{t('Failure Reason')}</span>
             <pre style={{
               margin: 0,
               padding: '0.75rem',
@@ -744,7 +745,7 @@ export default function MissionDetail() {
         )}
         {mission.reviewComment && (
           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
-            <span className="detail-label">{t('Review Comment')}</span>
+            <span className="detail-label" title={t('Feedback from the most recent review decision.')}>{t('Review Comment')}</span>
             <pre style={{
               margin: 0,
               padding: '0.75rem',
@@ -759,21 +760,21 @@ export default function MissionDetail() {
             }}>{mission.reviewComment}</pre>
           </div>
         )}
-        <div className="detail-field"><span className="detail-label">{t('Priority')}</span><span>{mission.priority}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Dispatch order. Lower numbers are assigned to a captain first; the default is 100.')}>{t('Priority')}</span><span>{mission.priority}</span></div>
         <div className="detail-field">
-          <span className="detail-label">{t('Voyage')}</span>
+          <span className="detail-label" title={t('Voyage (batch of related missions) this mission belongs to. Shows - for a standalone mission.')}>{t('Voyage')}</span>
           {mission.voyageId
             ? <Link to={`/voyages/${mission.voyageId}`} className="mono">{mission.voyageId}</Link>
             : <span>-</span>}
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Vessel')}</span>
+          <span className="detail-label" title={t('Repository the mission works in.')}>{t('Vessel')}</span>
           {mission.vesselId
             ? <Link to={`/vessels/${mission.vesselId}`}>{vesselName(mission.vesselId)}</Link>
             : <span>-</span>}
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Preferred Captain')}</span>
+          <span className="detail-label" title={t('Captain this mission asked for. If that captain is busy, dispatch uses another idle captain of the same or higher tier.')}>{t('Preferred Captain')}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
             <CaptainRef captainId={mission.requestedCaptainId} captains={captains} showTier={false} />
             {mission.requestedCaptainId && mission.captainId && mission.captainId !== mission.requestedCaptainId
@@ -782,84 +783,84 @@ export default function MissionDetail() {
           </span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Actual Captain')}</span>
+          <span className="detail-label" title={t('Captain that ran or is running the mission. Shows - until dispatch assigns one.')}>{t('Actual Captain')}</span>
           <CaptainRef captainId={mission.captainId} captains={captains} autoLabel="-" showTier={false} />
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Parent Mission')}</span>
+          <span className="detail-label" title={t('Mission that created this one as a sub-task, for example an architect mission that planned it.')}>{t('Parent Mission')}</span>
           {mission.parentMissionId
             ? <Link to={`/missions/${mission.parentMissionId}`} className="mono">{mission.parentMissionId}</Link>
             : <span>-</span>}
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Persona')}</span>
+          <span className="detail-label" title={t('Role the captain plays, such as Worker, Architect or Judge. It sets the prompt and which captains may take it. Blank means Worker.')}>{t('Persona')}</span>
           <span>{mission.persona || <span className="text-dim">{t('Worker')}</span>}</span>
         </div>
         {mission.dependsOnMissionId && (
           <div className="detail-field">
-            <span className="detail-label">{t('Depends On')}</span>
+            <span className="detail-label" title={t('Mission that must finish successfully before this one can be assigned, usually the previous pipeline stage.')}>{t('Depends On')}</span>
             <Link to={`/missions/${mission.dependsOnMissionId}`} className="mono">{mission.dependsOnMissionId}</Link>
           </div>
         )}
         {mission.status === 'WorkProduced' && mission.dependsOnMissionId === null && mission.persona && mission.persona !== 'Worker' && (
           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
-            <span className="detail-label">{t('Pipeline Status')}</span>
+            <span className="detail-label" title={t('Where this stage stands in its pipeline.')}>{t('Pipeline Status')}</span>
             <span className="text-dim">{t('Work complete -- handed off to the next pipeline stage')}</span>
           </div>
         )}
-        <div className="detail-field"><span className="detail-label">{t('Branch Name')}</span><span className="mono">{mission.branchName || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Git branch that holds this mission\'s commits. Its work lands from this branch.')}>{t('Branch Name')}</span><span className="mono">{mission.branchName || '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">{t('Dock')}</span>
+          <span className="detail-label" title={t('Git worktree the captain works in for this mission. Released after the mission finishes.')}>{t('Dock')}</span>
           {mission.dockId
             ? <Link to={`/docks/${mission.dockId}`} className="mono">{mission.dockId}</Link>
             : <span>-</span>}
         </div>
-        <div className="detail-field"><span className="detail-label">{t('Process ID')}</span><span>{mission.processId ?? '-'}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Operating system process ID of the agent working this mission, while it runs.')}>{t('Process ID')}</span><span>{mission.processId ?? '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">{t('PR URL')}</span>
+          <span className="detail-label" title={t('Pull request opened for this mission\'s work, when the vessel lands by pull request.')}>{t('PR URL')}</span>
           {mission.prUrl
             ? <a href={mission.prUrl} target="_blank" rel="noopener noreferrer">{mission.prUrl}</a>
             : <span>-</span>}
         </div>
-        <div className="detail-field"><span className="detail-label">{t('Commit Hash')}</span><span className="mono">{mission.commitHash || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Commit at the head of the mission branch when the mission finished.')}>{t('Commit Hash')}</span><span className="mono">{mission.commitHash || '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">{t('Created')}</span>
+          <span className="detail-label" title={t('When the mission was created.')}>{t('Created')}</span>
           <span title={mission.createdUtc}>
             {formatRelativeTime(mission.createdUtc)}
             <span className="text-dim"> ({formatDateTime(mission.createdUtc)})</span>
           </span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Started')}</span>
+          <span className="detail-label" title={t('When a captain started working on the mission.')}>{t('Started')}</span>
           <span title={formatDateTime(mission.startedUtc)}>
             {formatRelativeTime(mission.startedUtc) || '-'}
             {mission.startedUtc && <span className="text-dim"> ({formatDateTime(mission.startedUtc)})</span>}
           </span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Completed')}</span>
+          <span className="detail-label" title={t('When the mission reached a final state such as Complete, Failed or Cancelled.')}>{t('Completed')}</span>
           <span title={formatDateTime(mission.completedUtc)}>
             {formatRelativeTime(mission.completedUtc) || '-'}
             {mission.completedUtc && <span className="text-dim"> ({formatDateTime(mission.completedUtc)})</span>}
           </span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Total Runtime')}</span>
+          <span className="detail-label" title={t('Time from start to completion, or so far if it is still running.')}>{t('Total Runtime')}</span>
           <span>{formatDuration(mission.totalRuntimeMs)}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Last Updated')}</span>
+          <span className="detail-label" title={t('When anything on this mission last changed.')}>{t('Last Updated')}</span>
           <span title={mission.lastUpdateUtc}>
             {formatRelativeTime(mission.lastUpdateUtc)}
             <span className="text-dim"> ({formatDateTime(mission.lastUpdateUtc)})</span>
           </span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Linked Checks')}</span>
+          <span className="detail-label" title={t('Number of check runs (builds, tests and similar) recorded against this mission.')}>{t('Linked Checks')}</span>
           <span>{linkedCheckRuns.length}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Linked Deployments')}</span>
+          <span className="detail-label" title={t('Number of deployments that include this mission\'s work.')}>{t('Linked Deployments')}</span>
           <span>{linkedDeployments.length}</span>
         </div>
       </div>
@@ -906,7 +907,7 @@ export default function MissionDetail() {
         <div style={{ marginTop: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <h3 style={{ margin: 0 }}>{t('Description')}</h3>
-            <CopyButton text={mission.description} title={t('Copy raw markdown')} />
+            <CopyButton text={mission.description} title={t('Copy the description to the clipboard as raw Markdown.')} />
           </div>
           <div className="card markdown" style={{ padding: '1rem', marginTop: '0.5rem' }}>
             <Markdown>{mission.description}</Markdown>
@@ -916,7 +917,7 @@ export default function MissionDetail() {
 
       {mission.playbookSnapshots && mission.playbookSnapshots.length > 0 && (
         <div style={{ marginTop: '1rem' }}>
-          <h3>{t('Playbooks')}</h3>
+          <h3 title={t('Playbooks (reusable instruction files) given to the captain, saved exactly as they were when the mission started.')}>{t('Playbooks')}</h3>
           <div className="playbook-snapshot-list">
             {mission.playbookSnapshots.map((snapshot, index) => (
               <div key={`${snapshot.fileName}-${index}`} className="playbook-snapshot-card">
@@ -925,13 +926,13 @@ export default function MissionDetail() {
                     <strong>{snapshot.fileName}</strong>
                     <div className="text-dim">{snapshot.description || t('No description')}</div>
                   </div>
-                  <StatusBadge status={snapshot.deliveryMode.replace(/([a-z])([A-Z])/g, '$1 $2')} />
+                  <span title={t('How the playbook reached the captain: inlined in the instructions, referenced by path, or copied into the worktree.')}><StatusBadge status={snapshot.deliveryMode.replace(/([a-z])([A-Z])/g, '$1 $2')} /></span>
                 </div>
 
                 <div className="playbook-snapshot-meta">
-                  <span><strong>{t('Resolved Path')}:</strong> <span className="mono">{snapshot.resolvedPath || '-'}</span></span>
-                  <span><strong>{t('Worktree Path')}:</strong> <span className="mono">{snapshot.worktreeRelativePath || '-'}</span></span>
-                  <span><strong>{t('Source Updated')}:</strong> {snapshot.sourceLastUpdateUtc ? formatDateTime(snapshot.sourceLastUpdateUtc) : '-'}</span>
+                  <span title={t('Where the playbook file was read from on the Admiral host.')}><strong>{t('Resolved Path')}:</strong> <span className="mono">{snapshot.resolvedPath || '-'}</span></span>
+                  <span title={t('Where the playbook was placed inside the mission worktree, relative to its root.')}><strong>{t('Worktree Path')}:</strong> <span className="mono">{snapshot.worktreeRelativePath || '-'}</span></span>
+                  <span title={t('When the playbook was last edited before this snapshot was taken.')}><strong>{t('Source Updated')}:</strong> {snapshot.sourceLastUpdateUtc ? formatDateTime(snapshot.sourceLastUpdateUtc) : '-'}</span>
                 </div>
 
                 <pre className="playbook-snapshot-content">{snapshot.content}</pre>

@@ -21,6 +21,12 @@ import { useAuth } from '../context/AuthContext';
 import { canEdit as canEditScoped, type ScopeViewer } from '../lib/scoping';
 import { buildPersonaDuplicatePayload } from '../lib/duplicates';
 
+const PERSONA_DESCRIPTION_TIP = 'Optional note on what this persona is for. Shown in lists and pickers; it is not sent to the captain.';
+const PERSONA_TEMPLATE_TIP = 'The prompt template whose text tells the captain how to act in this role. Required. Manage templates on the Prompts tab.';
+const DEFAULT_CAPTAIN_TIP = 'Captain tried first for this persona\'s missions when Captain priorities is empty; if it is busy, work falls back by tier. None uses normal routing. Ignored once priorities are set.';
+const TEMPLATE_DESCRIPTION_TIP = 'Optional note on what this prompt template is for. Shown in template lists; it is not sent to the captain.';
+const PROMPT_CONTENT_TIP = 'The instruction text sent to the captain for this role. Placeholders such as {MissionTitle} are filled in per mission. Saving changes the template for every persona that uses it.';
+
 export default function PersonaDetail() {
   const { t, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
@@ -217,11 +223,11 @@ export default function PersonaDetail() {
         actions={
           <>
             <ActionMenu id={`persona-${persona.name}`} items={[
-              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Persona: {{name}}', { name: persona.name }), data: persona }) },
-              ...(canEditScoped(viewer, persona) ? [{ label: 'Edit', onClick: openEdit }] : []),
-              { label: 'Duplicate', onClick: () => void handleDuplicate() },
-              ...(persona.promptTemplateName ? [{ label: 'Open Backing Prompt', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(persona.promptTemplateName)}`) }] : []),
-              ...(canEditScoped(viewer, persona) ? [{ label: 'Delete', danger: true as const, onClick: handleDelete }] : []),
+              { label: 'View JSON', title: 'Show this persona\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: t('Persona: {{name}}', { name: persona.name }), data: persona }) },
+              ...(canEditScoped(viewer, persona) ? [{ label: 'Edit', title: 'Change this persona\'s description, prompt template, default captain and captain priorities.', onClick: openEdit }] : []),
+              { label: 'Duplicate', title: 'Create a copy of this persona under a new name, including its captain priorities, then open it.', onClick: () => void handleDuplicate() },
+              ...(persona.promptTemplateName ? [{ label: 'Open Backing Prompt', title: 'Open the prompt template this persona uses on its own page. Changes there affect every persona that uses it.', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(persona.promptTemplateName)}`) }] : []),
+              ...(canEditScoped(viewer, persona) ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this persona. Built-in personas cannot be deleted. You confirm first.', onClick: handleDelete }] : []),
             ]} />
           </>
         }
@@ -231,21 +237,22 @@ export default function PersonaDetail() {
 
       {/* Edit Modal */}
       <DialogShell open={showForm} title={t('Edit Persona')} onClose={() => setShowForm(false)} size="lg" className="persona-edit-dialog"
-        footer={<><button type="submit" form="persona-edit-form" className="btn btn-primary">{t('Save')}</button>
+        footer={<><button type="submit" form="persona-edit-form" className="btn btn-primary" title={t('Save changes to this persona. Missions assigned after saving use the new settings.')}>{t('Save')}</button>
           <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button></>}>
         <form id="persona-edit-form" className="persona-edit-layout" onSubmit={handleSubmit}>
           <div className="persona-edit-settings">
-            <label>{t('Description')}<textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={4} /></label>
-            <label>{t('Prompt Template Name')}
-              <select value={form.promptTemplateName} onChange={e => setForm({ ...form, promptTemplateName: e.target.value })} required>
+            <label title={t(PERSONA_DESCRIPTION_TIP)}>{t('Description')}<textarea title={t(PERSONA_DESCRIPTION_TIP)} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={4} /></label>
+            <label title={t(PERSONA_TEMPLATE_TIP)}>{t('Prompt Template Name')}
+              <select title={t(PERSONA_TEMPLATE_TIP)} value={form.promptTemplateName} onChange={e => setForm({ ...form, promptTemplateName: e.target.value })} required>
                 <option value="">{t('Select a template...')}</option>
                 {templateNames.map(templateName => (
                   <option key={templateName} value={templateName}>{templateName}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Default Captain')}
+            <label title={t(DEFAULT_CAPTAIN_TIP)}>{t('Default Captain')}
               <CaptainPicker
+                title={t(DEFAULT_CAPTAIN_TIP)}
                 captains={captains}
                 value={form.defaultCaptainId}
                 onChange={(captainId) => setForm({ ...form, defaultCaptainId: captainId })}
@@ -267,16 +274,16 @@ export default function PersonaDetail() {
       {/* Persona Info */}
       <div className="detail-grid">
         <div className="detail-field">
-          <span className="detail-label">{t('ID')}</span>
+          <span className="detail-label" title={t('Unique persona ID. Missions and pipelines refer to personas by name.')}>{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{persona.id}</span>
             <CopyButton text={persona.id} />
           </span>
         </div>
         <div className="detail-field"><span className="detail-label">{t('Name')}</span><span>{persona.name}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Description')}</span><span>{persona.description || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t(PERSONA_DESCRIPTION_TIP)}>{t('Description')}</span><span>{persona.description || '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">{t('Prompt Template Name')}</span>
+          <span className="detail-label" title={t(PERSONA_TEMPLATE_TIP)}>{t('Prompt Template Name')}</span>
           <span>
             {persona.promptTemplateName ? (
               <Link to={`/prompt-templates/${encodeURIComponent(persona.promptTemplateName)}`}>{persona.promptTemplateName}</Link>
@@ -284,17 +291,17 @@ export default function PersonaDetail() {
           </span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Default Captain')}</span>
+          <span className="detail-label" title={t(DEFAULT_CAPTAIN_TIP)}>{t('Default Captain')}</span>
           <span><CaptainRef captainId={persona.defaultCaptainId} captains={captains} autoLabel={t('None (default routing)')} /></span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Captain priorities')}</span>
+          <span className="detail-label" title={t('Captain classes tried in order (arrow = then) when assigning this persona\'s missions. None means the default captain and normal routing are used.')}>{t('Captain priorities')}</span>
           <span>{(persona.captainPriorities ?? []).map(prioritySummary).join(' → ') || t('None (default routing)')}</span>
         </div>
-        <div className="detail-field"><span className="detail-label">{t('When a priority is unavailable')}</span><span>{t(persona.priorityAvailability === 'WaitForFirstPriority' ? 'Wait for the first priority' : 'Try lower priorities')}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('When all priorities are unavailable')}</span><span>{t(persona.priorityAvailability === 'WaitForFirstPriority' || persona.priorityExhaustion !== 'UseEligibleCaptain' ? 'Wait' : 'Use any eligible captain')}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Built-in')}</span>{persona.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">{t('No')}</span>}</div>
-        <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={persona.active ? 'Active' : 'Inactive'} /></div>
+        <div className="detail-field"><span className="detail-label" title={t('Try lower priorities moves down the list when a priority has no free captain. Wait for the first priority uses only priority 1 and waits for it.')}>{t('When a priority is unavailable')}</span><span>{t(persona.priorityAvailability === 'WaitForFirstPriority' ? 'Wait for the first priority' : 'Try lower priorities')}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Wait keeps the mission Pending until a listed captain is free. Use any eligible captain falls back to normal persona and tier routing.')}>{t('When all priorities are unavailable')}</span><span>{t(persona.priorityAvailability === 'WaitForFirstPriority' || persona.priorityExhaustion !== 'UseEligibleCaptain' ? 'Wait' : 'Use any eligible captain')}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Built-in personas ship with Armada and cannot be deleted.')}>{t('Built-in')}</span>{persona.isBuiltIn ? <span className="tag built-in" title={t('Ships with Armada. It cannot be deleted.')}>{t('Built-in')}</span> : <span className="text-dim">{t('No')}</span>}</div>
+        <div className="detail-field"><span className="detail-label" title={t('Marks the persona as in use or retired. It is a label only: dispatch does not skip inactive personas.')}>{t('Active')}</span><StatusBadge status={persona.active ? 'Active' : 'Inactive'} /></div>
         <div className="detail-field"><span className="detail-label">{t('Created')}</span><span title={persona.createdUtc}>{formatDateTime(persona.createdUtc)}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{formatDateTime(persona.lastUpdateUtc)}</span></div>
       </div>
@@ -302,14 +309,14 @@ export default function PersonaDetail() {
       <div className="card detail-section" style={{ marginTop: '1.5rem' }}>
         <div className="detail-section-header">
           <div>
-            <h3>{t('Backing Prompt')}</h3>
+            <h3 title={t('The prompt template this persona uses. Editing it here changes the template itself, so every persona using it is affected.')}>{t('Backing Prompt')}</h3>
             <div className="text-dim backlog-section-note">
               {t('This is the prompt template Armada resolves when this persona is assigned to a mission. Edit it here to change future mission instructions.')}
             </div>
           </div>
           <div className="inline-actions">
-            {promptTemplate ? <StatusBadge status={promptTemplate.category} /> : null}
-            {promptTemplate?.isBuiltIn ? <StatusBadge status="Built-in" /> : null}
+            {promptTemplate ? <span className={`tag ${promptTemplate.category.toLowerCase()}`} title={t('Template category: the part of Armada that uses this template, such as persona, mission, commit or landing.')}>{t(promptTemplate.category)}</span> : null}
+            {promptTemplate?.isBuiltIn ? <span className="tag built-in" title={t('Ships with Armada. It cannot be deleted, and Reset to Default restores its original text.')}>{t('Built-in')}</span> : null}
           </div>
         </div>
 
@@ -319,18 +326,19 @@ export default function PersonaDetail() {
           <>
             <div className="detail-form-grid">
               <div className="form-field">
-                <label>{t('Template Name')}</label>
+                <label title={t('Name of the backing prompt template. Click it to open the template\'s own page.')}>{t('Template Name')}</label>
                 <div>
                   <Link to={`/prompt-templates/${encodeURIComponent(promptTemplate.name)}`}>{promptTemplate.name}</Link>
                 </div>
               </div>
               <div className="form-field">
-                <label>{t('Template Type')}</label>
-                <div>{promptTemplate.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">{t('Custom')}</span>}</div>
+                <label title={t('Built-in templates ship with Armada and can be reset to their default text; custom templates were created by users.')}>{t('Template Type')}</label>
+                <div>{promptTemplate.isBuiltIn ? <span className="tag built-in" title={t('Ships with Armada. It cannot be deleted, and Reset to Default restores its original text.')}>{t('Built-in')}</span> : <span className="text-dim" title={t('Created by a user. It can be edited or deleted.')}>{t('Custom')}</span>}</div>
               </div>
               <div className="form-field detail-field-full">
-                <label>{t('Template Description')}</label>
+                <label title={t(TEMPLATE_DESCRIPTION_TIP)}>{t('Template Description')}</label>
                 <input aria-label={t('Template Description')}
+                  title={t(TEMPLATE_DESCRIPTION_TIP)}
                   value={promptDescription}
                   onChange={e => {
                     setPromptDescription(e.target.value);
@@ -341,10 +349,11 @@ export default function PersonaDetail() {
               </div>
               <div className="form-field detail-field-full">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', marginBottom: '0.4rem' }}>
-                  <label style={{ marginBottom: 0 }}>{t('Prompt Content')}</label>
+                  <label style={{ marginBottom: 0 }} title={t(PROMPT_CONTENT_TIP)}>{t('Prompt Content')}</label>
                   <span className="text-dim">{t('{{count}} characters', { count: promptContent.length.toLocaleString() })}</span>
                 </div>
                 <textarea aria-label={t('Prompt Content')}
+                  title={t(PROMPT_CONTENT_TIP)}
                   rows={18}
                   value={promptContent}
                   onChange={e => {
@@ -365,15 +374,15 @@ export default function PersonaDetail() {
             </div>
 
             <div className="detail-footer">
-              <button className="btn btn-primary" disabled={promptSaving || !promptDirty} onClick={() => void handleSavePrompt()}>
+              <button className="btn btn-primary" disabled={promptSaving || !promptDirty} onClick={() => void handleSavePrompt()} title={t('Save the template description and content. Missions started after saving use the new text; running missions keep theirs.')}>
                 {promptSaving ? t('Saving...') : t('Save Prompt')}
               </button>
               {promptTemplate.isBuiltIn ? (
-                <button className="btn" disabled={promptSaving} onClick={handleResetPrompt}>
+                <button className="btn" disabled={promptSaving} onClick={handleResetPrompt} title={t('Replace this built-in template\'s text with the version that ships with Armada. Your edits are lost. You confirm first.')}>
                   {t('Reset to Default')}
                 </button>
               ) : null}
-              <button className="btn" onClick={() => navigate(`/prompt-templates/${encodeURIComponent(promptTemplate.name)}`)}>
+              <button className="btn" onClick={() => navigate(`/prompt-templates/${encodeURIComponent(promptTemplate.name)}`)} title={t('Open this template on its own page, with its placeholders and preview.')}>
                 {t('Open Full Template')}
               </button>
             </div>

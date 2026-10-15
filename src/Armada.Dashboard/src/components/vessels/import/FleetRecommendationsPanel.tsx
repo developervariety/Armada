@@ -132,7 +132,7 @@ export default function FleetRecommendationsPanel({ batch, items, recommendation
   return (
     <section className="fleet-recs" aria-labelledby={`fleet-recs-title-${batch.id}`}>
       <div className="fleet-recs-head">
-        <h4 id={`fleet-recs-title-${batch.id}`}>{t('Fleet recommendations')}</h4>
+        <h4 id={`fleet-recs-title-${batch.id}`} title={t('Fleets a captain proposed for the repositories in this import. Nothing changes until you apply them.')}>{t('Fleet recommendations')}</h4>
         <CodeStatusBadge {...categorizationBadge(t, status)} />
       </div>
 
@@ -151,9 +151,9 @@ export default function FleetRecommendationsPanel({ batch, items, recommendation
               {t('You can close this dialog; the header shows the task while it runs and you are notified when it finishes. Reopen this batch from the import history to review the fleets.')}
             </p>
             <div className="fleet-recs-actions">
-              {batch.categorizationJobId && <Link to="/jobs" className="btn btn-sm">{t('Open the Jobs page')}</Link>}
+              {batch.categorizationJobId && <Link to="/jobs" className="btn btn-sm" title={t('See the background job running the fleet recommendations.')}>{t('Open the Jobs page')}</Link>}
               {batch.categorizationJobId && status === 'Running' && (
-                <button type="button" className="btn btn-sm" onClick={() => void stop()} disabled={busy}>{t('Stop the captain')}</button>
+                <button type="button" className="btn btn-sm" onClick={() => void stop()} disabled={busy} title={t('Cancel the fleet recommendation job and stop the captain. The imported vessels stay; you can retry later.')}>{t('Stop the captain')}</button>
               )}
             </div>
           </div>
@@ -164,7 +164,7 @@ export default function FleetRecommendationsPanel({ batch, items, recommendation
         <div className="alert alert-error" role="alert">
           <p><strong>{t('The captain could not recommend fleets.')}</strong></p>
           {batch.categorizationError && <p className="mono fleet-recs-error" data-i18n-skip="true">{batch.categorizationError}</p>}
-          <button type="button" className="btn btn-sm" onClick={() => void retry()} disabled={busy}>
+          <button type="button" className="btn btn-sm" onClick={() => void retry()} disabled={busy} title={t('Ask the captain to recommend fleets again. It uses the captain and its model tokens again.')}>
             {busy ? t('Starting...') : t('Retry categorization')}
           </button>
         </div>
@@ -179,7 +179,7 @@ export default function FleetRecommendationsPanel({ batch, items, recommendation
                   ? t('{count, plural, one {Fleets applied: # vessel assigned.} other {Fleets applied: # vessels assigned.}}', { count: applied.assignments.length })
                   : t('These fleets were applied. Vessels in Uncategorized kept their fleet.')}
               </p>
-              <button type="button" className="btn btn-sm" onClick={() => setEditing(true)}>{t('Edit and apply again')}</button>
+              <button type="button" className="btn btn-sm" onClick={() => setEditing(true)} title={t('Change the fleet names or move repositories, then apply again. Vessels are reassigned to match.')}>{t('Edit and apply again')}</button>
             </div>
           )}
           {editing && (
@@ -196,20 +196,20 @@ export default function FleetRecommendationsPanel({ batch, items, recommendation
                 <article key={d.key} className={`card fleet-rec-card${isUncategorized ? ' fleet-rec-uncategorized' : ''}`} aria-label={d.name || t('Unnamed fleet')}>
                   {editing ? (
                     <>
-                      <label className="form-field">
+                      <label className="form-field" title={t('Name of the fleet to create. If a fleet with this name already exists, it is reused and these repositories are added to it. Required.')}>
                         <span className="form-label">{t('Fleet name')}</span>
-                        <input type="text" value={d.name} onChange={(e) => update(d.key, { name: e.target.value })} aria-invalid={!!fieldError} />
+                        <input title={t('Name of the fleet to create. If a fleet with this name already exists, it is reused and these repositories are added to it. Required.')} type="text" value={d.name} onChange={(e) => update(d.key, { name: e.target.value })} aria-invalid={!!fieldError} />
                         {fieldError && <span className="field-error" role="alert">{t(fieldError)}</span>}
                       </label>
-                      <label className="form-field">
+                      <label className="form-field" title={t('Optional description for a newly created fleet, shown on the Fleets page. Ignored when an existing fleet with the same name is reused.')}>
                         <span className="form-label">{t('Description')}</span>
-                        <textarea rows={2} value={d.description} onChange={(e) => update(d.key, { description: e.target.value })} />
+                        <textarea title={t('Optional description for a newly created fleet, shown on the Fleets page. Ignored when an existing fleet with the same name is reused.')} rows={2} value={d.description} onChange={(e) => update(d.key, { description: e.target.value })} />
                       </label>
                     </>
                   ) : (
                     <>
                       <h5 className="fleet-rec-name">
-                        {d.appliedFleetId ? <Link to={`/fleets/${d.appliedFleetId}`}>{d.name}</Link> : d.name}
+                        {d.appliedFleetId ? <Link to={`/fleets/${d.appliedFleetId}`} title={t('Open the {{name}} fleet.', { name: d.name })}>{d.name}</Link> : d.name}
                       </h5>
                       {d.description && <p className="text-dim" data-i18n-skip="true">{d.description}</p>}
                     </>
@@ -217,7 +217,7 @@ export default function FleetRecommendationsPanel({ batch, items, recommendation
                   {isUncategorized && <p className="text-dim form-help">{t('Repositories in Uncategorized are left without a fleet when you apply.')}</p>}
                   {d.rationale && (
                     <details className="fleet-rec-rationale">
-                      <summary>{t('Why the captain grouped these')}</summary>
+                      <summary title={t('Show the captain explanation for putting these repositories in one fleet.')}>{t('Why the captain grouped these')}</summary>
                       <p data-i18n-skip="true">{d.rationale}</p>
                     </details>
                   )}
@@ -230,6 +230,7 @@ export default function FleetRecommendationsPanel({ batch, items, recommendation
                             value={d.key}
                             onChange={(e) => setDrafts((ds) => moveVessel(ds, vesselId, e.target.value))}
                             aria-label={t('Move {{name}} to another fleet', { name: vesselNames.get(vesselId) ?? vesselId })}
+                            title={t('Fleet {{name}} will join when you apply. Pick another fleet to move it.', { name: vesselNames.get(vesselId) ?? vesselId })}
                           >
                             {drafts.map((target) => (
                               <option key={target.key} value={target.key}>{target.name.trim() || t('Unnamed fleet')}</option>
@@ -246,7 +247,7 @@ export default function FleetRecommendationsPanel({ batch, items, recommendation
                       className="btn btn-sm"
                       onClick={() => setDrafts((ds) => ds.filter((x) => x.key !== d.key))}
                       disabled={d.vesselIds.length > 0}
-                      title={d.vesselIds.length > 0 ? t('Move its repositories to other fleets first') : undefined}
+                      title={d.vesselIds.length > 0 ? t('Move its repositories to other fleets first. Only an empty fleet can be removed.') : t('Drop this proposed fleet. Nothing is deleted on the server.')}
                     >
                       {t('Remove fleet')}
                     </button>
@@ -258,14 +259,14 @@ export default function FleetRecommendationsPanel({ batch, items, recommendation
 
           {editing && (
             <div className="fleet-recs-footer">
-              <button type="button" className="btn btn-sm" onClick={addFleet}>{t('+ Add fleet')}</button>
+              <button type="button" className="btn btn-sm" onClick={addFleet} title={t('Add an empty proposed fleet, then move repositories into it.')}>{t('+ Add fleet')}</button>
               <span className="text-dim">
                 {t('{count, plural, one {# fleet} other {# fleets}}', { count: fleetCount })}
                 {' - '}
                 {t('{count, plural, one {# repository assigned} other {# repositories assigned}}', { count: assignedCount })}
               </span>
               {showErrors && fleetCount === 0 && <span className="field-error" role="alert">{t('Assign at least one repository to a named fleet.')}</span>}
-              <button type="button" className="btn btn-primary" onClick={requestApply} disabled={busy}>
+              <button type="button" className="btn btn-primary" onClick={requestApply} disabled={busy} title={t('Create the missing fleets, reuse ones with the same name, and assign each repository to its fleet. Asks for confirmation first.')}>
                 {busy ? t('Applying...') : t('Apply fleets')}
               </button>
             </div>

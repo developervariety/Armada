@@ -93,17 +93,17 @@ export default function FleetActionRunsTable() {
 
   const columns: DataTableColumn<FleetActionRun>[] = [
     {
-      key: 'action', label: t('Action'), required: true, cellClassName: 'cell-nowrap',
+      key: 'action', label: t('Action'), headerTitle: t('The fleet action this run executed. Click a row for per-vessel results.'), required: true, cellClassName: 'cell-nowrap',
       render: (r) => (
         <>
           <strong>{r.actionName}</strong>
-          {!r.actionId && <span className="tag idle" style={{ marginLeft: '0.4rem' }}>{t('Ad hoc')}</span>}
+          {!r.actionId && <span className="tag idle" style={{ marginLeft: '0.4rem' }} title={t('Started with a one-off inline definition instead of a saved action.')}>{t('Ad hoc')}</span>}
         </>
       ),
     },
     {
       // The run ID used to sit on a second line under the action name; it is its own one-line column now.
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), headerTitle: t('Run ID, used by the API, CLI, and MCP tools to check or cancel the run.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (r) => (
         <span className="id-display">
           <span className="id-value" title={r.id}>{r.id}</span>
@@ -111,23 +111,23 @@ export default function FleetActionRunsTable() {
         </span>
       ),
     },
-    { key: 'kind', label: t('Kind'), cellClassName: 'cell-nowrap', render: (r) => t(KIND_LABELS[r.kind]) },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (r) => <CodeStatusBadge {...runStatusBadge(t, r.status)} /> },
-    { key: 'progress', label: t('Progress'), cellClassName: 'progress-cell', render: (r) => <RunProgress run={r} compact /> },
+    { key: 'kind', label: t('Kind'), headerTitle: t('Command ran a shell command per vessel; Mission dispatched a captain voyage per vessel.'), cellClassName: 'cell-nowrap', render: (r) => t(KIND_LABELS[r.kind]) },
+    { key: 'status', label: t('Status'), headerTitle: t('Overall state of the run, rolled up from its vessels. Skipped vessels do not count as failures.'), cellClassName: 'cell-nowrap', render: (r) => <CodeStatusBadge {...runStatusBadge(t, r.status)} /> },
+    { key: 'progress', label: t('Progress'), headerTitle: t('How many vessels have succeeded, failed, or been skipped out of the total.'), cellClassName: 'progress-cell', render: (r) => <RunProgress run={r} compact /> },
     {
-      key: 'created', label: t('Created'), sortKey: 'created', headerTitle: t('Sort by created date'), cellClassName: 'text-dim nowrap',
+      key: 'created', label: t('Created'), sortKey: 'created', headerTitle: t('When the run was requested. Click to sort newest or oldest first.'), cellClassName: 'text-dim nowrap',
       cellTitle: (r) => formatDateTime(r.createdUtc), render: (r) => formatRelativeTime(r.createdUtc),
     },
     {
-      key: 'started', label: t('Started'), cellClassName: 'text-dim nowrap',
+      key: 'started', label: t('Started'), headerTitle: t('When the first vessel began. Blank while the run is still queued.'), cellClassName: 'text-dim nowrap',
       cellTitle: (r) => formatDateTime(r.startedUtc), render: (r) => (r.startedUtc ? formatRelativeTime(r.startedUtc) : '-'),
     },
     {
-      key: 'completed', label: t('Completed'), cellClassName: 'text-dim nowrap',
+      key: 'completed', label: t('Completed'), headerTitle: t('When the last vessel finished. Blank while the run is active.'), cellClassName: 'text-dim nowrap',
       cellTitle: (r) => formatDateTime(r.completedUtc), render: (r) => (r.completedUtc ? formatRelativeTime(r.completedUtc) : '-'),
     },
     {
-      key: 'duration', label: t('Duration'), className: 'text-right', cellClassName: 'mono nowrap',
+      key: 'duration', label: t('Duration'), headerTitle: t('Time from start to completion, or so far for an active run.'), className: 'text-right', cellClassName: 'mono nowrap',
       render: (r) => formatDurationMs(t, locale, durationBetween(r.startedUtc, r.completedUtc, isRunActive(r.status))),
     },
     {
@@ -153,7 +153,7 @@ export default function FleetActionRunsTable() {
       placeholder = (
         <EmptyState
           title={t('No fleet action runs yet')}
-          actions={<button type="button" className="btn btn-primary btn-sm" onClick={() => navigate('/vessels')}>{t('Go to Vessels')}</button>}
+          actions={<button type="button" className="btn btn-primary btn-sm" onClick={() => navigate('/vessels')} title={t('Open the Vessels page, select vessels, and choose Run action... to start a run.')}>{t('Go to Vessels')}</button>}
         >
           <p>{t('Select vessels on the Vessels page and choose Run action... in the selection bar, or run an action from the Actions tab.')}</p>
         </EmptyState>
@@ -169,12 +169,12 @@ export default function FleetActionRunsTable() {
         <div className="table-toolbar-left">
           <label className="inline-filter">
             <span>{t('Status')}</span>
-            <select value={status} onChange={(e) => updateParams({ status: e.target.value, page: null })} aria-label={t('Filter runs by status')}>
+            <select value={status} onChange={(e) => updateParams({ status: e.target.value, page: null })} aria-label={t('Filter runs by status')} title={t('Show only runs in one state, for example Running or Completed with failures.')}>
               <option value="">{t('All statuses')}</option>
               {RUN_STATUSES.map((s) => <option key={s} value={s}>{t(RUN_STATUS_META[s].label)}</option>)}
             </select>
           </label>
-          {filtered && <button type="button" className="btn btn-sm" onClick={() => updateParams({ status: null, page: null })}>{t('Clear filter')}</button>}
+          {filtered && <button type="button" className="btn btn-sm" onClick={() => updateParams({ status: null, page: null })} title={t('Show runs of every status again.')}>{t('Clear filter')}</button>}
         </div>
       </div>
 

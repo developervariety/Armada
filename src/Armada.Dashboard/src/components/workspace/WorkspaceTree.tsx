@@ -1,4 +1,5 @@
 import ActionMenu from '../shared/ActionMenu';
+import { useLocale } from '../../context/LocaleContext';
 import type { WorkspaceTreeEntry } from '../../types/models';
 
 interface WorkspaceTreeProps {
@@ -32,6 +33,7 @@ function TreeBranch(props: WorkspaceTreeProps & { directoryPath: string; depth: 
     depth,
   } = props;
 
+  const { t } = useLocale();
   const entries = entriesByDirectory[directoryPath] || [];
 
   return (
@@ -46,19 +48,23 @@ function TreeBranch(props: WorkspaceTreeProps & { directoryPath: string; depth: 
           {
             label: entry.isDirectory ? (expanded ? 'Collapse' : 'Open') : 'Open',
             onClick: () => (entry.isDirectory ? onToggleDirectory(entryPath) : onOpenFile(entryPath)),
+            title: 'Open the file in an editor tab, or expand the folder.',
           },
           {
             label: 'Rename',
             onClick: () => onRenameEntry(entry),
+            title: 'Rename or move this entry in the working directory. Takes effect on disk immediately.',
           },
           {
             label: 'Delete',
             onClick: () => onDeleteEntry(entry),
             danger: true,
+            title: 'Permanently delete this entry from the working directory after you confirm. Uncommitted content is lost.',
           },
           {
             label: 'View Metadata',
             onClick: () => onViewMetadata(entry),
+            title: 'Show the entry path, size, type, editability and last modified time.',
           },
         ];
 
@@ -79,7 +85,7 @@ function TreeBranch(props: WorkspaceTreeProps & { directoryPath: string; depth: 
                       }
                     }}
                     disabled={loading}
-                    title={expanded ? 'Collapse folder' : 'Expand folder'}
+                    title={expanded ? t('Collapse this folder.') : t('Expand this folder to list its contents.')}
                     aria-expanded={expanded}
                   >
                     <span className={`workspace-tree-disclosure${expanded ? ' expanded' : ''}`} aria-hidden="true">
@@ -98,7 +104,7 @@ function TreeBranch(props: WorkspaceTreeProps & { directoryPath: string; depth: 
                     type="checkbox"
                     checked={selected}
                     onChange={() => onToggleSelect(entryPath)}
-                    title="Select file for Workspace actions"
+                    title={t('Select this file for the Plan, Dispatch and Context actions. Selected files are listed in the Selection pane and scope the work to them.')}
                   />
                 ) : (
                   <span className="workspace-tree-checkbox-spacer" aria-hidden="true" />
@@ -117,19 +123,19 @@ function TreeBranch(props: WorkspaceTreeProps & { directoryPath: string; depth: 
 
                     onOpenFile(entryPath);
                   }}
-                  title={entry.relativePath}
+                  title={entry.isDirectory ? t('{{path}}: click to expand or collapse.', { path: entry.relativePath }) : t('{{path}}: click to open in an editor tab.', { path: entry.relativePath })}
                 >
                   {entry.isDirectory && <span className="workspace-tree-folder-icon" aria-hidden="true" />}
                   <span className="workspace-tree-entry-name">{entry.name}</span>
                   {!entry.isDirectory && !entry.isEditable && (
-                    <span className="workspace-tree-chip">RO</span>
+                    <span className="workspace-tree-chip" title={t('Read-only: this file is binary or too large to edit in Workspace. It can still be viewed.')}>RO</span>
                   )}
-                  {loading && <span className="workspace-tree-chip">...</span>}
+                  {loading && <span className="workspace-tree-chip" title={t('Loading this folder.')}>...</span>}
                 </button>
               </div>
 
               <div className="workspace-tree-row-actions">
-                <ActionMenu id={`workspace-tree-${entryPath}`} items={entryMenuItems} />
+                <ActionMenu id={`workspace-tree-${entryPath}`} items={entryMenuItems} triggerLabel={t('Actions for {{name}}', { name: entry.name })} />
               </div>
             </div>
 

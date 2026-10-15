@@ -45,6 +45,20 @@ export default function ReleaseDetail() {
   const createMode = !id || id === 'new';
   const canManage = isAdmin || isTenantAdmin;
 
+  const tips = {
+    title: t('Release name shown in lists and on deployments. Blank uses the vessel name and version, such as api 1.4.0.'),
+    status: t('Lifecycle stage: Draft, Candidate, Shipped, Failed, or RolledBack. Setting Shipped records the published time once.'),
+    vessel: t('Repository the release belongs to. Blank infers it from the linked missions or check runs; all linked work must share one vessel.'),
+    workflowProfile: t('Profile used for this release and the default for its deployments. Blank uses the vessel\'s profile, then its fleet\'s, then the global default.'),
+    version: t('Release version, such as 1.4.0. Blank uses a version found in a linked release-versioning check, else the vessel\'s highest release version with the patch bumped.'),
+    tagName: t('Git tag for the release, such as v1.4.0. Blank uses v plus the version. Deployments of this release default to this ref.'),
+    summary: t('One-paragraph description of what ships. Blank generates one from the linked voyages, missions, and checks.'),
+    notes: t('Release notes as plain text. Blank generates notes from the linked work and artifacts; edit them before marking the release Shipped.'),
+    voyageIds: t('Voyages included in this release, one ID per line or comma-separated, such as vyg_abc123. Their missions are linked automatically.'),
+    missionIds: t('Missions included in this release, one ID per line or comma-separated, such as msn_abc123. Each must belong to the release\'s vessel.'),
+    checkRunIds: t('Check runs that prove readiness, one ID per line or comma-separated, such as chk_abc123. Their artifacts become the release artifacts.'),
+  };
+
   const [release, setRelease] = useState<Release | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [profiles, setProfiles] = useState<WorkflowProfile[]>([]);
@@ -357,6 +371,7 @@ export default function ReleaseDetail() {
                     },
                   },
                 })}
+                title={t('Open a new deployment prefilled with this release, its vessel, profile, and tag as the source ref. Nothing runs until you create it.')}
               >
                 {t('Deploy')}
               </button>
@@ -375,22 +390,23 @@ export default function ReleaseDetail() {
                     },
                   },
                 })}
+                title={t('Go to Checks with this release\'s vessel, profile, and first voyage and mission prefilled. Link the resulting check here to add evidence.')}
               >
                 {t('Run Check')}
               </button>
             )}
             {!createMode && (
-              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: release })}>
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: release })} title={t('Show the raw release record as returned by the API.')}>
                 {t('View JSON')}
               </button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm" disabled={refreshing} onClick={handleRefresh}>
+              <button className="btn btn-sm" disabled={refreshing} onClick={handleRefresh} title={t('Re-read the linked voyages, missions, and check runs to pick up new missions and rebuild the artifact list. Saved title, version, and notes are kept.')}>
                 {refreshing ? t('Refreshing...') : t('Refresh Derived Fields')}
               </button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+              <button className="btn btn-sm btn-danger" onClick={handleDelete} title={t('Delete this release record. Linked work, checks, and artifacts on disk are kept. Cannot be undone.')}>
                 {t('Delete')}
               </button>
             )}
@@ -417,7 +433,7 @@ export default function ReleaseDetail() {
       {createMode && prefillObjectiveIds.length > 0 && (
         <div className="alert" style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <span>{t('Prefilled from {{count}} backlog item(s). Armada will link this release back to those scoped work records when you create it.', { count: prefillObjectiveIds.length })}</span>
-          <button type="button" className="btn btn-sm" onClick={() => navigate(`/backlog/${prefillObjectiveIds[0]}`)}>
+          <button type="button" className="btn btn-sm" onClick={() => navigate(`/backlog/${prefillObjectiveIds[0]}`)} title={t('Open the backlog item this release draft was started from.')}>
             {t('Open Backlog Item')}
           </button>
         </div>
@@ -426,7 +442,7 @@ export default function ReleaseDetail() {
       {!createMode && release && (
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
           <div className="detail-field">
-            <span className="detail-label">{t('ID')}</span>
+            <span className="detail-label" title={t('Release ID (rel_ prefix), used by the REST API, MCP tools, and links.')}>{t('ID')}</span>
             <span className="id-display">
               <span className="mono">{release.id}</span>
               <CopyButton text={release.id} />
@@ -441,7 +457,7 @@ export default function ReleaseDetail() {
             <span title={formatDateTime(release.lastUpdateUtc)}>{formatRelativeTime(release.lastUpdateUtc)}</span>
           </div>
           <div className="detail-field">
-            <span className="detail-label">{t('Published')}</span>
+            <span className="detail-label" title={t('When the release was first marked Shipped. Blank until then.')}>{t('Published')}</span>
             <span>{release.publishedUtc ? formatDateTime(release.publishedUtc) : '-'}</span>
           </div>
         </div>
@@ -449,30 +465,30 @@ export default function ReleaseDetail() {
 
       <div className="card playbook-editor-card">
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={tips.title}>
             <span>{t('Title')}</span>
-            <input type="text" value={title} disabled={!canManage} onChange={(event) => setTitle(event.target.value)} />
+            <input title={tips.title} type="text" value={title} disabled={!canManage} onChange={(event) => setTitle(event.target.value)} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={tips.status}>
             <span>{t('Status')}</span>
-            <select value={status} disabled={!canManage} onChange={(event) => setStatus(event.target.value as ReleaseStatus)}>
+            <select title={tips.status} value={status} disabled={!canManage} onChange={(event) => setStatus(event.target.value as ReleaseStatus)}>
               {RELEASE_STATUSES.map((value) => (
                 <option key={value} value={value}>{value}</option>
               ))}
             </select>
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={tips.vessel}>
             <span>{t('Vessel')}</span>
-            <select value={vesselId} disabled={!canManage} onChange={(event) => setVesselId(event.target.value)}>
+            <select title={tips.vessel} value={vesselId} disabled={!canManage} onChange={(event) => setVesselId(event.target.value)}>
               <option value="">{t('Resolve from linked work or select a vessel...')}</option>
               {vessels.map((vessel) => (
                 <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
               ))}
             </select>
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={tips.workflowProfile}>
             <span>{t('Workflow Profile')}</span>
-            <select value={workflowProfileId} disabled={!canManage} onChange={(event) => setWorkflowProfileId(event.target.value)}>
+            <select title={tips.workflowProfile} value={workflowProfileId} disabled={!canManage} onChange={(event) => setWorkflowProfileId(event.target.value)}>
               <option value="">{t('Resolved default')}</option>
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>{profile.name}</option>
@@ -482,46 +498,46 @@ export default function ReleaseDetail() {
         </div>
 
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={tips.version}>
             <span>{t('Version')}</span>
-            <input type="text" value={version} disabled={!canManage} onChange={(event) => setVersion(event.target.value)} placeholder="1.2.3" />
+            <input title={tips.version} type="text" value={version} disabled={!canManage} onChange={(event) => setVersion(event.target.value)} placeholder="1.2.3" />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={tips.tagName}>
             <span>{t('Tag Name')}</span>
-            <input type="text" value={tagName} disabled={!canManage} onChange={(event) => setTagName(event.target.value)} placeholder="v1.2.3" />
+            <input title={tips.tagName} type="text" value={tagName} disabled={!canManage} onChange={(event) => setTagName(event.target.value)} placeholder="v1.2.3" />
           </label>
         </div>
 
-        <label className="playbook-editor-field" style={{ marginBottom: '1rem' }}>
+        <label className="playbook-editor-field" title={tips.summary} style={{ marginBottom: '1rem' }}>
           <span>{t('Summary')}</span>
-          <textarea value={summary} disabled={!canManage} onChange={(event) => setSummary(event.target.value)} rows={3} />
+          <textarea title={tips.summary} value={summary} disabled={!canManage} onChange={(event) => setSummary(event.target.value)} rows={3} />
         </label>
 
-        <label className="playbook-editor-field" style={{ marginBottom: '1rem' }}>
+        <label className="playbook-editor-field" title={tips.notes} style={{ marginBottom: '1rem' }}>
           <span>{t('Notes')}</span>
-          <textarea value={notes} disabled={!canManage} onChange={(event) => setNotes(event.target.value)} rows={10} />
+          <textarea title={tips.notes} value={notes} disabled={!canManage} onChange={(event) => setNotes(event.target.value)} rows={10} />
         </label>
 
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={tips.voyageIds}>
             <span>{t('Voyage IDs')}</span>
-            <textarea value={voyageIds} disabled={!canManage} onChange={(event) => setVoyageIds(event.target.value)} rows={4} placeholder="voy_..." />
+            <textarea title={tips.voyageIds} value={voyageIds} disabled={!canManage} onChange={(event) => setVoyageIds(event.target.value)} rows={4} placeholder="vyg_..." />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={tips.missionIds}>
             <span>{t('Mission IDs')}</span>
-            <textarea value={missionIds} disabled={!canManage} onChange={(event) => setMissionIds(event.target.value)} rows={4} placeholder="mis_..." />
+            <textarea title={tips.missionIds} value={missionIds} disabled={!canManage} onChange={(event) => setMissionIds(event.target.value)} rows={4} placeholder="msn_..." />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={tips.checkRunIds}>
             <span>{t('Check Run IDs')}</span>
-            <textarea value={checkRunIds} disabled={!canManage} onChange={(event) => setCheckRunIds(event.target.value)} rows={4} placeholder="chk_..." />
+            <textarea title={tips.checkRunIds} value={checkRunIds} disabled={!canManage} onChange={(event) => setCheckRunIds(event.target.value)} rows={4} placeholder="chk_..." />
           </label>
         </div>
 
         <div className="playbook-editor-actions">
-          <button className="btn btn-primary" disabled={!canManage || saving} onClick={handleSave}>
+          <button className="btn btn-primary" disabled={!canManage || saving} onClick={handleSave} title={createMode ? t('Create the release. Blank fields are generated from the linked work.') : t('Save changes to this release. Artifacts are rebuilt from the linked check runs.')}>
             {saving ? t('Saving...') : createMode ? t('Create Release') : t('Save Changes')}
           </button>
-          <button className="btn" onClick={() => navigate('/releases')}>
+          <button className="btn" onClick={() => navigate('/releases')} title={t('Return to the release list. Unsaved changes are lost.')}>
             {t('Back')}
           </button>
         </div>
@@ -531,22 +547,22 @@ export default function ReleaseDetail() {
         <>
           <div className="detail-grid" style={{ marginTop: '1rem', marginBottom: '1rem' }}>
             <div className="card">
-              <h3>{t('Linked Voyages')}</h3>
+              <h3 title={t('Voyages included in this release. Edit the Voyage IDs field above to change them.')}>{t('Linked Voyages')}</h3>
               {renderLinkedList(release.voyageIds, 'voyage')}
             </div>
             <div className="card">
-              <h3>{t('Linked Missions')}</h3>
+              <h3 title={t('Missions included in this release, listed directly or through a linked voyage.')}>{t('Linked Missions')}</h3>
               {renderLinkedList(release.missionIds, 'mission')}
             </div>
             <div className="card">
-              <h3>{t('Linked Checks')}</h3>
+              <h3 title={t('Check runs offered as evidence that this release is ready. Their artifacts are listed under Artifacts.')}>{t('Linked Checks')}</h3>
               {renderLinkedList(release.checkRunIds, 'check')}
             </div>
           </div>
 
           <div className="card" style={{ marginBottom: '1rem' }}>
             <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-              <h3>{t('Linked Backlog Items')}</h3>
+              <h3 title={t('Backlog items that reference this release.')}>{t('Linked Backlog Items')}</h3>
               <div className="text-dim">
                 {relatedObjectives.length} {t('linked backlog items')}
               </div>
@@ -569,10 +585,10 @@ export default function ReleaseDetail() {
                       <div className="text-dim" style={{ marginTop: '0.35rem' }}>{objective.description}</div>
                     )}
                     <div style={{ marginTop: '0.45rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <button className="btn btn-sm" onClick={() => navigate(`/history?objectiveId=${encodeURIComponent(objective.id)}`)}>
+                      <button className="btn btn-sm" onClick={() => navigate(`/history?objectiveId=${encodeURIComponent(objective.id)}`)} title={t('Open All Activity filtered to this backlog item.')}>
                         {t('View History')}
                       </button>
-                      <button className="btn btn-sm" onClick={() => navigate(`/backlog/${objective.id}`)}>
+                      <button className="btn btn-sm" onClick={() => navigate(`/backlog/${objective.id}`)} title={t('Open this backlog item.')}>
                         {t('Open Backlog Item')}
                       </button>
                     </div>
@@ -584,7 +600,7 @@ export default function ReleaseDetail() {
 
           <div className="card" style={{ marginBottom: '1rem' }}>
             <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-              <h3>{t('Deployment Evidence')}</h3>
+              <h3 title={t('Deployments that ship this release, with their rollout and verification status, check count, and API request count.')}>{t('Deployment Evidence')}</h3>
               <div className="text-dim">
                 {relatedDeployments.length} {t('linked deployments')}
               </div>
@@ -620,7 +636,7 @@ export default function ReleaseDetail() {
 
           <div className="card">
             <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-              <h3>{t('Artifacts')}</h3>
+              <h3 title={t('Files produced by the linked check runs, such as build outputs and test reports. Rebuilt when the release is saved or refreshed.')}>{t('Artifacts')}</h3>
               <div className="text-dim">
                 {release.workflowProfileId ? (workflowProfileMap.get(release.workflowProfileId) || release.workflowProfileId) : t('Resolved default workflow profile')}
                 {release.vesselId ? ` • ${vesselMap.get(release.vesselId) || release.vesselId}` : ''}
@@ -637,7 +653,7 @@ export default function ReleaseDetail() {
                 recordCount={null}
                 columns={[
                   {
-                    key: 'source', label: t('Source'), cellClassName: 'text-dim cell-nowrap',
+                    key: 'source', label: t('Source'), headerTitle: t('Record that produced the artifact, usually a check run.'), cellClassName: 'text-dim cell-nowrap',
                     render: (artifact) => (
                       <>
                         {artifact.sourceType}
@@ -651,11 +667,11 @@ export default function ReleaseDetail() {
                     ),
                   },
                   {
-                    key: 'path', label: t('Path'), required: true, cellClassName: 'mono',
+                    key: 'path', label: t('Path'), headerTitle: t('Artifact path, relative to the directory the check ran in.'), required: true, cellClassName: 'mono',
                     render: (artifact) => <span className="cell-one-line" style={{ ['--cell-max' as string]: '40rem' }} title={artifact.path}>{artifact.path}</span>,
                   },
-                  { key: 'size', label: t('Size'), cellClassName: 'cell-nowrap', render: (artifact) => `${artifact.sizeBytes.toLocaleString()} ${t('bytes')}` },
-                  { key: 'lastWrite', label: t('Last Write'), cellClassName: 'cell-nowrap', render: (artifact) => (artifact.lastWriteUtc ? formatDateTime(artifact.lastWriteUtc) : '-') },
+                  { key: 'size', label: t('Size'), headerTitle: t('File size in bytes when the artifact was recorded.'), cellClassName: 'cell-nowrap', render: (artifact) => `${artifact.sizeBytes.toLocaleString()} ${t('bytes')}` },
+                  { key: 'lastWrite', label: t('Last Write'), headerTitle: t('When the artifact file was last written.'), cellClassName: 'cell-nowrap', render: (artifact) => (artifact.lastWriteUtc ? formatDateTime(artifact.lastWriteUtc) : '-') },
                 ]}
               />
             )}
@@ -663,7 +679,7 @@ export default function ReleaseDetail() {
 
           <div className="card" style={{ marginBottom: '1rem' }}>
             <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-              <h3>{t('GitHub Pull Requests')}</h3>
+              <h3 title={t('GitHub pull requests found from the pull request URLs on the linked missions, with their state, reviews, and checks.')}>{t('GitHub Pull Requests')}</h3>
               <div className="text-dim">
                 {gitHubPullRequests.length} {t('linked pull requests')}
               </div>
@@ -688,10 +704,10 @@ export default function ReleaseDetail() {
                       </div>
                     </div>
                     <div className="detail-grid" style={{ marginTop: '0.75rem' }}>
-                      <div className="detail-field"><span className="detail-label">{t('Checks')}</span><span>{pullRequest.checks.length}</span></div>
-                      <div className="detail-field"><span className="detail-label">{t('Reviews')}</span><span>{pullRequest.reviews.length}</span></div>
-                      <div className="detail-field"><span className="detail-label">{t('Reviewers')}</span><span>{pullRequest.requestedReviewers.length > 0 ? pullRequest.requestedReviewers.join(', ') : '-'}</span></div>
-                      <div className="detail-field"><span className="detail-label">{t('Updated')}</span><span>{pullRequest.updatedUtc ? formatRelativeTime(pullRequest.updatedUtc) : '-'}</span></div>
+                      <div className="detail-field" title={t('Number of GitHub status checks on the pull request.')}><span className="detail-label">{t('Checks')}</span><span>{pullRequest.checks.length}</span></div>
+                      <div className="detail-field" title={t('Number of reviews submitted on the pull request.')}><span className="detail-label">{t('Reviews')}</span><span>{pullRequest.reviews.length}</span></div>
+                      <div className="detail-field" title={t('Reviewers whose review is still requested.')}><span className="detail-label">{t('Reviewers')}</span><span>{pullRequest.requestedReviewers.length > 0 ? pullRequest.requestedReviewers.join(', ') : '-'}</span></div>
+                      <div className="detail-field" title={t('When the pull request last changed on GitHub.')}><span className="detail-label">{t('Updated')}</span><span>{pullRequest.updatedUtc ? formatRelativeTime(pullRequest.updatedUtc) : '-'}</span></div>
                     </div>
                   </div>
                 ))}

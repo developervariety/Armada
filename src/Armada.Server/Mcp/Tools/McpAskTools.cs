@@ -37,16 +37,30 @@ namespace Armada.Server.Mcp.Tools
         /// Registers the Ask Armada MCP tools.
         /// </summary>
         /// <param name="register">Tool registration delegate.</param>
-        /// <param name="threads">Conversation service.</param>
-        /// <param name="turns">Turn coordinator (sending, cancelling, summarizing).</param>
-        /// <param name="actions">Action service (quick actions and proposals).</param>
-        /// <exception cref="ArgumentNullException">Thrown when an argument is null.</exception>
-        public static void Register(RegisterToolDelegate register, AskThreadService threads, AskTurnCoordinator turns, AskActionService actions)
+        /// <param name="threads">Conversation service, or null where Ask Armada does not run (the stdio server).</param>
+        /// <param name="turns">Turn coordinator (sending, cancelling, summarizing), or null.</param>
+        /// <param name="actions">Action service (quick actions and proposals), or null.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="register"/> is null.</exception>
+        public static void Register(RegisterToolDelegate register, AskThreadService? threads, AskTurnCoordinator? turns, AskActionService? actions)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
-            if (threads == null) throw new ArgumentNullException(nameof(threads));
-            if (turns == null) throw new ArgumentNullException(nameof(turns));
-            if (actions == null) throw new ArgumentNullException(nameof(actions));
+            if (threads == null || turns == null || actions == null)
+            {
+                // Same tool list on every transport; without the services each tool answers Unavailable.
+                RegisterToolDelegate outer = register;
+                register = (name, description, inputSchema, handler) => outer(name, description, inputSchema,
+                    _ => Task.FromResult<object>(McpToolError.Unavailable("Ask Armada conversations are not available on this MCP server; use the Admiral's HTTP MCP endpoint.")));
+            }
+
+            RegisterTools(register, threads!, turns!, actions!);
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static void RegisterTools(RegisterToolDelegate register, AskThreadService threads, AskTurnCoordinator turns, AskActionService actions)
+        {
 
             object threadId = new { type = "string", description = "Ask Armada conversation ID" };
 
@@ -375,9 +389,7 @@ namespace Armada.Server.Mcp.Tools
                 });
         }
 
-        #endregion
-
-        #region Private-Methods
+        
 
         private static McpToolError FromArgumentException(ArgumentException ex)
         {

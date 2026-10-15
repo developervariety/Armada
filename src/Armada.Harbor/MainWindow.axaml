@@ -75,7 +75,7 @@
           <Button Grid.Column="3" Content="Clear" Click="OnClearLogClick" ToolTip.Tip="Clear this list (the log files are kept)" />
           <Button Grid.Column="4" Content="All Logs" Click="OnLogsClick" ToolTip.Tip="Harbor's log, the logs of jobs run here, and the Admiral's logs" />
         </Grid>
-        <TextBox Grid.Row="1" x:Name="LogBox" Classes="mono" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+        <TextBox Grid.Row="1" x:Name="LogBox" Classes="mono" ToolTip.Tip="What Harbor has done recently: connections, jobs, and git work. Tick Show details for full requests and results." IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
                  Foreground="{DynamicResource HarborSecondaryTextBrush}"
                  VerticalContentAlignment="Top"
                  VerticalAlignment="Stretch" HorizontalAlignment="Stretch"

@@ -71,8 +71,8 @@ export default function TargetDetailDrawer({ runId, targetId, onClose }: TargetD
         subtitle={target ? <span className="mono">{target.id}</span> : undefined}
         footer={(
           <>
-            <button type="button" className="btn btn-sm" onClick={() => void load()} disabled={loading}>{t('Refresh')}</button>
-            <button type="button" className="btn btn-sm" onClick={onClose}>{t('Close')}</button>
+            <button type="button" className="btn btn-sm" onClick={() => void load()} disabled={loading} title={t('Reload this vessel result, including the latest captured output.')}>{t('Refresh')}</button>
+            <button type="button" className="btn btn-sm" onClick={onClose} title={t('Close this panel and return to the run.')}>{t('Close')}</button>
           </>
         )}
       >
@@ -81,27 +81,27 @@ export default function TargetDetailDrawer({ runId, targetId, onClose }: TargetD
         {target && badge && (
           <div className="target-detail">
             <dl className="detail-kv">
-              <dt>{t('Status')}</dt>
+              <dt title={t('Outcome for this vessel. Hover the badge for what it means.')}>{t('Status')}</dt>
               <dd><CodeStatusBadge {...badge} /></dd>
               {reason && (
                 <>
-                  <dt>{t('Reason')}</dt>
-                  <dd title={target.skipReason ?? target.failureReason ?? ''}>{reason} <span className="text-dim mono">({target.skipReason ?? target.failureReason})</span></dd>
+                  <dt title={t('Why Armada skipped this vessel or why it failed.')}>{t('Reason')}</dt>
+                  <dd title={t('Why Armada skipped this vessel or why it failed. Reason code: {{code}}', { code: target.skipReason ?? target.failureReason ?? '' })}>{reason} <span className="text-dim mono">({target.skipReason ?? target.failureReason})</span></dd>
                 </>
               )}
               <dt>{t('Vessel')}</dt>
               <dd><Link to={`/vessels/${target.vesselId}`}>{target.vesselName}</Link></dd>
-              <dt>{t('Exit code')}</dt>
+              <dt title={t('Exit code of the command. 0 means success; anything else counts as failed. Blank for missions or when the command did not run.')}>{t('Exit code')}</dt>
               <dd className="mono">{target.exitCode ?? '-'}</dd>
-              <dt>{t('Duration')}</dt>
+              <dt title={t('How long this vessel took from start to finish.')}>{t('Duration')}</dt>
               <dd className="mono">{formatDurationMs(t, locale, target.durationMs)}</dd>
-              <dt>{t('Started')}</dt>
+              <dt title={t('When work on this vessel began.')}>{t('Started')}</dt>
               <dd>{target.startedUtc ? formatDateTime(target.startedUtc) : '-'}</dd>
-              <dt>{t('Completed')}</dt>
+              <dt title={t('When work on this vessel finished.')}>{t('Completed')}</dt>
               <dd>{target.completedUtc ? formatDateTime(target.completedUtc) : '-'}</dd>
               {target.voyageId && (
                 <>
-                  <dt>{t('Voyage')}</dt>
+                  <dt title={t('The voyage this Mission action dispatched for the vessel. Open it to follow the captain work.')}>{t('Voyage')}</dt>
                   <dd><Link to={`/voyages/${target.voyageId}`} className="mono">{target.voyageId}</Link></dd>
                 </>
               )}
@@ -115,8 +115,8 @@ export default function TargetDetailDrawer({ runId, targetId, onClose }: TargetD
 
             <section className="target-detail-section">
               <div className="target-detail-section-head">
-                <h4>{t('Rendered command')}</h4>
-                {target.renderedText && <CopyButton text={target.renderedText} title={t('Copy command')} />}
+                <h4 title={t('The command or prompt exactly as run for this vessel, after template variables were filled in.')}>{t('Rendered command')}</h4>
+                {target.renderedText && <CopyButton text={target.renderedText} title={t('Copy the rendered command or prompt, for example to rerun it by hand.')} />}
               </div>
               <pre className="code-block" data-i18n-skip="true">{target.renderedText || t('(not rendered)')}</pre>
             </section>
@@ -124,7 +124,7 @@ export default function TargetDetailDrawer({ runId, targetId, onClose }: TargetD
             <section className="target-detail-section">
               <div className="target-detail-section-head">
                 <h4>{t('Standard output')} <span className="text-dim">({formatBytes((target.outputText ?? '').length)})</span></h4>
-                <button type="button" className="btn btn-sm" onClick={() => setViewer('stdout')} disabled={!target.outputText}>{t('Open full output')}</button>
+                <button type="button" className="btn btn-sm" onClick={() => setViewer('stdout')} disabled={!target.outputText} title={t('Open everything captured on standard output in a full viewer. This preview shows only the last lines.')}>{t('Open full output')}</button>
               </div>
               {target.outputText
                 ? <pre className="code-block code-block-scroll" data-i18n-skip="true">{tail(target.outputText, PREVIEW_LINES)}</pre>
@@ -134,7 +134,7 @@ export default function TargetDetailDrawer({ runId, targetId, onClose }: TargetD
             <section className="target-detail-section">
               <div className="target-detail-section-head">
                 <h4>{t('Standard error')} <span className="text-dim">({formatBytes((target.errorText ?? '').length)})</span></h4>
-                <button type="button" className="btn btn-sm" onClick={() => setViewer('stderr')} disabled={!target.errorText}>{t('Open full error output')}</button>
+                <button type="button" className="btn btn-sm" onClick={() => setViewer('stderr')} disabled={!target.errorText} title={t('Open everything captured on standard error in a full viewer. This preview shows only the last lines.')}>{t('Open full error output')}</button>
               </div>
               {target.errorText
                 ? <pre className="code-block code-block-scroll code-block-error" data-i18n-skip="true">{tail(target.errorText, PREVIEW_LINES)}</pre>

@@ -68,9 +68,9 @@ export default function RecordDetailModal({ open, title, subtitle, record, onClo
             )}
           </div>
           <div className="request-detail-header-actions">
-            {onEdit && <button className="btn btn-sm btn-primary" onClick={onEdit}>{editLabel || t('Edit')}</button>}
-            <button className="btn btn-sm" onClick={() => setShowJson((v) => !v)}>{showJson ? t('Hide JSON') : t('View JSON')}</button>
-            <button className="btn btn-sm" onClick={onClose}>{t('Close')}</button>
+            {onEdit && <button className="btn btn-sm btn-primary" onClick={onEdit} title={t('Open this record in its edit form.')}>{editLabel || t('Edit')}</button>}
+            <button className="btn btn-sm" onClick={() => setShowJson((v) => !v)} title={showJson ? t('Go back to the readable list of fields.') : t('Show the raw record as the API returns it, including every field.')}>{showJson ? t('Hide JSON') : t('View JSON')}</button>
+            <button className="btn btn-sm" onClick={onClose} title={t('Close this view. Nothing is changed.')}>{t('Close')}</button>
           </div>
         </div>
 

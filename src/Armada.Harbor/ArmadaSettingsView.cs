@@ -106,18 +106,18 @@ namespace Armada.Harbor
             intro.Children.Add(HarborUi.Secondary(_LiveState));
 
             Grid form = new Grid { ColumnDefinitions = new ColumnDefinitions("310,*"), RowSpacing = 8 };
-            AddField(form, "Max captains", _MaxCaptains, "0 means no limit.");
-            AddField(form, "Heartbeat interval (seconds)", _HeartbeatSeconds, "At least 5.");
-            AddField(form, "Stall threshold (minutes)", _StallMinutes, "A captain with no progress this long is stalled.");
-            AddField(form, "Idle captain timeout (seconds)", _IdleCaptainSeconds, "0 keeps idle captains indefinitely.");
-            AddField(form, "Planning inactivity timeout (minutes)", _PlanningInactivityMinutes, "0 never stops an inactive planning session.");
-            AddField(form, "Planning abandonment timeout (minutes)", _PlanningAbandonMinutes, "0 turns abandonment cleanup off.");
-            AddField(form, "Planning session retention (days)", _PlanningRetentionDays, "0 keeps stopped and failed sessions.");
-            AddField(form, "Landing mode", _LandingMode, "Default for completed missions; vessels and voyages can override it.");
-            AddField(form, "Admiral port", _AdmiralPort, "Takes effect after a restart; Harbor's link URL must follow it.");
-            AddField(form, "MCP port", _McpPort, "Takes effect after a restart.");
+            AddField(form, "Max captains", _MaxCaptains, "0 means no limit.", "The most captains the Admiral may have registered at once. Creating another fails once the limit is reached. 0 means no limit.");
+            AddField(form, "Heartbeat interval (seconds)", _HeartbeatSeconds, "At least 5.", "Seconds between the Admiral's health checks of running captains (at least 5). Shorter notices a dead captain sooner at the cost of more checks.");
+            AddField(form, "Stall threshold (minutes)", _StallMinutes, "A captain with no progress this long is stalled.", "Minutes a working captain may go without any output or progress before the Admiral marks it Stalled and its mission needs attention.");
+            AddField(form, "Idle captain timeout (seconds)", _IdleCaptainSeconds, "0 keeps idle captains indefinitely.", "Seconds a captain may sit idle with no mission before the Admiral removes it automatically. Create it again when you need it. 0 keeps idle captains indefinitely.");
+            AddField(form, "Planning inactivity timeout (minutes)", _PlanningInactivityMinutes, "0 never stops an inactive planning session.", "Minutes a planning session may go without a message before it is stopped. Its transcript is kept. 0 never stops an inactive session.");
+            AddField(form, "Planning abandonment timeout (minutes)", _PlanningAbandonMinutes, "0 turns abandonment cleanup off.", "Minutes after which a planning session whose captain process is no longer running is reclaimed, even when the inactivity timeout is off. 0 turns this cleanup off.");
+            AddField(form, "Planning session retention (days)", _PlanningRetentionDays, "0 keeps stopped and failed sessions.", "Days to keep stopped and failed planning sessions before they are deleted. 0 keeps them forever.");
+            AddField(form, "Landing mode", _LandingMode, "Default for completed missions; vessels and voyages can override it.", "What happens to a completed mission's branch by default: LocalMerge merges it into the vessel's working directory, MergeAndPush also pushes, PullRequest opens a pull request, MergeQueue tests it in the merge queue first, and None leaves the branch for you. A vessel or voyage can override this.");
+            AddField(form, "Admiral port", _AdmiralPort, "Takes effect after a restart; Harbor's link URL must follow it.", "TCP port the Admiral's REST API and dashboard listen on. Changes take effect after the Admiral restarts; update Harbor's Admiral address to match.");
+            AddField(form, "MCP port", _McpPort, "Takes effect after a restart.", "TCP port the Admiral's MCP server listens on, used by captains and MCP clients. Changes take effect after the Admiral restarts; update MCP client configurations to match.");
             StackPanel buttons = HarborUi.ButtonRow();
-            Button apply = HarborUi.Button("Apply", () => _ = ApplyLiveAsync());
+            Button apply = HarborUi.Button("Apply", () => _ = ApplyLiveAsync(), "Send these values to the Admiral. Most take effect at once; the ports take effect after the Admiral restarts.");
             apply.Classes.Add("accent");
             buttons.Children.Add(apply);
             buttons.Children.Add(HarborUi.Button("Reload", () => _ = LoadLiveAsync(), "Read the values from the Admiral again"));
@@ -130,13 +130,20 @@ namespace Armada.Harbor
             return HarborUi.Page(intro, HarborUi.Card("Admiral settings", form, null), footer);
         }
 
-        private void AddField(Grid form, string label, Control input, string? help)
+        private void AddField(Grid form, string label, Control input, string? help, string? tip = null)
         {
             _LiveInputs.Add(input);
             int row = form.RowDefinitions.Count;
             form.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
 
             TextBlock labelBlock = new TextBlock { Text = label, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+            string? hover = tip ?? help;
+            if (!String.IsNullOrEmpty(hover))
+            {
+                ToolTip.SetTip(labelBlock, hover);
+                ToolTip.SetTip(input, hover);
+            }
+
             Grid.SetRow(labelBlock, row);
             form.Children.Add(labelBlock);
 

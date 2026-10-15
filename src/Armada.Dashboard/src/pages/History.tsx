@@ -323,37 +323,37 @@ export default function History() {
 
   const columns: DataTableColumn<HistoricalTimelineEntry>[] = [
     {
-      key: 'when', label: t('When'), cellClassName: 'text-dim cell-nowrap',
+      key: 'when', label: t('When'), headerTitle: t('When the activity happened. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (entry) => formatDateTime(entry.occurredUtc),
       render: (entry) => formatRelativeTime(entry.occurredUtc),
     },
     {
-      key: 'title', label: t('Title'), required: true,
+      key: 'title', label: t('Title'), required: true, headerTitle: t('What happened. Hover a row for its description; click a row to open the related record.'),
       // One line: the description is in the tooltip and in the optional Description column.
       cellTitle: (entry) => [entry.title, entry.description].filter(Boolean).join('\n'),
       render: (entry) => <strong className="cell-one-line">{entry.title}</strong>,
     },
     {
-      key: 'description', label: t('Description'), defaultHidden: true, cellClassName: 'text-dim',
+      key: 'description', label: t('Description'), headerTitle: t('Extra detail recorded with the entry.'), defaultHidden: true, cellClassName: 'text-dim',
       render: (entry) => <span className="cell-one-line" title={entry.description || undefined}>{entry.description || '-'}</span>,
     },
-    { key: 'source', label: t('Source'), cellClassName: 'cell-nowrap', render: (entry) => <span className="tag">{entry.sourceType}</span> },
+    { key: 'source', label: t('Source'), headerTitle: t('Kind of record the entry comes from, such as Mission, Deployment, Incident, Request, or Event.'), cellClassName: 'cell-nowrap', render: (entry) => <span className="tag" title={t('Kind of record the entry comes from, such as Mission, Deployment, Incident, Request, or Event.')}>{entry.sourceType}</span> },
     {
-      key: 'status', label: t('Status'), cellClassName: 'cell-nowrap',
+      key: 'status', label: t('Status'), headerTitle: t('Status of the record at that moment. Red marks errors and amber marks warnings.'), cellClassName: 'cell-nowrap',
       render: (entry) => (entry.status ? <span className={`tag ${severityClass(entry.severity)}`.trim()}>{entry.status}</span> : <span className="text-dim">-</span>),
     },
-    { key: 'actor', label: t('Actor'), cellClassName: 'text-dim', render: (entry) => entry.actorDisplay || '-' },
-    { key: 'vessel', label: t('Vessel'), cellClassName: 'text-dim', render: (entry) => (entry.vesselId ? (vesselMap.get(entry.vesselId) || entry.vesselId) : '-') },
+    { key: 'actor', label: t('Actor'), headerTitle: t('User, captain, or system process that caused the entry.'), cellClassName: 'text-dim', render: (entry) => entry.actorDisplay || '-' },
+    { key: 'vessel', label: t('Vessel'), headerTitle: t('Repository the entry relates to, if any.'), cellClassName: 'text-dim', render: (entry) => (entry.vesselId ? (vesselMap.get(entry.vesselId) || entry.vesselId) : '-') },
     {
       key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
       render: (entry) => (
         <ActionMenu
           id={`history-${entry.id}`}
           items={[
-            ...(entry.route ? [{ label: 'View', onClick: () => navigate(entry.route as string) }] : []),
-            ...(entry.metadataJson ? [{ label: 'View JSON', onClick: () => openMetadata(entry) }] : []),
-            ...(entry.vesselId ? [{ label: 'Open Workspace', onClick: () => navigate(`/workspace/${entry.vesselId}`) }] : []),
-            ...(canDeleteEntry(entry) ? [{ label: 'Delete', danger: true, onClick: () => setConfirmDelete(entry) }] : []),
+            ...(entry.route ? [{ label: 'View', title: 'Open the record this entry refers to.', onClick: () => navigate(entry.route as string) }] : []),
+            ...(entry.metadataJson ? [{ label: 'View JSON', title: 'Show the extra data recorded with this entry.', onClick: () => openMetadata(entry) }] : []),
+            ...(entry.vesselId ? [{ label: 'Open Workspace', title: 'Open the workspace of the vessel this entry relates to.', onClick: () => navigate(`/workspace/${entry.vesselId}`) }] : []),
+            ...(canDeleteEntry(entry) ? [{ label: 'Delete', title: 'Delete the underlying API request record. Only request entries can be deleted. Cannot be undone.', danger: true, onClick: () => setConfirmDelete(entry) }] : []),
           ]}
         />
       ),
@@ -367,16 +367,16 @@ export default function History() {
         subtitle={t('Unified operational memory across backlog refinement, planning, dispatch, releases, deployments, incidents, requests, and events.')}
         actions={(
           <>
-            <button className="btn btn-sm" onClick={() => setSaveViewOpen(true)}>
+            <button className="btn btn-sm" onClick={() => setSaveViewOpen(true)} title={t('Save the current filters under a name so you can reapply them later. Saved views live in this browser only.')}>
               {t('Save View')}
             </button>
-            <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('json')}>
+            <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('json')} title={t('Download every entry matching the applied filters, across all pages, as a JSON file.')}>
               {exporting === 'json' ? t('Exporting...') : t('Export JSON')}
             </button>
-            <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('csv')}>
+            <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('csv')} title={t('Download every entry matching the applied filters, across all pages, as a CSV spreadsheet.')}>
               {exporting === 'csv' ? t('Exporting...') : t('Export CSV')}
             </button>
-            <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('md')}>
+            <button className="btn btn-sm" disabled={exporting !== null} onClick={() => exportCurrentView('md')} title={t('Download every entry matching the applied filters, across all pages, as a Markdown report.')}>
               {exporting === 'md' ? t('Exporting...') : t('Export Markdown')}
             </button>
           </>
@@ -390,15 +390,15 @@ export default function History() {
         <div className="modal-overlay" onClick={() => setSaveViewOpen(false)}>
           <div className="modal modal-sm" onClick={(event) => event.stopPropagation()}>
             <h3>{t('Save History View')}</h3>
-            <label>
+            <label title={t('Name for this set of filters, such as Staging failures.')}>
               {t('View Name')}
-              <input value={saveViewName} onChange={(event) => setSaveViewName(event.target.value)} placeholder={t('Staging failures')} />
+              <input title={t('Name for this set of filters, such as Staging failures.')} value={saveViewName} onChange={(event) => setSaveViewName(event.target.value)} placeholder={t('Staging failures')} />
             </label>
             <div className="modal-actions">
-              <button type="button" className="btn btn-primary" onClick={saveCurrentView} disabled={!saveViewName.trim()}>
+              <button type="button" className="btn btn-primary" onClick={saveCurrentView} disabled={!saveViewName.trim()} title={t('Save the current filters under this name in this browser.')}>
                 {t('Save')}
               </button>
-              <button type="button" className="btn" onClick={() => setSaveViewOpen(false)}>
+              <button type="button" className="btn" onClick={() => setSaveViewOpen(false)} title={t('Close without saving.')}>
                 {t('Cancel')}
               </button>
             </div>
@@ -407,22 +407,22 @@ export default function History() {
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Entries matching the applied filters, across all pages.')}>
           <span>{t('Total Entries')}</span>
           <strong>{totals.totalRecords.toLocaleString()}</strong>
           {totals.totalRecords > entries.length && (
             <span className="text-dim">{t('Showing {{shown}} of {{total}}', { shown: entries.length.toLocaleString(), total: totals.totalRecords.toLocaleString() })}</span>
           )}
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Entries with error severity among those shown on this page.')}>
           <span>{t('Errors on this page')}</span>
           <strong>{errorCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Entries with warning severity among those shown on this page.')}>
           <span>{t('Warnings on this page')}</span>
           <strong>{warningCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Distinct kinds of records among the entries shown on this page.')}>
           <span>{t('Source types on this page')}</span>
           <strong>{sourceTypeCounts.size}</strong>
         </div>
@@ -435,8 +435,9 @@ export default function History() {
             value={textFilter}
             onChange={(event) => setTextFilter(event.target.value)}
             placeholder={t('Search title, status, route, or metadata...')}
+            title={t('Text to find in an entry\'s title, description, status, route, or metadata, case-insensitive. Click Apply to search.')}
           />
-          <select aria-label={t('All backlog items')} value={objectiveFilter} onChange={(event) => setObjectiveFilter(event.target.value)}>
+          <select aria-label={t('All backlog items')} title={t('Show only activity linked to this backlog item. Click Apply to filter.')} value={objectiveFilter} onChange={(event) => setObjectiveFilter(event.target.value)}>
             <option value="all">{t('All backlog items')}</option>
             {objectives.map((objective) => (
               <option key={objective.id} value={objective.id}>{objective.title}</option>
@@ -447,48 +448,51 @@ export default function History() {
             value={actorFilter}
             onChange={(event) => setActorFilter(event.target.value)}
             placeholder={t('Filter by actor or principal...')}
+            title={t('Show only entries whose actor name or ID contains this text, such as a user email or captain name. Click Apply to filter.')}
           />
-          <select aria-label={t('All vessels')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
+          <select aria-label={t('All vessels')} title={t('Show only activity for this vessel. Click Apply to filter.')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
             <option value="all">{t('All vessels')}</option>
             {vessels.map((vessel) => (
               <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
             ))}
           </select>
-          <select aria-label={t('All source types')} value={sourceTypeFilter} onChange={(event) => setSourceTypeFilter(event.target.value)}>
+          <select aria-label={t('All source types')} title={t('Show only entries of this kind. Lists the kinds on the current page. Click Apply to filter.')} value={sourceTypeFilter} onChange={(event) => setSourceTypeFilter(event.target.value)}>
             <option value="all">{t('All source types')}</option>
             {distinctSourceTypes.map((sourceType) => (
               <option key={sourceType} value={sourceType}>{sourceType}</option>
             ))}
           </select>
-          <label className="checkbox-label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>
+          <label className="checkbox-label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }} title={t('Show only incidents that have postmortem notes and the deployments, releases, and work linked to them. Click Apply to filter.')}>
             <input
               type="checkbox"
+              title={t('Show only incidents that have postmortem notes and the deployments, releases, and work linked to them. Click Apply to filter.')}
               checked={postmortemOnly}
               onChange={(event) => setPostmortemOnly(event.target.checked)}
             />
             {t('Postmortem context only')}
           </label>
-          <label className="checkbox-label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }} title={t('GET requests are mostly dashboard and client polling, so they are hidden by default.')}>
+          <label className="checkbox-label" style={{ marginBottom: 0, whiteSpace: 'nowrap' }} title={t('Include read-only API requests (GET, HEAD, OPTIONS). They are mostly dashboard and client polling, so they are hidden by default. Applies at once.')}>
             <input
               type="checkbox"
+              title={t('Include read-only API requests (GET, HEAD, OPTIONS). They are mostly dashboard and client polling, so they are hidden by default. Applies at once.')}
               checked={showReadRequests}
               onChange={(event) => setShowReadRequests(event.target.checked)}
             />
             {t('Show GET requests')}
           </label>
-          <button className="btn btn-primary" onClick={applyFilters}>{t('Apply')}</button>
+          <button className="btn btn-primary" onClick={applyFilters} title={t('Reload the list with the filters above, starting from page 1.')}>{t('Apply')}</button>
         </div>
 
         {savedViews.length > 0 && (
           <div style={{ marginTop: '0.9rem' }}>
-            <div className="readiness-section-title" style={{ marginBottom: '0.5rem' }}>{t('Saved Views')}</div>
+            <div className="readiness-section-title" style={{ marginBottom: '0.5rem' }} title={t('Filter sets saved in this browser. Click one to load its filters, then Apply.')}>{t('Saved Views')}</div>
             <div className="readiness-inline-list">
               {savedViews.map((view) => (
                 <span key={view.id} className="readiness-type-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-                  <button type="button" className="btn-link" onClick={() => applySavedView(view)}>
+                  <button type="button" className="btn-link" onClick={() => applySavedView(view)} title={t('Load this saved view\'s filters. Click Apply to run them.')}>
                     {view.name}
                   </button>
-                  <button type="button" className="btn-link text-danger" onClick={() => deleteSavedView(view.id)}>
+                  <button type="button" className="btn-link text-danger" onClick={() => deleteSavedView(view.id)} title={t('Remove this saved view from this browser.')} aria-label={t('Remove this saved view from this browser.')}>
                     &times;
                   </button>
                 </span>
@@ -500,7 +504,7 @@ export default function History() {
         {sourceTypeCounts.size > 0 && (
           <div className="readiness-inline-list" style={{ marginTop: '0.9rem' }}>
             {Array.from(sourceTypeCounts.entries()).map(([sourceType, count]) => (
-              <span key={sourceType} className="readiness-type-pill">{`${sourceType} (${count})`}</span>
+              <span key={sourceType} className="readiness-type-pill" title={t('Entries of this kind on the current page.')}>{`${sourceType} (${count})`}</span>
             ))}
           </div>
         )}

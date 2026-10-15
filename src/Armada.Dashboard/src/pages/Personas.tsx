@@ -25,6 +25,10 @@ import { useNotifications } from '../context/NotificationContext';
 import { buildPersonaDuplicatePayload } from '../lib/duplicates';
 import { useResourceTable } from '../lib/useResourceTable';
 
+const PERSONA_NAME_TIP = 'Unique persona name that missions, pipelines and captains refer to, for example Reviewer or Test Engineer. Required, and it cannot be changed after creation.';
+const PERSONA_DESCRIPTION_TIP = 'Optional note on what this persona is for. Shown in lists and pickers; it is not sent to the captain.';
+const PERSONA_TEMPLATE_TIP = 'The prompt template whose text tells the captain how to act in this role. Required. Manage templates on the Prompts tab.';
+
 export default function Personas() {
   const navigate = useNavigate();
   const { isAdmin, isTenantAdmin, user } = useAuth();
@@ -135,12 +139,12 @@ export default function Personas() {
 
   const columns: DataTableColumn<Persona>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Persona name -- click to sort'), cellClassName: 'cell-ident',
-      filter: <input type="text" className="col-filter" aria-label={t('Name')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
+      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Persona name, the role a mission or pipeline stage asks for, such as Worker or Judge. Click to sort.'), cellClassName: 'cell-ident',
+      filter: <input type="text" className="col-filter" aria-label={t('Name')} title={t('Show only personas whose name contains this text (not case sensitive).')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
       render: (p) => <strong>{p.name}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique persona ID. Personas are usually referred to by name; use the copy button to copy the ID.'), cellClassName: 'mono text-dim table-id-cell',
       render: (p) => (
         <span className="id-display">
           <span className="id-value" title={p.id}>{p.id}</span>
@@ -149,35 +153,35 @@ export default function Personas() {
       ),
     },
     {
-      key: 'description', label: t('Description'), sortKey: 'description', headerTitle: t('Description -- click to sort'), cellClassName: 'text-dim truncate-cell',
+      key: 'description', label: t('Description'), sortKey: 'description', headerTitle: t('What this persona does. Hover a value for the full text; click to sort.'), cellClassName: 'text-dim truncate-cell',
       clearFilter: () => table.setColFilter('description', ''),
-      filter: <input type="text" className="col-filter" aria-label={t('Description')} value={table.colFilters.description ?? ''} onChange={e => table.setColFilter('description', e.target.value)} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Description')} title={t('Show only personas whose description contains this text.')} value={table.colFilters.description ?? ''} onChange={e => table.setColFilter('description', e.target.value)} placeholder={t('Filter...')} />,
       render: (p) => p.description ? <span className="truncate-text" title={p.description}>{p.description}</span> : '-',
     },
     {
-      key: 'promptTemplateName', label: t('Prompt Template'), sortKey: 'promptTemplateName', headerTitle: t('Prompt template -- click to sort'), cellClassName: 'mono text-dim cell-ident',
+      key: 'promptTemplateName', label: t('Prompt Template'), sortKey: 'promptTemplateName', headerTitle: t('The prompt template that holds this persona\'s role instructions for the captain. Click to sort.'), cellClassName: 'mono text-dim cell-ident',
       clearFilter: () => table.setColFilter('promptTemplateName', ''),
-      filter: <input type="text" className="col-filter" aria-label={t('Prompt Template')} value={table.colFilters.promptTemplateName ?? ''} onChange={e => table.setColFilter('promptTemplateName', e.target.value)} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Prompt Template')} title={t('Show only personas whose prompt template name contains this text.')} value={table.colFilters.promptTemplateName ?? ''} onChange={e => table.setColFilter('promptTemplateName', e.target.value)} placeholder={t('Filter...')} />,
       render: (p) => p.promptTemplateName,
     },
-    { key: 'visibility', label: t('Visibility'), render: (p) => <ScopeBadge scope={p.scope} /> },
-    { key: 'isBuiltIn', label: t('Built-in'), sortKey: 'isBuiltIn', headerTitle: t('Built-in -- click to sort'), render: (p) => (p.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">-</span>) },
-    { key: 'active', label: t('Active'), sortKey: 'active', headerTitle: t('Active -- click to sort'), render: (p) => <StatusBadge status={p.active ? 'Active' : 'Inactive'} /> },
+    { key: 'visibility', label: t('Visibility'), headerTitle: t('Tenant-wide personas are usable by everyone in the tenant and edited by admins; personal ones only by their owner.'), render: (p) => <ScopeBadge scope={p.scope} /> },
+    { key: 'isBuiltIn', label: t('Built-in'), sortKey: 'isBuiltIn', headerTitle: t('Built-in personas ship with Armada and cannot be deleted. Click to sort.'), render: (p) => (p.isBuiltIn ? <span className="tag built-in" title={t('Ships with Armada. It cannot be deleted.')}>{t('Built-in')}</span> : <span className="text-dim">-</span>) },
+    { key: 'active', label: t('Active'), sortKey: 'active', headerTitle: t('Marks the persona as in use or retired. It is a label only: dispatch does not skip inactive personas. Click to sort.'), render: (p) => <StatusBadge status={p.active ? 'Active' : 'Inactive'} /> },
     {
-      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('Created date -- click to sort'),
+      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('When this persona was created. Hover a value for the exact time; click to sort.'),
       cellClassName: 'text-dim cell-nowrap', cellTitle: (p) => formatDateTime(p.createdUtc),
       render: (p) => formatRelativeTime(p.createdUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open the menu in a row to view, edit, duplicate or delete that persona, or edit its prompt template.'), fixed: true, interactive: true, className: 'text-right',
       render: (p) => (
         <ActionMenu id={`persona-${p.name}`} items={[
-          { label: 'View Detail', onClick: () => navigate(`/personas/${encodeURIComponent(p.name)}`) },
-          ...(canEditScoped(viewer, p) ? [{ label: 'Edit', onClick: () => openEdit(p) }] : []),
-          { label: 'Duplicate', onClick: () => void handleDuplicate(p) },
-          { label: 'Edit Backing Prompt', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(p.promptTemplateName)}`) },
-          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Persona')}: ${p.name}`, data: p }) },
-          ...(!p.isBuiltIn && canEditScoped(viewer, p) ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(p.name) }] : []),
+          { label: 'View Detail', title: 'Open this persona\'s page with its settings, routing and prompt preview.', onClick: () => navigate(`/personas/${encodeURIComponent(p.name)}`) },
+          ...(canEditScoped(viewer, p) ? [{ label: 'Edit', title: 'Change this persona\'s description, prompt template, visibility and captain priorities.', onClick: () => openEdit(p) }] : []),
+          { label: 'Duplicate', title: 'Create a copy of this persona under a new name, including its captain priorities, then open it.', onClick: () => void handleDuplicate(p) },
+          { label: 'Edit Backing Prompt', title: 'Open the prompt template this persona uses. Changes there affect every persona that uses that template.', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(p.promptTemplateName)}`) },
+          { label: 'View JSON', title: 'Show this persona\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: `${t('Persona')}: ${p.name}`, data: p }) },
+          ...(!p.isBuiltIn && canEditScoped(viewer, p) ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this persona. Missions and pipelines that name it can no longer use it. You confirm first.', onClick: () => handleDelete(p.name) }] : []),
         ]} />
       ),
     },
@@ -190,7 +194,7 @@ export default function Personas() {
         subtitle={t('Named configurations that define how captains behave when executing missions.')}
         actions={(
           <>
-            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Persona')}</button>
+            <button className="btn btn-primary btn-sm" onClick={openCreate} title={t('Create a persona: a named role, such as Reviewer, that pairs a prompt template with captain routing.')}>+ {t('Persona')}</button>
           </>
         )}
       />
@@ -199,16 +203,16 @@ export default function Personas() {
 
       {/* Create/Edit Modal */}
       <DialogShell open={showForm} title={editing ? t('Edit Persona') : t('Create Persona')} onClose={() => setShowForm(false)} size="lg" className="persona-edit-dialog"
-        footer={<><button type="submit" form="persona-edit-form" className="btn btn-primary">{t('Save')}</button>
+        footer={<><button type="submit" form="persona-edit-form" className="btn btn-primary" title={editing ? t('Save changes to this persona. Missions assigned after saving use the new settings.') : t('Create this persona.')}>{t('Save')}</button>
           <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button></>}>
         <form id="persona-edit-form" className="persona-edit-layout" onSubmit={handleSubmit}>
           <div className="persona-edit-settings">
-            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required disabled={!!editing} /></label>
-            <label>{t('Description')}
-              <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} placeholder={t('Optional description of this persona...')} />
+            <label title={t(PERSONA_NAME_TIP)}>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} title={t(PERSONA_NAME_TIP)} required disabled={!!editing} /></label>
+            <label title={t(PERSONA_DESCRIPTION_TIP)}>{t('Description')}
+              <textarea title={t(PERSONA_DESCRIPTION_TIP)} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} placeholder={t('Optional description of this persona...')} />
             </label>
-            <label>{t('Prompt Template Name')}
-              <select value={form.promptTemplateName} onChange={e => setForm({ ...form, promptTemplateName: e.target.value })} required>
+            <label title={t(PERSONA_TEMPLATE_TIP)}>{t('Prompt Template Name')}
+              <select title={t(PERSONA_TEMPLATE_TIP)} value={form.promptTemplateName} onChange={e => setForm({ ...form, promptTemplateName: e.target.value })} required>
                 <option value="">{t('Select a template...')}</option>
                 {templateNames.map(name => (
                   <option key={name} value={name}>{name}</option>

@@ -50,8 +50,8 @@ export default function WorkspaceDiff({ vesselId }: { vesselId: string }) {
   return (
     <div className="card" style={{ padding: '0.75rem', marginTop: '1rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-        <strong>{t('Review Diff')}</strong>
-        <button className="btn btn-sm" onClick={load} disabled={loading}>
+        <strong title={t('Uncommitted changes to tracked files in the vessel working directory, compared with the last commit (HEAD). New untracked files are not shown.')}>{t('Review Diff')}</strong>
+        <button className="btn btn-sm" onClick={load} disabled={loading} title={loaded ? t('Reload the diff to include changes made since it was last loaded.') : t('Run git diff against HEAD in the vessel working directory and show the result here. Read-only.')}>
           {loading ? t('Loading...') : loaded ? t('Refresh') : t('Load diff')}
         </button>
       </div>

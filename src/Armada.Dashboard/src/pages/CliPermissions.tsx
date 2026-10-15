@@ -91,12 +91,12 @@ function RequestsPanel() {
       <div className="cli-perm-toolbar">
         <label>
           <span className="text-dim">{t('Status')}</span>{' '}
-          <select value={status} onChange={(e) => setStatus(e.target.value as CliPermissionRequestStatus | '')} aria-label={t('Status')}>
+          <select value={status} onChange={(e) => setStatus(e.target.value as CliPermissionRequestStatus | '')} aria-label={t('Status')} title={t('Show requests in one state. Pending ones still wait for a decision; All shows every request you can see, newest first.')}>
             {STATUSES.map((s) => <option key={s} value={s}>{requestStatusLabel(t, s)}</option>)}
             <option value="">{t('All')}</option>
           </select>
         </label>
-        <RefreshButton onRefresh={load} title={t('Refresh requests')} />
+        <RefreshButton onRefresh={load} title={t('Reload the request list. It also updates on its own when a request is made or decided.')} />
       </div>
       <ErrorModal error={error} onClose={() => setError('')} />
       {atLimit && (
@@ -223,30 +223,30 @@ function RulesPanel() {
 
   const ruleColumns: DataTableColumn<CliPermissionRule>[] = [
     {
-      key: 'pattern', label: t('Pattern'), required: true,
+      key: 'pattern', label: t('Pattern'), headerTitle: t('Which calls the rule matches, in Claude Code rule syntax, for example Bash(npm run *), WebFetch(domain:example.com), or Edit(src/**).'), required: true,
       render: (rule) => <code className="cell-one-line" title={rule.pattern}>{rule.pattern}</code>,
     },
     {
-      key: 'action', label: t('Action'), cellClassName: 'cell-nowrap',
-      render: (rule) => <span className={`tag cli-rule-${String(rule.action).toLowerCase()}`}>{rule.action === 'Deny' ? t('Deny') : t('Allow')}</span>,
+      key: 'action', label: t('Action'), headerTitle: t('Allow runs matching calls without asking; Deny refuses them. Deny rules win over allow rules.'), cellClassName: 'cell-nowrap',
+      render: (rule) => <span className={`tag cli-rule-${String(rule.action).toLowerCase()}`} title={rule.action === 'Deny' ? t('Matching calls are refused without asking.') : t('Matching calls run without asking.')}>{rule.action === 'Deny' ? t('Deny') : t('Allow')}</span>,
     },
     {
-      key: 'target', label: t('Applies to'), cellClassName: 'cell-nowrap',
+      key: 'target', label: t('Applies to'), headerTitle: t('The captain, vessel, or whole tenant the rule covers. (all tenants) means a global admin made it apply everywhere.'), cellClassName: 'cell-nowrap',
       render: (rule) => <>{target(rule)}{!rule.tenantId && <span className="text-dim"> {t('(all tenants)')}</span>}</>,
     },
     {
-      key: 'description', label: t('Description'), cellClassName: 'truncate-cell',
+      key: 'description', label: t('Description'), headerTitle: t('Note about why the rule exists. Does not affect matching.'), cellClassName: 'truncate-cell',
       render: (rule) => (rule.description ? <span className="truncate-text" title={rule.description}>{rule.description}</span> : <span className="text-dim">-</span>),
     },
     {
-      key: 'created', label: t('Created'), cellClassName: 'cell-nowrap',
+      key: 'created', label: t('Created'), headerTitle: t('When the rule was made, either here or with Allow and remember on a request.'), cellClassName: 'cell-nowrap',
       render: (rule) => (rule.createdUtc ? <span title={formatDateTime(rule.createdUtc)}>{formatRelativeTime(rule.createdUtc)}</span> : '-'),
     },
     ...(canEdit ? [{
       key: 'actions', label: t('Actions'), fixed: true, interactive: true,
       header: <span className="sr-only">{t('Actions')}</span>,
       render: (rule: CliPermissionRule) => (
-        <button type="button" className="btn btn-sm btn-danger" onClick={() => setDeleteTarget(rule)} aria-label={t('Delete rule {{pattern}}', { pattern: rule.pattern })}>
+        <button type="button" className="btn btn-sm btn-danger" onClick={() => setDeleteTarget(rule)} aria-label={t('Delete rule {{pattern}}', { pattern: rule.pattern })} title={t('Delete this rule. Matching calls go back to following the policy. Asks first.')}>
           {t('Delete')}
         </button>
       ),
@@ -261,7 +261,7 @@ function RulesPanel() {
       <div className="cli-perm-toolbar">
         <label>
           <span className="text-dim">{t('Scope')}</span>{' '}
-          <select value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value as CliPermissionRuleScope | '')} aria-label={t('Scope')}>
+          <select value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value as CliPermissionRuleScope | '')} aria-label={t('Scope')} title={t('Show only rules of one scope: Global (the whole tenant), Vessel, or Captain.')}>
             <option value="">{t('All')}</option>
             <option value="Global">{t('Global')}</option>
             <option value="Vessel">{t('Vessel')}</option>
@@ -277,7 +277,7 @@ function RulesPanel() {
         rows={rules}
         rowKey={(rule) => rule.id}
         onRefresh={load}
-        refreshTitle="Refresh rules"
+        refreshTitle="Reload the rule list."
         placeholder={rules.length > 0 ? undefined : loading ? <p className="text-dim">{t('Loading...')}</p> : <p className="text-dim">{t('No rules yet.')}</p>}
       />
 
@@ -286,19 +286,19 @@ function RulesPanel() {
           <h3 style={{ marginTop: 0 }}>{t('New rule')}</h3>
           <div className="settings-grid">
             <div className="form-group">
-              <label htmlFor="cli-rule-pattern">{t('Pattern')}</label>
-              <input id="cli-rule-pattern" className="mono" value={draft.pattern} onChange={(e) => setDraft({ ...draft, pattern: e.target.value })} placeholder="Bash(git status:*)" />
+              <label htmlFor="cli-rule-pattern" title={t('Which calls the rule matches, in Claude Code rule syntax, for example Bash(npm run *), WebFetch(domain:example.com), or Edit(src/**).')}>{t('Pattern')}</label>
+              <input id="cli-rule-pattern" title={t('Which calls the rule matches, in Claude Code rule syntax, for example Bash(npm run *), WebFetch(domain:example.com), or Edit(src/**).')} className="mono" value={draft.pattern} onChange={(e) => setDraft({ ...draft, pattern: e.target.value })} placeholder="Bash(git status:*)" />
             </div>
             <div className="form-group">
-              <label htmlFor="cli-rule-action">{t('Action')}</label>
-              <select id="cli-rule-action" value={draft.action} onChange={(e) => setDraft({ ...draft, action: e.target.value as CliPermissionRuleAction })}>
+              <label htmlFor="cli-rule-action" title={t('Allow runs matching calls without asking; Deny refuses them. Deny rules win over allow rules.')}>{t('Action')}</label>
+              <select id="cli-rule-action" title={t('Allow runs matching calls without asking; Deny refuses them. Deny rules win over allow rules.')} value={draft.action} onChange={(e) => setDraft({ ...draft, action: e.target.value as CliPermissionRuleAction })}>
                 <option value="Allow">{t('Allow')}</option>
                 <option value="Deny">{t('Deny')}</option>
               </select>
             </div>
             <div className="form-group">
-              <label htmlFor="cli-rule-scope">{t('Scope')}</label>
-              <select id="cli-rule-scope" value={draft.scope} onChange={(e) => setDraft({ ...draft, scope: e.target.value as CliPermissionRuleScope })}>
+              <label htmlFor="cli-rule-scope" title={t('Where the rule applies: Global covers every captain in the tenant, Vessel covers missions on one vessel, Captain covers one captain (missions and Ask turns).')}>{t('Scope')}</label>
+              <select id="cli-rule-scope" title={t('Where the rule applies: Global covers every captain in the tenant, Vessel covers missions on one vessel, Captain covers one captain (missions and Ask turns).')} value={draft.scope} onChange={(e) => setDraft({ ...draft, scope: e.target.value as CliPermissionRuleScope })}>
                 <option value="Global">{t('Global')}</option>
                 <option value="Vessel">{t('Vessel')}</option>
                 <option value="Captain">{t('Captain')}</option>
@@ -306,8 +306,8 @@ function RulesPanel() {
             </div>
             {draft.scope === 'Vessel' && (
               <div className="form-group">
-                <label htmlFor="cli-rule-vessel">{t('Vessel')}</label>
-                <select id="cli-rule-vessel" value={draft.vesselId} onChange={(e) => setDraft({ ...draft, vesselId: e.target.value })}>
+                <label htmlFor="cli-rule-vessel" title={t('The vessel whose missions this rule applies to.')}>{t('Vessel')}</label>
+                <select id="cli-rule-vessel" title={t('The vessel whose missions this rule applies to.')} value={draft.vesselId} onChange={(e) => setDraft({ ...draft, vesselId: e.target.value })}>
                   <option value="">{t('Select a vessel...')}</option>
                   {vessels.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                 </select>
@@ -315,20 +315,20 @@ function RulesPanel() {
             )}
             {draft.scope === 'Captain' && (
               <div className="form-group">
-                <label htmlFor="cli-rule-captain">{t('Captain')}</label>
-                <select id="cli-rule-captain" value={draft.captainId} onChange={(e) => setDraft({ ...draft, captainId: e.target.value })}>
+                <label htmlFor="cli-rule-captain" title={t('The captain this rule applies to, in both its missions and its Ask turns.')}>{t('Captain')}</label>
+                <select id="cli-rule-captain" title={t('The captain this rule applies to, in both its missions and its Ask turns.')} value={draft.captainId} onChange={(e) => setDraft({ ...draft, captainId: e.target.value })}>
                   <option value="">{t('Select a captain...')}</option>
                   {captains.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
             )}
             <div className="form-group">
-              <label htmlFor="cli-rule-description">{t('Description')}</label>
-              <input id="cli-rule-description" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder={t('Optional')} />
+              <label htmlFor="cli-rule-description" title={t('Optional note for other admins, for example why the rule exists. Does not affect matching.')}>{t('Description')}</label>
+              <input id="cli-rule-description" title={t('Optional note for other admins, for example why the rule exists. Does not affect matching.')} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder={t('Optional')} />
             </div>
           </div>
           <div className="settings-actions">
-            <button type="submit" className="btn btn-primary btn-sm" disabled={!!draftError || saving}>{saving ? t('Saving...') : t('Create rule')}</button>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={!!draftError || saving} title={draftError ?? t('Save the rule. It applies to the next matching call right away.')}>{saving ? t('Saving...') : t('Create rule')}</button>
             {draftError && draft.pattern && <span className="text-dim">{draftError}</span>}
           </div>
         </form>
@@ -358,8 +358,8 @@ function RulesPanel() {
 export default function CliPermissions() {
   const { t } = useLocale();
   const tabs: TabDef[] = [
-    { key: 'requests', label: 'Requests', render: () => <RequestsPanel /> },
-    { key: 'rules', label: 'Rules', render: () => <RulesPanel /> },
+    { key: 'requests', label: 'Requests', tooltip: 'Tool permission prompts from CLI captains (shell commands, web fetches, file access) waiting for your answer, and past decisions.', render: () => <RequestsPanel /> },
+    { key: 'rules', label: 'Rules', tooltip: 'Saved allow and deny rules that answer matching CLI permission prompts without asking.', render: () => <RulesPanel /> },
   ];
   return (
     <div>

@@ -92,7 +92,7 @@ export default function ImportReviewStep({
       )}
 
       <div className="import-status-chips" role="group" aria-label={t('Filter candidates by status')}>
-        <button type="button" className={`chip${statusFilter === '' ? ' active' : ''}`} aria-pressed={statusFilter === ''} onClick={() => { setStatusFilter(''); setPageNumber(1); }}>
+        <button type="button" className={`chip${statusFilter === '' ? ' active' : ''}`} aria-pressed={statusFilter === ''} title={t('Show every candidate found, whatever its status.')} onClick={() => { setStatusFilter(''); setPageNumber(1); }}>
           {t('All')} <span className="chip-count">{candidates.length.toLocaleString()}</span>
         </button>
         {CANDIDATE_STATUSES.filter((s) => (counts[s] ?? 0) > 0).map((s) => (
@@ -103,10 +103,10 @@ export default function ImportReviewStep({
       </div>
 
       <div className="toolbar-row">
-        <input type="search" value={search} onChange={(e) => { setSearch(e.target.value); setPageNumber(1); }} placeholder={t('Path or name contains...')} aria-label={t('Path or name contains...')} />
-        <button type="button" className="btn btn-sm" onClick={selectAllNew}>{t('Select all new')}</button>
-        <button type="button" className="btn btn-sm" onClick={() => onSelectedChange([])} disabled={selected.length === 0}>{t('Clear selection')}</button>
-        <span className="text-dim toolbar-note">{t('{count, plural, one {# selected} other {# selected}}', { count: selected.length })}</span>
+        <input type="search" value={search} onChange={(e) => { setSearch(e.target.value); setPageNumber(1); }} placeholder={t('Path or name contains...')} aria-label={t('Path or name contains...')} title={t('Filter the list to candidates whose folder path or proposed name contains this text, e.g. api. Not case sensitive. Does not change the selection.')} />
+        <button type="button" className="btn btn-sm" onClick={selectAllNew} title={t('Select every candidate with status New (repositories that are not vessels yet) and nothing else, replacing the current selection.')}>{t('Select all new')}</button>
+        <button type="button" className="btn btn-sm" onClick={() => onSelectedChange([])} disabled={selected.length === 0} title={t('Unselect every candidate, on all pages.')}>{t('Clear selection')}</button>
+        <span className="text-dim toolbar-note" title={t('Candidates that will become vessels when you import, across all pages and filters.')}>{t('{count, plural, one {# selected} other {# selected}}', { count: selected.length })}</span>
       </div>
 
       <DataTable
@@ -136,57 +136,57 @@ export default function ImportReviewStep({
           rowLabel: (c) => t('Select {{name}}', { name: c.proposedName }),
         }}
         columns={[
-          { key: 'name', label: t('Name'), required: true, render: (c) => <strong data-i18n-skip="true">{c.proposedName}</strong> },
+          { key: 'name', label: t('Name'), headerTitle: t('Vessel name Armada will use, taken from the folder name. You can rename the vessel after import.'), required: true, render: (c) => <strong data-i18n-skip="true">{c.proposedName}</strong> },
           {
             // The existing-vessel link used to be a second line under the badge; it sits beside it on one line now.
-            key: 'status', label: t('Status'), cellClassName: 'cell-nowrap',
+            key: 'status', label: t('Status'), headerTitle: t('Whether the folder can be imported. Only New and Worktree candidates can be selected; hover a badge for details.'), cellClassName: 'cell-nowrap',
             render: (c) => (
               <>
                 <CodeStatusBadge {...candidateStatusBadge(t, c.candidateStatus)} />
                 {c.candidateStatus === 'AlreadyOnboarded' && c.existingVesselId && (
                   <>
                     {' '}
-                    <Link to={`/vessels/${c.existingVesselId}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t('Open existing vessel')}</Link>
+                    <Link to={`/vessels/${c.existingVesselId}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title={t('Open the vessel that already uses this folder or remote, in a new tab.')}>{t('Open existing vessel')}</Link>
                   </>
                 )}
               </>
             ),
           },
           {
-            key: 'path', label: t('Path'), cellClassName: 'mono', cellTitle: (c) => c.path,
+            key: 'path', label: t('Path'), headerTitle: t('Folder on the Admiral host. It becomes the vessel working directory.'), cellClassName: 'mono', cellTitle: (c) => c.path,
             render: (c) => <span className="cell-clip" data-i18n-skip="true"><span>{c.path}</span></span>,
           },
           {
-            key: 'remote', label: t('Remote'), cellClassName: 'mono text-dim', cellTitle: (c) => c.remoteUrl ?? '',
+            key: 'remote', label: t('Remote'), headerTitle: t('The repository origin URL, used as the vessel Repository URL. Without an origin, the folder path is used instead.'), cellClassName: 'mono text-dim', cellTitle: (c) => c.remoteUrl ?? '',
             render: (c) => <span className="cell-clip" data-i18n-skip="true"><span>{c.remoteUrl || t('(no origin)')}</span></span>,
           },
           {
-            key: 'branch', label: t('Branch'), cellClassName: 'mono text-dim', cellTitle: (c) => c.defaultBranch || '',
+            key: 'branch', label: t('Branch'), headerTitle: t('Default branch detected in the repository, used as the vessel Default Branch.'), cellClassName: 'mono text-dim', cellTitle: (c) => c.defaultBranch || '',
             render: (c) => <span className="cell-clip" data-i18n-skip="true"><span>{c.defaultBranch || '-'}</span></span>,
           },
         ]}
       />
 
       <fieldset className="form-fieldset import-defaults">
-        <legend className="form-label">{t('Defaults for the new vessels')}</legend>
+        <legend className="form-label" title={t('Settings applied to every vessel this import creates. Each can be changed per vessel afterward.')}>{t('Defaults for the new vessels')}</legend>
         <div className="form-grid-3">
-          <label className="form-field">
+          <label className="form-field" title={t('Fleet every imported vessel joins. No fleet leaves them unassigned; fleet recommendations, if enabled, can assign them afterward.')}>
             <span className="form-label">{t('Fleet')}</span>
-            <select value={defaults.fleetId} onChange={(e) => onDefaultsChange({ ...defaults, fleetId: e.target.value })}>
+            <select title={t('Fleet every imported vessel joins. No fleet leaves them unassigned; fleet recommendations, if enabled, can assign them afterward.')} value={defaults.fleetId} onChange={(e) => onDefaultsChange({ ...defaults, fleetId: e.target.value })}>
               <option value="">{t('No fleet')}</option>
               {fleets.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
           </label>
-          <label className="form-field">
+          <label className="form-field" title={t('Pipeline the new vessels use when a dispatch does not name one. None falls back to the fleet default, then a single Worker stage. You can change it per vessel later.')}>
             <span className="form-label">{t('Default Pipeline')}</span>
-            <select value={defaults.pipelineId} onChange={(e) => onDefaultsChange({ ...defaults, pipelineId: e.target.value })}>
+            <select title={t('Pipeline the new vessels use when a dispatch does not name one. None falls back to the fleet default, then a single Worker stage. You can change it per vessel later.')} value={defaults.pipelineId} onChange={(e) => onDefaultsChange({ ...defaults, pipelineId: e.target.value })}>
               <option value="">{t('None (WorkerOnly)')}</option>
               {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>
-          <label className="form-field">
+          <label className="form-field" title={t('How finished mission work lands on the new vessels: local merge into the discovered checkout, merge and push, pull request, merge queue, or manual. Default uses the global setting.')}>
             <span className="form-label">{t('Landing Mode')}</span>
-            <select value={defaults.landingMode} onChange={(e) => onDefaultsChange({ ...defaults, landingMode: e.target.value })}>
+            <select title={t('How finished mission work lands on the new vessels: local merge into the discovered checkout, merge and push, pull request, merge queue, or manual. Default uses the global setting.')} value={defaults.landingMode} onChange={(e) => onDefaultsChange({ ...defaults, landingMode: e.target.value })}>
               {IMPORT_LANDING_MODES.map((m) => <option key={m.value || 'default'} value={m.value}>{t(m.label)}</option>)}
             </select>
           </label>

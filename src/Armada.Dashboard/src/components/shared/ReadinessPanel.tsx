@@ -28,18 +28,18 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
         <div>
           <h3>{title}</h3>
           {readiness?.workflowProfileName && (
-            <div className="readiness-panel-meta">
+            <div className="readiness-panel-meta" title={t('The workflow profile that applies to this vessel, chosen from its own, its fleet\'s, or the global profile. Its commands decide which checks can run.')}>
               Resolved profile: <strong>{readiness.workflowProfileName}</strong>
               {readiness.workflowProfileScope ? ` (${readiness.workflowProfileScope})` : ''}
             </div>
           )}
           {!compact && readiness && readiness.setupChecklistTotalCount > 0 && (
-            <div className="readiness-panel-meta">
+            <div className="readiness-panel-meta" title={t('Setup checklist items this vessel satisfies, out of the total.')}>
               Onboarding: <strong>{readiness.setupChecklistSatisfiedCount}/{readiness.setupChecklistTotalCount}</strong> steps complete
             </div>
           )}
         </div>
-        <span className={`readiness-pill ${tone}`}>{label}</span>
+        <span className={`readiness-pill ${tone}`} title={t('Ready: no issues. Needs Attention: warnings only, work can still run. Blocked: at least one error stops missions or checks until fixed. Unknown: not checked yet.')}>{label}</span>
       </div>
 
       {loading ? (
@@ -49,16 +49,16 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
       ) : (
         <>
           <div className="readiness-summary-row">
-            <span>{readiness.hasWorkingDirectory ? 'Working directory available' : 'Working directory unavailable'}</span>
-            <span>{readiness.hasRepositoryContext ? 'Repository context available' : 'Repository context unavailable'}</span>
+            <span title={t('Whether a checkout of this vessel exists, on the Admiral host or a connected Harbor. Checks, workspace browsing and Local Merge need one.')}>{readiness.hasWorkingDirectory ? 'Working directory available' : 'Working directory unavailable'}</span>
+            <span title={t('Whether the Admiral has its bare clone of the repository, or can recreate it from the repository URL. Missions need it to create worktrees.')}>{readiness.hasRepositoryContext ? 'Repository context available' : 'Repository context unavailable'}</span>
             {readiness.availableCheckTypes.length > 0 && (
-              <span>{readiness.availableCheckTypes.length} check type(s) available</span>
+              <span title={t('Kinds of structured checks (build, test, deploy and so on) the resolved workflow profile defines commands for.')}>{readiness.availableCheckTypes.length} check type(s) available</span>
             )}
           </div>
 
           {checkout && checkoutText && (
             <div className={`readiness-checkout${checkout.kind === 'unavailable' ? ' unavailable' : ''}`} data-testid="readiness-checkout">
-              <span className="readiness-checkout-label">{t('Checkout')}:</span>
+              <span className="readiness-checkout-label" title={t('Where checks and workspace actions for this vessel run: its working directory on the Admiral host, or a Harbor\'s copy.')}>{t('Checkout')}:</span>
               <span className="readiness-checkout-where">{t(checkoutText.template, checkoutText.params)}</span>
               {checkout.kind === 'harbor' && (
                 <span className="readiness-checkout-id">
@@ -82,25 +82,25 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
             <div className="readiness-info-grid">
               {branchSummary && (
                 <div className="readiness-info-card">
-                  <div className="readiness-info-label">Branch</div>
+                  <div className="readiness-info-label" title={t('Branch checked out in the working directory, and the vessel\'s default branch.')}>Branch</div>
                   <div className="mono">{branchSummary}</div>
                 </div>
               )}
               {aheadBehindSummary && (
                 <div className="readiness-info-card">
-                  <div className="readiness-info-label">Remote drift</div>
+                  <div className="readiness-info-label" title={t('How many commits the working directory is ahead of and behind the remote default branch, after a fetch.')}>Remote drift</div>
                   <div>{aheadBehindSummary}</div>
                 </div>
               )}
               {readiness.hasUncommittedChanges != null && (
                 <div className="readiness-info-card">
-                  <div className="readiness-info-label">Working tree</div>
+                  <div className="readiness-info-label" title={t('Whether the working directory has uncommitted changes. Local Merge and some fleet actions skip a dirty tree.')}>Working tree</div>
                   <div>{readiness.hasUncommittedChanges ? 'Uncommitted changes present' : 'Clean working tree'}</div>
                 </div>
               )}
               {readiness.detectedToolchains.length > 0 && (
                 <div className="readiness-info-card">
-                  <div className="readiness-info-label">Detected toolchains</div>
+                  <div className="readiness-info-label" title={t('Build tools Armada recognized from files in the checkout, such as dotnet, node or python.')}>Detected toolchains</div>
                   <div className="readiness-inline-list">
                     {readiness.detectedToolchains.map((item) => (
                       <span key={item} className="readiness-type-pill">{item}</span>
@@ -110,7 +110,7 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
               )}
               {readiness.toolchainProbes.length > 0 && (
                 <div className="readiness-info-card">
-                  <div className="readiness-info-label">Toolchain probes</div>
+                  <div className="readiness-info-label" title={t('Each tool Armada tried to run on the checkout host, with the version found or missing. Expected means the profile\'s commands need it.')}>Toolchain probes</div>
                   <div className="readiness-probe-list">
                     {readiness.toolchainProbes.map((probe) => (
                       <div key={`${probe.name}-${probe.command}`} className="readiness-probe-row">
@@ -124,7 +124,7 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
               )}
               {readiness.deploymentEnvironments.length > 0 && (
                 <div className="readiness-info-card">
-                  <div className="readiness-info-label">Environments</div>
+                  <div className="readiness-info-label" title={t('Deployment environments defined for this vessel.')}>Environments</div>
                   <div className="readiness-inline-list">
                     {readiness.deploymentEnvironments.map((item) => (
                       <span key={item} className="readiness-type-pill">{item}</span>
@@ -134,7 +134,7 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
               )}
               {readiness.deploymentMetadata && (
                 <div className="readiness-info-card">
-                  <div className="readiness-info-label">Delivery coverage</div>
+                  <div className="readiness-info-label" title={t('Which delivery commands the workflow profile defines: deploy, rollback, smoke test, health check, and their verifications. Missing ones cannot run.')}>Delivery coverage</div>
                   <div className="readiness-inline-list">
                     <span className="readiness-type-pill">{`${readiness.deploymentMetadata.environmentCount} env(s)`}</span>
                     {readiness.deploymentMetadata.hasDeployCommand && <span className="readiness-type-pill">Deploy</span>}
@@ -157,7 +157,7 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
                   {readiness.setupChecklistSatisfiedCount}/{readiness.setupChecklistTotalCount} complete
                 </span>
                 {readiness.setupChecklistSatisfiedCount < readiness.setupChecklistTotalCount && (
-                  <Link to={`/vessels/${readiness.vesselId}/onboarding`} className="btn btn-sm" style={{ marginLeft: '0.75rem' }}>
+                  <Link to={`/vessels/${readiness.vesselId}/onboarding`} className="btn btn-sm" style={{ marginLeft: '0.75rem' }} title={t('Open this vessel\'s onboarding page to work through the remaining checklist items.')}>
                     Open Onboarding
                   </Link>
                 )}
@@ -167,7 +167,7 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
                   <div key={item.code} className={`readiness-checklist-item${item.isSatisfied ? ' satisfied' : ''}`}>
                     <div className="readiness-checklist-title-row">
                       <strong>{item.title}</strong>
-                      <span className={`readiness-issue-severity ${item.severity.toLowerCase()}`}>
+                      <span className={`readiness-issue-severity ${item.severity.toLowerCase()}`} title={t('Done: satisfied. Error: blocks work until fixed. Warning: recommended. Info: for your information.')}>
                         {item.isSatisfied ? 'Done' : item.severity}
                       </span>
                     </div>
@@ -196,7 +196,7 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
                   <div key={`${issue.code}-${index}`} className={`readiness-issue ${issue.severity.toLowerCase()}`}>
                     <div className="readiness-issue-title-row">
                       <strong>{issue.title}</strong>
-                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`}>{issue.severity}</span>
+                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`} title={t('Done: satisfied. Error: blocks work until fixed. Warning: recommended. Info: for your information.')}>{issue.severity}</span>
                     </div>
                     <div className="text-dim">{issue.message}</div>
                     {issue.actionHref && issue.actionLabel && (
@@ -205,7 +205,7 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
                       </Link>
                     )}
                     {relatedValue && (
-                      <div className="readiness-related-value mono">
+                      <div className="readiness-related-value mono" title={t('The value this issue is about, such as a path, command or input name.')}>
                         {relatedValue}
                         {providerSuffix}
                       </div>

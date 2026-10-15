@@ -78,7 +78,7 @@ export default function SignalDetail() {
     return (
       <div>
         <ErrorModal error={error} onClose={() => setError('')} />
-        <button className="btn-sm" onClick={() => navigate('/signals')}>&larr; {t('Back to Signals')}</button>
+        <button className="btn-sm" onClick={() => navigate('/signals')} title={t('Return to the signal list.')}>&larr; {t('Back to Signals')}</button>
       </div>
     );
   }
@@ -101,9 +101,9 @@ export default function SignalDetail() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2>{t('Signal Details')}</h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          {!signal.read && <button className="btn-sm" onClick={handleMarkRead}>{t('Mark Read')}</button>}
-          <button className="btn-sm" onClick={() => setJsonView({ title: t('Signal: {{id}}', { id: signal.id }), data: signal })}>{t('View JSON')}</button>
-          <button className="btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
+          {!signal.read && <button className="btn-sm" onClick={handleMarkRead} title={t('Mark this signal as read so it no longer counts as unread.')}>{t('Mark Read')}</button>}
+          <button className="btn-sm" onClick={() => setJsonView({ title: t('Signal: {{id}}', { id: signal.id }), data: signal })} title={t('Show the raw signal record as the API returns it.')}>{t('View JSON')}</button>
+          <button className="btn-sm btn-danger" onClick={handleDelete} title={t('Permanently delete this signal. You confirm first.')}>{t('Delete')}</button>
         </div>
       </div>
 
@@ -111,44 +111,44 @@ export default function SignalDetail() {
       <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('ID')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Unique signal ID (sig_ prefix).')}>{t('ID')}</div>
             <div className="mono" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               {signal.id}
               <CopyButton text={signal.id} />
             </div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Type')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Kind of signal. Nudge and Mail are sent by people; Assignment, Progress, Completion, Error and Heartbeat are sent by Armada as missions progress.')}>{t('Type')}</div>
             <span className={`status status-${(signal.type || '').toLowerCase()}`}>{signal.type}</span>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Read')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Whether the signal has been marked read.')}>{t('Read')}</div>
             <div>{signal.read ? t('Yes') : t('No')}</div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('From')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Captain that sent the signal, or Admiral when Armada or a person sent it.')}>{t('From')}</div>
             {signal.fromCaptainId
               ? <Link to={`/captains/${signal.fromCaptainId}`}>{captainName(signal.fromCaptainId)}</Link>
               : <span>{t('Admiral')}</span>}
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('To')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Captain the signal is addressed to, or Admiral when it went to the Admiral or was a broadcast.')}>{t('To')}</div>
             {signal.toCaptainId
               ? <Link to={`/captains/${signal.toCaptainId}`}>{captainName(signal.toCaptainId)}</Link>
               : <span>{t('Admiral')}</span>}
           </div>
           {signal.missionId && (
             <div>
-              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Mission')}</div>
+              <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Mission this signal is about.')}>{t('Mission')}</div>
               <Link to={`/missions/${signal.missionId}`} className="mono">{signal.missionId}</Link>
             </div>
           )}
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Tenant ID')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Tenant (organization) that owns this signal.')}>{t('Tenant ID')}</div>
             <div className="mono">{signal.tenantId || '-'}</div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Created')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('When the signal was sent.')}>{t('Created')}</div>
             <div>{formatRelativeTime(signal.createdUtc)} <span className="text-muted">({formatDateTime(signal.createdUtc)})</span></div>
           </div>
         </div>
@@ -156,7 +156,7 @@ export default function SignalDetail() {
 
       {/* Payload */}
       <div className="card">
-        <h3>{t('Payload')}</h3>
+        <h3 title={t('Message content of the signal. JSON payloads are shown formatted.')}>{t('Payload')}</h3>
         <pre style={{
           background: '#f5f5fa',
           padding: 16,

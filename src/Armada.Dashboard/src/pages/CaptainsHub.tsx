@@ -16,8 +16,8 @@ function panel(node: ReactNode): ReactNode {
  */
 export default function CaptainsHub() {
   const tabs: TabDef[] = [
-    { key: 'captains', label: 'Captains', render: () => panel(<Captains />) },
-    { key: 'docks', label: 'Docks', render: () => panel(<Docks />) },
+    { key: 'captains', label: 'Captains', tooltip: 'The agents (Claude Code, Codex, Gemini, mux, and others) that do mission work, and whether each is idle or working.', render: () => panel(<Captains />) },
+    { key: 'docks', label: 'Docks', tooltip: 'Git worktrees Armada created for captains to work in, one per mission, and their state.', render: () => panel(<Docks />) },
   ];
 
   return <Tabs tabs={tabs} defaultTabKey="captains" ariaLabel="Captain sections" />;

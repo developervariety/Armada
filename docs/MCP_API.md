@@ -1135,8 +1135,8 @@ conversations, send messages and wait for the reply, stop or summarize a turn, r
 the actions Armada proposes. Every tool acts as the calling user on that user's own conversations; another user's
 conversation answers `NotFound`, exactly as if it did not exist, and `delete_ask_threads` reports it under `notFound`.
 Errors are `McpToolError`s: `InvalidArgument` (a required field is missing), `NotFound`, `Forbidden`, `Conflict` (a
-turn is already running, or the proposal was already decided), and `Unavailable` (the turn could not be started). The
-stdio server does not register these tools.
+turn is already running, or the proposal was already decided), and `Unavailable` (the turn could not be started, or the
+server cannot run conversations: the stdio server lists these tools but answers every call with `Unavailable`).
 
 A captain answering inside a conversation may call the five readers (`list_ask_threads`, `get_ask_thread`,
 `list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`); every other tool here is refused with `Forbidden` and

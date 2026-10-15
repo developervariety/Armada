@@ -53,7 +53,7 @@ namespace Armada.Harbor
             AddField(identity, "Name", _Name, "How this computer appears on the Admiral's Harbors page.");
             _HarborId.HorizontalAlignment = HorizontalAlignment.Left;
             _HarborId.Margin = new Thickness(0, 2, 0, 0);
-            AddField(identity, "Harbor ID", _HarborId, null);
+            AddField(identity, "Harbor ID", _HarborId, null, "This computer's Harbor ID (hbr_), assigned when it first registered with the Admiral. Missions and logs on the Admiral name it by this ID. Click to copy.");
             _TenantId.Input.Watermark = "None";
             _UserId.Input.Watermark = "None";
 
@@ -73,14 +73,14 @@ namespace Armada.Harbor
                 _Secret.PasswordChar = mask;
             };
             AddField(connection, "Access key", keyRow, "An Armada credential. Needed when the Admiral is on another computer or requires sign-in.");
-            AddField(connection, "Secret", _Secret, null);
+            AddField(connection, "Secret", _Secret, null, "The secret that goes with the access key, if your credential has one. Leave it empty for a bearer token. Stored on this computer only.");
             AddField(connection, "Tenant ID", _TenantId, "Tenant to register under. The access key decides the tenant unless it belongs to a global admin.");
             AddField(connection, "User ID", _UserId, "For information only; the Admiral takes the owner from the access key.");
 
             Grid work = Form();
-            AddField(work, "Jobs at once", _MaxJobs, "How many agents may run on this computer at the same time.");
+            AddField(work, "Jobs at once", _MaxJobs, "How many agents may run on this computer at the same time.", "How many captains and git jobs may run on this computer at the same time (1 to 64). More jobs finish sooner but share this computer's CPU and memory.");
             AddField(work, "Tools offered", _Capabilities, "Comma-separated tools this computer offers, such as git. Agent runtimes are offered automatically.");
-            AddField(work, "Heartbeat (ms)", _Heartbeat, "How often this computer tells the Admiral it is alive. 0 turns heartbeats off.");
+            AddField(work, "Heartbeat (ms)", _Heartbeat, "How often this computer tells the Admiral it is alive. 0 turns heartbeats off.", "Milliseconds between the messages that tell the Admiral this computer is still connected, for example 30000 for every 30 seconds. With heartbeats off (0), a dropped connection is noticed later.");
 
             Grid look = Form();
             AddField(look, "Color scheme", _Appearance, "Follow the system, or always light or dark. Applies right away.");
@@ -91,14 +91,14 @@ namespace Armada.Harbor
             };
 
             StackPanel buttons = HarborUi.ButtonRow();
-            Button save = HarborUi.Button("Save", Save);
+            Button save = HarborUi.Button("Save", Save, "Save these settings on this computer. If a connection setting changed while connected, the link reconnects with the new values.");
             save.Classes.Add("accent");
             buttons.Children.Add(save);
             buttons.Children.Add(HarborUi.Button("Revert", () => Load(_Session.Settings), "Discard unsaved changes"));
             buttons.Children.Add(HarborUi.Button("Restore Previous Version...", () => _ = RestorePreviousAsync(), "Choose a version of this file from before an earlier save and put it back"));
             buttons.Children.Add(HarborUi.Button("Reload from File", ReloadFromFile, "Read the settings file again (after editing it by hand)"));
             buttons.Children.Add(HarborUi.Button("Open File", OpenFile, "Open settings.json in a text editor"));
-            buttons.Children.Add(HarborUi.Button("Show in Folder", RevealFile));
+            buttons.Children.Add(HarborUi.Button("Show in Folder", RevealFile, "Show Harbor's settings file in Finder or Explorer"));
 
             StackPanel footer = new StackPanel { Spacing = 8 };
             footer.Children.Add(new ScrollViewer
@@ -149,12 +149,19 @@ namespace Armada.Harbor
             return new Grid { ColumnDefinitions = new ColumnDefinitions("160,*"), RowSpacing = 12 };
         }
 
-        private static void AddField(Grid form, string label, Control input, string? help)
+        private static void AddField(Grid form, string label, Control input, string? help, string? tip = null)
         {
             int row = form.RowDefinitions.Count;
             form.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
 
             TextBlock labelBlock = new TextBlock { Text = label, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 6, 8, 0), VerticalAlignment = VerticalAlignment.Top };
+            string? hover = tip ?? help;
+            if (!String.IsNullOrEmpty(hover))
+            {
+                ToolTip.SetTip(labelBlock, hover);
+                if (ToolTip.GetTip(input) == null) ToolTip.SetTip(input, hover);
+            }
+
             Grid.SetRow(labelBlock, row);
             form.Children.Add(labelBlock);
 

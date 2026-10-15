@@ -88,6 +88,21 @@ const EMPTY_FORM: EndpointForm = {
 
 
 
+const EP_NAME_TIP = 'Name for this endpoint, shown when choosing one for a captain, for example openai-prod or local-ollama. Required.';
+const EP_KIND_TIP = 'Inference answers prompts and can drive API Endpoint captains. Embedding turns text into vectors. It also decides how Validate tests the endpoint.';
+const EP_PROVIDER_TIP = 'The API this endpoint speaks. It sets the request format and default authentication. Use OpenAICompatible for servers like vLLM, LM Studio or LiteLLM.';
+const EP_REGION_TIP = 'Cloud region the model runs in, for example us-east-1 on Bedrock or us-central1 on Vertex AI. Required.';
+const EP_PROJECT_TIP = 'Your Google Cloud project ID, for example my-gcp-project. Required for Vertex AI.';
+const EP_ACCESS_KEY_TIP = 'AWS access key ID, for example AKIA... Put the matching secret access key in the secret field below. Required for Bedrock.';
+const EP_API_VERSION_TIP = 'Azure OpenAI API version, for example 2024-10-21. Leave blank to use the current default version.';
+const EP_AUTH_TYPE_TIP = 'How the secret is attached to each request: as a bearer token, basic auth, a named header or a query parameter. Provider default sends it the way this provider expects.';
+const EP_USERNAME_TIP = 'User name for basic authentication. The password goes in the secret field below. Required.';
+const EP_HEADER_NAME_TIP = 'Name of the HTTP header that carries the secret, for example X-API-Key. Required.';
+const EP_QUERY_TIP = 'Name of the URL query parameter that carries the secret, for example key. The secret then appears in request URLs, so prefer a header when the server allows it.';
+const EP_DIM_TIP = 'Embedding endpoints only: an optional hint of the vector length the model returns, for example 1536. 0 means no hint.';
+const EP_TIMEOUT_TIP = 'How long to wait for one request before giving up, in milliseconds, from 1000 to 600000. The default is 120000 (2 minutes).';
+const EP_ENABLED_TIP = 'On: the endpoint is available for use and is health-checked. Off: it is kept, but marked not for use and skipped by health checks.';
+
 export default function Endpoints() {
   const { isAdmin, isTenantAdmin, user } = useAuth();
   const viewer: ScopeViewer = { isAdmin, isTenantAdmin, tenantId: user?.user?.tenantId, userId: user?.user?.id };
@@ -127,6 +142,19 @@ export default function Endpoints() {
   const hasStoredSecret = !!editing && editing.hasApiKey;
   const sentAs = authSentAs(form.provider, formAuthType, form);
   const lt = (text: LocalizedText) => t(text.key, text.params);
+  const baseUrlTip = isVertex || isBedrock
+    ? 'Optional. Leave blank to use the provider\'s regional address; set it only to send requests through a proxy or private endpoint.'
+    : isAzure
+      ? 'Your Azure OpenAI resource address, for example https://my-resource.openai.azure.com. Required.'
+      : 'Server address without the API path, for example https://api.openai.com or http://localhost:11434 for Ollama. Required.';
+  const modelTip = isAzure
+    ? 'The Azure deployment name to call, for example gpt-4o. Required.'
+    : isBedrock
+      ? 'The Bedrock model id, for example anthropic.claude-3-5-sonnet-20240620-v1:0.'
+      : 'Model name to request, for example gpt-4o-mini or text-embedding-3-small. Captains using this endpoint can override it.';
+  const secretTip = isVertex
+    ? 'The service-account JSON key for your Google Cloud project. Stored on the Admiral and never shown again. Leave blank when editing to keep the stored one.'
+    : 'The secret sent with each request, such as an API key, token or password. Stored on the Admiral and never shown again. Leave blank when editing to keep the stored one.';
 
   function updateHeader(id: string, patch: Partial<EndpointHeaderRow>) {
     setForm((current) => ({ ...current, headers: current.headers.map((row) => (row.id === id ? { ...row, ...patch } : row)) }));
@@ -299,7 +327,7 @@ export default function Endpoints() {
 
   const columns: DataTableColumn<ModelEndpoint>[] = [
     {
-      key: 'name', label: t('Endpoint'), required: true, cellClassName: 'cell-nowrap',
+      key: 'name', label: t('Endpoint'), required: true, headerTitle: t('Endpoint name, shown when choosing an endpoint for a captain. (disabled) means it is not used or health-checked.'), cellClassName: 'cell-nowrap',
       render: (endpoint) => (
         <>
           <strong>{endpoint.name}</strong>
@@ -308,7 +336,7 @@ export default function Endpoints() {
       ),
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell', interactive: true,
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique endpoint ID (mep_ prefix), used by captains and the API to refer to this endpoint.'), cellClassName: 'mono text-dim table-id-cell', interactive: true,
       render: (endpoint) => (
         <span className="id-display">
           <span className="id-value" title={endpoint.id}>{endpoint.id}</span>
@@ -318,30 +346,30 @@ export default function Endpoints() {
     },
     {
       // Was a third line under the name; now its own one-line column.
-      key: 'baseUrl', label: t('Base URL'), cellClassName: 'mono text-dim',
+      key: 'baseUrl', label: t('Base URL'), headerTitle: t('Server address requests go to. Endpoints that share a base URL and credentials are health-checked once per sweep.'), cellClassName: 'mono text-dim',
       cellTitle: (endpoint) => endpoint.baseUrl,
       render: (endpoint) => <span className="cell-clip"><span>{endpoint.baseUrl}</span></span>,
     },
-    { key: 'kind', label: t('Kind'), cellClassName: 'text-dim', render: (endpoint) => endpoint.kind },
-    { key: 'provider', label: t('Provider'), cellClassName: 'text-dim', render: (endpoint) => endpoint.provider },
+    { key: 'kind', label: t('Kind'), headerTitle: t('Inference endpoints answer prompts (chat or completion) and can drive API Endpoint captains. Embedding endpoints turn text into vectors.'), cellClassName: 'text-dim', render: (endpoint) => endpoint.kind },
+    { key: 'provider', label: t('Provider'), headerTitle: t('The API the endpoint speaks, such as OpenAI, Anthropic, Ollama or Bedrock. It decides the request format and default authentication.'), cellClassName: 'text-dim', render: (endpoint) => endpoint.provider },
     {
-      key: 'auth', label: t('Authentication'), cellClassName: 'text-dim cell-nowrap',
+      key: 'auth', label: t('Authentication'), headerTitle: t('How requests are authenticated, whether a secret is stored, and how many extra headers are sent. Secrets are never shown.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (endpoint) => credentialSummary(endpoint),
       render: (endpoint) => <span className="cell-one-line">{credentialSummary(endpoint)}</span>,
     },
     {
-      key: 'model', label: t('Model'), cellClassName: 'text-dim',
+      key: 'model', label: t('Model'), headerTitle: t('Model requested from the provider (the deployment name on Azure, the model id on Bedrock). A captain can override it.'), cellClassName: 'text-dim',
       render: (endpoint) => <span className="cell-one-line" title={endpoint.model || undefined}>{endpoint.model || '-'}</span>,
     },
-    { key: 'visibility', label: t('Visibility'), cellClassName: 'cell-nowrap', render: (endpoint) => <ScopeBadge scope={endpoint.scope} /> },
+    { key: 'visibility', label: t('Visibility'), headerTitle: t('Tenant-wide endpoints are usable by everyone in the tenant and edited by admins; personal ones only by their owner.'), cellClassName: 'cell-nowrap', render: (endpoint) => <ScopeBadge scope={endpoint.scope} /> },
     {
-      key: 'health', label: t('Health'), interactive: true, cellClassName: 'cell-nowrap',
+      key: 'health', label: t('Health'), headerTitle: t('Result of the latest health check and a bar of recent checks (green passed, red failed). Click a cell for details.'), interactive: true, cellClassName: 'cell-nowrap',
       render: (endpoint) => (
         <span
           className="health-cell"
           role="button"
           tabIndex={0}
-          title={t('View health detail')}
+          title={t('Open this endpoint\'s health details: uptime, recent check history, latency and the last error.')}
           onClick={() => setHealth({ open: true, endpoint })}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setHealth({ open: true, endpoint }); } }}
         >
@@ -351,22 +379,22 @@ export default function Endpoints() {
       ),
     },
     {
-      key: 'lastChecked', label: t('Last Checked'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastChecked', label: t('Last Checked'), headerTitle: t('When the endpoint was last health-checked. Never means no check has run yet, or the endpoint is disabled.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (endpoint) => (endpoint.lastHealthCheckUtc ? formatDateTime(endpoint.lastHealthCheckUtc) : ''),
       render: (endpoint) => (endpoint.lastHealthCheckUtc ? formatRelativeTime(endpoint.lastHealthCheckUtc) : t('Never')),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open the menu in a row to view health, validate, edit or delete that endpoint.'), fixed: true, interactive: true, className: 'text-right',
       render: (endpoint) => {
         const canEditRow = canEditScoped(viewer, endpoint);
         return (
           <ActionMenu
             id={`endpoint-${endpoint.id}`}
             items={[
-              { label: 'Health', onClick: () => setHealth({ open: true, endpoint }) },
+              { label: 'Health', title: 'Show this endpoint\'s uptime, recent check history, latency and last error.', onClick: () => setHealth({ open: true, endpoint }) },
               ...(canEditRow ? [{ label: validating === endpoint.id ? 'Validating...' : 'Validate', title: 'Send a real request to the configured model with the stored credentials. The provider may bill for it.', onClick: () => handleValidate(endpoint) }] : []),
-              ...(canEditRow ? [{ label: 'Edit', onClick: () => openEdit(endpoint) }] : []),
-              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: endpoint.name, data: endpoint }) },
+              ...(canEditRow ? [{ label: 'Edit', title: 'Change this endpoint\'s address, model, credentials, headers and limits.', onClick: () => openEdit(endpoint) }] : []),
+              { label: 'View JSON', title: 'Show this endpoint\'s record as JSON. Stored secrets are never included.', onClick: () => setJsonData({ open: true, title: endpoint.name, data: endpoint }) },
               ...(canEditRow ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this endpoint, its stored secrets and its health history. Anything configured to use it needs another endpoint.', onClick: () => handleDelete(endpoint) }] : []),
             ]}
           />
@@ -383,12 +411,12 @@ export default function Endpoints() {
         actions={(
           <>
             {canManage && (
-              <button className="btn" onClick={handleSweep} disabled={sweeping} title={t('Probe all enabled endpoints, deduplicated by base URL.')}>
+              <button className="btn" onClick={handleSweep} disabled={sweeping} title={t('Health-check every enabled endpoint now instead of waiting for the next automatic sweep. Endpoints sharing a base URL and credentials are checked once.')}>
                 {sweeping ? t('Sweeping...') : t('Run Health Sweep')}
               </button>
             )}
             {(
-              <button className="btn btn-primary" onClick={openCreate}>+ {t('Endpoint')}</button>
+              <button className="btn btn-primary" onClick={openCreate} title={t('Add a model endpoint: a provider URL, model and credentials Armada can call, for example to drive an API Endpoint captain.')}>+ {t('Endpoint')}</button>
             )}
           </>
         )}
@@ -408,17 +436,17 @@ export default function Endpoints() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal modal-large" onClick={(e) => e.stopPropagation()} onSubmit={handleSave}>
             <h3>{editing ? t('Edit Endpoint') : t('Create Endpoint')}</h3>
-            <label>{t('Name')}
-              <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+            <label title={t(EP_NAME_TIP)}>{t('Name')}
+              <input type="text" title={t(EP_NAME_TIP)} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </label>
             <div className="detail-form-grid">
-              <label>{t('Kind')}
-                <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as ModelEndpointKind })}>
+              <label title={t(EP_KIND_TIP)}>{t('Kind')}
+                <select title={t(EP_KIND_TIP)} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as ModelEndpointKind })}>
                   {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
                 </select>
               </label>
-              <label>{t('Provider')}
-                <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value as ModelProvider })}>
+              <label title={t(EP_PROVIDER_TIP)}>{t('Provider')}
+                <select title={t(EP_PROVIDER_TIP)} value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value as ModelProvider })}>
                   {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               </label>
@@ -426,24 +454,25 @@ export default function Endpoints() {
             {formReason && <p className="text-danger" style={{ margin: '0 0 0.5rem' }}>{formReason}</p>}
             {(isVertex || isBedrock) && (
               <div className="detail-form-grid">
-                <label>{t('Region')}
-                  <input type="text" value={form.region} onChange={(e) => setForm({ ...form, region: e.target.value })} placeholder={isBedrock ? 'us-east-1' : 'us-central1'} required />
+                <label title={t(EP_REGION_TIP)}>{t('Region')}
+                  <input type="text" title={t(EP_REGION_TIP)} value={form.region} onChange={(e) => setForm({ ...form, region: e.target.value })} placeholder={isBedrock ? 'us-east-1' : 'us-central1'} required />
                 </label>
                 {isVertex && (
-                  <label>{t('Project')}
-                    <input type="text" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} placeholder="my-gcp-project" required />
+                  <label title={t(EP_PROJECT_TIP)}>{t('Project')}
+                    <input type="text" title={t(EP_PROJECT_TIP)} value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} placeholder="my-gcp-project" required />
                   </label>
                 )}
                 {isBedrock && (
-                  <label>{t('Access Key ID')}
-                    <input type="text" value={form.accessKeyId} onChange={(e) => setForm({ ...form, accessKeyId: e.target.value })} placeholder="AKIA..." required autoComplete="off" />
+                  <label title={t(EP_ACCESS_KEY_TIP)}>{t('Access Key ID')}
+                    <input type="text" title={t(EP_ACCESS_KEY_TIP)} value={form.accessKeyId} onChange={(e) => setForm({ ...form, accessKeyId: e.target.value })} placeholder="AKIA..." required autoComplete="off" />
                   </label>
                 )}
               </div>
             )}
-            <label>{isVertex || isBedrock ? t('Base URL (optional override)') : isAzure ? t('Base URL (resource endpoint)') : t('Base URL')}
+            <label title={t(baseUrlTip)}>{isVertex || isBedrock ? t('Base URL (optional override)') : isAzure ? t('Base URL (resource endpoint)') : t('Base URL')}
               <input
                 type="text"
+                title={t(baseUrlTip)}
                 value={form.baseUrl}
                 onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
                 placeholder={isAzure ? 'https://my-resource.openai.azure.com' : 'https://api.openai.com'}
@@ -451,20 +480,21 @@ export default function Endpoints() {
               />
             </label>
             <div className="detail-form-grid">
-              <label>{isAzure ? t('Deployment name') : isBedrock ? t('Bedrock model id') : t('Model')}
-                <input type="text" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder={isAzure ? 'gpt-4o' : isBedrock ? 'anthropic.claude-3-5-sonnet-20240620-v1:0' : form.kind === 'Embedding' ? 'text-embedding-3-small' : 'gpt-4o-mini'} required={isAzure} />
+              <label title={t(modelTip)}>{isAzure ? t('Deployment name') : isBedrock ? t('Bedrock model id') : t('Model')}
+                <input type="text" title={t(modelTip)} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder={isAzure ? 'gpt-4o' : isBedrock ? 'anthropic.claude-3-5-sonnet-20240620-v1:0' : form.kind === 'Embedding' ? 'text-embedding-3-small' : 'gpt-4o-mini'} required={isAzure} />
               </label>
               {isAzure && (
-                <label>{t('API Version')}
-                  <input type="text" value={form.apiVersion} onChange={(e) => setForm({ ...form, apiVersion: e.target.value })} placeholder="2024-10-21 (default)" />
+                <label title={t(EP_API_VERSION_TIP)}>{t('API Version')}
+                  <input type="text" title={t(EP_API_VERSION_TIP)} value={form.apiVersion} onChange={(e) => setForm({ ...form, apiVersion: e.target.value })} placeholder="2024-10-21 (default)" />
                 </label>
               )}
             </div>
             <fieldset className="endpoint-auth-section">
-              <legend>{t('Authentication')}</legend>
+              <legend title={t('How Armada proves its identity to the provider. Secrets are stored on the Admiral and never shown again after saving.')}>{t('Authentication')}</legend>
               {!signsRequests && (
-                <label title={t('How the secret is attached to each request. Provider default sends it the way this provider expects.')}>{t('Authentication type')}
+                <label title={t(EP_AUTH_TYPE_TIP)}>{t('Authentication type')}
                   <select
+                    title={t(EP_AUTH_TYPE_TIP)}
                     value={formAuthType}
                     onChange={(e) => setForm({ ...form, authType: e.target.value as ModelEndpointAuthType })}
                   >
@@ -473,24 +503,25 @@ export default function Endpoints() {
                 </label>
               )}
               {formAuthType === 'Basic' && (
-                <label>{t('Username')}
-                  <input type="text" value={form.authUsername} onChange={(e) => setForm({ ...form, authUsername: e.target.value })} required autoComplete="off" />
+                <label title={t(EP_USERNAME_TIP)}>{t('Username')}
+                  <input type="text" title={t(EP_USERNAME_TIP)} value={form.authUsername} onChange={(e) => setForm({ ...form, authUsername: e.target.value })} required autoComplete="off" />
                 </label>
               )}
               {formAuthType === 'Header' && (
-                <label>{t('Header name')}
-                  <input type="text" value={form.authHeaderName} onChange={(e) => setForm({ ...form, authHeaderName: e.target.value })} placeholder="X-API-Key" required autoComplete="off" />
+                <label title={t(EP_HEADER_NAME_TIP)}>{t('Header name')}
+                  <input type="text" title={t(EP_HEADER_NAME_TIP)} value={form.authHeaderName} onChange={(e) => setForm({ ...form, authHeaderName: e.target.value })} placeholder="X-API-Key" required autoComplete="off" />
                 </label>
               )}
               {formAuthType === 'QueryParameter' && (
-                <label>{t('Query parameter name')}
-                  <input type="text" value={form.authQueryParameter} onChange={(e) => setForm({ ...form, authQueryParameter: e.target.value })} placeholder="key" required autoComplete="off" />
+                <label title={t(EP_QUERY_TIP)}>{t('Query parameter name')}
+                  <input type="text" title={t(EP_QUERY_TIP)} value={form.authQueryParameter} onChange={(e) => setForm({ ...form, authQueryParameter: e.target.value })} placeholder="key" required autoComplete="off" />
                 </label>
               )}
               {secretLabelKey && (
-                <label>{t(secretLabelKey)}
+                <label title={t(secretTip)}>{t(secretLabelKey)}
                   {isVertex ? (
                     <textarea
+                      title={t(secretTip)}
                       value={form.apiKey}
                       onChange={(e) => setForm({ ...form, apiKey: e.target.value, apiKeyTouched: true })}
                       placeholder={t(authSecretPlaceholder(form.provider, formAuthType, hasStoredSecret))}
@@ -501,6 +532,7 @@ export default function Endpoints() {
                   ) : (
                     <input
                       type="password"
+                      title={t(secretTip)}
                       value={form.apiKey}
                       onChange={(e) => setForm({ ...form, apiKey: e.target.value, apiKeyTouched: true })}
                       placeholder={t(authSecretPlaceholder(form.provider, formAuthType, hasStoredSecret))}
@@ -512,7 +544,7 @@ export default function Endpoints() {
               <p className="form-help endpoint-auth-sent-as" data-i18n-skip="true">{lt(sentAs)}</p>
               <div className="endpoint-headers">
                 <div className="endpoint-headers-title">
-                  <span className="form-label">{t('Extra headers')}</span>
+                  <span className="form-label" title={t('Additional HTTP headers sent on every request to this endpoint, whatever the authentication type. Values are stored as secrets.')}>{t('Extra headers')}</span>
                   <span className="form-help">{t('Sent on every request, for example the two Cloudflare Access service token headers. Values are stored as secrets.')}</span>
                 </div>
                 {form.headers.map((row, index) => (
@@ -520,6 +552,7 @@ export default function Endpoints() {
                     <input
                       type="text"
                       aria-label={t('Header {{index}} name', { index: index + 1 })}
+                      title={t('HTTP header name, for example CF-Access-Client-Id. Header names are not case sensitive.')}
                       value={row.name}
                       onChange={(e) => updateHeader(row.id, { name: e.target.value })}
                       placeholder="CF-Access-Client-Id"
@@ -528,6 +561,7 @@ export default function Endpoints() {
                     <input
                       type="password"
                       aria-label={t('Header {{index}} value', { index: index + 1 })}
+                      title={headerKeepsStoredValue(row) ? t('Header value, stored as a secret. Leave blank to keep the value already stored for this header.') : t('Header value, stored as a secret and never shown again after saving.')}
                       value={row.value}
                       onChange={(e) => updateHeader(row.id, { value: e.target.value })}
                       placeholder={headerKeepsStoredValue(row) ? t('(stored - leave blank to keep stored value)') : t('Value')}
@@ -547,20 +581,20 @@ export default function Endpoints() {
               </div>
             </fieldset>
             <div className="detail-form-grid">
-              <label>{t('Dimensionality')}
-                <input type="number" min={0} value={form.dimensionality} onChange={(e) => setForm({ ...form, dimensionality: e.target.value })} />
+              <label title={t(EP_DIM_TIP)}>{t('Dimensionality')}
+                <input type="number" min={0} title={t(EP_DIM_TIP)} value={form.dimensionality} onChange={(e) => setForm({ ...form, dimensionality: e.target.value })} />
               </label>
-              <label>{t('Timeout (ms)')}
-                <input type="number" min={1000} max={600000} value={form.timeoutMs} onChange={(e) => setForm({ ...form, timeoutMs: e.target.value })} />
+              <label title={t(EP_TIMEOUT_TIP)}>{t('Timeout (ms)')}
+                <input type="number" min={1000} max={600000} title={t(EP_TIMEOUT_TIP)} value={form.timeoutMs} onChange={(e) => setForm({ ...form, timeoutMs: e.target.value })} />
               </label>
             </div>
             <ScopeSelect viewer={viewer} value={form.scope} onChange={(scope) => setForm({ ...form, scope })} />
-            <label className="checkbox-row">
-              <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
+            <label className="checkbox-row" title={t(EP_ENABLED_TIP)}>
+              <input type="checkbox" title={t(EP_ENABLED_TIP)} checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
               <span>{t('Enabled')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving || !!formReason}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Endpoint')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving || !!formReason} title={editing ? t('Save changes to this endpoint. Use Validate afterward to check it with a real request.') : t('Create this endpoint. Use Validate afterward to check it with a real request.')}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Endpoint')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -573,13 +607,13 @@ export default function Endpoints() {
             <h3>{t('Validation Result')}</h3>
             <p><strong>{probe.endpoint.name}</strong> <span className="text-dim mono" style={{ fontSize: '0.78rem' }}>{probe.endpoint.id}</span></p>
             <dl className="detail-list">
-              <dt>{t('Result')}</dt>
+              <dt title={t('Whether the validation request succeeded.')}>{t('Result')}</dt>
               <dd><StatusBadge status={probe.result?.success ? 'Healthy' : 'Unhealthy'} /></dd>
-              <dt>{t('Latency')}</dt>
+              <dt title={t('How long the validation request took, in milliseconds.')}>{t('Latency')}</dt>
               <dd>{probe.result?.latencyMs ?? '-'} ms</dd>
-              {probe.result?.statusCode != null && (<><dt>{t('Status Code')}</dt><dd>{probe.result.statusCode}</dd></>)}
-              {probe.result?.embeddingDimensions != null && (<><dt>{t('Dimensions')}</dt><dd>{probe.result.embeddingDimensions}</dd></>)}
-              {probe.result?.sampleText && (<><dt>{t('Sample')}</dt><dd className="mono" style={{ whiteSpace: 'pre-wrap' }}>{probe.result.sampleText}</dd></>)}
+              {probe.result?.statusCode != null && (<><dt title={t('HTTP status code the provider returned.')}>{t('Status Code')}</dt><dd>{probe.result.statusCode}</dd></>)}
+              {probe.result?.embeddingDimensions != null && (<><dt title={t('Length of the vector the embedding endpoint returned.')}>{t('Dimensions')}</dt><dd>{probe.result.embeddingDimensions}</dd></>)}
+              {probe.result?.sampleText && (<><dt title={t('The start of the text the model returned.')}>{t('Sample')}</dt><dd className="mono" style={{ whiteSpace: 'pre-wrap' }}>{probe.result.sampleText}</dd></>)}
               {probe.result?.error && (<><dt>{t('Error')}</dt><dd className="text-danger">{probe.result.error}</dd></>)}
             </dl>
             <div className="modal-actions">
@@ -605,23 +639,23 @@ export default function Endpoints() {
               </div>
 
               <div className="health-stats-row">
-                <div className="health-stat-card">
+                <div className="health-stat-card" title={t('Result of the most recent health check.')}>
                   <div className="health-stat-label">{t('Status')}</div>
                   <div className="health-stat-value"><StatusBadge status={health.endpoint.healthStatus} /></div>
                 </div>
-                <div className="health-stat-card">
+                <div className="health-stat-card" title={t('Share of the retained health checks that passed.')}>
                   <div className="health-stat-label">{t('Uptime')}</div>
                   <div className="health-stat-value">{health.endpoint.healthHistory.length > 0 ? `${health.endpoint.uptimePercentage.toFixed(2)}%` : '-'}</div>
                 </div>
-                <div className="health-stat-card">
+                <div className="health-stat-card" title={t('How far back the retained health check history goes.')}>
                   <div className="health-stat-label">{t('History Span')}</div>
                   <div className="health-stat-value">{formatSpan(health.endpoint.firstHealthCheckUtc)}</div>
                 </div>
-                <div className="health-stat-card">
+                <div className="health-stat-card" title={t('Number of health checks in a row that have passed, counting back from the latest.')}>
                   <div className="health-stat-label">{t('Consecutive OK')}</div>
                   <div className="health-stat-value health-ok">{health.endpoint.consecutiveSuccesses}</div>
                 </div>
-                <div className="health-stat-card">
+                <div className="health-stat-card" title={t('Number of health checks in a row that have failed, counting back from the latest.')}>
                   <div className="health-stat-label">{t('Consecutive Fail')}</div>
                   <div className="health-stat-value health-fail">{health.endpoint.consecutiveFailures}</div>
                 </div>
@@ -635,7 +669,7 @@ export default function Endpoints() {
               )}
 
               <div>
-                <div className="health-section-label">{t('Health History')}</div>
+                <div className="health-section-label" title={t('Recent health checks, oldest on the left. Green passed, red failed.')}>{t('Health History')}</div>
                 <div className="health-histogram-container">
                   <HealthHistogram history={health.endpoint.healthHistory} height={36} fill />
                 </div>
@@ -652,7 +686,7 @@ export default function Endpoints() {
             </div>
             <div className="modal-actions">
               {canManage && (
-                <button type="button" className="btn btn-primary" disabled={validating === health.endpoint.id} onClick={() => { const ep = health.endpoint!; setHealth({ open: false, endpoint: null }); handleValidate(ep); }}>
+                <button type="button" className="btn btn-primary" disabled={validating === health.endpoint.id} title={t('Send a real request to the configured model with the stored credentials. The provider may bill for it.')} onClick={() => { const ep = health.endpoint!; setHealth({ open: false, endpoint: null }); handleValidate(ep); }}>
                   {validating === health.endpoint.id ? t('Validating...') : t('Validate Now')}
                 </button>
               )}
@@ -663,19 +697,19 @@ export default function Endpoints() {
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('All endpoints you can see, enabled and disabled.')}>
           <span>{t('Total Endpoints')}</span>
           <strong>{endpoints.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Endpoints whose latest health check passed.')}>
           <span>{t('Healthy')}</span>
           <strong>{endpoints.filter((e) => e.healthStatus === 'Healthy').length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Endpoints whose latest health check failed. Open one to see the error.')}>
           <span>{t('Unhealthy')}</span>
           <strong>{endpoints.filter((e) => e.healthStatus === 'Unhealthy').length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Endpoints that can be used and are included in health checks.')}>
           <span>{t('Enabled')}</span>
           <strong>{endpoints.filter((e) => e.enabled).length}</strong>
         </div>
@@ -683,8 +717,8 @@ export default function Endpoints() {
 
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
         <div className="playbook-filter-row">
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Search by name, base URL, model, or ID...')} />
-          <select aria-label={t('All kinds')} value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} title={t('Show only endpoints whose name, base URL, model or ID contains this text.')} placeholder={t('Search by name, base URL, model, or ID...')} />
+          <select aria-label={t('All kinds')} title={t('Show all endpoints, or only inference or only embedding ones.')} value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
             <option value="all">{t('All kinds')}</option>
             {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
           </select>

@@ -288,14 +288,14 @@ export default function MergeQueue() {
     return branch ? (
       <span className="id-display">
         <span className="url-value" title={branch}>{branch}</span>
-        <CopyButton text={branch} onClick={e => e.stopPropagation()} title={t('Copy branch')} />
+        <CopyButton text={branch} onClick={e => e.stopPropagation()} title={t('Copy the branch name to the clipboard')} />
       </span>
     ) : '-';
   }
 
   const columns: DataTableColumn<MergeEntry>[] = [
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique merge entry ID (mrg_ prefix).'), cellClassName: 'mono text-dim table-id-cell',
       render: (entry) => (
         <span className="id-display">
           <span className="id-value" title={entry.id}>{entry.id}</span>
@@ -304,27 +304,27 @@ export default function MergeQueue() {
       ),
     },
     {
-      key: 'branchName', label: t('Branch'), required: true, sortKey: 'branchName', headerTitle: t('Branch -- click to sort'),
+      key: 'branchName', label: t('Branch'), required: true, sortKey: 'branchName', headerTitle: t('Branch being merged, usually a mission branch. Click to sort.'),
       cellClassName: 'mono text-dim table-url-cell',
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by branch')} value={colFilters.branchName} onChange={e => setColFilters(f => ({ ...f, branchName: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by branch')} title={t('Show only entries on this page whose branch contains this text.')} value={colFilters.branchName} onChange={e => setColFilters(f => ({ ...f, branchName: e.target.value }))} placeholder={t('Filter...')} />,
       render: (entry) => branchCell(entry.branchName),
     },
     {
-      key: 'targetBranch', label: t('Target'), sortKey: 'targetBranch', headerTitle: t('Target branch -- click to sort'),
+      key: 'targetBranch', label: t('Target'), sortKey: 'targetBranch', headerTitle: t('Branch the entry merges into, such as main. Click to sort.'),
       cellClassName: 'mono text-dim table-url-cell',
       clearFilter: () => setColFilters(f => ({ ...f, targetBranch: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by target branch')} value={colFilters.targetBranch} onChange={e => setColFilters(f => ({ ...f, targetBranch: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by target branch')} title={t('Show only entries on this page whose target branch contains this text.')} value={colFilters.targetBranch} onChange={e => setColFilters(f => ({ ...f, targetBranch: e.target.value }))} placeholder={t('Filter...')} />,
       render: (entry) => branchCell(entry.targetBranch),
     },
     {
-      key: 'status', label: t('Status'), sortKey: 'status', headerTitle: t('Status -- click to sort'), cellClassName: 'cell-nowrap',
+      key: 'status', label: t('Status'), sortKey: 'status', headerTitle: t('Queued waits its turn, Testing is merging and running tests, Landed is merged, Failed hit a conflict or failing test, Cancelled was removed. Click to sort.'), cellClassName: 'cell-nowrap',
       clearFilter: () => setColFilters(f => ({ ...f, status: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by status')} value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by status')} title={t('Show only entries on this page whose status contains this text, for example Failed.')} value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder={t('Filter...')} />,
       render: (entry) => <StatusBadge status={entry.status} />,
     },
-    { key: 'priority', label: t('Priority'), sortKey: 'priority', headerTitle: t('Priority -- click to sort'), render: (entry) => entry.priority },
+    { key: 'priority', label: t('Priority'), sortKey: 'priority', headerTitle: t('Order within a vessel and target branch. Lower numbers are processed first. Click to sort.'), render: (entry) => entry.priority },
     {
-      key: 'mission', label: t('Mission'), interactive: true, cellClassName: 'mono',
+      key: 'mission', label: t('Mission'), headerTitle: t('Mission whose work this entry merges. Shows - for a branch enqueued by hand.'), interactive: true, cellClassName: 'mono',
       // One line: mission IDs truncate with an ellipsis; the full ID is in the tooltip.
       render: (entry) => entry.missionId ? (
         <span className="cell-clip">
@@ -335,10 +335,10 @@ export default function MergeQueue() {
       ) : '-',
     },
     {
-      key: 'vessel', label: t('Vessel'), interactive: true,
+      key: 'vessel', label: t('Vessel'), headerTitle: t('Repository the branch is merged in. Click a name to open that vessel.'), interactive: true,
       clearFilter: () => setColFilters(f => ({ ...f, vesselId: '' })),
       filter: (
-        <select aria-label={t('Filter by vessel')} className="col-filter" title={t('Filter by vessel')} value={colFilters.vesselId} onChange={e => { setColFilters(f => ({ ...f, vesselId: e.target.value })); }}>
+        <select aria-label={t('Filter by vessel')} className="col-filter" title={t('Show only entries for this vessel.')} value={colFilters.vesselId} onChange={e => { setColFilters(f => ({ ...f, vesselId: e.target.value })); }}>
           <option value="">{t('All Vessels')}</option>
           {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
         </select>
@@ -350,18 +350,18 @@ export default function MergeQueue() {
       ) : '-',
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open, process, cancel or delete an entry, or view its mission\'s diff and log.'), fixed: true, interactive: true, className: 'text-right',
       render: (entry) => (
         <ActionMenu id={`merge-${entry.id}`} items={[
-          { label: 'View Detail', onClick: () => navigate(`/merge-queue/${entry.id}`) },
-          { label: 'Process', onClick: () => handleProcess(entry.id) },
-          { label: 'Cancel', onClick: () => handleCancel(entry.id) },
+          { label: 'View Detail', title: 'Open the merge entry page with its status, test output and linked mission.', onClick: () => navigate(`/merge-queue/${entry.id}`) },
+          { label: 'Process', title: 'Merge, test and land this entry now instead of waiting for the next automatic pass.', onClick: () => handleProcess(entry.id) },
+          { label: 'Cancel', title: 'Take this entry out of the queue without merging it. The record is kept.', onClick: () => handleCancel(entry.id) },
           ...(entry.missionId ? [
-            { label: 'Mission Diff', onClick: () => handleMissionDiff(entry.missionId!) },
-            { label: 'Mission Log', onClick: () => handleMissionLog(entry.missionId!) },
+            { label: 'Mission Diff', title: 'Show the code changes made by the mission this entry merges.', onClick: () => handleMissionDiff(entry.missionId!) },
+            { label: 'Mission Log', title: 'Show the captain\'s session log for the mission this entry merges.', onClick: () => handleMissionLog(entry.missionId!) },
           ] : []),
-          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Merge Entry')}: ${entry.id}`, data: entry }) },
-          { label: 'Delete', danger: true as const, onClick: () => handleDelete(entry.id) },
+          { label: 'View JSON', title: 'Show the raw merge entry record as the API returns it.', onClick: () => setJsonData({ open: true, title: `${t('Merge Entry')}: ${entry.id}`, data: entry }) },
+          { label: 'Delete', danger: true as const, title: 'Permanently delete a finished entry (Landed, Failed or Cancelled), or cancel one that is still active. You confirm first.', onClick: () => handleDelete(entry.id) },
         ]} />
       ),
     },
@@ -376,15 +376,15 @@ export default function MergeQueue() {
           <>
             <UserScopeFilter value={userScope} onChange={(id) => { setUserScope(id); setPageNumber(1); }} />
             {selected.length > 0 && (
-              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} title={t('Delete every selected entry: finished ones are removed for good, active ones are cancelled. You confirm first.')}>
                 {t('Delete Selected')} ({selected.length})
               </button>
             )}
-            <button className="btn btn-sm" onClick={handleProcessAll} title={t('Process all queued entries')}>{t('Process All')}</button>
+            <button className="btn btn-sm" onClick={handleProcessAll} title={t('Run a queue pass now: merge, test and land every Queued entry, one at a time per vessel and target branch. The Admiral also does this automatically on each health check.')}>{t('Process All')}</button>
             <button className="btn btn-primary btn-sm" onClick={() => {
               setEnqueueForm(emptyEnqueueMergeForm());
               setShowEnqueue(true);
-            }}>+ {t('Enqueue')}</button>
+            }} title={t('Add a branch to the merge queue by hand. Missions whose vessel lands by MergeQueue are added automatically.')}>+ {t('Enqueue')}</button>
           </>
         )}
       />
@@ -396,20 +396,20 @@ export default function MergeQueue() {
         <div className="modal-overlay" onClick={() => setShowEnqueue(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleEnqueue}>
             <h3>{t('Enqueue Merge')}</h3>
-            <label>{t('Branch Name')}<input value={enqueueForm.branchName} onChange={e => setEnqueueForm({ ...enqueueForm, branchName: e.target.value })} required /></label>
-            <label>{t('Target Branch')}<input value={enqueueForm.targetBranch} onChange={e => setEnqueueForm({ ...enqueueForm, targetBranch: e.target.value })} required /></label>
-            <label>{t('Mission ID (optional)')}<input value={enqueueForm.missionId} onChange={e => setEnqueueForm({ ...enqueueForm, missionId: e.target.value })} placeholder="msn_..." /></label>
-            <label>{t('Vessel')}
-              <select value={enqueueForm.vesselId} onChange={e => setEnqueueForm({ ...enqueueForm, vesselId: e.target.value })}>
+            <label title={t('Branch to merge, exactly as named in the vessel\'s repository. Required. Example: armada/feature-login.')}>{t('Branch Name')}<input title={t('Branch to merge, exactly as named in the vessel\'s repository. Required. Example: armada/feature-login.')} value={enqueueForm.branchName} onChange={e => setEnqueueForm({ ...enqueueForm, branchName: e.target.value })} required /></label>
+            <label title={t('Branch to merge into. Required; defaults to main.')}>{t('Target Branch')}<input title={t('Branch to merge into. Required; defaults to main.')} value={enqueueForm.targetBranch} onChange={e => setEnqueueForm({ ...enqueueForm, targetBranch: e.target.value })} required /></label>
+            <label title={t('Optional mission this branch came from (msn_ prefix). When set, the mission is updated when the entry lands or fails.')}>{t('Mission ID (optional)')}<input title={t('Optional mission this branch came from (msn_ prefix). When set, the mission is updated when the entry lands or fails.')} value={enqueueForm.missionId} onChange={e => setEnqueueForm({ ...enqueueForm, missionId: e.target.value })} placeholder="msn_..." /></label>
+            <label title={t('Repository the branch lives in. The queue runs one entry at a time per vessel and target branch.')}>{t('Vessel')}
+              <select title={t('Repository the branch lives in. The queue runs one entry at a time per vessel and target branch.')} value={enqueueForm.vesselId} onChange={e => setEnqueueForm({ ...enqueueForm, vesselId: e.target.value })}>
                 <option value="">{t('(none)')}</option>
                 {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </label>
-            <label>{t('Test Command (optional)')}<input value={enqueueForm.testCommand} onChange={e => setEnqueueForm({ ...enqueueForm, testCommand: e.target.value })} placeholder="npm test" /></label>
-            <label>{t('Priority')}<input type="number" value={enqueueForm.priority} onChange={e => setEnqueueForm({ ...enqueueForm, priority: Number(e.target.value) })} /></label>
+            <label title={t('Optional shell command run in the merged result before landing, such as npm test. A non-zero exit marks the entry Failed. Limit: 10 minutes.')}>{t('Test Command (optional)')}<input title={t('Optional shell command run in the merged result before landing, such as npm test. A non-zero exit marks the entry Failed. Limit: 10 minutes.')} value={enqueueForm.testCommand} onChange={e => setEnqueueForm({ ...enqueueForm, testCommand: e.target.value })} placeholder="npm test" /></label>
+            <label title={t('Order within this vessel and target branch. Lower numbers are processed first; the default is 0.')}>{t('Priority')}<input type="number" title={t('Order within this vessel and target branch. Lower numbers are processed first; the default is 0.')} value={enqueueForm.priority} onChange={e => setEnqueueForm({ ...enqueueForm, priority: Number(e.target.value) })} /></label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Enqueue')}</button>
-              <button type="button" className="btn" onClick={() => setShowEnqueue(false)}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" title={t('Add the entry as Queued. It is merged and tested on the next queue pass.')}>{t('Enqueue')}</button>
+              <button type="button" className="btn" onClick={() => setShowEnqueue(false)} title={t('Close without adding anything to the queue.')}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -456,14 +456,14 @@ export default function MergeQueue() {
         }}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle={t('Refresh merge queue')}
+        refreshTitle={t('Reload the merge queue from the server now.')}
         selection={{
           isSelected: (entry) => selected.includes(entry.id),
           onToggle: (entry) => toggleSelect(entry.id),
           allSelected,
           onToggleAll: (checked) => (checked ? selectAll() : clearSelection()),
           selectAllLabel: t('Select all entries'),
-          rowLabel: () => t('Select this entry'),
+          rowLabel: () => t('Select this entry for Delete Selected.'),
         }}
         emptyMessage={t('No entries match the current filters.')}
         placeholder={entries.length > 0 ? undefined : loading

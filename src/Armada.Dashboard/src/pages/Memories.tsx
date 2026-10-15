@@ -14,6 +14,12 @@ import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 const TYPES = MEMORY_TYPES;
 
+const MEMORY_TYPE_TIPS: Record<string, string> = {
+  Episodic: 'Episodic: what happened and when, such as events, actions taken and key decisions.',
+  Semantic: 'Semantic: a fact on its own, such as a preference or a rule about the code.',
+  Procedural: 'Procedural: how to do something, such as a workflow or checklist.',
+};
+
 /**
  * Memories management surface. Lists the durable agent memories the Recorder distills from voyages
  * (episodic / semantic / procedural), with type and text filters, a JSON detail view, and delete for
@@ -69,34 +75,34 @@ export default function Memories() {
 
   const columns: DataTableColumn<Memory>[] = [
     {
-      key: 'type', label: t('Type'), cellClassName: 'cell-nowrap',
-      render: (m) => <span className={`tag tag-${m.type.toLowerCase()}`}>{t(m.type)}</span>,
+      key: 'type', label: t('Type'), headerTitle: t('Episodic memories record what happened, semantic ones record facts, procedural ones record how to do something.'), cellClassName: 'cell-nowrap',
+      render: (m) => <span className={`tag tag-${m.type.toLowerCase()}`} title={t(MEMORY_TYPE_TIPS[m.type] ?? m.type)}>{t(m.type)}</span>,
     },
-    { key: 'topic', label: t('Topic'), cellClassName: 'text-dim', render: (m) => m.topic || '-' },
+    { key: 'topic', label: t('Topic'), headerTitle: t('Group within the type that related memories share, for example code-style or deployment. A dash means none.'), cellClassName: 'text-dim', render: (m) => m.topic || '-' },
     {
       // One line; the full summary (or content) is in the tooltip.
-      key: 'summary', label: t('Summary'), required: true, cellClassName: 'truncate-cell', cellTitle: memorySummary,
+      key: 'summary', label: t('Summary'), required: true, headerTitle: t('One-line summary of the memory (or its content when there is no summary). Hover for the full text; click a row for every field.'), cellClassName: 'truncate-cell', cellTitle: memorySummary,
       render: (m) => <span className="truncate-text">{memorySummary(m)}</span>,
     },
-    { key: 'salience', label: t('Salience'), cellClassName: 'text-dim', render: (m) => m.salience.toFixed(2) },
+    { key: 'salience', label: t('Salience'), headerTitle: t('Importance from 0.00 to 1.00 (default 0.50). Higher memories are recalled first when agents search memory.'), cellClassName: 'text-dim', render: (m) => m.salience.toFixed(2) },
     {
-      key: 'vessel', label: t('Vessel'), cellClassName: 'mono text-dim',
+      key: 'vessel', label: t('Vessel'), headerTitle: t('ID of the repository this memory is about, or that the work came from. A dash means it applies to no single vessel.'), cellClassName: 'mono text-dim',
       render: (m) => {
         const vesselId = m.vesselId || m.sourceVesselId;
         return vesselId ? <span className="cell-clip" title={vesselId}><span>{vesselId}</span></span> : '-';
       },
     },
-    { key: 'visibility', label: t('Visibility'), render: (m) => <ScopeBadge scope={m.scope} /> },
+    { key: 'visibility', label: t('Visibility'), headerTitle: t('Tenant-wide memories are recalled for everyone in the tenant; personal ones only for their owner.'), render: (m) => <ScopeBadge scope={m.scope} /> },
     {
-      key: 'updated', label: t('Updated'), cellClassName: 'text-dim cell-nowrap', cellTitle: (m) => formatDateTime(m.lastUpdateUtc),
+      key: 'updated', label: t('Updated'), headerTitle: t('When this memory was last written or revised. Hover a value for the exact time.'), cellClassName: 'text-dim cell-nowrap', cellTitle: (m) => formatDateTime(m.lastUpdateUtc),
       render: (m) => formatRelativeTime(m.lastUpdateUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Copy the memory ID, or delete the memory.'), fixed: true, interactive: true, className: 'text-right',
       render: (m) => (
         <span className="id-display">
           <CopyButton text={m.id} />
-          <button className="btn-danger btn-sm" onClick={() => setConfirm({ open: true, id: m.id })}>{t('Delete')}</button>
+          <button className="btn-danger btn-sm" onClick={() => setConfirm({ open: true, id: m.id })} title={t('Permanently delete this memory so agents no longer recall it. You confirm first; this cannot be undone.')}>{t('Delete')}</button>
         </span>
       ),
     },
@@ -112,6 +118,7 @@ export default function Memories() {
       <div className="filter-bar" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', margin: '0.5rem 0' }}>
         <select
           aria-label={t('Filter by type')}
+          title={t('Show memories of every type, or only episodic, semantic or procedural ones.')}
           value={typeFilter}
           onChange={e => { setTypeFilter(e.target.value as '' | MemoryType); setPageNumber(1); }}
         >
@@ -121,6 +128,7 @@ export default function Memories() {
         <input
           type="text"
           placeholder={t('Search content, topic, tags...')}
+          title={t('Show only memories whose content, topic or tags contain this text.')}
           value={search}
           onChange={e => { setSearch(e.target.value); setPageNumber(1); }}
         />

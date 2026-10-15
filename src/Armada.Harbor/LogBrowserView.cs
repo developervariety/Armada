@@ -69,6 +69,12 @@ namespace Armada.Harbor
             {
                 if (!_UpdatingSources) RefreshList();
             };
+            ToolTip.SetTip(_Category, "Which logs to list: Harbor's own log, the logs of jobs run on this computer, or the Admiral's logs");
+            ToolTip.SetTip(_NameFilter, "Show only log files whose name contains this text");
+            ToolTip.SetTip(_MissionId, "A mission ID (msn_) or captain ID (cpt_) whose log you want; press Enter or Open");
+            ToolTip.SetTip(_Follow, "Keep reading new lines as they are written and scroll to the end. Untick to stop at what is shown.");
+            ToolTip.SetTip(_Severity, "Show only lines at this level or more severe");
+            ToolTip.SetTip(_Find, "Text to search for in this log; press Enter or Next for each match");
             _NameFilter.TextChanged += (sender, args) => RefreshList();
 
             _Files.ItemTemplate = new FuncDataTemplate<LogFileEntry>((entry, scope) =>
@@ -111,8 +117,8 @@ namespace Armada.Harbor
 
             StackPanel leftBottom = HarborUi.ButtonRow();
             leftBottom.Margin = new Thickness(0, 6, 0, 0);
-            leftBottom.Children.Add(HarborUi.Button("Refresh", RefreshList));
-            leftBottom.Children.Add(HarborUi.Button("Open Folder", OpenCategoryFolder));
+            leftBottom.Children.Add(HarborUi.Button("Refresh", RefreshList, "Read the list of log files again"));
+            leftBottom.Children.Add(HarborUi.Button("Open Folder", OpenCategoryFolder, "Open the folder that holds this kind of log in Finder or Explorer"));
 
             DockPanel left = new DockPanel();
             DockPanel.SetDock(leftTop, Dock.Top);
@@ -152,9 +158,9 @@ namespace Armada.Harbor
             toolbar.Children.Add(_Severity);
             toolbar.Children.Add(_Find);
             toolbar.Children.Add(HarborUi.Button("Next", FindNext, "Find the next match (Enter)"));
-            toolbar.Children.Add(HarborUi.Button("Copy", () => _ = CopyAsync()));
+            toolbar.Children.Add(HarborUi.Button("Copy", () => _ = CopyAsync(), "Copy the log text shown to the clipboard"));
             toolbar.Children.Add(HarborUi.Button("Open File", OpenExternally, "Open in the default app for the file"));
-            toolbar.Children.Add(HarborUi.Button("Show in Folder", RevealCurrent));
+            toolbar.Children.Add(HarborUi.Button("Show in Folder", RevealCurrent, "Show this log file in Finder or Explorer"));
 
             StackPanel rightTop = new StackPanel { Spacing = 4, Margin = new Thickness(0, 0, 0, 6) };
             rightTop.Children.Add(_FileTitle);

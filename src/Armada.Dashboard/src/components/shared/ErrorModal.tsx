@@ -26,7 +26,7 @@ export default function ErrorModal({ error, onClose }: ErrorModalProps) {
         </div>
         <p id={messageId} className="error-modal-message">{t(error)}</p>
         <div className="modal-actions">
-          <button type="button" className="btn btn-primary" onClick={onClose}>{t('Dismiss')}</button>
+          <button type="button" className="btn btn-primary" onClick={onClose} title={t('Close this message. Nothing is retried; fix the problem and try the action again.')}>{t('Dismiss')}</button>
         </div>
       </div>
     </div>

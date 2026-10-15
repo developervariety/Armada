@@ -111,7 +111,7 @@ export default function Settings() {
         actions={(
           <>
             <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
-            <RefreshButton onRefresh={loadData} title={t('Refresh settings')} />
+            <RefreshButton onRefresh={loadData} title={t('Reload the settings and server info from the Admiral. Unsaved edits on this page are replaced.')} />
           </>
         )}
       />
@@ -137,18 +137,18 @@ export default function Settings() {
           <h3>{t('Server Info')}</h3>
           <div className="detail-grid">
             <div className="detail-field">
-              <span className="detail-label">{t('Version')}</span>
-              <span className="mono">{health.version || '-'}</span>
+              <span className="detail-label" title={t('Armada version the Admiral server is running.')}>{t('Version')}</span>
+              <span className="mono" title={t('Armada version the Admiral server is running.')}>{health.version || '-'}</span>
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Status')}</span>
-              <span className={`status ${health.status === 'healthy' ? 'status-active' : 'status-stopped'}`}>
+              <span className="detail-label" title={t('Health reported by the Admiral health endpoint. Anything other than healthy means a core check failed; run Doctor for details.')}>{t('Status')}</span>
+              <span className={`status ${health.status === 'healthy' ? 'status-active' : 'status-stopped'}`} title={t('Health reported by the Admiral health endpoint. Anything other than healthy means a core check failed; run Doctor for details.')}>
                 {t(health.status)}
               </span>
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Uptime')}</span>
-              <span className="mono">{health.uptime || '-'}</span>
+              <span className="detail-label" title={t('How long the Admiral process has been running since its last start or restart.')}>{t('Uptime')}</span>
+              <span className="mono" title={t('How long the Admiral process has been running since its last start or restart.')}>{health.uptime || '-'}</span>
             </div>
           </div>
         </div>
@@ -162,7 +162,7 @@ export default function Settings() {
             <h3>{t('Server Configuration')}</h3>
             <div className="settings-grid">
               <div className="form-group">
-                <label>{t('Admiral Port')}</label>
+                <label title={t('TCP port for the REST API, dashboard and WebSocket (default 7890). Takes effect after the Admiral restarts; clients and Harbors must then use the new port.')}>{t('Admiral Port')}</label>
                 <input aria-label={t('REST API port (1-65535)')}
                   type="number"
                   value={settings.admiralPort}
@@ -171,11 +171,11 @@ export default function Settings() {
                   }
                   min={1}
                   max={65535}
-                  title={t('REST API port (1-65535)')}
+                  title={t('TCP port for the REST API, dashboard and WebSocket (default 7890). Takes effect after the Admiral restarts; clients and Harbors must then use the new port.')}
                 />
               </div>
               <div className="form-group">
-                <label>{t('MCP Port')}</label>
+                <label title={t('TCP port for the MCP server that agents and tools connect to (default 7891). Takes effect after the Admiral restarts; update MCP client configs to match.')}>{t('MCP Port')}</label>
                 <input aria-label={t('MCP server port (1-65535)')}
                   type="number"
                   value={settings.mcpPort}
@@ -184,11 +184,11 @@ export default function Settings() {
                   }
                   min={1}
                   max={65535}
-                  title={t('MCP server port (1-65535)')}
+                  title={t('TCP port for the MCP server that agents and tools connect to (default 7891). Takes effect after the Admiral restarts; update MCP client configs to match.')}
                 />
               </div>
               <div className="form-group">
-                <label>{t('Max Captains')}</label>
+                <label title={t('Cap on total captains when Armada auto-creates captains to keep its idle pool filled (default 5). 0 means no cap. Captains you add by hand are not blocked.')}>{t('Max Captains')}</label>
                 <input aria-label={t('Maximum captains (0 = unlimited)')}
                   type="number"
                   value={settings.maxCaptains}
@@ -196,7 +196,7 @@ export default function Settings() {
                     setSettings({ ...settings, maxCaptains: parseInt(e.target.value) || 0 })
                   }
                   min={0}
-                  title={t('Maximum captains (0 = unlimited)')}
+                  title={t('Cap on total captains when Armada auto-creates captains to keep its idle pool filled (default 5). 0 means no cap. Captains you add by hand are not blocked.')}
                 />
               </div>
             </div>
@@ -204,10 +204,10 @@ export default function Settings() {
 
           {/* Agent Settings */}
           <div className="settings-section" style={{ marginTop: '1.5rem' }}>
-            <h3>{t('Agent Settings')}</h3>
+            <h3 title={t('Timing for the health loop that watches running captains, plus the default landing mode. Changes apply to the running Admiral when saved.')}>{t('Agent Settings')}</h3>
             <div className="settings-grid">
               <div className="form-group">
-                <label>{t('Heartbeat Interval (seconds)')}</label>
+                <label title={t('Seconds between Admiral health checks of captains and missions (default 10, minimum 5). Lower reacts faster to stalls but does more work.')}>{t('Heartbeat Interval (seconds)')}</label>
                 <input aria-label={t('Health check interval, minimum 5 seconds')}
                   type="number"
                   value={settings.heartbeatIntervalSeconds}
@@ -218,11 +218,11 @@ export default function Settings() {
                     })
                   }
                   min={5}
-                  title={t('Health check interval, minimum 5 seconds')}
+                  title={t('Seconds between Admiral health checks of captains and missions (default 10, minimum 5). Lower reacts faster to stalls but does more work.')}
                 />
               </div>
               <div className="form-group">
-                <label>{t('Stall Threshold (minutes)')}</label>
+                <label title={t('Minutes a working captain may go without a heartbeat before it is treated as stalled, stopped and recovered (default 10, minimum 1).')}>{t('Stall Threshold (minutes)')}</label>
                 <input aria-label={t('Minutes before a captain is considered stalled')}
                   type="number"
                   value={settings.stallThresholdMinutes}
@@ -233,11 +233,11 @@ export default function Settings() {
                     })
                   }
                   min={1}
-                  title={t('Minutes before a captain is considered stalled')}
+                  title={t('Minutes a working captain may go without a heartbeat before it is treated as stalled, stopped and recovered (default 10, minimum 1).')}
                 />
               </div>
               <div className="form-group">
-                <label>{t('Idle Captain Timeout (seconds)')}</label>
+                <label title={t('Seconds an idle captain is kept before it is removed automatically. 0 (the default) keeps idle captains indefinitely.')}>{t('Idle Captain Timeout (seconds)')}</label>
                 <input aria-label={t('Auto-remove idle captains after this many seconds (0 = disabled)')}
                   type="number"
                   value={settings.idleCaptainTimeoutSeconds}
@@ -248,7 +248,7 @@ export default function Settings() {
                     })
                   }
                   min={0}
-                  title={t('Auto-remove idle captains after this many seconds (0 = disabled)')}
+                  title={t('Seconds an idle captain is kept before it is removed automatically. 0 (the default) keeps idle captains indefinitely.')}
                 />
               </div>
               <DefaultLandingModeField value={settings.landingMode} onChange={(landingMode) => setSettings({ ...settings, landingMode })} />
@@ -258,26 +258,26 @@ export default function Settings() {
 
           {/* System Paths (read-only) */}
           <div className="settings-section" style={{ marginTop: '1.5rem' }}>
-            <h3>{t('System Paths')}</h3>
+            <h3 title={t('Where the Admiral stores its files on the server. Read-only here; change them in settings.json and restart the Admiral.')}>{t('System Paths')}</h3>
             <div className="detail-grid">
               <div className="detail-field">
-                <span className="detail-label">{t('Data Directory')}</span>
+                <span className="detail-label" title={t('Root folder for Armada data on the Admiral host. The other paths default to folders inside it.')}>{t('Data Directory')}</span>
                 <span className="mono">{settings.dataDirectory || '-'}</span>
               </div>
               <div className="detail-field">
-                <span className="detail-label">{t('Database Path')}</span>
+                <span className="detail-label" title={t('SQLite database file the Admiral uses when the database provider is SQLite.')}>{t('Database Path')}</span>
                 <span className="mono">{settings.databasePath || '-'}</span>
               </div>
               <div className="detail-field">
-                <span className="detail-label">{t('Log Directory')}</span>
+                <span className="detail-label" title={t('Folder for Admiral and captain log files.')}>{t('Log Directory')}</span>
                 <span className="mono">{settings.logDirectory || '-'}</span>
               </div>
               <div className="detail-field">
-                <span className="detail-label">{t('Docks Directory')}</span>
+                <span className="detail-label" title={t('Folder where git worktrees (docks) are created for captains to work in, one per mission.')}>{t('Docks Directory')}</span>
                 <span className="mono">{settings.docksDirectory || '-'}</span>
               </div>
               <div className="detail-field">
-                <span className="detail-label">{t('Repos Directory')}</span>
+                <span className="detail-label" title={t('Folder holding the bare clones of each vessel repository that docks are created from.')}>{t('Repos Directory')}</span>
                 <span className="mono">{settings.reposDirectory || '-'}</span>
               </div>
             </div>
@@ -289,7 +289,7 @@ export default function Settings() {
               className="btn-primary"
               onClick={handleSaveAll}
               disabled={saving || remoteProxyMode}
-              title={remoteProxyMode ? t('Settings are blocked in proxy mode') : t('Save all settings')}
+              title={remoteProxyMode ? t('Editing settings is blocked while connected through Armada.Proxy. Connect to the Admiral directly to change them.') : t('Save every field on this page to the Admiral and settings.json. Most apply at once; port changes need a restart.')}
             >
               {saving ? t('Saving...') : t('Save All Settings')}
             </button>

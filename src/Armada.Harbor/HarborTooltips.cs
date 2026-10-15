@@ -50,7 +50,7 @@ namespace Armada.Harbor
             switch (control)
             {
                 case TextBox box:
-                    return Combine(LabelFor(box), String.IsNullOrWhiteSpace(box.Watermark) ? null : box.Watermark);
+                    return Example(LabelFor(box), box.Watermark);
                 case NumericUpDown number:
                     return Combine(LabelFor(number), number.Value.HasValue ? number.Value.Value.ToString(System.Globalization.CultureInfo.CurrentCulture) : null);
                 case ComboBox combo:
@@ -155,6 +155,15 @@ namespace Armada.Harbor
             if (label == null) return detail;
             if (detail == null || String.Equals(label, detail, StringComparison.Ordinal)) return label;
             return label + ": " + detail;
+        }
+
+        private static string? Example(string? label, string? watermark)
+        {
+            // A placeholder is an example of what to type, not a description: say so instead of echoing it after the label.
+            string? sample = Clean(watermark);
+            if (sample == null) return label;
+            if (label == null) return "For example: " + sample;
+            return label + " (for example: " + sample + ")";
         }
 
         private static string? Clean(string? text)

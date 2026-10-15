@@ -134,8 +134,8 @@ describe('FleetActionRunDetail', () => {
     const wrap = document.querySelector('[data-table="fleet-action-run-targets"]') as HTMLElement;
     const bar = wrap.querySelector('.pagination-bar') as HTMLElement;
     expect(within(bar).getByText('1 record')).toBeInTheDocument();
-    expect(within(bar).getByTitle('Refresh run')).toBeInTheDocument();
-    expect(screen.getAllByTitle('Refresh run')).toHaveLength(1);
+    expect(within(bar).getByTitle('Reload the run and its vessel results now.')).toBeInTheDocument();
+    expect(screen.getAllByTitle('Reload the run and its vessel results now.')).toHaveLength(1);
     expect(within(bar).getByRole('button', { name: 'Next' })).toBeDisabled();
 
     // The vessel cell is one line; its ID is an optional column, hidden by default, and in the tooltip.

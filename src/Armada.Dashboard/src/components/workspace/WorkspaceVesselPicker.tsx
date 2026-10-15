@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Vessel, WorkspaceStatusResult } from '../../types/models';
+import { useLocale } from '../../context/LocaleContext';
 
 interface WorkspaceVesselPickerProps {
   vessels: Vessel[];
@@ -10,6 +11,7 @@ interface WorkspaceVesselPickerProps {
 
 export default function WorkspaceVesselPicker(props: WorkspaceVesselPickerProps) {
   const { vessels, recentVesselIds, statusByVesselId, onOpen } = props;
+  const { t } = useLocale();
   const [query, setQuery] = useState('');
 
   const recentVessels = useMemo(
@@ -38,10 +40,11 @@ export default function WorkspaceVesselPicker(props: WorkspaceVesselPickerProps)
         type="button"
         className="workspace-picker-card"
         onClick={() => onOpen(vessel.id)}
+        title={t('Open {{name}} in Workspace to browse, edit and run commands in its working directory.', { name: vessel.name })}
       >
         <div className="workspace-picker-card-title">
           <strong>{vessel.name}</strong>
-          <span className={`workspace-picker-badge${status?.hasWorkingDirectory === false ? ' warning' : ''}`}>
+          <span className={`workspace-picker-badge${status?.hasWorkingDirectory === false ? ' warning' : ''}`} title={status?.hasWorkingDirectory === false ? t('No usable checkout: set the vessel Working Directory, or connect a Harbor that has this repository, before using Workspace.') : t('A checkout is available, so Workspace can open this vessel.')}>
             {status?.hasWorkingDirectory === false ? 'No working directory' : 'Workspace ready'}
           </span>
         </div>
@@ -49,9 +52,9 @@ export default function WorkspaceVesselPicker(props: WorkspaceVesselPickerProps)
         <div className="workspace-picker-card-meta">{vessel.workingDirectory || 'No working directory configured'}</div>
         {status && (
           <div className="workspace-picker-card-status">
-            <span>{status.branchName || 'No branch info'}</span>
-            <span>{status.activeMissionCount} active mission(s)</span>
-            <span>
+            <span title={t('Branch currently checked out in the working directory.')}>{status.branchName || 'No branch info'}</span>
+            <span title={t('Missions currently running on this vessel. Editing files they touch can conflict with their work.')}>{status.activeMissionCount} active mission(s)</span>
+            <span title={t('Commits the checked-out branch has that its remote tracking branch lacks (ahead), and commits it is missing (behind).')}>
               {typeof status.commitsAhead === 'number' ? `${status.commitsAhead} ahead` : 'No git sync data'}
               {typeof status.commitsBehind === 'number' ? ` / ${status.commitsBehind} behind` : ''}
             </span>
@@ -78,6 +81,7 @@ export default function WorkspaceVesselPicker(props: WorkspaceVesselPickerProps)
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Find a vessel by name, id, or working directory"
+            title={t('Filter the vessel cards below by name, vessel ID or working directory path, e.g. api. Not case sensitive.')}
           />
         </div>
 

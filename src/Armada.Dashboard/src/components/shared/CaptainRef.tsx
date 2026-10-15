@@ -19,14 +19,14 @@ interface CaptainRefProps {
  */
 export default function CaptainRef({ captainId, captains, autoLabel, showTier = true }: CaptainRefProps) {
   const { t } = useLocale();
-  if (!captainId) return <span className="text-dim">{autoLabel ?? t('Auto (default routing)')}</span>;
+  if (!captainId) return <span className="text-dim" title={t('No captain is pinned. Armada picks an available captain using persona and tier routing when the work is assigned.')}>{autoLabel ?? t('Auto (default routing)')}</span>;
 
   const captain = captains.find((c) => c.id === captainId);
-  if (!captain) return <span className="mono">{captainId}</span>;
+  if (!captain) return <span className="mono" title={t('ID of a captain that is not in the loaded list. It may have been deleted, or belong to another user.')}>{captainId}</span>;
 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-      <Link to={`/captains/${captain.id}`}>{captain.name}</Link>
+      <Link to={`/captains/${captain.id}`} title={t('Open captain {{name}} ({{runtime}}) to see its state, missions and settings.', { name: captain.name, runtime: captain.runtime })}>{captain.name}</Link>
       {showTier && captain.tier ? <CaptainTierBadge tier={captain.tier} /> : null}
     </span>
   );

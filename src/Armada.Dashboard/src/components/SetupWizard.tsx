@@ -120,9 +120,9 @@ function ResultPanel({ result }: { result: StepResult | null }) {
   return <div className={`wizard-result wizard-result-${result.kind}`}>{result.message}</div>;
 }
 
-function SummaryItem({ label, value }: { label: string; value: ReactNode }) {
+function SummaryItem({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
-    <div className="wizard-summary-item">
+    <div className="wizard-summary-item" title={hint}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -624,10 +624,10 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       </p>
 
       <div className="wizard-mode-toggle">
-        <button type="button" className={`btn btn-sm${fleetMode === 'existing' ? ' btn-primary' : ''}`} disabled={fleets.length === 0} onClick={() => setFleetMode('existing')}>
+        <button type="button" className={`btn btn-sm${fleetMode === 'existing' ? ' btn-primary' : ''}`} disabled={fleets.length === 0} onClick={() => setFleetMode('existing')} title={fleets.length === 0 ? t('No fleets exist yet, so create one.') : t('Pick a fleet that already exists instead of creating one.')}>
           {t('Use Existing')}
         </button>
-        <button type="button" className={`btn btn-sm${fleetMode === 'new' ? ' btn-primary' : ''}`} onClick={() => setFleetMode('new')}>
+        <button type="button" className={`btn btn-sm${fleetMode === 'new' ? ' btn-primary' : ''}`} onClick={() => setFleetMode('new')} title={t('Create a new fleet with the name and description below.')}>
           {t('Create New')}
         </button>
       </div>
@@ -672,7 +672,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       )}
 
       <div className="wizard-inline-actions">
-        <button type="submit" className="btn btn-primary" disabled={busy || loading}>
+        <button type="submit" className="btn btn-primary" disabled={busy || loading} title={fleetMode === 'existing' ? t('Use the selected fleet and go on to the vessel step.') : t('Create the fleet now and go on to the vessel step.')}>
           {busy ? t('Saving...') : fleetMode === 'existing' ? t('Use Fleet') : t('Create Fleet')}
         </button>
       </div>
@@ -686,16 +686,16 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
         {t('A vessel is a git repository. The setup mission will run against the vessel you choose here.')}
       </p>
 
-      <div className="wizard-context-strip">
+      <div className="wizard-context-strip" title={t('The fleet chosen in the previous step. A new vessel is added to it.')}>
         <span>{t('Fleet')}</span>
         <strong>{activeFleet?.name ?? t('No fleet selected')}</strong>
       </div>
 
       <div className="wizard-mode-toggle">
-        <button type="button" className={`btn btn-sm${vesselMode === 'existing' ? ' btn-primary' : ''}`} disabled={vessels.length === 0} onClick={() => setVesselMode('existing')}>
+        <button type="button" className={`btn btn-sm${vesselMode === 'existing' ? ' btn-primary' : ''}`} disabled={vessels.length === 0} onClick={() => setVesselMode('existing')} title={vessels.length === 0 ? t('No vessels are registered yet, so register one.') : t('Pick a repository that is already registered instead of adding one.')}>
           {t('Use Existing')}
         </button>
-        <button type="button" className={`btn btn-sm${vesselMode === 'new' ? ' btn-primary' : ''}`} onClick={() => setVesselMode('new')}>
+        <button type="button" className={`btn btn-sm${vesselMode === 'new' ? ' btn-primary' : ''}`} onClick={() => setVesselMode('new')} title={t('Register a new repository with the details below.')}>
           {t('Create New')}
         </button>
       </div>
@@ -818,7 +818,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       )}
 
       <div className="wizard-inline-actions">
-        <button type="submit" className="btn btn-primary" disabled={busy || loading}>
+        <button type="submit" className="btn btn-primary" disabled={busy || loading} title={vesselMode === 'existing' ? t('Use the selected vessel and go on to the captain step.') : t('Register the vessel now; the Admiral then clones the repository. Goes on to the captain step.')}>
           {busy ? t('Saving...') : vesselMode === 'existing' ? t('Use Vessel') : t('Register Vessel')}
         </button>
       </div>
@@ -832,16 +832,16 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
         {t('A captain is an AI runtime registered with Armada. Direct dispatch assigns work to an available captain, so this step ensures the pool has capacity.')}
       </p>
 
-      <div className="wizard-context-strip">
+      <div className="wizard-context-strip" title={t('The vessel chosen in the previous step. The first mission runs against it.')}>
         <span>{t('Vessel')}</span>
         <strong>{activeVessel?.name ?? t('No vessel selected')}</strong>
       </div>
 
       <div className="wizard-mode-toggle">
-        <button type="button" className={`btn btn-sm${captainMode === 'existing' ? ' btn-primary' : ''}`} disabled={idleCaptains.length === 0} onClick={() => setCaptainMode('existing')}>
+        <button type="button" className={`btn btn-sm${captainMode === 'existing' ? ' btn-primary' : ''}`} disabled={idleCaptains.length === 0} onClick={() => setCaptainMode('existing')} title={idleCaptains.length === 0 ? t('No captain is idle right now, so create one.') : t('Pick a captain that exists and is idle instead of creating one.')}>
           {t('Use Existing Idle')}
         </button>
-        <button type="button" className={`btn btn-sm${captainMode === 'new' ? ' btn-primary' : ''}`} onClick={() => setCaptainMode('new')}>
+        <button type="button" className={`btn btn-sm${captainMode === 'new' ? ' btn-primary' : ''}`} onClick={() => setCaptainMode('new')} title={t('Register a new captain with the runtime and settings below.')}>
           {t('Create New')}
         </button>
       </div>
@@ -904,6 +904,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
           <div className="form-group">
             <label title={t('Capability tier for routing. Cheaper tiers handle routine work; stronger tiers handle complex work and serve as fallback when a preferred captain is busy.')}>{t('Capability Tier')}</label>
             <select aria-label={t('Capability Tier')}
+              title={t('Capability tier for routing. Cheaper tiers handle routine work; stronger tiers handle complex work and serve as fallback when a preferred captain is busy.')}
               value={captainForm.tier}
               onChange={(event) => setCaptainForm({ ...captainForm, tier: event.target.value })}
             >
@@ -933,7 +934,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       )}
 
       <div className="wizard-inline-actions">
-        <button type="submit" className="btn btn-primary" disabled={busy || loading}>
+        <button type="submit" className="btn btn-primary" disabled={busy || loading} title={captainMode === 'existing' ? t('Use the selected captain and go on to dispatch.') : t('Create the captain now and go on to dispatch. It starts idle and waits for work.')}>
           {busy ? t('Saving...') : captainMode === 'existing' ? t('Use Captain') : t('Create Captain')}
         </button>
       </div>
@@ -950,7 +951,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       <div className="wizard-summary-grid">
         <SummaryItem label={t('Fleet')} value={activeFleet?.name ?? '-'} />
         <SummaryItem label={t('Vessel')} value={activeVessel?.name ?? '-'} />
-        <SummaryItem label={t('Available Captain')} value={activeCaptain?.name ?? '-'} />
+        <SummaryItem label={t('Available Captain')} value={activeCaptain?.name ?? '-'} hint={t('The captain chosen in the previous step. Armada assigns the mission to an available captain, usually this one.')} />
       </div>
 
       <div className="form-group">
@@ -988,7 +989,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       </div>
 
       <div className="wizard-inline-actions">
-        <button type="submit" className="btn btn-primary" disabled={busy || !activeVessel || !activeCaptain}>
+        <button type="submit" className="btn btn-primary" disabled={busy || !activeVessel || !activeCaptain} title={t('Create the mission now. An idle captain picks it up and works in its own git worktree; if none is free, it waits in the queue.')}>
           {busy ? t('Dispatching...') : t('Dispatch Mission')}
         </button>
       </div>
@@ -1007,11 +1008,11 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       {dispatchedMission ? (
         <div className="wizard-summary-grid wizard-summary-grid-wide">
           <SummaryItem label={t('Mission')} value={dispatchedMission.title} />
-          <SummaryItem label={t('Mission ID')} value={<span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}><code>{dispatchedMission.id}</code><CopyButton text={dispatchedMission.id} /></span>} />
-          <SummaryItem label={t('Status')} value={t(dispatchedMission.status)} />
-          <SummaryItem label={t('Captain ID')} value={<code>{idShort(dispatchedMission.captainId)}</code>} />
-          <SummaryItem label={t('Vessel ID')} value={<code>{idShort(dispatchedMission.vesselId)}</code>} />
-          <SummaryItem label={t('Branch')} value={dispatchedMission.branchName || '-'} />
+          <SummaryItem label={t('Mission ID')} hint={t('Unique ID of the mission (msn_...), used by the CLI, API and MCP tools.')} value={<span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}><code>{dispatchedMission.id}</code><CopyButton text={dispatchedMission.id} /></span>} />
+          <SummaryItem label={t('Status')} value={t(dispatchedMission.status)} hint={t('Mission status as of the last refresh. Use Refresh Mission Status to update it; it stops changing once the mission completes or fails.')} />
+          <SummaryItem label={t('Captain ID')} hint={t('First characters of the ID of the captain working on the mission; a dash means none is assigned yet.')} value={<code>{idShort(dispatchedMission.captainId)}</code>} />
+          <SummaryItem label={t('Vessel ID')} hint={t('First characters of the ID of the vessel the mission runs against.')} value={<code>{idShort(dispatchedMission.vesselId)}</code>} />
+          <SummaryItem label={t('Branch')} value={dispatchedMission.branchName || '-'} hint={t('Git branch the captain works on for this mission; a dash means it is not created yet.')} />
         </div>
       ) : (
         <p className="text-dim">{t('No mission has been dispatched yet.')}</p>
@@ -1025,10 +1026,10 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       )}
 
       <div className="wizard-summary-grid" style={{ marginTop: '1rem' }}>
-        <SummaryItem label={t('Readiness')} value={nextSetupLoading ? t('Loading...') : readiness ? `${readiness.setupChecklistSatisfiedCount}/${readiness.setupChecklistTotalCount}` : '-'} />
-        <SummaryItem label={t('Blocking Issues')} value={nextSetupLoading ? t('Loading...') : readiness ? readiness.errorCount : '-'} />
-        <SummaryItem label={t('Workflow Profiles')} value={nextSetupLoading ? t('Loading...') : workflowProfileCount} />
-        <SummaryItem label={t('Environments')} value={nextSetupLoading ? t('Loading...') : environmentCount} />
+        <SummaryItem label={t('Readiness')} hint={t('Setup checklist items this vessel satisfies, out of the total. Open Vessel Onboarding to see and fix the rest.')} value={nextSetupLoading ? t('Loading...') : readiness ? `${readiness.setupChecklistSatisfiedCount}/${readiness.setupChecklistTotalCount}` : '-'} />
+        <SummaryItem label={t('Blocking Issues')} hint={t('Readiness errors that would stop missions or checks on this vessel, such as a missing working directory or toolchain.')} value={nextSetupLoading ? t('Loading...') : readiness ? readiness.errorCount : '-'} />
+        <SummaryItem label={t('Workflow Profiles')} hint={t('Workflow profiles that apply to this vessel (global, its fleet\'s, or its own). They tell Armada how to build, test and deploy it.')} value={nextSetupLoading ? t('Loading...') : workflowProfileCount} />
+        <SummaryItem label={t('Environments')} hint={t('Deployment environments defined for this vessel, such as Development or Production.')} value={nextSetupLoading ? t('Loading...') : environmentCount} />
       </div>
 
       {nextChecklistItem && (
@@ -1077,7 +1078,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       </div>
 
       <div className="wizard-inline-actions">
-        <button type="button" className="btn" onClick={refreshMission} disabled={busy || !dispatchedMission}>
+        <button type="button" className="btn" onClick={refreshMission} disabled={busy || !dispatchedMission} title={t('Fetch the mission\'s latest status, captain and branch from the Admiral.')}>
           {busy ? t('Refreshing...') : t('Refresh Mission Status')}
         </button>
         {dispatchedMission && (
@@ -1085,6 +1086,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
             type="button"
             className="btn"
             onClick={() => finishAndNavigate(`/missions/${dispatchedMission.id}`)}
+            title={t('Close the wizard and open this mission\'s detail page, with its log and diff.')}
           >
             {t('Open Mission')}
           </button>
@@ -1094,6 +1096,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
             type="button"
             className="btn"
             onClick={() => finishAndNavigate(`/vessels/${activeVessel.id}/onboarding`)}
+            title={t('Close the wizard and open this vessel\'s readiness checklist and onboarding actions.')}
           >
             {t('Open Vessel Onboarding')}
           </button>
@@ -1103,6 +1106,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
             type="button"
             className="btn"
             onClick={() => finishAndNavigate(handoffBacklogPath)}
+            title={t('Close the wizard and open the backlog filtered to this vessel, to capture follow-up work.')}
           >
             {t('Open Backlog')}
           </button>
@@ -1112,6 +1116,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
             type="button"
             className="btn"
             onClick={() => finishAndNavigate('/planning', { state: handoffPlanningState })}
+            title={t('Close the wizard and start a planning session with a captain for this vessel.')}
           >
             {t('Open Planning')}
           </button>
@@ -1121,6 +1126,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
             type="button"
             className="btn"
             onClick={() => finishAndNavigate(`/workspace/${activeVessel.id}`)}
+            title={t('Close the wizard and browse this vessel\'s files in its checkout.')}
           >
             {t('Open Workspace')}
           </button>
@@ -1134,6 +1140,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
                 ? '/workflow-profiles'
                 : `/workflow-profiles/new?scope=Vessel&vesselId=${encodeURIComponent(activeVessel.id)}`,
             )}
+            title={workflowProfileCount > 0 ? t('Close the wizard and open the workflow profiles list.') : t('Close the wizard and create a workflow profile for this vessel: its build, test, deploy and rollback commands.')}
           >
             {workflowProfileCount > 0 ? t('Open Workflow Profiles') : t('Create Workflow Profile')}
           </button>
@@ -1147,6 +1154,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
                 ? '/environments'
                 : `/environments/new?vesselId=${encodeURIComponent(activeVessel.id)}&kind=Development`,
             )}
+            title={environmentCount > 0 ? t('Close the wizard and open the environments list.') : t('Close the wizard and create a Development environment for this vessel.')}
           >
             {environmentCount > 0 ? t('Open Environments') : t('Create Environment')}
           </button>
@@ -1163,6 +1171,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
                 },
               },
             })}
+            title={t('Close the wizard and open Checks, prefilled to run a build or test check on this vessel\'s default branch.')}
           >
             {t('Run First Check')}
           </button>
@@ -1171,10 +1180,11 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
           type="button"
           className="btn"
           onClick={() => finishAndNavigate('/playbooks')}
+          title={t('Close the wizard and open Playbooks, reusable guidance you can attach to dispatches.')}
         >
           {t('Open Playbooks')}
         </button>
-        <button type="button" className="btn btn-primary" onClick={finish}>
+        <button type="button" className="btn btn-primary" onClick={finish} title={t('Close the wizard and go to Missions. The wizard will not open again in this browser unless the server is empty.')}>
           {t('Finish Setup')}
         </button>
       </div>
@@ -1193,7 +1203,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
   return (
     <div className="wizard-overlay">
       <div className="wizard-container wizard-container-objective">
-        <button type="button" className="wizard-close" onClick={finish} title={t('Close setup wizard')} aria-label={t('Close setup wizard')}>
+        <button type="button" className="wizard-close" onClick={finish} title={t('Close the wizard and go to Missions. Anything already created stays; reopen it from the Dashboard.')} aria-label={t('Close setup wizard')}>
           &times;
         </button>
 
@@ -1203,14 +1213,14 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
               <div className="wizard-kicker">{t('Setup Wizard')}</div>
               <h1>{t('Launch Armada With One Mission')}</h1>
             </div>
-            <div className="wizard-step-count">
+            <div className="wizard-step-count" title={t('Where you are in the six setup steps. Each step saves as you go, so closing early keeps what you created.')}>
               {t('Step {{current}} of {{total}}', { current: current + 1, total: steps.length })}
             </div>
           </div>
 
           <div className="wizard-progress" aria-label={t('Setup progress')}>
             {steps.map((step, index) => (
-              <div key={step.title} className={`wizard-progress-step${index === current ? ' active' : ''}${index < current ? ' done' : ''}`}>
+              <div key={step.title} title={t(step.summary)} className={`wizard-progress-step${index === current ? ' active' : ''}${index < current ? ' done' : ''}`}>
                 <span>{index < current ? '\u2713' : index + 1}</span>
                 <div>
                   <strong>{t(step.title)}</strong>
@@ -1227,17 +1237,17 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
           </div>
 
           <div className="wizard-actions">
-            <button className="btn" onClick={finish}>
+            <button className="btn" onClick={finish} title={t('Close the wizard without finishing and go to Missions. It will not open again in this browser unless the server is empty.')}>
               {t('Skip Setup')}
             </button>
             <div className="wizard-actions-right">
               {current > 0 && (
-                <button className="btn" onClick={() => goTo(current - 1)}>
+                <button className="btn" onClick={() => goTo(current - 1)} title={t('Return to the previous step. Anything already created is kept.')}>
                   {t('Back')}
                 </button>
               )}
               {current < steps.length - 1 && (
-                <button className="btn btn-primary" onClick={() => goTo(current + 1)} disabled={!canAdvance}>
+                <button className="btn btn-primary" onClick={() => goTo(current + 1)} disabled={!canAdvance} title={canAdvance ? t('Go to the next step.') : t('Finish this step first with the button in the form above.')}>
                   {current === 0 ? t('Start Setup') : t('Next')}
                 </button>
               )}

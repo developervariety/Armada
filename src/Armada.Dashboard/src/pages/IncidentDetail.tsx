@@ -51,6 +51,28 @@ export default function IncidentDetail() {
   const createMode = id === 'new';
   const canManage = isAdmin || isTenantAdmin;
 
+  const tips = {
+    title: t('Short name for what broke, such as Checkout errors after v1.4.0. Required.'),
+    status: t('Lifecycle state: Open, Monitoring after a fix, Mitigated, RolledBack, or Closed. Changing it does not run anything.'),
+    severity: t('How bad the impact is: Critical, High, Medium, or Low. Used for sorting and filtering only.'),
+    vessel: t('Repository affected by the incident. Also the vessel Plan Hotfix and Dispatch Hotfix target.'),
+    environment: t('Environment where the incident happened. Optional; links the incident to that environment\'s record.'),
+    environmentName: t('Free-text environment name kept on the incident, such as production. Useful when no environment record is picked.'),
+    deployment: t('Deployment that caused or relates to the incident. Linking one enables Rollback Deployment here.'),
+    release: t('Release involved in the incident. Optional, for context.'),
+    missionId: t('Mission linked to the incident, such as msn_abc123. Optional.'),
+    voyageId: t('Voyage linked to the incident, such as vyg_abc123. Optional.'),
+    detected: t('When the problem was first noticed, in your local time. Defaults to when the incident was created.'),
+    mitigated: t('When the impact was stopped, in your local time. Set it yourself; changing the status does not fill it.'),
+    closed: t('When the incident was fully closed, in your local time. Set it yourself; changing the status does not fill it.'),
+    rollbackDeploymentId: t('Deployment that was rolled back to recover, such as dpl_abc123. Filled in when you use Rollback Deployment.'),
+    summary: t('What happened, in a sentence or two. Shown in the list and searchable.'),
+    impact: t('Who or what was affected and how, such as 5% of checkout requests failing for 20 minutes.'),
+    rootCause: t('Why it happened, once known, such as a missing database index after a migration.'),
+    recoveryNotes: t('What was done to recover, such as rollback steps or config changes.'),
+    postmortem: t('Lessons learned and follow-up actions after the incident is resolved.'),
+  };
+
   const [incident, setIncident] = useState<Incident | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [environments, setEnvironments] = useState<DeploymentEnvironment[]>([]);
@@ -367,27 +389,27 @@ export default function IncidentDetail() {
             {!createMode && <StatusBadge status={severity} />}
             {!!(vesselId || selectedEnvironment?.vesselId) && (
               <>
-                <button className="btn btn-sm" onClick={handlePlanHotfix}>{t('Plan Hotfix')}</button>
-                <button className="btn btn-sm" onClick={handleDispatchHotfix}>{t('Dispatch Hotfix')}</button>
+                <button className="btn btn-sm" onClick={handlePlanHotfix} title={t('Open Planning with a hotfix session prefilled from this incident\'s title, summary, impact, and links. Nothing is dispatched yet.')}>{t('Plan Hotfix')}</button>
+                <button className="btn btn-sm" onClick={handleDispatchHotfix} title={t('Open Dispatch with a hotfix voyage prefilled from this incident for its vessel. You review it before captains start.')}>{t('Dispatch Hotfix')}</button>
               </>
             )}
             {!createMode && (
-              <button className="btn btn-sm" onClick={handleRunbook}>{t('Runbook')}</button>
+              <button className="btn btn-sm" onClick={handleRunbook} title={t('Go to Runbooks to start a response runbook prefilled with this incident, its deployment, and environment.')}>{t('Runbook')}</button>
             )}
             {!createMode && incident?.deploymentId && (
-              <button className="btn btn-sm" onClick={handleRollback}>{t('Rollback Deployment')}</button>
+              <button className="btn btn-sm" onClick={handleRollback} title={t('Run the linked deployment\'s rollback command now and mark this incident RolledBack. Asks for confirmation first.')}>{t('Rollback Deployment')}</button>
             )}
             {!createMode && incident?.deploymentId && (
-              <button className="btn btn-sm" onClick={() => navigate(`/deployments/${incident.deploymentId}`)}>{t('Open Deployment')}</button>
+              <button className="btn btn-sm" onClick={() => navigate(`/deployments/${incident.deploymentId}`)} title={t('Open the deployment linked to this incident.')}>{t('Open Deployment')}</button>
             )}
             {!createMode && incident?.environmentId && (
-              <button className="btn btn-sm" onClick={() => navigate(`/environments/${incident.environmentId}`)}>{t('Open Environment')}</button>
+              <button className="btn btn-sm" onClick={() => navigate(`/environments/${incident.environmentId}`)} title={t('Open the environment linked to this incident.')}>{t('Open Environment')}</button>
             )}
             {!createMode && incident && (
-              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: incident })}>{t('View JSON')}</button>
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: incident })} title={t('Show the raw incident record as returned by the API.')}>{t('View JSON')}</button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
+              <button className="btn btn-sm btn-danger" onClick={handleDelete} title={t('Delete this incident and its saved history. Deployments, checks, and releases are not affected. Cannot be undone.')}>{t('Delete')}</button>
             )}
           </>
         }
@@ -408,13 +430,13 @@ export default function IncidentDetail() {
           <h3>{t('Incident')}</h3>
           <div className="detail-form-grid">
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Title')}</span>
-              <input aria-label={t('Title')} value={title} onChange={(event) => setTitle(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.title}>{t('Title')}</span>
+              <input aria-label={t('Title')} title={tips.title} value={title} onChange={(event) => setTitle(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Status')}</span>
-              <select aria-label={t('Status')} value={status} onChange={(event) => setStatus(event.target.value as IncidentStatus)} disabled={!canManage}>
+              <span className="detail-label" title={tips.status}>{t('Status')}</span>
+              <select aria-label={t('Status')} title={tips.status} value={status} onChange={(event) => setStatus(event.target.value as IncidentStatus)} disabled={!canManage}>
                 {INCIDENT_STATUSES.map((value) => (
                   <option key={value} value={value}>{value}</option>
                 ))}
@@ -422,8 +444,8 @@ export default function IncidentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Severity')}</span>
-              <select aria-label={t('Severity')} value={severity} onChange={(event) => setSeverity(event.target.value as IncidentSeverity)} disabled={!canManage}>
+              <span className="detail-label" title={tips.severity}>{t('Severity')}</span>
+              <select aria-label={t('Severity')} title={tips.severity} value={severity} onChange={(event) => setSeverity(event.target.value as IncidentSeverity)} disabled={!canManage}>
                 {INCIDENT_SEVERITIES.map((value) => (
                   <option key={value} value={value}>{value}</option>
                 ))}
@@ -431,8 +453,8 @@ export default function IncidentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Vessel')}</span>
-              <select aria-label={t('Vessel')} value={vesselId} onChange={(event) => setVesselId(event.target.value)} disabled={!canManage}>
+              <span className="detail-label" title={tips.vessel}>{t('Vessel')}</span>
+              <select aria-label={t('Vessel')} title={tips.vessel} value={vesselId} onChange={(event) => setVesselId(event.target.value)} disabled={!canManage}>
                 <option value="">{t('Select a vessel')}</option>
                 {vessels.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
@@ -441,8 +463,8 @@ export default function IncidentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Environment')}</span>
-              <select aria-label={t('Environment')} value={environmentId} onChange={(event) => setEnvironmentId(event.target.value)} disabled={!canManage}>
+              <span className="detail-label" title={tips.environment}>{t('Environment')}</span>
+              <select aria-label={t('Environment')} title={tips.environment} value={environmentId} onChange={(event) => setEnvironmentId(event.target.value)} disabled={!canManage}>
                 <option value="">{t('Select an environment')}</option>
                 {environments.map((environment) => (
                   <option key={environment.id} value={environment.id}>{environment.name}</option>
@@ -451,13 +473,13 @@ export default function IncidentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Environment Name')}</span>
-              <input aria-label={t('Environment Name')} value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.environmentName}>{t('Environment Name')}</span>
+              <input aria-label={t('Environment Name')} title={tips.environmentName} value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Deployment')}</span>
-              <select aria-label={t('Deployment')} value={deploymentId} onChange={(event) => setDeploymentId(event.target.value)} disabled={!canManage}>
+              <span className="detail-label" title={tips.deployment}>{t('Deployment')}</span>
+              <select aria-label={t('Deployment')} title={tips.deployment} value={deploymentId} onChange={(event) => setDeploymentId(event.target.value)} disabled={!canManage}>
                 <option value="">{t('No linked deployment')}</option>
                 {deployments.map((deployment) => (
                   <option key={deployment.id} value={deployment.id}>{deployment.title}</option>
@@ -466,8 +488,8 @@ export default function IncidentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Release')}</span>
-              <select aria-label={t('Release')} value={releaseId} onChange={(event) => setReleaseId(event.target.value)} disabled={!canManage}>
+              <span className="detail-label" title={tips.release}>{t('Release')}</span>
+              <select aria-label={t('Release')} title={tips.release} value={releaseId} onChange={(event) => setReleaseId(event.target.value)} disabled={!canManage}>
                 <option value="">{t('No linked release')}</option>
                 {releases.map((release) => (
                   <option key={release.id} value={release.id}>{release.title}</option>
@@ -476,64 +498,64 @@ export default function IncidentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Mission ID')}</span>
-              <input aria-label={t('Mission ID')} value={missionId} onChange={(event) => setMissionId(event.target.value)} disabled={!canManage} placeholder="mis_..." />
+              <span className="detail-label" title={tips.missionId}>{t('Mission ID')}</span>
+              <input aria-label={t('Mission ID')} title={tips.missionId} value={missionId} onChange={(event) => setMissionId(event.target.value)} disabled={!canManage} placeholder="msn_..." />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Voyage ID')}</span>
-              <input aria-label={t('Voyage ID')} value={voyageId} onChange={(event) => setVoyageId(event.target.value)} disabled={!canManage} placeholder="voy_..." />
+              <span className="detail-label" title={tips.voyageId}>{t('Voyage ID')}</span>
+              <input aria-label={t('Voyage ID')} title={tips.voyageId} value={voyageId} onChange={(event) => setVoyageId(event.target.value)} disabled={!canManage} placeholder="vyg_..." />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Detected')}</span>
-              <input aria-label={t('Detected')} type="datetime-local" value={detectedUtc} onChange={(event) => setDetectedUtc(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.detected}>{t('Detected')}</span>
+              <input aria-label={t('Detected')} title={tips.detected} type="datetime-local" value={detectedUtc} onChange={(event) => setDetectedUtc(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Mitigated')}</span>
-              <input aria-label={t('Mitigated')} type="datetime-local" value={mitigatedUtc} onChange={(event) => setMitigatedUtc(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.mitigated}>{t('Mitigated')}</span>
+              <input aria-label={t('Mitigated')} title={tips.mitigated} type="datetime-local" value={mitigatedUtc} onChange={(event) => setMitigatedUtc(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Closed')}</span>
-              <input aria-label={t('Closed')} type="datetime-local" value={closedUtc} onChange={(event) => setClosedUtc(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.closed}>{t('Closed')}</span>
+              <input aria-label={t('Closed')} title={tips.closed} type="datetime-local" value={closedUtc} onChange={(event) => setClosedUtc(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Rollback Deployment')}</span>
-              <input aria-label={t('Rollback Deployment')} value={rollbackDeploymentId} onChange={(event) => setRollbackDeploymentId(event.target.value)} disabled={!canManage} placeholder="dpl_..." />
+              <span className="detail-label" title={tips.rollbackDeploymentId}>{t('Rollback Deployment')}</span>
+              <input aria-label={t('Rollback Deployment')} title={tips.rollbackDeploymentId} value={rollbackDeploymentId} onChange={(event) => setRollbackDeploymentId(event.target.value)} disabled={!canManage} placeholder="dpl_..." />
             </div>
 
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Summary')}</span>
-              <textarea aria-label={t('Summary')} rows={3} value={summary} onChange={(event) => setSummary(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.summary}>{t('Summary')}</span>
+              <textarea aria-label={t('Summary')} title={tips.summary} rows={3} value={summary} onChange={(event) => setSummary(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Impact')}</span>
-              <textarea aria-label={t('Impact')} rows={3} value={impact} onChange={(event) => setImpact(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.impact}>{t('Impact')}</span>
+              <textarea aria-label={t('Impact')} title={tips.impact} rows={3} value={impact} onChange={(event) => setImpact(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Root Cause')}</span>
-              <textarea aria-label={t('Root Cause')} rows={3} value={rootCause} onChange={(event) => setRootCause(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.rootCause}>{t('Root Cause')}</span>
+              <textarea aria-label={t('Root Cause')} title={tips.rootCause} rows={3} value={rootCause} onChange={(event) => setRootCause(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Recovery Notes')}</span>
-              <textarea aria-label={t('Recovery Notes')} rows={4} value={recoveryNotes} onChange={(event) => setRecoveryNotes(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.recoveryNotes}>{t('Recovery Notes')}</span>
+              <textarea aria-label={t('Recovery Notes')} title={tips.recoveryNotes} rows={4} value={recoveryNotes} onChange={(event) => setRecoveryNotes(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Postmortem')}</span>
-              <textarea aria-label={t('Postmortem')} rows={5} value={postmortem} onChange={(event) => setPostmortem(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.postmortem}>{t('Postmortem')}</span>
+              <textarea aria-label={t('Postmortem')} title={tips.postmortem} rows={5} value={postmortem} onChange={(event) => setPostmortem(event.target.value)} disabled={!canManage} />
             </div>
           </div>
 
           {canManage && (
             <div className="inline-actions" style={{ marginTop: '1rem' }}>
-              <button className="btn btn-primary" disabled={saving} onClick={handleSave}>
+              <button className="btn btn-primary" disabled={saving} onClick={handleSave} title={createMode ? t('Create the incident record. You can add root cause, recovery, and postmortem notes on its detail page.') : t('Save this incident. Each save keeps a snapshot, so earlier versions stay in the activity history.')}>
                 {saving ? t('Saving...') : createMode ? t('Create Incident') : t('Save Incident')}
               </button>
             </div>
@@ -543,17 +565,17 @@ export default function IncidentDetail() {
         <section className="card detail-panel">
           <h3>{t('Overview')}</h3>
           <div className="detail-meta-grid">
-            <div className="detail-field"><span className="detail-label">{t('Vessel')}</span><span>{selectedVessel?.name || vesselId || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Environment')}</span><span>{selectedEnvironment?.name || environmentName || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Deployment')}</span><span>{deploymentId || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Release')}</span><span>{releaseId || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Detected')}</span><span>{detectedUtc ? formatDateTime(toUtcValue(detectedUtc) || detectedUtc) : '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{incident?.lastUpdateUtc ? formatRelativeTime(incident.lastUpdateUtc) : '-'}</span></div>
+            <div className="detail-field" title={tips.vessel}><span className="detail-label">{t('Vessel')}</span><span>{selectedVessel?.name || vesselId || '-'}</span></div>
+            <div className="detail-field" title={tips.environment}><span className="detail-label">{t('Environment')}</span><span>{selectedEnvironment?.name || environmentName || '-'}</span></div>
+            <div className="detail-field" title={tips.deployment}><span className="detail-label">{t('Deployment')}</span><span>{deploymentId || '-'}</span></div>
+            <div className="detail-field" title={tips.release}><span className="detail-label">{t('Release')}</span><span>{releaseId || '-'}</span></div>
+            <div className="detail-field" title={tips.detected}><span className="detail-label">{t('Detected')}</span><span>{detectedUtc ? formatDateTime(toUtcValue(detectedUtc) || detectedUtc) : '-'}</span></div>
+            <div className="detail-field" title={t('When the incident was last saved.')}><span className="detail-label">{t('Last Updated')}</span><span>{incident?.lastUpdateUtc ? formatRelativeTime(incident.lastUpdateUtc) : '-'}</span></div>
             {incident?.failureKind && (
               <>
-                <div className="detail-field"><span className="detail-label">{t('Failure Kind')}</span><span>{incident.failureKind}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Rescue Attempts')}</span><span>{incident.recoveryAttempts ?? 0}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Rescue Missions')}</span><span>{(incident.rescueMissionIds && incident.rescueMissionIds.length) ? incident.rescueMissionIds.length : 0}</span></div>
+                <div className="detail-field" title={t('Classified cause of the failed mission that opened this incident automatically, such as Compile, TestFail, or Timeout.')}><span className="detail-label">{t('Failure Kind')}</span><span>{incident.failureKind}</span></div>
+                <div className="detail-field" title={t('Rescue missions Armada has dispatched for this incident. When the cap is reached, the incident stays Open for a human.')}><span className="detail-label">{t('Rescue Attempts')}</span><span>{incident.recoveryAttempts ?? 0}</span></div>
+                <div className="detail-field" title={t('Number of rescue missions linked to this incident. A landed rescue moves it to Mitigated, then Closed once the fix holds.')}><span className="detail-label">{t('Rescue Missions')}</span><span>{(incident.rescueMissionIds && incident.rescueMissionIds.length) ? incident.rescueMissionIds.length : 0}</span></div>
               </>
             )}
           </div>
@@ -597,7 +619,7 @@ export default function IncidentDetail() {
               </div>
 
               <div className="detail-divider" />
-              <h4>{t('Runbook Executions')}</h4>
+              <h4 title={t('Runbook executions started for this incident.')}>{t('Runbook Executions')}</h4>
               {executions.length === 0 ? (
                 <p className="text-dim">{t('No runbook executions are linked to this incident yet.')}</p>
               ) : (
@@ -618,7 +640,7 @@ export default function IncidentDetail() {
                         {t('Last updated')} {formatRelativeTime(execution.lastUpdateUtc)}
                       </div>
                       <div className="inline-actions" style={{ marginTop: '0.65rem' }}>
-                        <button className="btn btn-sm" onClick={() => navigate(`/runbooks/${execution.runbookId}`)}>
+                        <button className="btn btn-sm" onClick={() => navigate(`/runbooks/${execution.runbookId}`)} title={t('Open the runbook this execution follows.')}>
                           {t('Open Runbook')}
                         </button>
                       </div>

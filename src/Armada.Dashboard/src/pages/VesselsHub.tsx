@@ -42,10 +42,10 @@ export default function VesselsHub() {
   }, [navigate, onHealthPath, requestedTab, searchParams]);
 
   const tabs: TabDef[] = [
-    { key: 'vessels', label: 'Vessels', render: () => panel(<Vessels />) },
-    { key: 'health', label: 'Health', render: () => panel(<VesselHealth />) },
-    { key: 'fleets', label: 'Fleets', render: () => panel(<Fleets />) },
-    { key: 'workspace', label: 'Workspace', render: () => panel(<Workspace />) },
+    { key: 'vessels', label: 'Vessels', tooltip: 'Every repository registered with Armada, with sync status, landing mode and branches.', render: () => panel(<Vessels />) },
+    { key: 'health', label: 'Health', tooltip: 'Health grades for every vessel: git state, packages, vulnerabilities, tests, CI and failed missions.', render: () => panel(<VesselHealth />) },
+    { key: 'fleets', label: 'Fleets', tooltip: 'Create, rename and delete fleets, the groups vessels belong to.', render: () => panel(<Fleets />) },
+    { key: 'workspace', label: 'Workspace', tooltip: 'Browse, edit and run commands in a vessel working directory.', render: () => panel(<Workspace />) },
   ];
 
   return <Tabs tabs={tabs} defaultTabKey={onHealthPath ? 'health' : 'vessels'} ariaLabel="Vessel sections" />;

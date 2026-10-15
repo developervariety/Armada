@@ -80,7 +80,7 @@ export default function DockDetail() {
     <div>
       {/* Breadcrumb */}
       <div className="breadcrumb" style={{ marginBottom: 16, fontSize: 13 }}>
-        <Link to="/docks">{t('Docks')}</Link>
+        <Link to="/docks" title={t('Back to the list of all docks.')}>{t('Docks')}</Link>
         <span className="text-muted"> / </span>
         <span className="mono">{dock.id}</span>
       </div>
@@ -90,8 +90,8 @@ export default function DockDetail() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2>{t('Dock Details')}</h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn-sm" onClick={() => setJsonView({ title: t('Dock: {{id}}', { id: dock.id }), data: dock })}>{t('View JSON')}</button>
-          <button className="btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
+          <button className="btn-sm" onClick={() => setJsonView({ title: t('Dock: {{id}}', { id: dock.id }), data: dock })} title={t('Show the raw dock record as JSON.')}>{t('View JSON')}</button>
+          <button className="btn-sm btn-danger" onClick={handleDelete} title={t('Remove this dock and its worktree folder after you confirm. Commits on its branch stay in the repository; uncommitted files in the worktree are lost. Refused while a captain is using it.')}>{t('Delete')}</button>
         </div>
       </div>
 
@@ -99,48 +99,48 @@ export default function DockDetail() {
       <div className="card">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('ID')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Dock ID (dck_...), used by the CLI, API and MCP tools.')}>{t('ID')}</div>
             <div className="mono" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               {dock.id}
               <CopyButton text={dock.id} />
             </div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Tenant ID')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Tenant that owns this dock.')}>{t('Tenant ID')}</div>
             <div className="mono">{dock.tenantId || '-'}</div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Status')}</div>
-            <span className={`status ${dock.active ? 'status-active' : 'status-inactive'}`}>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Whether the dock is active and usable by a captain.')}>{t('Status')}</div>
+            <span className={`status ${dock.active ? 'status-active' : 'status-inactive'}`} title={dock.active ? t('The dock is active and usable by a captain.') : t('The dock is not active. Deleting it removes its worktree folder.')}>
               {dock.active ? t('Active') : t('Inactive')}
             </span>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Vessel')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Repository this worktree was created from. Click to open the vessel.')}>{t('Vessel')}</div>
             {dock.vesselId
               ? <Link to={`/vessels/${dock.vesselId}`}>{vesselName(dock.vesselId)}</Link>
               : <span>-</span>}
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Captain')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Captain currently using this dock. A dash means it is not assigned. Click to open the captain.')}>{t('Captain')}</div>
             {dock.captainId
               ? <Link to={`/captains/${dock.captainId}`}>{captainName(dock.captainId)}</Link>
               : <span>-</span>}
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Branch Name')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Branch checked out in the worktree, usually the mission branch.')}>{t('Branch Name')}</div>
             <div className="mono">{dock.branchName || '-'}</div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Worktree Path')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Folder holding the git worktree, on the Admiral host or on the Harbor that owns the dock.')}>{t('Worktree Path')}</div>
             <div className="mono" style={{ wordBreak: 'break-all' }}>{dock.worktreePath || '-'}</div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Created')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('When the dock was provisioned.')}>{t('Created')}</div>
             <div>{formatRelativeTime(dock.createdUtc)} <span className="text-muted">({formatDateTime(dock.createdUtc)})</span></div>
           </div>
           <div>
-            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Last Updated')}</div>
+            <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('When the dock record last changed, for example when a captain took or released it.')}>{t('Last Updated')}</div>
             <div>{dock.lastUpdateUtc ? (<>{formatRelativeTime(dock.lastUpdateUtc)} <span className="text-muted">({formatDateTime(dock.lastUpdateUtc)})</span></>) : '-'}</div>
           </div>
         </div>
@@ -152,24 +152,24 @@ export default function DockDetail() {
         if (!anchors) return null;
         return (
           <div className="detail-card" style={{ marginTop: 16 }}>
-            <h3>{t('Starting Point')}</h3>
+            <h3 title={t('Git facts recorded when the dock was created, so a captain resuming the mission knows where the work began.')}>{t('Starting Point')}</h3>
             <div className="detail-grid">
               <div>
-                <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Start Commit')}</div>
+                <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Commit the working branch was created from.')}>{t('Start Commit')}</div>
                 <div className="mono">{anchors.startCommit || '-'}</div>
               </div>
               <div>
-                <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Target Branch')}</div>
+                <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Branch the mission work is meant to land into, usually the vessel default branch.')}>{t('Target Branch')}</div>
                 <div className="mono">{anchors.targetBranch || '-'}</div>
               </div>
               <div>
-                <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Working Branch')}</div>
+                <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Branch the captain commits the mission work to.')}>{t('Working Branch')}</div>
                 <div className="mono">{anchors.workingBranch || '-'}</div>
               </div>
             </div>
             {anchors.recentPathCommits && anchors.recentPathCommits.length > 0 && (
               <div style={{ marginTop: 8 }}>
-                <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Recent Commits On Relevant Paths')}</div>
+                <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Recent commits that touched the files the mission names, as path: hash subject.')}>{t('Recent Commits On Relevant Paths')}</div>
                 <ul className="mono" style={{ margin: 0, paddingLeft: 18 }}>
                   {anchors.recentPathCommits.map((c, i) => <li key={i}>{c}</li>)}
                 </ul>
@@ -177,7 +177,7 @@ export default function DockDetail() {
             )}
             {anchors.subjectTermsPresent && anchors.subjectTermsPresent.length > 0 && (
               <div style={{ marginTop: 8 }}>
-                <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{t('Subject Terms Already In Tree')}</div>
+                <div className="text-muted" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }} title={t('Words from the mission description that already appear in the repository, hinting that some of the work may exist.')}>{t('Subject Terms Already In Tree')}</div>
                 <div>{anchors.subjectTermsPresent.map((term, i) => <span key={i} className="tag" style={{ marginRight: 4 }}>{term}</span>)}</div>
               </div>
             )}

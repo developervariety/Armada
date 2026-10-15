@@ -16,8 +16,8 @@ const de: I18nCatalog = {
   locales: {
     de: {
       phrases: {
-        '{{label}} (click to activate)': '{{label}} (zum Ausfuehren klicken)',
-        '{{label}}: type a value.': '{{label}}: Wert eingeben.',
+        '{{label}}: {{detail}}': '{{label}}: {{detail}}',
+        'Currently on.': 'Derzeit an.',
         Save: 'Speichern',
         Name: 'Name',
       },
@@ -37,14 +37,16 @@ afterEach(() => {
 });
 
 describe('tooltip backfill: what each element says', () => {
-  it('buttons and role=button describe the action from their text or aria-label', () => {
-    const root = mount('<button>Save</button><span role="button" aria-label="Open menu">...</span><button disabled>Run</button>');
+  it('buttons and role=button use their name and description, with no filler words', () => {
+    const root = mount(`<button>Save</button><span role="button" aria-label="Open menu">...</span><button disabled>Run</button>
+      <button aria-label="Purge" aria-description="Deletes the mission and its logs permanently">x</button>`);
     backfillTooltips(root, 'en', null);
-    const [save, run] = Array.from(root.querySelectorAll('button'));
-    expect(save.getAttribute('title')).toBe('Save (click to activate)');
+    const [save, run, purge] = Array.from(root.querySelectorAll('button'));
+    expect(save.getAttribute('title')).toBe('Save');
     expect(save.getAttribute(TOOLTIP_GENERATED_ATTR)).toBe('true');
-    expect(root.querySelector('[role=button]')!.getAttribute('title')).toBe('Open menu (click to activate)');
-    expect(run.getAttribute('title')).toBe('Run (click to activate) (unavailable right now)');
+    expect(root.querySelector('[role=button]')!.getAttribute('title')).toBe('Open menu');
+    expect(run.getAttribute('title')).toBe('Run (unavailable right now)');
+    expect(purge.getAttribute('title')).toBe('Purge: Deletes the mission and its logs permanently.');
   });
 
   it('links say where they go, and whether a new tab opens', () => {
@@ -64,28 +66,58 @@ describe('tooltip backfill: what each element says', () => {
       <input id="e" placeholder="Filter by name">
       <textarea id="f" aria-label="Notes"></textarea>`);
     backfillTooltips(root, 'en', null);
-    expect(root.querySelector('#a')!.getAttribute('title')).toBe('Name: type a value.');
-    expect(root.querySelector('#b')!.getAttribute('title')).toBe('Secret: type a value. It stays hidden as you type.');
-    expect(root.querySelector('#c')!.getAttribute('title')).toBe('Search vessels: type to search.');
-    expect(root.querySelector('#d')!.getAttribute('title')).toBe('Fleet Name: type a value.');
-    expect(root.querySelector('#e')!.getAttribute('title')).toBe('Filter by name: type a value.');
-    expect(root.querySelector('#f')!.getAttribute('title')).toBe('Notes: type text.');
+    expect(root.querySelector('#a')!.getAttribute('title')).toBe('Name');
+    expect(root.querySelector('#b')!.getAttribute('title')).toBe('Secret');
+    expect(root.querySelector('#c')!.getAttribute('title')).toBe('Search vessels');
+    expect(root.querySelector('#d')!.getAttribute('title')).toBe('Fleet Name');
+    expect(root.querySelector('#e')!.getAttribute('title')).toBe('Filter by name');
+    expect(root.querySelector('#f')!.getAttribute('title')).toBe('Notes');
+  });
+
+  it('never says "type a value"; inputs carry their help text and placeholder instead', () => {
+    const root = mount(`
+      <div class="form-group"><label>Local Path</label><input id="a" placeholder="/var/armada/repos/my-app.git">
+        <p class="text-dim form-help">Where the Admiral keeps its bare clone of the repository.</p></div>
+      <div class="form-group"><label>Branch</label><input id="b" placeholder="e.g. main"></div>
+      <input id="c" aria-label="Retries" aria-describedby="hint"><span id="hint">How many times to retry a failed mission</span>
+      <label class="form-field"><span class="form-label">Token</span><span class="form-help">Sent as a bearer token.</span><input id="d" type="password"></label>
+      <div class="form-group"><label>A</label><input id="e"><label>B</label><input id="f"><p class="form-help">Shared help</p></div>
+      <input id="g" aria-label="Path" readonly>`);
+    backfillTooltips(root, 'en', null);
+    const title = (id: string) => root.querySelector(`#${id}`)!.getAttribute('title');
+    expect(title('a')).toBe('Local Path: Where the Admiral keeps its bare clone of the repository. Example: /var/armada/repos/my-app.git');
+    expect(title('b')).toBe('Branch: e.g. main.');
+    expect(title('c')).toBe('Retries: How many times to retry a failed mission.');
+    expect(title('d')).toBe('Token: Sent as a bearer token.');
+    // Help shared by several controls is ambiguous, so it is not attributed to either one.
+    expect(title('e')).toBe('A');
+    expect(title('g')).toBe('Path (read only)');
+    for (const el of Array.from(root.querySelectorAll('[title]'))) expect(el.getAttribute('title')).not.toMatch(/type a value/);
   });
 
   it('selects include the current option, and the label text excludes the option list', () => {
     const root = mount('<label>Provider <select><option>OpenAI</option><option selected>Ollama</option></select></label>');
     backfillTooltips(root, 'en', null);
     const select = root.querySelector('select')!;
-    expect(select.title).toBe('Provider: currently Ollama. Click to choose a different option.');
+    expect(select.title).toBe('Provider: Currently Ollama.');
     // The label describes the field it labels.
-    expect(root.querySelector('label')!.title).toBe('Provider: currently Ollama. Click to choose a different option.');
+    expect(root.querySelector('label')!.title).toBe('Provider: Currently Ollama.');
+  });
+
+  it('selects add the chosen option\'s own title and the field help', () => {
+    const root = mount(`<div class="form-group"><label>Landing Mode</label><select>
+      <option title="Merge into the working directory on this machine.">Local Merge</option></select>
+      <p class="form-help">How finished work is landed.</p></div>`);
+    backfillTooltips(root, 'en', null);
+    expect(root.querySelector('select')!.title)
+      .toBe('Landing Mode: Currently Local Merge. Merge into the working directory on this machine. How finished work is landed.');
   });
 
   it('checkboxes and switches say their state and what a click does', () => {
     const root = mount('<label><input type="checkbox" checked> Enabled</label><button role="switch" aria-checked="false">Dark mode</button>');
     backfillTooltips(root, 'en', null);
-    expect(root.querySelector('input')!.title).toBe('Enabled: on. Click to turn it off.');
-    expect(root.querySelector('[role=switch]')!.getAttribute('title')).toBe('Dark mode: off. Click to turn it on.');
+    expect(root.querySelector('input')!.title).toBe('Enabled: Currently on.');
+    expect(root.querySelector('[role=switch]')!.getAttribute('title')).toBe('Dark mode: Currently off.');
   });
 
   it('cells, headers and badges carry their full text; empty cells get nothing', () => {
@@ -152,7 +184,7 @@ describe('tooltip backfill: ownership', () => {
 
     button.textContent = 'Save Changes';
     backfillTooltips(root, 'en', null);
-    expect(button.title).toBe('Save Changes (click to activate)');
+    expect(button.title).toBe('Save Changes');
 
     button.setAttribute('title', 'Author text');
     backfillTooltips(root, 'en', null);
@@ -184,7 +216,10 @@ describe('tooltip backfill: locale and the document translator', () => {
     const root = mount('<button>Save</button>');
     translateSubtree(root, 'de', de);
     backfillTooltips(root, 'de', de);
-    expect(root.querySelector('button')!.title).toBe('Speichern (zum Ausfuehren klicken)');
+    expect(root.querySelector('button')!.title).toBe('Speichern');
+    const toggle = mount('<label><input type="checkbox" checked> Name</label>');
+    backfillTooltips(toggle, 'de', de);
+    expect(toggle.querySelector('input')!.title).toBe('Name: Derzeit an.');
   });
 
   it('the document translator leaves generated titles alone (no stale cached source text)', () => {
@@ -195,11 +230,11 @@ describe('tooltip backfill: locale and the document translator', () => {
     expect(button.hasAttribute('data-armada-i18n-orig-title')).toBe(false);
     // The translator translated the text; the backfill follows it.
     backfillTooltips(root, 'de', de);
-    expect(button.title).toBe('Speichern (zum Ausfuehren klicken)');
+    expect(button.title).toBe('Speichern');
     // Back to English: the regenerated title is English again, not a pinned German one.
     translateSubtree(root, 'en', de);
     backfillTooltips(root, 'en', de);
-    expect(button.title).toBe('Save (click to activate)');
+    expect(button.title).toBe('Save');
   });
 
   it('the document translator still translates author titles', () => {
@@ -242,7 +277,7 @@ describe('tooltip backfill: observer', () => {
     await flush();
     expect(table.querySelectorAll('td')[49].title).toBe('row 49');
     const select = label.querySelector('select')!;
-    expect(select.title).toBe('Kind: currently Embedding. Click to choose a different option.');
+    expect(select.title).toBe('Kind: Currently Embedding.');
 
     // Text change inside a cell.
     table.querySelectorAll('td')[3].firstChild!.nodeValue = 'changed';
@@ -253,7 +288,7 @@ describe('tooltip backfill: observer', () => {
     select.value = 'b';
     select.dispatchEvent(new Event('change', { bubbles: true }));
     await flush();
-    expect(select.title).toBe('Kind: currently Inference. Click to choose a different option.');
+    expect(select.title).toBe('Kind: Currently Inference.');
 
     // Settles: our own title writes do not loop forever.
     await flush();
@@ -268,8 +303,9 @@ describe('tooltip backfill: catalog', () => {
   const keys = Array.from(backfillSource.matchAll(/\btr\(ctx, '((?:[^'\\]|\\.)*)'/g)).map((m) => m[1]);
 
   it('finds the generated tooltip templates', () => {
-    expect(keys).toContain('{{label}} (click to activate)');
-    expect(keys.length).toBeGreaterThan(15);
+    expect(keys).toContain('{{label}}: {{detail}}');
+    expect(keys).not.toContain('{{label}}: type a value.');
+    expect(keys.length).toBeGreaterThan(10);
   });
 
   it('has a translation with intact placeholders for every template in every locale', () => {

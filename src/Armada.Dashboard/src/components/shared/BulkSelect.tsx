@@ -24,9 +24,12 @@ export function BulkSelectCheckbox({
   selectedIds: string[];
   onToggle: (id: string) => void;
 }) {
+  const { t } = useLocale();
   return (
     <input
       type="checkbox"
+      title={t('Include this row in the bulk actions shown above the table.')}
+      aria-label={t('Select row')}
       checked={selectedIds.includes(id)}
       onChange={(e) => { e.stopPropagation(); onToggle(id); }}
       onClick={(e) => e.stopPropagation()}
@@ -47,10 +50,13 @@ export function BulkSelectHeader({
 }) {
   const allSelected = allIds.length > 0 && allIds.every(id => selectedIds.includes(id));
   const someSelected = selectedIds.length > 0 && !allSelected;
+  const { t } = useLocale();
 
   return (
     <input
       type="checkbox"
+      title={allSelected ? t('Clear the selection on this page.') : t('Select every row on this page (not other pages) for bulk actions.')}
+      aria-label={t('Select all')}
       checked={allSelected}
       ref={(el) => {
         if (el) el.indeterminate = someSelected;
@@ -76,7 +82,7 @@ export default function BulkSelectBar({
 
   return (
     <div className="view-actions" style={{ marginBottom: '0.5rem' }}>
-      <span className="text-dim" style={{ fontSize: '0.85rem' }}>
+      <span className="text-dim" style={{ fontSize: '0.85rem' }} title={t('Rows ticked for the bulk actions next to this count.')}>
         {selectedIds.length} {t('selected')}
       </span>
       {actions.map((action, i) => (
@@ -84,11 +90,12 @@ export default function BulkSelectBar({
           key={i}
           className={`btn btn-sm${action.danger ? ' btn-danger' : ''}`}
           onClick={action.onClick}
+          title={t('Apply {{action}} to all {{count}} selected rows.', { action: t(action.label), count: selectedIds.length })}
         >
           {t(action.label)}
         </button>
       ))}
-      <button className="btn btn-sm" onClick={onClearSelection}>
+      <button className="btn btn-sm" onClick={onClearSelection} title={t('Untick every selected row. Nothing is changed.')}>
         {t('Clear')}
       </button>
     </div>

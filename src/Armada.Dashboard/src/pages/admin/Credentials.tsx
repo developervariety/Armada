@@ -205,12 +205,12 @@ export default function Credentials() {
 
   const columns: DataTableColumn<Credential>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name',
+      key: 'name', label: t('Name'), headerTitle: t('Label given to the token when it was created.'), required: true, sortKey: 'name',
       filter: <input type="text" className="col-filter" aria-label={t('Filter by name')} value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} />,
       render: (c) => <strong>{c.name || '-'}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), headerTitle: t('Credential ID (crd_ prefix), used to edit or delete it through the API. It is not the token.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (c) => (
         <span className="id-display">
           <span className="id-value" title={c.id}>{c.id}</span>
@@ -219,7 +219,7 @@ export default function Credentials() {
       ),
     },
     {
-      key: 'user', label: t('User'), sortKey: 'userId', cellClassName: 'text-dim',
+      key: 'user', label: t('User'), headerTitle: t('User the token acts as.'), sortKey: 'userId', cellClassName: 'text-dim',
       clearFilter: () => setColFilters(f => ({ ...f, userId: '' })),
       filter: (
         <select aria-label={t('All users')}
@@ -236,7 +236,7 @@ export default function Credentials() {
       render: (c) => userName(c.userId),
     },
     {
-      key: 'tenant', label: t('Tenant'), cellClassName: 'text-dim',
+      key: 'tenant', label: t('Tenant'), headerTitle: t('Tenant the token works in.'), cellClassName: 'text-dim',
       clearFilter: () => setColFilters(f => ({ ...f, tenantId: '' })),
       filter: (
         <select aria-label={t('All tenants')}
@@ -253,12 +253,12 @@ export default function Credentials() {
       render: (c) => tenantName(c.tenantId),
     },
     {
-      key: 'bearerToken', label: t('Bearer Token'), cellClassName: 'mono text-dim table-url-cell',
-      render: (c) => <span className="url-value" title={t('Tokens are shown once, when the credential is created.')}>{c.bearerToken}</span>,
+      key: 'bearerToken', label: t('Bearer Token'), headerTitle: t('The secret sent as Authorization: Bearer. Shown in full only once, when created; masked here.'), cellClassName: 'mono text-dim table-url-cell',
+      render: (c) => <span className="url-value" title={t('Masked. The full token was shown only once, when the credential was created. Create a new credential if it was lost.')}>{c.bearerToken}</span>,
     },
-    { key: 'active', label: t('Active'), sortKey: 'active', render: (c) => (c.active ? t('Yes') : t('No')) },
+    { key: 'active', label: t('Active'), headerTitle: t('Whether the token is accepted. Inactive tokens are rejected but kept.'), sortKey: 'active', render: (c) => (c.active ? t('Yes') : t('No')) },
     {
-      key: 'createdUtc', label: t('Created'), sortKey: 'createdUtc', cellClassName: 'text-dim cell-nowrap',
+      key: 'createdUtc', label: t('Created'), headerTitle: t('When the credential was created.'), sortKey: 'createdUtc', cellClassName: 'text-dim cell-nowrap',
       cellTitle: (c) => formatDateTime(c.createdUtc), render: (c) => formatRelativeTime(c.createdUtc),
     },
     {
@@ -281,8 +281,8 @@ export default function Credentials() {
           <p className="text-dim view-subtitle">{isAdmin ? t('Manage API bearer tokens across all tenants.') : isTenantAdmin ? t('Manage API bearer tokens within your tenant.') : t('Manage your API bearer tokens.')}</p>
         </div>
         <div className="view-actions">
-          {!remoteProxyMode && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
-          {!remoteProxyMode && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Credential')}</button>}
+          {!remoteProxyMode && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} title={t('Permanently delete the selected credentials. Anything using those tokens stops working at once. Asks first.')}>{t('Delete Selected')} ({selected.length})</button>}
+          {!remoteProxyMode && <button className="btn btn-primary btn-sm" onClick={openCreate} title={t('Create an API bearer token for a user, for scripts, CI, or the CLI. The token is shown only once.')}>+ {t('Credential')}</button>}
         </div>
       </div>
 
@@ -303,10 +303,10 @@ export default function Credentials() {
             <p>{t('Copy this bearer token now. It is shown only once; later reads show it masked.')}</p>
             <div className="id-display mono">
               <span className="url-value">{newToken}</span>
-              <CopyButton text={newToken} title={t('Copy token')} />
+              <CopyButton text={newToken} title={t('Copy the bearer token. Send it as Authorization: Bearer followed by the token. You cannot see it again after closing this.')} />
             </div>
             <div className="modal-actions">
-              <button type="button" className="btn btn-primary" onClick={() => setNewToken(null)}>{t('Done')}</button>
+              <button type="button" className="btn btn-primary" onClick={() => setNewToken(null)} title={t('Close this dialog. The full token is not shown again, so copy it first.')}>{t('Done')}</button>
             </div>
           </div>
         </div>
@@ -316,31 +316,31 @@ export default function Credentials() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Credential') : t('Create Credential')}</h3>
-            <label>{t('User')}
-              <select value={form.userId} onChange={e => setForm({ ...form, userId: e.target.value })} required disabled={!!editing || (!isAdmin && !isTenantAdmin)}>
+            <label title={t('The user this token signs in as. API calls with it get that user permissions. Cannot be changed after creation.')}>{t('User')}
+              <select title={t('The user this token signs in as. API calls with it get that user permissions. Cannot be changed after creation.')} value={form.userId} onChange={e => setForm({ ...form, userId: e.target.value })} required disabled={!!editing || (!isAdmin && !isTenantAdmin)}>
                 <option value="">{t('Select user...')}</option>
                 {users.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
               </select>
             </label>
             {isAdmin ? (
-              <label>{t('Tenant')}
-                <select value={form.tenantId} onChange={e => setForm({ ...form, tenantId: e.target.value })} required disabled={!!editing}>
+              <label title={t('The tenant the token works in. Must be a tenant the chosen user belongs to. Cannot be changed after creation.')}>{t('Tenant')}
+                <select title={t('The tenant the token works in. Must be a tenant the chosen user belongs to. Cannot be changed after creation.')} value={form.tenantId} onChange={e => setForm({ ...form, tenantId: e.target.value })} required disabled={!!editing}>
                   <option value="">{t('Select tenant...')}</option>
                   {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </label>
             ) : (
-              <label>{t('Tenant')}<input value={tenantName(form.tenantId)} disabled /></label>
+              <label title={t('Tokens you create work in your own tenant.')}>{t('Tenant')}<input value={tenantName(form.tenantId)} disabled title={t('Tokens you create work in your own tenant.')} /></label>
             )}
-            <label>{t('Name (optional)')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder={t('e.g., CI/CD Token')} /></label>
+            <label title={t('Label to help you recognize the token later, for example CI/CD Token or laptop CLI. Optional; does not affect access.')}>{t('Name (optional)')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder={t('e.g., CI/CD Token')} title={t('Label to help you recognize the token later, for example CI/CD Token or laptop CLI. Optional; does not affect access.')} /></label>
             {editing && (
-              <label className="checkbox-label">
-                <input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} />
+              <label className="checkbox-label" title={t('Uncheck to disable the token without deleting it. Requests using an inactive token are rejected until it is turned back on.')}>
+                <input type="checkbox" title={t('Uncheck to disable the token without deleting it. Requests using an inactive token are rejected until it is turned back on.')} checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} />
                 {t('Active')}
               </label>
             )}
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{editing ? t('Save') : t('Create')}</button>
+              <button type="submit" className="btn btn-primary" title={editing ? t('Save the name and active state.') : t('Create the credential and show its token once.')}>{editing ? t('Save') : t('Create')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>

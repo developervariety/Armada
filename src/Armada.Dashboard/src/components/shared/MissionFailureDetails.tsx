@@ -86,7 +86,7 @@ export default function MissionFailureDetails({ mission, onOpenMission }: Missio
           <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.25rem' }}>
             {rescues.map((rescue) => (
               <li key={rescue.id}>
-                <button type="button" className="btn-link" onClick={() => onOpenMission(rescue.id)}>{rescue.title}</button>
+                <button type="button" className="btn-link" onClick={() => onOpenMission(rescue.id)} title={t('Open this rescue mission, a new attempt Armada started at the failed work.')}>{rescue.title}</button>
                 {' '}<span className="text-dim">({t(String(rescue.status))})</span>
               </li>
             ))}
@@ -99,8 +99,8 @@ export default function MissionFailureDetails({ mission, onOpenMission }: Missio
       )}
 
       <div className="wizard-inline-actions" style={{ marginTop: '0.6rem' }}>
-        <button type="button" className="btn btn-sm" onClick={openLog}>{t('View Mission Log')}</button>
-        <button type="button" className="btn btn-sm" onClick={() => onOpenMission(mission.id)}>{t('Open Mission')}</button>
+        <button type="button" className="btn btn-sm" onClick={openLog} title={t('Read the captain\'s output for this mission, which usually shows why it failed.')}>{t('View Mission Log')}</button>
+        <button type="button" className="btn btn-sm" onClick={() => onOpenMission(mission.id)} title={t('Open the mission\'s detail page, where you can restart it, read the diff, or retry landing.')}>{t('Open Mission')}</button>
       </div>
 
       <LogViewer

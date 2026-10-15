@@ -19,7 +19,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
   return (
     <div className="alert alert-error error-state" role="alert">
       <span>{message}</span>
-      {onRetry && <button type="button" className="btn btn-sm" onClick={onRetry}>{t('Retry')}</button>}
+      {onRetry && <button type="button" className="btn btn-sm" onClick={onRetry} title={t('Send the same request again, with the current filters kept.')}>{t('Retry')}</button>}
     </div>
   );
 }

@@ -27,6 +27,8 @@ interface HarborBucketChartProps {
   formatValue?: (value: number) => string;
   /** Accessible summary of the chart. */
   ariaLabel: string;
+  /** Already-translated explanation shown when hovering the chart title. */
+  description?: string;
 }
 
 const DEFAULT_WIDTH = 800;
@@ -40,7 +42,7 @@ const PAD_RIGHT = 16;
  * A time-bucketed chart in the style of the Mission History chart: stacked bars or lines over shared buckets, with an
  * optional reference line and a hover tooltip. Colors come from theme variables, so it follows light and dark mode.
  */
-export default function HarborBucketChart({ title, times, rows, series, mode, stepMinutes, hours, reference, formatValue, ariaLabel }: HarborBucketChartProps) {
+export default function HarborBucketChart({ title, times, rows, series, mode, stepMinutes, hours, reference, formatValue, ariaLabel, description }: HarborBucketChartProps) {
   const [hovered, setHovered] = useState<number | null>(null);
   // Draw at the container's real pixel width, so text and strokes keep the same size whether the chart spans the
   // page or half of it.
@@ -75,7 +77,7 @@ export default function HarborBucketChart({ title, times, rows, series, mode, st
   return (
     <div className="mission-history-chart-container harbor-metrics-chart" ref={containerRef}>
       <svg width="100%" height={HEIGHT} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none" style={{ display: 'block' }} role="img" aria-label={ariaLabel}>
-        <text x={4} y={14} fontSize="12" fontWeight="600" fill="var(--text)">{title}</text>
+        <text x={4} y={14} fontSize="12" fontWeight="600" fill="var(--text)">{title}{description && <title>{description}</title>}</text>
         {yTicks.map((tick) => (
           <g key={tick}>
             <line x1={PAD_LEFT} y1={yOf(tick)} x2={WIDTH - PAD_RIGHT} y2={yOf(tick)} stroke="var(--border)" strokeDasharray={tick === 0 ? 'none' : '4,4'} strokeWidth={1} />

@@ -138,13 +138,14 @@ export default function LogViewer({
         <div className="viewer-header">
           <h3 className="viewer-title">
             {title}
-            {completed && <span className="log-live-badge" style={{ background: 'var(--tag-complete-bg, #2d4a2d)', color: 'var(--tag-complete-fg, #6fcf6f)' }}>{t('Done')}</span>}
-            {following && !completed && <span className="log-live-badge">{t('Live')}</span>}
+            {completed && <span className="log-live-badge" title={t('The work has finished, so this log will not grow any more.')} style={{ background: 'var(--tag-complete-bg, #2d4a2d)', color: 'var(--tag-complete-fg, #6fcf6f)' }}>{t('Done')}</span>}
+            {following && !completed && <span className="log-live-badge" title={t('Following: the log reloads every second and scrolls to the newest lines.')}>{t('Live')}</span>}
           </h3>
           <div className="viewer-actions">
             <select
               className="log-line-select"
               aria-label={t('Log lines to show')}
+              title={t('How many of the most recent log lines to load. More lines show more history but take longer to load.')}
               value={lineCount}
               onChange={e => handleLineCountChange(parseInt(e.target.value, 10))}
             >
@@ -156,22 +157,23 @@ export default function LogViewer({
               <button
                 className={`btn btn-sm ${following ? 'btn-follow-active' : 'btn-follow-inactive'}`}
                 onClick={toggleFollow}
-                title={following ? t('Stop following') : t('Follow (auto-refresh)')}
+                title={following ? t('Stop reloading the log every second, so you can read without it moving.') : t('Reload the log every second and keep the newest lines in view.')}
               >
                 <span className={`follow-dot${following ? ' follow-dot-active' : ''}`}></span>
                 {following ? t('Following') : t('Follow')}
               </button>
             )}
             {completed && (
-              <span style={{ fontSize: '0.8em', color: 'var(--text-dim)', padding: '0.25rem 0.5rem' }}>{t('Completed')}</span>
+              <span style={{ fontSize: '0.8em', color: 'var(--text-dim)', padding: '0.25rem 0.5rem' }} title={t('The work has finished, so this log will not grow any more.')}>{t('Completed')}</span>
             )}
             <button
               className={`btn btn-sm${copied ? ' copied' : ''}`}
               onClick={handleCopy}
+              title={t('Copy the log text currently loaded here to the clipboard.')}
             >
               {copied ? t('Copied!') : t('Copy')}
             </button>
-            <button className="btn btn-sm" onClick={onClose}>{t('Close')}</button>
+            <button className="btn btn-sm" onClick={onClose} title={t('Close the log. Following stops; the work itself keeps running.')}>{t('Close')}</button>
           </div>
         </div>
         <div className="viewer-body-wrap">

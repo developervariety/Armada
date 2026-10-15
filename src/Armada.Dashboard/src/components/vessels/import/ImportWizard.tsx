@@ -396,8 +396,8 @@ export default function ImportWizard({ open, onClose, onImported, initialView = 
   if (step === 'source') {
     footer = (
       <>
-        <button type="button" className="btn" onClick={requestClose}>{t('Cancel')}</button>
-        <button type="button" className="btn btn-primary" onClick={() => void discover()} disabled={discovering || sourcePaths.length === 0 || depthInvalid}>
+        <button type="button" className="btn" onClick={requestClose} title={t('Close the import without scanning anything.')}>{t('Cancel')}</button>
+        <button type="button" className="btn btn-primary" onClick={() => void discover()} disabled={discovering || sourcePaths.length === 0 || depthInvalid} title={t('Scan the chosen folders for git repositories in the background. Nothing is created yet; you review the candidates next.')}>
           {discovering ? t('Discovering...') : t('Discover')}
         </button>
       </>
@@ -405,15 +405,15 @@ export default function ImportWizard({ open, onClose, onImported, initialView = 
   } else if (step === 'discovering') {
     footer = (
       <>
-        <button type="button" className="btn" onClick={resetAll}>{t('Start over')}</button>
+        <button type="button" className="btn" onClick={resetAll} title={t('Go back to choosing folders. The running scan still finishes and stays in the import history.')}>{t('Start over')}</button>
         <button type="button" className="btn btn-primary" onClick={onClose}>{t('Close')}</button>
       </>
     );
   } else if (step === 'review') {
     footer = (
       <>
-        <button type="button" className="btn" onClick={() => setStep('source')} disabled={importing}>{t('Back')}</button>
-        <button type="button" className="btn btn-primary" onClick={() => void runImport()} disabled={importing || selected.length === 0}>
+        <button type="button" className="btn" onClick={() => setStep('source')} disabled={importing} title={t('Return to choosing folders to scan.')}>{t('Back')}</button>
+        <button type="button" className="btn btn-primary" onClick={() => void runImport()} disabled={importing || selected.length === 0} title={t('Create one vessel for each selected candidate with the defaults below. Runs in the background; existing checkouts are not moved or changed.')}>
           {importing ? t('Importing...') : t('{count, plural, =0 {Import repositories} one {Import # repository} other {Import # repositories}}', { count: selected.length })}
         </button>
       </>
@@ -421,16 +421,16 @@ export default function ImportWizard({ open, onClose, onImported, initialView = 
   } else if (step === 'results') {
     footer = (
       <>
-        <button type="button" className="btn" onClick={resetAll}>{t('Import more')}</button>
-        <button type="button" className="btn" onClick={() => { onClose(); navigate('/vessels'); }}>{t('View vessels')}</button>
+        <button type="button" className="btn" onClick={resetAll} title={t('Start a new import from the folder selection step.')}>{t('Import more')}</button>
+        <button type="button" className="btn" onClick={() => { onClose(); navigate('/vessels'); }} title={t('Close the import and open the Vessels list.')}>{t('View vessels')}</button>
         <button type="button" className="btn btn-primary" onClick={onClose}>{t('Close')}</button>
       </>
     );
   } else {
     footer = (
       <>
-        {step === 'batch' && <button type="button" className="btn" onClick={() => { stopPolling(); setStep('history'); }}>{t('Back to history')}</button>}
-        <button type="button" className="btn" onClick={resetAll}>{t('New import')}</button>
+        {step === 'batch' && <button type="button" className="btn" onClick={() => { stopPolling(); setStep('history'); }} title={t('Return to the list of past import batches.')}>{t('Back to history')}</button>}
+        <button type="button" className="btn" onClick={resetAll} title={t('Start a new import from the folder selection step.')}>{t('New import')}</button>
         <button type="button" className="btn btn-primary" onClick={onClose}>{t('Close')}</button>
       </>
     );
@@ -462,7 +462,7 @@ export default function ImportWizard({ open, onClose, onImported, initialView = 
             <h4 className="wizard-view-title">{t('Import history')}</h4>
           )}
           {(step === 'source' || step === 'results' || step === 'discovering') && (
-            <button type="button" className="btn btn-sm" onClick={() => { stopPolling(); setStep('history'); }}>{t('Import history')}</button>
+            <button type="button" className="btn btn-sm" onClick={() => { stopPolling(); setStep('history'); }} title={t('See past import batches, reopen a review, or check what an import created. Background work keeps running.')}>{t('Import history')}</button>
           )}
         </div>
 
@@ -470,13 +470,14 @@ export default function ImportWizard({ open, onClose, onImported, initialView = 
           <div className="import-source">
             {discoverError && <ErrorState message={discoverError} onRetry={() => void discover()} />}
             <div className="page-tabs-list import-source-tabs" role="tablist" aria-label={t('Source')}>
-              <button type="button" role="tab" aria-selected={sourceTab === 'paste'} className={`page-tab${sourceTab === 'paste' ? ' active' : ''}`} onClick={() => setSourceTab('paste')}>{t('Paste paths')}</button>
-              <button type="button" role="tab" aria-selected={sourceTab === 'browse'} className={`page-tab${sourceTab === 'browse' ? ' active' : ''}`} onClick={() => setSourceTab('browse')}>{t('Browse')}</button>
+              <button type="button" role="tab" aria-selected={sourceTab === 'paste'} className={`page-tab${sourceTab === 'paste' ? ' active' : ''}`} onClick={() => setSourceTab('paste')} title={t('Type or paste folder paths on the Admiral host.')}>{t('Paste paths')}</button>
+              <button type="button" role="tab" aria-selected={sourceTab === 'browse'} className={`page-tab${sourceTab === 'browse' ? ' active' : ''}`} onClick={() => setSourceTab('browse')} title={t('Pick folders from a tree of the import roots an administrator allowed under Settings > Import.')}>{t('Browse')}</button>
             </div>
             {sourceTab === 'paste' ? (
-              <label className="form-field">
+              <label className="form-field" title={t('Absolute folder paths on the Admiral host, one per line, e.g. /Users/alex/Code. A repository folder becomes one candidate; other folders are searched for repositories inside them.')}>
                 <span className="form-label">{t('Folders on the Admiral host, one per line')}</span>
                 <textarea
+                  title={t('Absolute folder paths on the Admiral host, one per line, e.g. /Users/alex/Code. A repository folder becomes one candidate; other folders are searched for repositories inside them.')}
                   className="mono"
                   rows={8}
                   value={pasteText}
@@ -498,8 +499,8 @@ export default function ImportWizard({ open, onClose, onImported, initialView = 
                   allowWorktrees={allowWorktrees}
                   onToggle={(p) => setBrowseSelected((s) => (s.includes(p) ? s.filter((x) => x !== p) : [...s, p]))}
                 />
-                <label className="checkbox-row">
-                  <input type="checkbox" checked={allowWorktrees} onChange={(e) => setAllowWorktrees(e.target.checked)} />
+                <label className="checkbox-row" title={t('Let you check folders that are git worktrees or submodules of another repository. Off by default, since they usually belong to a repository you are already importing.')}>
+                  <input title={t('Let you check folders that are git worktrees or submodules of another repository. Off by default, since they usually belong to a repository you are already importing.')} type="checkbox" checked={allowWorktrees} onChange={(e) => setAllowWorktrees(e.target.checked)} />
                   <span>{t('Allow selecting worktrees')}</span>
                 </label>
                 {browseSelected.length > 0 && (
@@ -509,7 +510,7 @@ export default function ImportWizard({ open, onClose, onImported, initialView = 
                       {browseSelected.map((p) => (
                         <li key={p}>
                           <span className="mono" data-i18n-skip="true">{p}</span>
-                          <button type="button" className="btn btn-sm" onClick={() => setBrowseSelected((s) => s.filter((x) => x !== p))} aria-label={t('Remove {{path}}', { path: p })} title={t('Remove {{path}}', { path: p })}>
+                          <button type="button" className="btn btn-sm" onClick={() => setBrowseSelected((s) => s.filter((x) => x !== p))} aria-label={t('Remove {{path}}', { path: p })} title={t('Remove {{path}} from the folders to scan.', { path: p })}>
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
                           </button>
                         </li>
@@ -519,9 +520,9 @@ export default function ImportWizard({ open, onClose, onImported, initialView = 
                 )}
               </>
             )}
-            <label className="form-field import-depth">
+            <label className="form-field import-depth" title={t('How many folder levels below each non-repository folder to search, from 1 to 16, e.g. 3. Blank uses the server default (6 unless changed in Settings > Import).')}>
               <span className="form-label">{t('Max depth')}</span>
-              <input type="number" min={1} max={16} value={maxDepth} onChange={(e) => setMaxDepth(e.target.value)} placeholder={t('Server default')} aria-invalid={depthInvalid} />
+              <input title={t('How many folder levels below each non-repository folder to search, from 1 to 16, e.g. 3. Blank uses the server default (6 unless changed in Settings > Import).')} type="number" min={1} max={16} value={maxDepth} onChange={(e) => setMaxDepth(e.target.value)} placeholder={t('Server default')} aria-invalid={depthInvalid} />
               {depthInvalid
                 ? <span className="field-error">{t('Max depth must be a whole number from 1 to 16.')}</span>
                 : <span className="text-dim form-help">{t('Folder levels searched below each folder that is not itself a repository (1-16). Leave empty for the server default.')}</span>}
@@ -546,9 +547,9 @@ export default function ImportWizard({ open, onClose, onImported, initialView = 
             {importError && (
               <div className="alert alert-error" role="alert" ref={importErrorRef}>
                 <span>{importError}</span>{' '}
-                <button type="button" className="btn btn-sm" onClick={() => void runImport()}>{t('Retry')}</button>
-                {importErrorCode === 'BatchBusy' && <button type="button" className="btn btn-sm" onClick={() => setStep('history')}>{t('Open import history')}</button>}
-                {importErrorCode === 'BatchNotFound' && <button type="button" className="btn btn-sm" onClick={() => void discover()}>{t('Discover again')}</button>}
+                <button type="button" className="btn btn-sm" onClick={() => void runImport()} title={t('Try the import again with the same selection.')}>{t('Retry')}</button>
+                {importErrorCode === 'BatchBusy' && <button type="button" className="btn btn-sm" onClick={() => setStep('history')} title={t('This batch is busy with other work. Open the import history to see its state.')}>{t('Open import history')}</button>}
+                {importErrorCode === 'BatchNotFound' && <button type="button" className="btn btn-sm" onClick={() => void discover()} title={t('The batch no longer exists. Scan the same folders again to start a fresh one.')}>{t('Discover again')}</button>}
               </div>
             )}
             {candidates.length === 0 ? (

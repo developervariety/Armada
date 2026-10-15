@@ -66,14 +66,14 @@ namespace Armada.Harbor
             if (header != null) top.Children.Add(header);
 
             StackPanel buttons = HarborUi.ButtonRow();
-            Button save = HarborUi.Button("Save", () => _ = SaveAsync());
+            Button save = HarborUi.Button("Save", () => _ = SaveAsync(), "Check the JSON and write it to the file. The previous contents are kept as a version you can restore.");
             save.Classes.Add("accent");
             buttons.Children.Add(save);
-            buttons.Children.Add(HarborUi.Button("Validate", () => ShowValidation(true)));
+            buttons.Children.Add(HarborUi.Button("Validate", () => ShowValidation(true), "Check that the text is valid JSON without saving it"));
             buttons.Children.Add(HarborUi.Button("Revert", () => _ = RevertAsync(), "Reload the file, discarding unsaved changes"));
             buttons.Children.Add(HarborUi.Button("Restore Previous Version...", () => _ = RestorePreviousAsync(), "Choose a version this file had before an earlier save and put it back"));
             buttons.Children.Add(HarborUi.Button("Open File", OpenExternally, "Open in a text editor"));
-            buttons.Children.Add(HarborUi.Button("Show in Folder", Reveal));
+            buttons.Children.Add(HarborUi.Button("Show in Folder", Reveal, "Show this file in Finder or Explorer"));
 
             StackPanel bottom = new StackPanel { Spacing = 6, Margin = new Thickness(0, 8, 0, 0) };
             bottom.Children.Add(_Message);

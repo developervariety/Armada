@@ -48,10 +48,12 @@ namespace Armada.Harbor
             StackPanel roots = new StackPanel { Spacing = 8 };
             roots.Children.Add(HarborUi.Help("Searched up to three folders deep for checkouts of vessels not named above."));
             roots.Children.Add(_RootRows);
-            roots.Children.Add(HarborUi.Button("Add root folder", () => AddRoot(String.Empty)));
+            roots.Children.Add(HarborUi.Button("Add root folder", () => AddRoot(String.Empty), "Add a folder that holds your code, such as ~/Code. Harbor searches it up to three levels deep for checkouts of vessels."));
 
             StackPanel folders = new StackPanel { Spacing = 6 };
             folders.Children.Add(Label("Docks folder"));
+            ToolTip.SetTip(_DocksDirectory, "Folder where Harbor creates a git worktree (dock) for each mission, as <vessel>/<mission>. Leave empty for the default shown. Keep it outside your code folders so tools do not index the docks.");
+            ToolTip.SetTip(_ReposDirectory, "Folder where Harbor keeps its own bare clone of a vessel it has no checkout of. Leave empty for the default shown.");
             folders.Children.Add(PathRow(_DocksDirectory));
             folders.Children.Add(HarborUi.Help("Mission docks are created here as <vessel>/<mission>. Keep it outside your code folders."));
             folders.Children.Add(Label("Clones folder"));
@@ -59,7 +61,7 @@ namespace Armada.Harbor
             folders.Children.Add(HarborUi.Help("Where this Harbor clones a vessel it has no checkout of."));
 
             StackPanel buttons = HarborUi.ButtonRow();
-            Button save = HarborUi.Button("Save", Save);
+            Button save = HarborUi.Button("Save", Save, "Save these folders to Harbor's settings file. New missions use them right away.");
             save.Classes.Add("accent");
             buttons.Children.Add(save);
             buttons.Children.Add(HarborUi.Button("Revert", () => Load(_Session.Settings), "Discard unsaved changes"));
@@ -163,21 +165,23 @@ namespace Armada.Harbor
         private void AddMapping(string vessel, string path)
         {
             TextBox vesselBox = new TextBox { Text = vessel, Watermark = "Vessel name or ID" };
+            ToolTip.SetTip(vesselBox, "The vessel, by its name or its vsl_ ID, whose checkout is the folder on the right");
             TextBox pathBox = new TextBox { Text = path, Watermark = "/path/to/checkout" };
+            ToolTip.SetTip(pathBox, "The folder of your own git checkout of that vessel on this computer. Harbor runs checks and local merges there.");
             MappingRow row = new MappingRow(vesselBox, pathBox);
 
             Grid grid = new Grid { ColumnDefinitions = new ColumnDefinitions("180,*,Auto,Auto"), ColumnSpacing = 6 };
             grid.Children.Add(vesselBox);
             Grid.SetColumn(pathBox, 1);
             grid.Children.Add(pathBox);
-            Button browse = HarborUi.Button("Browse...", () => _ = BrowseAsync(pathBox));
+            Button browse = HarborUi.Button("Browse...", () => _ = BrowseAsync(pathBox), "Pick the checkout folder from a folder chooser");
             Grid.SetColumn(browse, 2);
             grid.Children.Add(browse);
             Button remove = HarborUi.Button("Remove", () =>
             {
                 _Mappings.Remove(row);
                 _MappingRows.Children.Remove(grid);
-            });
+            }, "Remove this vessel checkout from the list (the folder itself is not touched). Save to keep the change.");
             Grid.SetColumn(remove, 3);
             grid.Children.Add(remove);
 
@@ -188,12 +192,13 @@ namespace Armada.Harbor
         private void AddRoot(string folder)
         {
             TextBox box = new TextBox { Text = folder, Watermark = "/path/to/your/code" };
+            ToolTip.SetTip(box, "A folder that holds your code. Harbor looks up to three levels deep for checkouts of vessels not listed above.");
             Grid grid = PathRow(box);
             Button remove = HarborUi.Button("Remove", () =>
             {
                 _Roots.Remove(box);
                 _RootRows.Children.Remove(grid);
-            });
+            }, "Stop searching this folder for checkouts (the folder itself is not touched). Save to keep the change.");
             grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
             Grid.SetColumn(remove, 2);
             grid.Children.Add(remove);
@@ -206,7 +211,7 @@ namespace Armada.Harbor
         {
             Grid grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 6 };
             grid.Children.Add(box);
-            Button browse = HarborUi.Button("Browse...", () => _ = BrowseAsync(box));
+            Button browse = HarborUi.Button("Browse...", () => _ = BrowseAsync(box), "Pick the folder from a folder chooser");
             Grid.SetColumn(browse, 1);
             grid.Children.Add(browse);
             return grid;

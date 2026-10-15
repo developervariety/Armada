@@ -18,7 +18,6 @@ const dashboardOnly = [
   'lib/dialogA11y.ts', // DOM focus management for HTML dialogs
   'lib/useFocusTrap.ts', // DOM focus trap (re-exports dialogA11y)
   'lib/useAutoRefresh.ts', // per-table interval persisted in localStorage
-  'lib/usePersistedPageSize.ts', // page size persisted in localStorage
   'lib/useTablePrefs.ts', // table preferences persisted in localStorage
   'lib/useColumnVisibility.ts', // table column choice persisted in localStorage
   'lib/useInboxCount.ts', // bound to the dashboard WebSocketContext; mobile uses lib/inboxSummary.ts

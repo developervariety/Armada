@@ -93,6 +93,18 @@ export default function Incidents() {
   });
 
   const canManage = isAdmin || isTenantAdmin;
+
+  const tips = {
+    title: t('Short name for what broke, such as Checkout errors after v1.4.0. Required.'),
+    status: t('Lifecycle state: Open, Monitoring after a fix, Mitigated, RolledBack, or Closed. Changing it does not run anything.'),
+    severity: t('How bad the impact is: Critical, High, Medium, or Low. Used for sorting and filtering only.'),
+    vessel: t('Repository affected by the incident. Optional, used for context and filtering.'),
+    environment: t('Environment where the incident happened. Optional; links the incident to that environment\'s record.'),
+    deployment: t('Deployment that caused or relates to the incident. Optional; open the deployment to roll it back.'),
+    release: t('Release involved in the incident. Optional, for context.'),
+    summary: t('What happened, in a sentence or two. Shown in the list and searchable.'),
+    impact: t('Who or what was affected and how, such as 5% of checkout requests failing for 20 minutes.'),
+  };
   const carryState = (location.state as IncidentPageState | null) || null;
 
   function openCreate() {
@@ -213,14 +225,14 @@ export default function Incidents() {
 
   const columns: DataTableColumn<Incident>[] = [
     {
-      key: 'title', label: t('Incident'), required: true,
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
+      key: 'title', label: t('Incident'), required: true, headerTitle: t('Incident title. Hover a row for its summary or impact.'),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only incidents whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
       // One line: the summary (or impact) is in the tooltip and in the optional Summary column.
       cellTitle: (incident) => [incident.title, incident.summary || incident.impact].filter(Boolean).join('\n'),
       render: (incident) => <strong className="cell-one-line">{incident.title}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Incident ID (inc_ prefix), used by the REST API, MCP tools, and links.'), cellClassName: 'mono text-dim table-id-cell',
       render: (incident) => (
         <span className="id-display">
           <span className="id-value" title={incident.id}>{incident.id}</span>
@@ -228,25 +240,25 @@ export default function Incidents() {
         </span>
       ),
     },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (incident) => <StatusBadge status={incident.status} /> },
-    { key: 'severity', label: t('Severity'), cellClassName: 'cell-nowrap', render: (incident) => <StatusBadge status={incident.severity} /> },
+    { key: 'status', label: t('Status'), headerTitle: t('Lifecycle state: Open, Monitoring, Mitigated, RolledBack, or Closed.'), cellClassName: 'cell-nowrap', render: (incident) => <StatusBadge status={incident.status} /> },
+    { key: 'severity', label: t('Severity'), headerTitle: t('Impact level: Critical, High, Medium, or Low.'), cellClassName: 'cell-nowrap', render: (incident) => <StatusBadge status={incident.severity} /> },
     {
-      key: 'environment', label: t('Environment'), cellClassName: 'text-dim',
+      key: 'environment', label: t('Environment'), headerTitle: t('Environment where the incident happened.'), cellClassName: 'text-dim',
       clearFilter: () => setColFilters(f => ({ ...f, environmentName: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by environment')} value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by environment')} title={t('Show only incidents whose environment name contains this text.')} value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} />,
       render: (incident) => (incident.environmentId ? (environmentMap.get(incident.environmentId) || incident.environmentName || incident.environmentId) : (incident.environmentName || '-')),
     },
-    { key: 'deployment', label: t('Deployment'), cellClassName: 'text-dim', render: (incident) => (incident.deploymentId ? (deploymentMap.get(incident.deploymentId) || incident.deploymentId) : '-') },
-    { key: 'release', label: t('Release'), cellClassName: 'text-dim', render: (incident) => (incident.releaseId ? (releaseMap.get(incident.releaseId) || incident.releaseId) : '-') },
+    { key: 'deployment', label: t('Deployment'), headerTitle: t('Deployment linked to the incident.'), cellClassName: 'text-dim', render: (incident) => (incident.deploymentId ? (deploymentMap.get(incident.deploymentId) || incident.deploymentId) : '-') },
+    { key: 'release', label: t('Release'), headerTitle: t('Release linked to the incident.'), cellClassName: 'text-dim', render: (incident) => (incident.releaseId ? (releaseMap.get(incident.releaseId) || incident.releaseId) : '-') },
     {
-      key: 'summary', label: t('Summary'), defaultHidden: true, cellClassName: 'text-dim',
+      key: 'summary', label: t('Summary'), headerTitle: t('Incident summary, or its impact when no summary is set.'), defaultHidden: true, cellClassName: 'text-dim',
       render: (incident) => {
         const text = incident.summary || incident.impact || t('No summary provided');
         return <span className="cell-one-line" title={text}>{text}</span>;
       },
     },
     {
-      key: 'lastUpdated', label: t('Last Updated'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastUpdated', label: t('Last Updated'), headerTitle: t('When the incident was last saved. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (incident) => formatDateTime(incident.lastUpdateUtc),
       render: (incident) => formatRelativeTime(incident.lastUpdateUtc),
     },
@@ -256,9 +268,9 @@ export default function Incidents() {
         <ActionMenu
           id={`incident-${incident.id}`}
           items={[
-            { label: 'Open', onClick: () => navigate(`/incidents/${incident.id}`, { state: carryState }) },
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: incident.title, data: incident }) },
-            ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(incident) }] : []),
+            { label: 'Open', title: 'Open the incident detail page to edit root cause, recovery, and postmortem notes or start a hotfix.', onClick: () => navigate(`/incidents/${incident.id}`, { state: carryState }) },
+            { label: 'View JSON', title: 'Show the raw incident record as returned by the API.', onClick: () => setJsonData({ open: true, title: incident.title, data: incident }) },
+            ...(canManage ? [{ label: 'Delete', title: 'Delete this incident and its saved history. Deployments, checks, and releases are not affected. Cannot be undone.', danger: true as const, onClick: () => handleDelete(incident) }] : []),
           ]}
         />
       ),
@@ -273,7 +285,7 @@ export default function Incidents() {
         actions={(
           <>
             {canManage && (
-              <button className="btn btn-primary" onClick={openCreate}>
+              <button className="btn btn-primary" onClick={openCreate} title={t('Record a new incident. Creating it from a deployment or environment instead keeps more context linked.')}>
                 + {t('Incident')}
               </button>
             )}
@@ -308,87 +320,87 @@ export default function Incidents() {
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
             <h3>{t('Create Incident')}</h3>
-            <label>{t('Title')}
-              <input type="text" value={createForm.title} onChange={(event) => setCreateForm({ ...createForm, title: event.target.value })} required />
+            <label title={tips.title}>{t('Title')}
+              <input title={tips.title} type="text" value={createForm.title} onChange={(event) => setCreateForm({ ...createForm, title: event.target.value })} required />
             </label>
-            <label>{t('Status')}
-              <select value={createForm.status} onChange={(event) => setCreateForm({ ...createForm, status: event.target.value as IncidentStatus })}>
+            <label title={tips.status}>{t('Status')}
+              <select title={tips.status} value={createForm.status} onChange={(event) => setCreateForm({ ...createForm, status: event.target.value as IncidentStatus })}>
                 {INCIDENT_STATUSES.map((status) => (
                   <option key={status} value={status}>{status}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Severity')}
-              <select value={createForm.severity} onChange={(event) => setCreateForm({ ...createForm, severity: event.target.value as IncidentSeverity })}>
+            <label title={tips.severity}>{t('Severity')}
+              <select title={tips.severity} value={createForm.severity} onChange={(event) => setCreateForm({ ...createForm, severity: event.target.value as IncidentSeverity })}>
                 {INCIDENT_SEVERITIES.map((severity) => (
                   <option key={severity} value={severity}>{severity}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Vessel')}
-              <select value={createForm.vesselId} onChange={(event) => setCreateForm({ ...createForm, vesselId: event.target.value })}>
+            <label title={tips.vessel}>{t('Vessel')}
+              <select title={tips.vessel} value={createForm.vesselId} onChange={(event) => setCreateForm({ ...createForm, vesselId: event.target.value })}>
                 <option value="">{t('Select a vessel')}</option>
                 {vessels.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Environment')}
-              <select value={createForm.environmentId} onChange={(event) => setCreateForm({ ...createForm, environmentId: event.target.value })}>
+            <label title={tips.environment}>{t('Environment')}
+              <select title={tips.environment} value={createForm.environmentId} onChange={(event) => setCreateForm({ ...createForm, environmentId: event.target.value })}>
                 <option value="">{t('Select an environment')}</option>
                 {environments.map((environment) => (
                   <option key={environment.id} value={environment.id}>{environment.name}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Deployment')}
-              <select value={createForm.deploymentId} onChange={(event) => setCreateForm({ ...createForm, deploymentId: event.target.value })}>
+            <label title={tips.deployment}>{t('Deployment')}
+              <select title={tips.deployment} value={createForm.deploymentId} onChange={(event) => setCreateForm({ ...createForm, deploymentId: event.target.value })}>
                 <option value="">{t('No linked deployment')}</option>
                 {deployments.map((deployment) => (
                   <option key={deployment.id} value={deployment.id}>{deployment.title}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Release')}
-              <select value={createForm.releaseId} onChange={(event) => setCreateForm({ ...createForm, releaseId: event.target.value })}>
+            <label title={tips.release}>{t('Release')}
+              <select title={tips.release} value={createForm.releaseId} onChange={(event) => setCreateForm({ ...createForm, releaseId: event.target.value })}>
                 <option value="">{t('No linked release')}</option>
                 {releases.map((release) => (
                   <option key={release.id} value={release.id}>{release.title}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Summary')}
-              <textarea rows={3} value={createForm.summary} onChange={(event) => setCreateForm({ ...createForm, summary: event.target.value })} />
+            <label title={tips.summary}>{t('Summary')}
+              <textarea title={tips.summary} rows={3} value={createForm.summary} onChange={(event) => setCreateForm({ ...createForm, summary: event.target.value })} />
             </label>
-            <label>{t('Impact')}
-              <textarea rows={3} value={createForm.impact} onChange={(event) => setCreateForm({ ...createForm, impact: event.target.value })} />
+            <label title={tips.impact}>{t('Impact')}
+              <textarea title={tips.impact} rows={3} value={createForm.impact} onChange={(event) => setCreateForm({ ...createForm, impact: event.target.value })} />
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Incident')}</button>
-              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving} title={t('Create the incident record. You can add root cause, recovery, and postmortem notes on its detail page.')}>{saving ? t('Saving...') : t('Create Incident')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving} title={t('Close without saving.')}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('All incident records you can see, before filters.')}>
           <span>{t('Total Incidents')}</span>
           <strong>{incidents.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Incidents still active and needing attention.')}>
           <span>{t('Open')}</span>
           <strong>{openCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Incidents being watched after mitigation work.')}>
           <span>{t('Monitoring')}</span>
           <strong>{monitoringCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Incidents whose impact is stopped but may still have follow-up work.')}>
           <span>{t('Mitigated')}</span>
           <strong>{mitigatedCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Incidents fully closed or resolved by a rollback.')}>
           <span>{t('Closed / Rolled Back')}</span>
           <strong>{closedCount}</strong>
         </div>
@@ -401,14 +413,15 @@ export default function Incidents() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t('Search by title, summary, impact, environment, or ID...')}
+            title={t('Filters the list to incidents whose title, summary, impact, environment, or ID contains this text.')}
           />
-          <select aria-label={t('All statuses')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+          <select aria-label={t('All statuses')} title={t('Show only incidents in this state.')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
             <option value="all">{t('All statuses')}</option>
             {INCIDENT_STATUSES.map((status) => (
               <option key={status} value={status}>{status}</option>
             ))}
           </select>
-          <select aria-label={t('All severities')} value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as typeof severityFilter)}>
+          <select aria-label={t('All severities')} title={t('Show only incidents of this severity.')} value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as typeof severityFilter)}>
             <option value="all">{t('All severities')}</option>
             {INCIDENT_SEVERITIES.map((severity) => (
               <option key={severity} value={severity}>{severity}</option>

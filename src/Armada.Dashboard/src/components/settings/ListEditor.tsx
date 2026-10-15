@@ -27,7 +27,7 @@ export default function ListEditor({ id, label, help, placeholder, values, onCha
 
   return (
     <div className="form-group list-editor">
-      <label htmlFor={`${id}-input`}>{label}</label>
+      <label htmlFor={`${id}-input`} title={help}>{label}</label>
       <div className="list-editor-add">
         <input
           id={`${id}-input`}
@@ -37,8 +37,9 @@ export default function ListEditor({ id, label, help, placeholder, values, onCha
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
           aria-describedby={help ? `${id}-help` : undefined}
+          title={help}
         />
-        <button type="button" className="btn btn-sm" onClick={add} disabled={!draft.trim()}>{t('Add')}</button>
+        <button type="button" className="btn btn-sm" onClick={add} disabled={!draft.trim()} title={t('Add the typed value to the list (Enter does the same). Duplicates are ignored. Nothing is saved until you press the section Save button.')}>{t('Add')}</button>
       </div>
       {help && <span id={`${id}-help`} className="text-dim form-help">{help}</span>}
       {values.length === 0 ? (

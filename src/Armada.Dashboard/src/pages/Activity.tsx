@@ -22,11 +22,11 @@ function panel(node: ReactNode): ReactNode {
  */
 export default function Activity() {
   const tabs: TabDef[] = [
-    { key: 'history', label: 'All Activity', render: () => panel(<History />) },
-    { key: 'requests', label: 'API Requests', render: () => panel(<RequestHistory />) },
-    { key: 'events', label: 'Events', render: () => panel(<Events />) },
-    { key: 'signals', label: 'Signals', render: () => panel(<Signals />) },
-    { key: 'tokens', label: 'Token Usage', render: () => panel(<TokenUsage />) },
+    { key: 'history', label: 'All Activity', tooltip: 'One timeline of everything that happened: missions, voyages, merges, deployments, and more.', render: () => panel(<History />) },
+    { key: 'requests', label: 'API Requests', tooltip: 'REST API requests the server received, with method, path, status, and timing.', render: () => panel(<RequestHistory />) },
+    { key: 'events', label: 'Events', tooltip: 'The server\'s event log: state changes such as missions starting, finishing, or failing.', render: () => panel(<Events />) },
+    { key: 'signals', label: 'Signals', tooltip: 'Messages sent between the Admiral and captains.', render: () => panel(<Signals />) },
+    { key: 'tokens', label: 'Token Usage', tooltip: 'Model tokens and cost used by captains, by day, captain, vessel, and model.', render: () => panel(<TokenUsage />) },
   ];
 
   return <Tabs tabs={tabs} param="source" defaultTabKey="history" ariaLabel="Activity sources" />;

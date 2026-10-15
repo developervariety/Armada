@@ -22,14 +22,14 @@ export default function ScopeSelect({ viewer, value, onChange, label }: ScopeSel
   if (!canChooseScope(viewer)) {
     return (
       <label>{heading}
-        <input type="text" value={t('Personal (only you can see and edit it)')} readOnly disabled />
+        <input type="text" value={t('Personal (only you can see and edit it)')} readOnly disabled title={t('Only an administrator can share items tenant-wide, so what you create here is personal: visible to you and to administrators.')} />
       </label>
     );
   }
 
   return (
     <label>{heading}
-      <select value={value} onChange={(event) => onChange(event.target.value as ScopeEnum)}>
+      <select value={value} onChange={(event) => onChange(event.target.value as ScopeEnum)} title={t('Who can use this item. Tenant-wide: everyone in the tenant can use it, and only tenant admins can edit it. Personal: only you (and administrators) can see and edit it.')}>
         <option value="TenantWide">{t('Tenant-wide (everyone in the tenant can use it)')}</option>
         <option value="UserSpecific">{t('Personal (only you can see and edit it)')}</option>
       </select>

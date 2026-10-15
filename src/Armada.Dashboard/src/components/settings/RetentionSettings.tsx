@@ -76,8 +76,8 @@ export default function RetentionSettings({ retention, locked, onSaved, notify }
     const error = errors[field];
     return (
       <div className="form-group">
-        <label htmlFor={id}>{label}</label>
-        <input id={id} type="number" min={RETENTION_RANGE.min} max={RETENTION_RANGE.max} value={draft[field]} onChange={(e) => set(field, e.target.value)} aria-invalid={Boolean(error)} aria-describedby={`${id}-help`} />
+        <label htmlFor={id} title={`${help} ${t('0 turns this off.')}`}>{label}</label>
+        <input id={id} title={`${help} ${t('0 turns this off.')}`} type="number" min={RETENTION_RANGE.min} max={RETENTION_RANGE.max} value={draft[field]} onChange={(e) => set(field, e.target.value)} aria-invalid={Boolean(error)} aria-describedby={`${id}-help`} />
         <span id={`${id}-help`} className={error ? 'field-error' : 'text-dim form-help'}>{error ? rangeText : help}</span>
       </div>
     );
@@ -98,10 +98,10 @@ export default function RetentionSettings({ retention, locked, onSaved, notify }
           {numberInput('retention-cli-permissions', 'cliPermissionRequestRetentionDays', t('CLI permission request retention (days)'), t('Decided, expired, and cancelled CLI tool permission requests older than this are deleted; pending ones are kept (0-3650, default 90).'))}
         </div>
         <div className="settings-actions">
-          <button type="button" className="btn-primary btn-sm" onClick={() => void save()} disabled={!valid || saving || !dirty}>
+          <button type="button" className="btn-primary btn-sm" onClick={() => void save()} disabled={!valid || saving || !dirty} title={t('Save this section to the Admiral. It applies immediately; other sections are saved separately.')}>
             {saving ? t('Saving...') : t('Save Retention Settings')}
           </button>
-          {dirty && <button type="button" className="btn btn-sm" onClick={() => { setDirty(false); setDraft(toDraft(retention)); }}>{t('Discard changes')}</button>}
+          {dirty && <button type="button" className="btn btn-sm" onClick={() => { setDirty(false); setDraft(toDraft(retention)); }} title={t('Throw away the unsaved edits in this section and show the saved values again.')}>{t('Discard changes')}</button>}
           {dirty && <span className="text-dim">{t('Unsaved changes')}</span>}
         </div>
       </fieldset>

@@ -113,16 +113,16 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
           </p>
         </div>
         <div className="planning-current-session-actions">
-          {currentStatus && <StatusBadge status={currentStatus} />}
-          <label className="ask-stream-toggle" title={t('Stream the reply as it is produced')}>
+          {currentStatus && <span title={t('Active is ready for your next message, Responding is the captain replying, Stopping and Stopped mean it has ended, Failed means setup or a turn failed.')}><StatusBadge status={currentStatus} /></span>}
+          <label className="ask-stream-toggle" title={t('Show the captain\'s reply word by word as it is written. Turn off to get each reply only when it is finished. Some runtimes, such as Codex, cannot stream.')}>
             <input type="checkbox" checked={streamingEnabled} onChange={(e) => onStreamingChange?.(e.target.checked)} disabled={busy} />
             {t('Stream responses')}
           </label>
-          <label className="ask-stream-toggle" title={t('Surface the model reasoning above the answer. Mux streams it natively; other runtimes are asked to include it.')}>
+          <label className="ask-stream-toggle" title={t('Show the model\'s reasoning above each answer. Mux streams it natively; other runtimes are asked to include it, which can make replies longer.')}>
             <input type="checkbox" checked={showThinking} onChange={(e) => onShowThinkingChange?.(e.target.checked)} disabled={busy} />
             {t('Show thinking')}
           </label>
-          <button type="button" className="btn btn-sm" disabled={!canEndSession} onClick={onEndSession}>
+          <button type="button" className="btn btn-sm" disabled={!canEndSession} onClick={onEndSession} title={t('Stop the session, release the captain and reclaim its dock. The transcript is kept.')}>
             {endingSession || currentStatus === 'Stopping' ? t('Ending...') : t('End Session')}
           </button>
         </div>
@@ -130,35 +130,35 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
 
       <div className="planning-current-session-summary">
         <div className="planning-current-session-summary-item">
-          <span>{t('Captain')}</span>
+          <span title={t('Captain reserved for this session.')}>{t('Captain')}</span>
           <strong>{captainName}</strong>
         </div>
         <div className="planning-current-session-summary-item">
-          <span>{t('Runtime')}</span>
+          <span title={t('Agent software the captain runs, such as Claude Code, Codex or Mux.')}>{t('Runtime')}</span>
           <strong>{captainRuntime || '-'}</strong>
         </div>
         <div className="planning-current-session-summary-item">
-          <span>{t('Vessel')}</span>
+          <span title={t('Repository the session plans against.')}>{t('Vessel')}</span>
           <strong>{vesselName}</strong>
         </div>
         <div className="planning-current-session-summary-item">
-          <span>{t('Branch')}</span>
+          <span title={t('Git branch of the session\'s dock. Changes the captain makes while planning are made here.')}>{t('Branch')}</span>
           <strong className="mono">{branchName || '-'}</strong>
         </div>
         <div className="planning-current-session-summary-item">
-          <span>{t('Pipeline')}</span>
+          <span title={t('Pipeline used when dispatching from this session. - means it is inherited from the vessel or fleet at dispatch time.')}>{t('Pipeline')}</span>
           <strong>{pipelineName}</strong>
         </div>
         <div className="planning-current-session-summary-item">
-          <span>{t('Playbooks')}</span>
+          <span title={t('Number of playbooks (reusable instruction files) given to the captain for this session.')}>{t('Playbooks')}</span>
           <strong>{playbookCount}</strong>
         </div>
         <div className="planning-current-session-summary-item">
-          <span>{t('Updated')}</span>
+          <span title={t('When the session last changed, such as a new message.')}>{t('Updated')}</span>
           <strong title={formatDateTime(updatedUtc)}>{formatRelativeTime(updatedUtc)}</strong>
         </div>
         <div className="planning-current-session-summary-item">
-          <span>{t('Messages')}</span>
+          <span title={t('Number of messages in the transcript, yours and the captain\'s.')}>{t('Messages')}</span>
           <strong>{messages.length}</strong>
         </div>
       </div>
@@ -196,7 +196,7 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
                   type="button"
                   className="btn btn-sm btn-primary"
                   onClick={() => onOpenMessageInDispatch(turn.id!)}
-                  title={t('Open the main Dispatch page with this reply as the prompt')}
+                  title={t('Ends this session (releasing the captain), then opens the Dispatch page with this reply as the description so you can review and dispatch it.')}
                 >
                   {t('Open in Dispatch')}
                 </button>

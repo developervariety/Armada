@@ -236,50 +236,50 @@ export default function ObjectiveDetail() {
     [captains, refinementCaptainId],
   );
   const fieldHelp = useMemo(() => ({
-    title: t('Short backlog headline. Armada reuses this in backlog lists, planning, dispatch, and release drafting.'),
-    vessel: t('Primary vessel this backlog item targets. Armada uses the selected vessel to infer fleet context and unlock repository-aware planning and dispatch.'),
-    status: t('High-level lifecycle state for the work item, such as Draft, Planned, InProgress, or Completed.'),
-    owner: t('Person responsible for driving or approving the work. This is for human ownership and reporting.'),
-    description: t('Longer problem statement or implementation summary. Captains and operators use this as the core work description.'),
-    tagKey: t('Tag name or category, such as area, team, or source.'),
-    tagValue: t('Tag value paired with the key. Leave blank if the tag only needs a single label.'),
-    refinementSummary: t('Condensed summary of what refinement sessions discovered. Useful as the handoff into planning or dispatch.'),
-    acceptanceCriteria: t('Concrete conditions that must be true for the backlog item to count as done.'),
-    nonGoals: t('Things this work explicitly should not do. Use this to keep planning and implementation bounded.'),
-    rolloutConstraints: t('Operational, release, or sequencing constraints Armada should preserve while implementing or shipping this work.'),
-    evidenceLinks: t('URLs or references that support the scope, rollout, verification, or release notes for this work item.'),
-    kind: t('Work classification, such as Feature, Bug, Refactor, or Research.'),
-    category: t('Optional grouping label for reporting or backlog organization.'),
-    priority: t('Relative urgency. Higher priority items should generally be planned and dispatched sooner.'),
-    backlogState: t('Backlog workflow phase used to track whether the item is inbox triage, refinement, planning-ready, or dispatch-ready.'),
-    effort: t('Rough size estimate used to communicate complexity and planning weight.'),
-    rank: t('Manual backlog ordering value. Lower ranks appear earlier in the backlog.'),
-    targetVersion: t('Optional target release or milestone name for this work item.'),
-    dueUtc: t('Optional due date used for urgency tracking and delivery planning.'),
-    parentObjectiveId: t('Optional parent backlog item. Use this when the current work is a child of a larger backlog item or initiative.'),
-    suggestedPipeline: t('Pipeline Armada should prefer when this backlog item turns into planning or dispatch.'),
-    blockedByObjectiveIds: t('Other backlog items that must be resolved before this work can move forward. Use Ctrl or Cmd-click to select multiple blockers.'),
-    suggestedPlaybooks: t('Playbooks to carry into planning or dispatch. Use playbook-id:delivery-mode entries.'),
-    refinementCaptain: t('Captain that will run the backlog refinement conversation for this item.'),
-    refinementVessel: t('Optional vessel context for refinement. Use this when repository-specific context will help the captain refine scope.'),
-    refinementFleet: t('Optional fleet context for refinement when the work spans multiple vessels in the same fleet.'),
-    refinementTitle: t('Optional human-readable title for the refinement session transcript.'),
-    refinementInitialMessage: t('Optional kickoff prompt that tells the captain what to focus on first in the refinement session.'),
-    refinementComposer: t('Follow-up refinement message to the selected captain. Use this to sharpen scope, acceptance criteria, rollout, or non-goals.'),
+    title: t('Short headline for the work, shown in backlog lists and reused as the default planning, voyage and release title. Required. Example: Add SSO login.'),
+    vessel: t('Main repository this work targets. Planning, dispatch and release drafting from this page use it, and its fleet is linked automatically. Blank means none yet.'),
+    status: t('Overall lifecycle: Draft, Scoped, Planned, InProgress, Released, Deployed, Completed, Blocked or Cancelled. Separate from the backlog stage below.'),
+    owner: t('Person responsible for the work. Free text for reporting and filtering; it does not have to be an Armada user. Example: jsmith.'),
+    description: t('Problem statement or summary of the change. It seeds the prompt when you start planning or open this item in Dispatch.'),
+    tagKey: t('Tag name, such as area, team or source. Example: area.'),
+    tagValue: t('Value for the tag. Example: billing. Leave blank when the key alone is enough.'),
+    refinementSummary: t('Short summary of what refinement found. Apply To Backlog Item overwrites it; it is carried into planning and dispatch prompts.'),
+    acceptanceCriteria: t('Conditions that must be true for this work to count as done, one per line. Included in planning and dispatch prompts.'),
+    nonGoals: t('Things this work must not do, one per line. Included in prompts to keep captains from going out of scope.'),
+    rolloutConstraints: t('Release, ordering or operational limits to respect, one per line. Example: ship behind a feature flag.'),
+    evidenceLinks: t('Links that support the work, such as tickets, designs or docs, one per line. Example: https://example.com/spec.'),
+    kind: t('Kind of work: Feature, Bug, Refactor, Research, Chore or Initiative. Used for filtering and reporting.'),
+    category: t('Optional free-text grouping, such as a product area. Used for filtering and reporting.'),
+    priority: t('Urgency band. P0 is the most urgent and P3 the least. Used for sorting and filtering; it does not change mission dispatch order.'),
+    backlogState: t('Stage before dispatch: Inbox, Triaged, Refining, ReadyForPlanning, ReadyForDispatch, then Dispatched. Drives the backlog views and counts.'),
+    effort: t('Rough size estimate, from XS (tiny) to XL (very large).'),
+    rank: t('Position in the backlog. Lower numbers come first; 1 is the top. You can also reorder with the arrows on the Backlog list.'),
+    targetVersion: t('Release or milestone this work is aimed at. Optional. Example: 1.2.0.'),
+    dueUtc: t('Optional target date. Enter it in your local time; it is stored in UTC. Clear it to remove the due date.'),
+    parentObjectiveId: t('Larger backlog item or initiative this one is part of. Optional.'),
+    suggestedPipeline: t('Pipeline preselected when you start planning or open this item in Dispatch. None leaves the vessel or fleet pipeline in effect.'),
+    blockedByObjectiveIds: t('Other backlog items that must be finished before this one can proceed. Ctrl-click or Cmd-click to select several. Items here show as Blocked.'),
+    suggestedPlaybooks: t('Playbooks to preselect in Dispatch, one per line as playbook-id:mode. Modes: InlineFullContent, InstructionWithReference, AttachIntoWorktree.'),
+    refinementCaptain: t('Captain to chat with about this item. Refinement only discusses scope; it does not change the repository. Required to start.'),
+    refinementVessel: t('Optional repository the captain can use as context while refining. No vessel context keeps the chat general.'),
+    refinementFleet: t('Optional fleet to give as context when the work spans several of its vessels.'),
+    refinementTitle: t('Optional name for the refinement session, shown in the session list. Leave blank for a default name.'),
+    refinementInitialMessage: t('Optional first message to the captain. Example: Tighten the acceptance criteria and list what is out of scope.'),
+    refinementComposer: t('Your next message to the captain in this refinement session, for example a question about scope or acceptance criteria.'),
   }), [t]);
   const actionHelp = useMemo(() => ({
-    planning: t('Open a planning session for this backlog item using the linked vessel and suggested context.'),
-    dispatch: t('Create dispatch-ready implementation work from this backlog item.'),
-    release: t('Draft release notes and release metadata from this backlog item.'),
-    deleteBacklog: t('Delete this backlog item while leaving downstream linked records intact.'),
-    back: t('Return to the backlog list without changing the current page.'),
-    save: t('Save the current backlog item changes.'),
-    startRefinement: t('Start a new captain-backed refinement session for this backlog item.'),
-    stopRefinement: t('Ask Armada to stop the current refinement session.'),
-    deleteRefinement: t('Delete the current refinement session and transcript.'),
-    sendRefinement: t('Send the drafted refinement message to the active captain session.'),
-    summarizeRefinement: t('Generate a structured summary from the selected transcript message.'),
-    applyRefinement: t('Apply the structured refinement summary back into this backlog item.'),
+    planning: t('Open Planning prefilled with this item\'s vessel, suggested pipeline and a prompt built from its scope. Needs a vessel.'),
+    dispatch: t('Open Dispatch prefilled with this item\'s vessel, pipeline, playbooks and a prompt built from its scope. Nothing runs until you dispatch. Needs a vessel.'),
+    release: t('Start a new release draft prefilled with this item\'s title, description and notes. Needs a vessel.'),
+    deleteBacklog: t('Delete this backlog item and its history. Linked missions, releases, deployments and incidents are kept. You confirm first.'),
+    back: t('Return to the backlog list. Unsaved changes on this page are lost.'),
+    save: t('Save every field on this page to the backlog item.'),
+    startRefinement: t('Start a refinement chat with the selected captain about this item. The captain is busy until the session is stopped.'),
+    stopRefinement: t('End this refinement session and release the captain. The transcript is kept.'),
+    deleteRefinement: t('Delete this refinement session and its transcript, stopping it first if needed. Cannot be undone.'),
+    sendRefinement: t('Send your message to the captain and wait for its reply.'),
+    summarizeRefinement: t('Build a structured draft (summary, acceptance criteria, non-goals, rollout constraints) from the selected message. Nothing is saved yet.'),
+    applyRefinement: t('Summarize the selected message and save it into this item, replacing its refinement summary, acceptance criteria, non-goals, rollout constraints and suggested pipeline.'),
   }), [t]);
 
   function hydrateObjectiveForm(next: Objective) {
@@ -782,7 +782,7 @@ export default function ObjectiveDetail() {
             {!isBacklogPath && !createMode && objective && (
               <>
                 <span className="breadcrumb-sep">&gt;</span>
-                <Link to={canonicalItemPath(objective.id)}>{t('Canonical Backlog Route')}</Link>
+                <Link to={canonicalItemPath(objective.id)} title={t('Open this item at its standard /backlog address, the link to bookmark or share.')}>{t('Canonical Backlog Route')}</Link>
               </>
             )}
           </>
@@ -791,28 +791,28 @@ export default function ObjectiveDetail() {
         subtitle={
           !createMode && objective ? (
             <div className="backlog-chip-row" style={{ marginTop: '0.35rem' }}>
-              <span className={`tag ${objective.kind.toLowerCase()}`}>{objective.kind}</span>
-              <span className={`tag ${objective.priority.toLowerCase()}`}>{objective.priority}</span>
-              <span className={`tag ${objective.effort.toLowerCase()}`}>{objective.effort}</span>
-              <StatusBadge status={objective.status} />
-              <span className={`tag ${objective.backlogState.toLowerCase()}`}>{objective.backlogState}</span>
+              <span className={`tag ${objective.kind.toLowerCase()}`} title={t('Kind of work: Feature, Bug, Refactor, Research, Chore or Initiative.')}>{objective.kind}</span>
+              <span className={`tag ${objective.priority.toLowerCase()}`} title={t('Priority band. P0 is the most urgent, P3 the least.')}>{objective.priority}</span>
+              <span className={`tag ${objective.effort.toLowerCase()}`} title={t('Rough effort estimate, from XS (tiny) to XL (very large).')}>{objective.effort}</span>
+              <span title={t('Lifecycle status: Draft, Scoped, Planned, InProgress, Released, Deployed, Completed, Blocked or Cancelled.')}><StatusBadge status={objective.status} /></span>
+              <span className={`tag ${objective.backlogState.toLowerCase()}`} title={t('Backlog stage before dispatch: Inbox, Triaged, Refining, ReadyForPlanning, ReadyForDispatch, then Dispatched.')}>{objective.backlogState}</span>
             </div>
           ) : undefined
         }
         actions={
           <>
           {!createMode && (
-            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: objective })} title={t('Open the raw backlog item JSON payload.')}>
+            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: objective })} title={t('Show the raw backlog item record as the API returns it.')}>
               {t('View JSON')}
             </button>
           )}
           {!createMode && objective && (
-            <button className="btn btn-sm" onClick={() => navigate(`/history?objectiveId=${encodeURIComponent(objective.id)}`)} title={t('Open the historical timeline filtered to this backlog item.')}>
+            <button className="btn btn-sm" onClick={() => navigate(`/history?objectiveId=${encodeURIComponent(objective.id)}`)} title={t('Open History filtered to this item: every planning session, mission, release and other event linked to it.')}>
               {t('History')}
             </button>
           )}
           {!createMode && objective?.sourceProvider === 'GitHub' && primaryVesselId && gitHubSourceNumber && (
-            <button className="btn btn-sm" disabled={refreshingGitHub} onClick={() => void handleRefreshGitHub()} title={t('Refresh this backlog item from its GitHub source issue or pull request.')}>
+            <button className="btn btn-sm" disabled={refreshingGitHub} onClick={() => void handleRefreshGitHub()} title={t('Re-read the source issue or pull request from GitHub and update this item\'s title, description and source details.')}>
               {refreshingGitHub ? t('Refreshing...') : t('Refresh GitHub')}
             </button>
           )}
@@ -878,7 +878,7 @@ export default function ObjectiveDetail() {
             </button>
           )}
           {!createMode && canManage && (
-            <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()} title={t('Create a fresh backlog item by copying this item’s reusable planning metadata and scope.')}>
+            <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()} title={t('Create a new backlog item copying this one\'s scope and planning details, then open the copy. This item is unchanged.')}>
               {t('Duplicate')}
             </button>
           )}
@@ -910,27 +910,27 @@ export default function ObjectiveDetail() {
       {!createMode && objective && (
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
           <div className="info-card">
-            <span>{t('Rank')}</span>
+            <span title={t('Position in the backlog. 1 is the top.')}>{t('Rank')}</span>
             <strong>{objective.rank}</strong>
           </div>
           <div className="info-card">
-            <span>{t('Owner')}</span>
+            <span title={t('Person responsible for this work.')}>{t('Owner')}</span>
             <strong>{objective.owner || t('Unassigned')}</strong>
           </div>
           <div className="info-card">
-            <span>{t('Refinement Sessions')}</span>
+            <span title={t('Number of refinement chats held about this item.')}>{t('Refinement Sessions')}</span>
             <strong>{objective.refinementSessionIds.length}</strong>
           </div>
           <div className="info-card">
-            <span>{t('Linked Releases')}</span>
+            <span title={t('Number of releases that include this item.')}>{t('Linked Releases')}</span>
             <strong>{objective.releaseIds.length}</strong>
           </div>
           <div className="info-card">
-            <span>{t('Linked Incidents')}</span>
+            <span title={t('Number of incidents linked to this item.')}>{t('Linked Incidents')}</span>
             <strong>{objective.incidentIds.length}</strong>
           </div>
           <div className="info-card">
-            <span>{t('Last Updated')}</span>
+            <span title={t('When this item was last changed.')}>{t('Last Updated')}</span>
             <strong title={formatDateTime(objective.lastUpdateUtc)}>{formatRelativeTime(objective.lastUpdateUtc)}</strong>
           </div>
         </div>
@@ -939,24 +939,24 @@ export default function ObjectiveDetail() {
       {!createMode && objective?.sourceProvider === 'GitHub' && (
         <div className="card" style={{ marginBottom: '1rem' }}>
           <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-            <h3>{t('GitHub Source')}</h3>
-            <div className="text-dim">{objective.sourceType || t('Unknown source')}</div>
+            <h3 title={t('This item was imported from GitHub. Refresh GitHub re-reads it from there.')}>{t('GitHub Source')}</h3>
+            <div className="text-dim" title={t('Whether the source is a GitHub issue or a pull request.')}>{objective.sourceType || t('Unknown source')}</div>
           </div>
           <div className="detail-grid">
             <div className="detail-field">
-              <span className="detail-label">{t('Provider')}</span>
+              <span className="detail-label" title={t('System the item was imported from.')}>{t('Provider')}</span>
               <span>{objective.sourceProvider}</span>
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Source')}</span>
+              <span className="detail-label" title={t('Identifier of the issue or pull request in the source system.')}>{t('Source')}</span>
               <span>{objective.sourceId || '-'}</span>
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Last Source Update')}</span>
+              <span className="detail-label" title={t('When the source issue or pull request was last changed on GitHub, as of the last import or refresh.')}>{t('Last Source Update')}</span>
               <span>{objective.sourceUpdatedUtc ? formatDateTime(objective.sourceUpdatedUtc) : '-'}</span>
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Source Link')}</span>
+              <span className="detail-label" title={t('Open the original issue or pull request on GitHub.')}>{t('Source Link')}</span>
               {objective.sourceUrl ? (
                 <a href={objective.sourceUrl} target="_blank" rel="noreferrer">{objective.sourceUrl}</a>
               ) : (
@@ -988,7 +988,7 @@ export default function ObjectiveDetail() {
       <div className="detail-sections">
         <div className="card detail-section">
           <div className="detail-section-header">
-            <h3>{t('Backlog Item')}</h3>
+            <h3 title={t('Core details of the work: what it is, where it applies, its status and who owns it.')}>{t('Backlog Item')}</h3>
           </div>
           <div className="detail-form-grid backlog-item-grid">
             <div className="form-field detail-field-full">
@@ -1029,7 +1029,7 @@ export default function ObjectiveDetail() {
               <textarea aria-label={fieldHelp.description} rows={5} value={description} onChange={(event) => setDescription(event.target.value)} disabled={!canManage} title={fieldHelp.description} />
             </div>
             <div className="form-field detail-field-full">
-              <label title={`${fieldHelp.tagKey} ${fieldHelp.tagValue}`}>{t('Tags')}</label>
+              <label title={t('Key and value labels for filtering and reporting, such as area: billing. Use + to add a row and the trash icon to remove one.')}>{t('Tags')}</label>
               <div className="tag-entry-list">
                 {tagEntries.map((entry, index) => (
                   <div key={`tag-entry-${index}`} className="tag-entry-row">
@@ -1055,7 +1055,7 @@ export default function ObjectiveDetail() {
                           onClick={addTagEntry}
                           disabled={!canManage}
                           aria-label={t('Add tag')}
-                          title={t('Add tag')}
+                          title={t('Add another tag row. Tags are saved when you save the item.')}
                         />
                       ) : (
                         <span className="icon-btn icon-btn-placeholder" aria-hidden="true" />
@@ -1066,7 +1066,7 @@ export default function ObjectiveDetail() {
                         onClick={() => removeTagEntry(index)}
                         disabled={!canManage}
                         aria-label={t('Delete tag')}
-                        title={t('Delete tag')}
+                        title={t('Remove this tag. The change is saved when you save the item.')}
                       />
                     </div>
                   </div>
@@ -1078,7 +1078,7 @@ export default function ObjectiveDetail() {
 
         <div className="card detail-section">
           <div className="detail-section-header">
-            <h3>{t('Scope')}</h3>
+            <h3 title={t('What done looks like and what is out of bounds. These fields are carried into planning and dispatch prompts.')}>{t('Scope')}</h3>
           </div>
           <div className="text-dim backlog-section-note">
             {t('Attach a fleet or vessel above to unlock repository-aware planning, dispatch, and release drafting from this backlog item. Armada adds downstream planning, mission, release, deployment, and incident links later.')}
@@ -1087,11 +1087,11 @@ export default function ObjectiveDetail() {
             {!createMode && objective && (
               <>
                 <div>
-                  <h4>{t('Linked Fleets')}</h4>
+                  <h4 title={t('Fleets this item is linked to. Set from the vessel you pick.')}>{t('Linked Fleets')}</h4>
                   {renderRouteLinks(linkedFleetIds, '/fleets/', fleetMap)}
                 </div>
                 <div>
-                  <h4>{t('Linked Vessels')}</h4>
+                  <h4 title={t('Repositories this item is linked to. The first is the primary vessel.')}>{t('Linked Vessels')}</h4>
                   {renderRouteLinks(linkedVesselIds, '/vessels/', vesselMap)}
                 </div>
               </>
@@ -1121,7 +1121,7 @@ export default function ObjectiveDetail() {
 
         <div className="card detail-section">
           <div className="detail-section-header">
-            <h3>{t('Workflow Metadata')}</h3>
+            <h3 title={t('Classification, ordering, dates and dependencies used to organize the backlog and to prefill planning and dispatch.')}>{t('Workflow Metadata')}</h3>
           </div>
           <div className="detail-form-grid">
             <div className="form-field">
@@ -1223,7 +1223,7 @@ export default function ObjectiveDetail() {
         {!createMode && objective && hasArmadaActivityLinks && (
           <div className="card detail-section">
             <div className="detail-section-header">
-              <h3>{t('Armada Links')}</h3>
+              <h3 title={t('Work Armada has linked to this item automatically. Click an ID to open it.')}>{t('Armada Links')}</h3>
             </div>
             <div className="text-dim backlog-section-note">
               {t('Armada records these automatically as planning, execution, release, deployment, and incident work references this backlog item.')}
@@ -1231,13 +1231,13 @@ export default function ObjectiveDetail() {
             <div className="detail-form-grid">
               {objective.planningSessionIds.length > 0 && (
                 <div>
-                  <h4>{t('Planning Sessions')}</h4>
+                  <h4 title={t('Planning sessions started from this item.')}>{t('Planning Sessions')}</h4>
                   {renderRouteLinks(objective.planningSessionIds, '/planning/')}
                 </div>
               )}
               {objective.refinementSessionIds.length > 0 && (
                 <div>
-                  <h4>{t('Refinement Sessions')}</h4>
+                  <h4 title={t('Refinement chats held about this item.')}>{t('Refinement Sessions')}</h4>
                   {renderRouteLinks(
                     objective.refinementSessionIds,
                     (sessionId) => `/backlog/${objective.id}?refinementSessionId=${encodeURIComponent(sessionId)}`,
@@ -1246,37 +1246,37 @@ export default function ObjectiveDetail() {
               )}
               {objective.voyageIds.length > 0 && (
                 <div>
-                  <h4>{t('Voyages')}</h4>
+                  <h4 title={t('Voyages dispatched for this item.')}>{t('Voyages')}</h4>
                   {renderRouteLinks(objective.voyageIds, '/voyages/')}
                 </div>
               )}
               {objective.missionIds.length > 0 && (
                 <div>
-                  <h4>{t('Missions')}</h4>
+                  <h4 title={t('Missions created for this item.')}>{t('Missions')}</h4>
                   {renderRouteLinks(objective.missionIds, '/missions/')}
                 </div>
               )}
               {objective.checkRunIds.length > 0 && (
                 <div>
-                  <h4>{t('Checks')}</h4>
+                  <h4 title={t('Check runs (builds, tests and similar) linked to this item.')}>{t('Checks')}</h4>
                   {renderRouteLinks(objective.checkRunIds, '/checks/')}
                 </div>
               )}
               {objective.releaseIds.length > 0 && (
                 <div>
-                  <h4>{t('Releases')}</h4>
+                  <h4 title={t('Releases that include this item.')}>{t('Releases')}</h4>
                   {renderRouteLinks(objective.releaseIds, '/releases/')}
                 </div>
               )}
               {objective.deploymentIds.length > 0 && (
                 <div>
-                  <h4>{t('Deployments')}</h4>
+                  <h4 title={t('Deployments that shipped this item.')}>{t('Deployments')}</h4>
                   {renderRouteLinks(objective.deploymentIds, '/deployments/')}
                 </div>
               )}
               {objective.incidentIds.length > 0 && (
                 <div>
-                  <h4>{t('Incidents')}</h4>
+                  <h4 title={t('Incidents linked to this item.')}>{t('Incidents')}</h4>
                   {renderRouteLinks(objective.incidentIds, '/incidents/')}
                 </div>
               )}
@@ -1287,7 +1287,7 @@ export default function ObjectiveDetail() {
         {!createMode && objective && (
           <div className="card detail-section">
             <div className="detail-section-header">
-              <h3>{t('Backlog Refinement')}</h3>
+              <h3 title={t('Chat with a captain to sharpen this item\'s scope, then apply the result back to the fields above. Refinement never changes the repository.')}>{t('Backlog Refinement')}</h3>
             </div>
             <div className="backlog-refinement-layout">
               <div className="backlog-refinement-column">
@@ -1347,7 +1347,7 @@ export default function ObjectiveDetail() {
                       type="button"
                       className="btn btn-primary"
                       disabled={creatingRefinement || !refinementCaptainId}
-                      title={actionHelp.startRefinement}
+                      title={refinementCaptainId ? actionHelp.startRefinement : t('Select a captain first.')}
                       onClick={() => void handleCreateRefinementSession()}
                     >
                       {creatingRefinement ? t('Starting...') : t('Start Refinement')}
@@ -1384,7 +1384,7 @@ export default function ObjectiveDetail() {
                           </p>
                         </div>
                         <div className="inline-actions">
-                          <StatusBadge status={refinementDetail.session.status} />
+                          <span title={t('Active is ready for your next message, Responding is the captain replying, Stopped or Completed means it has ended, Failed means it could not continue.')}><StatusBadge status={refinementDetail.session.status} /></span>
                           <button type="button" className="btn btn-sm" disabled={stoppingRefinement} onClick={() => void handleStopRefinementSession()} title={actionHelp.stopRefinement}>
                             {stoppingRefinement ? t('Stopping...') : t('Stop Session')}
                           </button>
@@ -1396,19 +1396,19 @@ export default function ObjectiveDetail() {
 
                       <div className="detail-grid" style={{ marginBottom: '1rem' }}>
                         <div className="detail-field">
-                          <span className="detail-label">{t('Selected Captain')}</span>
+                          <span className="detail-label" title={t('Captain running this refinement session.')}>{t('Selected Captain')}</span>
                           <span>{refinementDetail.captain?.name || refinementDetail.session.captainId}</span>
                         </div>
                         <div className="detail-field">
-                          <span className="detail-label">{t('Captain State')}</span>
+                          <span className="detail-label" title={t('What the captain is doing now, such as Idle or Working.')}>{t('Captain State')}</span>
                           <span>{refinementDetail.captain?.state || '-'}</span>
                         </div>
                         <div className="detail-field">
-                          <span className="detail-label">{t('Vessel Context')}</span>
+                          <span className="detail-label" title={t('Repository given to the captain as context, if any.')}>{t('Vessel Context')}</span>
                           <span>{refinementDetail.vessel?.name || t('None')}</span>
                         </div>
                         <div className="detail-field">
-                          <span className="detail-label">{t('Updated')}</span>
+                          <span className="detail-label" title={t('When this session last changed, such as a new message.')}>{t('Updated')}</span>
                           <span title={formatDateTime(refinementDetail.session.lastUpdateUtc)}>{formatRelativeTime(refinementDetail.session.lastUpdateUtc)}</span>
                         </div>
                       </div>
@@ -1420,7 +1420,7 @@ export default function ObjectiveDetail() {
                             type="button"
                             className={`backlog-refinement-message${selectedRefinementMessageId === message.id ? ' selected' : ''}`}
                             onClick={() => setSelectedRefinementMessageId(message.id)}
-                            title={t('Select this transcript message for summarizing or applying refinement back to the backlog item.')}
+                            title={t('Select this message. Summarize and Apply To Backlog Item work from the selected message.')}
                           >
                             <div className="backlog-refinement-message-head">
                               <strong>{message.role}</strong>
@@ -1462,22 +1462,22 @@ export default function ObjectiveDetail() {
 
                     <div className="card backlog-refinement-card">
                       <div className="detail-section-header">
-                        <h3>{t('Refinement Summary Draft')}</h3>
+                        <h3 title={t('Preview of what Apply To Backlog Item would save. Nothing here is saved until you apply it.')}>{t('Refinement Summary Draft')}</h3>
                       </div>
                       {!refinementSummaryDraft ? (
                         <p className="text-dim">{t('Generate a summary from a selected assistant message, then apply it back into the backlog item.')}</p>
                       ) : (
                         <div className="detail-form-grid">
                           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
-                            <span className="detail-label">{t('Summary')}</span>
+                            <span className="detail-label" title={t('Short summary that would replace this item\'s refinement summary.')}>{t('Summary')}</span>
                             <span>{refinementSummaryDraft.summary}</span>
                           </div>
                           <div className="detail-field">
-                            <span className="detail-label">{t('Suggested Pipeline')}</span>
+                            <span className="detail-label" title={t('Pipeline the summary recommends for this work.')}>{t('Suggested Pipeline')}</span>
                             <span>{pipelines.find((pipeline) => pipeline.id === refinementSummaryDraft.suggestedPipelineId)?.name || refinementSummaryDraft.suggestedPipelineId || '-'}</span>
                           </div>
                           <div className="detail-field">
-                            <span className="detail-label">{t('Method')}</span>
+                            <span className="detail-label" title={t('How the draft was built: runtime-json means the captain returned structured data; assistant-fallback means it was pulled from the reply text.')}>{t('Method')}</span>
                             <span>{refinementSummaryDraft.method}</span>
                           </div>
                           <div>

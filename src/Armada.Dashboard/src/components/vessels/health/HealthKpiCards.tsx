@@ -43,7 +43,7 @@ export default function HealthKpiCards({ refreshToken = 0 }: HealthKpiCardsProps
       label: t('Vessels failing health'),
       value: summary.fail,
       detail: t('{{count}} warn, {{unknown}} not evaluated', { count: formatCount(locale, summary.warn), unknown: formatCount(locale, summary.notEvaluated) }),
-      title: t('Open the Health tab filtered to failing vessels'),
+      title: t('Vessels whose overall health is Fail, meaning at least one scored check needs attention. Click to open the Health tab filtered to them.'),
       to: HEALTH_KPI_LINKS.failing,
     },
     {
@@ -51,7 +51,7 @@ export default function HealthKpiCards({ refreshToken = 0 }: HealthKpiCardsProps
       label: t('Outdated majors'),
       value: summary.outdatedMajorVessels,
       detail: t('Vessels with a dependency a major version behind'),
-      title: t('Open the Health tab filtered to failing dependencies'),
+      title: t('Vessels with at least one package a full major version behind its latest release. Click to open the Health tab filtered to failing dependencies.'),
       to: HEALTH_KPI_LINKS.outdatedMajors,
     },
     {
@@ -59,7 +59,7 @@ export default function HealthKpiCards({ refreshToken = 0 }: HealthKpiCardsProps
       label: t('High/critical vulnerabilities'),
       value: summary.highOrCriticalVulnerabilityVessels,
       detail: t('Vessels with a high or critical advisory'),
-      title: t('Open the Health tab sorted by vulnerable packages'),
+      title: t('Vessels with a package that has a known High or Critical security advisory. Click to open the Health tab sorted by vulnerable packages.'),
       to: HEALTH_KPI_LINKS.vulnerable,
     },
   ];

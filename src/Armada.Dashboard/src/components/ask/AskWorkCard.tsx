@@ -31,7 +31,7 @@ function MissionRow({ mission }: { mission: AskMissionSnapshot }) {
       <dl className="ask-work-row-facts">
         {(mission.captainName || mission.captainId) && (
           <div>
-            <dt>{t('Captain')}</dt>
+            <dt title={t('The captain working on this mission.')}>{t('Captain')}</dt>
             <dd>
               {mission.captainId
                 ? <Link to={`/captains/${encodeURIComponent(mission.captainId)}`}>{mission.captainName || mission.captainId}</Link>
@@ -41,13 +41,13 @@ function MissionRow({ mission }: { mission: AskMissionSnapshot }) {
         )}
         {(mission.pipelineStage || mission.persona) && (
           <div>
-            <dt>{t('Stage')}</dt>
+            <dt title={t('Current pipeline stage or persona of the mission, for example Architect, Worker, or Judge.')}>{t('Stage')}</dt>
             <dd>{mission.pipelineStage || mission.persona}</dd>
           </div>
         )}
         {mission.checkRunStatus && (
           <div>
-            <dt>{t('Checks')}</dt>
+            <dt title={t('Status of the build and test check run for this mission. Click it for the output.')}>{t('Checks')}</dt>
             <dd>
               {mission.checkRunId
                 ? <Link to={`/checks/${encodeURIComponent(mission.checkRunId)}`}>{t(mission.checkRunStatus)}</Link>
@@ -57,7 +57,7 @@ function MissionRow({ mission }: { mission: AskMissionSnapshot }) {
         )}
         {mission.mergeQueueStatus && (
           <div>
-            <dt>{t('Merge')}</dt>
+            <dt title={t('Status of this mission in the merge queue, where it is tested and merged in order.')}>{t('Merge')}</dt>
             <dd>
               {mission.mergeEntryId
                 ? <Link to={`/merge-queue/${encodeURIComponent(mission.mergeEntryId)}`}>{t(mission.mergeQueueStatus)}</Link>
@@ -67,20 +67,20 @@ function MissionRow({ mission }: { mission: AskMissionSnapshot }) {
         )}
         {mission.landingOutcome && (
           <div>
-            <dt>{t('Landing')}</dt>
+            <dt title={t('How the finished work was delivered: merged locally, pushed, opened as a pull request, or left on its branch.')}>{t('Landing')}</dt>
             <dd>{t(mission.landingOutcome)}</dd>
           </div>
         )}
         {mission.branchName && (
           <div className="ask-work-row-branch">
-            <dt>{t('Branch')}</dt>
+            <dt title={t('Git branch the captain committed its work to.')}>{t('Branch')}</dt>
             <dd className="mono" title={mission.branchName}>{mission.branchName}</dd>
           </div>
         )}
         {mission.prUrl && (
           <div>
-            <dt>{t('PR')}</dt>
-            <dd><a href={mission.prUrl} target="_blank" rel="noopener noreferrer">{t('Open pull request')}</a></dd>
+            <dt title={t('Pull request opened for this mission.')}>{t('PR')}</dt>
+            <dd><a href={mission.prUrl} target="_blank" rel="noopener noreferrer" title={t('Open the pull request on the git host in a new tab.')}>{t('Open pull request')}</a></dd>
           </div>
         )}
       </dl>
@@ -103,10 +103,10 @@ function TargetRow({ target }: { target: AskTargetSnapshot }) {
       {(target.missionId || target.voyageId) && (
         <dl className="ask-work-row-facts">
           {target.voyageId && (
-            <div><dt>{t('Voyage')}</dt><dd><Link to={`/voyages/${encodeURIComponent(target.voyageId)}`} className="mono">{target.voyageId}</Link></dd></div>
+            <div><dt title={t('The voyage dispatched for this vessel.')}>{t('Voyage')}</dt><dd><Link to={`/voyages/${encodeURIComponent(target.voyageId)}`} className="mono" title={t('Open the voyage.')}>{target.voyageId}</Link></dd></div>
           )}
           {target.missionId && (
-            <div><dt>{t('Mission')}</dt><dd><Link to={`/missions/${encodeURIComponent(target.missionId)}`} className="mono">{target.missionId}</Link></dd></div>
+            <div><dt title={t('The mission working on this vessel.')}>{t('Mission')}</dt><dd><Link to={`/missions/${encodeURIComponent(target.missionId)}`} className="mono" title={t('Open the mission.')}>{target.missionId}</Link></dd></div>
           )}
         </dl>
       )}
@@ -143,7 +143,7 @@ export default function AskWorkCard({ work, snapshot, highlighted }: AskWorkCard
     >
       <header className="ask-work-card-header">
         <div className="ask-work-card-heading">
-          <span className="ask-work-card-type">{entityLabel(entityType)}</span>
+          <span className="ask-work-card-type" title={t('Kind of work this card tracks. It updates live while the work runs.')}>{entityLabel(entityType)}</span>
           {route
             ? <Link className="ask-work-card-title" to={route}>{title}</Link>
             : <span className="ask-work-card-title">{title}</span>}
@@ -157,6 +157,7 @@ export default function AskWorkCard({ work, snapshot, highlighted }: AskWorkCard
       {progress && (
         <div className="ask-work-progress">
           <div
+            title={t('Share of child items finished: green succeeded, red failed.')}
             className="ask-work-progress-bar"
             role="progressbar"
             aria-valuemin={0}
@@ -175,7 +176,7 @@ export default function AskWorkCard({ work, snapshot, highlighted }: AskWorkCard
       )}
 
       {counts.length > 1 && (
-        <ul className="ask-work-counts" aria-label={t('Counts by status')}>
+        <ul className="ask-work-counts" aria-label={t('Counts by status')} title={t('How many missions or vessels are in each status.')}>
           {counts.map((c) => (
             <li key={c.status}><span className="text-dim">{t(c.status)}</span> <strong>{c.count}</strong></li>
           ))}
@@ -197,8 +198,8 @@ export default function AskWorkCard({ work, snapshot, highlighted }: AskWorkCard
       {!snapshot && <p className="text-dim ask-work-loading">{t('Loading live status...')}</p>}
 
       <footer className="ask-work-card-footer text-dim">
-        {updated && <span>{t('Updated {{time}}', { time: formatRelativeTime(updated) })}</span>}
-        {route && <Link to={route}>{t('Open details')}</Link>}
+        {updated && <span title={t('When this card last received a status change.')}>{t('Updated {{time}}', { time: formatRelativeTime(updated) })}</span>}
+        {route && <Link to={route} title={t('Open the full detail page for this work.')}>{t('Open details')}</Link>}
       </footer>
     </section>
   );

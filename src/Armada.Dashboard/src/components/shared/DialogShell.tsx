@@ -72,7 +72,7 @@ export default function DialogShell({
             <h3 id={titleId}>{title}</h3>
             {subtitle && <div className="dialog-shell-subtitle text-dim">{subtitle}</div>}
           </div>
-          <button type="button" className="btn btn-sm dialog-shell-close" onClick={onClose} aria-label={t('Close')} title={t('Close')}>
+          <button type="button" className="btn btn-sm dialog-shell-close" onClick={onClose} aria-label={t('Close')} title={t('Close this dialog. Anything not saved yet is discarded.')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
           </button>
         </div>

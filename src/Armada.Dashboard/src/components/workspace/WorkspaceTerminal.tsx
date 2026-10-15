@@ -70,8 +70,8 @@ export default function WorkspaceTerminal({ vesselId }: { vesselId: string }) {
   return (
     <div className="card" style={{ padding: '0.75rem', marginTop: '1rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-        <strong>{t('Terminal')}</strong>
-        {lines.length > 0 && <button className="btn btn-sm" onClick={() => setLines([])}>{t('Clear')}</button>}
+        <strong title={t('Runs one command at a time in the vessel working directory with the permissions of the account running Armada. Admins only; each command is recorded in the audit log.')}>{t('Terminal')}</strong>
+        {lines.length > 0 && <button className="btn btn-sm" onClick={() => setLines([])} title={t('Clear the output shown here. Command history (Up arrow) is kept.')}>{t('Clear')}</button>}
       </div>
       <div
         style={{
@@ -103,11 +103,12 @@ export default function WorkspaceTerminal({ vesselId }: { vesselId: string }) {
           onChange={(e) => setCommand(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder={t('Enter a command...')}
+          title={t('Shell command to run in the root of the vessel working directory, e.g. git status or npm test. Runs on the Admiral host (or the Harbor holding the checkout) with a 60 second limit. Up and Down recall history.')}
           style={{ flex: 1, fontFamily: 'monospace' }}
           disabled={busy}
           spellCheck={false}
         />
-        <button type="submit" className="btn btn-primary" disabled={busy || command.trim().length === 0}>
+        <button type="submit" className="btn btn-primary" disabled={busy || command.trim().length === 0} title={t('Run the command now. Commands can change or delete files in the working directory, and there is no undo.')}>
           {busy ? t('Running...') : t('Run')}
         </button>
       </form>

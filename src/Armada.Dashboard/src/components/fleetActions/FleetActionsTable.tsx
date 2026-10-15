@@ -103,17 +103,17 @@ export default function FleetActionsTable({ startRunOnMount, onRunFlowStarted }:
 
   const columns: DataTableColumn<FleetAction>[] = [
     {
-      key: 'name', label: t('Name'), required: true, cellClassName: 'cell-nowrap',
+      key: 'name', label: t('Name'), headerTitle: t('Name of the saved action. Click a row to edit it.'), required: true, cellClassName: 'cell-nowrap',
       render: (a) => (
         <>
           <strong>{a.name}</strong>
-          {!a.active && <span className="tag cancelled" style={{ marginLeft: '0.4rem' }}>{t('Hidden')}</span>}
+          {!a.active && <span className="tag cancelled" style={{ marginLeft: '0.4rem' }} title={t('This action is inactive: it was deleted (built-ins are hidden rather than removed) and is not offered when starting a run.')}>{t('Hidden')}</span>}
         </>
       ),
     },
     {
       // ID and description used to be stacked under the name; each is a one-line column now.
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), headerTitle: t('Action ID (fac_ prefix), used by the API, CLI, and MCP tools to run it.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (a) => (
         <span className="id-display">
           <span className="id-value" title={a.id}>{a.id}</span>
@@ -122,12 +122,12 @@ export default function FleetActionsTable({ startRunOnMount, onRunFlowStarted }:
       ),
     },
     {
-      key: 'description', label: t('Description'), cellClassName: 'text-dim truncate-cell',
+      key: 'description', label: t('Description'), headerTitle: t('What the action is for, as written by whoever created it.'), cellClassName: 'text-dim truncate-cell',
       cellTitle: (a) => a.description || undefined,
       render: (a) => (a.description ? <span className="truncate-text">{a.description}</span> : '-'),
     },
     {
-      key: 'kind', label: t('Kind'), cellClassName: 'cell-nowrap',
+      key: 'kind', label: t('Kind'), headerTitle: t('Command runs a shell command in each vessel working directory. Mission dispatches a captain voyage per vessel.'), cellClassName: 'cell-nowrap',
       render: (a) => (
         <CodeStatusBadge
           label={t(KIND_LABELS[a.kind])}
@@ -138,22 +138,22 @@ export default function FleetActionsTable({ startRunOnMount, onRunFlowStarted }:
       ),
     },
     {
-      key: 'source', label: t('Source'), cellClassName: 'cell-nowrap',
+      key: 'source', label: t('Source'), headerTitle: t('Built-in actions are seeded by Armada into every tenant; custom ones were created by your team.'), cellClassName: 'cell-nowrap',
       render: (a) => (a.isBuiltIn
-        ? <CodeStatusBadge label={t('Built-in')} tone="skipped" icon="lock" title={t('Seeded by Armada. Editable; deleting hides it permanently.')} />
-        : <span className="text-dim">{t('Custom')}</span>),
+        ? <CodeStatusBadge label={t('Built-in')} tone="skipped" icon="lock" title={t('Seeded by Armada. You can edit it; deleting hides it permanently and it is never seeded again.')} />
+        : <span className="text-dim" title={t('Created by someone in this tenant.')}>{t('Custom')}</span>),
     },
     {
-      key: 'timeout', label: t('Timeout'), className: 'text-right', cellClassName: 'mono nowrap',
+      key: 'timeout', label: t('Timeout'), headerTitle: t('Seconds a Command may run on one vessel before it is killed and marked Timed out. Mission actions have no timeout.'), className: 'text-right', cellClassName: 'mono nowrap',
       render: (a) => (a.kind === 'Command' ? t('{{value}} s', { value: a.timeoutSeconds.toLocaleString() }) : <span className="text-dim">-</span>),
     },
-    { key: 'concurrency', label: t('Concurrency'), className: 'text-right', cellClassName: 'mono', render: (a) => a.defaultConcurrency.toLocaleString() },
+    { key: 'concurrency', label: t('Concurrency'), headerTitle: t('Default number of vessels worked at once in a run. For Mission actions it limits how many voyages are active at once. Can be changed per run.'), className: 'text-right', cellClassName: 'mono', render: (a) => a.defaultConcurrency.toLocaleString() },
     {
-      key: 'created', label: t('Created'), sortKey: 'created', headerTitle: t('Sort by created date'), cellClassName: 'text-dim nowrap',
+      key: 'created', label: t('Created'), sortKey: 'created', headerTitle: t('When the action was created. Click to sort newest or oldest first.'), cellClassName: 'text-dim nowrap',
       cellTitle: (a) => formatDateTime(a.createdUtc), render: (a) => formatRelativeTime(a.createdUtc),
     },
     {
-      key: 'updated', label: t('Updated'), cellClassName: 'text-dim nowrap',
+      key: 'updated', label: t('Updated'), headerTitle: t('When the action was last edited. Past runs keep the definition they started with.'), cellClassName: 'text-dim nowrap',
       cellTitle: (a) => formatDateTime(a.lastUpdateUtc), render: (a) => formatRelativeTime(a.lastUpdateUtc),
     },
     {
@@ -181,7 +181,7 @@ export default function FleetActionsTable({ startRunOnMount, onRunFlowStarted }:
       placeholder = (
         <EmptyState
           title={t('No fleet actions yet')}
-          actions={isTenantAdmin ? <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Action')}</button> : undefined}
+          actions={isTenantAdmin ? <button type="button" className="btn btn-primary btn-sm" onClick={openCreate} title={t('Create a reusable command or mission prompt to run across many vessels.')}>+ {t('Action')}</button> : undefined}
         >
           <p>{t('Armada seeds five built-in actions into each tenant the first time actions are listed: Fast-forward default branch, Prune merged branches, Build, Update outdated dependencies, and Add a test project.')}</p>
           <p>{t('Deleted built-ins are hidden for good and never re-seeded. Create your own action to get started.')}</p>
@@ -198,11 +198,11 @@ export default function FleetActionsTable({ startRunOnMount, onRunFlowStarted }:
         </div>
         <div className="table-toolbar-right">
           {isTenantAdmin && (
-            <button type="button" className="btn btn-sm" onClick={() => setRunFlow({ stage: 'pick', actionId: null, vesselIds: [] })}>
+            <button type="button" className="btn btn-sm" onClick={() => setRunFlow({ stage: 'pick', actionId: null, vesselIds: [] })} title={t('Pick vessels, then choose an action (or an ad hoc command) to run on them. Nothing runs until you confirm.')}>
               {t('Run action...')}
             </button>
           )}
-          {isTenantAdmin && <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Action')}</button>}
+          {isTenantAdmin && <button type="button" className="btn btn-primary btn-sm" onClick={openCreate} title={t('Create a reusable command or mission prompt to run across many vessels.')}>+ {t('Action')}</button>}
         </div>
       </div>
 

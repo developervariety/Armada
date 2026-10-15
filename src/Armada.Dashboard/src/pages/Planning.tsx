@@ -752,7 +752,7 @@ export default function Planning() {
           {objectiveId && (
             <>
               {' '}
-              <button type="button" className="btn btn-sm" style={{ marginLeft: '0.75rem' }} onClick={() => navigate(`/backlog/${objectiveId}`)}>
+              <button type="button" className="btn btn-sm" style={{ marginLeft: '0.75rem' }} onClick={() => navigate(`/backlog/${objectiveId}`)} title={t('Open the backlog item this planning session was started from. Work you dispatch from it is linked to that item.')}>
                 {t('Open Backlog Item')}
               </button>
             </>
@@ -816,7 +816,7 @@ export default function Planning() {
 
         {!id ? (
           <div className="card" style={{ padding: '1.25rem' }}>
-            <h3>{t('Current Session')}</h3>
+            <h3 title={t('The planning session you have open. Its transcript and dispatch tools appear here.')}>{t('Current Session')}</h3>
             <p className="text-muted">
               {t('Choose an existing planning session from the table above, or start a new one to begin chatting with a captain.')}
             </p>

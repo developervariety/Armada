@@ -18,6 +18,8 @@ interface CaptainPickerProps {
   /** Extra attributes for validation wiring. */
   invalid?: boolean;
   describedBy?: string;
+  /** Hover text (already localized); defaults to a generic explanation of the choice. */
+  title?: string;
 }
 
 /**
@@ -25,7 +27,7 @@ interface CaptainPickerProps {
  * pick by capability, and offers an explicit "auto" option that leaves the step on normal persona/tier
  * routing. All labels are localized; the picker is a plain select so it stays keyboard-accessible.
  */
-export default function CaptainPicker({ captains, value, onChange, autoLabel, disabled, id, ariaLabel, className, showState, isOptionDisabled, invalid, describedBy }: CaptainPickerProps) {
+export default function CaptainPicker({ captains, value, onChange, autoLabel, disabled, id, ariaLabel, className, showState, isOptionDisabled, invalid, describedBy, title }: CaptainPickerProps) {
   const { t } = useLocale();
 
   return (
@@ -37,6 +39,7 @@ export default function CaptainPicker({ captains, value, onChange, autoLabel, di
       aria-label={ariaLabel ?? t('Preferred captain')}
       aria-invalid={invalid || undefined}
       aria-describedby={describedBy}
+      title={title ?? t('Pick a specific captain (name, tier and runtime shown) for this work, or keep the first option to let Armada choose one by persona and tier.')}
       onChange={(event) => onChange(event.target.value ? event.target.value : null)}
     >
       <option value="">{autoLabel ?? t('Auto (default routing)')}</option>

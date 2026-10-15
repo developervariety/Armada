@@ -75,11 +75,12 @@ export default function ConfirmDialog({
               onChange={e => setConfirmationText(e.target.value)}
               placeholder={t('delete')}
               aria-label={t('Type `delete` into the confirmation box to continue.')}
+              title={t('Type the word delete, in lowercase, to enable the delete button. This guards against deleting by accident.')}
             />
           </>
         )}
         <div className="modal-actions">
-          <button type="button" className="btn" onClick={onCancel}>
+          <button type="button" className="btn" onClick={onCancel} title={t('Close this dialog without making any change. Escape does the same.')}>
             {t(cancelLabel)}
           </button>
           <button
@@ -87,6 +88,9 @@ export default function ConfirmDialog({
             className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
             onClick={onConfirm}
             disabled={requireDeleteConfirm && confirmationText !== 'delete'}
+            title={requireDeleteConfirm && confirmationText !== 'delete'
+              ? t('Type delete in the box above to enable this button.')
+              : danger ? t('Go ahead with the action described above. Read the message first: it may not be reversible.') : t('Go ahead with the action described above.')}
           >
             {t(confirmLabel)}
           </button>

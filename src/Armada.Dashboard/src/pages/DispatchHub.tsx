@@ -14,8 +14,8 @@ function panel(node: ReactNode): ReactNode {
  */
 export default function DispatchHub() {
   const tabs: TabDef[] = [
-    { key: 'dispatch', label: 'Dispatch', render: () => panel(<Dispatch />) },
-    { key: 'backlog', label: 'Backlog', render: () => panel(<Objectives />) },
+    { key: 'dispatch', label: 'Dispatch', tooltip: 'Describe work and send it to captains as one or more missions on a vessel.', render: () => panel(<Dispatch />) },
+    { key: 'backlog', label: 'Backlog', tooltip: 'Work you have captured but not dispatched yet, which you can refine, plan, and order.', render: () => panel(<Objectives />) },
   ];
 
   return <Tabs tabs={tabs} defaultTabKey="dispatch" ariaLabel="Dispatch sections" />;

@@ -184,12 +184,12 @@ export default function Tenants() {
 
   const columns: DataTableColumn<TenantMetadata>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name',
+      key: 'name', label: t('Name'), headerTitle: t('Display name of the tenant.'), required: true, sortKey: 'name',
       filter: <input type="text" className="col-filter" aria-label={t('Filter by name')} value={colFilters.name} onChange={e => { setColFilters({ name: e.target.value }); setPageNumber(1); }} placeholder={t('Search...')} />,
       render: (tenant) => <strong>{tenant.name}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), headerTitle: t('Tenant ID (ten_ prefix), used by the API and when filtering other lists.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (tenant) => (
         <span className="id-display">
           <span className="id-value" title={tenant.id}>{tenant.id}</span>
@@ -197,13 +197,13 @@ export default function Tenants() {
         </span>
       ),
     },
-    { key: 'active', label: t('Active'), sortKey: 'active', render: (tenant) => (tenant.active ? t('Yes') : t('No')) },
+    { key: 'active', label: t('Active'), headerTitle: t('Whether the tenant is enabled. Users of an inactive tenant cannot sign in.'), sortKey: 'active', render: (tenant) => (tenant.active ? t('Yes') : t('No')) },
     {
-      key: 'createdUtc', label: t('Created'), sortKey: 'createdUtc', cellClassName: 'text-dim cell-nowrap',
+      key: 'createdUtc', label: t('Created'), headerTitle: t('When the tenant was created.'), sortKey: 'createdUtc', cellClassName: 'text-dim cell-nowrap',
       cellTitle: (tenant) => formatDateTime(tenant.createdUtc), render: (tenant) => formatRelativeTime(tenant.createdUtc),
     },
     {
-      key: 'lastUpdateUtc', label: t('Last Updated'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastUpdateUtc', label: t('Last Updated'), headerTitle: t('When the tenant name or active state last changed.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (tenant) => formatDateTime(tenant.lastUpdateUtc), render: (tenant) => formatRelativeTime(tenant.lastUpdateUtc),
     },
     {
@@ -230,8 +230,8 @@ export default function Tenants() {
           </p>
         </div>
         <div className="view-actions">
-          {isAdmin && !remoteProxyMode && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
-          {isAdmin && !remoteProxyMode && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Tenant')}</button>}
+          {isAdmin && !remoteProxyMode && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} title={t('Permanently delete the selected tenants and everything in them: users, credentials, fleets, vessels, and history. Cannot be undone. Asks first.')}>{t('Delete Selected')} ({selected.length})</button>}
+          {isAdmin && !remoteProxyMode && <button className="btn btn-primary btn-sm" onClick={openCreate} title={t('Create a new isolated tenant with its own users, fleets, and vessels. An admin@armada account is created for it.')}>+ {t('Tenant')}</button>}
         </div>
       </div>
 
@@ -249,12 +249,13 @@ export default function Tenants() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Tenant') : t('Create Tenant')}</h3>
-            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+            <label title={t('Display name of the tenant, for example Acme Corp. Shown in menus and lists; can be changed later.')}>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required title={t('Display name of the tenant, for example Acme Corp. Shown in menus and lists; can be changed later.')} /></label>
             {!editing && (
-              <label>
+              <label title={t('Password for the tenant admin account admin@armada, at least 8 characters. Leave blank to generate one, shown once after creation.')}>
                 {t('Admin Password (optional)')}
                 <input
                   type="password"
+                  title={t('Password for the tenant admin account admin@armada, at least 8 characters. Leave blank to generate one, shown once after creation.')}
                   autoComplete="new-password"
                   value={form.adminPassword}
                   minLength={MIN_ADMIN_PASSWORD_LENGTH}
@@ -264,10 +265,10 @@ export default function Tenants() {
               </label>
             )}
             {editing && (
-              <label className="checkbox-label"><input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> {t('Active')}</label>
+              <label className="checkbox-label" title={t('Uncheck to deactivate the tenant. Its users can no longer sign in or use the API until it is turned back on; data is kept.')}><input type="checkbox" title={t('Uncheck to deactivate the tenant. Its users can no longer sign in or use the API until it is turned back on; data is kept.')} checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> {t('Active')}</label>
             )}
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="submit" className="btn btn-primary" title={editing ? t('Save the tenant changes.') : t('Create the tenant. If no password was entered, the generated admin password is shown once.')}>{t('Save')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>

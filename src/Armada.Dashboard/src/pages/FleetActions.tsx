@@ -22,8 +22,8 @@ export default function FleetActions() {
   }, [searchParams, setSearchParams]);
 
   const tabs: TabDef[] = [
-    { key: 'actions', label: 'Actions', render: () => <FleetActionsTable startRunOnMount={startRun} onRunFlowStarted={clearRunParam} /> },
-    { key: 'runs', label: 'Runs', render: () => <FleetActionRunsTable /> },
+    { key: 'actions', label: 'Actions', tooltip: 'Saved fleet actions: a shell command or a captain mission you can run across many vessels at once.', render: () => <FleetActionsTable startRunOnMount={startRun} onRunFlowStarted={clearRunParam} /> },
+    { key: 'runs', label: 'Runs', tooltip: 'Every time a fleet action was run, with its progress and the result on each vessel.', render: () => <FleetActionRunsTable /> },
   ];
 
   return (

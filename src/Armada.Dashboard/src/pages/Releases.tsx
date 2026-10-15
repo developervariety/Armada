@@ -42,6 +42,20 @@ export default function Releases() {
 
   const canManage = isAdmin || isTenantAdmin;
 
+  const tips = {
+    title: t('Release name shown in lists and on deployments. Blank uses the vessel name and version, such as api 1.4.0.'),
+    status: t('Lifecycle stage: Draft, Candidate, Shipped, Failed, or RolledBack. Setting Shipped records the published time once.'),
+    vessel: t('Repository the release belongs to. Blank infers it from the linked missions or check runs; all linked work must share one vessel.'),
+    workflowProfile: t('Profile used for this release and the default for its deployments. Blank uses the vessel\'s profile, then its fleet\'s, then the global default.'),
+    version: t('Release version, such as 1.4.0. Blank uses a version found in a linked release-versioning check, else the vessel\'s highest release version with the patch bumped.'),
+    tagName: t('Git tag for the release, such as v1.4.0. Blank uses v plus the version. Deployments of this release default to this ref.'),
+    summary: t('One-paragraph description of what ships. Blank generates one from the linked voyages, missions, and checks.'),
+    notes: t('Release notes as plain text. Blank generates notes from the linked work and artifacts; edit them before marking the release Shipped.'),
+    voyageIds: t('Voyages included in this release, one ID per line or comma-separated, such as vyg_abc123. Their missions are linked automatically.'),
+    missionIds: t('Missions included in this release, one ID per line or comma-separated, such as msn_abc123. Each must belong to the release\'s vessel.'),
+    checkRunIds: t('Check runs that prove readiness, one ID per line or comma-separated, such as chk_abc123. Their artifacts become the release artifacts.'),
+  };
+
   const EMPTY_CREATE_FORM = {
     vesselId: '',
     workflowProfileId: '',
@@ -192,14 +206,14 @@ export default function Releases() {
 
   const columns: DataTableColumn<Release>[] = [
     {
-      key: 'title', label: t('Release'), required: true,
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
+      key: 'title', label: t('Release'), required: true, headerTitle: t('Release title. Hover a row for its summary.'),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only releases whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
       // One line: version, tag and summary have their own columns; the summary is also in the tooltip.
       cellTitle: (release) => [release.title, release.summary].filter(Boolean).join('\n'),
       render: (release) => <strong className="cell-one-line">{release.title}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Release ID (rel_ prefix), used by the REST API, MCP tools, and links.'), cellClassName: 'mono text-dim table-id-cell',
       render: (release) => (
         <span className="id-display">
           <span className="id-value" title={release.id}>{release.id}</span>
@@ -208,32 +222,32 @@ export default function Releases() {
       ),
     },
     {
-      key: 'version', label: t('Version'), cellClassName: 'mono text-dim',
+      key: 'version', label: t('Version'), headerTitle: t('Release version. Hover a cell for its git tag.'), cellClassName: 'mono text-dim',
       cellTitle: (release) => release.tagName || undefined,
       render: (release) => <span className="cell-one-line">{release.version || t('Unversioned')}</span>,
     },
     {
-      key: 'tag', label: t('Tag'), defaultHidden: true, cellClassName: 'mono text-dim',
+      key: 'tag', label: t('Tag'), headerTitle: t('Git tag for the release, such as v1.4.0.'), defaultHidden: true, cellClassName: 'mono text-dim',
       render: (release) => <span className="cell-one-line" title={release.tagName || undefined}>{release.tagName || '-'}</span>,
     },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (release) => <StatusBadge status={release.status} /> },
-    { key: 'vessel', label: t('Vessel'), cellClassName: 'text-dim', render: (release) => (release.vesselId ? (vesselMap.get(release.vesselId) || release.vesselId) : '-') },
-    { key: 'workflow', label: t('Workflow'), cellClassName: 'text-dim', render: (release) => (release.workflowProfileId ? (profileMap.get(release.workflowProfileId) || release.workflowProfileId) : t('Resolved default')) },
+    { key: 'status', label: t('Status'), headerTitle: t('Lifecycle stage: Draft, Candidate, Shipped, Failed, or RolledBack.'), cellClassName: 'cell-nowrap', render: (release) => <StatusBadge status={release.status} /> },
+    { key: 'vessel', label: t('Vessel'), headerTitle: t('Repository the release belongs to.'), cellClassName: 'text-dim', render: (release) => (release.vesselId ? (vesselMap.get(release.vesselId) || release.vesselId) : '-') },
+    { key: 'workflow', label: t('Workflow'), headerTitle: t('Workflow profile set on the release. Resolved default means the vessel, fleet, or global default profile.'), cellClassName: 'text-dim', render: (release) => (release.workflowProfileId ? (profileMap.get(release.workflowProfileId) || release.workflowProfileId) : t('Resolved default')) },
     {
-      key: 'linkedWork', label: t('Linked Work'), cellClassName: 'text-dim',
+      key: 'linkedWork', label: t('Linked Work'), headerTitle: t('Counts of voyages, missions, check runs, and artifacts linked to the release.'), cellClassName: 'text-dim',
       render: (release) => <span className="cell-one-line" title={linkedWork(release)}>{linkedWork(release)}</span>,
     },
     {
-      key: 'summary', label: t('Summary'), defaultHidden: true, cellClassName: 'text-dim',
+      key: 'summary', label: t('Summary'), headerTitle: t('Short description of what ships.'), defaultHidden: true, cellClassName: 'text-dim',
       render: (release) => <span className="cell-one-line" title={release.summary || undefined}>{release.summary || '-'}</span>,
     },
     {
-      key: 'published', label: t('Published'), cellClassName: 'text-dim cell-nowrap',
+      key: 'published', label: t('Published'), headerTitle: t('When the release was first marked Shipped. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (release) => (release.publishedUtc ? formatDateTime(release.publishedUtc) : ''),
       render: (release) => (release.publishedUtc ? formatRelativeTime(release.publishedUtc) : '-'),
     },
     {
-      key: 'lastUpdated', label: t('Last Updated'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastUpdated', label: t('Last Updated'), headerTitle: t('When the release record last changed. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (release) => formatDateTime(release.lastUpdateUtc),
       render: (release) => formatRelativeTime(release.lastUpdateUtc),
     },
@@ -243,10 +257,10 @@ export default function Releases() {
         <ActionMenu
           id={`release-${release.id}`}
           items={[
-            { label: 'Open', onClick: () => navigate(`/releases/${release.id}`) },
-            ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(release) }] : []),
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: release.title, data: release }) },
-            ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(release) }] : []),
+            { label: 'Open', title: 'Open the release detail page with its notes, linked work, artifacts, and deployments.', onClick: () => navigate(`/releases/${release.id}`) },
+            ...(canManage ? [{ label: 'Edit', title: 'Change the release\'s version, status, notes, and linked work.', onClick: () => openEdit(release) }] : []),
+            { label: 'View JSON', title: 'Show the raw release record as returned by the API.', onClick: () => setJsonData({ open: true, title: release.title, data: release }) },
+            ...(canManage ? [{ label: 'Delete', title: 'Delete this release record. Linked work, checks, and artifacts on disk are kept. Cannot be undone.', danger: true as const, onClick: () => handleDelete(release) }] : []),
           ]}
         />
       ),
@@ -261,7 +275,7 @@ export default function Releases() {
         actions={(
           <>
             {canManage && (
-              <button className="btn btn-primary" onClick={openCreate}>
+              <button className="btn btn-primary" onClick={openCreate} title={t('Draft a release from voyages, missions, and check runs. Blank fields are generated from the linked work.')}>
                 + {t('Release')}
               </button>
             )}
@@ -283,75 +297,75 @@ export default function Releases() {
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
             <h3>{editing ? t('Edit Release') : t('Create Release')}</h3>
-            <label>{t('Title')}
-              <input value={createForm.title} onChange={(event) => setCreateForm((current) => ({ ...current, title: event.target.value }))} />
+            <label title={tips.title}>{t('Title')}
+              <input title={tips.title} value={createForm.title} onChange={(event) => setCreateForm((current) => ({ ...current, title: event.target.value }))} />
             </label>
-            <label>{t('Status')}
-              <select value={createForm.status} onChange={(event) => setCreateForm((current) => ({ ...current, status: event.target.value as ReleaseStatus }))}>
+            <label title={tips.status}>{t('Status')}
+              <select title={tips.status} value={createForm.status} onChange={(event) => setCreateForm((current) => ({ ...current, status: event.target.value as ReleaseStatus }))}>
                 {RELEASE_STATUSES.map((value) => (
                   <option key={value} value={value}>{value}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Vessel')}
-              <select value={createForm.vesselId} onChange={(event) => setCreateForm((current) => ({ ...current, vesselId: event.target.value }))}>
+            <label title={tips.vessel}>{t('Vessel')}
+              <select title={tips.vessel} value={createForm.vesselId} onChange={(event) => setCreateForm((current) => ({ ...current, vesselId: event.target.value }))}>
                 <option value="">{t('Resolve from linked work or select a vessel...')}</option>
                 {vessels.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Workflow Profile')}
-              <select value={createForm.workflowProfileId} onChange={(event) => setCreateForm((current) => ({ ...current, workflowProfileId: event.target.value }))}>
+            <label title={tips.workflowProfile}>{t('Workflow Profile')}
+              <select title={tips.workflowProfile} value={createForm.workflowProfileId} onChange={(event) => setCreateForm((current) => ({ ...current, workflowProfileId: event.target.value }))}>
                 <option value="">{t('Resolved default')}</option>
                 {profiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>{profile.name}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Version')}
-              <input value={createForm.version} onChange={(event) => setCreateForm((current) => ({ ...current, version: event.target.value }))} placeholder="1.2.3" />
+            <label title={tips.version}>{t('Version')}
+              <input title={tips.version} value={createForm.version} onChange={(event) => setCreateForm((current) => ({ ...current, version: event.target.value }))} placeholder="1.2.3" />
             </label>
-            <label>{t('Tag Name')}
-              <input value={createForm.tagName} onChange={(event) => setCreateForm((current) => ({ ...current, tagName: event.target.value }))} placeholder="v1.2.3" />
+            <label title={tips.tagName}>{t('Tag Name')}
+              <input title={tips.tagName} value={createForm.tagName} onChange={(event) => setCreateForm((current) => ({ ...current, tagName: event.target.value }))} placeholder="v1.2.3" />
             </label>
-            <label>{t('Summary')}
-              <textarea rows={3} value={createForm.summary} onChange={(event) => setCreateForm((current) => ({ ...current, summary: event.target.value }))} />
+            <label title={tips.summary}>{t('Summary')}
+              <textarea title={tips.summary} rows={3} value={createForm.summary} onChange={(event) => setCreateForm((current) => ({ ...current, summary: event.target.value }))} />
             </label>
-            <label>{t('Notes')}
-              <textarea rows={6} value={createForm.notes} onChange={(event) => setCreateForm((current) => ({ ...current, notes: event.target.value }))} />
+            <label title={tips.notes}>{t('Notes')}
+              <textarea title={tips.notes} rows={6} value={createForm.notes} onChange={(event) => setCreateForm((current) => ({ ...current, notes: event.target.value }))} />
             </label>
-            <label>{t('Voyage IDs')}
-              <textarea rows={3} value={createForm.voyageIds} onChange={(event) => setCreateForm((current) => ({ ...current, voyageIds: event.target.value }))} placeholder="voy_..." />
+            <label title={tips.voyageIds}>{t('Voyage IDs')}
+              <textarea title={tips.voyageIds} rows={3} value={createForm.voyageIds} onChange={(event) => setCreateForm((current) => ({ ...current, voyageIds: event.target.value }))} placeholder="vyg_..." />
             </label>
-            <label>{t('Mission IDs')}
-              <textarea rows={3} value={createForm.missionIds} onChange={(event) => setCreateForm((current) => ({ ...current, missionIds: event.target.value }))} placeholder="mis_..." />
+            <label title={tips.missionIds}>{t('Mission IDs')}
+              <textarea title={tips.missionIds} rows={3} value={createForm.missionIds} onChange={(event) => setCreateForm((current) => ({ ...current, missionIds: event.target.value }))} placeholder="msn_..." />
             </label>
-            <label>{t('Check Run IDs')}
-              <textarea rows={3} value={createForm.checkRunIds} onChange={(event) => setCreateForm((current) => ({ ...current, checkRunIds: event.target.value }))} placeholder="chk_..." />
+            <label title={tips.checkRunIds}>{t('Check Run IDs')}
+              <textarea title={tips.checkRunIds} rows={3} value={createForm.checkRunIds} onChange={(event) => setCreateForm((current) => ({ ...current, checkRunIds: event.target.value }))} placeholder="chk_..." />
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Release')}</button>
-              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving} title={editing ? t('Save changes to this release. Artifacts are rebuilt from the linked check runs.') : t('Create the release. Blank fields are generated from the linked work.')}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Release')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving} title={t('Close without saving.')}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('All release records you can see, before filters.')}>
           <span>{t('Total Releases')}</span>
           <strong>{releases.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Releases marked Shipped.')}>
           <span>{t('Shipped')}</span>
           <strong>{shippedCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Releases marked Candidate: ready for testing or deployment but not yet shipped.')}>
           <span>{t('Candidates')}</span>
           <strong>{candidateCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Releases marked Failed or RolledBack.')}>
           <span>{t('Failed / Rolled Back')}</span>
           <strong>{failedCount}</strong>
         </div>
@@ -364,14 +378,15 @@ export default function Releases() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t('Search by title, version, tag, summary, or ID...')}
+            title={t('Filters the list to releases whose title, version, tag, summary, or ID contains this text.')}
           />
-          <select aria-label={t('All statuses')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+          <select aria-label={t('All statuses')} title={t('Show only releases in this lifecycle stage.')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
             <option value="all">{t('All statuses')}</option>
             {RELEASE_STATUSES.map((status) => (
               <option key={status} value={status}>{status}</option>
             ))}
           </select>
-          <select aria-label={t('All vessels')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
+          <select aria-label={t('All vessels')} title={t('Show only releases for this vessel.')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
             <option value="all">{t('All vessels')}</option>
             {vessels.map((vessel) => (
               <option key={vessel.id} value={vessel.id}>{vessel.name}</option>

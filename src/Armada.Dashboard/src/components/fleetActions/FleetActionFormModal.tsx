@@ -93,8 +93,8 @@ export default function FleetActionFormModal({ open, mode, source, defaultTimeou
       size="lg"
       footer={(
         <>
-          <button type="button" className="btn" onClick={onClose} disabled={saving}>{t('Cancel')}</button>
-          <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
+          <button type="button" className="btn" onClick={onClose} disabled={saving} title={t('Close without saving.')}>{t('Cancel')}</button>
+          <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving} title={t('Save the action. Runs already started keep the definition they began with.')}>{saving ? t('Saving...') : t('Save')}</button>
         </>
       )}
     >
@@ -108,21 +108,21 @@ export default function FleetActionFormModal({ open, mode, source, defaultTimeou
       <div className="form-stack">
         <div className="form-grid-2">
           <label className="form-field">
-            <span className="form-label">{t('Name')}</span>
-            <input value={form.name} maxLength={200} onChange={(e) => setForm({ ...form, name: e.target.value })} aria-invalid={Boolean(show('name'))} />
+            <span className="form-label" title={t('Name shown when picking an action to run, for example Fast-forward default branch. Required, up to 200 characters.')}>{t('Name')}</span>
+            <input title={t('Name shown when picking an action to run, for example Fast-forward default branch. Required, up to 200 characters.')} value={form.name} maxLength={200} onChange={(e) => setForm({ ...form, name: e.target.value })} aria-invalid={Boolean(show('name'))} />
             {show('name') && <span className="field-error">{show('name')}</span>}
           </label>
           <label className="form-field">
-            <span className="form-label">{t('Description')}</span>
-            <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder={t('Optional')} />
+            <span className="form-label" title={t('Optional note on what the action does, shown in the actions list.')}>{t('Description')}</span>
+            <input title={t('Optional note on what the action does, shown in the actions list.')} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder={t('Optional')} />
           </label>
         </div>
 
         <fieldset className="form-fieldset">
-          <legend className="form-label">{t('Kind')}</legend>
+          <legend className="form-label" title={t('Command runs a shell command in each vessel working directory on the Admiral or its Harbor. Mission asks a captain to do the work in a voyage per vessel.')}>{t('Kind')}</legend>
           <div className="segmented" role="radiogroup" aria-label={t('Kind')}>
             {(['Command', 'Mission'] as FleetActionKind[]).map((k) => (
-              <label key={k} className={`segmented-option${form.kind === k ? ' active' : ''}`}>
+              <label key={k} className={`segmented-option${form.kind === k ? ' active' : ''}`} title={t(KIND_DESCRIPTIONS[k])}>
                 <input
                   type="radio"
                   name="fleet-action-kind"
@@ -138,8 +138,9 @@ export default function FleetActionFormModal({ open, mode, source, defaultTimeou
 
         {form.kind === 'Command' ? (
           <label className="form-field">
-            <span className="form-label">{t('Command text')}</span>
+            <span className="form-label" title={t('Shell command run in each vessel working directory, for example git pull --ff-only. Template variables such as {{vessel.defaultBranch}} are filled in per vessel.')}>{t('Command text')}</span>
             <textarea
+              title={t('Shell command run in each vessel working directory, for example git pull --ff-only. Template variables such as {{vessel.defaultBranch}} are filled in per vessel.')}
               ref={bodyRef}
               className="mono"
               rows={6}
@@ -154,8 +155,9 @@ export default function FleetActionFormModal({ open, mode, source, defaultTimeou
         ) : (
           <>
             <label className="form-field">
-              <span className="form-label">{t('Prompt template')}</span>
+              <span className="form-label" title={t('Instructions for the captain, used as the mission description for each vessel. Template variables such as {{health.summary}} are filled in per vessel.')}>{t('Prompt template')}</span>
               <textarea
+                title={t('Instructions for the captain, used as the mission description for each vessel. Template variables such as {{health.summary}} are filled in per vessel.')}
                 ref={bodyRef}
                 rows={8}
                 value={form.promptTemplate}
@@ -165,20 +167,20 @@ export default function FleetActionFormModal({ open, mode, source, defaultTimeou
             </label>
             <div className="form-grid-2">
               <label className="form-field">
-                <span className="form-label">{t('Pipeline')}</span>
-                <select value={form.pipelineId} onChange={(e) => setForm({ ...form, pipelineId: e.target.value })}>
+                <span className="form-label" title={t('Pipeline the voyages run through. Vessel default uses the vessel or fleet default pipeline, unless a persona is set below.')}>{t('Pipeline')}</span>
+                <select title={t('Pipeline the voyages run through. Vessel default uses the vessel or fleet default pipeline, unless a persona is set below.')} value={form.pipelineId} onChange={(e) => setForm({ ...form, pipelineId: e.target.value })}>
                   <option value="">{t('Vessel default')}</option>
                   {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </label>
               <label className="form-field">
-                <span className="form-label">{t('Persona')}</span>
-                <select value={form.persona} onChange={(e) => setForm({ ...form, persona: e.target.value })}>
+                <span className="form-label" title={t('Persona the captain works as. With no pipeline, each mission runs as one stage with it; a single-stage pipeline uses it instead of its own; multi-stage pipelines ignore it.')}>{t('Persona')}</span>
+                <select title={t('Persona the captain works as. With no pipeline, each mission runs as one stage with it; a single-stage pipeline uses it instead of its own; multi-stage pipelines ignore it.')} value={form.persona} onChange={(e) => setForm({ ...form, persona: e.target.value })}>
                   <option value="">{t('None')}</option>
                   {personas.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
                   {form.persona && !personas.some((p) => p.name === form.persona) && <option value={form.persona}>{form.persona}</option>}
                 </select>
-                <span className="text-dim form-help">{t('Stored with the action; not yet applied at dispatch. Use a pipeline to choose personas.')}</span>
+                <span className="text-dim form-help">{t('Applied at dispatch. Ignored by multi-stage pipelines, which choose their own personas.')}</span>
               </label>
             </div>
           </>
@@ -192,19 +194,19 @@ export default function FleetActionFormModal({ open, mode, source, defaultTimeou
         <div className="form-grid-3">
           {form.kind === 'Command' && (
             <label className="form-field">
-              <span className="form-label">{t('Timeout (seconds)')}</span>
-              <input type="number" min={5} max={7200} value={form.timeoutSeconds} onChange={(e) => setForm({ ...form, timeoutSeconds: e.target.value })} aria-invalid={Boolean(show('timeout'))} />
+              <span className="form-label" title={t('Seconds the command may run on one vessel before it and its child processes are killed and the vessel is marked Timed out (5-7200).')}>{t('Timeout (seconds)')}</span>
+              <input title={t('Seconds the command may run on one vessel before it and its child processes are killed and the vessel is marked Timed out (5-7200).')} type="number" min={5} max={7200} value={form.timeoutSeconds} onChange={(e) => setForm({ ...form, timeoutSeconds: e.target.value })} aria-invalid={Boolean(show('timeout'))} />
               {show('timeout') ? <span className="field-error">{show('timeout')}</span> : <span className="text-dim form-help">{t('5 to 7200 seconds')}</span>}
             </label>
           )}
           <label className="form-field">
-            <span className="form-label">{t('Default concurrency')}</span>
-            <input type="number" min={1} max={32} value={form.defaultConcurrency} onChange={(e) => setForm({ ...form, defaultConcurrency: e.target.value })} aria-invalid={Boolean(show('concurrency'))} />
+            <span className="form-label" title={t('How many vessels a run works on at once unless the run overrides it (1-32). For Mission actions, how many voyages are active at once.')}>{t('Default concurrency')}</span>
+            <input title={t('How many vessels a run works on at once unless the run overrides it (1-32). For Mission actions, how many voyages are active at once.')} type="number" min={1} max={32} value={form.defaultConcurrency} onChange={(e) => setForm({ ...form, defaultConcurrency: e.target.value })} aria-invalid={Boolean(show('concurrency'))} />
             {show('concurrency') ? <span className="field-error">{show('concurrency')}</span> : <span className="text-dim form-help">{t('1 to 32')}</span>}
           </label>
           {form.kind === 'Command' && (
-            <label className="checkbox-row form-checkbox-aligned">
-              <input type="checkbox" checked={form.requiresCleanWorkingTree} onChange={(e) => setForm({ ...form, requiresCleanWorkingTree: e.target.checked })} />
+            <label className="checkbox-row form-checkbox-aligned" title={t('Skip any vessel whose checkout has uncommitted or untracked changes, so a command never touches unsaved work. Recommended.')}>
+              <input type="checkbox" title={t('Skip any vessel whose checkout has uncommitted or untracked changes, so a command never touches unsaved work. Recommended.')} checked={form.requiresCleanWorkingTree} onChange={(e) => setForm({ ...form, requiresCleanWorkingTree: e.target.checked })} />
               <span>{t('Requires a clean working tree')}</span>
             </label>
           )}

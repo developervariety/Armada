@@ -146,7 +146,7 @@ export default function BackgroundActivityIndicator() {
           aria-haspopup="true"
           aria-expanded={open}
           aria-label={label}
-          title={label}
+          title={t('{count, plural, one {# background task is running} other {# background tasks are running}} on the Admiral, such as an import or a fleet action. Click to see which.', { count })}
         >
           <span className="bg-activity-spinner" aria-hidden="true" />
           <span className="bg-activity-text">{t('{count, plural, one {# running} other {# running}}', { count })}</span>
@@ -158,7 +158,7 @@ export default function BackgroundActivityIndicator() {
           <ul className="bg-activity-list">
             {running.map((job) => (
               <li key={job.id}>
-                <Link to={jobRoute(job)} className="bg-activity-item" onClick={() => setOpen(false)}>
+                <Link to={jobRoute(job)} className="bg-activity-item" onClick={() => setOpen(false)} title={t('Open this task to follow its progress and see its result.')}>
                   <span className="bg-activity-item-name">{jobFriendlyName(t, job)}</span>
                   <span className="bg-activity-item-meta">
                     {job.status === 'Queued' ? t('Queued') : t('Running')}
@@ -169,7 +169,7 @@ export default function BackgroundActivityIndicator() {
               </li>
             ))}
           </ul>
-          <Link to="/jobs" className="bg-activity-all" onClick={() => setOpen(false)}>{t('Open the Jobs page')}</Link>
+          <Link to="/jobs" className="bg-activity-all" onClick={() => setOpen(false)} title={t('Open the Jobs page, which lists every background task with its status and history.')}>{t('Open the Jobs page')}</Link>
         </div>
       )}
     </div>

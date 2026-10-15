@@ -81,16 +81,16 @@ export default function VesselPickerModal({ open, onClose, onPicked, title }: Ve
       size="lg"
       footer={(
         <>
-          <button type="button" className="btn" onClick={onClose}>{t('Cancel')}</button>
-          <button type="button" className="btn btn-primary" disabled={selected.length === 0 || tooMany} onClick={() => onPicked(selected)}>
+          <button type="button" className="btn" onClick={onClose} title={t('Close without starting a run.')}>{t('Cancel')}</button>
+          <button type="button" className="btn btn-primary" disabled={selected.length === 0 || tooMany} onClick={() => onPicked(selected)} title={selected.length === 0 ? t('Select at least one vessel first.') : t('Go on to choose the action and options. Nothing runs yet.')}>
             {t('Continue')}
           </button>
         </>
       )}
     >
       <div className="toolbar-row">
-        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Vessel name or path contains...')} aria-label={t('Vessel name or path contains...')} />
-        <select value={fleetId} onChange={(e) => setFleetId(e.target.value)} aria-label={t('Filter vessels by fleet')}>
+        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Vessel name or path contains...')} aria-label={t('Vessel name or path contains...')} title={t('Show only vessels whose name or working directory contains this text. Already selected vessels stay selected.')} />
+        <select value={fleetId} onChange={(e) => setFleetId(e.target.value)} aria-label={t('Filter vessels by fleet')} title={t('Show only vessels in one fleet.')}>
           <option value="">{t('All Fleets')}</option>
           {fleets.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
         </select>
@@ -116,13 +116,13 @@ export default function VesselPickerModal({ open, onClose, onPicked, title }: Ve
           }}
           emptyMessage={t('No vessels match the current filters.')}
           columns={[
-            { key: 'name', label: t('Name'), required: true, render: (v) => <strong>{v.name}</strong> },
+            { key: 'name', label: t('Name'), headerTitle: t('Vessel name. Click a row to select or clear it.'), required: true, render: (v) => <strong>{v.name}</strong> },
             {
-              key: 'fleet', label: t('Fleet'), cellClassName: 'cell-nowrap',
+              key: 'fleet', label: t('Fleet'), headerTitle: t('Fleet the vessel belongs to.'), cellClassName: 'cell-nowrap',
               render: (v) => (v.fleetId ? fleets.find((f) => f.id === v.fleetId)?.name ?? v.fleetId : '-'),
             },
             {
-              key: 'workingDirectory', label: t('Working Directory'), cellClassName: 'mono text-dim',
+              key: 'workingDirectory', label: t('Working Directory'), headerTitle: t('Developer checkout where Command actions run. Vessels without one are skipped by Command actions.'), cellClassName: 'mono text-dim',
               cellTitle: (v) => v.workingDirectory ?? '',
               render: (v) => <span className="cell-clip"><span>{v.workingDirectory || '-'}</span></span>,
             },

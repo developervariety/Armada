@@ -23,6 +23,22 @@ import { buildWorkflowProfileDuplicatePayload } from '../lib/duplicates';
 
 
 
+const NAME_TIP = 'Name for this profile, for example dotnet-service or web-frontend. Required.';
+const DESCRIPTION_TIP = 'Optional note on what kind of project this profile is for.';
+const SCOPE_TIP = 'Which vessels the profile applies to: Global for all, Fleet for one fleet\'s vessels, Vessel for one repository. A vessel uses its Vessel profile first, then Fleet, then Global.';
+const FLEET_TIP = 'The fleet whose vessels this profile applies to. Required when Scope is Fleet.';
+const VESSEL_TIP = 'The single repository this profile applies to. Required when Scope is Vessel.';
+const HINTS_TIP = 'Optional languages and tools the project uses, one per line, for example dotnet or react. For reference only; Armada does not act on them.';
+const ARTIFACTS_TIP = 'Files the checks produce, one path per line relative to the vessel\'s working directory, for example coverage/summary.xml. Armada collects them onto each check run.';
+const DEFAULT_TIP = 'When several active profiles match the same vessel at the same scope, the default one is used. Otherwise the most recently updated wins.';
+const ACTIVE_TIP = 'On: Armada can use this profile. Off: it is never chosen, even when a vessel names it.';
+const LINTCOMMAND_TIP = 'Shell command Armada runs for a Lint check in the vessel\'s working directory, for example npm run lint. Leave blank if the project has no lint step.';
+const BUILDCOMMAND_TIP = 'Shell command Armada runs for a Build check in the vessel\'s working directory, for example dotnet build. Leave blank if the project has no build step.';
+const UNITTESTCOMMAND_TIP = 'Shell command Armada runs for a Unit Test check in the vessel\'s working directory, for example dotnet test. Leave blank if the project has no unit test step.';
+const INTEGRATIONTESTCOMMAND_TIP = 'Shell command Armada runs for an Integration Test check in the vessel\'s working directory, for example npm run test:integration. Leave blank if the project has no integration test step.';
+const E2ETESTCOMMAND_TIP = 'Shell command Armada runs for an E2E Test check in the vessel\'s working directory, for example npx playwright test. Leave blank if the project has no end-to-end test step.';
+const PACKAGECOMMAND_TIP = 'Shell command Armada runs for a Package check in the vessel\'s working directory, for example dotnet publish -c Release. Leave blank if the project has no package step.';
+
 export default function WorkflowProfiles() {
   const navigate = useNavigate();
   const { isAdmin, isTenantAdmin, user } = useAuth();
@@ -250,13 +266,13 @@ export default function WorkflowProfiles() {
   // Name, ID and description used to stack in one cell, and "Default" sat under the scope badge; each is on one line now.
   const columns: DataTableColumn<WorkflowProfile>[] = [
     {
-      key: 'name', label: t('Profile'), required: true,
+      key: 'name', label: t('Profile'), required: true, headerTitle: t('Workflow profile name. A profile holds the commands Armada runs to lint, build, test, package and deploy a project.'),
       clearFilter: () => setColFilters(f => ({ ...f, name: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Profile')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Profile')} title={t('Show only profiles whose name contains this text.')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
       render: (profile) => <strong>{profile.name}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique workflow profile ID (wfp_ prefix), used when a vessel or check run names a profile directly. Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
       render: (profile) => (
         <span className="id-display">
           <span className="id-value" title={profile.id}>{profile.id}</span>
@@ -265,40 +281,40 @@ export default function WorkflowProfiles() {
       ),
     },
     {
-      key: 'description', label: t('Description'), defaultHidden: true, cellClassName: 'text-dim truncate-cell',
+      key: 'description', label: t('Description'), headerTitle: t('What this profile is for. Hover a value for the full text.'), defaultHidden: true, cellClassName: 'text-dim truncate-cell',
       render: (profile) => profile.description ? <span className="truncate-text" title={profile.description}>{profile.description}</span> : '-',
     },
     {
-      key: 'scope', label: t('Scope'), cellClassName: 'cell-nowrap',
+      key: 'scope', label: t('Scope'), headerTitle: t(SCOPE_TIP), cellClassName: 'cell-nowrap',
       render: (profile) => (
         <>
           <StatusBadge status={profile.scope} />
-          {profile.isDefault && <span className="text-dim"> {t('Default')}</span>}
+          {profile.isDefault && <span className="text-dim" title={t('Default: chosen first among active profiles that match the same scope.')}> {t('Default')}</span>}
         </>
       ),
     },
-    { key: 'visibility', label: t('Visibility'), cellClassName: 'cell-nowrap', render: (profile) => <ScopeBadge scope={profile.ownershipScope} /> },
-    { key: 'capabilities', label: t('Capabilities'), cellClassName: 'text-dim cell-nowrap', render: (profile) => <>{countProfileCapabilities(profile)} {t('commands')}</> },
-    { key: 'targets', label: t('Targets'), cellClassName: 'text-dim cell-nowrap', render: (profile) => <>{profile.environments.length} {t('environments')}</> },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (profile) => <StatusBadge status={profile.active ? 'Active' : 'Inactive'} /> },
+    { key: 'visibility', label: t('Visibility'), headerTitle: t('Tenant-wide profiles are usable by everyone in the tenant and edited by admins; personal ones only by their owner.'), cellClassName: 'cell-nowrap', render: (profile) => <ScopeBadge scope={profile.ownershipScope} /> },
+    { key: 'capabilities', label: t('Capabilities'), headerTitle: t('How many check commands (lint, build, test, package, release and so on) the profile defines. Checks without a command cannot run.'), cellClassName: 'text-dim cell-nowrap', render: (profile) => <>{countProfileCapabilities(profile)} {t('commands')}</> },
+    { key: 'targets', label: t('Targets'), headerTitle: t('How many deployment environments (for example staging or production) have their own deploy, rollback and verify commands.'), cellClassName: 'text-dim cell-nowrap', render: (profile) => <>{profile.environments.length} {t('environments')}</> },
+    { key: 'status', label: t('Status'), headerTitle: t('Only active profiles are used. An inactive profile is never chosen, even when a vessel names it.'), cellClassName: 'cell-nowrap', render: (profile) => <StatusBadge status={profile.active ? 'Active' : 'Inactive'} /> },
     {
-      key: 'lastUpdated', label: t('Last Updated'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastUpdated', label: t('Last Updated'), headerTitle: t('When this profile was last changed. Among equally matching profiles, the newest wins after the default.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (profile) => formatDateTime(profile.lastUpdateUtc),
       render: (profile) => formatRelativeTime(profile.lastUpdateUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open the menu in a row to open, edit, duplicate or delete that profile.'), fixed: true, interactive: true, className: 'text-right',
       render: (profile) => {
         const canEditRow = canEditProfile(profile);
         return (
           <ActionMenu
             id={`workflow-profile-${profile.id}`}
             items={[
-              { label: 'Open', onClick: () => navigate(`/workflow-profiles/${profile.id}`) },
-              ...(canEditRow ? [{ label: 'Edit', onClick: () => openEdit(profile) }] : []),
-              { label: 'Duplicate', onClick: () => void handleDuplicate(profile) },
-              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: profile.name, data: profile }) },
-              ...(canEditRow ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(profile) }] : []),
+              { label: 'Open', title: 'Open the full editor with every command, environment, required input and readiness check.', onClick: () => navigate(`/workflow-profiles/${profile.id}`) },
+              ...(canEditRow ? [{ label: 'Edit', title: 'Quick edit of the name, scope and main commands. Use Open for environments and the remaining commands.', onClick: () => openEdit(profile) }] : []),
+              { label: 'Duplicate', title: 'Create a copy of this profile under a new name, then open it.', onClick: () => void handleDuplicate(profile) },
+              { label: 'View JSON', title: 'Show this profile\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: profile.name, data: profile }) },
+              ...(canEditRow ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this profile. Past check runs are kept; vessels fall back to the next matching profile. You confirm first.', onClick: () => handleDelete(profile) }] : []),
             ]}
           />
         );
@@ -313,7 +329,7 @@ export default function WorkflowProfiles() {
         subtitle={t('Tenant-scoped command profiles that tell Armada how each project builds, tests, packages, releases, deploys, and verifies itself.')}
         actions={(
           <>
-            <button className="btn btn-primary" onClick={openCreate}>
+            <button className="btn btn-primary" onClick={openCreate} title={t('Create a workflow profile: the commands Armada runs to lint, build, test, package and deploy a project.')}>
               + {t('Workflow Profile')}
             </button>
           </>
@@ -339,19 +355,19 @@ export default function WorkflowProfiles() {
             </p>
             {editing && (
               <p className="text-dim" style={{ marginTop: 0 }}>
-                <a href={`/workflow-profiles/${editing.id}`} onClick={(event) => { event.preventDefault(); navigate(`/workflow-profiles/${editing.id}`); }}>
+                <a href={`/workflow-profiles/${editing.id}`} onClick={(event) => { event.preventDefault(); navigate(`/workflow-profiles/${editing.id}`); }} title={t('Open this profile\'s full page to edit environments, required inputs and every command. Unsaved changes here are lost.')}>
                   {t('Open full editor')}
                 </a>
               </p>
             )}
-            <label>{t('Name')}
-              <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} required />
+            <label title={t(NAME_TIP)}>{t('Name')}
+              <input title={t(NAME_TIP)} value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} required />
             </label>
-            <label>{t('Description')}
-              <input value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
+            <label title={t(DESCRIPTION_TIP)}>{t('Description')}
+              <input title={t(DESCRIPTION_TIP)} value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
             </label>
-            <label>{t('Scope')}
-              <select value={createForm.scope} onChange={(event) => setCreateForm((current) => ({ ...current, scope: event.target.value as 'Global' | 'Fleet' | 'Vessel' }))}>
+            <label title={t(SCOPE_TIP)}>{t('Scope')}
+              <select title={t(SCOPE_TIP)} value={createForm.scope} onChange={(event) => setCreateForm((current) => ({ ...current, scope: event.target.value as 'Global' | 'Fleet' | 'Vessel' }))}>
                 <option value="Global">{t('Global')}</option>
                 <option value="Fleet">{t('Fleet')}</option>
                 <option value="Vessel">{t('Vessel')}</option>
@@ -359,55 +375,55 @@ export default function WorkflowProfiles() {
             </label>
             <ScopeSelect viewer={viewer} value={createForm.ownershipScope} onChange={(ownershipScope) => setCreateForm((current) => ({ ...current, ownershipScope }))} />
             {createForm.scope === 'Fleet' && (
-              <label>{t('Fleet')}
-                <select value={createForm.fleetId} onChange={(event) => setCreateForm((current) => ({ ...current, fleetId: event.target.value }))}>
+              <label title={t(FLEET_TIP)}>{t('Fleet')}
+                <select title={t(FLEET_TIP)} value={createForm.fleetId} onChange={(event) => setCreateForm((current) => ({ ...current, fleetId: event.target.value }))}>
                   <option value="">{t('Select a fleet...')}</option>
                   {fleetOptions.map((fleet) => <option key={fleet.id} value={fleet.id}>{fleet.name}</option>)}
                 </select>
               </label>
             )}
             {createForm.scope === 'Vessel' && (
-              <label>{t('Vessel')}
-                <select value={createForm.vesselId} onChange={(event) => setCreateForm((current) => ({ ...current, vesselId: event.target.value }))}>
+              <label title={t(VESSEL_TIP)}>{t('Vessel')}
+                <select title={t(VESSEL_TIP)} value={createForm.vesselId} onChange={(event) => setCreateForm((current) => ({ ...current, vesselId: event.target.value }))}>
                   <option value="">{t('Select a vessel...')}</option>
                   {vesselOptions.map((vessel) => <option key={vessel.id} value={vessel.id}>{vessel.name}</option>)}
                 </select>
               </label>
             )}
-            <label>{t('Language / Runtime Hints')}
-              <textarea rows={3} value={createForm.languageHints} onChange={(event) => setCreateForm((current) => ({ ...current, languageHints: event.target.value }))} placeholder={t('dotnet\nreact\npostgres')} />
+            <label title={t(HINTS_TIP)}>{t('Language / Runtime Hints')}
+              <textarea rows={3} title={t(HINTS_TIP)} value={createForm.languageHints} onChange={(event) => setCreateForm((current) => ({ ...current, languageHints: event.target.value }))} placeholder={t('dotnet\nreact\npostgres')} />
             </label>
-            <label>{t('Expected Artifacts')}
-              <textarea rows={3} value={createForm.expectedArtifacts} onChange={(event) => setCreateForm((current) => ({ ...current, expectedArtifacts: event.target.value }))} placeholder={t('bin/Release/app.zip\ncoverage/summary.xml')} />
+            <label title={t(ARTIFACTS_TIP)}>{t('Expected Artifacts')}
+              <textarea rows={3} title={t(ARTIFACTS_TIP)} value={createForm.expectedArtifacts} onChange={(event) => setCreateForm((current) => ({ ...current, expectedArtifacts: event.target.value }))} placeholder={t('bin/Release/app.zip\ncoverage/summary.xml')} />
             </label>
-            <label>{t('Lint Command')}
-              <textarea rows={2} value={createForm.lintCommand} onChange={(event) => setCreateForm((current) => ({ ...current, lintCommand: event.target.value }))} />
+            <label title={t(LINTCOMMAND_TIP)}>{t('Lint Command')}
+              <textarea rows={2} title={t(LINTCOMMAND_TIP)} value={createForm.lintCommand} onChange={(event) => setCreateForm((current) => ({ ...current, lintCommand: event.target.value }))} />
             </label>
-            <label>{t('Build Command')}
-              <textarea rows={2} value={createForm.buildCommand} onChange={(event) => setCreateForm((current) => ({ ...current, buildCommand: event.target.value }))} />
+            <label title={t(BUILDCOMMAND_TIP)}>{t('Build Command')}
+              <textarea rows={2} title={t(BUILDCOMMAND_TIP)} value={createForm.buildCommand} onChange={(event) => setCreateForm((current) => ({ ...current, buildCommand: event.target.value }))} />
             </label>
-            <label>{t('Unit Test Command')}
-              <textarea rows={2} value={createForm.unitTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, unitTestCommand: event.target.value }))} />
+            <label title={t(UNITTESTCOMMAND_TIP)}>{t('Unit Test Command')}
+              <textarea rows={2} title={t(UNITTESTCOMMAND_TIP)} value={createForm.unitTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, unitTestCommand: event.target.value }))} />
             </label>
-            <label>{t('Integration Test Command')}
-              <textarea rows={2} value={createForm.integrationTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, integrationTestCommand: event.target.value }))} />
+            <label title={t(INTEGRATIONTESTCOMMAND_TIP)}>{t('Integration Test Command')}
+              <textarea rows={2} title={t(INTEGRATIONTESTCOMMAND_TIP)} value={createForm.integrationTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, integrationTestCommand: event.target.value }))} />
             </label>
-            <label>{t('E2E Test Command')}
-              <textarea rows={2} value={createForm.e2eTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, e2eTestCommand: event.target.value }))} />
+            <label title={t(E2ETESTCOMMAND_TIP)}>{t('E2E Test Command')}
+              <textarea rows={2} title={t(E2ETESTCOMMAND_TIP)} value={createForm.e2eTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, e2eTestCommand: event.target.value }))} />
             </label>
-            <label>{t('Package Command')}
-              <textarea rows={2} value={createForm.packageCommand} onChange={(event) => setCreateForm((current) => ({ ...current, packageCommand: event.target.value }))} />
+            <label title={t(PACKAGECOMMAND_TIP)}>{t('Package Command')}
+              <textarea rows={2} title={t(PACKAGECOMMAND_TIP)} value={createForm.packageCommand} onChange={(event) => setCreateForm((current) => ({ ...current, packageCommand: event.target.value }))} />
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-              <input type="checkbox" checked={createForm.isDefault} onChange={(event) => setCreateForm((current) => ({ ...current, isDefault: event.target.checked }))} />
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }} title={t(DEFAULT_TIP)}>
+              <input type="checkbox" title={t(DEFAULT_TIP)} checked={createForm.isDefault} onChange={(event) => setCreateForm((current) => ({ ...current, isDefault: event.target.checked }))} />
               <span>{t('Default for this scope')}</span>
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-              <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm((current) => ({ ...current, active: event.target.checked }))} />
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }} title={t(ACTIVE_TIP)}>
+              <input type="checkbox" title={t(ACTIVE_TIP)} checked={createForm.active} onChange={(event) => setCreateForm((current) => ({ ...current, active: event.target.checked }))} />
               <span>{t('Active')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Workflow Profile')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving} title={editing ? t('Save changes. Check runs started after saving use the new commands.') : t('Create this profile. You can add environments and the remaining commands on its page afterward.')}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Workflow Profile')}</button>
               <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -415,19 +431,19 @@ export default function WorkflowProfiles() {
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('All workflow profiles you can see, active and inactive.')}>
           <span>{t('Total Profiles')}</span>
           <strong>{profiles.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Profiles Armada can choose for vessels and check runs.')}>
           <span>{t('Active')}</span>
           <strong>{activeCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Profiles marked default, which win over other profiles that match the same scope.')}>
           <span>{t('Defaults')}</span>
           <strong>{defaultCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Total deployment environments defined across all profiles.')}>
           <span>{t('Environment Targets')}</span>
           <strong>{profiles.reduce((total, profile) => total + profile.environments.length, 0)}</strong>
         </div>
@@ -439,15 +455,16 @@ export default function WorkflowProfiles() {
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
+            title={t('Show only profiles whose name, description or ID contains this text.')}
             placeholder={t('Search by name, description, or ID...')}
           />
-          <select aria-label={t('All scopes')} value={scopeFilter} onChange={(event) => setScopeFilter(event.target.value as typeof scopeFilter)}>
+          <select aria-label={t('All scopes')} title={t('Show profiles of every scope, or only Global, Fleet or Vessel ones.')} value={scopeFilter} onChange={(event) => setScopeFilter(event.target.value as typeof scopeFilter)}>
             <option value="all">{t('All scopes')}</option>
             <option value="Global">{t('Global')}</option>
             <option value="Fleet">{t('Fleet')}</option>
             <option value="Vessel">{t('Vessel')}</option>
           </select>
-          <select aria-label={t('All statuses')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+          <select aria-label={t('All statuses')} title={t('Show all profiles, or only active or only inactive ones.')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
             <option value="all">{t('All statuses')}</option>
             <option value="active">{t('Active only')}</option>
             <option value="inactive">{t('Inactive only')}</option>
@@ -463,7 +480,7 @@ export default function WorkflowProfiles() {
         onRowClick={(profile) => (canEditProfile(profile) ? openEdit(profile) : navigate(`/workflow-profiles/${profile.id}`))}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle="Refresh workflow profiles"
+        refreshTitle={t('Refresh workflow profiles')}
         emptyMessage={emptyState}
         placeholder={profiles.length > 0 ? undefined : loading ? <p className="text-dim">{t('Loading...')}</p> : emptyState}
       />

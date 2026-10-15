@@ -58,19 +58,19 @@ export default function TokenActivityHeatmap({ harborId = '' }: { harborId?: str
     if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); focusDate(e.key === 'Home' ? window.from : window.to); }
   }
   return <section className="token-usage-chart-card token-activity-card vhist-heatmap" aria-label={t('Token activity')}>
-    <div className="token-activity-header"><div><h3>{t('Token activity')}</h3><p className="text-dim">{t('Daily token totals (UTC)')}</p></div>
+    <div className="token-activity-header"><div><h3 title={t('One square per UTC day; darker squares mean more tokens that day. Click or use arrow keys to read a day\'s total.')}>{t('Token activity')}</h3><p className="text-dim">{t('Daily token totals (UTC)')}</p></div>
       <div className="token-activity-controls">
-        <label>{t('Heatmap range')}<select value={range} onChange={e => setRange(Number(e.target.value))}>
+        <label title={t('How many days of history the heatmap covers, ending today (UTC). Independent of the time window above.')}>{t('Heatmap range')}<select title={t('How many days of history the heatmap covers, ending today (UTC). Independent of the time window above.')} value={range} onChange={e => setRange(Number(e.target.value))}>
           <option value={31}>{t('Last Month')}</option><option value={90}>{t('Last 3 months')}</option><option value={365}>{t('Last 12 months')}</option>
         </select></label>
-        <label>{t('Heatmap metric')}<select value={metric} onChange={e => setMetric(e.target.value as TokenHeatmapMetric)}>
+        <label title={t('Which tokens each day\'s color counts: total, input (prompt), output (completion), or cached (served from the prompt cache).')}>{t('Heatmap metric')}<select title={t('Which tokens each day\'s color counts: total, input (prompt), output (completion), or cached (served from the prompt cache).')} value={metric} onChange={e => setMetric(e.target.value as TokenHeatmapMetric)}>
           {TOKEN_HEATMAP_METRICS.map(m => <option key={m} value={m}>{t(m[0].toUpperCase() + m.slice(1))}</option>)}
         </select></label>
-        <button className="btn btn-sm" type="button" onClick={() => setRefresh(r => r + 1)}>{t('Refresh token activity')}</button>
+        <button className="btn btn-sm" type="button" onClick={() => setRefresh(r => r + 1)} title={t('Reload the daily token totals now.')}>{t('Refresh token activity')}</button>
       </div>
     </div>
     {loading ? <p role="status">{t('Loading token usage...')}</p> : error ? <p role="alert">{t('Unable to load token activity.')}</p> : <>
-      <div className="token-activity-stats"><span>{t('Total')}: <strong>{formatTokens(stats.total)}</strong></span><span>{t('Peak day')}: <strong>{formatTokens(stats.peak)}</strong></span><span>{t('Active days')}: <strong>{stats.active}</strong></span></div>
+      <div className="token-activity-stats"><span title={t('Sum of the chosen metric over the heatmap range.')}>{t('Total')}: <strong>{formatTokens(stats.total)}</strong></span><span title={t('Highest single-day count in the range. It sets the darkest color.')}>{t('Peak day')}: <strong>{formatTokens(stats.peak)}</strong></span><span title={t('Days in the range with any token usage.')}>{t('Active days')}: <strong>{stats.active}</strong></span></div>
       <div ref={scroll} className="vhist-heatmap-scroll token-activity-scroll">
         <div className="vhist-heatmap-months" style={{ '--heat-weeks': weeks.length } as React.CSSProperties} aria-hidden="true">
           <span className="vhist-heatmap-corner" />{months.map(m => <span className="vhist-heatmap-month" key={`${m.year}-${m.month}`} style={{ gridColumn: `${m.column + 2} / span 3` }}>{formatIsoDay(locale, `${m.year}-${String(m.month).padStart(2, '0')}-01`, { month: 'short' })}</span>)}
@@ -86,9 +86,9 @@ export default function TokenActivityHeatmap({ harborId = '' }: { harborId?: str
           </div>)}
         </div>
       </div>
-      <div className="token-activity-footer"><span aria-live="polite">{describe(day.date, day.count)}</span><span className="token-activity-legend">{t('Less')}{[0, 1, 2, 3, 4].map(level => <span key={level} className={`vhist-heat-cell level-${level}`} />)}{t('More')}</span></div>
+      <div className="token-activity-footer"><span aria-live="polite">{describe(day.date, day.count)}</span><span className="token-activity-legend" title={t('Color scale: lighter squares had fewer tokens, darker squares had more, relative to the peak day.')}>{t('Less')}{[0, 1, 2, 3, 4].map(level => <span key={level} className={`vhist-heat-cell level-${level}`} />)}{t('More')}</span></div>
       {stats.active === 0 && <p className="text-dim">{t('No token usage for this time range')}</p>}
-      {(data?.syntheticCount ?? 0) > 0 && <p className="text-dim">{t('{{count}} synthetic usage records included', { count: data!.syntheticCount })}</p>}
+      {(data?.syntheticCount ?? 0) > 0 && <p className="text-dim" title={t('Simulated usage an administrator imported, for example for screenshots. It is counted in these totals but is not real model usage.')}>{t('{{count}} synthetic usage records included', { count: data!.syntheticCount })}</p>}
     </>}
   </section>;
 }

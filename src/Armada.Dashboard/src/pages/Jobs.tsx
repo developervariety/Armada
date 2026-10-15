@@ -55,32 +55,32 @@ export default function Jobs() {
 
   const columns: DataTableColumn<Job>[] = [
     {
-      key: 'name', label: t('Name'), required: true,
+      key: 'name', label: t('Name'), headerTitle: t('What the job is doing, such as Vessel health evaluation. Hover a row for its error, if any.'), required: true,
       cellTitle: (job) => [job.name, job.errorReason].filter(Boolean).join('\n'),
       render: (job) => <span className="cell-one-line">{job.name}</span>,
     },
-    { key: 'kind', label: t('Kind'), render: (job) => job.kind },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (job) => <StatusBadge status={job.status} /> },
-    { key: 'progress', label: t('Progress'), cellClassName: 'mono cell-nowrap', render: (job) => `${job.progress}%` },
+    { key: 'kind', label: t('Kind'), headerTitle: t('Type of background work: Generic, Cleanup, Sync, Report, VesselDiscovery, VesselImport, or FleetCategorization.'), render: (job) => job.kind },
+    { key: 'status', label: t('Status'), headerTitle: t('Queued, Running, Succeeded, Failed, or Cancelled.'), cellClassName: 'cell-nowrap', render: (job) => <StatusBadge status={job.status} /> },
+    { key: 'progress', label: t('Progress'), headerTitle: t('Percent of the job\'s work completed, from 0 to 100.'), cellClassName: 'mono cell-nowrap', render: (job) => `${job.progress}%` },
     {
       // Was a small second line under the name; now its own one-line column (full text in the tooltip).
-      key: 'error', label: t('Error'), cellClassName: 'text-dim',
+      key: 'error', label: t('Error'), headerTitle: t('Why the job failed, when it did.'), cellClassName: 'text-dim',
       render: (job) => (job.errorReason ? <span className="cell-one-line" title={job.errorReason}>{job.errorReason}</span> : '-'),
     },
     {
-      key: 'created', label: t('Created'), cellClassName: 'text-dim cell-nowrap',
+      key: 'created', label: t('Created'), headerTitle: t('When the job was queued. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (job) => formatDateTime(job.createdUtc),
       render: (job) => formatRelativeTime(job.createdUtc),
     },
     {
-      key: 'updated', label: t('Updated'), cellClassName: 'text-dim cell-nowrap',
+      key: 'updated', label: t('Updated'), headerTitle: t('When the job last reported progress or changed status. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (job) => formatDateTime(job.lastUpdateUtc),
       render: (job) => formatRelativeTime(job.lastUpdateUtc),
     },
     {
       key: 'actions', label: t('Actions'), header: '', fixed: true, interactive: true, className: 'text-right',
       render: (job) => (!isJobTerminal(job.status) ? (
-        <button type="button" className="btn btn-sm" onClick={() => handleCancel(job)}>{t('Cancel')}</button>
+        <button type="button" className="btn btn-sm" onClick={() => handleCancel(job)} title={t('Stop this job. Work already finished is kept; remaining steps are skipped within a few seconds.')}>{t('Cancel')}</button>
       ) : null),
     },
   ];

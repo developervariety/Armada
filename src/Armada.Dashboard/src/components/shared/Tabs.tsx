@@ -10,6 +10,8 @@ export interface TabDef {
   /** Rendered only while this tab is active (lazy-mounted). */
   render: () => ReactNode;
   hidden?: boolean;
+  /** English hover text saying what the tab holds (translated through `t`). */
+  tooltip?: string;
 }
 
 interface TabsProps {
@@ -89,6 +91,7 @@ export default function Tabs({ tabs, param = 'tab', defaultTabKey, actions, aria
                 tabIndex={selected ? 0 : -1}
                 className={`page-tab${selected ? ' active' : ''}`}
                 onClick={() => selectTab(tab.key)}
+                title={tab.tooltip ? t(tab.tooltip) : undefined}
               >
                 {t(tab.label)}
               </button>

@@ -43,7 +43,7 @@ export default function VesselHealthButton({ vesselId, vesselName, defaultBranch
 
   return (
     <>
-      <button type="button" className="btn btn-sm" onClick={() => setOpen(true)} title={t('Divergence, dirty checkout, branches, dependencies, tests, and CI for this vessel')}>
+      <button type="button" className="btn btn-sm" onClick={() => setOpen(true)} title={t('Open this vessel health report: how far it is behind its default branch, uncommitted changes, stale branches, outdated or vulnerable packages, tests, CI and recent failed missions.')}>
         {t('Health')}
       </button>
       {open && (

@@ -66,9 +66,10 @@ export default function AskDispatchForm({ busy, onSubmit, onCancel }: AskDispatc
       {loadError && <div className="alert alert-error" role="alert">{loadError}</div>}
 
       <div className="ask-form-grid">
-        <label className="ask-field">
+        <label className="ask-field" title={t('The repository the captains work in. Required.')}>
           <span>{t('Vessel')}</span>
           <select
+            title={t('The repository the captains work in. Required.')}
             value={draft.vesselId}
             onChange={(e) => setDraft((d) => ({ ...d, vesselId: e.target.value }))}
             disabled={loading || busy}
@@ -80,16 +81,17 @@ export default function AskDispatchForm({ busy, onSubmit, onCancel }: AskDispatc
           </select>
           {errors.vessel && <span className="ask-field-error">{t(errors.vessel)}</span>}
         </label>
-        <label className="ask-field">
+        <label className="ask-field" title={t('Pipeline the missions run through, for example a plan, implement, and review sequence. Vessel default uses the pipeline set on the vessel or fleet.')}>
           <span>{t('Pipeline (optional)')}</span>
-          <select value={draft.pipelineId} onChange={(e) => setDraft((d) => ({ ...d, pipelineId: e.target.value }))} disabled={busy}>
+          <select title={t('Pipeline the missions run through, for example a plan, implement, and review sequence. Vessel default uses the pipeline set on the vessel or fleet.')} value={draft.pipelineId} onChange={(e) => setDraft((d) => ({ ...d, pipelineId: e.target.value }))} disabled={busy}>
             <option value="">{t('Vessel default')}</option>
             {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </label>
-        <label className="ask-field ask-field-wide">
+        <label className="ask-field ask-field-wide" title={t('Name for the voyage, the batch that groups these missions. Blank uses the first mission title.')}>
           <span>{t('Voyage title (optional)')}</span>
           <input
+            title={t('Name for the voyage, the batch that groups these missions. Blank uses the first mission title.')}
             value={draft.title}
             maxLength={200}
             placeholder={t('Defaults to the first mission title')}
@@ -108,6 +110,7 @@ export default function AskDispatchForm({ busy, onSubmit, onCancel }: AskDispatc
                 value={mission.title}
                 maxLength={200}
                 placeholder={t('Mission title')}
+                title={t('Short name for the mission, for example Fix login redirect. Required.')}
                 aria-label={t('Mission {{number}} title', { number: index + 1 })}
                 onChange={(e) => updateMission(index, 'title', e.target.value)}
                 disabled={busy}
@@ -116,6 +119,7 @@ export default function AskDispatchForm({ busy, onSubmit, onCancel }: AskDispatc
                 value={mission.description}
                 rows={2}
                 placeholder={t('What should the captain do? (optional)')}
+                title={t('Instructions for the captain: what to change and how to know it is done. Blank sends just the title.')}
                 aria-label={t('Mission {{number}} description', { number: index + 1 })}
                 onChange={(e) => updateMission(index, 'description', e.target.value)}
                 disabled={busy}
@@ -127,7 +131,7 @@ export default function AskDispatchForm({ busy, onSubmit, onCancel }: AskDispatc
                 className="ask-icon-btn"
                 onClick={() => setDraft((d) => ({ ...d, missions: d.missions.filter((_, i) => i !== index) }))}
                 aria-label={t('Remove mission {{number}}', { number: index + 1 })}
-                title={t('Remove mission {{number}}', { number: index + 1 })}
+                title={t('Remove mission {{number}} from this voyage before dispatching.', { number: index + 1 })}
                 disabled={busy}
               >
                 &times;
@@ -141,6 +145,7 @@ export default function AskDispatchForm({ busy, onSubmit, onCancel }: AskDispatc
           className="btn btn-sm"
           onClick={() => setDraft((d) => ({ ...d, missions: [...d.missions, { title: '', description: '' }] }))}
           disabled={busy || draft.missions.length >= MAX_MISSIONS}
+          title={t('Add another mission to the same voyage. Each mission is picked up by its own captain.')}
         >
           + {t('Add mission')}
         </button>
@@ -148,8 +153,8 @@ export default function AskDispatchForm({ busy, onSubmit, onCancel }: AskDispatc
 
       <div className="ask-inline-form-actions">
         <span className="text-dim">{t('Submitting this form is the confirmation; the voyage starts right away.')}</span>
-        <button type="button" className="btn btn-sm" onClick={onCancel} disabled={busy}>{t('Cancel')}</button>
-        <button type="submit" className="btn btn-sm btn-primary" disabled={busy || loading}>{busy ? t('Dispatching...') : t('Dispatch')}</button>
+        <button type="button" className="btn btn-sm" onClick={onCancel} disabled={busy} title={t('Close the form without dispatching (Escape).')}>{t('Cancel')}</button>
+        <button type="submit" className="btn btn-sm btn-primary" disabled={busy || loading} title={t('Start the voyage now. There is no separate confirmation step; captains begin work as soon as they are free.')}>{busy ? t('Dispatching...') : t('Dispatch')}</button>
       </div>
     </form>
   );

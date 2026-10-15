@@ -112,6 +112,7 @@ export default function LoginFlow() {
             className={`login-mode-tab${mode === 'email' ? ' active' : ''}`}
             onClick={() => { setMode('email'); setError(''); }}
             type="button"
+            title={t('Sign in with your email address and password. You pick the tenant if the email belongs to more than one.')}
           >
             {t('Email Login')}
           </button>
@@ -119,6 +120,7 @@ export default function LoginFlow() {
             className={`login-mode-tab${mode === 'apikey' ? ' active' : ''}`}
             onClick={() => { setMode('apikey'); setError(''); }}
             type="button"
+            title={t('Sign in with a bearer token instead of a password, such as a credential an admin created under Settings, Credentials.')}
           >
             {t('API Key Login')}
           </button>
@@ -128,7 +130,7 @@ export default function LoginFlow() {
 
         {mode === 'apikey' && (
           <form onSubmit={handleApiKeySubmit}>
-            <label htmlFor="apikey">{t('API Key / Bearer Token')}</label>
+            <label htmlFor="apikey" title={t('A bearer token that identifies you and your tenant. An admin creates these under Settings, Credentials; it is sent as the Authorization header.')}>{t('API Key / Bearer Token')}</label>
             <div className="login-secret-field">
               <input
                 id="apikey"
@@ -136,6 +138,7 @@ export default function LoginFlow() {
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
                 placeholder={t('Paste your API key')}
+                title={t('A bearer token that identifies you and your tenant. An admin creates these under Settings, Credentials; it is sent as the Authorization header.')}
                 required
                 autoFocus
               />
@@ -143,7 +146,7 @@ export default function LoginFlow() {
                 type="button"
                 className="login-secret-toggle"
                 aria-label={revealedField === 'apikey' ? t('Hide API key') : t('Show API key')}
-                title={revealedField === 'apikey' ? t('Hide API key') : t('Show API key')}
+                title={t('Press and hold to show the API key; it hides again when you let go.')}
                 onPointerDown={(e) => { e.preventDefault(); beginReveal('apikey'); }}
                 onPointerUp={endReveal}
                 onPointerLeave={endReveal}
@@ -156,26 +159,27 @@ export default function LoginFlow() {
                 </svg>
               </button>
             </div>
-            <button type="submit" disabled={busy}>{busy ? t('Connecting...') : t('Connect')}</button>
+            <button type="submit" disabled={busy} title={t('Check the API key with the Admiral and open the dashboard as the user it belongs to.')}>{busy ? t('Connecting...') : t('Connect')}</button>
           </form>
         )}
 
         {mode === 'email' && step === 'email' && (
           <form onSubmit={handleEmailSubmit}>
-            <label htmlFor="email">{t('Email')}</label>
-            <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t('you@company.com')} required autoFocus />
-            <button type="submit" disabled={busy}>{busy ? t('Looking up...') : t('Continue')}</button>
+            <label htmlFor="email" title={t('The email address of your Armada user, for example admin@armada on a new install. It is used to find the tenants you belong to.')}>{t('Email')}</label>
+            <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={t('you@company.com')} title={t('The email address of your Armada user, for example admin@armada on a new install. It is used to find the tenants you belong to.')} required autoFocus />
+            <button type="submit" disabled={busy} title={t('Look up the tenants this email belongs to, then ask for the password.')}>{busy ? t('Looking up...') : t('Continue')}</button>
           </form>
         )}
 
         {mode === 'email' && step === 'tenant' && (
           <form onSubmit={(e) => { e.preventDefault(); handleTenantContinue(); }}>
-            <label htmlFor="tenant-select">{t('Tenant')}</label>
+            <label htmlFor="tenant-select" title={t('This email has accounts in several tenants. Pick the one to sign in to; each tenant has its own fleets, vessels and data.')}>{t('Tenant')}</label>
             <select
               className="login-select"
               id="tenant-select"
               value={selectedTenant?.id ?? ''}
               onChange={e => handleTenantSelect(e.target.value)}
+              title={t('This email has accounts in several tenants. Pick the one to sign in to; each tenant has its own fleets, vessels and data.')}
               onKeyDown={e => { if (e.key === 'Enter' && selectedTenant) { e.preventDefault(); handleTenantContinue(); } }}
               required
               autoFocus
@@ -186,10 +190,10 @@ export default function LoginFlow() {
               ))}
             </select>
             <div className="login-actions">
-              <button type="submit" disabled={!selectedTenant || busy}>
+              <button type="submit" disabled={!selectedTenant || busy} title={t('Continue to the password for the selected tenant.')}>
                 {t('Continue')}
               </button>
-              <button type="button" className="link-btn" onClick={() => { setSelectedTenant(null); setStep('email'); }}>
+              <button type="button" className="link-btn" onClick={() => { setSelectedTenant(null); setStep('email'); }} title={t('Go back and enter a different email address.')}>
                 {t('Back')}
               </button>
             </div>
@@ -201,7 +205,7 @@ export default function LoginFlow() {
             <div className="login-context">
               {t('Signing in as {{email}} to {{tenant}}', { email, tenant: selectedTenant?.name ?? '' })}
             </div>
-            <label htmlFor="password">{t('Password')}</label>
+            <label htmlFor="password" title={t('The password for this user in the selected tenant. Repeated failures lock sign-in for a few minutes.')}>{t('Password')}</label>
             <div className="login-secret-field">
               <input
                 id="password"
@@ -209,6 +213,7 @@ export default function LoginFlow() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder={t('Password')}
+                title={t('The password for this user in the selected tenant. Repeated failures lock sign-in for a few minutes.')}
                 required
                 autoFocus
               />
@@ -216,7 +221,7 @@ export default function LoginFlow() {
                 type="button"
                 className="login-secret-toggle"
                 aria-label={revealedField === 'password' ? t('Hide password') : t('Show password')}
-                title={revealedField === 'password' ? t('Hide password') : t('Show password')}
+                title={t('Press and hold to show the password; it hides again when you let go.')}
                 onPointerDown={(e) => { e.preventDefault(); beginReveal('password'); }}
                 onPointerUp={endReveal}
                 onPointerLeave={endReveal}
@@ -229,21 +234,21 @@ export default function LoginFlow() {
                 </svg>
               </button>
             </div>
-            <button type="submit" disabled={busy}>{busy ? t('Signing in...') : t('Sign In')}</button>
-            <button type="button" className="link-btn" onClick={() => { setStep('email'); setPassword(''); }}>{t('Back')}</button>
+            <button type="submit" disabled={busy} title={t('Sign in to the selected tenant and open the dashboard.')}>{busy ? t('Signing in...') : t('Sign In')}</button>
+            <button type="button" className="link-btn" onClick={() => { setStep('email'); setPassword(''); }} title={t('Go back and enter a different email address.')}>{t('Back')}</button>
           </form>
         )}
         <div className="login-footer">
-          <a href="https://github.com/jchristn/armada" target="_blank" rel="noopener noreferrer" className="github-link" title={t('GitHub')}>
+          <a href="https://github.com/jchristn/armada" target="_blank" rel="noopener noreferrer" className="github-link" title={t('Open the Armada source code, issues and documentation on GitHub in a new tab.')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
           </a>
-          <span style={{ fontSize: '0.75em', color: 'var(--text-dim)', opacity: 0.6 }}>v{__APP_VERSION__}</span>
-          <button className="login-theme-toggle" onClick={toggleTheme} title={darkMode ? t('Switch to light mode') : t('Switch to dark mode')}>
+          <span style={{ fontSize: '0.75em', color: 'var(--text-dim)', opacity: 0.6 }} title={t('Version of this dashboard build.')}>v{__APP_VERSION__}</span>
+          <button className="login-theme-toggle" onClick={toggleTheme} title={darkMode ? t('Switch to the light color theme. The choice is remembered in this browser.') : t('Switch to the dark color theme. The choice is remembered in this browser.')}>
             {darkMode ? '\u2600' : '\u263E'}
           </button>
         </div>
       </div>
-      <p className="login-default-creds">
+      <p className="login-default-creds" title={t('The account every new install starts with. You are asked to change this password after signing in; change it before exposing the server beyond localhost.')}>
         {t('Default credentials')}: <code>admin@armada</code> / <code>password</code>
       </p>
     </div>

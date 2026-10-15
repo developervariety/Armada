@@ -188,14 +188,14 @@ export default function Layout() {
         key={item.key || item.to}
         to={item.to}
         className={({ isActive }) => `sidebar-nav-item${isActive || isItemActive(item) ? ' active' : ''}${wizardHighlights.includes(item.to) ? ' wizard-highlight' : ''}${showAttention ? ' has-attention' : ''}`}
-        title={collapsed ? t(item.label) : t(item.tooltip || item.label)}
+        title={collapsed && item.tooltip ? `${t(item.label)}: ${t(item.tooltip)}` : t(item.tooltip || item.label)}
       >
         {item.icon}
         <span className="sidebar-label">{t(item.label)}</span>
         {showAttention && (
           <span
             className={`sidebar-nav-badge${attentionClass}`}
-            title={t('{{count}} items need your attention', { count: inboxAttention.count })}
+            title={t('{{count}} items need you: missions in review, failed landings or merges, deployments awaiting approval, stalled captains. Click to open Needs You.', { count: inboxAttention.count })}
             aria-label={t('{{count}} items need your attention', { count: inboxAttention.count })}
           >
             {inboxAttention.count > 99 ? '99+' : inboxAttention.count}
@@ -234,31 +234,31 @@ export default function Layout() {
 
   return (
     <div className="app-shell">
-      <a className="skip-link" href="#main-content" onClick={(e) => { e.preventDefault(); document.getElementById('main-content')?.focus(); }}>{t('Skip to main content')}</a>
+      <a className="skip-link" href="#main-content" title={t('Move keyboard focus past the sidebar and top bar to the page content.')} onClick={(e) => { e.preventDefault(); document.getElementById('main-content')?.focus(); }}>{t('Skip to main content')}</a>
       {showProxyContext && (
         <div className="proxy-context-strip proxy-context-shell-strip">
           <div className="proxy-context-copy">
-            <span className="proxy-context-pill">{t('Proxy Mode')}</span>
+            <span className="proxy-context-pill" title={t('You are viewing a remote Admiral through the Armada Proxy portal. Requests travel through the proxy tunnel.')}>{t('Proxy Mode')}</span>
             <span>
               {t('Remote dashboard for {{instanceId}}', {
                 instanceId: proxyInstance?.instanceId || proxyContext?.selectedInstanceId || '',
               })}
             </span>
-            <span className="proxy-context-meta">
+            <span className="proxy-context-meta" title={t('Tunnel state of the remote Admiral as the proxy sees it: Connected, Stale (heartbeats are late) or Offline.')}>
               {t('State: {{state}}', { state: proxyInstance?.state || 'unknown' })}
             </span>
             {proxyInstance?.armadaVersion && (
-              <span className="proxy-context-meta">
+              <span className="proxy-context-meta" title={t('Armada version the remote Admiral reports.')}>
                 {t('Armada {{version}}', { version: proxyInstance.armadaVersion })}
               </span>
             )}
           </div>
 
           <div className="proxy-context-actions">
-            <button className="btn btn-sm" onClick={handleSwitchDeployment}>
+            <button className="btn btn-sm" onClick={handleSwitchDeployment} title={t('Leave this deployment and return to the proxy portal to pick another one. You stay signed in to the portal.')}>
               {t('Switch Deployment')}
             </button>
-            <button className="btn btn-sm" onClick={handleProxyLogout}>
+            <button className="btn btn-sm" onClick={handleProxyLogout} title={t('Sign out of both this Admiral and the proxy portal.')}>
               {t('Proxy Logout')}
             </button>
           </div>
@@ -276,7 +276,7 @@ export default function Layout() {
               (e.target as HTMLImageElement).style.display = 'none';
             }}
           />
-          <h1 className="sidebar-label">Armada</h1>
+          <h1 className="sidebar-label" title={t('Armada: multi-agent orchestration for coding agents.')}>Armada</h1>
         </div>
 
         <nav className="sidebar-nav">
@@ -304,7 +304,7 @@ export default function Layout() {
               className={`sidebar-section${isSectionActive(section.matchers) ? ' section-active' : ''}${!sections[section.key] ? ' collapsed' : ''}`}
             >
               {!collapsed && (
-                <button className="sidebar-section-header" aria-expanded={!!sections[section.key]} onClick={() => toggleSection(section.key)}>
+                <button className="sidebar-section-header" aria-expanded={!!sections[section.key]} onClick={() => toggleSection(section.key)} title={sections[section.key] ? t('Hide the pages in this section of the sidebar.') : t('Show the pages in this section of the sidebar.')}>
                   {t(section.label)}
                   <span className="sidebar-section-chevron">
                     <svg viewBox="0 0 24 24">
@@ -322,7 +322,7 @@ export default function Layout() {
 
         {!collapsed && (
           <div className="sidebar-footer">
-            <span style={{ fontSize: '0.7em', color: 'var(--text-dim)', opacity: 0.5 }}>v{__APP_VERSION__}</span>
+            <span style={{ fontSize: '0.7em', color: 'var(--text-dim)', opacity: 0.5 }} title={t('Version of this dashboard build.')}>v{__APP_VERSION__}</span>
           </div>
         )}
         </aside>
@@ -336,13 +336,13 @@ export default function Layout() {
                 if (window.matchMedia?.('(max-width: 768px)').matches) setMobileNavOpen((open) => !open);
                 else setCollapsed((prev) => !prev);
               }}
-              title={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
+              title={collapsed ? t('Expand the sidebar to show page names. The choice is remembered in this browser.') : t('Collapse the sidebar to icons only. The choice is remembered in this browser.')}
               aria-label={collapsed ? t('Expand sidebar') : t('Collapse sidebar')}
             >
               <span aria-hidden="true">{collapsed ? '»' : '«'}</span>
             </button>
 
-            <NavLink to="/server?tab=diagnostics" className="top-bar-health" title={t('Health: {{status}}', { status: t(healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'unknown' ? 'Checking...' : 'Unhealthy') })}>
+            <NavLink to="/server?tab=diagnostics" className="top-bar-health" title={t('Admiral health: {{status}}. Checked every 30 seconds; click to open Diagnostics for details.', { status: t(healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'unknown' ? 'Checking...' : 'Unhealthy') })}>
               <span
                 className={`status-dot ${
                   healthStatus === 'healthy' ? 'healthy' : healthStatus === 'warning' ? 'warning' : 'error'
@@ -359,17 +359,17 @@ export default function Layout() {
               </span>
             </NavLink>
 
-            <span className="top-bar-status" title={connected ? t('Live: WebSocket connected') : t('Disconnected')}>
+            <span className="top-bar-status" title={connected ? t('Live: the real-time connection to the Admiral is up, so pages update as things change.') : t('Offline: the real-time connection to the Admiral is down, so pages may be stale. It reconnects automatically.')}>
               <span className={`status-dot ${connected ? 'connected' : 'disconnected'}`} />
               <span className="top-bar-status-label">{connected ? t('Live') : t('Offline')}</span>
             </span>
 
             {user && (
               <>
-                {isAdmin && <span className="auth-badge auth-badge-admin">{t('Global Admin')}</span>}
-                {!isAdmin && isTenantAdmin && <span className="auth-badge auth-badge-tenant-admin">{t('Tenant Admin')}</span>}
-                <span className="auth-badge auth-badge-tenant">{user.tenant?.name}</span>
-                <span className="auth-badge auth-badge-user">{user.user?.email}</span>
+                {isAdmin && <span className="auth-badge auth-badge-admin" title={t('You are a system administrator: you can manage every tenant, user, credential and server setting.')}>{t('Global Admin')}</span>}
+                {!isAdmin && isTenantAdmin && <span className="auth-badge auth-badge-tenant-admin" title={t('You administer this tenant: you can manage its users and credentials, but not other tenants or server settings.')}>{t('Tenant Admin')}</span>}
+                <span className="auth-badge auth-badge-tenant" title={t('Tenant: {{tenant}}. Everything you see and create belongs to this tenant.', { tenant: user.tenant?.name ?? '' })}>{user.tenant?.name}</span>
+                <span className="auth-badge auth-badge-user" title={t('Signed in as {{email}}.', { email: user.user?.email ?? '' })}>{user.user?.email}</span>
               </>
             )}
 
@@ -379,23 +379,23 @@ export default function Layout() {
 
             <LanguageSelector className="topbar-language-select" compact />
 
-            <button className="theme-toggle" onClick={toggleTheme} title={darkMode ? t('Switch to light mode') : t('Switch to dark mode')}>
+            <button className="theme-toggle" onClick={toggleTheme} title={darkMode ? t('Switch to the light color theme. The choice is remembered in this browser.') : t('Switch to the dark color theme. The choice is remembered in this browser.')} aria-label={darkMode ? t('Switch to light mode') : t('Switch to dark mode')}>
               {darkMode ? '☀' : '☾'}
             </button>
 
-            <a href="https://discord.gg/tRAN8HgvK5" target="_blank" rel="noopener noreferrer" className="discord-link" title={t('Join us on Discord')} aria-label={t('Join us on Discord')}>
+            <a href="https://discord.gg/tRAN8HgvK5" target="_blank" rel="noopener noreferrer" className="discord-link" title={t('Open the Armada community Discord in a new tab, for questions and announcements.')} aria-label={t('Join us on Discord')}>
               <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M13.545 2.907a13.2 13.2 0 0 0-3.257-1.011.05.05 0 0 0-.052.025c-.141.25-.297.577-.406.833a12.2 12.2 0 0 0-3.658 0 8 8 0 0 0-.412-.833.05.05 0 0 0-.052-.025c-1.125.194-2.22.534-3.257 1.011a.04.04 0 0 0-.021.018C.356 6.024-.213 9.047.066 12.032q.003.022.021.037a13.3 13.3 0 0 0 3.995 2.02.05.05 0 0 0 .056-.019q.463-.63.818-1.329a.05.05 0 0 0-.01-.059l-.018-.011a9 9 0 0 1-1.248-.595.05.05 0 0 1-.02-.066l.015-.019q.127-.095.248-.195a.05.05 0 0 1 .051-.007c2.619 1.196 5.454 1.196 8.041 0a.05.05 0 0 1 .053.007q.121.1.248.195a.05.05 0 0 1-.004.085 8 8 0 0 1-1.249.594.05.05 0 0 0-.03.03.05.05 0 0 0 .003.041c.24.465.515.909.817 1.329a.05.05 0 0 0 .056.019 13.2 13.2 0 0 0 4.001-2.02.05.05 0 0 0 .021-.037c.334-3.451-.559-6.449-2.366-9.106a.03.03 0 0 0-.02-.019m-8.198 7.307c-.789 0-1.438-.724-1.438-1.612s.637-1.613 1.438-1.613c.807 0 1.45.73 1.438 1.613 0 .888-.637 1.612-1.438 1.612m5.316 0c-.788 0-1.438-.724-1.438-1.612s.637-1.613 1.438-1.613c.807 0 1.451.73 1.438 1.613 0 .888-.631 1.612-1.438 1.612" />
               </svg>
             </a>
 
-            <a href="https://github.com/jchristn/Armada" target="_blank" rel="noopener noreferrer" className="github-link" title={t('View on GitHub')}>
+            <a href="https://github.com/jchristn/Armada" target="_blank" rel="noopener noreferrer" className="github-link" title={t('Open the Armada source code, issues and documentation on GitHub in a new tab.')} aria-label={t('View on GitHub')}>
               <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
               </svg>
             </a>
 
-            <button className="top-bar-logout-btn" onClick={logout} title={t('Sign out')} aria-label={t('Sign out')}>
+            <button className="top-bar-logout-btn" onClick={logout} title={t('Sign out of this browser session. Running missions and captains keep working.')} aria-label={t('Sign out')}>
               <span aria-hidden="true">&#x23FB;</span>
             </button>
           </div>
@@ -416,7 +416,7 @@ export default function Layout() {
           {toasts.map((toast) => (
             <div key={toast.id} className={`toast toast-${toast.severity}`}>
               <span className="toast-body">{toast.message}</span>
-              <button className="toast-close" onClick={() => dismissToast(toast.id)}>
+              <button className="toast-close" onClick={() => dismissToast(toast.id)} title={t('Close this notification now. It also closes on its own after a few seconds.')} aria-label={t('Dismiss')}>
                 &times;
               </button>
             </div>

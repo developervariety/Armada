@@ -106,8 +106,8 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
   return (
     <section className="playbook-selector-shell">
       <div className="form-label-row">
-        <label className="playbook-selector-section-label">{t('Playbooks')}</label>
-        <Link to="/playbooks" className="form-label-link">{t('Manage playbooks')}</Link>
+        <label className="playbook-selector-section-label" title={t('Markdown guidance documents to give the captain with this work, such as coding standards or checklists. Optional. Each one is snapshotted onto the mission when it is dispatched.')}>{t('Playbooks')}</label>
+        <Link to="/playbooks" className="form-label-link" title={t('Open the Playbooks page to create or edit playbooks. Unsaved choices here are lost if you leave.')}>{t('Manage playbooks')}</Link>
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
@@ -122,9 +122,9 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
       ) : (
         <div className="playbook-selector-list" role="group" aria-label={t('Playbooks')}>
           <div className="playbook-selector-column-head">
-            <span>{t('Playbook')}</span>
-            <span>{t('Delivery Mode')}</span>
-            <span>{t('Actions')}</span>
+            <span title={t('Which playbook to attach. Only active playbooks are offered.')}>{t('Playbook')}</span>
+            <span title={t('How the playbook reaches the captain: pasted into the prompt, given as a file path outside the worktree, or copied into the worktree under .armada/playbooks/.')}>{t('Delivery Mode')}</span>
+            <span title={t('Add or remove playbooks.')}>{t('Actions')}</span>
           </div>
 
           {value.map((item, index) => {
@@ -135,7 +135,7 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
               <div key={`${item.playbookId}-${index}`} className="playbook-selector-inline-row">
                 <select
                   aria-label={t('Playbook {{index}}', { index: index + 1 })}
-                  title={playbook?.description || t('Select which playbook to attach.')}
+                  title={playbook?.description ? t('{{description}} Choose a different playbook to swap it.', { description: playbook.description }) : t('The attached playbook. Choose a different one to swap it.')}
                   value={item.playbookId}
                   disabled={disabled}
                   onChange={(event) => updateSelectedPlaybook(index, event.target.value)}
@@ -172,7 +172,7 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
                     className="icon-btn icon-btn-delete"
                     disabled={disabled}
                     aria-label={t('Remove playbook {{index}}', { index: index + 1 })}
-                    title={t('Remove playbook {{index}}', { index: index + 1 })}
+                    title={t('Remove this playbook from the selection. The playbook itself is not deleted.')}
                     onClick={() => removeSelectedPlaybook(index)}
                   />
                 </div>
@@ -184,6 +184,7 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
             <div className="playbook-selector-inline-row">
               <select
                 aria-label={t('Add Playbook')}
+                title={t('Pick another active playbook to attach, then click the add button.')}
                 value={draftPlaybookId}
                 disabled={disabled}
                 onChange={(event) => setDraftPlaybookId(event.target.value)}
@@ -216,7 +217,7 @@ export default function PlaybookSelector({ value, onChange, disabled = false }: 
                   className="icon-btn icon-btn-add"
                   disabled={disabled || !draftPlaybookId}
                   aria-label={t('Add playbook')}
-                  title={t('Add playbook')}
+                  title={t('Attach the chosen playbook with the chosen delivery mode.')}
                   onClick={addSelectedPlaybook}
                 />
               </div>

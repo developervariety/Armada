@@ -107,6 +107,8 @@ namespace Armada.Harbor
             root.Children.Add(_SummaryPanel);
 
             StackPanel buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Right };
+            ToolTip.SetTip(_Again, "Try reaching the address again from this computer");
+            ToolTip.SetTip(_Close, "Close without using the result");
             buttons.Children.Add(_Again);
             buttons.Children.Add(_Close);
             root.Children.Add(buttons);

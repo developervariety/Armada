@@ -33,14 +33,15 @@ export default function BacklogRefinementSessionList({
           type="button"
           className={`backlog-session-item${activeSessionId === session.id ? ' active' : ''}`}
           onClick={() => onSelect(session.id)}
+          title="Open this refinement session to read its transcript and apply its summary to the backlog item."
         >
           <div className="backlog-session-item-head">
             <strong>{session.title}</strong>
-            <StatusBadge status={session.status} />
+            <span title="Active is ready for your next message, Responding is the captain replying, Stopped or Completed means it has ended, Failed means it could not continue."><StatusBadge status={session.status} /></span>
           </div>
           <div className="backlog-session-item-meta">
-            <span>{captainNameById.get(session.captainId) || session.captainId}</span>
-            <span>{formatRelativeTime(session.lastUpdateUtc)}</span>
+            <span title="Captain running this refinement session.">{captainNameById.get(session.captainId) || session.captainId}</span>
+            <span title="When this session last changed, such as a new message.">{formatRelativeTime(session.lastUpdateUtc)}</span>
           </div>
         </button>
       ))}

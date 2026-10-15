@@ -24,7 +24,7 @@ import CliPermissionPolicySelect from '../components/cliPermissions/CliPermissio
 import { canCaptainStartPlanning } from '../lib/captains';
 import { isMuxRuntime } from '../lib/mux';
 import { supportsAutoApproveSwitch } from '../lib/captainApproval';
-import { buildCaptainCreatePayload, buildCaptainPayload, captainFormError, captainFormErrorMessage, captainFormFromCaptain, captainModelPlaceholder, captainModelTooltip, cliPolicyChanged, emptyCaptainForm, type CaptainFormState } from '../lib/captainForm';
+import { CAPTAIN_AUTO_APPROVE_TOOLTIP, CAPTAIN_CLI_POLICY_TOOLTIP, CAPTAIN_INFERENCE_ENDPOINT_TOOLTIP, CAPTAIN_NAME_TOOLTIP, CAPTAIN_REASONING_EFFORT_TOOLTIP, CAPTAIN_RUNTIME_TOOLTIP, CAPTAIN_SYSTEM_INSTRUCTIONS_TOOLTIP, CAPTAIN_TIER_TOOLTIP, buildCaptainCreatePayload, buildCaptainPayload, captainFormError, captainFormErrorMessage, captainFormFromCaptain, captainModelPlaceholder, captainModelTooltip, cliPolicyChanged, emptyCaptainForm, type CaptainFormState } from '../lib/captainForm';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
@@ -351,12 +351,12 @@ export default function Captains() {
 
   const columns: DataTableColumn<Captain>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Captain name -- click to sort'), cellClassName: 'cell-nowrap',
-      filter: <input type="text" className="col-filter" aria-label={t('Name')} value={colFilters.name} onChange={e => setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
+      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Captain name, shown in lists, logs and mission assignments. Click to sort.'), cellClassName: 'cell-nowrap',
+      filter: <input type="text" className="col-filter" aria-label={t('Name')} title={t('Show only captains whose name contains this text (not case sensitive).')} value={colFilters.name} onChange={e => setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
       render: (c) => <><strong>{c.name}</strong>{c.tier ? <> <CaptainTierBadge tier={c.tier} /></> : null}</>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique captain ID (cpt_ prefix), used by the API, CLI, MCP tools and logs. Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
       render: (c) => (
         <span className="id-display">
           <span className="id-value" title={c.id}>{c.id}</span>
@@ -365,20 +365,20 @@ export default function Captains() {
       ),
     },
     {
-      key: 'runtime', label: t('Runtime'), sortKey: 'runtime', headerTitle: t('Runtime -- click to sort'), cellClassName: 'text-dim',
+      key: 'runtime', label: t('Runtime'), sortKey: 'runtime', headerTitle: t('Agent program the captain runs, such as ClaudeCode, Codex, Mux or ApiEndpoint. Click to sort.'), cellClassName: 'text-dim',
       clearFilter: () => setColFilter('runtime', ''),
-      filter: <input type="text" className="col-filter" aria-label={t('Runtime')} value={colFilters.runtime} onChange={e => setColFilter('runtime', e.target.value)} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Runtime')} title={t('Show only captains whose runtime contains this text, for example codex.')} value={colFilters.runtime} onChange={e => setColFilter('runtime', e.target.value)} placeholder={t('Filter...')} />,
       render: (c) => c.runtime,
     },
     {
-      key: 'state', label: t('State'), sortKey: 'state', headerTitle: t('State -- click to sort'), cellClassName: 'cell-nowrap',
+      key: 'state', label: t('State'), sortKey: 'state', headerTitle: t('Idle is free for work, Working is on a mission, Planning, Refining and Analyzing are reserved, Stalled has gone silent, Quarantined is skipped by dispatch for a while. Click to sort.'), cellClassName: 'cell-nowrap',
       clearFilter: () => setColFilter('state', ''),
-      filter: <input type="text" className="col-filter" aria-label={t('State')} value={colFilters.state} onChange={e => setColFilter('state', e.target.value)} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('State')} title={t('Show only captains whose state contains this text, for example idle or working.')} value={colFilters.state} onChange={e => setColFilter('state', e.target.value)} placeholder={t('Filter...')} />,
       render: (c) => (
         <>
           <StatusBadge status={c.state} />
           {c.state === 'Quarantined' && (
-            <span className="tag stalled" title={c.quarantineReason || undefined} style={{ marginLeft: '0.35rem' }}>
+            <span className="tag stalled" title={c.quarantineReason ? t('Quarantined: dispatch skips this captain until the time shown. Reason: {{reason}}', { reason: c.quarantineReason }) : t('Quarantined: dispatch skips this captain until the time shown, then it returns to Idle.')} style={{ marginLeft: '0.35rem' }}>
               {c.quarantineUntilUtc ? t('until {{time}}', { time: formatRelativeTime(c.quarantineUntilUtc) }) : t('quarantined')}
             </span>
           )}
@@ -386,7 +386,7 @@ export default function Captains() {
       ),
     },
     {
-      key: 'currentMission', label: t('Current Mission'), cellClassName: 'mono text-dim cell-nowrap', interactive: true,
+      key: 'currentMission', label: t('Current Mission'), headerTitle: t('The mission this captain is running now. Click the ID to open it; a dash means it has no mission.'), cellClassName: 'mono text-dim cell-nowrap', interactive: true,
       cellTitle: (c) => c.currentMissionId ?? undefined,
       render: (c) => c.currentMissionId ? (
         <a href="#" onClick={e => { e.preventDefault(); navigate(`/missions/${c.currentMissionId}`); }}>
@@ -395,29 +395,29 @@ export default function Captains() {
       ) : '-',
     },
     {
-      key: 'heartbeat', label: t('Heartbeat'), cellClassName: 'text-dim cell-nowrap', cellTitle: (c) => formatDateTime(c.lastHeartbeatUtc),
+      key: 'heartbeat', label: t('Heartbeat'), headerTitle: t('When the captain last produced agent output. If it stops advancing while the captain is Working, the captain may be stalled. Hover a value for the exact time.'), cellClassName: 'text-dim cell-nowrap', cellTitle: (c) => formatDateTime(c.lastHeartbeatUtc),
       render: (c) => formatRelativeTime(c.lastHeartbeatUtc),
     },
     {
-      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('Created date -- click to sort'),
+      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('When this captain was created. Hover a value for the exact time; click to sort.'),
       cellClassName: 'text-dim cell-nowrap', cellTitle: (c) => formatDateTime(c.createdUtc),
       render: (c) => formatRelativeTime(c.createdUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open the menu in a row to view, edit, duplicate, stop, restart or delete that captain.'), fixed: true, interactive: true, className: 'text-right',
       render: (c) => (
         <ActionMenu id={`captain-${c.id}`} items={[
-          { label: 'View Detail', onClick: () => navigate(`/captains/${c.id}`) },
-          ...(canCaptainStartPlanning(c) ? [{ label: 'Start Planning', onClick: () => handleStartPlanning(c) }] : []),
-          { label: 'Edit', onClick: () => openEdit(c) },
-          { label: 'Duplicate', onClick: () => void handleDuplicate(c) },
-          { label: 'View Tools', onClick: () => void handleViewTools(c) },
-          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Captain')}: ${c.name}`, data: c }) },
-          { label: 'View Notifications', onClick: () => navigate('/inbox') },
-          { label: 'Stop', onClick: () => handleStop(c.id, c.name) },
-          { label: 'Recall', onClick: () => handleRecall(c.id, c.name) },
-          { label: 'Restart', onClick: () => handleRestart(c.id, c.name) },
-          { label: 'Delete', danger: true, onClick: () => handleDelete(c.id, c.name) },
+          { label: 'View Detail', title: 'Open this captain\'s page with its state, settings, missions and log.', onClick: () => navigate(`/captains/${c.id}`) },
+          ...(canCaptainStartPlanning(c) ? [{ label: 'Start Planning', title: 'Open a planning session with this captain to break work into missions before dispatching. Reserves the captain while the session runs.', onClick: () => handleStartPlanning(c) }] : []),
+          { label: 'Edit', title: 'Change this captain\'s name, runtime, model, tier, permissions and instructions.', onClick: () => openEdit(c) },
+          { label: 'Duplicate', title: 'Create a new idle captain with a copy of this one\'s name, runtime, model, instructions, personas and runtime options, then open it.', onClick: () => void handleDuplicate(c) },
+          { label: 'View Tools', title: 'Show the MCP servers and tools this captain\'s runtime can reach, checked live where Armada can.', onClick: () => void handleViewTools(c) },
+          { label: 'View JSON', title: 'Show this captain\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: `${t('Captain')}: ${c.name}`, data: c }) },
+          { label: 'View Notifications', title: 'Open the inbox of items waiting on a person, such as reviews, failures and stalled captains.', onClick: () => navigate('/inbox') },
+          { label: 'Stop', title: 'Kill the captain\'s process and return it to Idle. A mission it is running is marked Failed and its dock is reclaimed. You confirm first.', onClick: () => handleStop(c.id, c.name) },
+          { label: 'Recall', title: 'Pull the captain off its current mission and return it to Idle. The mission is marked Failed. You confirm first.', onClick: () => handleRecall(c.id, c.name) },
+          { label: 'Restart', title: 'Delete this captain and create a new one with the same name, runtime, model, instructions and personas. The new captain gets a new ID.', onClick: () => handleRestart(c.id, c.name) },
+          { label: 'Delete', danger: true, title: 'Permanently remove this captain. You confirm first; this cannot be undone.', onClick: () => handleDelete(c.id, c.name) },
         ]} />
       ),
     },
@@ -436,8 +436,8 @@ export default function Captains() {
                 {t('Delete Selected')} ({selected.length})
               </button>
             )}
-            <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop all captain processes')}>{t('Stop All')}</button>
-            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Captain')}</button>
+            <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop every working captain now: kill its process, mark its mission Failed and return it to Idle. You confirm first.')}>{t('Stop All')}</button>
+            <button className="btn btn-primary btn-sm" onClick={openCreate} title={t('Create a captain: an AI agent worker that picks up and runs missions.')}>+ {t('Captain')}</button>
           </>
         )}
       />
@@ -449,10 +449,10 @@ export default function Captains() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className={`modal modal-captain${isMuxRuntime(form.runtime) ? ' modal-mux' : ''}`} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Captain') : t('Create Captain')}</h3>
-            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+            <label title={t(CAPTAIN_NAME_TOOLTIP)}>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} title={t(CAPTAIN_NAME_TOOLTIP)} required /></label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
-              <label title={t('The AI agent runtime this captain will use')}>{t('Runtime')}
-                <select value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })} required>
+              <label title={t(CAPTAIN_RUNTIME_TOOLTIP)}>{t('Runtime')}
+                <select value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })} title={t(CAPTAIN_RUNTIME_TOOLTIP)} required>
                   <option value="">{t('Select runtime...')}</option>
                   <option value="ClaudeCode">Claude Code</option>
                   <option value="Codex">Codex</option>
@@ -469,9 +469,9 @@ export default function Captains() {
               </label>
             </div>
             {form.runtime === 'ApiEndpoint' && (
-              <label title={t('The configured inference endpoint this captain drives. Manage endpoints under Configuration > Endpoints.')}>
+              <label title={t(CAPTAIN_INFERENCE_ENDPOINT_TOOLTIP)}>
                 {t('Inference Endpoint')}
-                <select value={form.modelEndpointId} onChange={e => setForm({ ...form, modelEndpointId: e.target.value })} required>
+                <select value={form.modelEndpointId} onChange={e => setForm({ ...form, modelEndpointId: e.target.value })} title={t(CAPTAIN_INFERENCE_ENDPOINT_TOOLTIP)} required>
                   <option value="">{t('Select an inference endpoint...')}</option>
                   {inferenceEndpoints.map(ep => (
                     <option key={ep.id} value={ep.id}>{ep.name} ({ep.provider}{ep.model ? ' / ' + ep.model : ''})</option>
@@ -485,9 +485,9 @@ export default function Captains() {
               </label>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
-              <label>
+              <label title={t(CAPTAIN_REASONING_EFFORT_TOOLTIP)}>
                 {t('Reasoning effort')}
-                <select value={form.reasoningEffort} onChange={e => setForm({ ...form, reasoningEffort: e.target.value })}>
+                <select value={form.reasoningEffort} onChange={e => setForm({ ...form, reasoningEffort: e.target.value })} title={t(CAPTAIN_REASONING_EFFORT_TOOLTIP)}>
                   <option value="">{t('Runtime default')}</option>
                   <option value="Off">{t('Off')}</option>
                   <option value="Minimal">{t('Minimal')}</option>
@@ -496,9 +496,9 @@ export default function Captains() {
                   <option value="High">{t('High')}</option>
                 </select>
               </label>
-              <label>
+              <label title={t(CAPTAIN_TIER_TOOLTIP)}>
                 {t('Capability tier')}
-                <select value={form.tier} onChange={e => setForm({ ...form, tier: e.target.value })}>
+                <select value={form.tier} onChange={e => setForm({ ...form, tier: e.target.value })} title={t(CAPTAIN_TIER_TOOLTIP)}>
                   <option value="">{t('Auto (classify from model)')}</option>
                   <option value="Economy">{t('Economy')}</option>
                   <option value="Standard">{t('Standard')}</option>
@@ -507,13 +507,13 @@ export default function Captains() {
               </label>
             </div>
             {supportsAutoApproveSwitch(form.runtime) && (
-              <label className="captain-auto-approve-field" title={t('When off, the captain runs without its permission-bypass flag (Claude Code acceptEdits, Codex workspace-write sandbox, Gemini auto_edit, Cursor without --force, OpenCode without --auto, Mux deny). Shell commands the agent wants to run are then refused unless the runtime is configured to allow them.')}>
-                <input type="checkbox" checked={form.autoApprove} onChange={e => setForm({ ...form, autoApprove: e.target.checked })} />
+              <label className="captain-auto-approve-field" title={t(CAPTAIN_AUTO_APPROVE_TOOLTIP)}>
+                <input type="checkbox" checked={form.autoApprove} onChange={e => setForm({ ...form, autoApprove: e.target.checked })} title={t(CAPTAIN_AUTO_APPROVE_TOOLTIP)} />
                 {' '}{t('Auto-approve agent tool use (runs the CLI with its permission-bypass flag)')}
               </label>
             )}
             <div className="captain-cli-policy-field">
-              <label htmlFor="captain-cli-policy">{t('CLI tool permissions')}</label>
+              <label htmlFor="captain-cli-policy" title={t(CAPTAIN_CLI_POLICY_TOOLTIP)}>{t('CLI tool permissions')}</label>
               <CliPermissionPolicySelect
                 id="captain-cli-policy"
                 value={form.cliPermissionPolicy}
@@ -533,12 +533,12 @@ export default function Captains() {
               onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
               t={t}
             />
-            <label className="captain-instructions-field" title={t('Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.')}>
+            <label className="captain-instructions-field" title={t(CAPTAIN_SYSTEM_INSTRUCTIONS_TOOLTIP)}>
               {t('System Instructions')}
-              <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder={t('e.g., You are a testing specialist. Always run tests before committing...')} />
+              <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} title={t(CAPTAIN_SYSTEM_INSTRUCTIONS_TOOLTIP)} rows={4} placeholder={t('e.g., You are a testing specialist. Always run tests before committing...')} />
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving} title={editing ? t('Save changes to this captain. They apply to its next agent launch, not to a mission it is already running.') : t('Create this captain. It starts Idle and can be picked for missions right away.')}>{saving ? t('Saving...') : t('Save')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>

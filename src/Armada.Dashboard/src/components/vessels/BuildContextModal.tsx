@@ -62,9 +62,9 @@ export default function BuildContextModal({ vessel, onClose, onBuilt }: BuildCon
             : t('Launch a captain to inspect {{name}} and write its Model Context.', { name: vessel.name })}
         </p>
 
-        <label className="text-dim" style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.8rem', marginBottom: '0.9rem' }}>
+        <label className="text-dim" style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.8rem', marginBottom: '0.9rem' }} title={t('Captain (AI agent) that reads the repository and writes the Model Context. It is busy for the duration and uses that model\'s tokens; idle captains finish fastest.')}>
           {t('Captain')}
-          <select value={captainId} onChange={(e) => setCaptainId(e.target.value)} disabled={busy}>
+          <select title={t('Captain (AI agent) that reads the repository and writes the Model Context. It is busy for the duration and uses that model\'s tokens; idle captains finish fastest.')} value={captainId} onChange={(e) => setCaptainId(e.target.value)} disabled={busy}>
             {captains.length === 0 && <option value="">{t('No captains available')}</option>}
             {captains.map((c) => (
               <option key={c.id} value={c.id}>{c.name} ({c.model || c.runtime})</option>
@@ -72,9 +72,10 @@ export default function BuildContextModal({ vessel, onClose, onBuilt }: BuildCon
           </select>
         </label>
 
-        <label className="text-dim" style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.8rem', marginBottom: '0.9rem' }}>
+        <label className="text-dim" style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.8rem', marginBottom: '0.9rem' }} title={t('Optional extra instructions for this run, such as areas to focus on or skip. Blank uses only the vessel.build_context prompt.')}>
           {t('Focus / guidance (optional)')}
           <textarea
+            title={t('Optional extra instructions for this run, such as areas to focus on or skip. Blank uses only the vessel.build_context prompt.')}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             disabled={busy}
@@ -99,8 +100,8 @@ export default function BuildContextModal({ vessel, onClose, onBuilt }: BuildCon
         )}
 
         <div className="modal-actions" style={{ marginTop: '1rem' }}>
-          <button type="button" className="btn" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
-          <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={busy || !captainId}>
+          <button type="button" className="btn" onClick={onClose} disabled={busy} title={t('Close without launching a captain. The Model Context is left unchanged.')}>{t('Cancel')}</button>
+          <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={busy || !captainId} title={refine ? t('Launch the selected captain to review the repository and update the existing Model Context. Takes a few minutes and uses model tokens.') : t('Launch the selected captain to study the repository and write a new Model Context. Takes a few minutes and uses model tokens.')}>
             {busy ? t('Working...') : refine ? t('Refine Context') : t('Build Context')}
           </button>
         </div>

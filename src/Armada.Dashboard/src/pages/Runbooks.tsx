@@ -92,6 +92,16 @@ export default function Runbooks() {
   });
 
   const canManage = isAdmin || isTenantAdmin;
+
+  const tips = {
+    fileName: t('Name of the backing playbook file, ending in .md, such as deploy-checklist.md. Must be unique in your tenant.'),
+    title: t('Name shown in lists and on executions, such as Production deploy checklist.'),
+    description: t('Short description of when to use this runbook. Shown in the list tooltip and searchable.'),
+    workflowProfile: t('Profile whose commands this runbook\'s checks run by default. Blank leaves executions to pick one.'),
+    environment: t('Environment new executions of this runbook target by default. Blank leaves it to each execution.'),
+    defaultCheckType: t('Check type suggested when running a check from an execution of this runbook, such as DeploymentVerification.'),
+    active: t('Uncheck to retire the runbook without deleting it. It stays listed, but its backing playbook can no longer be attached to missions.'),
+  };
   const carryState = (location.state as RunbookPageState | null) || null;
 
   function openCreate() {
@@ -232,14 +242,14 @@ export default function Runbooks() {
   // with the less essential ones hidden by default (the column chooser turns them on).
   const columns: DataTableColumn<Runbook>[] = [
     {
-      key: 'title', label: t('Runbook'), required: true,
+      key: 'title', label: t('Runbook'), required: true, headerTitle: t('Runbook title. Hover a row for its description.'),
       clearFilter: () => setColFilters(f => ({ ...f, title: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Runbook')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Runbook')} title={t('Show only runbooks whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
       cellTitle: (runbook) => runbook.description || undefined,
       render: (runbook) => <strong>{runbook.title}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Runbook ID. It is also the ID of the backing playbook.'), cellClassName: 'mono text-dim table-id-cell',
       render: (runbook) => (
         <span className="id-display">
           <span className="id-value" title={runbook.id}>{runbook.id}</span>
@@ -248,46 +258,46 @@ export default function Runbooks() {
       ),
     },
     {
-      key: 'fileName', label: t('File Name'), defaultHidden: true, cellClassName: 'mono text-dim',
+      key: 'fileName', label: t('File Name'), headerTitle: t('File name of the backing playbook that holds the runbook\'s markdown.'), defaultHidden: true, cellClassName: 'mono text-dim',
       render: (runbook) => <span className="cell-one-line" title={runbook.fileName}>{runbook.fileName}</span>,
     },
     {
-      key: 'description', label: t('Description'), defaultHidden: true, cellClassName: 'text-dim truncate-cell',
+      key: 'description', label: t('Description'), headerTitle: t('When to use this runbook.'), defaultHidden: true, cellClassName: 'text-dim truncate-cell',
       render: (runbook) => runbook.description ? <span className="truncate-text" title={runbook.description}>{runbook.description}</span> : '-',
     },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (runbook) => <StatusBadge status={runbook.active ? 'Active' : 'Inactive'} /> },
+    { key: 'status', label: t('Status'), headerTitle: t('Whether the runbook is active or retired.'), cellClassName: 'cell-nowrap', render: (runbook) => <StatusBadge status={runbook.active ? 'Active' : 'Inactive'} /> },
     {
-      key: 'workflowProfile', label: t('Workflow Profile'), cellClassName: 'text-dim',
+      key: 'workflowProfile', label: t('Workflow Profile'), headerTitle: t('Profile bound to the runbook, used for checks run from its executions.'), cellClassName: 'text-dim',
       render: (runbook) => {
         const text = runbook.workflowProfileId ? (profileMap.get(runbook.workflowProfileId) || runbook.workflowProfileId) : t('No workflow profile');
         return <span className="cell-one-line" title={text}>{text}</span>;
       },
     },
     {
-      key: 'environment', label: t('Environment'), cellClassName: 'text-dim',
+      key: 'environment', label: t('Environment'), headerTitle: t('Environment new executions target by default.'), cellClassName: 'text-dim',
       render: (runbook) => {
         const text = runbook.environmentId ? (environmentMap.get(runbook.environmentId) || runbook.environmentName || runbook.environmentId) : (runbook.environmentName || t('No environment'));
         return <span className="cell-one-line" title={text}>{text}</span>;
       },
     },
     {
-      key: 'defaultCheck', label: t('Default Check Type'), defaultHidden: true, cellClassName: 'text-dim cell-nowrap',
+      key: 'defaultCheck', label: t('Default Check Type'), headerTitle: t('Check type suggested when running a check from an execution.'), defaultHidden: true, cellClassName: 'text-dim cell-nowrap',
       render: (runbook) => runbook.defaultCheckType || t('No default check'),
     },
     {
-      key: 'steps', label: t('Steps'), cellClassName: 'text-dim cell-nowrap',
+      key: 'steps', label: t('Steps'), headerTitle: t('Number of checklist steps and fill-in parameters the runbook defines.'), cellClassName: 'text-dim cell-nowrap',
       render: (runbook) => <>{runbook.steps.length} {t('steps')} {'\u2022'} {runbook.parameters.length} {t('parameters')}</>,
     },
     {
-      key: 'executions', label: t('Executions'), cellClassName: 'text-dim cell-nowrap',
+      key: 'executions', label: t('Executions'), headerTitle: t('How many times the runbook has been started, and how many of those are still running.'), cellClassName: 'text-dim cell-nowrap',
       render: (runbook) => {
         const counts = executionCounts.get(runbook.id) || { total: 0, running: 0 };
         return <>{counts.total} {t('total')} {'\u2022'} {counts.running} {t('running')}</>;
       },
     },
-    { key: 'visibility', label: t('Visibility'), cellClassName: 'cell-nowrap', render: (runbook) => <ScopeBadge scope={runbook.scope} /> },
+    { key: 'visibility', label: t('Visibility'), headerTitle: t('Tenant-wide runbooks are visible to everyone in the tenant and editable by admins; personal ones belong to their owner.'), cellClassName: 'cell-nowrap', render: (runbook) => <ScopeBadge scope={runbook.scope} /> },
     {
-      key: 'lastUpdated', label: t('Last Updated'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastUpdated', label: t('Last Updated'), headerTitle: t('When the runbook was last changed. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (runbook) => formatDateTime(runbook.lastUpdateUtc),
       render: (runbook) => formatRelativeTime(runbook.lastUpdateUtc),
     },
@@ -299,11 +309,11 @@ export default function Runbooks() {
           <ActionMenu
             id={`runbook-${runbook.id}`}
             items={[
-              { label: 'Open', onClick: () => navigate(`/runbooks/${runbook.id}`, { state: carryState }) },
-              { label: 'Duplicate', onClick: () => void handleDuplicate(runbook) },
-              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: runbook.title, data: runbook }) },
-              ...(counts.running > 0 ? [{ label: `Running: ${counts.running}`, onClick: () => navigate(`/runbooks/${runbook.id}`, { state: carryState }) }] : []),
-              ...(canEditScoped(viewer, runbook) ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(runbook) }] : []),
+              { label: 'Open', title: 'Open the runbook to edit its steps or start and track an execution.', onClick: () => navigate(`/runbooks/${runbook.id}`, { state: carryState }) },
+              { label: 'Duplicate', title: 'Create a copy of this runbook under a new file name and open it.', onClick: () => void handleDuplicate(runbook) },
+              { label: 'View JSON', title: 'Show the raw runbook record as returned by the API.', onClick: () => setJsonData({ open: true, title: runbook.title, data: runbook }) },
+              ...(counts.running > 0 ? [{ label: `Running: ${counts.running}`, title: 'Open the runbook to see its executions that are still running.', onClick: () => navigate(`/runbooks/${runbook.id}`, { state: carryState }) }] : []),
+              ...(canEditScoped(viewer, runbook) ? [{ label: 'Delete', title: 'Delete this runbook and its backing playbook. Past executions, deployments, and incidents are kept. Cannot be undone.', danger: true as const, onClick: () => handleDelete(runbook) }] : []),
             ]}
           />
         );
@@ -318,7 +328,7 @@ export default function Runbooks() {
         subtitle={t('Playbook-backed operational runbooks with bound workflow profiles, environments, parameters, step tracking, and execution history.')}
         actions={(
           <>
-            <button className="btn btn-primary" onClick={openCreate}>
+            <button className="btn btn-primary" onClick={openCreate} title={t('Create a step-by-step runbook for release, deploy, rollback, or incident work. It is stored as a playbook.')}>
               + {t('Runbook')}
             </button>
           </>
@@ -358,33 +368,33 @@ export default function Runbooks() {
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
             <h3>{t('Create Runbook')}</h3>
-            <label>{t('File Name')}
-              <input type="text" value={createForm.fileName} onChange={(event) => setCreateForm({ ...createForm, fileName: event.target.value })} required />
+            <label title={tips.fileName}>{t('File Name')}
+              <input title={tips.fileName} type="text" value={createForm.fileName} onChange={(event) => setCreateForm({ ...createForm, fileName: event.target.value })} required />
             </label>
-            <label>{t('Title')}
-              <input type="text" value={createForm.title} onChange={(event) => setCreateForm({ ...createForm, title: event.target.value })} required />
+            <label title={tips.title}>{t('Title')}
+              <input title={tips.title} type="text" value={createForm.title} onChange={(event) => setCreateForm({ ...createForm, title: event.target.value })} required />
             </label>
-            <label>{t('Description')}
-              <textarea rows={2} value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} />
+            <label title={tips.description}>{t('Description')}
+              <textarea title={tips.description} rows={2} value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} />
             </label>
-            <label>{t('Workflow Profile')}
-              <select value={createForm.workflowProfileId} onChange={(event) => setCreateForm({ ...createForm, workflowProfileId: event.target.value })}>
+            <label title={tips.workflowProfile}>{t('Workflow Profile')}
+              <select title={tips.workflowProfile} value={createForm.workflowProfileId} onChange={(event) => setCreateForm({ ...createForm, workflowProfileId: event.target.value })}>
                 <option value="">{t('No workflow profile')}</option>
                 {profiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>{profile.name}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Environment')}
-              <select value={createForm.environmentId} onChange={(event) => setCreateForm({ ...createForm, environmentId: event.target.value })}>
+            <label title={tips.environment}>{t('Environment')}
+              <select title={tips.environment} value={createForm.environmentId} onChange={(event) => setCreateForm({ ...createForm, environmentId: event.target.value })}>
                 <option value="">{t('No environment')}</option>
                 {environments.map((environment) => (
                   <option key={environment.id} value={environment.id}>{environment.name}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Default Check Type')}
-              <select value={createForm.defaultCheckType} onChange={(event) => setCreateForm({ ...createForm, defaultCheckType: event.target.value as CheckRunType | '' })}>
+            <label title={tips.defaultCheckType}>{t('Default Check Type')}
+              <select title={tips.defaultCheckType} value={createForm.defaultCheckType} onChange={(event) => setCreateForm({ ...createForm, defaultCheckType: event.target.value as CheckRunType | '' })}>
                 <option value="">{t('No default check')}</option>
                 {RUNBOOK_CHECK_TYPES.map((checkType) => (
                   <option key={checkType} value={checkType}>{checkType}</option>
@@ -392,32 +402,32 @@ export default function Runbooks() {
               </select>
             </label>
             <ScopeSelect viewer={viewer} value={createForm.scope} onChange={(scope) => setCreateForm({ ...createForm, scope })} />
-            <label className="checkbox-row">
-              <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm({ ...createForm, active: event.target.checked })} />
+            <label className="checkbox-row" title={tips.active}>
+              <input type="checkbox" title={tips.active} checked={createForm.active} onChange={(event) => setCreateForm({ ...createForm, active: event.target.checked })} />
               <span>{t('Active')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Create Runbook')}</button>
-              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving} title={t('Create the runbook. Add its steps and parameters on the next page.')}>{saving ? t('Saving...') : t('Create Runbook')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving} title={t('Close without saving.')}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('All runbooks you can see, before filters.')}>
           <span>{t('Total Runbooks')}</span>
           <strong>{runbooks.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Runbooks currently in use, not retired.')}>
           <span>{t('Active')}</span>
           <strong>{runbooks.filter((runbook) => runbook.active).length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Times any runbook has been started.')}>
           <span>{t('Executions')}</span>
           <strong>{executions.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Runbook executions still in progress.')}>
           <span>{t('Running')}</span>
           <strong>{executions.filter((execution) => execution.status === 'Running').length}</strong>
         </div>
@@ -430,8 +440,9 @@ export default function Runbooks() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t('Search by title, file name, description, environment, or ID...')}
+            title={t('Filters the list to runbooks whose title, file name, description, environment, or ID contains this text.')}
           />
-          <select aria-label={t('All states')} value={activeFilter} onChange={(event) => setActiveFilter(event.target.value as typeof activeFilter)}>
+          <select aria-label={t('All states')} title={t('Show only active or only retired runbooks.')} value={activeFilter} onChange={(event) => setActiveFilter(event.target.value as typeof activeFilter)}>
             <option value="all">{t('All states')}</option>
             <option value="active">{t('Active')}</option>
             <option value="inactive">{t('Inactive')}</option>
@@ -447,7 +458,7 @@ export default function Runbooks() {
         onRowClick={(runbook) => setViewRecord(runbook as unknown as Record<string, unknown>)}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle="Refresh runbooks"
+        refreshTitle={t('Refresh runbooks')}
         emptyMessage={emptyState}
         placeholder={runbooks.length > 0 ? undefined : loading ? <p className="text-dim">{t('Loading...')}</p> : emptyState}
       />

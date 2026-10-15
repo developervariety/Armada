@@ -59,6 +59,7 @@ function ParameterSection({
   values: Record<string, string>;
   onChange: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }) {
+  const { t } = useLocale();
   return (
     <div className="api-parameter-section">
       <div className="api-section-heading">
@@ -74,6 +75,14 @@ function ParameterSection({
               <span>{parameter.name}</span>
               <input
                 type="text"
+                title={[
+                  parameter.description,
+                  parameter.in === 'path'
+                    ? t('Required. Fills the {{name}} placeholder in the URL path.', { name: parameter.name })
+                    : parameter.required
+                      ? t('Required for this operation.')
+                      : t('Optional. Leave blank to leave it out of the request.'),
+                ].filter(Boolean).join(' ')}
                 value={values[parameter.name] || ''}
                 onChange={(event) => onChange((current) => ({ ...current, [parameter.name]: event.target.value }))}
                 placeholder={parameter.description || parameter.name}
@@ -394,17 +403,17 @@ export default function ApiExplorer() {
         subtitle={t('Browse the live OpenAPI document, execute authenticated requests, inspect responses, and replay captured traffic.')}
         actions={(
           <>
-            <a className="btn btn-sm" href={buildRequestUrl('/openapi.json')} target="_blank" rel="noreferrer">
+            <a className="btn btn-sm" href={buildRequestUrl('/openapi.json')} target="_blank" rel="noreferrer" title={t('Open the raw OpenAPI 3 document for the Armada REST API in a new tab, for import into other tools.')}>
               {t('OpenAPI JSON')}
             </a>
-            <a className="btn btn-sm" href={buildRequestUrl('/swagger')} target="_blank" rel="noreferrer">
+            <a className="btn btn-sm" href={buildRequestUrl('/swagger')} target="_blank" rel="noreferrer" title={t('Open the Swagger UI for the same API in a new tab.')}>
               {t('Swagger')}
             </a>
-            <button className="btn btn-primary btn-sm" onClick={() => void handleSend()} disabled={!selectedOperation || !!abortController || loading}>
+            <button className="btn btn-primary btn-sm" onClick={() => void handleSend()} disabled={!selectedOperation || !!abortController || loading} title={t('Send this request to the live Admiral as you, with your session token. Write operations (POST, PUT, DELETE) really change data.')}>
               {abortController ? t('Running...') : t('Send Request')}
             </button>
             {abortController && (
-              <button className="btn btn-sm" onClick={() => abortController.abort()}>
+              <button className="btn btn-sm" onClick={() => abortController.abort()} title={t('Stop waiting for the response. The server may already have acted on the request.')}>
                 {t('Abort')}
               </button>
             )}
@@ -429,7 +438,7 @@ export default function ApiExplorer() {
                 <div className="api-operation-picker">
                   <label className="api-operation-picker-field">
                     <span>{t('Category')}</span>
-                    <select value={selectedTag} onChange={(event) => setSelectedTag(event.target.value)}>
+                    <select title={t('Show only operations in one API area, such as Vessels or Missions. All shows every operation.')} value={selectedTag} onChange={(event) => setSelectedTag(event.target.value)}>
                       {tags.map((tag) => (
                         <option key={tag} value={tag}>{tag}</option>
                       ))}
@@ -437,11 +446,12 @@ export default function ApiExplorer() {
                   </label>
                   <label className="api-operation-picker-field api-operation-picker-filter">
                     <span>{t('Filter')}</span>
-                    <input value={operationFilter} onChange={(event) => setOperationFilter(event.target.value)} placeholder={t('Filter by path or summary')} />
+                    <input value={operationFilter} onChange={(event) => setOperationFilter(event.target.value)} placeholder={t('Filter by path or summary')} title={t('Narrow the operation list by text in the path or summary, for example vessels or /api/v1/missions.')} />
                   </label>
                   <label className="api-operation-picker-field api-operation-picker-operation">
                     <span>{t('Operation')}</span>
                     <select
+                      title={t('The API call to build. Choosing one fills in example parameters and body and clears the last response.')}
                       value={selectedOperation?.id || ''}
                       onChange={(event) => {
                         setSelectedOperationId(event.target.value);
@@ -467,13 +477,13 @@ export default function ApiExplorer() {
                 <h3>{selectedOperation?.summary || t('Request Builder')}</h3>
                 {selectedOperation && <p className="text-dim">{selectedOperation.description || selectedOperation.path}</p>}
               </div>
-              {selectedOperation && <span className="api-tag-badge">{selectedOperation.tag}</span>}
+              {selectedOperation && <span className="api-tag-badge" title={t('API category this operation belongs to.')}>{selectedOperation.tag}</span>}
             </div>
             <div className="request-card-body api-card-body">
               {selectedOperation ? (
                 <>
                   <div className="api-request-overview">
-                    <span className={methodClass(selectedOperation.method)}>{selectedOperation.method.toUpperCase()}</span>
+                    <span className={methodClass(selectedOperation.method)} title={t('HTTP method. GET only reads; POST, PUT, PATCH, and DELETE change data.')}>{selectedOperation.method.toUpperCase()}</span>
                     <code>{selectedOperation.path}</code>
                   </div>
 
@@ -489,14 +499,14 @@ export default function ApiExplorer() {
                         <h4>{t('Request Body')}</h4>
                         <span>{selectedOperation.requestBodyContentType || 'application/json'}</span>
                       </div>
-                      <textarea aria-label={t('Request Body')} value={bodyValue} onChange={(event) => setBodyValue(event.target.value)} spellCheck={false} rows={14} />
+                      <textarea aria-label={t('Request Body')} title={t('JSON sent as the request body, prefilled with an example from the schema. Edit it before sending; blank sends no body.')} value={bodyValue} onChange={(event) => setBodyValue(event.target.value)} spellCheck={false} rows={14} />
                     </div>
                   )}
 
                   {requestPreview && (
                     <div className="api-request-preview">
                       <div className="api-section-heading">
-                        <h4>{t('Request Preview')}</h4>
+                        <h4 title={t('The full URL the request will be sent to, built from the path and query values above.')}>{t('Request Preview')}</h4>
                         <span>{requestPreview.method.toUpperCase()}</span>
                       </div>
                       <pre>{requestPreview.url}</pre>
@@ -515,15 +525,15 @@ export default function ApiExplorer() {
                 <h3>{t('Response')}</h3>
                 {response && (
                   <p className="text-dim api-response-meta">
-                    <span className={`request-status-pill ${response.ok ? 'success' : 'error'}`}>{response.status} {response.statusText}</span>
-                    <span className="api-response-badge">{response.contentType || 'n/a'}</span>
-                    <span>{response.durationMs.toFixed(2)} ms</span>
-                    <span>{formatBytes(response.sizeBytes)}</span>
+                    <span className={`request-status-pill ${response.ok ? 'success' : 'error'}`} title={t('HTTP status returned by the server. 2xx means success; 4xx is a problem with the request; 5xx is a server error.')}>{response.status} {response.statusText}</span>
+                    <span className="api-response-badge" title={t('Content type of the response body.')}>{response.contentType || 'n/a'}</span>
+                    <span title={t('Time from sending the request to receiving the full response, measured in this browser.')}>{response.durationMs.toFixed(2)} ms</span>
+                    <span title={t('Size of the response body.')}>{formatBytes(response.sizeBytes)}</span>
                   </p>
                 )}
               </div>
               {response && (
-                <CopyButton text={responseCopyText} title="Copy the current response view" />
+                <CopyButton text={responseCopyText} title={t('Copy what the selected response tab shows: the formatted preview, raw body, headers, or code sample.')} />
               )}
             </div>
             <div className="request-card-body api-card-body">
@@ -535,6 +545,10 @@ export default function ApiExplorer() {
                     className={`api-tab ${responseTab === tab ? 'active' : ''}`}
                     onClick={() => setResponseTab(tab)}
                     disabled={!response}
+                    title={tab === 'preview' ? t('Formatted response, with JSON pretty-printed.')
+                      : tab === 'body' ? t('The raw response body exactly as received.')
+                        : tab === 'headers' ? t('HTTP headers the server returned.')
+                          : t('Code that sends this same request with curl, JavaScript fetch, or C#.')}
                   >
                     {t(tab.charAt(0).toUpperCase() + tab.slice(1))}
                   </button>

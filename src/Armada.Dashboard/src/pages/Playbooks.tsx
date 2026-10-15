@@ -20,6 +20,11 @@ import StatusBadge from '../components/shared/StatusBadge';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { buildPlaybookDuplicatePayload } from '../lib/duplicates';
 
+const PLAYBOOK_FILE_TIP = 'File name for the playbook, which must end in .md, for example CSHARP_BACKEND_ARCHITECTURE.md. Captains see this name when the playbook is attached as a file. Required.';
+const PLAYBOOK_DESCRIPTION_TIP = 'Optional one-line summary shown when people pick playbooks during dispatch. It is not sent to the captain.';
+const PLAYBOOK_CONTENT_TIP = 'The guidance itself, in markdown: rules, standards or checklists the captain should follow. Depending on how it is attached, it is pasted into the prompt or given as a file.';
+const PLAYBOOK_ACTIVE_TIP = 'On: the playbook can be selected during dispatch. Off: it is hidden from selection and rejected if requested; missions that already used it are not affected.';
+
 export default function Playbooks() {
   const navigate = useNavigate();
   const { isAdmin, isTenantAdmin, user } = useAuth();
@@ -184,13 +189,13 @@ export default function Playbooks() {
 
   const columns: DataTableColumn<Playbook>[] = [
     {
-      key: 'fileName', label: t('File'), required: true,
+      key: 'fileName', label: t('File'), required: true, headerTitle: t('The playbook\'s file name (ends in .md). When a playbook is attached as a file, the captain reads it under this name.'),
       clearFilter: () => setColFilters(f => ({ ...f, fileName: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('File')} value={colFilters.fileName} onChange={e => setColFilters(f => ({ ...f, fileName: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('File')} title={t('Show only playbooks whose file name contains this text.')} value={colFilters.fileName} onChange={e => setColFilters(f => ({ ...f, fileName: e.target.value }))} placeholder={t('Filter...')} />,
       render: (playbook) => <strong>{playbook.fileName}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique playbook ID, used when selecting playbooks through the API or MCP tools. Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
       render: (playbook) => (
         <span className="id-display">
           <span className="id-value" title={playbook.id}>{playbook.id}</span>
@@ -199,32 +204,32 @@ export default function Playbooks() {
       ),
     },
     {
-      key: 'description', label: t('Description'), cellClassName: 'text-dim',
+      key: 'description', label: t('Description'), headerTitle: t('Summary shown when people pick playbooks during dispatch.'), cellClassName: 'text-dim',
       clearFilter: () => setColFilters(f => ({ ...f, description: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Description')} value={colFilters.description} onChange={e => setColFilters(f => ({ ...f, description: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Description')} title={t('Show only playbooks whose description contains this text.')} value={colFilters.description} onChange={e => setColFilters(f => ({ ...f, description: e.target.value }))} placeholder={t('Filter...')} />,
       render: (playbook) => playbook.description || '-',
     },
-    { key: 'visibility', label: t('Visibility'), cellClassName: 'cell-nowrap', render: (playbook) => <ScopeBadge scope={playbook.scope} /> },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (playbook) => <StatusBadge status={playbook.active ? 'Active' : 'Inactive'} /> },
-    { key: 'content', label: t('Content'), cellClassName: 'text-dim cell-nowrap', render: (playbook) => <>{playbook.content.length.toLocaleString()} {t('chars')}</> },
+    { key: 'visibility', label: t('Visibility'), headerTitle: t('Tenant-wide playbooks are usable by everyone in the tenant and edited by admins; personal ones only by their owner.'), cellClassName: 'cell-nowrap', render: (playbook) => <ScopeBadge scope={playbook.scope} /> },
+    { key: 'status', label: t('Status'), headerTitle: t('Active playbooks can be selected during dispatch. Inactive ones are hidden from selection and rejected if requested.'), cellClassName: 'cell-nowrap', render: (playbook) => <StatusBadge status={playbook.active ? 'Active' : 'Inactive'} /> },
+    { key: 'content', label: t('Content'), headerTitle: t('Size of the playbook text in characters. Inlined playbooks add this much to every mission prompt they are attached to.'), cellClassName: 'text-dim cell-nowrap', render: (playbook) => <>{playbook.content.length.toLocaleString()} {t('chars')}</> },
     {
-      key: 'lastUpdated', label: t('Last Updated'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastUpdated', label: t('Last Updated'), headerTitle: t('When this playbook was last changed. Hover a value for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (playbook) => formatDateTime(playbook.lastUpdateUtc),
       render: (playbook) => formatRelativeTime(playbook.lastUpdateUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open the menu in a row to open, edit, duplicate or delete that playbook.'), fixed: true, interactive: true, className: 'text-right',
       render: (playbook) => {
         const canEditRow = canEditScoped(viewer, playbook);
         return (
           <ActionMenu
             id={`playbook-${playbook.id}`}
             items={[
-              { label: 'Open', onClick: () => navigate(`/playbooks/${playbook.id}`) },
-              ...(canEditRow ? [{ label: 'Edit', onClick: () => openEdit(playbook) }] : []),
-              { label: 'Duplicate', onClick: () => void handleDuplicate(playbook) },
-              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: playbook.fileName, data: playbook }) },
-              ...(canEditRow ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(playbook) }] : []),
+              { label: 'Open', title: 'Open this playbook\'s page to read or edit its markdown.', onClick: () => navigate(`/playbooks/${playbook.id}`) },
+              ...(canEditRow ? [{ label: 'Edit', title: 'Change this playbook\'s file name, description, content, visibility and active state.', onClick: () => openEdit(playbook) }] : []),
+              { label: 'Duplicate', title: 'Create a copy of this playbook under a new file name, then open it.', onClick: () => void handleDuplicate(playbook) },
+              { label: 'View JSON', title: 'Show this playbook\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: playbook.fileName, data: playbook }) },
+              ...(canEditRow ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this playbook. Missions that already used it keep their copy. You confirm first.', onClick: () => handleDelete(playbook) }] : []),
             ]}
           />
         );
@@ -239,7 +244,7 @@ export default function Playbooks() {
         subtitle={t('Tenant-scoped markdown playbooks that can be attached to voyages and missions. Use them for durable engineering rules, architecture standards, or execution checklists.')}
         actions={(
           <>
-            <button className="btn btn-primary" onClick={openCreate}>
+            <button className="btn btn-primary" onClick={openCreate} title={t('Create a playbook: a markdown document of rules or checklists that can be attached to voyages and missions.')}>
               + {t('Playbook')}
             </button>
           </>
@@ -260,22 +265,22 @@ export default function Playbooks() {
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
             <h3>{editing ? t('Edit Playbook') : t('Create Playbook')}</h3>
-            <label>{t('File Name')}
-              <input type="text" value={createForm.fileName} onChange={(event) => setCreateForm({ ...createForm, fileName: event.target.value })} placeholder={t('CSHARP_BACKEND_ARCHITECTURE.md')} required />
+            <label title={t(PLAYBOOK_FILE_TIP)}>{t('File Name')}
+              <input type="text" title={t(PLAYBOOK_FILE_TIP)} value={createForm.fileName} onChange={(event) => setCreateForm({ ...createForm, fileName: event.target.value })} placeholder={t('CSHARP_BACKEND_ARCHITECTURE.md')} required />
             </label>
-            <label>{t('Description')}
-              <input type="text" value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} placeholder={t('Optional summary shown during playbook selection')} />
+            <label title={t(PLAYBOOK_DESCRIPTION_TIP)}>{t('Description')}
+              <input type="text" title={t(PLAYBOOK_DESCRIPTION_TIP)} value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} placeholder={t('Optional summary shown during playbook selection')} />
             </label>
-            <label>{t('Markdown Content')}
-              <textarea rows={16} value={createForm.content} onChange={(event) => setCreateForm({ ...createForm, content: event.target.value })} spellCheck={false} />
+            <label title={t(PLAYBOOK_CONTENT_TIP)}>{t('Markdown Content')}
+              <textarea rows={16} title={t(PLAYBOOK_CONTENT_TIP)} value={createForm.content} onChange={(event) => setCreateForm({ ...createForm, content: event.target.value })} spellCheck={false} />
             </label>
             <ScopeSelect viewer={viewer} value={createForm.scope} onChange={(scope) => setCreateForm({ ...createForm, scope })} />
-            <label className="checkbox-row">
-              <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm({ ...createForm, active: event.target.checked })} />
+            <label className="checkbox-row" title={t(PLAYBOOK_ACTIVE_TIP)}>
+              <input type="checkbox" title={t(PLAYBOOK_ACTIVE_TIP)} checked={createForm.active} onChange={(event) => setCreateForm({ ...createForm, active: event.target.checked })} />
               <span>{t('Active and selectable during dispatch')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Playbook')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving} title={editing ? t('Save changes to this playbook. Missions dispatched after saving get the new text; earlier missions keep their copy.') : t('Create this playbook so it can be selected during dispatch.')}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Playbook')}</button>
               <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -283,19 +288,19 @@ export default function Playbooks() {
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('All playbooks you can see, active and inactive.')}>
           <span>{t('Total Playbooks')}</span>
           <strong>{playbooks.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Playbooks that can be selected during dispatch.')}>
           <span>{t('Active')}</span>
           <strong>{activeCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Playbooks hidden from dispatch selection. Turn one back on by editing it.')}>
           <span>{t('Inactive')}</span>
           <strong>{inactiveCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Total characters of markdown across all playbooks.')}>
           <span>{t('Stored Markdown')}</span>
           <strong>{totalChars.toLocaleString()} {t('chars')}</strong>
         </div>
@@ -307,9 +312,10 @@ export default function Playbooks() {
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
+            title={t('Show only playbooks whose file name, description or ID contains this text.')}
             placeholder={t('Search by filename, description, or ID...')}
           />
-          <select aria-label={t('All statuses')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'all' | 'active' | 'inactive')}>
+          <select aria-label={t('All statuses')} title={t('Show all playbooks, or only active or only inactive ones.')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'all' | 'active' | 'inactive')}>
             <option value="all">{t('All statuses')}</option>
             <option value="active">{t('Active only')}</option>
             <option value="inactive">{t('Inactive only')}</option>
@@ -325,7 +331,7 @@ export default function Playbooks() {
         onRowClick={(playbook) => (canEditScoped(viewer, playbook) ? openEdit(playbook) : navigate(`/playbooks/${playbook.id}`))}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle="Refresh playbooks"
+        refreshTitle={t('Refresh playbooks')}
         emptyMessage={emptyState}
         placeholder={playbooks.length > 0 ? undefined : loading ? <p className="text-dim">{t('Loading...')}</p> : emptyState}
       />

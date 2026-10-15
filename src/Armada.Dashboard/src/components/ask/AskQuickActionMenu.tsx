@@ -32,6 +32,7 @@ export default function AskQuickActionMenu({ items, activeIndex, onHover, onChoo
             role="option"
             aria-selected={index === activeIndex}
             className={`ask-quick-option${index === activeIndex ? ' is-active' : ''}`}
+            title={item.description ? t(item.description) : t(item.title)}
             onMouseEnter={() => onHover(index)}
             onMouseDown={(e) => { e.preventDefault(); onChoose(item); }}
           >

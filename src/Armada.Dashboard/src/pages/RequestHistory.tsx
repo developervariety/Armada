@@ -395,26 +395,26 @@ export default function RequestHistory() {
 
   const columns: DataTableColumn<RequestHistoryEntry>[] = [
     {
-      key: 'when', label: t('When'), required: true, cellClassName: 'cell-nowrap',
+      key: 'when', label: t('When'), headerTitle: t('When the Admiral received the request. Hover a cell for the exact time.'), required: true, cellClassName: 'cell-nowrap',
       cellTitle: (entry) => formatDateTime(entry.createdUtc),
       render: (entry) => formatRelativeTime(entry.createdUtc),
     },
     {
-      key: 'method', label: t('Method'),
+      key: 'method', label: t('Method'), headerTitle: t('HTTP method of the request, such as GET or POST.'),
       render: (entry) => <span className={`request-method-pill request-method-${entry.method.toLowerCase()}`}>{entry.method}</span>,
     },
     {
-      key: 'route', label: t('Route'), required: true, cellClassName: 'request-route-cell mono', cellTitle: (entry) => entry.route,
+      key: 'route', label: t('Route'), headerTitle: t('API path that was called.'), required: true, cellClassName: 'request-route-cell mono', cellTitle: (entry) => entry.route,
       render: (entry) => entry.route,
     },
-    { key: 'principal', label: t('Principal'), render: (entry) => entry.principalDisplay || t('Anonymous') },
+    { key: 'principal', label: t('Principal'), headerTitle: t('User or credential that made the request. Anonymous means it was unauthenticated.'), render: (entry) => entry.principalDisplay || t('Anonymous') },
     {
-      key: 'status', label: t('Status'),
+      key: 'status', label: t('Status'), headerTitle: t('HTTP status code returned. Green is success, red is a failure.'),
       render: (entry) => <span className={`request-status-pill ${entry.isSuccess ? 'success' : 'error'}`}>{entry.statusCode}</span>,
     },
-    { key: 'duration', label: t('Duration'), cellClassName: 'cell-nowrap', render: (entry) => `${entry.durationMs.toFixed(2)} ms` },
+    { key: 'duration', label: t('Duration'), headerTitle: t('Time the Admiral took to handle the request, in milliseconds.'), cellClassName: 'cell-nowrap', render: (entry) => `${entry.durationMs.toFixed(2)} ms` },
     {
-      key: 'payloads', label: t('Payloads'), cellClassName: 'cell-nowrap',
+      key: 'payloads', label: t('Payloads'), headerTitle: t('Request body size / response body size.'), cellClassName: 'cell-nowrap',
       render: (entry) => `${formatBytes(entry.requestSizeBytes)} / ${formatBytes(entry.responseSizeBytes)}`,
     },
     {
@@ -423,9 +423,9 @@ export default function RequestHistory() {
         <ActionMenu
           id={`request-${entry.id}`}
           items={[
-            { label: 'View', onClick: () => void openDetail(entry.id) },
-            { label: 'Replay in API Explorer', onClick: () => void handleReplay(entry.id) },
-            { label: 'Delete', danger: true, onClick: () => setDeleteTarget(entry) },
+            { label: 'View', title: 'Open the stored headers, parameters, and bodies of this request.', onClick: () => void openDetail(entry.id) },
+            { label: 'Replay in API Explorer', title: 'Open API Explorer prefilled with this request so you can review and resend it. Nothing is sent until you run it.', onClick: () => void handleReplay(entry.id) },
+            { label: 'Delete', title: 'Delete this stored request record. Cannot be undone.', danger: true, onClick: () => setDeleteTarget(entry) },
           ]}
         />
       ),
@@ -440,12 +440,12 @@ export default function RequestHistory() {
         actions={(
           <>
             {selectedIds.length > 0 && (
-              <button className="btn btn-danger btn-sm" onClick={() => setDeleteSelectedOpen(true)}>
+              <button className="btn btn-danger btn-sm" onClick={() => setDeleteSelectedOpen(true)} title={t('Delete the stored records of the checked requests. Asks for confirmation; cannot be undone.')}>
                 {t('Delete Selected')} ({selectedIds.length})
               </button>
             )}
             {totalRecords > 0 && (
-              <button className="btn btn-danger btn-sm" onClick={() => setDeleteFilteredOpen(true)}>
+              <button className="btn btn-danger btn-sm" onClick={() => setDeleteFilteredOpen(true)} title={hasActiveFilters ? t('Delete every stored request matching the filters and time range, on all pages, not just this one. Cannot be undone.') : t('Delete every stored request between From and To, on all pages, not just this one. Cannot be undone.')}>
                 {hasActiveFilters ? t('Delete Filtered') : t('Delete Visible Range')}
               </button>
             )}
@@ -456,22 +456,22 @@ export default function RequestHistory() {
       <ErrorModal error={error} onClose={() => setError('')} />
 
       <div className="request-history-summary-grid">
-        <div className="card request-summary-card">
+        <div className="card request-summary-card" title={t('Requests recorded in the activity range chosen below, with the current filters.')}>
           <div className="card-label">{t('Total Requests')}</div>
           <div className="card-value">{summaryLoading ? '...' : (summary?.totalCount || 0).toLocaleString()}</div>
           <div className="card-detail text-dim">{t('Current activity window')}</div>
         </div>
-        <div className="card request-summary-card">
+        <div className="card request-summary-card" title={t('Share of those requests that returned a success status.')}>
           <div className="card-label">{t('Success Rate')}</div>
           <div className="card-value">{summaryLoading ? '...' : `${(summary?.successRate || 0).toFixed(1)}%`}</div>
           <div className="card-detail text-dim">{t('Based on visible summary range')}</div>
         </div>
-        <div className="card request-summary-card">
+        <div className="card request-summary-card" title={t('Requests in the activity range that returned an error status, 4xx or 5xx.')}>
           <div className="card-label">{t('Failures')}</div>
           <div className="card-value">{summaryLoading ? '...' : (summary?.failureCount || 0).toLocaleString()}</div>
           <div className="card-detail text-dim">{t('Non-successful responses')}</div>
         </div>
-        <div className="card request-summary-card">
+        <div className="card request-summary-card" title={t('Mean time the Admiral took per request in the activity range, in milliseconds.')}>
           <div className="card-label">{t('Average Duration')}</div>
           <div className="card-value">{summaryLoading ? '...' : `${(summary?.averageDurationMs || 0).toFixed(2)} ms`}</div>
           <div className="card-detail text-dim">{t('Across summary buckets')}</div>
@@ -492,6 +492,7 @@ export default function RequestHistory() {
                 className={`request-range-tab${activityRange === option.id ? ' active' : ''}`}
                 aria-pressed={activityRange === option.id}
                 onClick={() => setActivityRange(option.id)}
+                title={t('Time range for the chart and the summary tiles. The table below uses the From and To filters instead.')}
               >
                 {t(option.label)}
               </button>
@@ -514,10 +515,11 @@ export default function RequestHistory() {
             className="collapsible-header"
             onClick={() => setFiltersExpanded((current) => !current)}
             aria-expanded={filtersExpanded}
+            title={filtersExpanded ? t('Hide the request filters. Filters stay applied.') : t('Show filters for method, status, route, caller, and time range.')}
           >
             <span className="collapsible-caret" aria-hidden="true">{filtersExpanded ? '▾' : '▸'}</span>
             <span className="collapsible-title">{t('Filters')}</span>
-            {hasActiveFilters && <span className="filter-active-pill">{t('Active')}</span>}
+            {hasActiveFilters && <span className="filter-active-pill" title={t('At least one filter besides the time range is narrowing the list.')}>{t('Active')}</span>}
             <span className="text-dim" style={{ marginLeft: 'auto', fontWeight: 400 }}>
               {t('Constrain the paginated request table without leaving the dashboard.')}
             </span>
@@ -527,6 +529,7 @@ export default function RequestHistory() {
               className="btn btn-sm"
               onClick={() => { setFilters(defaultFilters); setPageNumber(1); }}
               style={{ marginLeft: '0.75rem' }}
+              title={t('Clear every filter and go back to the last 24 hours.')}
             >
               {t('Reset')}
             </button>
@@ -535,9 +538,9 @@ export default function RequestHistory() {
         {filtersExpanded && (
         <div className="request-card-body">
           <div className="request-filter-grid">
-            <label className="request-filter-field">
+            <label className="request-filter-field" title={t('Show only requests with this HTTP method.')}>
               <span>{t('Method')}</span>
-              <select value={filters.method} onChange={(event) => { setFilters((current) => ({ ...current, method: event.target.value })); setPageNumber(1); }}>
+              <select title={t('Show only requests with this HTTP method.')} value={filters.method} onChange={(event) => { setFilters((current) => ({ ...current, method: event.target.value })); setPageNumber(1); }}>
                 <option value="">{t('All methods')}</option>
                 <option value="GET">GET</option>
                 <option value="POST">POST</option>
@@ -546,49 +549,49 @@ export default function RequestHistory() {
                 <option value="DELETE">DELETE</option>
               </select>
             </label>
-            <label className="request-filter-field">
+            <label className="request-filter-field" title={t('Show only requests that returned exactly this HTTP status code, such as 200 or 404.')}>
               <span>{t('Status Code')}</span>
-              <input value={filters.statusCode} onChange={(event) => { setFilters((current) => ({ ...current, statusCode: event.target.value })); setPageNumber(1); }} placeholder="200" />
+              <input title={t('Show only requests that returned exactly this HTTP status code, such as 200 or 404.')} value={filters.statusCode} onChange={(event) => { setFilters((current) => ({ ...current, statusCode: event.target.value })); setPageNumber(1); }} placeholder="200" />
             </label>
-            <label className="request-filter-field">
+            <label className="request-filter-field" title={t('Show only requests whose route contains this text, such as /api/v1/missions.')}>
               <span>{t('Route')}</span>
-              <input value={filters.route} onChange={(event) => { setFilters((current) => ({ ...current, route: event.target.value })); setPageNumber(1); }} placeholder="/api/v1/missions" />
+              <input title={t('Show only requests whose route contains this text, such as /api/v1/missions.')} value={filters.route} onChange={(event) => { setFilters((current) => ({ ...current, route: event.target.value })); setPageNumber(1); }} placeholder="/api/v1/missions" />
             </label>
-            <label className="request-filter-field">
+            <label className="request-filter-field" title={t('Show only requests whose caller name contains this text, such as an email address.')}>
               <span>{t('Principal')}</span>
-              <input value={filters.principal} onChange={(event) => { setFilters((current) => ({ ...current, principal: event.target.value })); setPageNumber(1); }} placeholder={t('user@tenant')} />
+              <input title={t('Show only requests whose caller name contains this text, such as an email address.')} value={filters.principal} onChange={(event) => { setFilters((current) => ({ ...current, principal: event.target.value })); setPageNumber(1); }} placeholder={t('user@tenant')} />
             </label>
-            <label className="request-filter-field">
+            <label className="request-filter-field" title={t('Show only requests made with this API credential ID, such as crd_abc123.')}>
               <span>{t('Credential')}</span>
-              <input value={filters.credentialId} onChange={(event) => { setFilters((current) => ({ ...current, credentialId: event.target.value })); setPageNumber(1); }} placeholder="cred_" />
+              <input title={t('Show only requests made with this API credential ID, such as crd_abc123.')} value={filters.credentialId} onChange={(event) => { setFilters((current) => ({ ...current, credentialId: event.target.value })); setPageNumber(1); }} placeholder="crd_" />
             </label>
-            <label className="request-filter-field">
+            <label className="request-filter-field" title={t('Show only successful (2xx and 3xx) or only failed requests.')}>
               <span>{t('Result')}</span>
-              <select value={filters.isSuccess} onChange={(event) => { setFilters((current) => ({ ...current, isSuccess: event.target.value as FiltersState['isSuccess'] })); setPageNumber(1); }}>
+              <select title={t('Show only successful (2xx and 3xx) or only failed requests.')} value={filters.isSuccess} onChange={(event) => { setFilters((current) => ({ ...current, isSuccess: event.target.value as FiltersState['isSuccess'] })); setPageNumber(1); }}>
                 <option value="all">{t('All')}</option>
                 <option value="true">{t('Success')}</option>
                 <option value="false">{t('Failure')}</option>
               </select>
             </label>
             {isAdmin && (
-              <label className="request-filter-field">
+              <label className="request-filter-field" title={t('Show only requests from this tenant ID, such as ten_abc123. Administrators only.')}>
                 <span>{t('Tenant')}</span>
-                <input value={filters.tenantId} onChange={(event) => { setFilters((current) => ({ ...current, tenantId: event.target.value })); setPageNumber(1); }} placeholder="ten_" />
+                <input title={t('Show only requests from this tenant ID, such as ten_abc123. Administrators only.')} value={filters.tenantId} onChange={(event) => { setFilters((current) => ({ ...current, tenantId: event.target.value })); setPageNumber(1); }} placeholder="ten_" />
               </label>
             )}
             {(isAdmin || isTenantAdmin) && (
-              <label className="request-filter-field">
+              <label className="request-filter-field" title={t('Show only requests from this user ID, such as usr_abc123.')}>
                 <span>{t('User')}</span>
-                <input value={filters.userId} onChange={(event) => { setFilters((current) => ({ ...current, userId: event.target.value })); setPageNumber(1); }} placeholder="usr_" />
+                <input title={t('Show only requests from this user ID, such as usr_abc123.')} value={filters.userId} onChange={(event) => { setFilters((current) => ({ ...current, userId: event.target.value })); setPageNumber(1); }} placeholder="usr_" />
               </label>
             )}
-            <label className="request-filter-field">
+            <label className="request-filter-field" title={t('Earliest request time to list, in your local time. Defaults to 24 hours ago. Also bounds Delete Visible Range.')}>
               <span>{t('From')}</span>
-              <input type="datetime-local" value={filters.fromUtc} onChange={(event) => { setFilters((current) => ({ ...current, fromUtc: event.target.value })); setPageNumber(1); }} />
+              <input title={t('Earliest request time to list, in your local time. Defaults to 24 hours ago. Also bounds Delete Visible Range.')} type="datetime-local" value={filters.fromUtc} onChange={(event) => { setFilters((current) => ({ ...current, fromUtc: event.target.value })); setPageNumber(1); }} />
             </label>
-            <label className="request-filter-field">
+            <label className="request-filter-field" title={t('Latest request time to list, in your local time. Defaults to now. Also bounds Delete Visible Range.')}>
               <span>{t('To')}</span>
-              <input type="datetime-local" value={filters.toUtc} onChange={(event) => { setFilters((current) => ({ ...current, toUtc: event.target.value })); setPageNumber(1); }} />
+              <input title={t('Latest request time to list, in your local time. Defaults to now. Also bounds Delete Visible Range.')} type="datetime-local" value={filters.toUtc} onChange={(event) => { setFilters((current) => ({ ...current, toUtc: event.target.value })); setPageNumber(1); }} />
             </label>
           </div>
         </div>
@@ -640,15 +643,15 @@ export default function RequestHistory() {
               <div className="request-detail-header-actions">
                 {detailRecord && (
                   <>
-                    <button className="btn btn-sm" onClick={() => void handleReplay(detailRecord.entry.id)}>
+                    <button className="btn btn-sm" onClick={() => void handleReplay(detailRecord.entry.id)} title={t('Open API Explorer prefilled with this request so you can review and resend it. Nothing is sent until you run it.')}>
                       {t('Replay')}
                     </button>
-                    <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(detailRecord.entry)}>
+                    <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(detailRecord.entry)} title={t('Delete this stored request record. Cannot be undone.')}>
                       {t('Delete')}
                     </button>
                   </>
                 )}
-                <button className="btn btn-sm" onClick={() => { setDetailRecord(null); navigate('/requests'); }}>
+                <button className="btn btn-sm" onClick={() => { setDetailRecord(null); navigate('/requests'); }} title={t('Close the request detail.')}>
                   {t('Close')}
                 </button>
               </div>
@@ -658,27 +661,27 @@ export default function RequestHistory() {
             ) : (
               <div className="request-detail-body">
                 <div className="request-detail-summary-grid">
-                  <div className="request-detail-summary-item">
+                  <div className="request-detail-summary-item" title={t('Request record ID (req_ prefix).')}>
                     <span>{t('Entry ID')}</span>
                     <strong className="mono">{detailRecord.entry.id}</strong>
                   </div>
-                  <div className="request-detail-summary-item">
+                  <div className="request-detail-summary-item" title={t('User or credential that made the request. Anonymous means it was unauthenticated.')}>
                     <span>{t('Principal')}</span>
                     <strong>{detailRecord.entry.principalDisplay || t('Anonymous')}</strong>
                   </div>
-                  <div className="request-detail-summary-item">
+                  <div className="request-detail-summary-item" title={t('How the caller authenticated, such as a bearer token or session.')}>
                     <span>{t('Auth Method')}</span>
                     <strong>{detailRecord.entry.authMethod || '-'}</strong>
                   </div>
-                  <div className="request-detail-summary-item">
+                  <div className="request-detail-summary-item" title={t('HTTP status code returned.')}>
                     <span>{t('Status')}</span>
                     <strong>{detailRecord.entry.statusCode}</strong>
                   </div>
-                  <div className="request-detail-summary-item">
+                  <div className="request-detail-summary-item" title={t('Time the Admiral took to handle the request, in milliseconds.')}>
                     <span>{t('Duration')}</span>
                     <strong>{detailRecord.entry.durationMs.toFixed(2)} ms</strong>
                   </div>
-                  <div className="request-detail-summary-item">
+                  <div className="request-detail-summary-item" title={t('When the Admiral received the request.')}>
                     <span>{t('Captured')}</span>
                     <strong>{formatDateTime(detailRecord.entry.createdUtc)}</strong>
                   </div>

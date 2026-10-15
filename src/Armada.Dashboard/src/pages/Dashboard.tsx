@@ -213,7 +213,7 @@ export default function Dashboard() {
             <button
               className="btn btn-sm"
               onClick={openSetupWizard}
-              title={t('Open the setup wizard for onboarding and next-step guidance')}
+              title={t('Open the setup wizard: connect a repository, add a captain and send a first mission, or see what to set up next.')}
               aria-label={t('Open Setup Wizard')}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
             >
@@ -226,14 +226,14 @@ export default function Dashboard() {
               </svg>
               <span>{t('Setup Wizard')}</span>
             </button>
-            <button className="btn btn-primary btn-sm" onClick={() => navigate('/dispatch')} title={t('Smart dispatch with NLP task parsing')}>
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/dispatch')} title={t('Open Dispatch to describe work in plain language and send it to a vessel as a voyage.')}>
               + {t('Dispatch')}
             </button>
-            <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')} title={t('Create a new voyage with multiple missions')}>
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')} title={t('Create a voyage by hand: a named batch of missions for one vessel, each with its own title and instructions.')}>
               + {t('Voyage')}
             </button>
             <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
-            <RefreshButton onRefresh={loadAll} title="Refresh all dashboard data" />
+            <RefreshButton onRefresh={loadAll} title="Reload every panel on this page from the server now." />
           </>
         )}
       />
@@ -245,16 +245,16 @@ export default function Dashboard() {
           <p className="ask-hero-sub">{t('Ask about fleet state in plain language and dispatch work straight from the conversation.')}</p>
         </div>
         <div className="ask-hero-actions">
-          <button className="btn btn-primary" onClick={() => navigate('/ask')}>
+          <button className="btn btn-primary" onClick={() => navigate('/ask')} title={t('Open Ask Armada to ask questions about your fleet in plain language and dispatch work from the conversation.')}>
             {t('Ask Armada')} &rarr;
           </button>
-          <button className="btn btn-sm" onClick={() => navigate('/inbox')} title={t('Reviews, failures, and stalls awaiting you')}>
+          <button className="btn btn-sm" onClick={() => navigate('/inbox')} title={t('Open Needs You: reviews, approvals, failed missions and stalled captains waiting on you.')}>
             {t('Needs You')}
           </button>
-          <button className="btn btn-sm" onClick={() => navigate('/dispatch')} title={t('Send work to vessels')}>
+          <button className="btn btn-sm" onClick={() => navigate('/dispatch')} title={t('Open Dispatch to describe work and send it to a vessel.')}>
             {t('Dispatch')}
           </button>
-          <button className="btn btn-sm" onClick={() => navigate('/server?tab=diagnostics')} title={t('System health diagnostics')}>
+          <button className="btn btn-sm" onClick={() => navigate('/server?tab=diagnostics')} title={t('Open the Server page diagnostics tab to check the Admiral\'s health and track down problems.')}>
             {t('Diagnostics')}
           </button>
         </div>
@@ -282,7 +282,7 @@ export default function Dashboard() {
                 {alert.action && <span className="dashboard-alert-action"> {alert.action}</span>}
               </div>
               {alert.link && (
-                <button className="btn btn-sm" onClick={() => navigate(alert.link!)}>{t('View')}</button>
+                <button className="btn btn-sm" onClick={() => navigate(alert.link!)} title={t('Open the page where you can look into this alert.')}>{t('View')}</button>
               )}
             </div>
           ))}
@@ -294,15 +294,15 @@ export default function Dashboard() {
         <div
           className="card clickable"
           onClick={() => navigate('/captains')}
-          title={t('Click to view all captains')}
+          title={t('Agents registered with Armada and what they are doing now. Stalled captains have stopped reporting progress. Click to open Captains.')}
         >
           <div className="card-label">{t('Captains')}</div>
           <div className="card-value">{status?.totalCaptains ?? 0}</div>
           <div className="card-detail">
-            <span className="tag idle">{status?.idleCaptains ?? 0} idle</span>
-            <span className="tag working">{status?.workingCaptains ?? 0} working</span>
+            <span className="tag idle" title={t('Captains free to take a mission.')}>{status?.idleCaptains ?? 0} idle</span>
+            <span className="tag working" title={t('Captains running a mission or session right now.')}>{status?.workingCaptains ?? 0} working</span>
             {(status?.stalledCaptains ?? 0) > 0 && (
-              <span className="tag stalled">{status?.stalledCaptains ?? 0} stalled</span>
+              <span className="tag stalled" title={t('Captains that stopped reporting progress. Open Captains to recover or stop them.')}>{status?.stalledCaptains ?? 0} stalled</span>
             )}
           </div>
         </div>
@@ -310,13 +310,13 @@ export default function Dashboard() {
         <div
           className="card clickable"
           onClick={() => navigate('/missions?tab=voyages')}
-          title={t('Click to view all voyages')}
+          title={t('Voyages that still have missions open or running. Click to open Voyages.')}
         >
           <div className="card-label">{t('Active Voyages')}</div>
           <div className="card-value">{status?.activeVoyages ?? 0}</div>
           {(status?.memoryPressureDeferrals ?? 0) > 0 && (
             <div className="card-detail">
-              <span className="tag stalled">{t('{{count}} deferred for memory pressure', { count: status?.memoryPressureDeferrals ?? 0 })}</span>
+              <span className="tag stalled" title={t('Times dispatch held back a captain launch because the host was low on memory. A high number means the machine is overloaded.')}>{t('{{count}} deferred for memory pressure', { count: status?.memoryPressureDeferrals ?? 0 })}</span>
             </div>
           )}
         </div>
@@ -324,14 +324,14 @@ export default function Dashboard() {
         <div
           className="card clickable"
           onClick={() => navigate('/missions')}
-          title={t('Click to view all missions')}
+          title={t('All missions, with a count for each status. Click to open Missions.')}
         >
           <div className="card-label">{t('Missions')}</div>
           <div className="card-value">{totalMissions}</div>
           <div className="card-detail">
             {status?.missionsByStatus &&
               Object.entries(status.missionsByStatus).map(([key, val]) => (
-                <span key={key} className={`tag ${key.toLowerCase()}`}>
+                <span key={key} className={`tag ${key.toLowerCase()}`} title={t('Missions currently in the {{status}} status.', { status: key })}>
                   {val} {key}
                 </span>
               ))}
@@ -340,16 +340,16 @@ export default function Dashboard() {
         <div
           className="card clickable"
           onClick={() => navigate(activeFleetActionRunsLink(activeRuns))}
-          title={t('Click to view active fleet action runs')}
+          title={t('Fleet action runs (one command or mission across many vessels) that are pending or running. Click to open them.')}
         >
           <div className="card-label">{t('Active fleet action runs')}</div>
           <div className="card-value">{activeRuns ? (activeRuns.pending + activeRuns.running).toLocaleString() : '-'}</div>
           {activeRuns && (
             <div className="card-detail">
-              <button type="button" className="tag working card-tag-link" onClick={(e) => { e.stopPropagation(); navigate('/fleet-actions?tab=runs&status=Running'); }}>
+              <button type="button" className="tag working card-tag-link" onClick={(e) => { e.stopPropagation(); navigate('/fleet-actions?tab=runs&status=Running'); }} title={t('Open the fleet action runs that are running now.')}>
                 {t('{{count}} running', { count: activeRuns.running.toLocaleString() })}
               </button>
-              <button type="button" className="tag pending card-tag-link" onClick={(e) => { e.stopPropagation(); navigate('/fleet-actions?tab=runs&status=Pending'); }}>
+              <button type="button" className="tag pending card-tag-link" onClick={(e) => { e.stopPropagation(); navigate('/fleet-actions?tab=runs&status=Pending'); }} title={t('Open the fleet action runs waiting to start.')}>
                 {t('{{count}} pending', { count: activeRuns.pending.toLocaleString() })}
               </button>
             </div>
@@ -360,7 +360,7 @@ export default function Dashboard() {
       {/* Bulk onboarding and fleet action shortcuts */}
       {isTenantAdmin && (
         <div className="cta-cards">
-          <button type="button" className="cta-card" onClick={() => navigate('/vessels/import')}>
+          <button type="button" className="cta-card" onClick={() => navigate('/vessels/import')} title={t('Scan a folder for git repositories and add the ones you pick as vessels in one step.')}>
             <span className="cta-card-icon" aria-hidden="true">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
             </span>
@@ -369,7 +369,7 @@ export default function Dashboard() {
               <span className="cta-card-sub text-dim">{t('Discover local git repositories and onboard them as vessels in bulk.')}</span>
             </span>
           </button>
-          <button type="button" className="cta-card" onClick={() => navigate('/fleet-actions?tab=actions&run=new')}>
+          <button type="button" className="cta-card" onClick={() => navigate('/fleet-actions?tab=actions&run=new')} title={t('Start a fleet action: run one shell command or captain mission on many vessels at once.')}>
             <span className="cta-card-icon" aria-hidden="true">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" /></svg>
             </span>
@@ -389,7 +389,7 @@ export default function Dashboard() {
       {/* Voyage Progress */}
       {status?.voyages && status.voyages.length > 0 && (
         <div style={{ marginTop: '1.5rem' }}>
-          <h3>{t('Voyage Progress')}</h3>
+          <h3 title={t('Open voyages and how many of their missions have finished. Click a row to open the voyage.')}>{t('Voyage Progress')}</h3>
           <DataTable
             tableKey="dashboard-voyage-progress"
             className="table"
@@ -399,12 +399,12 @@ export default function Dashboard() {
             onRowClick={(vp) => navigate(`/voyages/${vp.voyage?.id}`)}
             columns={[
               {
-                key: 'voyage', label: t('Voyage'), required: true, headerTitle: t('Voyage name and unique identifier'), cellClassName: 'cell-title',
+                key: 'voyage', label: t('Voyage'), required: true, headerTitle: t('Name of the voyage. Click a row to open it.'), cellClassName: 'cell-title',
                 cellTitle: (vp) => vp.voyage?.title || vp.voyage?.id,
                 render: (vp) => <strong className="line-clamp-2">{vp.voyage?.title || vp.voyage?.id}</strong>,
               },
               {
-                key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+                key: 'id', label: t('ID'), required: true, headerTitle: t('Unique voyage ID (vyg_ prefix).'), cellClassName: 'mono text-dim table-id-cell',
                 render: (vp) => (
                   <span className="id-display">
                     <span className="id-value" title={vp.voyage?.id}>{vp.voyage?.id}</span>
@@ -412,13 +412,13 @@ export default function Dashboard() {
                   </span>
                 ),
               },
-              { key: 'status', label: t('Status'), headerTitle: t('Current voyage lifecycle state'), cellClassName: 'cell-nowrap', render: (vp) => <StatusBadge status={vp.voyage?.status || ''} /> },
+              { key: 'status', label: t('Status'), headerTitle: t('Open while missions are being set up, InProgress while any run, then Complete, Failed or Cancelled.'), cellClassName: 'cell-nowrap', render: (vp) => <StatusBadge status={vp.voyage?.status || ''} /> },
               {
-                key: 'vessel', label: t('Vessel'), headerTitle: t('Vessel(s) targeted by this voyage\'s missions'), cellClassName: 'text-dim',
+                key: 'vessel', label: t('Vessel'), headerTitle: t('Repositories this voyage\'s missions work in.'), cellClassName: 'text-dim',
                 render: (vp) => <span className="cell-one-line" title={voyageVesselNames(vp.vesselIds)}>{voyageVesselNames(vp.vesselIds)}</span>,
               },
               {
-                key: 'progress', label: t('Progress'), headerTitle: t('Percentage of missions completed'),
+                key: 'progress', label: t('Progress'), headerTitle: t('Share of the voyage\'s missions that finished successfully.'),
                 // Bar and percentage on one line.
                 render: (vp) => (
                   <span className="dashboard-progress-cell">
@@ -430,7 +430,7 @@ export default function Dashboard() {
                 ),
               },
               {
-                key: 'missions', label: t('Missions'), headerTitle: t('Completed vs total missions in this voyage'), cellClassName: 'cell-nowrap',
+                key: 'missions', label: t('Missions'), headerTitle: t('Missions done out of the total, plus how many failed.'), cellClassName: 'cell-nowrap',
                 render: (vp) => (
                   <>
                     <span>{vp.completedMissions}/{vp.totalMissions} {t('done')}</span>
@@ -446,6 +446,7 @@ export default function Dashboard() {
                     items={[
                       {
                         label: 'View JSON',
+                        title: 'Show the raw voyage record as the API returns it.',
                         onClick: () =>
                           setJsonViewer({
                             open: true,
@@ -465,7 +466,7 @@ export default function Dashboard() {
       {/* Recent Missions */}
       <div style={{ marginTop: '1.5rem' }}>
         <div className="view-header">
-          <h3>{t('Recent Missions')}</h3>
+          <h3 title={t('The newest missions across all vessels. Use the filters to narrow them, or View All for the full list.')}>{t('Recent Missions')}</h3>
           <div className="view-actions filter-bar">
             <FilterBar
               filters={[
@@ -498,7 +499,7 @@ export default function Dashboard() {
             <button
               className="btn btn-sm"
               onClick={() => navigate('/missions')}
-              title={t('Go to full missions list')}
+              title={t('Open the Missions page with every mission, paging and bulk actions.')}
             >
               {t('View All')} &rarr;
             </button>
@@ -515,12 +516,12 @@ export default function Dashboard() {
             onRowClick={(m) => navigate(`/missions/${m.id}`)}
             columns={[
               {
-                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title'), cellClassName: 'cell-title',
+                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'), cellClassName: 'cell-title',
                 cellTitle: (m) => m.title,
                 render: (m) => <strong className="line-clamp-2">{m.title}</strong>,
               },
               {
-                key: 'id', label: t('ID'), required: true, headerTitle: t('Mission ID'), cellClassName: 'mono text-dim table-id-cell',
+                key: 'id', label: t('ID'), required: true, headerTitle: t('Unique mission ID (msn_ prefix).'), cellClassName: 'mono text-dim table-id-cell',
                 render: (m) => (
                   <span className="id-display">
                     <span className="id-value" title={m.id}>{m.id}</span>
@@ -528,11 +529,11 @@ export default function Dashboard() {
                   </span>
                 ),
               },
-              { key: 'status', label: t('Status'), headerTitle: t('Current mission lifecycle state'), cellClassName: 'cell-nowrap', render: (m) => <StatusBadge status={m.status} /> },
-              { key: 'vessel', label: t('Vessel'), headerTitle: t('Target repository for this mission'), render: (m) => vesselName(m.vesselId) },
-              { key: 'captain', label: t('Captain'), headerTitle: t('AI captain assigned to execute this mission'), render: (m) => captainName(m.captainId) },
+              { key: 'status', label: t('Status'), headerTitle: t('Lifecycle state: Pending waits for a captain, InProgress is running, WorkProduced awaits landing, then Complete, Failed or Cancelled.'), cellClassName: 'cell-nowrap', render: (m) => <StatusBadge status={m.status} /> },
+              { key: 'vessel', label: t('Vessel'), headerTitle: t('Repository the mission works in.'), render: (m) => vesselName(m.vesselId) },
+              { key: 'captain', label: t('Captain'), headerTitle: t('Agent that ran or is running the mission. Shows - until dispatch assigns one.'), render: (m) => captainName(m.captainId) },
               {
-                key: 'created', label: t('Created'), headerTitle: t('When this mission was created'), cellClassName: 'text-dim cell-nowrap',
+                key: 'created', label: t('Created'), headerTitle: t('When the mission was created. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
                 cellTitle: (m) => formatDateTime(m.createdUtc),
                 render: (m) => formatRelativeTime(m.createdUtc),
               },
@@ -544,20 +545,24 @@ export default function Dashboard() {
                     items={[
                       {
                         label: 'View Detail',
+                        title: 'Open the mission page with its description, captain activity, diff and log.',
                         onClick: () => navigate(`/missions/${m.id}`),
                       },
                       {
                         label: 'View JSON',
+                        title: 'Show the raw mission record as the API returns it.',
                         onClick: () =>
                           setJsonViewer({ open: true, title: `${t('Mission')}: ${m.title}`, data: m }),
                       },
                       ...(canRestartFromHome(m.status) ? [{
                         label: 'Restart',
+                        title: 'Reset a Failed or Cancelled mission to Pending so it is dispatched again. Clears its captain, branch, pull request and timing.',
                         onClick: async () => { try { await restartMission(m.id); loadAll(); } catch { /* ignore */ } },
                       }] : []),
                       {
                         label: 'Delete',
                         danger: true,
+                        title: 'Cancel the mission: its status becomes Cancelled and the record is kept. Use Purge on the mission page to remove it.',
                         onClick: () => setConfirm({
                           open: true,
                           title: t('Delete Mission'),
@@ -582,11 +587,11 @@ export default function Dashboard() {
       {/* Recent Signals */}
       {status?.recentSignals && status.recentSignals.length > 0 && (
         <div style={{ marginTop: '1.5rem' }}>
-          <h3>{t('Recent Signals')}</h3>
+          <h3 title={t('The five newest signals (messages between the Admiral and captains). Open Signals for the full list.')}>{t('Recent Signals')}</h3>
           <div className="signal-list">
             {status.recentSignals.slice(0, 5).map((sig) => (
               <div key={sig.id} className="signal-item">
-                <StatusBadge status={sig.type || ''} />
+                <span title={t('Signal type, such as Progress, Completion, Error, Nudge or Mail.')}><StatusBadge status={sig.type || ''} /></span>
                 <span>{sig.payload || sig.message}</span>
                 <span className="text-dim" title={formatDateTime(sig.createdUtc)}>
                   {formatRelativeTime(sig.createdUtc)}

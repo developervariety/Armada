@@ -65,6 +65,21 @@ export default function Deployments() {
 
   const canManage = isAdmin || isTenantAdmin;
 
+  const tips = {
+    vessel: t('Repository being deployed. Blank lets Armada infer it from the linked release, mission, or voyage; picking one narrows the environment and release lists.'),
+    workflowProfile: t('Profile whose deploy, verification, and rollback commands run. Blank uses the vessel\'s profile, then its fleet\'s, then the global default.'),
+    environment: t('Target environment for this vessel. It decides whether approval is required. Blank resolves by Environment Name, or the vessel\'s default environment.'),
+    environmentName: t('Used only when no environment is picked above. Must match an existing environment name for the vessel, case-insensitive, such as staging.'),
+    release: t('Optional release being shipped. Linking one fills the vessel and workflow profile if blank, and its tag or version becomes the default source ref.'),
+    sourceRef: t('Branch, tag, or commit to deploy, such as main or v1.4.0. Blank uses the release tag or version, then the mission branch, then the vessel\'s default branch.'),
+    missionId: t('Optional mission to link, such as msn_abc123. Its branch can become the source ref, and it must belong to the same vessel.'),
+    voyageId: t('Optional voyage to link, such as vyg_abc123. Its missions can supply the vessel when none is chosen.'),
+    title: t('Name shown in lists and approval prompts. Blank builds one from the release or vessel and the environment, such as v1.4.0 -> production.'),
+    summary: t('Short description of what this rollout changes. Shown in the deployment list tooltip and searchable.'),
+    notes: t('Free-form operator notes kept on the deployment record, such as rollout instructions or follow-ups.'),
+    autoExecute: t('When checked and the environment does not require approval, the deploy command runs as soon as you save. Uncheck to create the record without running anything.'),
+  };
+
   const EMPTY_CREATE_FORM = {
     vesselId: '',
     workflowProfileId: '',
@@ -266,14 +281,14 @@ export default function Deployments() {
 
   const columns: DataTableColumn<Deployment>[] = [
     {
-      key: 'title', label: t('Deployment'), required: true,
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
+      key: 'title', label: t('Deployment'), required: true, headerTitle: t('Deployment title. Hover a row for its summary and whether approval is required.'),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only deployments whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
       // One line: the summary and approval requirement are in the tooltip and in their own (optional) columns.
       cellTitle: (deployment) => [deployment.title, deployment.summary, deployment.approvalRequired ? t('Approval required') : ''].filter(Boolean).join('\n'),
       render: (deployment) => <strong className="cell-one-line">{deployment.title}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Deployment ID (dpl_ prefix), used by the REST API, MCP tools, and links.'), cellClassName: 'mono text-dim table-id-cell',
       render: (deployment) => (
         <span className="id-display">
           <span className="id-value" title={deployment.id}>{deployment.id}</span>
@@ -281,31 +296,31 @@ export default function Deployments() {
         </span>
       ),
     },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (deployment) => <StatusBadge status={deployment.status} /> },
-    { key: 'verification', label: t('Verification'), cellClassName: 'cell-nowrap', render: (deployment) => <StatusBadge status={deployment.verificationStatus} /> },
+    { key: 'status', label: t('Status'), headerTitle: t('Rollout state: pending approval, running, succeeded, failed, denied, or rolled back.'), cellClassName: 'cell-nowrap', render: (deployment) => <StatusBadge status={deployment.status} /> },
+    { key: 'verification', label: t('Verification'), headerTitle: t('Outcome of the smoke test, health check, and verification commands run after deploy. Skipped means none are configured.'), cellClassName: 'cell-nowrap', render: (deployment) => <StatusBadge status={deployment.verificationStatus} /> },
     {
-      key: 'sourceRef', label: t('Source Ref'), cellClassName: 'mono text-dim',
+      key: 'sourceRef', label: t('Source Ref'), headerTitle: t('Branch, tag, or commit that was deployed.'), cellClassName: 'mono text-dim',
       render: (deployment) => <span className="cell-one-line" title={deployment.sourceRef || undefined}>{deployment.sourceRef || '-'}</span>,
     },
-    { key: 'vessel', label: t('Vessel'), cellClassName: 'text-dim', render: (deployment) => (deployment.vesselId ? (vesselMap.get(deployment.vesselId) || deployment.vesselId) : '-') },
+    { key: 'vessel', label: t('Vessel'), headerTitle: t('Repository the deployment belongs to.'), cellClassName: 'text-dim', render: (deployment) => (deployment.vesselId ? (vesselMap.get(deployment.vesselId) || deployment.vesselId) : '-') },
     {
-      key: 'environment', label: t('Environment'), cellClassName: 'text-dim',
+      key: 'environment', label: t('Environment'), headerTitle: t('Named target the rollout went to, such as staging or production.'), cellClassName: 'text-dim',
       clearFilter: () => setColFilters(f => ({ ...f, environmentName: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by environment')} value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by environment')} title={t('Show only deployments whose environment name contains this text.')} value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} />,
       render: (deployment) => (deployment.environmentId ? (environmentMap.get(deployment.environmentId) || deployment.environmentName || deployment.environmentId) : (deployment.environmentName || '-')),
     },
-    { key: 'release', label: t('Release'), cellClassName: 'text-dim', render: (deployment) => (deployment.releaseId ? (releaseMap.get(deployment.releaseId) || deployment.releaseId) : '-') },
-    { key: 'checks', label: t('Checks'), cellClassName: 'text-dim', render: (deployment) => deployment.checkRunIds.length },
+    { key: 'release', label: t('Release'), headerTitle: t('Release record this deployment ships, if one is linked.'), cellClassName: 'text-dim', render: (deployment) => (deployment.releaseId ? (releaseMap.get(deployment.releaseId) || deployment.releaseId) : '-') },
+    { key: 'checks', label: t('Checks'), headerTitle: t('Number of check runs (deploy, smoke test, health, verification, rollback) linked to this deployment.'), cellClassName: 'text-dim', render: (deployment) => deployment.checkRunIds.length },
     {
-      key: 'approval', label: t('Approval'), defaultHidden: true, cellClassName: 'text-dim cell-nowrap',
+      key: 'approval', label: t('Approval'), headerTitle: t('Whether the target environment requires someone to approve before the deploy command runs.'), defaultHidden: true, cellClassName: 'text-dim cell-nowrap',
       render: (deployment) => (deployment.approvalRequired ? t('Approval required') : '-'),
     },
     {
-      key: 'summary', label: t('Summary'), defaultHidden: true, cellClassName: 'text-dim',
+      key: 'summary', label: t('Summary'), headerTitle: t('Short description of what the rollout changes.'), defaultHidden: true, cellClassName: 'text-dim',
       render: (deployment) => <span className="cell-one-line" title={deployment.summary || undefined}>{deployment.summary || '-'}</span>,
     },
     {
-      key: 'lastUpdated', label: t('Last Updated'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastUpdated', label: t('Last Updated'), headerTitle: t('When the deployment record last changed. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (deployment) => formatDateTime(deployment.lastUpdateUtc),
       render: (deployment) => formatRelativeTime(deployment.lastUpdateUtc),
     },
@@ -315,10 +330,10 @@ export default function Deployments() {
         <ActionMenu
           id={`deployment-${deployment.id}`}
           items={[
-            { label: 'Open', onClick: () => navigate(`/deployments/${deployment.id}`) },
-            ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(deployment) }] : []),
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: deployment.title, data: deployment }) },
-            ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(deployment) }] : []),
+            { label: 'Open', title: 'Open the deployment detail page to approve, verify, roll back, or review evidence.', onClick: () => navigate(`/deployments/${deployment.id}`) },
+            ...(canManage ? [{ label: 'Edit', title: 'Change the deployment\'s links, source ref, title, and notes.', onClick: () => openEdit(deployment) }] : []),
+            { label: 'View JSON', title: 'Show the raw deployment record as returned by the API.', onClick: () => setJsonData({ open: true, title: deployment.title, data: deployment }) },
+            ...(canManage ? [{ label: 'Delete', title: 'Delete only this deployment record. Linked checks, releases, and environments stay. Cannot be undone.', danger: true as const, onClick: () => handleDelete(deployment) }] : []),
           ]}
         />
       ),
@@ -333,7 +348,7 @@ export default function Deployments() {
         actions={(
           <>
             {canManage && (
-              <button className="btn btn-primary" onClick={openCreate}>
+              <button className="btn btn-primary" onClick={openCreate} title={t('Create a deployment record for a vessel and environment. It runs right away unless approval is required or you turn that off.')}>
                 + {t('Deployment')}
               </button>
             )}
@@ -355,89 +370,89 @@ export default function Deployments() {
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
             <h3>{editing ? t('Edit Deployment') : t('Create Deployment')}</h3>
-            <label>{t('Vessel')}
-              <select value={createForm.vesselId} onChange={(event) => handleVesselChange(event.target.value)}>
+            <label title={tips.vessel}>{t('Vessel')}
+              <select title={tips.vessel} value={createForm.vesselId} onChange={(event) => handleVesselChange(event.target.value)}>
                 <option value="">{t('Select a vessel')}</option>
                 {vessels.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Workflow Profile')}
-              <select value={createForm.workflowProfileId} onChange={(event) => setCreateForm((current) => ({ ...current, workflowProfileId: event.target.value }))}>
+            <label title={tips.workflowProfile}>{t('Workflow Profile')}
+              <select title={tips.workflowProfile} value={createForm.workflowProfileId} onChange={(event) => setCreateForm((current) => ({ ...current, workflowProfileId: event.target.value }))}>
                 <option value="">{t('Resolved default')}</option>
                 {profiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>{profile.name}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Environment')}
-              <select value={createForm.environmentId} onChange={(event) => handleEnvironmentChange(event.target.value)}>
+            <label title={tips.environment}>{t('Environment')}
+              <select title={tips.environment} value={createForm.environmentId} onChange={(event) => handleEnvironmentChange(event.target.value)}>
                 <option value="">{t('Resolve by environment name')}</option>
                 {environmentOptions.map((option) => (
                   <option key={option.id} value={option.id}>{option.label}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Environment Name')}
-              <input value={createForm.environmentName} onChange={(event) => setCreateForm((current) => ({ ...current, environmentName: event.target.value }))} placeholder={t('staging, production, customer-a')} />
+            <label title={tips.environmentName}>{t('Environment Name')}
+              <input title={tips.environmentName} value={createForm.environmentName} onChange={(event) => setCreateForm((current) => ({ ...current, environmentName: event.target.value }))} placeholder={t('staging, production, customer-a')} />
             </label>
-            <label>{t('Release')}
-              <select value={createForm.releaseId} onChange={(event) => handleReleaseChange(event.target.value)}>
+            <label title={tips.release}>{t('Release')}
+              <select title={tips.release} value={createForm.releaseId} onChange={(event) => handleReleaseChange(event.target.value)}>
                 <option value="">{t('No linked release')}</option>
                 {filteredReleases.map((release) => (
                   <option key={release.id} value={release.id}>{release.title}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Source Ref')}
-              <input value={createForm.sourceRef} onChange={(event) => setCreateForm((current) => ({ ...current, sourceRef: event.target.value }))} placeholder={t('branch, tag, or commit')} />
+            <label title={tips.sourceRef}>{t('Source Ref')}
+              <input title={tips.sourceRef} value={createForm.sourceRef} onChange={(event) => setCreateForm((current) => ({ ...current, sourceRef: event.target.value }))} placeholder={t('branch, tag, or commit')} />
             </label>
-            <label>{t('Mission ID')}
-              <input value={createForm.missionId} onChange={(event) => setCreateForm((current) => ({ ...current, missionId: event.target.value }))} placeholder="mis_..." />
+            <label title={tips.missionId}>{t('Mission ID')}
+              <input title={tips.missionId} value={createForm.missionId} onChange={(event) => setCreateForm((current) => ({ ...current, missionId: event.target.value }))} placeholder="msn_..." />
             </label>
-            <label>{t('Voyage ID')}
-              <input value={createForm.voyageId} onChange={(event) => setCreateForm((current) => ({ ...current, voyageId: event.target.value }))} placeholder="voy_..." />
+            <label title={tips.voyageId}>{t('Voyage ID')}
+              <input title={tips.voyageId} value={createForm.voyageId} onChange={(event) => setCreateForm((current) => ({ ...current, voyageId: event.target.value }))} placeholder="vyg_..." />
             </label>
-            <label>{t('Title')}
-              <input value={createForm.title} onChange={(event) => setCreateForm((current) => ({ ...current, title: event.target.value }))} />
+            <label title={tips.title}>{t('Title')}
+              <input title={tips.title} value={createForm.title} onChange={(event) => setCreateForm((current) => ({ ...current, title: event.target.value }))} />
             </label>
-            <label>{t('Summary')}
-              <textarea rows={3} value={createForm.summary} onChange={(event) => setCreateForm((current) => ({ ...current, summary: event.target.value }))} />
+            <label title={tips.summary}>{t('Summary')}
+              <textarea title={tips.summary} rows={3} value={createForm.summary} onChange={(event) => setCreateForm((current) => ({ ...current, summary: event.target.value }))} />
             </label>
-            <label>{t('Notes')}
-              <textarea rows={4} value={createForm.notes} onChange={(event) => setCreateForm((current) => ({ ...current, notes: event.target.value }))} />
+            <label title={tips.notes}>{t('Notes')}
+              <textarea title={tips.notes} rows={4} value={createForm.notes} onChange={(event) => setCreateForm((current) => ({ ...current, notes: event.target.value }))} />
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-              <input type="checkbox" checked={createForm.autoExecute} onChange={(event) => setCreateForm((current) => ({ ...current, autoExecute: event.target.checked }))} />
+            <label title={tips.autoExecute} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <input type="checkbox" title={tips.autoExecute} checked={createForm.autoExecute} onChange={(event) => setCreateForm((current) => ({ ...current, autoExecute: event.target.checked }))} />
               <span>{t('Execute immediately when approval is not required')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Deployment')}</button>
-              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving} title={editing ? t('Save changes to this deployment record. Saving does not re-run the deploy.') : t('Create the deployment. It starts at once unless approval is required or immediate execution is off.')}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Deployment')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving} title={t('Close without saving.')}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('All deployment records you can see, before filters.')}>
           <span>{t('Total Deployments')}</span>
           <strong>{deployments.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Deployments waiting for someone to approve or deny them. They also appear in Needs You.')}>
           <span>{t('Pending Approval')}</span>
           <strong>{pendingApprovalCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Deployments whose deploy or rollback is in progress now.')}>
           <span>{t('Running')}</span>
           <strong>{runningCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Deployments whose deploy and any verification passed.')}>
           <span>{t('Succeeded')}</span>
           <strong>{successfulCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Deployments whose deploy command failed, or that deployed but failed verification. Consider a rollback.')}>
           <span>{t('Failed / Verification Failed')}</span>
           <strong>{failedCount}</strong>
         </div>
@@ -450,20 +465,21 @@ export default function Deployments() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t('Search by title, environment, source ref, summary, or ID...')}
+            title={t('Filters the list to deployments whose title, environment, source ref, summary, or ID contains this text.')}
           />
-          <select aria-label={t('All statuses')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+          <select aria-label={t('All statuses')} title={t('Show only deployments in this rollout state.')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
             <option value="all">{t('All statuses')}</option>
             {DEPLOYMENT_STATUSES.map((status) => (
               <option key={status} value={status}>{status}</option>
             ))}
           </select>
-          <select aria-label={t('All verification states')} value={verificationFilter} onChange={(event) => setVerificationFilter(event.target.value as typeof verificationFilter)}>
+          <select aria-label={t('All verification states')} title={t('Show only deployments with this verification outcome.')} value={verificationFilter} onChange={(event) => setVerificationFilter(event.target.value as typeof verificationFilter)}>
             <option value="all">{t('All verification states')}</option>
             {VERIFICATION_STATUSES.map((status) => (
               <option key={status} value={status}>{status}</option>
             ))}
           </select>
-          <select aria-label={t('All vessels')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
+          <select aria-label={t('All vessels')} title={t('Show only deployments for this vessel.')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
             <option value="all">{t('All vessels')}</option>
             {vessels.map((vessel) => (
               <option key={vessel.id} value={vessel.id}>{vessel.name}</option>

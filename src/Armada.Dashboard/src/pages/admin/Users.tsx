@@ -239,12 +239,12 @@ export default function Users() {
 
   const columns: DataTableColumn<UserMaster>[] = [
     {
-      key: 'email', label: t('Email'), required: true, sortKey: 'email',
+      key: 'email', label: t('Email'), headerTitle: t('Address the user signs in with.'), required: true, sortKey: 'email',
       filter: <input type="text" className="col-filter" aria-label={t('Filter by email')} value={colFilters.email} onChange={e => { setColFilters(f => ({ ...f, email: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} />,
       render: (u) => <strong>{u.email}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), headerTitle: t('User ID (usr_ prefix), used by the API.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (u) => (
         <span className="id-display">
           <span className="id-value" title={u.id}>{u.id}</span>
@@ -253,13 +253,13 @@ export default function Users() {
       ),
     },
     {
-      key: 'name', label: t('Name'), sortKey: 'firstName',
+      key: 'name', label: t('Name'), headerTitle: t('First and last name, if set.'), sortKey: 'firstName',
       clearFilter: () => setColFilters(f => ({ ...f, firstName: '' })),
       filter: <input type="text" className="col-filter" aria-label={t('Filter by name')} value={colFilters.firstName} onChange={e => { setColFilters(f => ({ ...f, firstName: e.target.value })); setPageNumber(1); }} placeholder={t('Search...')} />,
       render: (u) => [u.firstName, u.lastName].filter(Boolean).join(' ') || '-',
     },
     {
-      key: 'tenant', label: t('Tenant'), cellClassName: 'text-dim',
+      key: 'tenant', label: t('Tenant'), headerTitle: t('Tenant the user belongs to.'), cellClassName: 'text-dim',
       clearFilter: () => setColFilters(f => ({ ...f, tenantId: '' })),
       filter: (
         <select aria-label={t('All tenants')}
@@ -275,11 +275,11 @@ export default function Users() {
       ),
       render: (u) => tenantName(u.tenantId),
     },
-    { key: 'isAdmin', label: t('Global Admin'), sortKey: 'isAdmin', render: (u) => (u.isAdmin ? t('Yes') : t('No')) },
-    { key: 'isTenantAdmin', label: t('Tenant Admin'), render: (u) => (u.isTenantAdmin ? t('Yes') : t('No')) },
-    { key: 'active', label: t('Active'), sortKey: 'active', render: (u) => (u.active ? t('Yes') : t('No')) },
+    { key: 'isAdmin', label: t('Global Admin'), headerTitle: t('Yes means the user administers the whole server and every tenant.'), sortKey: 'isAdmin', render: (u) => (u.isAdmin ? t('Yes') : t('No')) },
+    { key: 'isTenantAdmin', label: t('Tenant Admin'), headerTitle: t('Yes means the user can manage users and resources inside their tenant.'), render: (u) => (u.isTenantAdmin ? t('Yes') : t('No')) },
+    { key: 'active', label: t('Active'), headerTitle: t('Whether the user can sign in and use the API.'), sortKey: 'active', render: (u) => (u.active ? t('Yes') : t('No')) },
     {
-      key: 'createdUtc', label: t('Created'), sortKey: 'createdUtc', cellClassName: 'text-dim cell-nowrap',
+      key: 'createdUtc', label: t('Created'), headerTitle: t('When the user account was created.'), sortKey: 'createdUtc', cellClassName: 'text-dim cell-nowrap',
       cellTitle: (u) => formatDateTime(u.createdUtc), render: (u) => formatRelativeTime(u.createdUtc),
     },
     {
@@ -308,8 +308,8 @@ export default function Users() {
           </p>
         </div>
         <div className="view-actions">
-          {(isAdmin || isTenantAdmin) && !remoteProxyMode && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>{t('Delete Selected')} ({selected.length})</button>}
-          {(isAdmin || isTenantAdmin) && !remoteProxyMode && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('User')}</button>}
+          {(isAdmin || isTenantAdmin) && !remoteProxyMode && selected.length > 0 && <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} title={t('Permanently delete the selected users and their credentials. Cannot be undone. Asks first.')}>{t('Delete Selected')} ({selected.length})</button>}
+          {(isAdmin || isTenantAdmin) && !remoteProxyMode && <button className="btn btn-primary btn-sm" onClick={openCreate} title={t('Add a user account that can sign in to this tenant.')}>+ {t('User')}</button>}
         </div>
       </div>
 
@@ -327,23 +327,25 @@ export default function Users() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit User') : t('Create User')}</h3>
-            <label>{t('Email')}<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required /></label>
-            <label>{t('First Name')}<input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} /></label>
-            <label>{t('Last Name')}<input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} /></label>
-            <label>
+            <label title={t('Sign-in address for this user, for example alex@example.com. Must be unique within the tenant.')}>{t('Email')}<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required title={t('Sign-in address for this user, for example alex@example.com. Must be unique within the tenant.')} /></label>
+            <label title={t('Optional given name shown in lists and on work the user starts.')}>{t('First Name')}<input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} title={t('Optional given name shown in lists and on work the user starts.')} /></label>
+            <label title={t('Optional family name shown in lists.')}>{t('Last Name')}<input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} title={t('Optional family name shown in lists.')} /></label>
+            <label title={t('Password the user signs in with. When editing, leave blank to keep the current one; a new one takes effect at the next sign-in.')}>
               {editing ? t('New Password') : t('Password')}
               <input
                 type="password"
+                title={t('Password the user signs in with. When editing, leave blank to keep the current one; a new one takes effect at the next sign-in.')}
                 value={form.password}
                 onChange={e => setForm({ ...form, password: e.target.value })}
                 required={!editing}
                 placeholder={editing ? t('Leave blank to keep current password') : t('Enter password')}
               />
             </label>
-            <label>
+            <label title={t('Type the same password again to catch typos. Required whenever a password is entered above.')}>
               {editing ? t('Confirm New Password') : t('Confirm Password')}
               <input
                 type="password"
+                title={t('Type the same password again to catch typos. Required whenever a password is entered above.')}
                 value={form.confirmPassword}
                 onChange={e => setForm({ ...form, confirmPassword: e.target.value })}
                 required={!editing || !!form.password}
@@ -351,10 +353,11 @@ export default function Users() {
               />
             </label>
             {editingSelf && (
-              <label>
+              <label title={t('Your current password. Needed only when you change your own password.')}>
                 {t('Current Password')}
                 <input
                   type="password"
+                  title={t('Your current password. Needed only when you change your own password.')}
                   autoComplete="current-password"
                   value={form.currentPassword}
                   onChange={e => setForm({ ...form, currentPassword: e.target.value })}
@@ -363,8 +366,9 @@ export default function Users() {
                 />
               </label>
             )}
-            <label>{t('Tenant')}
+            <label title={t('Tenant the user belongs to; they see only its fleets, vessels, and work. Only global admins can choose or change it.')}>{t('Tenant')}
               <select
+                title={t('Tenant the user belongs to; they see only its fleets, vessels, and work. Only global admins can choose or change it.')}
                 value={form.tenantId}
                 onChange={e => setForm({ ...form, tenantId: e.target.value })}
                 required
@@ -376,11 +380,11 @@ export default function Users() {
                 ))}
               </select>
             </label>
-            {isAdmin && <label className="checkbox-label"><input type="checkbox" checked={form.isAdmin} onChange={e => setForm({ ...form, isAdmin: e.target.checked })} /> {t('Global Admin')}</label>}
-            {isTenantAdmin && <label className="checkbox-label"><input type="checkbox" checked={form.isTenantAdmin} onChange={e => setForm({ ...form, isTenantAdmin: e.target.checked })} /> {t('Tenant Admin')}</label>}
-            {editing && <label className="checkbox-label"><input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> {t('Active')}</label>}
+            {isAdmin && <label className="checkbox-label" title={t('Global admins manage every tenant, server settings, restarts, and factory reset. Give this only to people who run the server.')}><input type="checkbox" title={t('Global admins manage every tenant, server settings, restarts, and factory reset. Give this only to people who run the server.')} checked={form.isAdmin} onChange={e => setForm({ ...form, isAdmin: e.target.checked })} /> {t('Global Admin')}</label>}
+            {isTenantAdmin && <label className="checkbox-label" title={t('Tenant admins can manage users, credentials, fleets, vessels, captains, and other settings inside this tenant only.')}><input type="checkbox" title={t('Tenant admins can manage users, credentials, fleets, vessels, captains, and other settings inside this tenant only.')} checked={form.isTenantAdmin} onChange={e => setForm({ ...form, isTenantAdmin: e.target.checked })} /> {t('Tenant Admin')}</label>}
+            {editing && <label className="checkbox-label" title={t('Uncheck to block sign-in and API access for this user without deleting them. Their tokens stop working too.')}><input type="checkbox" title={t('Uncheck to block sign-in and API access for this user without deleting them. Their tokens stop working too.')} checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> {t('Active')}</label>}
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="submit" className="btn btn-primary" title={editing ? t('Save the changes to this user.') : t('Create the user. They can sign in right away with the email and password.')}>{t('Save')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>

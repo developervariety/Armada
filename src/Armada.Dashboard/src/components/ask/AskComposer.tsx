@@ -181,6 +181,7 @@ const AskComposer = forwardRef<AskComposerHandle, AskComposerProps>(function Ask
           rows={1}
           placeholder={placeholder}
           aria-label={t('Message')}
+          title={t('Type a message and press Enter to send; Shift+Enter adds a new line. Start with / to pick a command or quick action.')}
           role="combobox"
           aria-expanded={menuOpen}
           aria-controls={menuOpen ? QUICK_MENU_ID : undefined}
@@ -191,11 +192,11 @@ const AskComposer = forwardRef<AskComposerHandle, AskComposerProps>(function Ask
           onKeyDown={onKeyDown}
         />
         {turnActive && pending.kind !== 'command' ? (
-          <button type="button" className="btn" onClick={onStop} disabled={stopping}>
+          <button type="button" className="btn" onClick={onStop} disabled={stopping} title={t('Stop the captain turn now. Anything already done stays done; the partial reply is kept.')}>
             {stopping ? t('Stopping...') : t('Stop')}
           </button>
         ) : (
-          <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
+          <button type="submit" className="btn btn-primary" disabled={!canSubmit} title={noCaptain ? t('Choose a captain in the header before sending a message.') : turnActive ? t('Wait for the captain to finish its current reply, or stop it.') : t('Send the message to the captain (Enter).')}>
             {t('Send')}
           </button>
         )}
@@ -204,11 +205,11 @@ const AskComposer = forwardRef<AskComposerHandle, AskComposerProps>(function Ask
         {hint ? t(hint.text, hint.params) : null}
       </div>
       <div className="ask-composer-foot">
-        <label className="ask-stream-toggle" title={t('Ask the captain to include its reasoning, shown collapsed above each reply')}>
-          <input type="checkbox" checked={showThinking} onChange={(e) => onShowThinkingChange(e.target.checked)} />
+        <label className="ask-stream-toggle" title={t('Ask the captain to include its reasoning with each reply, shown collapsed above it. Applies to messages you send from now on; remembered in this browser.')}>
+          <input type="checkbox" title={t('Ask the captain to include its reasoning with each reply, shown collapsed above it. Applies to messages you send from now on; remembered in this browser.')} checked={showThinking} onChange={(e) => onShowThinkingChange(e.target.checked)} />
           {t('Show thinking')}
         </label>
-        <button type="button" className="ask-link-btn" onClick={() => reset({ text: '/', focus: true })}>
+        <button type="button" className="ask-link-btn" onClick={() => reset({ text: '/', focus: true })} title={t('List the slash commands and quick actions you can use here, such as dispatching a mission or running a fleet action.')}>
           {t('Commands')}
         </button>
         <span className="ask-disclaimer-inline text-dim">{t('AI can make mistakes. Check answers.')}</span>

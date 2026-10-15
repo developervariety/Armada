@@ -57,6 +57,21 @@ export default function DeploymentDetail() {
   const createMode = id === 'new';
   const canManage = isAdmin || isTenantAdmin;
 
+  const tips = {
+    vessel: t('Repository being deployed. Blank lets Armada infer it from the linked release, mission, or voyage; picking one narrows the environment and release lists.'),
+    workflowProfile: t('Profile whose deploy, verification, and rollback commands run. Blank uses the vessel\'s profile, then its fleet\'s, then the global default.'),
+    environment: t('Target environment for this vessel. It decides whether approval is required. Blank resolves by Environment Name, or the vessel\'s default environment.'),
+    environmentName: t('Used only when no environment is picked above. Must match an existing environment name for the vessel, case-insensitive, such as staging.'),
+    release: t('Optional release being shipped. Linking one fills the vessel and workflow profile if blank, and its tag or version becomes the default source ref.'),
+    sourceRef: t('Branch, tag, or commit to deploy, such as main or v1.4.0. Blank uses the release tag or version, then the mission branch, then the vessel\'s default branch.'),
+    missionId: t('Optional mission to link, such as msn_abc123. Its branch can become the source ref, and it must belong to the same vessel.'),
+    voyageId: t('Optional voyage to link, such as vyg_abc123. Its missions can supply the vessel when none is chosen.'),
+    title: t('Name shown in lists and approval prompts. Blank builds one from the release or vessel and the environment, such as v1.4.0 -> production.'),
+    summary: t('Short description of what this rollout changes. Shown in the deployment list tooltip and searchable.'),
+    notes: t('Free-form operator notes kept on the deployment record, such as rollout instructions or follow-ups.'),
+    autoExecute: t('When checked and the environment does not require approval, the deploy command runs as soon as you save. Uncheck to create the record without running anything.'),
+  };
+
   const [deployment, setDeployment] = useState<Deployment | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [profiles, setProfiles] = useState<WorkflowProfile[]>([]);
@@ -432,62 +447,62 @@ export default function DeploymentDetail() {
             {!createMode && deployment && <StatusBadge status={deployment.status} />}
             {!createMode && deployment && <StatusBadge status={deployment.verificationStatus} />}
             {!createMode && selectedVessel && (
-              <button className="btn btn-sm" onClick={() => navigate(`/workspace/${selectedVessel.id}`)}>
+              <button className="btn btn-sm" onClick={() => navigate(`/workspace/${selectedVessel.id}`)} title={t('Open the vessel workspace to browse its files, branches, and readiness.')}>
                 {t('Open Workspace')}
               </button>
             )}
             {!createMode && deployment && (
-              <button className="btn btn-sm" onClick={() => openRunCheck(deployment)}>
+              <button className="btn btn-sm" onClick={() => openRunCheck(deployment)} title={t('Go to Checks with a deployment verification check prefilled for this deployment\'s vessel, profile, and environment.')}>
                 {t('Run Check')}
               </button>
             )}
             {!createMode && deployment?.vesselId && (
-              <button className="btn btn-sm" disabled={syncingGitHub} onClick={() => void handleSyncGitHubActions(deployment)}>
+              <button className="btn btn-sm" disabled={syncingGitHub} onClick={() => void handleSyncGitHubActions(deployment)} title={t('Import the latest 20 GitHub Actions runs for this vessel and source ref as check runs linked to this deployment. Needs a GitHub remote and token.')}>
                 {syncingGitHub ? t('Syncing GitHub...') : t('Sync GitHub Actions')}
               </button>
             )}
             {!createMode && deployment && (
-              <button className="btn btn-sm" onClick={() => openRunbooks(deployment)}>
+              <button className="btn btn-sm" onClick={() => openRunbooks(deployment)} title={t('Go to Runbooks to start a runbook execution prefilled with this deployment\'s environment and profile.')}>
                 {t('Runbook')}
               </button>
             )}
             {!createMode && deployment && (
-              <button className="btn btn-sm" onClick={() => openIncidentCreate(deployment)}>
+              <button className="btn btn-sm" onClick={() => openIncidentCreate(deployment)} title={t('Open a new incident prefilled with this deployment, its environment, release, and vessel. Nothing is saved until you create it.')}>
                 {t('Create Incident')}
               </button>
             )}
             {!createMode && deployment?.releaseId && (
-              <button className="btn btn-sm" onClick={() => navigate(`/releases/${deployment.releaseId}`)}>
+              <button className="btn btn-sm" onClick={() => navigate(`/releases/${deployment.releaseId}`)} title={t('Open the release this deployment ships.')}>
                 {t('Open Release')}
               </button>
             )}
             {!createMode && deployment && (
-              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: deployment })}>
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: deployment })} title={t('Show the raw deployment record as returned by the API.')}>
                 {t('View JSON')}
               </button>
             )}
             {!createMode && deployment?.status === 'PendingApproval' && canManage && (
               <>
-                <button className="btn btn-sm btn-primary" onClick={() => handleAction('approve', deployment)}>
+                <button className="btn btn-sm btn-primary" onClick={() => handleAction('approve', deployment)} title={t('Approve this deployment and run its deploy command now against the target environment.')}>
                   {t('Approve')}
                 </button>
-                <button className="btn btn-sm" onClick={() => handleAction('deny', deployment)}>
+                <button className="btn btn-sm" onClick={() => handleAction('deny', deployment)} title={t('Reject this deployment. Nothing is deployed and the record ends as Denied.')}>
                   {t('Deny')}
                 </button>
               </>
             )}
             {!createMode && deployment && deployment.status !== 'PendingApproval' && canManage && (
               <>
-                <button className="btn btn-sm" onClick={() => handleAction('verify', deployment)}>
+                <button className="btn btn-sm" onClick={() => handleAction('verify', deployment)} title={t('Re-run the smoke test, health check, and verification commands without re-running the deploy command.')}>
                   {t('Verify')}
                 </button>
-                <button className="btn btn-sm" onClick={() => handleAction('rollback', deployment)}>
+                <button className="btn btn-sm" onClick={() => handleAction('rollback', deployment)} title={t('Run the environment\'s rollback command from the workflow profile, then rollback verification if configured. Fails if no rollback command is set.')}>
                   {t('Rollback')}
                 </button>
               </>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+              <button className="btn btn-sm btn-danger" onClick={handleDelete} title={t('Delete only this deployment record. Linked checks, releases, and environments stay. Cannot be undone.')}>
                 {t('Delete')}
               </button>
             )}
@@ -510,8 +525,8 @@ export default function DeploymentDetail() {
           <h3>{t('Deployment')}</h3>
           <div className="detail-form-grid">
             <div className="detail-field">
-              <span className="detail-label">{t('Vessel')}</span>
-              <select aria-label={t('Vessel')} value={vesselId} onChange={(event) => setVesselId(event.target.value)} disabled={!canManage}>
+              <span className="detail-label" title={tips.vessel}>{t('Vessel')}</span>
+              <select aria-label={t('Vessel')} title={tips.vessel} value={vesselId} onChange={(event) => setVesselId(event.target.value)} disabled={!canManage}>
                 <option value="">{t('Select a vessel')}</option>
                 {vessels.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
@@ -520,8 +535,8 @@ export default function DeploymentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Workflow Profile')}</span>
-              <select aria-label={t('Workflow Profile')} value={workflowProfileId} onChange={(event) => setWorkflowProfileId(event.target.value)} disabled={!canManage}>
+              <span className="detail-label" title={tips.workflowProfile}>{t('Workflow Profile')}</span>
+              <select aria-label={t('Workflow Profile')} title={tips.workflowProfile} value={workflowProfileId} onChange={(event) => setWorkflowProfileId(event.target.value)} disabled={!canManage}>
                 <option value="">{t('Resolved default')}</option>
                 {profiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>{profile.name}</option>
@@ -530,8 +545,8 @@ export default function DeploymentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Environment')}</span>
-              <select aria-label={t('Environment')} value={environmentId} onChange={(event) => setEnvironmentId(event.target.value)} disabled={!canManage}>
+              <span className="detail-label" title={tips.environment}>{t('Environment')}</span>
+              <select aria-label={t('Environment')} title={tips.environment} value={environmentId} onChange={(event) => setEnvironmentId(event.target.value)} disabled={!canManage}>
                 <option value="">{t('Resolve by environment name')}</option>
                 {filteredEnvironments.map((environment) => (
                   <option key={environment.id} value={environment.id}>{environment.name}</option>
@@ -540,13 +555,13 @@ export default function DeploymentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Environment Name')}</span>
-              <input aria-label={t('Environment Name')} value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)} disabled={!canManage} placeholder={t('staging, production, customer-a')} />
+              <span className="detail-label" title={tips.environmentName}>{t('Environment Name')}</span>
+              <input aria-label={t('Environment Name')} title={tips.environmentName} value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)} disabled={!canManage} placeholder={t('staging, production, customer-a')} />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Release')}</span>
-              <select aria-label={t('Release')} value={releaseId} onChange={(event) => setReleaseId(event.target.value)} disabled={!canManage}>
+              <span className="detail-label" title={tips.release}>{t('Release')}</span>
+              <select aria-label={t('Release')} title={tips.release} value={releaseId} onChange={(event) => setReleaseId(event.target.value)} disabled={!canManage}>
                 <option value="">{t('No linked release')}</option>
                 {filteredReleases.map((release) => (
                   <option key={release.id} value={release.id}>{release.title}</option>
@@ -555,44 +570,44 @@ export default function DeploymentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Source Ref')}</span>
-              <input aria-label={t('Source Ref')} value={sourceRef} onChange={(event) => setSourceRef(event.target.value)} disabled={!canManage} placeholder={t('branch, tag, or commit')} />
+              <span className="detail-label" title={tips.sourceRef}>{t('Source Ref')}</span>
+              <input aria-label={t('Source Ref')} title={tips.sourceRef} value={sourceRef} onChange={(event) => setSourceRef(event.target.value)} disabled={!canManage} placeholder={t('branch, tag, or commit')} />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Mission ID')}</span>
-              <input aria-label={t('Mission ID')} value={missionId} onChange={(event) => setMissionId(event.target.value)} disabled={!canManage} placeholder="mis_..." />
+              <span className="detail-label" title={tips.missionId}>{t('Mission ID')}</span>
+              <input aria-label={t('Mission ID')} title={tips.missionId} value={missionId} onChange={(event) => setMissionId(event.target.value)} disabled={!canManage} placeholder="msn_..." />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Voyage ID')}</span>
-              <input aria-label={t('Voyage ID')} value={voyageId} onChange={(event) => setVoyageId(event.target.value)} disabled={!canManage} placeholder="voy_..." />
+              <span className="detail-label" title={tips.voyageId}>{t('Voyage ID')}</span>
+              <input aria-label={t('Voyage ID')} title={tips.voyageId} value={voyageId} onChange={(event) => setVoyageId(event.target.value)} disabled={!canManage} placeholder="vyg_..." />
             </div>
 
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Title')}</span>
-              <input aria-label={t('Title')} value={title} onChange={(event) => setTitle(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.title}>{t('Title')}</span>
+              <input aria-label={t('Title')} title={tips.title} value={title} onChange={(event) => setTitle(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Summary')}</span>
-              <textarea aria-label={t('Summary')} rows={3} value={summary} onChange={(event) => setSummary(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.summary}>{t('Summary')}</span>
+              <textarea aria-label={t('Summary')} title={tips.summary} rows={3} value={summary} onChange={(event) => setSummary(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Notes')}</span>
-              <textarea aria-label={t('Notes')} rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.notes}>{t('Notes')}</span>
+              <textarea aria-label={t('Notes')} title={tips.notes} rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} disabled={!canManage} />
             </div>
           </div>
 
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', marginTop: '1rem' }}>
-            <input type="checkbox" checked={autoExecute} onChange={(event) => setAutoExecute(event.target.checked)} disabled={!canManage} />
+          <label title={tips.autoExecute} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', marginTop: '1rem' }}>
+            <input type="checkbox" title={tips.autoExecute} checked={autoExecute} onChange={(event) => setAutoExecute(event.target.checked)} disabled={!canManage} />
             <span>{t('Execute immediately when approval is not required')}</span>
           </label>
 
           {canManage && (
             <div className="inline-actions" style={{ marginTop: '1rem' }}>
-              <button className="btn btn-primary" disabled={saving} onClick={handleSave}>
+              <button className="btn btn-primary" disabled={saving} onClick={handleSave} title={createMode ? t('Create the deployment. It starts at once unless approval is required or immediate execution is off.') : t('Save changes to this deployment record. Saving does not re-run the deploy.')}>
                 {saving ? t('Saving...') : createMode ? t('Create Deployment') : t('Save Deployment')}
               </button>
             </div>
@@ -602,55 +617,55 @@ export default function DeploymentDetail() {
         <section className="card detail-panel">
           <h3>{t('Overview')}</h3>
           <div className="detail-meta-grid">
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('Rollout state: pending approval, running, succeeded, failed, denied, or rolled back.')}>
               <span>{t('Status')}</span>
               <strong>{deployment ? <StatusBadge status={deployment.status} /> : t('Draft')}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('Outcome of the smoke test, health check, and verification commands run after deploy. Skipped means none are configured.')}>
               <span>{t('Verification')}</span>
               <strong>{deployment ? <StatusBadge status={deployment.verificationStatus} /> : t('NotRun')}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('Profile whose commands this deployment runs. Resolved default means the vessel, fleet, or global default profile.')}>
               <span>{t('Workflow Profile')}</span>
               <strong>{workflowProfileId ? (profileMap.get(workflowProfileId) || workflowProfileId) : t('Resolved default')}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('Named target this deployment rolls out to.')}>
               <span>{t('Environment')}</span>
               <strong>{selectedEnvironment?.name || environmentName || '-'}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('Number of deploy, verification, and rollback check runs linked to this deployment. They are listed under Linked Checks.')}>
               <span>{t('Check Runs')}</span>
               <strong>{deployment?.checkRunIds.length || 0}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('When the deployment record was created.')}>
               <span>{t('Created')}</span>
               <strong>{deployment ? formatDateTime(deployment.createdUtc) : '-'}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('When the deploy command began running. Blank until execution starts, for example while awaiting approval.')}>
               <span>{t('Started')}</span>
               <strong>{deployment?.startedUtc ? formatRelativeTime(deployment.startedUtc) : '-'}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('When deploy and verification, or rollback, finished.')}>
               <span>{t('Completed')}</span>
               <strong>{deployment?.completedUtc ? formatRelativeTime(deployment.completedUtc) : '-'}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('User who approved or denied the deployment, when the environment requires approval.')}>
               <span>{t('Approved By')}</span>
               <strong>{deployment?.approvedByUserId || '-'}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('When rollout monitoring ends. Set by the environment\'s monitoring window; blank when monitoring is off.')}>
               <span>{t('Monitoring Window')}</span>
               <strong>{deployment?.monitoringWindowEndsUtc ? formatRelativeTime(deployment.monitoringWindowEndsUtc) : '-'}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('When the last rollout-monitoring pass ran the environment\'s verification checks.')}>
               <span>{t('Last Monitored')}</span>
               <strong>{deployment?.lastMonitoredUtc ? formatRelativeTime(deployment.lastMonitoredUtc) : '-'}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('Consecutive rollout-monitoring passes that failed after the initial verification. Resets to 0 when a pass succeeds.')}>
               <span>{t('Regression Alerts')}</span>
               <strong>{deployment?.monitoringFailureCount ?? 0}</strong>
             </div>
-            <div className="detail-meta-field">
+            <div className="detail-meta-field" title={t('When the most recent regression alert was raised during rollout monitoring.')}>
               <span>{t('Last Alert')}</span>
               <strong>{deployment?.lastRegressionAlertUtc ? formatRelativeTime(deployment.lastRegressionAlertUtc) : '-'}</strong>
             </div>
@@ -659,7 +674,7 @@ export default function DeploymentDetail() {
           {!createMode && deployment && (
             <>
               <div className="detail-divider" />
-              <h4>{t('Verification Monitoring')}</h4>
+              <h4 title={t('Rollout monitoring re-runs the environment\'s HTTP verification checks on an interval for a window after a successful deploy.')}>{t('Verification Monitoring')}</h4>
               {deployment.latestMonitoringSummary ? (
                 <div className="card" style={{ padding: '0.85rem', marginBottom: '1rem' }}>
                   <div className="text-dim" style={{ marginBottom: '0.35rem' }}>{t('Latest monitoring summary')}</div>
@@ -670,11 +685,11 @@ export default function DeploymentDetail() {
               )}
 
               <div className="detail-divider" />
-              <h4>{t('Linked Checks')}</h4>
+              <h4 title={t('Check runs this deployment produced: deploy, smoke test, health, verification, and rollback. Click one to see its log.')}>{t('Linked Checks')}</h4>
               {renderLinkedChecks(deployment)}
 
               <div className="detail-divider" />
-              <h4>{t('Runbook Executions')}</h4>
+              <h4 title={t('Runbook executions started for this deployment.')}>{t('Runbook Executions')}</h4>
               {runbookExecutions.length === 0 ? (
                 <p className="text-dim">{t('No runbook executions are linked to this deployment yet.')}</p>
               ) : (
@@ -692,7 +707,7 @@ export default function DeploymentDetail() {
                         {execution.environmentName || t('No environment')} • {execution.checkType || t('No check type')}
                       </div>
                       <div className="inline-actions" style={{ marginTop: '0.65rem' }}>
-                        <button className="btn btn-sm" onClick={() => navigate(`/runbooks/${execution.runbookId}?executionId=${encodeURIComponent(execution.id)}`)}>
+                        <button className="btn btn-sm" onClick={() => navigate(`/runbooks/${execution.runbookId}?executionId=${encodeURIComponent(execution.id)}`)} title={t('Open the runbook with this execution selected to see or continue its steps.')}>
                           {t('Open Runbook')}
                         </button>
                       </div>
@@ -702,22 +717,22 @@ export default function DeploymentDetail() {
               )}
 
               <div className="detail-divider" />
-              <h4>{t('Request Summary')}</h4>
+              <h4 title={t('Armada API request history captured while this deployment ran, as supporting evidence.')}>{t('Request Summary')}</h4>
               {deployment.requestHistorySummary ? (
                 <div className="detail-meta-grid">
-                  <div className="detail-meta-field">
+                  <div className="detail-meta-field" title={t('Armada API requests recorded between the deployment\'s start and completion.')}>
                     <span>{t('Total Requests')}</span>
                     <strong>{deployment.requestHistorySummary.totalCount}</strong>
                   </div>
-                  <div className="detail-meta-field">
+                  <div className="detail-meta-field" title={t('Share of those requests that returned a success status.')}>
                     <span>{t('Success Rate')}</span>
                     <strong>{deployment.requestHistorySummary.successRate}%</strong>
                   </div>
-                  <div className="detail-meta-field">
+                  <div className="detail-meta-field" title={t('Mean server time per request in that window, in milliseconds.')}>
                     <span>{t('Average Duration')}</span>
                     <strong>{deployment.requestHistorySummary.averageDurationMs} ms</strong>
                   </div>
-                  <div className="detail-meta-field">
+                  <div className="detail-meta-field" title={t('Number of time buckets the request summary is split into.')}>
                     <span>{t('Buckets')}</span>
                     <strong>{deployment.requestHistorySummary.buckets.length}</strong>
                   </div>

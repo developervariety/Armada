@@ -19,6 +19,8 @@ interface CliPermissionPolicySelectProps {
   ariaLabel?: string;
   ariaDescribedBy?: string;
   className?: string;
+  /** Hover text for the select; defaults to a summary of what each policy does. */
+  title?: string;
 }
 
 /**
@@ -26,7 +28,7 @@ interface CliPermissionPolicySelectProps {
  * a strong warning that must be confirmed; cancelling keeps the previous value.
  */
 export default function CliPermissionPolicySelect({
-  id, value, onChange, allowInherit = true, allowBypass, disabled, inheritLabel, ariaLabel, ariaDescribedBy, className,
+  id, value, onChange, allowInherit = true, allowBypass, disabled, inheritLabel, ariaLabel, ariaDescribedBy, className, title,
 }: CliPermissionPolicySelectProps) {
   const { t } = useLocale();
   const [confirmBypass, setConfirmBypass] = useState(false);
@@ -53,11 +55,12 @@ export default function CliPermissionPolicySelect({
         onChange={(e) => select(e.target.value)}
         aria-label={ariaLabel}
         aria-describedby={ariaDescribedBy}
+        title={title ?? t('What happens when the CLI wants to run a command, edit a file, or fetch a URL that needs permission. Bypass runs everything without asking and needs confirmation.')}
       >
-        {allowInherit && <option value="">{inheritLabel ?? t('Inherit')}</option>}
-        <option value="Refuse">{policyLabel(t, 'Refuse')}</option>
-        <option value="ApproveInArmada">{policyLabel(t, 'ApproveInArmada')}</option>
-        {showBypass && <option value="Bypass" disabled={!allowBypass}>{policyLabel(t, 'Bypass')}</option>}
+        {allowInherit && <option value="" title={t('Use the policy set at the next level up (captain, then the server default).')}>{inheritLabel ?? t('Inherit')}</option>}
+        <option value="Refuse" title={t('The CLI declines any call that needs permission; the captain is told it was refused.')}>{policyLabel(t, 'Refuse')}</option>
+        <option value="ApproveInArmada" title={t('Each call that needs permission waits for an approver to allow or deny it in Armada. Claude Code only; other runtimes fall back to Refuse.')}>{policyLabel(t, 'ApproveInArmada')}</option>
+        {showBypass && <option value="Bypass" disabled={!allowBypass} title={allowBypass ? t('Every call runs immediately with no approval and no rules applied. Use only for fully trusted work.') : t('Only admins can choose Bypass.')}>{policyLabel(t, 'Bypass')}</option>}
       </select>
       <ConfirmDialog
         open={confirmBypass}

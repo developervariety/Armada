@@ -17,7 +17,7 @@ export default function TemplateVariableHelp({ defaultOpen = false, onInsert }: 
 
   return (
     <div className="template-help">
-      <button type="button" className="collapsible-header template-help-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button type="button" className="collapsible-header template-help-toggle" aria-expanded={open} onClick={() => setOpen(!open)} title={open ? t('Hide the list of template variables.') : t('Show the variables you can use in the command or prompt; each is replaced with that vessel value when the run starts.')}>
         <span className="collapsible-caret" aria-hidden="true">{open ? '-' : '+'}</span>
         <span>{t('Template variables')}</span>
       </button>
@@ -34,11 +34,11 @@ export default function TemplateVariableHelp({ defaultOpen = false, onInsert }: 
             rowKey={(v) => v.name}
             columns={[
               {
-                key: 'variable', label: t('Variable'), required: true,
+                key: 'variable', label: t('Variable'), headerTitle: t('Placeholder to type in the command or prompt, braces included.'), required: true,
                 render: (v) => {
                   const token = `{{${v.name}}}`;
                   return onInsert ? (
-                    <button type="button" className="btn btn-sm mono template-help-token" onClick={() => onInsert(token)} title={t('Insert {{token}}', { token })} aria-label={t('Insert {{token}}', { token })} data-i18n-skip="true">
+                    <button type="button" className="btn btn-sm mono template-help-token" onClick={() => onInsert(token)} title={t('Insert {{token}} at the cursor in the command or prompt. It is replaced with each vessel value when the run starts.', { token })} aria-label={t('Insert {{token}}', { token })} data-i18n-skip="true">
                       {token}
                     </button>
                   ) : (
@@ -46,7 +46,7 @@ export default function TemplateVariableHelp({ defaultOpen = false, onInsert }: 
                   );
                 },
               },
-              { key: 'description', label: t('Description'), required: true, cellClassName: 'text-dim', render: (v) => t(v.description) },
+              { key: 'description', label: t('Description'), headerTitle: t('The value the placeholder is replaced with for each vessel.'), required: true, cellClassName: 'text-dim', render: (v) => t(v.description) },
             ]}
           />
         </>

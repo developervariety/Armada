@@ -108,7 +108,7 @@ namespace Armada.Harbor
             _UsageButtons = usageButtons;
             Button refresh = HarborUi.Button("Measure Again", () => _ = MeasureUsageAsync(), "Measure the size of each item in the data directory");
             usageButtons.Children.Add(refresh);
-            usageButtons.Children.Add(HarborUi.Button("Open Folder", OpenDataFolder));
+            usageButtons.Children.Add(HarborUi.Button("Open Folder", OpenDataFolder, "Open the Admiral's data directory in Finder or Explorer"));
             StackPanel usage = new StackPanel { Spacing = 8 };
             _UsageNote = HarborUi.Note("");
             usage.Children.Add(_UsageNote);

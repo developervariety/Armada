@@ -57,6 +57,33 @@ export default function RunbookDetail() {
 
   const [runbook, setRunbook] = useState<Runbook | null>(null);
   const canManage = createMode ? true : (runbook ? canEditScoped(viewer, runbook) : (isAdmin || isTenantAdmin));
+
+  const tips = {
+    fileName: t('Name of the backing playbook file, ending in .md, such as deploy-checklist.md. Must be unique in your tenant.'),
+    title: t('Name shown in lists and on executions, such as Production deploy checklist.'),
+    description: t('Short description of when to use this runbook. Shown in the list tooltip and searchable.'),
+    workflowProfile: t('Profile whose commands this runbook\'s checks run by default. Blank leaves executions to pick one.'),
+    environment: t('Environment new executions of this runbook target by default. Blank leaves it to each execution.'),
+    environmentName: t('Environment name used when no environment record is picked, such as production. Also passed to checks run from this runbook.'),
+    defaultCheckType: t('Check type suggested when running a check from an execution of this runbook, such as DeploymentVerification.'),
+    overview: t('Markdown instructions for operators. With no steps defined below, steps are taken from its ## headings, numbered items, or - [ ] checkboxes.'),
+    active: t('Uncheck to retire the runbook without deleting it. It stays listed, but its backing playbook can no longer be attached to missions.'),
+    execTitle: t('Name for this execution, such as Deploy 1.4.0 to production. Blank uses the runbook title.'),
+    execWorkflowProfile: t('Profile for checks run from this execution. Blank uses the runbook\'s bound profile.'),
+    execEnvironment: t('Environment this execution targets. Blank uses the runbook\'s bound environment.'),
+    execEnvironmentName: t('Environment name to record when no environment record is picked, such as production.'),
+    execCheckType: t('Check type the Run Check button launches for this execution, such as DeploymentVerification.'),
+    execNotes: t('Free-form notes for this execution, such as who is on call or why it was started.'),
+    paramValue: t('Value for this runbook parameter. Blank uses the parameter\'s default; a required parameter with no default must be filled.'),
+    paramName: t('Parameter key, letters, digits, dot, dash, or underscore, such as release_version. Write it in double braces in the markdown or steps to reference it.'),
+    paramLabel: t('Friendly name shown when starting an execution. Blank shows the parameter name.'),
+    paramDefault: t('Value used when the operator leaves the parameter blank at start.'),
+    paramDescription: t('Hint shown in the parameter\'s input when starting an execution.'),
+    paramRequired: t('When checked, an execution cannot start unless this parameter has a value or a default.'),
+    stepTitle: t('Short name of the step, shown as a checklist item, such as Drain traffic.'),
+    stepInstructions: t('What the operator should do for this step, including commands or links.'),
+    stepNotes: t('Notes for this step in this execution, such as output seen or who did it. Saved with Save Progress.'),
+  };
   const [profiles, setProfiles] = useState<WorkflowProfile[]>([]);
   const [environments, setEnvironments] = useState<DeploymentEnvironment[]>([]);
   const [executions, setExecutions] = useState<RunbookExecution[]>([]);
@@ -423,28 +450,28 @@ export default function RunbookDetail() {
           <>
             {!createMode && runbook && <StatusBadge status={runbook.active ? 'Active' : 'Inactive'} />}
             {!createMode && (
-              <button className="btn btn-sm" onClick={() => { resetExecutionForm(); setShowStartPanel((current) => !current); }}>
+              <button className="btn btn-sm" onClick={() => { resetExecutionForm(); setShowStartPanel((current) => !current); }} title={showStartPanel ? t('Hide the start panel without starting anything.') : t('Show the form to start a new tracked execution of this runbook.')}>
                 {showStartPanel ? t('Hide Start Panel') : t('Start Execution')}
               </button>
             )}
             {!createMode && executionDraft && (
               <>
-                <button className="btn btn-sm" onClick={() => void handleSaveExecution()}>{t('Save Execution')}</button>
-                <button className="btn btn-sm" onClick={() => void handleSaveExecution('Completed')}>{t('Mark Completed')}</button>
-                <button className="btn btn-sm" onClick={() => void handleSaveExecution('Cancelled')}>{t('Cancel Execution')}</button>
+                <button className="btn btn-sm" onClick={() => void handleSaveExecution()} title={t('Save the checked steps and notes of the selected execution. It stays Running.')}>{t('Save Execution')}</button>
+                <button className="btn btn-sm" onClick={() => void handleSaveExecution('Completed')} title={t('Save the selected execution and mark it Completed.')}>{t('Mark Completed')}</button>
+                <button className="btn btn-sm" onClick={() => void handleSaveExecution('Cancelled')} title={t('Save the selected execution and mark it Cancelled. Its progress is kept.')}>{t('Cancel Execution')}</button>
               </>
             )}
             {!createMode && canLaunchCheck() && (
-              <button className="btn btn-sm" onClick={handleLaunchCheck}>{t('Run Check')}</button>
+              <button className="btn btn-sm" onClick={handleLaunchCheck} title={t('Go to Checks with this runbook\'s check type, environment, and profile prefilled.')}>{t('Run Check')}</button>
             )}
             {!createMode && runbook && (
-              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: runbook })}>{t('View JSON')}</button>
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title, data: runbook })} title={t('Show the raw runbook record as returned by the API.')}>{t('View JSON')}</button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>{t('Duplicate')}</button>
+              <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()} title={t('Create a copy of this runbook under a new file name and open it.')}>{t('Duplicate')}</button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
+              <button className="btn btn-sm btn-danger" onClick={handleDelete} title={t('Delete this runbook and its backing playbook. Past executions, deployments, and incidents are kept. Cannot be undone.')}>{t('Delete')}</button>
             )}
           </>
         }
@@ -465,12 +492,12 @@ export default function RunbookDetail() {
           <h3>{t('Start Execution')}</h3>
           <div className="detail-form-grid">
             <div className="detail-field">
-              <span className="detail-label">{t('Title')}</span>
-              <input aria-label={t('Title')} value={executionTitle} onChange={(event) => setExecutionTitle(event.target.value)} placeholder={runbook.title} />
+              <span className="detail-label" title={tips.execTitle}>{t('Title')}</span>
+              <input aria-label={t('Title')} title={tips.execTitle} value={executionTitle} onChange={(event) => setExecutionTitle(event.target.value)} placeholder={runbook.title} />
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Workflow Profile')}</span>
-              <select aria-label={t('Workflow Profile')} value={executionWorkflowProfileId} onChange={(event) => setExecutionWorkflowProfileId(event.target.value)}>
+              <span className="detail-label" title={tips.execWorkflowProfile}>{t('Workflow Profile')}</span>
+              <select aria-label={t('Workflow Profile')} title={tips.execWorkflowProfile} value={executionWorkflowProfileId} onChange={(event) => setExecutionWorkflowProfileId(event.target.value)}>
                 <option value="">{t('Use runbook binding')}</option>
                 {profiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>{profile.name}</option>
@@ -478,8 +505,8 @@ export default function RunbookDetail() {
               </select>
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Environment')}</span>
-              <select aria-label={t('Environment')} value={executionEnvironmentId} onChange={(event) => setExecutionEnvironmentId(event.target.value)}>
+              <span className="detail-label" title={tips.execEnvironment}>{t('Environment')}</span>
+              <select aria-label={t('Environment')} title={tips.execEnvironment} value={executionEnvironmentId} onChange={(event) => setExecutionEnvironmentId(event.target.value)}>
                 <option value="">{t('Use runbook binding')}</option>
                 {environments.map((environment) => (
                   <option key={environment.id} value={environment.id}>{environment.name}</option>
@@ -487,12 +514,12 @@ export default function RunbookDetail() {
               </select>
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Environment Name')}</span>
-              <input aria-label={t('Environment Name')} value={executionEnvironmentName} onChange={(event) => setExecutionEnvironmentName(event.target.value)} />
+              <span className="detail-label" title={tips.execEnvironmentName}>{t('Environment Name')}</span>
+              <input aria-label={t('Environment Name')} title={tips.execEnvironmentName} value={executionEnvironmentName} onChange={(event) => setExecutionEnvironmentName(event.target.value)} />
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Check Type')}</span>
-              <select aria-label={t('Check Type')} value={executionCheckType} onChange={(event) => setExecutionCheckType(event.target.value as CheckRunType | '')}>
+              <span className="detail-label" title={tips.execCheckType}>{t('Check Type')}</span>
+              <select aria-label={t('Check Type')} title={tips.execCheckType} value={executionCheckType} onChange={(event) => setExecutionCheckType(event.target.value as CheckRunType | '')}>
                 <option value="">{t('No default check')}</option>
                 {RUNBOOK_CHECK_TYPES.map((checkType) => (
                   <option key={checkType} value={checkType}>{checkType}</option>
@@ -500,8 +527,8 @@ export default function RunbookDetail() {
               </select>
             </div>
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Execution Notes')}</span>
-              <textarea aria-label={t('Execution Notes')} rows={3} value={executionNotes} onChange={(event) => setExecutionNotes(event.target.value)} />
+              <span className="detail-label" title={tips.execNotes}>{t('Execution Notes')}</span>
+              <textarea aria-label={t('Execution Notes')} title={tips.execNotes} rows={3} value={executionNotes} onChange={(event) => setExecutionNotes(event.target.value)} />
             </div>
           </div>
 
@@ -512,8 +539,9 @@ export default function RunbookDetail() {
               <div style={{ display: 'grid', gap: '0.85rem' }}>
                 {parameters.map((parameter) => (
                   <div key={parameter.name} className="detail-field">
-                    <span className="detail-label">{parameter.label || parameter.name}{parameter.required ? ' *' : ''}</span>
+                    <span className="detail-label" title={parameter.description || tips.paramValue}>{parameter.label || parameter.name}{parameter.required ? ' *' : ''}</span>
                     <input
+                      title={parameter.description ? `${parameter.description}\n${tips.paramValue}` : tips.paramValue}
                       value={executionParameterValues[parameter.name] || ''}
                       onChange={(event) => setExecutionParameterValues((current) => ({ ...current, [parameter.name]: event.target.value }))}
                       placeholder={parameter.description || parameter.defaultValue || ''}
@@ -525,7 +553,7 @@ export default function RunbookDetail() {
           )}
 
           <div className="inline-actions" style={{ marginTop: '1rem' }}>
-            <button className="btn btn-primary" disabled={startingExecution} onClick={() => void handleStartExecution()}>
+            <button className="btn btn-primary" disabled={startingExecution} onClick={() => void handleStartExecution()} title={t('Start a tracked execution with these values. It appears under Executions with its own checklist.')}>
               {startingExecution ? t('Starting...') : t('Start Execution')}
             </button>
           </div>
@@ -537,20 +565,20 @@ export default function RunbookDetail() {
           <h3>{t('Runbook')}</h3>
           <div className="detail-form-grid">
             <div className="detail-field">
-              <span className="detail-label">{t('File Name')}</span>
-              <input aria-label={t('File Name')} value={fileName} onChange={(event) => setFileName(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.fileName}>{t('File Name')}</span>
+              <input aria-label={t('File Name')} title={tips.fileName} value={fileName} onChange={(event) => setFileName(event.target.value)} disabled={!canManage} />
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Title')}</span>
-              <input aria-label={t('Title')} value={title} onChange={(event) => setTitle(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.title}>{t('Title')}</span>
+              <input aria-label={t('Title')} title={tips.title} value={title} onChange={(event) => setTitle(event.target.value)} disabled={!canManage} />
             </div>
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Description')}</span>
-              <textarea aria-label={t('Description')} rows={2} value={description} onChange={(event) => setDescription(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.description}>{t('Description')}</span>
+              <textarea aria-label={t('Description')} title={tips.description} rows={2} value={description} onChange={(event) => setDescription(event.target.value)} disabled={!canManage} />
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Workflow Profile')}</span>
-              <select aria-label={t('Workflow Profile')} value={workflowProfileId} onChange={(event) => setWorkflowProfileId(event.target.value)} disabled={!canManage}>
+              <span className="detail-label" title={tips.workflowProfile}>{t('Workflow Profile')}</span>
+              <select aria-label={t('Workflow Profile')} title={tips.workflowProfile} value={workflowProfileId} onChange={(event) => setWorkflowProfileId(event.target.value)} disabled={!canManage}>
                 <option value="">{t('No workflow profile')}</option>
                 {profiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>{profile.name}</option>
@@ -558,8 +586,8 @@ export default function RunbookDetail() {
               </select>
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Environment')}</span>
-              <select aria-label={t('Environment')} value={environmentId} onChange={(event) => setEnvironmentId(event.target.value)} disabled={!canManage}>
+              <span className="detail-label" title={tips.environment}>{t('Environment')}</span>
+              <select aria-label={t('Environment')} title={tips.environment} value={environmentId} onChange={(event) => setEnvironmentId(event.target.value)} disabled={!canManage}>
                 <option value="">{t('No environment')}</option>
                 {environments.map((environment) => (
                   <option key={environment.id} value={environment.id}>{environment.name}</option>
@@ -567,12 +595,12 @@ export default function RunbookDetail() {
               </select>
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Environment Name')}</span>
-              <input aria-label={t('Environment Name')} value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.environmentName}>{t('Environment Name')}</span>
+              <input aria-label={t('Environment Name')} title={tips.environmentName} value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)} disabled={!canManage} />
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Default Check Type')}</span>
-              <select aria-label={t('Default Check Type')} value={defaultCheckType} onChange={(event) => setDefaultCheckType(event.target.value as CheckRunType | '')} disabled={!canManage}>
+              <span className="detail-label" title={tips.defaultCheckType}>{t('Default Check Type')}</span>
+              <select aria-label={t('Default Check Type')} title={tips.defaultCheckType} value={defaultCheckType} onChange={(event) => setDefaultCheckType(event.target.value as CheckRunType | '')} disabled={!canManage}>
                 <option value="">{t('No default check')}</option>
                 {RUNBOOK_CHECK_TYPES.map((checkType) => (
                   <option key={checkType} value={checkType}>{checkType}</option>
@@ -580,19 +608,19 @@ export default function RunbookDetail() {
               </select>
             </div>
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Overview Markdown')}</span>
-              <textarea aria-label={t('Overview Markdown')} rows={10} value={overviewMarkdown} onChange={(event) => setOverviewMarkdown(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.overview}>{t('Overview Markdown')}</span>
+              <textarea aria-label={t('Overview Markdown')} title={tips.overview} rows={10} value={overviewMarkdown} onChange={(event) => setOverviewMarkdown(event.target.value)} disabled={!canManage} />
             </div>
           </div>
 
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', marginTop: '1rem' }}>
-            <input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} disabled={!canManage} />
+          <label title={tips.active} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', marginTop: '1rem' }}>
+            <input type="checkbox" title={tips.active} checked={active} onChange={(event) => setActive(event.target.checked)} disabled={!canManage} />
             <span>{t('Active')}</span>
           </label>
 
           {canManage && (
             <div className="inline-actions" style={{ marginTop: '1rem' }}>
-              <button className="btn btn-primary" disabled={saving} onClick={() => void handleSave()}>
+              <button className="btn btn-primary" disabled={saving} onClick={() => void handleSave()} title={createMode ? t('Create the runbook and its backing playbook.') : t('Save the runbook definition. Executions already started keep their progress.')}>
                 {saving ? t('Saving...') : createMode ? t('Create Runbook') : t('Save Runbook')}
               </button>
             </div>
@@ -602,12 +630,12 @@ export default function RunbookDetail() {
         <section className="card detail-panel">
           <h3>{t('Overview')}</h3>
           <div className="detail-meta-grid">
-            <div className="detail-field"><span className="detail-label">{t('Workflow Profile')}</span><span>{workflowProfileId || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Environment')}</span><span>{environmentId || environmentName || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Default Check')}</span><span>{defaultCheckType || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Parameters')}</span><span>{parameters.length}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Steps')}</span><span>{steps.length}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Executions')}</span><span>{executions.length}</span></div>
+            <div className="detail-field" title={tips.workflowProfile}><span className="detail-label">{t('Workflow Profile')}</span><span>{workflowProfileId || '-'}</span></div>
+            <div className="detail-field" title={tips.environment}><span className="detail-label">{t('Environment')}</span><span>{environmentId || environmentName || '-'}</span></div>
+            <div className="detail-field" title={tips.defaultCheckType}><span className="detail-label">{t('Default Check')}</span><span>{defaultCheckType || '-'}</span></div>
+            <div className="detail-field" title={t('Number of parameters operators fill in when starting an execution.')}><span className="detail-label">{t('Parameters')}</span><span>{parameters.length}</span></div>
+            <div className="detail-field" title={t('Number of checklist steps in the runbook.')}><span className="detail-label">{t('Steps')}</span><span>{steps.length}</span></div>
+            <div className="detail-field" title={t('Number of times this runbook has been started.')}><span className="detail-label">{t('Executions')}</span><span>{executions.length}</span></div>
             {!createMode && runbook && (
               <>
                 <div className="detail-field"><span className="detail-label">{t('Created')}</span><span>{formatDateTime(runbook.createdUtc)}</span></div>
@@ -638,7 +666,7 @@ export default function RunbookDetail() {
               </div>
 
               <div className="detail-divider" />
-              <h4>{t('Executions')}</h4>
+              <h4 title={t('Times this runbook was started. Click one to track or update its progress below.')}>{t('Executions')}</h4>
               {executions.length === 0 ? (
                 <p className="text-dim">{t('No executions recorded yet.')}</p>
               ) : (
@@ -649,6 +677,7 @@ export default function RunbookDetail() {
                       className={`card${selectedExecutionId === execution.id ? ' selected-card' : ''}`}
                       style={{ padding: '0.85rem', textAlign: 'left', border: selectedExecutionId === execution.id ? '1px solid var(--accent-color)' : undefined }}
                       onClick={() => setSelectedExecutionId(execution.id)}
+                      title={t('Select this execution to see and update its checklist below.')}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
                         <strong>{execution.title}</strong>
@@ -670,9 +699,9 @@ export default function RunbookDetail() {
       <div className="detail-grid" style={{ marginTop: '1rem' }}>
         <section className="card detail-panel">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-            <h3>{t('Parameters')}</h3>
+            <h3 title={t('Values operators fill in when starting an execution, such as a version number. Reference one by writing its name in double braces.')}>{t('Parameters')}</h3>
             {canManage && (
-              <button className="btn btn-sm" onClick={() => setParameters((current) => [...current, createDefaultParameter()])}>{t('Add Parameter')}</button>
+              <button className="btn btn-sm" onClick={() => setParameters((current) => [...current, createDefaultParameter()])} title={t('Add a value operators fill in when starting an execution. Kept after you save the runbook.')}>{t('Add Parameter')}</button>
             )}
           </div>
           {parameters.length === 0 ? (
@@ -683,29 +712,29 @@ export default function RunbookDetail() {
                 <div key={`${parameter.name}-${index}`} className="card" style={{ padding: '0.85rem' }}>
                   <div className="detail-form-grid">
                     <div className="detail-field">
-                      <span className="detail-label">{t('Name')}</span>
-                      <input aria-label={t('Name')} value={parameter.name} onChange={(event) => updateParameter(index, 'name', event.target.value)} disabled={!canManage} />
+                      <span className="detail-label" title={tips.paramName}>{t('Name')}</span>
+                      <input aria-label={t('Name')} title={tips.paramName} value={parameter.name} onChange={(event) => updateParameter(index, 'name', event.target.value)} disabled={!canManage} />
                     </div>
                     <div className="detail-field">
-                      <span className="detail-label">{t('Label')}</span>
-                      <input aria-label={t('Label')} value={parameter.label || ''} onChange={(event) => updateParameter(index, 'label', event.target.value)} disabled={!canManage} />
+                      <span className="detail-label" title={tips.paramLabel}>{t('Label')}</span>
+                      <input aria-label={t('Label')} title={tips.paramLabel} value={parameter.label || ''} onChange={(event) => updateParameter(index, 'label', event.target.value)} disabled={!canManage} />
                     </div>
                     <div className="detail-field">
-                      <span className="detail-label">{t('Default Value')}</span>
-                      <input aria-label={t('Default Value')} value={parameter.defaultValue || ''} onChange={(event) => updateParameter(index, 'defaultValue', event.target.value)} disabled={!canManage} />
+                      <span className="detail-label" title={tips.paramDefault}>{t('Default Value')}</span>
+                      <input aria-label={t('Default Value')} title={tips.paramDefault} value={parameter.defaultValue || ''} onChange={(event) => updateParameter(index, 'defaultValue', event.target.value)} disabled={!canManage} />
                     </div>
                     <div className="detail-field detail-field-full">
-                      <span className="detail-label">{t('Description')}</span>
-                      <textarea aria-label={t('Description')} rows={2} value={parameter.description || ''} onChange={(event) => updateParameter(index, 'description', event.target.value)} disabled={!canManage} />
+                      <span className="detail-label" title={tips.paramDescription}>{t('Description')}</span>
+                      <textarea aria-label={t('Description')} title={tips.paramDescription} rows={2} value={parameter.description || ''} onChange={(event) => updateParameter(index, 'description', event.target.value)} disabled={!canManage} />
                     </div>
                   </div>
                   <div className="inline-actions" style={{ marginTop: '0.75rem' }}>
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-                      <input type="checkbox" checked={parameter.required} onChange={(event) => updateParameter(index, 'required', event.target.checked)} disabled={!canManage} />
+                    <label title={tips.paramRequired} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <input type="checkbox" title={tips.paramRequired} checked={parameter.required} onChange={(event) => updateParameter(index, 'required', event.target.checked)} disabled={!canManage} />
                       <span>{t('Required')}</span>
                     </label>
                     {canManage && (
-                      <button className="btn btn-sm btn-danger" onClick={() => setParameters((current) => current.filter((_, parameterIndex) => parameterIndex !== index))}>{t('Remove')}</button>
+                      <button className="btn btn-sm btn-danger" onClick={() => setParameters((current) => current.filter((_, parameterIndex) => parameterIndex !== index))} title={t('Remove this parameter. Takes effect when you save the runbook.')}>{t('Remove')}</button>
                     )}
                   </div>
                 </div>
@@ -716,9 +745,9 @@ export default function RunbookDetail() {
 
         <section className="card detail-panel">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-            <h3>{t('Steps')}</h3>
+            <h3 title={t('Checklist operators tick off during an execution. With none defined, steps come from the overview markdown.')}>{t('Steps')}</h3>
             {canManage && (
-              <button className="btn btn-sm" onClick={() => setSteps((current) => [...current, createDefaultStep()])}>{t('Add Step')}</button>
+              <button className="btn btn-sm" onClick={() => setSteps((current) => [...current, createDefaultStep()])} title={t('Add a checklist step. Kept after you save the runbook.')}>{t('Add Step')}</button>
             )}
           </div>
           {steps.length === 0 ? (
@@ -729,17 +758,17 @@ export default function RunbookDetail() {
                 <div key={step.id} className="card" style={{ padding: '0.85rem' }}>
                   <div className="detail-form-grid">
                     <div className="detail-field">
-                      <span className="detail-label">{t('Title')}</span>
-                      <input aria-label={t('Title')} value={step.title} onChange={(event) => updateStep(index, 'title', event.target.value)} disabled={!canManage} />
+                      <span className="detail-label" title={tips.stepTitle}>{t('Title')}</span>
+                      <input aria-label={t('Title')} title={tips.stepTitle} value={step.title} onChange={(event) => updateStep(index, 'title', event.target.value)} disabled={!canManage} />
                     </div>
                     <div className="detail-field detail-field-full">
-                      <span className="detail-label">{t('Instructions')}</span>
-                      <textarea aria-label={t('Instructions')} rows={4} value={step.instructions} onChange={(event) => updateStep(index, 'instructions', event.target.value)} disabled={!canManage} />
+                      <span className="detail-label" title={tips.stepInstructions}>{t('Instructions')}</span>
+                      <textarea aria-label={t('Instructions')} title={tips.stepInstructions} rows={4} value={step.instructions} onChange={(event) => updateStep(index, 'instructions', event.target.value)} disabled={!canManage} />
                     </div>
                   </div>
                   {canManage && (
                     <div className="inline-actions" style={{ marginTop: '0.75rem' }}>
-                      <button className="btn btn-sm btn-danger" onClick={() => setSteps((current) => current.filter((_, stepIndex) => stepIndex !== index))}>{t('Remove')}</button>
+                      <button className="btn btn-sm btn-danger" onClick={() => setSteps((current) => current.filter((_, stepIndex) => stepIndex !== index))} title={t('Remove this step. Takes effect when you save the runbook.')}>{t('Remove')}</button>
                     </div>
                   )}
                 </div>
@@ -751,21 +780,21 @@ export default function RunbookDetail() {
 
       {!createMode && executionDraft && (
         <section className="card detail-panel" style={{ marginTop: '1rem' }}>
-          <h3>{t('Execution Progress')}</h3>
+          <h3 title={t('Checklist and notes for the selected execution. Changes are saved only when you click Save Progress.')}>{t('Execution Progress')}</h3>
           <div className="detail-meta-grid">
-            <div className="detail-field"><span className="detail-label">{t('Status')}</span><span><StatusBadge status={executionDraft.status} /></span></div>
-            <div className="detail-field"><span className="detail-label">{t('Environment')}</span><span>{executionDraft.environmentName || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Check Type')}</span><span>{executionDraft.checkType || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Deployment')}</span><span>{executionDraft.deploymentId ? <Link to={`/deployments/${executionDraft.deploymentId}`}>{executionDraft.deploymentId}</Link> : '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Incident')}</span><span>{executionDraft.incidentId ? <Link to={`/incidents/${executionDraft.incidentId}`}>{executionDraft.incidentId}</Link> : '-'}</span></div>
+            <div className="detail-field" title={t('Execution state: Running until marked Completed or Cancelled.')}><span className="detail-label">{t('Status')}</span><span><StatusBadge status={executionDraft.status} /></span></div>
+            <div className="detail-field" title={tips.execEnvironment}><span className="detail-label">{t('Environment')}</span><span>{executionDraft.environmentName || '-'}</span></div>
+            <div className="detail-field" title={tips.execCheckType}><span className="detail-label">{t('Check Type')}</span><span>{executionDraft.checkType || '-'}</span></div>
+            <div className="detail-field" title={t('Deployment this execution was started for.')}><span className="detail-label">{t('Deployment')}</span><span>{executionDraft.deploymentId ? <Link to={`/deployments/${executionDraft.deploymentId}`}>{executionDraft.deploymentId}</Link> : '-'}</span></div>
+            <div className="detail-field" title={t('Incident this execution was started for.')}><span className="detail-label">{t('Incident')}</span><span>{executionDraft.incidentId ? <Link to={`/incidents/${executionDraft.incidentId}`}>{executionDraft.incidentId}</Link> : '-'}</span></div>
             <div className="detail-field"><span className="detail-label">{t('Started')}</span><span>{formatDateTime(executionDraft.startedUtc)}</span></div>
             <div className="detail-field"><span className="detail-label">{t('Completed')}</span><span>{executionDraft.completedUtc ? formatDateTime(executionDraft.completedUtc) : '-'}</span></div>
             <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{formatRelativeTime(executionDraft.lastUpdateUtc)}</span></div>
           </div>
 
           <div className="detail-field detail-field-full" style={{ marginTop: '1rem' }}>
-            <span className="detail-label">{t('Execution Notes')}</span>
-            <textarea aria-label={t('Execution Notes')}
+            <span className="detail-label" title={tips.execNotes}>{t('Execution Notes')}</span>
+            <textarea aria-label={t('Execution Notes')} title={tips.execNotes}
               rows={3}
               value={executionDraft.notes || ''}
               onChange={(event) => setExecutionDraft((current) => current ? { ...current, notes: event.target.value } : current)}
@@ -775,8 +804,9 @@ export default function RunbookDetail() {
           <div style={{ display: 'grid', gap: '0.85rem', marginTop: '1rem' }}>
             {steps.map((step) => (
               <div key={step.id} className="card" style={{ padding: '0.85rem' }}>
-                <label style={{ display: 'flex', gap: '0.65rem', alignItems: 'flex-start' }}>
+                <label style={{ display: 'flex', gap: '0.65rem', alignItems: 'flex-start' }} title={t('Check when this step is done. Saved with Save Progress.')}>
                   <input
+                    title={t('Check when this step is done. Saved with Save Progress.')}
                     type="checkbox"
                     checked={executionDraft.completedStepIds.includes(step.id)}
                     onChange={(event) => toggleExecutionStep(step.id, event.target.checked)}
@@ -787,8 +817,8 @@ export default function RunbookDetail() {
                   </div>
                 </label>
                 <div className="detail-field detail-field-full" style={{ marginTop: '0.75rem' }}>
-                  <span className="detail-label">{t('Step Notes')}</span>
-                  <textarea aria-label={t('Step Notes')}
+                  <span className="detail-label" title={tips.stepNotes}>{t('Step Notes')}</span>
+                  <textarea aria-label={t('Step Notes')} title={tips.stepNotes}
                     rows={2}
                     value={executionDraft.stepNotes[step.id] || ''}
                     onChange={(event) => updateExecutionStepNote(step.id, event.target.value)}
@@ -799,11 +829,11 @@ export default function RunbookDetail() {
           </div>
 
           <div className="inline-actions" style={{ marginTop: '1rem' }}>
-            <button className="btn btn-primary" disabled={savingExecution} onClick={() => void handleSaveExecution()}>
+            <button className="btn btn-primary" disabled={savingExecution} onClick={() => void handleSaveExecution()} title={t('Save the checked steps and notes of the selected execution. It stays Running.')}>
               {savingExecution ? t('Saving...') : t('Save Progress')}
             </button>
-            <button className="btn" disabled={savingExecution} onClick={() => void handleSaveExecution('Completed')}>{t('Mark Completed')}</button>
-            <button className="btn" disabled={savingExecution} onClick={() => void handleSaveExecution('Cancelled')}>{t('Cancel Execution')}</button>
+            <button className="btn" disabled={savingExecution} onClick={() => void handleSaveExecution('Completed')} title={t('Save the selected execution and mark it Completed.')}>{t('Mark Completed')}</button>
+            <button className="btn" disabled={savingExecution} onClick={() => void handleSaveExecution('Cancelled')} title={t('Save the selected execution and mark it Cancelled. Its progress is kept.')}>{t('Cancel Execution')}</button>
           </div>
         </section>
       )}

@@ -143,7 +143,7 @@ namespace Armada.Server.Mcp
             McpFleetActionTools.Register(register, fleetActionService);
             if (vesselHealthService != null) McpVesselHealthTools.Register(register, vesselHealthService);
             McpCliPermissionTools.Register(register, database, cliPermissionService);
-            if (askThreads != null && askTurns != null && askActions != null) McpAskTools.Register(register, askThreads, askTurns, askActions);
+            McpAskTools.Register(register, askThreads, askTurns, askActions);
         }
 
         /// <summary>
@@ -228,6 +228,7 @@ namespace Armada.Server.Mcp
             RegisterCatalogGroup("Armada MCP / Fleet Actions", register => McpFleetActionTools.Register(register, fleetActionService));
             if (vesselHealthService != null) RegisterCatalogGroup("Armada MCP / Vessel Health", register => McpVesselHealthTools.Register(register, vesselHealthService));
             RegisterCatalogGroup("Armada MCP / CLI Permissions", register => McpCliPermissionTools.Register(register, database, cliPermissionService));
+            RegisterCatalogGroup("Armada MCP / Ask Armada", register => McpAskTools.Register(register, null, null, null));
 
             return tools
                 .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)

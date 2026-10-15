@@ -25,11 +25,11 @@ function FileRow({ file }: { file: GitChangedFile }) {
   const hasSource = (file.kind === 'Renamed' || file.kind === 'Copied') && !!file.oldPath;
   return (
     <li className="vhist-file">
-      <span className={`tag ${KIND_CLASS[file.kind] ?? ''} vhist-file-kind`}>{t(file.kind)}</span>
-      <span className="mono vhist-file-path">
+      <span className={`tag ${KIND_CLASS[file.kind] ?? ''} vhist-file-kind`} title={t('How this commit changed the file: {{kind}}.', { kind: t(file.kind) })}>{t(file.kind)}</span>
+      <span className="mono vhist-file-path" title={hasSource ? `${file.oldPath} -> ${file.path}` : file.path}>
         {hasSource ? <>{file.oldPath} <span aria-hidden="true">-&gt;</span><span className="sr-only">{t('renamed to')}</span> {file.path}</> : file.path}
       </span>
-      <span className="vhist-file-stats">
+      <span className="vhist-file-stats" title={file.isBinary ? t('Binary file: line counts do not apply.') : t('Lines added (+) and removed (-) in this file.')}>
         {file.isBinary
           ? <span className="text-dim">{t('binary')}</span>
           : (
@@ -56,26 +56,27 @@ function CommitRow({ commit, expanded, onToggle }: { commit: VesselCommit; expan
           aria-expanded={expanded}
           aria-controls={detailId}
           onClick={onToggle}
+          title={expanded ? t('Hide the commit message body and changed files.') : t('Show the full commit message and the files this commit changed.')}
         >
           <span className="vhist-commit-caret" aria-hidden="true">{expanded ? '\u25BE' : '\u25B8'}</span>
           <span className="vhist-commit-subject">{commit.subject || t('(no message)')}</span>
         </button>
-        {commit.isMerge && <span className="tag review vhist-merge-badge">{t('Merge')}</span>}
+        {commit.isMerge && <span className="tag review vhist-merge-badge" title={t('Merge commit: it joins two or more lines of history, for example a landed mission branch.')}>{t('Merge')}</span>}
         <span className="vhist-commit-sha">
-          <span className="mono">{shortSha}</span>
-          <CopyButton text={commit.sha} title="Copy full SHA" />
+          <span className="mono" title={commit.sha}>{shortSha}</span>
+          <CopyButton text={commit.sha} />
         </span>
       </div>
       <div className="vhist-commit-meta text-dim">
-        <span title={commit.authorEmail || undefined}>{commit.authorName}</span>
+        <span title={commit.authorEmail ? t('Author: {{name}} <{{email}}>', { name: commit.authorName, email: commit.authorEmail }) : undefined}>{commit.authorName}</span>
         <span aria-hidden="true">&middot;</span>
         <time dateTime={commit.committedUtc} title={formatDateTime(commit.committedUtc)}>
           {formatRelativeTime(commit.committedUtc)}
         </time>
         <span className="vhist-commit-absolute">({formatDateTime(commit.committedUtc)})</span>
         <span aria-hidden="true">&middot;</span>
-        <span className="vhist-added">+{commit.addedLines}</span>
-        <span className="vhist-deleted">-{commit.deletedLines}</span>
+        <span className="vhist-added" title={t('Lines added across all files in this commit.')}>+{commit.addedLines}</span>
+        <span className="vhist-deleted" title={t('Lines removed across all files in this commit.')}>-{commit.deletedLines}</span>
         <span>{t('{count, plural, one {# file} other {# files}}', { count: commit.filesChanged })}</span>
       </div>
       {expanded && (
@@ -106,7 +107,7 @@ function CommitRow({ commit, expanded, onToggle }: { commit: VesselCommit; expan
 
 /** Commits grouped under local day headers; each row expands to show the body and changed files. */
 export default function CommitTimeline({ commits, selectedDate }: CommitTimelineProps) {
-  const { locale } = useLocale();
+  const { locale, t } = useLocale();
   const groups = useMemo(() => groupCommitsByDay(commits), [commits]);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
@@ -128,7 +129,7 @@ export default function CommitTimeline({ commits, selectedDate }: CommitTimeline
           aria-label={formatIsoDay(locale, group.date, DAY_HEADER_FORMAT)}
           data-testid="vhist-day"
         >
-          <h4 className="vhist-day-header">{formatIsoDay(locale, group.date, DAY_HEADER_FORMAT)}</h4>
+          <h4 className="vhist-day-header" title={t('Commits made on this day, in your local time zone, newest first.')}>{formatIsoDay(locale, group.date, DAY_HEADER_FORMAT)}</h4>
           <ul className="vhist-commit-list">
             {group.commits.map((commit) => (
               <CommitRow key={commit.sha} commit={commit} expanded={expanded.has(commit.sha)} onToggle={() => toggle(commit.sha)} />

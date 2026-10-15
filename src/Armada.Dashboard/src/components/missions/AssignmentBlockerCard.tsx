@@ -19,10 +19,10 @@ export default function AssignmentBlockerCard({ blocker }: AssignmentBlockerCard
     <div className="card assignment-blocker-card" role="status" style={{ marginBottom: '1rem' }} data-reason={blocker.reason}>
       <div className="readiness-panel-header">
         <div>
-          <h3>{t('Why This Mission Is Waiting')}</h3>
+          <h3 title={t('Armada\'s explanation of why no captain has picked up this Pending mission yet. It is recomputed each time the mission is loaded.')}>{t('Why This Mission Is Waiting')}</h3>
           <div className="readiness-panel-meta">{t(title)}</div>
         </div>
-        <span className={`readiness-pill ${blocker.reason === 'AwaitingDispatch' ? 'ready' : 'warning'}`}>{t('Pending')}</span>
+        <span className={`readiness-pill ${blocker.reason === 'AwaitingDispatch' ? 'ready' : 'warning'}`} title={blocker.reason === 'AwaitingDispatch' ? t('Nothing is blocking this mission; it will be assigned on the next dispatch pass.') : t('Something is holding this mission back. The reason and details are shown in this card.')}>{t('Pending')}</span>
       </div>
       <p style={{ margin: '0.5rem 0' }}>{blocker.summary}</p>
       {blocker.untilUtc && (
@@ -30,7 +30,7 @@ export default function AssignmentBlockerCard({ blocker }: AssignmentBlockerCard
       )}
       {blocker.dependsOnMissionId && (
         <p style={{ margin: '0.25rem 0' }}>
-          {t('Depends on')} <Link to={`/missions/${blocker.dependsOnMissionId}`} className="mono">{blocker.dependsOnMissionId}</Link>
+          {t('Depends on')} <Link to={`/missions/${blocker.dependsOnMissionId}`} className="mono" title={t('This mission cannot start until the linked mission completes successfully. Click to open it.')}>{blocker.dependsOnMissionId}</Link>
         </p>
       )}
       {blocker.blockingMissionIds.length > 0 && (
@@ -39,7 +39,7 @@ export default function AssignmentBlockerCard({ blocker }: AssignmentBlockerCard
           {blocker.blockingMissionIds.map((missionId, index) => (
             <span key={missionId}>
               {index > 0 && ', '}
-              <Link to={`/missions/${missionId}`} className="mono">{missionId}</Link>
+              <Link to={`/missions/${missionId}`} className="mono" title={t('A mission that must settle before this one can be assigned. Click to open it.')}>{missionId}</Link>
             </span>
           ))}
         </p>
@@ -48,13 +48,13 @@ export default function AssignmentBlockerCard({ blocker }: AssignmentBlockerCard
         <ul className="assignment-blocker-captains" style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
           {blocker.captains.map((captain) => (
             <li key={captain.captainId}>
-              <Link to={`/captains/${captain.captainId}`}>{captain.captainName || captain.captainId}</Link>
+              <Link to={`/captains/${captain.captainId}`} title={t('A captain that could run this mission, with what it is doing now. Click to open the captain.')}>{captain.captainName || captain.captainId}</Link>
               {': '}
               <span>{captain.detail}</span>
               {captain.objectiveId && (
                 <>
                   {' '}
-                  <Link to={`/backlog/${captain.objectiveId}`}>{t('Open backlog item')}</Link>
+                  <Link to={`/backlog/${captain.objectiveId}`} title={t('Open the backlog item this captain is busy with, such as a planning or refinement session.')}>{t('Open backlog item')}</Link>
                 </>
               )}
             </li>

@@ -37,6 +37,32 @@ export default function EnvironmentDetail() {
   const createMode = id === 'new';
   const canManage = isAdmin || isTenantAdmin;
 
+  const tips = {
+    vessel: t('Repository this environment belongs to. Deployments can only target environments of their own vessel.'),
+    name: t('Environment name, such as staging or production. It must match the environment name in the workflow profile so the right deploy and rollback commands run.'),
+    kind: t('Classification of the environment: Development, Test, Staging, Production, or Custom. Used for labeling and filtering.'),
+    configurationSource: t('Where this environment\'s settings live, for operators to reference, such as Helm values or appsettings.Production.json. Not read by Armada.'),
+    baseUrl: t('Root URL of the deployed service, such as https://staging.example.com. Health checks and relative verification paths are resolved against it.'),
+    healthEndpoint: t('Path or URL requested after each deploy, such as /health. The health check runs only when both this and the Base URL are set.'),
+    description: t('Short description of what this environment is for. Shown in the list tooltip and searchable.'),
+    accessNotes: t('How operators reach or sign in to this environment, such as a VPN or bastion host. Do not paste secrets here.'),
+    deploymentRules: t('Freeze windows, policies, or constraints operators should follow. Informational only; use Requires approval to enforce a gate.'),
+    requiresApproval: t('When checked, new deployments to this environment wait in Pending Approval until someone approves or denies them.'),
+    isDefault: t('Target used when a deployment names no environment. Only one per vessel; setting it clears the flag on the vessel\'s other environments.'),
+    active: t('Inactive environments are skipped when Armada picks a default target and are not rollout-monitored.'),
+    monitoringWindow: t('Minutes after a successful, verified deploy during which Armada keeps re-running the health and verification checks. 0 turns monitoring off; maximum 1440.'),
+    monitoringInterval: t('Seconds between rollout-monitoring passes, from 30 to 3600. Default 300.'),
+    alertOnRegression: t('Record the time of each new regression, shown as Last Alert on the deployment. A failed monitoring pass marks it Verification Failed either way.'),
+    defName: t('Label for this check, shown on the check runs it produces, such as API status.'),
+    defMethod: t('HTTP method to send, such as GET or POST. Blank means GET.'),
+    defPath: t('Path appended to the Base URL, such as /api/status, or a full https:// URL.'),
+    defExpectedStatus: t('HTTP status code the response must return, such as 200. Clear it to accept any status.'),
+    defMustContain: t('Text the response body must contain, case-insensitive, such as "healthy". Blank skips the body check.'),
+    defHeaders: t('Request headers, one per line as Name: value, such as Authorization: Bearer abc. Stored in plain text.'),
+    defBody: t('Optional request body for POST or PUT checks, such as a JSON document.'),
+    defActive: t('Only active definitions run during deploy verification and rollout monitoring.'),
+  };
+
   const [environment, setEnvironment] = useState<DeploymentEnvironment | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [vesselId, setVesselId] = useState('');
@@ -256,6 +282,7 @@ export default function EnvironmentDetail() {
                     },
                   },
                 })}
+                title={t('Open a new deployment prefilled with this environment and its vessel. Nothing runs until you create it.')}
               >
                 {t('Deploy')}
               </button>
@@ -272,6 +299,7 @@ export default function EnvironmentDetail() {
                     },
                   },
                 })}
+                title={t('Go to Checks with this vessel and environment name prefilled to run a check against it.')}
               >
                 {t('Run Check')}
               </button>
@@ -290,6 +318,7 @@ export default function EnvironmentDetail() {
                     },
                   },
                 })}
+                title={t('Open a new incident prefilled with this environment and vessel. Nothing is saved until you create it.')}
               >
                 {t('Create Incident')}
               </button>
@@ -306,27 +335,28 @@ export default function EnvironmentDetail() {
                     },
                   },
                 })}
+                title={t('Go to Runbooks to start a runbook execution prefilled with this environment.')}
               >
                 {t('Runbook')}
               </button>
             )}
             {!createMode && selectedVessel && (
-              <button className="btn btn-sm" onClick={() => navigate(`/workspace/${selectedVessel.id}`)}>
+              <button className="btn btn-sm" onClick={() => navigate(`/workspace/${selectedVessel.id}`)} title={t('Open the vessel workspace to browse its files, branches, and readiness.')}>
                 {t('Open Workspace')}
               </button>
             )}
             {!createMode && (
-              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: name, data: environment })}>
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: name, data: environment })} title={t('Show the raw environment record as returned by the API.')}>
                 {t('View JSON')}
               </button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>
+              <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()} title={t('Create a copy with the same settings and verification checks, not set as default, and open it.')}>
                 {t('Duplicate')}
               </button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+              <button className="btn btn-sm btn-danger" onClick={handleDelete} title={t('Delete this environment record. Existing deployments keep their environment name. Cannot be undone.')}>
                 {t('Delete')}
               </button>
             )}
@@ -349,8 +379,8 @@ export default function EnvironmentDetail() {
           <h3>{t('Environment')}</h3>
           <div className="detail-form-grid">
             <div className="detail-field">
-              <span className="detail-label">{t('Vessel')}</span>
-              <select aria-label={t('Vessel')} value={vesselId} onChange={(event) => setVesselId(event.target.value)} disabled={!canManage}>
+              <span className="detail-label" title={tips.vessel}>{t('Vessel')}</span>
+              <select aria-label={t('Vessel')} title={tips.vessel} value={vesselId} onChange={(event) => setVesselId(event.target.value)} disabled={!canManage}>
                 <option value="">{t('Select a vessel')}</option>
                 {vessels.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
@@ -359,13 +389,13 @@ export default function EnvironmentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Name')}</span>
-              <input aria-label={t('Name')} value={name} onChange={(event) => setName(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.name}>{t('Name')}</span>
+              <input aria-label={t('Name')} title={tips.name} value={name} onChange={(event) => setName(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Kind')}</span>
-              <select aria-label={t('Kind')} value={kind} onChange={(event) => setKind(event.target.value as EnvironmentKind)} disabled={!canManage}>
+              <span className="detail-label" title={tips.kind}>{t('Kind')}</span>
+              <select aria-label={t('Kind')} title={tips.kind} value={kind} onChange={(event) => setKind(event.target.value as EnvironmentKind)} disabled={!canManage}>
                 {ENVIRONMENT_KINDS.map((value) => (
                   <option key={value} value={value}>{value}</option>
                 ))}
@@ -373,59 +403,59 @@ export default function EnvironmentDetail() {
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Configuration Source')}</span>
-              <input aria-label={t('Configuration Source')} value={configurationSource} onChange={(event) => setConfigurationSource(event.target.value)} disabled={!canManage} placeholder={t('e.g. Helm values, appsettings.Production.json, Azure slot config')} />
+              <span className="detail-label" title={tips.configurationSource}>{t('Configuration Source')}</span>
+              <input aria-label={t('Configuration Source')} title={tips.configurationSource} value={configurationSource} onChange={(event) => setConfigurationSource(event.target.value)} disabled={!canManage} placeholder={t('e.g. Helm values, appsettings.Production.json, Azure slot config')} />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Base URL')}</span>
-              <input aria-label={t('Base URL')} value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} disabled={!canManage} placeholder="https://service.example.com" />
+              <span className="detail-label" title={tips.baseUrl}>{t('Base URL')}</span>
+              <input aria-label={t('Base URL')} title={tips.baseUrl} value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} disabled={!canManage} placeholder="https://service.example.com" />
             </div>
 
             <div className="detail-field">
-              <span className="detail-label">{t('Health Endpoint')}</span>
-              <input aria-label={t('Health Endpoint')} value={healthEndpoint} onChange={(event) => setHealthEndpoint(event.target.value)} disabled={!canManage} placeholder="/health or https://service.example.com/health" />
+              <span className="detail-label" title={tips.healthEndpoint}>{t('Health Endpoint')}</span>
+              <input aria-label={t('Health Endpoint')} title={tips.healthEndpoint} value={healthEndpoint} onChange={(event) => setHealthEndpoint(event.target.value)} disabled={!canManage} placeholder="/health or https://service.example.com/health" />
             </div>
 
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Description')}</span>
-              <textarea aria-label={t('Description')} rows={3} value={description} onChange={(event) => setDescription(event.target.value)} disabled={!canManage} />
+              <span className="detail-label" title={tips.description}>{t('Description')}</span>
+              <textarea aria-label={t('Description')} title={tips.description} rows={3} value={description} onChange={(event) => setDescription(event.target.value)} disabled={!canManage} />
             </div>
 
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Access Notes')}</span>
-              <textarea aria-label={t('Access Notes')} rows={4} value={accessNotes} onChange={(event) => setAccessNotes(event.target.value)} disabled={!canManage} placeholder={t('How do operators reach or authenticate to this environment?')} />
+              <span className="detail-label" title={tips.accessNotes}>{t('Access Notes')}</span>
+              <textarea aria-label={t('Access Notes')} title={tips.accessNotes} rows={4} value={accessNotes} onChange={(event) => setAccessNotes(event.target.value)} disabled={!canManage} placeholder={t('How do operators reach or authenticate to this environment?')} />
             </div>
 
             <div className="detail-field detail-field-full">
-              <span className="detail-label">{t('Deployment Rules')}</span>
-              <textarea aria-label={t('Deployment Rules')} rows={4} value={deploymentRules} onChange={(event) => setDeploymentRules(event.target.value)} disabled={!canManage} placeholder={t('Document freeze windows, approval policy, maintenance constraints, or rollout notes.')} />
+              <span className="detail-label" title={tips.deploymentRules}>{t('Deployment Rules')}</span>
+              <textarea aria-label={t('Deployment Rules')} title={tips.deploymentRules} rows={4} value={deploymentRules} onChange={(event) => setDeploymentRules(event.target.value)} disabled={!canManage} placeholder={t('Document freeze windows, approval policy, maintenance constraints, or rollout notes.')} />
             </div>
           </div>
 
           <div className="detail-divider" />
-          <h4>{t('Verification & Monitoring')}</h4>
+          <h4 title={t('How long and how often Armada keeps checking a deployment after it succeeds. Monitoring needs a health endpoint or an active verification definition.')}>{t('Verification & Monitoring')}</h4>
           <div className="detail-form-grid">
             <div className="detail-field">
-              <span className="detail-label">{t('Rollout Monitoring Window (minutes)')}</span>
-              <input aria-label={t('Rollout Monitoring Window (minutes)')} type="number" min={0} value={rolloutMonitoringWindowMinutes} onChange={(event) => setRolloutMonitoringWindowMinutes(Math.max(0, parseInt(event.target.value || '0', 10) || 0))} disabled={!canManage} />
+              <span className="detail-label" title={tips.monitoringWindow}>{t('Rollout Monitoring Window (minutes)')}</span>
+              <input aria-label={t('Rollout Monitoring Window (minutes)')} title={tips.monitoringWindow} type="number" min={0} value={rolloutMonitoringWindowMinutes} onChange={(event) => setRolloutMonitoringWindowMinutes(Math.max(0, parseInt(event.target.value || '0', 10) || 0))} disabled={!canManage} />
             </div>
             <div className="detail-field">
-              <span className="detail-label">{t('Monitoring Interval (seconds)')}</span>
-              <input aria-label={t('Monitoring Interval (seconds)')} type="number" min={30} value={rolloutMonitoringIntervalSeconds} onChange={(event) => setRolloutMonitoringIntervalSeconds(Math.max(30, parseInt(event.target.value || '30', 10) || 30))} disabled={!canManage} />
+              <span className="detail-label" title={tips.monitoringInterval}>{t('Monitoring Interval (seconds)')}</span>
+              <input aria-label={t('Monitoring Interval (seconds)')} title={tips.monitoringInterval} type="number" min={30} value={rolloutMonitoringIntervalSeconds} onChange={(event) => setRolloutMonitoringIntervalSeconds(Math.max(30, parseInt(event.target.value || '30', 10) || 30))} disabled={!canManage} />
             </div>
           </div>
 
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', marginTop: '1rem' }}>
-            <input type="checkbox" checked={alertOnRegression} onChange={(event) => setAlertOnRegression(event.target.checked)} disabled={!canManage} />
+          <label title={tips.alertOnRegression} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', marginTop: '1rem' }}>
+            <input type="checkbox" title={tips.alertOnRegression} checked={alertOnRegression} onChange={(event) => setAlertOnRegression(event.target.checked)} disabled={!canManage} />
             <span>{t('Record regression alerts during rollout monitoring')}</span>
           </label>
 
           <div className="detail-divider" />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-            <h4>{t('Reusable Verification Definitions')}</h4>
+            <h4 title={t('HTTP checks run after every deploy to this environment and on each rollout-monitoring pass. A check passes when its status and body match.')}>{t('Reusable Verification Definitions')}</h4>
             {canManage && (
-              <button className="btn btn-sm" onClick={() => setVerificationDefinitions((current) => [...current, createVerificationDefinition()])}>
+              <button className="btn btn-sm" onClick={() => setVerificationDefinitions((current) => [...current, createVerificationDefinition()])} title={t('Add an HTTP verification check. It is kept only after you save the environment.')}>
                 {t('Add Verification')}
               </button>
             )}
@@ -438,42 +468,42 @@ export default function EnvironmentDetail() {
                 <div key={definition.id} className="card" style={{ padding: '0.85rem' }}>
                   <div className="detail-form-grid">
                     <div className="detail-field">
-                      <span className="detail-label">{t('Name')}</span>
-                      <input aria-label={t('Name')} value={definition.name} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} disabled={!canManage} />
+                      <span className="detail-label" title={tips.defName}>{t('Name')}</span>
+                      <input aria-label={t('Name')} title={tips.defName} value={definition.name} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} disabled={!canManage} />
                     </div>
                     <div className="detail-field">
-                      <span className="detail-label">{t('Method')}</span>
-                      <input aria-label={t('Method')} value={definition.method} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, method: event.target.value.toUpperCase() } : item))} disabled={!canManage} />
+                      <span className="detail-label" title={tips.defMethod}>{t('Method')}</span>
+                      <input aria-label={t('Method')} title={tips.defMethod} value={definition.method} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, method: event.target.value.toUpperCase() } : item))} disabled={!canManage} />
                     </div>
                     <div className="detail-field detail-field-full">
-                      <span className="detail-label">{t('Path')}</span>
-                      <input aria-label={t('Path')} value={definition.path} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, path: event.target.value } : item))} disabled={!canManage} placeholder="/health or /api/status" />
+                      <span className="detail-label" title={tips.defPath}>{t('Path')}</span>
+                      <input aria-label={t('Path')} title={tips.defPath} value={definition.path} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, path: event.target.value } : item))} disabled={!canManage} placeholder="/health or /api/status" />
                     </div>
                     <div className="detail-field">
-                      <span className="detail-label">{t('Expected Status')}</span>
-                      <input aria-label={t('Expected Status')} type="number" min={100} max={599} value={definition.expectedStatusCode ?? 200} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, expectedStatusCode: parseInt(event.target.value || '0', 10) || null } : item))} disabled={!canManage} />
+                      <span className="detail-label" title={tips.defExpectedStatus}>{t('Expected Status')}</span>
+                      <input aria-label={t('Expected Status')} title={tips.defExpectedStatus} type="number" min={100} max={599} value={definition.expectedStatusCode ?? 200} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, expectedStatusCode: parseInt(event.target.value || '0', 10) || null } : item))} disabled={!canManage} />
                     </div>
                     <div className="detail-field">
-                      <span className="detail-label">{t('Must Contain Text')}</span>
-                      <input aria-label={t('Must Contain Text')} value={definition.mustContainText || ''} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, mustContainText: event.target.value || null } : item))} disabled={!canManage} />
+                      <span className="detail-label" title={tips.defMustContain}>{t('Must Contain Text')}</span>
+                      <input aria-label={t('Must Contain Text')} title={tips.defMustContain} value={definition.mustContainText || ''} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, mustContainText: event.target.value || null } : item))} disabled={!canManage} />
                     </div>
                     <div className="detail-field detail-field-full">
-                      <span className="detail-label">{t('Headers')}</span>
-                      <textarea aria-label={t('Headers')} rows={3} value={serializeHeaderLines(definition.headers)} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, headers: parseHeaderLines(event.target.value) } : item))} disabled={!canManage} placeholder={t('Header-Name: value')} />
+                      <span className="detail-label" title={tips.defHeaders}>{t('Headers')}</span>
+                      <textarea aria-label={t('Headers')} title={tips.defHeaders} rows={3} value={serializeHeaderLines(definition.headers)} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, headers: parseHeaderLines(event.target.value) } : item))} disabled={!canManage} placeholder={t('Header-Name: value')} />
                     </div>
                     <div className="detail-field detail-field-full">
-                      <span className="detail-label">{t('Request Body')}</span>
-                      <textarea aria-label={t('Request Body')} rows={4} value={definition.requestBody || ''} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, requestBody: event.target.value || null } : item))} disabled={!canManage} />
+                      <span className="detail-label" title={tips.defBody}>{t('Request Body')}</span>
+                      <textarea aria-label={t('Request Body')} title={tips.defBody} rows={4} value={definition.requestBody || ''} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, requestBody: event.target.value || null } : item))} disabled={!canManage} />
                     </div>
                   </div>
 
                   <div className="inline-actions" style={{ marginTop: '0.75rem' }}>
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-                      <input type="checkbox" checked={definition.active} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, active: event.target.checked } : item))} disabled={!canManage} />
+                    <label title={tips.defActive} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <input type="checkbox" title={tips.defActive} checked={definition.active} onChange={(event) => setVerificationDefinitions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, active: event.target.checked } : item))} disabled={!canManage} />
                       <span>{t('Active')}</span>
                     </label>
                     {canManage && (
-                      <button className="btn btn-sm btn-danger" onClick={() => setVerificationDefinitions((current) => current.filter((_, itemIndex) => itemIndex !== index))}>
+                      <button className="btn btn-sm btn-danger" onClick={() => setVerificationDefinitions((current) => current.filter((_, itemIndex) => itemIndex !== index))} title={t('Remove this verification check. Takes effect when you save the environment.')}>
                         {t('Remove')}
                       </button>
                     )}
@@ -484,23 +514,23 @@ export default function EnvironmentDetail() {
           )}
 
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '1rem' }}>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-              <input type="checkbox" checked={requiresApproval} onChange={(event) => setRequiresApproval(event.target.checked)} disabled={!canManage} />
+            <label title={tips.requiresApproval} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <input type="checkbox" title={tips.requiresApproval} checked={requiresApproval} onChange={(event) => setRequiresApproval(event.target.checked)} disabled={!canManage} />
               <span>{t('Requires approval')}</span>
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-              <input type="checkbox" checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} disabled={!canManage} />
+            <label title={tips.isDefault} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <input type="checkbox" title={tips.isDefault} checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} disabled={!canManage} />
               <span>{t('Default environment for vessel')}</span>
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-              <input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} disabled={!canManage} />
+            <label title={tips.active} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <input type="checkbox" title={tips.active} checked={active} onChange={(event) => setActive(event.target.checked)} disabled={!canManage} />
               <span>{t('Active')}</span>
             </label>
           </div>
 
           {canManage && (
             <div className="inline-actions" style={{ marginTop: '1rem' }}>
-              <button className="btn btn-primary" disabled={saving} onClick={handleSave}>
+              <button className="btn btn-primary" disabled={saving} onClick={handleSave} title={createMode ? t('Create this environment for the selected vessel.') : t('Save changes to this environment. Existing deployments are not re-run.')}>
                 {saving ? t('Saving...') : t('Save Environment')}
               </button>
             </div>
@@ -510,16 +540,16 @@ export default function EnvironmentDetail() {
         <section className="card detail-panel">
           <h3>{t('Overview')}</h3>
           <div className="detail-meta-grid">
-            <div className="detail-field"><span className="detail-label">{t('Vessel')}</span><span>{selectedVessel?.name || vesselId || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Kind')}</span><span>{kind}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Default')}</span><span>{isDefault ? t('Yes') : t('No')}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Approval')}</span><span>{requiresApproval ? t('Required') : t('Not required')}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Status')}</span><span>{active ? t('Active') : t('Inactive')}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Health')}</span><span>{healthEndpoint || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Verification Definitions')}</span><span>{verificationDefinitions.length}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Monitoring Window')}</span><span>{rolloutMonitoringWindowMinutes} {t('minutes')}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Monitoring Interval')}</span><span>{rolloutMonitoringIntervalSeconds} {t('seconds')}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Regression Alerts')}</span><span>{alertOnRegression ? t('Enabled') : t('Disabled')}</span></div>
+            <div className="detail-field" title={tips.vessel}><span className="detail-label">{t('Vessel')}</span><span>{selectedVessel?.name || vesselId || '-'}</span></div>
+            <div className="detail-field" title={tips.kind}><span className="detail-label">{t('Kind')}</span><span>{kind}</span></div>
+            <div className="detail-field" title={tips.isDefault}><span className="detail-label">{t('Default')}</span><span>{isDefault ? t('Yes') : t('No')}</span></div>
+            <div className="detail-field" title={tips.requiresApproval}><span className="detail-label">{t('Approval')}</span><span>{requiresApproval ? t('Required') : t('Not required')}</span></div>
+            <div className="detail-field" title={tips.active}><span className="detail-label">{t('Status')}</span><span>{active ? t('Active') : t('Inactive')}</span></div>
+            <div className="detail-field" title={tips.healthEndpoint}><span className="detail-label">{t('Health')}</span><span>{healthEndpoint || '-'}</span></div>
+            <div className="detail-field" title={t('Number of HTTP verification checks defined for this environment, active or not.')}><span className="detail-label">{t('Verification Definitions')}</span><span>{verificationDefinitions.length}</span></div>
+            <div className="detail-field" title={tips.monitoringWindow}><span className="detail-label">{t('Monitoring Window')}</span><span>{rolloutMonitoringWindowMinutes} {t('minutes')}</span></div>
+            <div className="detail-field" title={tips.monitoringInterval}><span className="detail-label">{t('Monitoring Interval')}</span><span>{rolloutMonitoringIntervalSeconds} {t('seconds')}</span></div>
+            <div className="detail-field" title={tips.alertOnRegression}><span className="detail-label">{t('Regression Alerts')}</span><span>{alertOnRegression ? t('Enabled') : t('Disabled')}</span></div>
           </div>
 
           {!createMode && environment && (

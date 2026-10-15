@@ -14,6 +14,11 @@ import StatusBadge from '../components/shared/StatusBadge';
 import { buildPlaybookDuplicatePayload } from '../lib/duplicates';
 import { canEdit as canEditScoped, type ScopeViewer } from '../lib/scoping';
 
+const PLAYBOOK_FILE_TIP = 'File name for the playbook, which must end in .md, for example CSHARP_BACKEND_ARCHITECTURE.md. Captains see this name when the playbook is attached as a file. Required.';
+const PLAYBOOK_DESCRIPTION_TIP = 'Optional one-line summary shown when people pick playbooks during dispatch. It is not sent to the captain.';
+const PLAYBOOK_CONTENT_TIP = 'The guidance itself, in markdown: rules, standards or checklists the captain should follow. Depending on how it is attached, it is pasted into the prompt or given as a file.';
+const PLAYBOOK_ACTIVE_TIP = 'On: the playbook can be selected during dispatch. Off: it is hidden from selection and rejected if requested; missions that already used it are not affected.';
+
 export default function PlaybookDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -163,17 +168,17 @@ export default function PlaybookDetail() {
           <>
             {!createMode && <StatusBadge status={active ? 'Active' : 'Inactive'} />}
             {!createMode && (
-              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: fileName, data: playbook })}>
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: fileName, data: playbook })} title={t('Show this playbook\'s full record as JSON, as the API returns it.')}>
                 {t('View JSON')}
               </button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>
+              <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()} title={t('Create a copy of this playbook under a new file name, then open it. Unsaved edits here are not copied.')}>
                 {t('Duplicate')}
               </button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+              <button className="btn btn-sm btn-danger" onClick={handleDelete} title={t('Permanently delete this playbook. Missions that already used it keep their copy. You confirm first.')}>
                 {t('Delete')}
               </button>
             )}
@@ -200,7 +205,7 @@ export default function PlaybookDetail() {
       {!createMode && playbook && (
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
           <div className="detail-field">
-            <span className="detail-label">{t('ID')}</span>
+            <span className="detail-label" title={t('Unique playbook ID, used when selecting playbooks through the API or MCP tools.')}>{t('ID')}</span>
             <span className="id-display">
               <span className="mono">{playbook.id}</span>
               <CopyButton text={playbook.id} />
@@ -215,7 +220,7 @@ export default function PlaybookDetail() {
             <span>{formatDateTime(playbook.lastUpdateUtc)}</span>
           </div>
           <div className="detail-field">
-            <span className="detail-label">{t('Status')}</span>
+            <span className="detail-label" title={t('Active playbooks can be selected during dispatch. Inactive ones are hidden from selection and rejected if requested.')}>{t('Status')}</span>
             <StatusBadge status={active ? 'Active' : 'Inactive'} />
           </div>
         </div>
@@ -223,15 +228,15 @@ export default function PlaybookDetail() {
 
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div className="playbook-side-stats">
-          <div>
+          <div title={t('Length of the markdown below, counting unsaved edits. Inlined playbooks add this much to each mission prompt.')}>
             <span>{t('Characters')}</span>
             <strong>{stats.chars.toLocaleString()}</strong>
           </div>
-          <div>
+          <div title={t('Number of lines in the markdown below, counting unsaved edits.')}>
             <span>{t('Lines')}</span>
             <strong>{stats.lines.toLocaleString()}</strong>
           </div>
-          <div>
+          <div title={t('Number of markdown headings (lines starting with #) below, counting unsaved edits.')}>
             <span>{t('Headings')}</span>
             <strong>{stats.headings.toLocaleString()}</strong>
           </div>
@@ -239,10 +244,11 @@ export default function PlaybookDetail() {
       </div>
 
       <div className="card playbook-editor-card">
-        <label className="playbook-editor-field">
+        <label className="playbook-editor-field" title={t(PLAYBOOK_FILE_TIP)}>
           <span>{t('File Name')}</span>
           <input
             type="text"
+            title={t(PLAYBOOK_FILE_TIP)}
             value={fileName}
             disabled={!canManage}
             onChange={(event) => setFileName(event.target.value)}
@@ -250,10 +256,11 @@ export default function PlaybookDetail() {
           />
         </label>
 
-        <label className="playbook-editor-field">
+        <label className="playbook-editor-field" title={t(PLAYBOOK_DESCRIPTION_TIP)}>
           <span>{t('Description')}</span>
           <input
             type="text"
+            title={t(PLAYBOOK_DESCRIPTION_TIP)}
             value={description}
             disabled={!canManage}
             onChange={(event) => setDescription(event.target.value)}
@@ -261,15 +268,16 @@ export default function PlaybookDetail() {
           />
         </label>
 
-        <label className="playbook-toggle">
-          <input type="checkbox" checked={active} disabled={!canManage} onChange={(event) => setActive(event.target.checked)} />
+        <label className="playbook-toggle" title={t(PLAYBOOK_ACTIVE_TIP)}>
+          <input type="checkbox" title={t(PLAYBOOK_ACTIVE_TIP)} checked={active} disabled={!canManage} onChange={(event) => setActive(event.target.checked)} />
           <span>{t('Active and selectable during dispatch')}</span>
         </label>
 
-        <label className="playbook-editor-field">
+        <label className="playbook-editor-field" title={t(PLAYBOOK_CONTENT_TIP)}>
           <span>{t('Markdown Content')}</span>
           <textarea
             className="playbook-editor-textarea"
+            title={t(PLAYBOOK_CONTENT_TIP)}
             value={content}
             disabled={!canManage}
             onChange={(event) => setContent(event.target.value)}
@@ -279,10 +287,10 @@ export default function PlaybookDetail() {
         </label>
 
         <div className="playbook-editor-actions">
-          <button className="btn btn-primary" disabled={!canManage || saving} onClick={handleSave}>
+          <button className="btn btn-primary" disabled={!canManage || saving} onClick={handleSave} title={createMode ? t('Create this playbook so it can be selected during dispatch.') : t('Save changes to this playbook. Missions dispatched after saving get the new text; earlier missions keep their copy.')}>
             {saving ? t('Saving...') : createMode ? t('Create Playbook') : t('Save Changes')}
           </button>
-          <button className="btn" onClick={() => navigate('/playbooks')}>
+          <button className="btn" onClick={() => navigate('/playbooks')} title={t('Return to the playbook list. Unsaved changes are discarded.')}>
             {t('Back')}
           </button>
         </div>

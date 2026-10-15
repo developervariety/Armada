@@ -1,7 +1,6 @@
 import { useId } from 'react';
 import type { AskActionProposal } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
-import StatusBadge from '../shared/StatusBadge';
 import CopyButton from '../shared/CopyButton';
 import { prettyJson } from '../../lib/askFormat';
 
@@ -38,19 +37,32 @@ export default function AskConfirmCard({ proposal, onApprove, onReject, busy, co
         <span className="ask-confirm-label">
           {pending ? t('Approval needed') : t('Action')}
         </span>
-        <code className="ask-confirm-tool">{proposal.toolName}</code>
-        <span className="ask-confirm-source text-dim">{fromQuickAction ? t('Quick action') : t('Proposed by the captain')}</span>
-        <span className="ask-confirm-status"><StatusBadge status={status} /></span>
+        <code className="ask-confirm-tool" title={t('The Armada tool this action calls, for example dispatch or run_fleet_action.')}>{proposal.toolName}</code>
+        <span className="ask-confirm-source text-dim" title={fromQuickAction ? t('You started this from a quick action or slash command.') : t('The captain suggested this action in its reply. It runs only if you approve it.')}>{fromQuickAction ? t('Quick action') : t('Proposed by the captain')}</span>
+        <span className="ask-confirm-status">
+          <span
+            className={`tag ${normalized}`.trim()}
+            title={
+              normalized === 'pending' ? t('Waiting for you to approve or reject it. Nothing has run.')
+                : normalized === 'approved' ? t('Approved and starting.')
+                  : normalized === 'rejected' ? t('Rejected. Nothing was run.')
+                    : normalized === 'expired' ? t('Nobody decided before the proposal expired, so nothing was run.')
+                      : normalized === 'executed' ? t('The action ran successfully.')
+                        : normalized === 'failed' ? t('The action was approved but failed when it ran. See the error below.')
+                          : undefined
+            }
+          >{t(status)}</span>
+        </span>
       </div>
 
       {proposal.summaryText && <p id={summaryId} className="ask-confirm-summary">{proposal.summaryText}</p>}
 
       {args && (
         <details className="ask-confirm-details">
-          <summary>{t('Exact arguments')}</summary>
+          <summary title={t('Show the exact JSON arguments the tool will be called with, so you can check them before approving.')}>{t('Exact arguments')}</summary>
           <div className="ask-confirm-pre-wrap">
             <pre className="ask-confirm-pre">{args}</pre>
-            <CopyButton text={proposal.argumentsText ?? ''} title={t('Copy arguments')} />
+            <CopyButton text={proposal.argumentsText ?? ''} title={t('Copy the tool arguments JSON to the clipboard.')} />
           </div>
         </details>
       )}
@@ -62,10 +74,10 @@ export default function AskConfirmCard({ proposal, onApprove, onReject, busy, co
               ? t('Nothing runs until you approve. Expires {{time}}.', { time: formatRelativeTime(proposal.expiresUtc) })
               : t('Nothing runs until you approve.')}
           </span>
-          <button type="button" className="btn btn-sm" aria-describedby={proposal.summaryText ? summaryId : undefined} onClick={() => onReject?.(proposal)} disabled={busy || !onReject}>
+          <button type="button" className="btn btn-sm" aria-describedby={proposal.summaryText ? summaryId : undefined} onClick={() => onReject?.(proposal)} disabled={busy || !onReject} title={t('Decline this action. Nothing runs, and the captain is told it was rejected.')}>
             {t('Reject')}
           </button>
-          <button type="button" className="btn btn-sm btn-primary" aria-describedby={proposal.summaryText ? summaryId : undefined} onClick={() => onApprove?.(proposal)} disabled={busy || !onApprove}>
+          <button type="button" className="btn btn-sm btn-primary" aria-describedby={proposal.summaryText ? summaryId : undefined} onClick={() => onApprove?.(proposal)} disabled={busy || !onApprove} title={t('Run this action now with exactly the arguments shown. It may start real work such as missions or commands.')}>
             {busy ? t('Working...') : t('Approve')}
           </button>
         </div>
@@ -81,7 +93,7 @@ export default function AskConfirmCard({ proposal, onApprove, onReject, busy, co
           </span>
           {result && (
             <details className="ask-confirm-details">
-              <summary>{t('Result')}</summary>
+              <summary title={t('Show what the tool returned when it ran.')}>{t('Result')}</summary>
               <pre className="ask-confirm-pre">{result}</pre>
             </details>
           )}

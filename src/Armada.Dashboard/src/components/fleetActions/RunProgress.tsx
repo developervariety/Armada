@@ -24,7 +24,7 @@ export default function RunProgress({ run, compact = false }: RunProgressProps) 
   });
 
   return (
-    <div className={`run-progress${compact ? ' run-progress-compact' : ''}`}>
+    <div className={`run-progress${compact ? ' run-progress-compact' : ''}`} title={t('Vessels in this run by outcome: green succeeded, red failed or timed out, grey skipped (Armada declined to act, for example a dirty tree), and last the cancelled ones.')}>
       <div
         className="run-progress-bar"
         role="progressbar"

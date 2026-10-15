@@ -22,9 +22,9 @@ export default function WorkflowCommandPreview({ commands, emptyMessage }: Workf
       rows={commands.map((command, index) => ({ command, index }))}
       rowKey={({ command, index }) => `${command.checkType}-${command.environmentName || 'base'}-${index}`}
       columns={[
-        { key: 'checkType', label: t('Check Type'), required: true, cellClassName: 'cell-nowrap', render: ({ command }) => command.checkType },
-        { key: 'environment', label: t('Environment'), cellClassName: 'text-dim cell-nowrap', render: ({ command }) => command.environmentName || t('Base') },
-        { key: 'command', label: t('Command'), required: true, render: ({ command }) => <code className="workflow-command-preview-code">{command.command}</code> },
+        { key: 'checkType', label: t('Check Type'), required: true, headerTitle: t('The kind of check this command runs, such as Build, UnitTest, Lint or Deploy.'), cellClassName: 'cell-nowrap', render: ({ command }) => command.checkType },
+        { key: 'environment', label: t('Environment'), headerTitle: t('The environment this command applies to. Base is the default used when no environment-specific command is set.'), cellClassName: 'text-dim cell-nowrap', render: ({ command }) => command.environmentName || t('Base') },
+        { key: 'command', label: t('Command'), required: true, headerTitle: t('The exact shell command Armada will run for this check, after the profile\'s inheritance and environment overrides are resolved.'), render: ({ command }) => <code className="workflow-command-preview-code">{command.command}</code> },
       ]}
     />
   );

@@ -7,7 +7,7 @@ export default function DefaultCredentialsBanner() {
   const { t } = useLocale();
   if (!user?.defaultCredentialsInUse) return null;
   return (
-    <div className="default-credentials-banner" role="alert">
+    <div className="default-credentials-banner" role="alert" title={t('Only admins see this. It disappears once every admin@armada account has a new password, which also turns off the default bearer token.')}>
       <strong>{t('Default credentials are in use.')}</strong>{' '}
       {t('An admin@armada account still has the default password, or the default bearer token is active. Change the password (each tenant\'s admin@armada signs in and is prompted) before exposing this server beyond localhost.')}
     </div>

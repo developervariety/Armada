@@ -196,7 +196,7 @@ describe('VesselHealth page', () => {
     vi.mocked(enumerateVesselHealth).mockResolvedValue(page([failingRow]));
     vi.mocked(getVesselHealthSummary).mockResolvedValue(summary({ totalVessels: 3, fail: 1, warn: 1, pass: 1 }));
     renderPage('/vessels/health?page=3');
-    const failTile = await screen.findByTitle('Show vessels that fail');
+    const failTile = await screen.findByTitle('Vessels whose overall grade is Fail: at least one scored check needs attention. Click to show only them; click again to clear.');
     fireEvent.click(failTile);
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/vessels/health?overall=Fail'));
   });

@@ -86,7 +86,7 @@ export default function CliPermissionSettings({ permissions, locked, onSaved, no
       <fieldset disabled={locked} className="settings-fieldset">
         <div className="settings-grid">
           <div className="form-group">
-            <label htmlFor="cli-perm-ask-default">{t('Ask conversation default')}</label>
+            <label htmlFor="cli-perm-ask-default" title={t('Policy for Ask conversation turns when neither the conversation nor its captain sets one (default Approve in Armada). Narrations and summaries refuse instead of asking.')}>{t('Ask conversation default')}</label>
             <CliPermissionPolicySelect
               id="cli-perm-ask-default"
               value={draft.askDefaultPolicy}
@@ -95,11 +95,12 @@ export default function CliPermissionSettings({ permissions, locked, onSaved, no
               allowBypass
               disabled={locked}
               ariaDescribedBy="cli-perm-ask-default-help"
+              title={t('Policy for Ask conversation turns when neither the conversation nor its captain sets one (default Approve in Armada). Narrations and summaries refuse instead of asking.')}
             />
             <span id="cli-perm-ask-default-help" className="text-dim form-help">{t('Used by Ask conversation turns (default Approve in Armada). Narrations and summaries never ask; they refuse instead.')}</span>
           </div>
           <div className="form-group">
-            <label htmlFor="cli-perm-mission-default">{t('Mission default')}</label>
+            <label htmlFor="cli-perm-mission-default" title={t('Policy for missions when neither the vessel auto-approve option nor the captain sets one (default Bypass, the behavior before CLI permissions).')}>{t('Mission default')}</label>
             <CliPermissionPolicySelect
               id="cli-perm-mission-default"
               value={draft.missionDefaultPolicy}
@@ -108,11 +109,12 @@ export default function CliPermissionSettings({ permissions, locked, onSaved, no
               allowBypass
               disabled={locked}
               ariaDescribedBy="cli-perm-mission-default-help"
+              title={t('Policy for missions when neither the vessel auto-approve option nor the captain sets one (default Bypass, the behavior before CLI permissions).')}
             />
             <span id="cli-perm-mission-default-help" className="text-dim form-help">{t('Used by missions (default Bypass, the previous behavior). A vessel with auto-approve off caps missions at Refuse.')}</span>
           </div>
           <div className="form-group">
-            <label htmlFor="cli-perm-timeout">{t('Prompt timeout (seconds)')}</label>
+            <label htmlFor="cli-perm-timeout" title={t('Seconds a permission request waits for a decision before it expires and the call is denied (10-3600, default 600). Applies to new requests.')}>{t('Prompt timeout (seconds)')}</label>
             <input
               id="cli-perm-timeout"
               type="number"
@@ -122,6 +124,7 @@ export default function CliPermissionSettings({ permissions, locked, onSaved, no
               onChange={(e) => set('promptTimeoutSeconds', e.target.value)}
               aria-invalid={!timeoutValid}
               aria-describedby="cli-perm-timeout-help"
+              title={t('Seconds a permission request waits for a decision before it expires and the call is denied (10-3600, default 600). Applies to new requests.')}
             />
             <span id="cli-perm-timeout-help" className={timeoutValid ? 'text-dim form-help' : 'field-error'}>
               {timeoutValid
@@ -130,18 +133,18 @@ export default function CliPermissionSettings({ permissions, locked, onSaved, no
             </span>
           </div>
           <div className="form-group">
-            <label className="settings-checkbox">
-              <input type="checkbox" checked={draft.allowOwnerApproval} onChange={(e) => set('allowOwnerApproval', e.target.checked)} />
+            <label className="settings-checkbox" title={t('When on, the owner of a conversation or mission may allow once or deny its own requests. Admins can always decide; only admins can save rules.')}>
+              <input type="checkbox" title={t('When on, the owner of a conversation or mission may allow once or deny its own requests. Admins can always decide; only admins can save rules.')} checked={draft.allowOwnerApproval} onChange={(e) => set('allowOwnerApproval', e.target.checked)} />
               {' '}{t('Let owners approve their own requests')}
             </label>
             <span className="text-dim form-help">{t('When on, the owner of a conversation or mission may allow or deny its requests. Admins and tenant admins can always decide; only they can create rules.')}</span>
           </div>
         </div>
         <div className="settings-actions">
-          <button type="button" className="btn-primary btn-sm" onClick={() => void save()} disabled={!timeoutValid || saving || !dirty}>
+          <button type="button" className="btn-primary btn-sm" onClick={() => void save()} disabled={!timeoutValid || saving || !dirty} title={t('Save this section to the Admiral. It applies immediately; other sections are saved separately.')}>
             {saving ? t('Saving...') : t('Save CLI Tool Permissions')}
           </button>
-          {dirty && <button type="button" className="btn btn-sm" onClick={() => { setDirty(false); setDraft(toDraft(permissions)); }}>{t('Discard changes')}</button>}
+          {dirty && <button type="button" className="btn btn-sm" onClick={() => { setDirty(false); setDraft(toDraft(permissions)); }} title={t('Throw away the unsaved edits in this section and show the saved values again.')}>{t('Discard changes')}</button>}
           {dirty && <span className="text-dim">{t('Unsaved changes')}</span>}
         </div>
       </fieldset>

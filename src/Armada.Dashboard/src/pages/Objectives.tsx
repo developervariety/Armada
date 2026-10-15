@@ -282,16 +282,16 @@ export default function Objectives() {
   // column now; the less essential ones start hidden and the column chooser turns them on.
   const columns: DataTableColumn<Objective>[] = [
     {
-      key: 'rank', label: t('Rank'), interactive: true,
+      key: 'rank', label: t('Rank'), headerTitle: t('Position in the backlog. 1 is the top; lower numbers should be worked first. Use the arrows to move an item.'), interactive: true,
       render: (objective) => (
         <div className="backlog-rank-cell">
           <strong>{objective.rank}</strong>
           {canManage && (
             <div className="backlog-rank-buttons">
-              <button type="button" className="btn btn-sm" onClick={() => void handleMoveRank(objective.id, -1)} aria-label={t('Move backlog item up')}>
+              <button type="button" className="btn btn-sm" onClick={() => void handleMoveRank(objective.id, -1)} aria-label={t('Move backlog item up')} title={t('Move this item one place up the backlog (toward rank 1).')}>
                 {'\u2191'}
               </button>
-              <button type="button" className="btn btn-sm" onClick={() => void handleMoveRank(objective.id, 1)} aria-label={t('Move backlog item down')}>
+              <button type="button" className="btn btn-sm" onClick={() => void handleMoveRank(objective.id, 1)} aria-label={t('Move backlog item down')} title={t('Move this item one place down the backlog.')}>
                 {'\u2193'}
               </button>
             </div>
@@ -300,14 +300,14 @@ export default function Objectives() {
       ),
     },
     {
-      key: 'title', label: t('Backlog Item'), required: true,
+      key: 'title', label: t('Backlog Item'), required: true, headerTitle: t('Title of the backlog item. Hover a title to read its description; click the row for a summary.'),
       clearFilter: () => setColFilters(f => ({ ...f, title: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Backlog Item')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Backlog Item')} title={t('Show only backlog items whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
       cellTitle: (objective) => objective.description || undefined,
       render: (objective) => <strong>{objective.title}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique backlog item ID. Use it with the REST API, MCP tools and the armada CLI.'), cellClassName: 'mono text-dim table-id-cell',
       render: (objective) => (
         <span className="id-display">
           <span className="id-value" title={objective.id}>{objective.id}</span>
@@ -316,45 +316,45 @@ export default function Objectives() {
       ),
     },
     {
-      key: 'owner', label: t('Owner'), cellClassName: 'text-dim',
+      key: 'owner', label: t('Owner'), headerTitle: t('Person responsible for the item. Free text; it does not have to be an Armada user.'), cellClassName: 'text-dim',
       render: (objective) => <span className="cell-one-line" title={objective.owner || undefined}>{objective.owner || t('No owner')}</span>,
     },
     {
-      key: 'category', label: t('Category'), defaultHidden: true, cellClassName: 'text-dim',
+      key: 'category', label: t('Category'), headerTitle: t('Free-text grouping for the item, such as an area of the product.'), defaultHidden: true, cellClassName: 'text-dim',
       render: (objective) => objective.category ? <span className="cell-one-line" title={objective.category}>{objective.category}</span> : '-',
     },
     {
-      key: 'targetVersion', label: t('Target Version'), defaultHidden: true, cellClassName: 'text-dim cell-nowrap',
+      key: 'targetVersion', label: t('Target Version'), headerTitle: t('Release the item is aimed at, for example 1.2.0.'), defaultHidden: true, cellClassName: 'text-dim cell-nowrap',
       render: (objective) => objective.targetVersion || '-',
     },
     {
-      key: 'description', label: t('Description'), defaultHidden: true, cellClassName: 'text-dim truncate-cell',
+      key: 'description', label: t('Description'), headerTitle: t('What the item is about. Hover a cell to read all of it.'), defaultHidden: true, cellClassName: 'text-dim truncate-cell',
       render: (objective) => objective.description ? <span className="truncate-text" title={objective.description}>{objective.description}</span> : '-',
     },
     {
-      key: 'shape', label: t('Shape'), cellClassName: 'cell-nowrap',
+      key: 'shape', label: t('Shape'), headerTitle: t('Kind of work, priority band (P0 is most urgent) and effort size (XS to XL).'), cellClassName: 'cell-nowrap',
       render: (objective) => (
         <div className="backlog-chip-row">
-          <span className={`tag ${objective.kind.toLowerCase()}`}>{objective.kind}</span>
-          <span className={`tag ${objective.priority.toLowerCase()}`}>{objective.priority}</span>
-          <span className={`tag ${objective.effort.toLowerCase()}`}>{objective.effort}</span>
+          <span className={`tag ${objective.kind.toLowerCase()}`} title={t('Kind of work: Feature, Bug, Refactor, Research, Chore or Initiative.')}>{objective.kind}</span>
+          <span className={`tag ${objective.priority.toLowerCase()}`} title={t('Priority band. P0 is the most urgent, P3 the least.')}>{objective.priority}</span>
+          <span className={`tag ${objective.effort.toLowerCase()}`} title={t('Rough effort estimate, from XS (tiny) to XL (very large).')}>{objective.effort}</span>
         </div>
       ),
     },
     {
-      key: 'state', label: t('State'), cellClassName: 'cell-nowrap',
+      key: 'state', label: t('State'), headerTitle: t('Lifecycle status (Draft through Completed), backlog stage (Inbox through Dispatched), and how many other items block it.'), cellClassName: 'cell-nowrap',
       render: (objective) => (
         <div className="backlog-chip-row">
-          <StatusBadge status={objective.status} />
-          <span className={`tag ${objective.backlogState.toLowerCase()}`}>{objective.backlogState}</span>
+          <span title={t('Lifecycle status: Draft, Scoped, Planned, InProgress, Released, Deployed, Completed, Blocked or Cancelled.')}><StatusBadge status={objective.status} /></span>
+          <span className={`tag ${objective.backlogState.toLowerCase()}`} title={t('Backlog stage before dispatch: Inbox, Triaged, Refining, ReadyForPlanning, ReadyForDispatch, then Dispatched.')}>{objective.backlogState}</span>
           {objective.blockedByObjectiveIds.length > 0 && (
-            <span className="text-dim">{t('Blocked by')} {objective.blockedByObjectiveIds.length}</span>
+            <span className="text-dim" title={t('Number of other backlog items that must be finished before this one can proceed.')}>{t('Blocked by')} {objective.blockedByObjectiveIds.length}</span>
           )}
         </div>
       ),
     },
     {
-      key: 'vessels', label: t('Vessels'), cellClassName: 'text-dim',
+      key: 'vessels', label: t('Vessels'), headerTitle: t('Repositories this item touches. A vessel is needed before planning, dispatch or release drafting.'), cellClassName: 'text-dim',
       render: (objective) => {
         if (objective.vesselIds.length > 0) {
           const names = renderNames(objective.vesselIds, vesselMap);
@@ -365,35 +365,35 @@ export default function Objectives() {
       },
     },
     {
-      key: 'fleets', label: t('Fleets'), cellClassName: 'text-dim',
+      key: 'fleets', label: t('Fleets'), headerTitle: t('Fleets (groups of repositories) this item is linked to.'), cellClassName: 'text-dim',
       render: (objective) => {
         const names = objective.fleetIds.length > 0 ? renderNames(objective.fleetIds, fleetMap) : t('No fleet linked');
         return <span className="cell-one-line" title={names}>{names}</span>;
       },
     },
     {
-      key: 'due', label: t('Due'), cellClassName: 'text-dim cell-nowrap',
+      key: 'due', label: t('Due'), headerTitle: t('Target date for the item. Hover a cell for the exact date and time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (objective) => (objective.dueUtc ? formatDateTime(objective.dueUtc) : undefined),
       render: (objective) => (objective.dueUtc ? formatRelativeTime(objective.dueUtc) : t('No due date')),
     },
     {
-      key: 'lastUpdated', label: t('Last Updated'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastUpdated', label: t('Last Updated'), headerTitle: t('When the item was last changed.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (objective) => formatDateTime(objective.lastUpdateUtc),
       render: (objective) => formatRelativeTime(objective.lastUpdateUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open, duplicate, reorder, view JSON or delete a backlog item.'), fixed: true, interactive: true, className: 'text-right',
       render: (objective) => (
         <ActionMenu
           id={`backlog-${objective.id}`}
           items={[
-            { label: 'Open', onClick: () => navigate(`/backlog/${objective.id}`) },
-            ...(canManage ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(objective) }] : []),
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: objective.title, data: objective }) },
+            { label: 'Open', title: 'Open the backlog item to edit it, refine it with a captain, plan or dispatch it.', onClick: () => navigate(`/backlog/${objective.id}`) },
+            ...(canManage ? [{ label: 'Duplicate', title: 'Create a copy of this item with the same details and open the copy.', onClick: () => void handleDuplicate(objective) }] : []),
+            { label: 'View JSON', title: 'Show the raw backlog item record as the API returns it.', onClick: () => setJsonData({ open: true, title: objective.title, data: objective }) },
             ...(canManage ? [
-              { label: 'Move Up', onClick: () => void handleMoveRank(objective.id, -1) },
-              { label: 'Move Down', onClick: () => void handleMoveRank(objective.id, 1) },
-              { label: 'Delete', danger: true as const, onClick: () => handleDelete(objective) },
+              { label: 'Move Up', title: 'Move this item one place up the backlog (toward rank 1).', onClick: () => void handleMoveRank(objective.id, -1) },
+              { label: 'Move Down', title: 'Move this item one place down the backlog.', onClick: () => void handleMoveRank(objective.id, 1) },
+              { label: 'Delete', danger: true as const, title: 'Delete this backlog item and its history. Linked missions, releases, deployments and incidents are kept. You confirm first.', onClick: () => handleDelete(objective) },
             ] : []),
           ]}
         />
@@ -410,12 +410,12 @@ export default function Objectives() {
           <>
             <UserScopeFilter value={userScope} onChange={setUserScope} />
             {canManage && (
-              <button className="btn" onClick={() => setImportModalOpen(true)}>
+              <button className="btn" onClick={() => setImportModalOpen(true)} title={t('Create a backlog item from a GitHub issue or pull request, copying its title and body.')}>
                 {t('Import GitHub')}
               </button>
             )}
             {canManage && (
-              <button className="btn btn-primary" onClick={() => navigate(createBacklogRoute)}>
+              <button className="btn btn-primary" onClick={() => navigate(createBacklogRoute)} title={t('Capture a new piece of future work. It starts in the Inbox stage.')}>
                 + {t('Backlog Item')}
               </button>
             )}
@@ -454,8 +454,8 @@ export default function Objectives() {
               {t('Create a backlog item from a GitHub issue or pull request using the selected vessel repository and configured GitHub token.')}
             </p>
             <label style={{ marginTop: '0.9rem', display: 'grid', gap: '0.35rem' }}>
-              <span>{t('Vessel')}</span>
-              <select value={importVesselId} onChange={(event) => setImportVesselId(event.target.value)}>
+              <span title={t('Vessel whose GitHub repository holds the issue or pull request. Its GitHub token (or the server\'s) is used to read it. Required.')}>{t('Vessel')}</span>
+              <select title={t('Vessel whose GitHub repository holds the issue or pull request. Its GitHub token (or the server\'s) is used to read it. Required.')} value={importVesselId} onChange={(event) => setImportVesselId(event.target.value)}>
                 <option value="">{t('Select a vessel')}</option>
                 {vessels.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
@@ -463,15 +463,16 @@ export default function Objectives() {
               </select>
             </label>
             <label style={{ marginTop: '0.9rem', display: 'grid', gap: '0.35rem' }}>
-              <span>{t('Source Type')}</span>
-              <select value={importSourceType} onChange={(event) => setImportSourceType(event.target.value as GitHubObjectiveSourceType)}>
+              <span title={t('Whether the number below refers to a GitHub issue or a pull request in that repository.')}>{t('Source Type')}</span>
+              <select title={t('Whether the number below refers to a GitHub issue or a pull request in that repository.')} value={importSourceType} onChange={(event) => setImportSourceType(event.target.value as GitHubObjectiveSourceType)}>
                 <option value="Issue">{t('Issue')}</option>
                 <option value="PullRequest">{t('Pull Request')}</option>
               </select>
             </label>
             <label style={{ marginTop: '0.9rem', display: 'grid', gap: '0.35rem' }}>
-              <span>{t('Number')}</span>
+              <span title={t('The issue or pull request number as shown on GitHub, without the #. Example: 123.')}>{t('Number')}</span>
               <input
+                title={t('The issue or pull request number as shown on GitHub, without the #. Example: 123.')}
                 type="number"
                 min={1}
                 step={1}
@@ -481,10 +482,10 @@ export default function Objectives() {
               />
             </label>
             <div className="modal-actions">
-              <button className="btn btn-primary" disabled={importSaving} onClick={() => void handleImportFromGitHub()}>
+              <button className="btn btn-primary" disabled={importSaving} onClick={() => void handleImportFromGitHub()} title={t('Read the issue or pull request from GitHub and create a backlog item from it, then open the new item.')}>
                 {importSaving ? t('Importing...') : t('Import')}
               </button>
-              <button className="btn" disabled={importSaving} onClick={() => setImportModalOpen(false)}>
+              <button className="btn" disabled={importSaving} onClick={() => setImportModalOpen(false)} title={t('Close without importing anything.')}>
                 {t('Cancel')}
               </button>
             </div>
@@ -494,19 +495,19 @@ export default function Objectives() {
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">
-          <span>{t('Backlog Items')}</span>
+          <span title={t('Total backlog items loaded, before the filters below are applied.')}>{t('Backlog Items')}</span>
           <strong>{objectives.length}</strong>
         </div>
         <div className="card playbook-overview-card">
-          <span>{t('Ready For Planning')}</span>
+          <span title={t('Items in the ReadyForPlanning stage: scoped well enough to start a planning session.')}>{t('Ready For Planning')}</span>
           <strong>{planningReadyCount}</strong>
         </div>
         <div className="card playbook-overview-card">
-          <span>{t('Ready For Dispatch')}</span>
+          <span title={t('Items in the ReadyForDispatch stage: planned and ready to send to captains.')}>{t('Ready For Dispatch')}</span>
           <strong>{dispatchReadyCount}</strong>
         </div>
         <div className="card playbook-overview-card">
-          <span>{t('Blocked')}</span>
+          <span title={t('Items whose status is Blocked or that are waiting on other backlog items.')}>{t('Blocked')}</span>
           <strong>{blockedCount}</strong>
         </div>
       </div>
@@ -524,45 +525,46 @@ export default function Objectives() {
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
+            title={t('Show only items whose title, description, owner, category, captain, tags or ID contain this text.')}
             placeholder={t('Search by title, description, owner, category, captain, tags, or ID...')}
           />
-          <select aria-label={t('All kinds')} value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}>
+          <select aria-label={t('All kinds')} title={t('Show only one kind of work, such as Bug or Feature.')} value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}>
             <option value="all">{t('All kinds')}</option>
             {OBJECTIVE_KINDS.map((kind) => (
               <option key={kind} value={kind}>{kind}</option>
             ))}
           </select>
-          <select aria-label={t('All priorities')} value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as typeof priorityFilter)}>
+          <select aria-label={t('All priorities')} title={t('Show only one priority band. P0 is the most urgent.')} value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as typeof priorityFilter)}>
             <option value="all">{t('All priorities')}</option>
             {OBJECTIVE_PRIORITIES.map((priority) => (
               <option key={priority} value={priority}>{priority}</option>
             ))}
           </select>
-          <select aria-label={t('All backlog states')} value={backlogStateFilter} onChange={(event) => setBacklogStateFilter(event.target.value as typeof backlogStateFilter)}>
+          <select aria-label={t('All backlog states')} title={t('Show only items in one backlog stage, from Inbox to Dispatched.')} value={backlogStateFilter} onChange={(event) => setBacklogStateFilter(event.target.value as typeof backlogStateFilter)}>
             <option value="all">{t('All backlog states')}</option>
             {OBJECTIVE_BACKLOG_STATES.map((state) => (
               <option key={state} value={state}>{state}</option>
             ))}
           </select>
-          <select aria-label={t('All effort sizes')} value={effortFilter} onChange={(event) => setEffortFilter(event.target.value as typeof effortFilter)}>
+          <select aria-label={t('All effort sizes')} title={t('Show only items with one effort estimate, from XS to XL.')} value={effortFilter} onChange={(event) => setEffortFilter(event.target.value as typeof effortFilter)}>
             <option value="all">{t('All effort sizes')}</option>
             {OBJECTIVE_EFFORTS.map((effort) => (
               <option key={effort} value={effort}>{effort}</option>
             ))}
           </select>
-          <select aria-label={t('All lifecycle statuses')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+          <select aria-label={t('All lifecycle statuses')} title={t('Show only items in one lifecycle status, from Draft to Completed.')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
             <option value="all">{t('All lifecycle statuses')}</option>
             {OBJECTIVE_STATUSES.map((status) => (
               <option key={status} value={status}>{status}</option>
             ))}
           </select>
-          <select aria-label={t('All fleets')} value={fleetFilter} onChange={(event) => setFleetFilter(event.target.value)}>
+          <select aria-label={t('All fleets')} title={t('Show only items linked to this fleet.')} value={fleetFilter} onChange={(event) => setFleetFilter(event.target.value)}>
             <option value="all">{t('All fleets')}</option>
             {fleets.map((fleet) => (
               <option key={fleet.id} value={fleet.id}>{fleet.name}</option>
             ))}
           </select>
-          <select aria-label={t('All vessels')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
+          <select aria-label={t('All vessels')} title={t('Show only items linked to this vessel. New items you create start linked to it.')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
             <option value="all">{t('All vessels')}</option>
             {vessels.map((vessel) => (
               <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
@@ -572,15 +574,17 @@ export default function Objectives() {
             type="text"
             value={ownerFilter}
             onChange={(event) => setOwnerFilter(event.target.value)}
+            title={t('Show only items whose owner contains this text.')}
             placeholder={t('Owner filter')}
           />
           <input
             type="text"
             value={targetVersionFilter}
             onChange={(event) => setTargetVersionFilter(event.target.value)}
+            title={t('Show only items whose target version contains this text, for example 1.2.')}
             placeholder={t('Target version filter')}
           />
-          <select aria-label={t('Sort by rank')} value={sortBy} onChange={(event) => setSortBy(event.target.value as BacklogSortKey)}>
+          <select aria-label={t('Sort by rank')} title={t('Order the list by backlog rank, priority band, last update or due date.')} value={sortBy} onChange={(event) => setSortBy(event.target.value as BacklogSortKey)}>
             <option value="rank">{t('Sort by rank')}</option>
             <option value="priority">{t('Sort by priority')}</option>
             <option value="updated">{t('Sort by last updated')}</option>
@@ -593,7 +597,7 @@ export default function Objectives() {
           </span>
           <div className="backlog-filter-actions">
             {hasActiveFilters && (
-              <button type="button" className="btn btn-sm" onClick={clearFilters}>
+              <button type="button" className="btn btn-sm" onClick={clearFilters} title={t('Reset every filter and the search box so all backlog items show.')}>
                 {t('Clear Filters')}
               </button>
             )}
@@ -609,7 +613,7 @@ export default function Objectives() {
         onRowClick={(objective) => setViewRecord(objective as unknown as Record<string, unknown>)}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle="Refresh backlog"
+        refreshTitle="Reload the backlog from the server now."
         emptyMessage={(
           <div className="playbook-empty-state">
             <strong>{t('No backlog items match the current filters.')}</strong>
@@ -620,7 +624,7 @@ export default function Objectives() {
             </span>
             {hasActiveFilters && (
               <div className="backlog-empty-actions">
-                <button type="button" className="btn btn-sm" onClick={clearFilters}>
+                <button type="button" className="btn btn-sm" onClick={clearFilters} title={t('Reset every filter and the search box so all backlog items show.')}>
                   {t('Reset Filters')}
                 </button>
               </div>

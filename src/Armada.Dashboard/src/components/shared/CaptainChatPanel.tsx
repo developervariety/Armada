@@ -53,6 +53,8 @@ interface CaptainChatPanelProps {
   onClear?: () => void;
   /** Disables the clear button (e.g. while busy or when there is nothing to clear). */
   clearDisabled?: boolean;
+  /** English hover text for the clear button saying what clearing does on this surface (translated here). */
+  clearTitle?: string;
 }
 
 /**
@@ -82,6 +84,7 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
     notice,
     onClear,
     clearDisabled,
+    clearTitle,
     toolRuntimeLabel,
   } = props;
 
@@ -177,6 +180,7 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
                   argumentsLabel={t('Arguments')}
                   resultLabel={t('Result')}
                   noDetailsLabel={t('No details available.')}
+                  t={t}
                 />
               )}
               <div
@@ -222,15 +226,17 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
           placeholder={inputPlaceholder ?? t('Message the captain...')}
+          aria-label={t('Message')}
+          title={inputDisabled && !busy ? t('This conversation is not accepting messages right now.') : t('Your next message to the captain. Press Enter or Send to send it.')}
           style={{ flex: 1 }}
           disabled={busy || inputDisabled}
         />
         {busy && onStop ? (
-          <button type="button" className="btn" onClick={onStop} disabled={canStop === false}>
+          <button type="button" className="btn" onClick={onStop} disabled={canStop === false} title={t('Stop the reply the captain is writing now. The conversation stays open for your next message.')}>
             {t('Stop')}
           </button>
         ) : (
-          <button type="submit" className="btn btn-primary" disabled={!canSend}>
+          <button type="submit" className="btn btn-primary" disabled={!canSend} title={canSend ? t('Send your message to the captain.') : t('Type a message first. Sending is also blocked while a reply is in progress.')}>
             {t('Send')}
           </button>
         )}
@@ -240,7 +246,7 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
             className="icon-btn icon-btn-delete"
             onClick={onClear}
             disabled={clearDisabled}
-            title={t('Clear conversation')}
+            title={clearTitle ? t(clearTitle) : t('Clear conversation')}
             aria-label={t('Clear conversation')}
           />
         )}

@@ -37,7 +37,7 @@ describe('CommitHeatmap', () => {
     expect(screen.getByTestId('heatmap-months').textContent).toBe('JanFebMar');
     expect(screen.getByText('19 commits in the last year')).toBeInTheDocument();
     expect(screen.getByRole('gridcell', { name: '8 commits on Mon, Mar 2, 2026' })).toBeInTheDocument();
-    expect(screen.getByRole('gridcell', { name: '1 commit on Mon, Jan 5, 2026' })).toHaveAttribute('title', '1 commit on Mon, Jan 5, 2026');
+    expect(screen.getByRole('gridcell', { name: '1 commit on Mon, Jan 5, 2026' })).toHaveAttribute('title', "1 commit on Mon, Jan 5, 2026. Click to list that day's commits.");
     expect(screen.getAllByRole('row')).toHaveLength(7);
   });
 

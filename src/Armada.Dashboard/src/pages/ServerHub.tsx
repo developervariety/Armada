@@ -23,11 +23,11 @@ export default function ServerHub() {
   const admin = isAdmin || isTenantAdmin;
 
   const tabs: TabDef[] = [
-    { key: 'server', label: 'Server', render: () => panel(<Server />) },
-    { key: 'diagnostics', label: 'Diagnostics', render: () => panel(<Doctor />) },
-    { key: 'tenants', label: 'Tenants', hidden: !isAdmin, render: () => panel(<Tenants />) },
-    { key: 'users', label: 'Users', hidden: !admin, render: () => panel(<Users />) },
-    { key: 'credentials', label: 'Credentials', hidden: !admin, render: () => panel(<Credentials />) },
+    { key: 'server', label: 'Server', tooltip: 'Server settings, version, health, backups, and stopping the Admiral.', render: () => panel(<Server />) },
+    { key: 'diagnostics', label: 'Diagnostics', tooltip: 'Checks that find configuration and connectivity problems, with how to fix each one.', render: () => panel(<Doctor />) },
+    { key: 'tenants', label: 'Tenants', tooltip: 'Organizations on this server. Each tenant\'s data is kept separate from the others.', hidden: !isAdmin, render: () => panel(<Tenants />) },
+    { key: 'users', label: 'Users', tooltip: 'People who can sign in, their tenant, and whether they are an admin.', hidden: !admin, render: () => panel(<Users />) },
+    { key: 'credentials', label: 'Credentials', tooltip: 'API keys and tokens people and tools use to call the REST API and MCP server.', hidden: !admin, render: () => panel(<Credentials />) },
   ];
 
   return <Tabs tabs={tabs} defaultTabKey="server" ariaLabel="Settings sections" />;

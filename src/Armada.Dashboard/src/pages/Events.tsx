@@ -167,13 +167,13 @@ export default function Events() {
   }
 
   function colFilterInput(key: 'eventType' | 'entityType' | 'message', label: string) {
-    return <input type="text" className="col-filter" aria-label={label} value={colFilters[key]} onChange={e => setColFilters(f => ({ ...f, [key]: e.target.value }))} placeholder={t('Filter...')} />;
+    return <input type="text" className="col-filter" aria-label={label} title={t('Show only events on this page whose {{column}} contains this text.', { column: label })} value={colFilters[key]} onChange={e => setColFilters(f => ({ ...f, [key]: e.target.value }))} placeholder={t('Filter...')} />;
   }
 
   // Mission and Voyage repeat what Entity ID usually already links to, so they start hidden (column chooser).
   const columns: DataTableColumn<ArmadaEvent>[] = [
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique event ID (evt_ prefix).'), cellClassName: 'mono text-dim table-id-cell',
       render: (evt) => (
         <span className="id-display">
           <span className="id-value" title={evt.id}>{evt.id}</span>
@@ -182,17 +182,17 @@ export default function Events() {
       ),
     },
     {
-      key: 'eventType', label: t('Event Type'), sortKey: 'eventType', headerTitle: t('Event type -- click to sort'),
+      key: 'eventType', label: t('Event Type'), sortKey: 'eventType', headerTitle: t('What happened, as a dotted name such as mission.completed or mission.failed. Click to sort.'),
       clearFilter: () => setColFilters(f => ({ ...f, eventType: '' })), filter: colFilterInput('eventType', t('Event Type')),
       render: (evt) => <span className="cell-clip" title={evt.eventType}><span>{evt.eventType}</span></span>,
     },
     {
-      key: 'entityType', label: t('Entity Type'), sortKey: 'entityType', headerTitle: t('Entity type -- click to sort'), cellClassName: 'text-dim',
+      key: 'entityType', label: t('Entity Type'), sortKey: 'entityType', headerTitle: t('Kind of record the event is about, such as mission, captain or voyage. Click to sort.'), cellClassName: 'text-dim',
       clearFilter: () => setColFilters(f => ({ ...f, entityType: '' })), filter: colFilterInput('entityType', t('Entity Type')),
       render: (evt) => evt.entityType || '-',
     },
     {
-      key: 'entityId', label: t('Entity ID'), cellClassName: 'mono text-dim table-id-cell', interactive: true,
+      key: 'entityId', label: t('Entity ID'), headerTitle: t('ID of the record the event is about. Click it to open that record.'), cellClassName: 'mono text-dim table-id-cell', interactive: true,
       render: (evt) => {
         if (!evt.entityId) return '-';
         const entRoute = entityRoute(evt.entityType, evt.entityId);
@@ -209,38 +209,38 @@ export default function Events() {
       },
     },
     {
-      key: 'captain', label: t('Captain'), interactive: true,
+      key: 'captain', label: t('Captain'), headerTitle: t('Captain involved in the event, if any.'), interactive: true,
       render: (evt) => evt.captainId ? <a href="#" onClick={e => { e.preventDefault(); navigate(`/captains/${evt.captainId}`); }}>{captainName(evt.captainId)}</a> : '-',
     },
     {
-      key: 'mission', label: t('Mission'), defaultHidden: true, cellClassName: 'mono text-dim', interactive: true,
+      key: 'mission', label: t('Mission'), headerTitle: t('Mission involved in the event, if any.'), defaultHidden: true, cellClassName: 'mono text-dim', interactive: true,
       render: (evt) => evt.missionId ? <span className="cell-clip"><a href="#" title={evt.missionId} onClick={e => { e.preventDefault(); navigate(`/missions/${evt.missionId}`); }}>{evt.missionId}</a></span> : '-',
     },
     {
-      key: 'vessel', label: t('Vessel'), interactive: true,
+      key: 'vessel', label: t('Vessel'), headerTitle: t('Repository involved in the event, if any.'), interactive: true,
       render: (evt) => evt.vesselId ? <a href="#" onClick={e => { e.preventDefault(); navigate(`/vessels/${evt.vesselId}`); }}>{vesselName(evt.vesselId)}</a> : '-',
     },
     {
-      key: 'voyage', label: t('Voyage'), defaultHidden: true, cellClassName: 'mono text-dim', interactive: true,
+      key: 'voyage', label: t('Voyage'), headerTitle: t('Voyage involved in the event, if any.'), defaultHidden: true, cellClassName: 'mono text-dim', interactive: true,
       render: (evt) => evt.voyageId ? <span className="cell-clip"><a href="#" title={evt.voyageId} onClick={e => { e.preventDefault(); navigate(`/voyages/${evt.voyageId}`); }}>{evt.voyageId}</a></span> : '-',
     },
     {
-      key: 'message', label: t('Message'), cellClassName: 'truncate-cell', cellTitle: (evt) => evt.message ?? undefined,
+      key: 'message', label: t('Message'), headerTitle: t('Plain-language description of the event. Hover a cell to read all of it.'), cellClassName: 'truncate-cell', cellTitle: (evt) => evt.message ?? undefined,
       clearFilter: () => setColFilters(f => ({ ...f, message: '' })), filter: colFilterInput('message', t('Message')),
       render: (evt) => <span className="truncate-text">{evt.message}</span>,
     },
     {
-      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('Created -- click to sort'),
+      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('When the event happened. Hover a cell for the exact time. Click to sort.'),
       cellClassName: 'text-dim cell-nowrap', cellTitle: (evt) => formatDateTime(evt.createdUtc),
       render: (evt) => formatRelativeTime(evt.createdUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open, view JSON or delete an event.'), fixed: true, interactive: true, className: 'text-right',
       render: (evt) => (
         <ActionMenu id={`event-${evt.id}`} items={[
-          { label: 'View Detail', onClick: () => navigate(`/events/${evt.id}`) },
-          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Event')}: ${evt.id}`, data: evt }) },
-          { label: 'Delete', danger: true, onClick: () => handleDeleteSingle(evt.id) },
+          { label: 'View Detail', title: 'Open the event page with its full message, payload and linked records.', onClick: () => navigate(`/events/${evt.id}`) },
+          { label: 'View JSON', title: 'Show the raw event record as the API returns it.', onClick: () => setJsonData({ open: true, title: `${t('Event')}: ${evt.id}`, data: evt }) },
+          { label: 'Delete', danger: true, title: 'Permanently delete this event from the log. You confirm first.', onClick: () => handleDeleteSingle(evt.id) },
         ]} />
       ),
     },
@@ -255,7 +255,7 @@ export default function Events() {
           <>
             <UserScopeFilter value={userScope} onChange={(id) => { setUserScope(id); setPageNumber(1); }} />
             {selected.length > 0 && (
-              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} title={t('Permanently delete the selected events from the log. You confirm first.')}>
                 {t('Delete Selected')} ({selected.length})
               </button>
             )}
@@ -292,14 +292,14 @@ export default function Events() {
         }}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle={t('Refresh event data')}
+        refreshTitle={t('Reload the event log from the server now.')}
         selection={{
           isSelected: (evt) => selected.includes(evt.id),
           onToggle: (evt) => toggleSelect(evt.id),
           allSelected,
           onToggleAll: (checked) => (checked ? selectAll() : clearSelection()),
           selectAllLabel: t('Select all events'),
-          rowLabel: () => t('Select this event'),
+          rowLabel: () => t('Select this event for Delete Selected.'),
         }}
         className="table-dense"
         emptyMessage={t('No events match the current filters.')}

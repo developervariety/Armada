@@ -284,13 +284,13 @@ export default function Missions() {
 
   const columns: DataTableColumn<MissionSummary>[] = [
     {
-      key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Mission title -- click to sort'),
+      key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Short name of the mission, written by whoever created it. Click to sort.'),
       cellClassName: 'cell-title', cellTitle: (m) => m.title,
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Search...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only missions on this page whose title contains this text. Not case sensitive.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Search...')} />,
       render: (m) => <strong className="line-clamp-2">{m.title}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique mission ID (msn_ prefix). Use it with the REST API, MCP tools and the armada CLI.'), cellClassName: 'mono text-dim table-id-cell',
       render: (m) => (
         <span className="id-display">
           <span className="id-value" title={m.id}>{m.id}</span>
@@ -299,55 +299,55 @@ export default function Missions() {
       ),
     },
     {
-      key: 'status', label: t('Status'), sortKey: 'status', headerTitle: t('Status -- click to sort'), cellClassName: 'cell-nowrap',
+      key: 'status', label: t('Status'), sortKey: 'status', headerTitle: t('Lifecycle state: Pending waits for a captain, InProgress is running, WorkProduced awaits landing, then Complete, Failed or Cancelled. Click to sort.'), cellClassName: 'cell-nowrap',
       clearFilter: () => setColFilters(f => ({ ...f, status: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by status')} value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder={t('Search...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by status')} title={t('Show only missions on this page whose status contains this text, for example Failed.')} value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder={t('Search...')} />,
       render: (m) => <StatusBadge status={m.status} />,
     },
-    { key: 'priority', label: t('Priority'), sortKey: 'priority', headerTitle: t('Priority -- click to sort'), render: (m) => m.priority },
+    { key: 'priority', label: t('Priority'), sortKey: 'priority', headerTitle: t('Dispatch order. Lower numbers are assigned to a captain first; the default is 100. Click to sort.'), render: (m) => m.priority },
     {
-      key: 'vessel', label: t('Vessel'), interactive: true,
+      key: 'vessel', label: t('Vessel'), headerTitle: t('Repository the mission works in. Click a name to open that vessel.'), interactive: true,
       render: (m) => m.vesselId ? (
         <a href="#" onClick={e => { e.preventDefault(); navigate(`/vessels/${m.vesselId}`); }}>{vesselName(m.vesselId)}</a>
       ) : '-',
     },
     {
-      key: 'captain', label: t('Captain'), interactive: true,
+      key: 'captain', label: t('Captain'), headerTitle: t('Agent that ran or is running the mission. Shows - until dispatch assigns one.'), interactive: true,
       render: (m) => m.captainId ? (
         <a href="#" onClick={e => { e.preventDefault(); navigate(`/captains/${m.captainId}`); }}>{captainName(m.captainId)}</a>
       ) : '-',
     },
     {
-      key: 'voyage', label: t('Voyage'), interactive: true,
+      key: 'voyage', label: t('Voyage'), headerTitle: t('Voyage (batch of related missions) this mission belongs to. Shows - for a standalone mission.'), interactive: true,
       render: (m) => m.voyageId ? (
         <span className="cell-clip mono"><a href="#" title={m.voyageId} onClick={e => { e.preventDefault(); navigate(`/voyages/${m.voyageId}`); }}>{m.voyageId}</a></span>
       ) : '-',
     },
     {
-      key: 'branch', label: t('Branch'), cellClassName: 'mono text-dim table-url-cell', cellTitle: (m) => m.branchName || '',
+      key: 'branch', label: t('Branch'), headerTitle: t('Git branch that holds the mission\'s commits. Its work lands from this branch by merge, pull request or push.'), cellClassName: 'mono text-dim table-url-cell', cellTitle: (m) => m.branchName || '',
       clearFilter: () => setColFilters(f => ({ ...f, branch: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by branch')} value={colFilters.branch} onChange={e => setColFilters(f => ({ ...f, branch: e.target.value }))} placeholder={t('Search...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by branch')} title={t('Show only missions on this page whose branch name contains this text.')} value={colFilters.branch} onChange={e => setColFilters(f => ({ ...f, branch: e.target.value }))} placeholder={t('Search...')} />,
       render: (m) => m.branchName ? (
         <span className="id-display">
           <span className="url-value">{m.branchName}</span>
-          <CopyButton text={m.branchName} onClick={e => e.stopPropagation()} title="Copy branch" />
+          <CopyButton text={m.branchName} onClick={e => e.stopPropagation()} title="Copy the branch name to the clipboard" />
         </span>
       ) : '-',
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open, restart, retry landing, view the diff or log, change status, cancel or purge a mission.'), fixed: true, interactive: true, className: 'text-right',
       render: (m) => (
         <ActionMenu id={`mission-${m.id}`} items={[
-          { label: 'View Detail', onClick: () => navigate(`/missions/${m.id}`) },
-          { label: 'Edit', onClick: () => navigate(`/missions/${m.id}`) },
-          { label: 'Restart', onClick: () => handleRestart(m) },
-          ...(canRetryLanding(m.status) ? [{ label: 'Retry Landing', onClick: () => handleRetryLanding(m) }] : []),
-          { label: 'View Diff', onClick: () => handleViewDiff(m.id) },
-          { label: 'View Log', onClick: () => handleViewLog(m.id, `${t('Log')}: ${m.title}`) },
-          { label: 'Transition Status', onClick: () => { setTransitionModal({ missionId: m.id, currentStatus: m.status }); setTransitionTarget(''); } },
-          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Mission')}: ${m.title}`, data: m }) },
-          { label: 'Cancel', danger: true, onClick: () => handleDelete(m.id, m.title) },
-          { label: 'Purge (permanent)', danger: true, onClick: () => handlePurge(m.id, m.title) },
+          { label: 'View Detail', title: 'Open the mission page with its description, captain activity, diff and log.', onClick: () => navigate(`/missions/${m.id}`) },
+          { label: 'Edit', title: 'Open the mission page, where Edit changes its title, description and priority.', onClick: () => navigate(`/missions/${m.id}`) },
+          { label: 'Restart', title: 'Reset a Failed or Cancelled mission to Pending so it is dispatched again. Clears its captain, branch, pull request and timing.', onClick: () => handleRestart(m) },
+          ...(canRetryLanding(m.status) ? [{ label: 'Retry Landing', title: 'Rebase the mission branch onto the current target branch and try to merge, push or open the pull request again.', onClick: () => handleRetryLanding(m) }] : []),
+          { label: 'View Diff', title: 'Show the code changes the mission made, from its live worktree or the snapshot saved at completion.', onClick: () => handleViewDiff(m.id) },
+          { label: 'View Log', title: 'Show the last lines of the captain\'s output for this mission.', onClick: () => handleViewLog(m.id, `${t('Log')}: ${m.title}`) },
+          { label: 'Transition Status', title: 'Move the mission to another status by hand, such as InProgress to Failed. Only valid moves are accepted. Use it to correct a stuck mission.', onClick: () => { setTransitionModal({ missionId: m.id, currentStatus: m.status }); setTransitionTarget(''); } },
+          { label: 'View JSON', title: 'Show the raw mission record as the API returns it.', onClick: () => setJsonData({ open: true, title: `${t('Mission')}: ${m.title}`, data: m }) },
+          { label: 'Cancel', danger: true, title: 'Mark the mission Cancelled. The record is kept and can be restarted later; use Purge to delete it.', onClick: () => handleDelete(m.id, m.title) },
+          { label: 'Purge (permanent)', danger: true, title: 'Permanently delete the mission and clean up its resources. This cannot be undone.', onClick: () => handlePurge(m.id, m.title) },
         ]} />
       ),
     },
@@ -360,7 +360,7 @@ export default function Missions() {
         subtitle={t('Individual work units assigned to captains')}
         actions={(
           <>
-            <select aria-label={t('Filter by status')} className="filter-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPageNumber(1); }} title={t('Filter by status')}>
+            <select aria-label={t('Filter by status')} className="filter-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPageNumber(1); }} title={t('Show only missions in this status. Filters on the server across every page.')}>
               <option value="">{t('All Statuses')}</option>
               {MISSION_STATUSES.map(s => <option key={s} value={s}>{t(s)}</option>)}
             </select>
@@ -370,7 +370,7 @@ export default function Missions() {
                 {t('Delete Selected')} ({selected.length})
               </button>
             )}
-            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Mission')}</button>
+            <button className="btn btn-primary btn-sm" onClick={openCreate} title={t('Create a single mission by hand. It waits in Pending until an idle captain for its vessel picks it up.')}>+ {t('Mission')}</button>
           </>
         )}
       />
@@ -382,25 +382,25 @@ export default function Missions() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{t('Create Mission')}</h3>
-            <label>{t('Title')}<input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} required /></label>
-            <label>{t('Description')}<textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></label>
-            <label>{t('Vessel')}
-              <select value={formData.vesselId} onChange={e => setFormData({ ...formData, vesselId: e.target.value })} required>
+            <label title={t('Short name for the mission, shown in lists and notifications. Required. Example: Add retry to the webhook sender.')}>{t('Title')}<input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} required title={t('Short name for the mission, shown in lists and notifications. Required. Example: Add retry to the webhook sender.')} /></label>
+            <label title={t('Instructions the captain works from: what to change, where, and how to know it is done. Markdown is fine. Optional but strongly recommended.')}>{t('Description')}<textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} title={t('Instructions the captain works from: what to change, where, and how to know it is done. Markdown is fine. Optional but strongly recommended.')} /></label>
+            <label title={t('Repository the captain works in. The mission gets its own worktree and branch in this vessel. Required.')}>{t('Vessel')}
+              <select value={formData.vesselId} onChange={e => setFormData({ ...formData, vesselId: e.target.value })} required title={t('Repository the captain works in. The mission gets its own worktree and branch in this vessel. Required.')}>
                 <option value="">{t('Select a vessel...')}</option>
                 {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </label>
-            <label>{t('Mode')}
-              <select value={formData.mode} onChange={e => setFormData({ ...formData, mode: e.target.value as MissionMode })}>
+            <label title={t('Implementation changes code and lands a diff (an empty diff fails). Audit and Research are read-only and produce a written report instead.')}>{t('Mode')}
+              <select value={formData.mode} onChange={e => setFormData({ ...formData, mode: e.target.value as MissionMode })} title={t('Implementation changes code and lands a diff (an empty diff fails). Audit and Research are read-only and produce a written report instead.')}>
                 <option value="Implementation">{t('Implementation')}</option>
                 <option value="Audit">{t('Audit (read-only)')}</option>
                 <option value="Research">{t('Research (read-only)')}</option>
               </select>
             </label>
-            <label>{t('Priority')}<input type="number" value={formData.priority} onChange={e => setFormData({ ...formData, priority: Number(e.target.value) })} /></label>
+            <label title={t('Dispatch order. Lower numbers are assigned to a captain first; the default is 100. Example: 10 for urgent work.')}>{t('Priority')}<input type="number" value={formData.priority} onChange={e => setFormData({ ...formData, priority: Number(e.target.value) })} title={t('Dispatch order. Lower numbers are assigned to a captain first; the default is 100. Example: 10 for urgent work.')} /></label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Create')}</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" title={t('Create the mission in Pending. Dispatch assigns it to an idle captain on the chosen vessel.')}>{t('Create')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)} title={t('Close this form without creating a mission.')}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -412,15 +412,15 @@ export default function Missions() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h3>{t('Transition Mission Status')}</h3>
             <p>{t('Current status:')} <strong>{t(transitionModal.currentStatus)}</strong></p>
-            <label>{t('New Status')}
-              <select value={transitionTarget} onChange={e => setTransitionTarget(e.target.value)}>
+            <label title={t('Status to move the mission to. The server rejects moves that are not valid from the current status.')}>{t('New Status')}
+              <select value={transitionTarget} onChange={e => setTransitionTarget(e.target.value)} title={t('Status to move the mission to. The server rejects moves that are not valid from the current status.')}>
                 <option value="">{t('Select status...')}</option>
                 {MISSION_STATUSES.filter(s => s !== transitionModal.currentStatus).map(s => <option key={s} value={s}>{t(s)}</option>)}
               </select>
             </label>
             <div className="modal-actions">
-              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionTarget} title={t('Force the mission into the selected status, bypassing the normal workflow. Use this only to correct a stuck mission.')}>{t('Transition')}</button>
-              <button className="btn" onClick={() => setTransitionModal(null)}>{t('Cancel')}</button>
+              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionTarget} title={t('Move the mission to the selected status now. Use this only to correct a mission stuck in the wrong state.')}>{t('Transition')}</button>
+              <button className="btn" onClick={() => setTransitionModal(null)} title={t('Close without changing the mission status.')}>{t('Cancel')}</button>
             </div>
           </div>
         </div>
@@ -455,14 +455,14 @@ export default function Missions() {
         }}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle="Refresh mission data"
+        refreshTitle="Reload the mission list from the server now."
         selection={{
           isSelected: (m) => selected.includes(m.id),
           onToggle: (m) => toggleSelect(m.id),
           allSelected,
           onToggleAll: (checked) => (checked ? selectAll() : clearSelection()),
           selectAllLabel: t('Select all missions'),
-          rowLabel: () => t('Select this mission'),
+          rowLabel: () => t('Select this mission for Delete Selected.'),
         }}
         emptyMessage={t('No missions match the current filters.')}
         placeholder={missions.length > 0 ? undefined : loading

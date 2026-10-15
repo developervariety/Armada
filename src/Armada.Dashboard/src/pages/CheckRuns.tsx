@@ -193,6 +193,20 @@ export default function CheckRuns() {
   const comparisonMap = useMemo(() => buildCheckRunComparisonMap(runs), [runs]);
 
   const vesselMap = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, vessel.name])), [vessels]);
+
+  const tips = {
+    vessel: t('Repository to run the check in. The command runs in its working directory, on the Admiral or on the Harbor that holds its checkout.'),
+    workflowProfile: t('Profile whose command for the chosen check type runs. Blank uses the vessel\'s profile, then its fleet\'s, then the global default.'),
+    checkType: t('Which profile command to run, such as Build, UnitTest, or Deploy. Only types the resolved profile has a command for are listed.'),
+    environment: t('Environment whose command to run, from the profile\'s environment entries. Required for deploy, rollback, smoke, health, and verification checks.'),
+    label: t('Display name for this run, such as Nightly build. Blank shows the check type.'),
+    missionId: t('Mission to link this run to as evidence, such as msn_abc123. Optional.'),
+    voyageId: t('Voyage to link this run to as evidence, such as vyg_abc123. Optional.'),
+    deploymentId: t('Deployment to link this run to, such as dpl_abc123. The run then appears in that deployment\'s checks.'),
+    branch: t('Branch to record on the run, such as main. Used for comparisons; Armada does not check it out, the command runs on the working directory as it is.'),
+    commit: t('Commit hash to record on the run. Used for evidence only; Armada does not check it out.'),
+    commandOverride: t('Shell command to run instead of the profile command, such as npm test. Runs in the vessel\'s working directory with the same permissions as Armada.'),
+  };
   const passedCount = runs.filter((run) => run.status === 'Passed').length;
   const failedCount = runs.filter((run) => run.status === 'Failed').length;
   const runningCount = runs.filter((run) => run.status === 'Running').length;
@@ -255,14 +269,14 @@ export default function CheckRuns() {
 
   const columns: DataTableColumn<CheckRun>[] = [
     {
-      key: 'check', label: t('Check'), required: true,
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by check')} value={colFilters.label} onChange={e => setColFilters(f => ({ ...f, label: e.target.value }))} placeholder={t('Filter...')} />,
+      key: 'check', label: t('Check'), required: true, headerTitle: t('Run label, or the check type when no label was given.'),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by check')} title={t('Show only runs whose label or type contains this text.')} value={colFilters.label} onChange={e => setColFilters(f => ({ ...f, label: e.target.value }))} placeholder={t('Filter...')} />,
       // One line: type, parsed results, comparison and ID were stacked under the label; each is its own column now.
       cellTitle: (run) => `${run.label || run.type} (${run.type})`,
       render: (run) => <strong className="cell-one-line">{run.label || run.type}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Check run ID (chk_ prefix), used by the REST API, MCP tools, and links.'), cellClassName: 'mono text-dim table-id-cell',
       render: (run) => (
         <span className="id-display">
           <span className="id-value" title={run.id}>{run.id}</span>
@@ -270,16 +284,16 @@ export default function CheckRuns() {
         </span>
       ),
     },
-    { key: 'type', label: t('Type'), cellClassName: 'text-dim cell-nowrap', render: (run) => run.type },
+    { key: 'type', label: t('Type'), headerTitle: t('Which workflow profile command ran, such as Build, UnitTest, Deploy, or HealthCheck.'), cellClassName: 'text-dim cell-nowrap', render: (run) => run.type },
     {
-      key: 'results', label: t('Results'), cellClassName: 'text-dim',
+      key: 'results', label: t('Results'), headerTitle: t('Test and coverage counts parsed from the run\'s output or result files, when it produced any.'), cellClassName: 'text-dim',
       render: (run) => {
         const summary = summarizeRunParsing(run);
         return summary ? <span className="cell-one-line" title={summary}>{summary}</span> : '-';
       },
     },
     {
-      key: 'comparison', label: t('Comparison'),
+      key: 'comparison', label: t('Comparison'), headerTitle: t('Change in test results versus the previous run of the same type, preferring the same branch, profile, or environment.'),
       render: (run) => {
         const comparison = comparisonMap.get(run.id);
         if (!comparison) return <span className="text-dim">-</span>;
@@ -296,18 +310,18 @@ export default function CheckRuns() {
         );
       },
     },
-    { key: 'vessel', label: t('Vessel'), render: (run) => (run.vesselId ? (vesselMap.get(run.vesselId) || run.vesselId) : '-') },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (run) => <StatusBadge status={run.status} /> },
-    { key: 'source', label: t('Source'), cellClassName: 'text-dim', render: (run) => (run.source === 'External' ? `${run.source}${run.providerName ? ` / ${run.providerName}` : ''}` : run.source) },
+    { key: 'vessel', label: t('Vessel'), headerTitle: t('Repository the check ran against.'), render: (run) => (run.vesselId ? (vesselMap.get(run.vesselId) || run.vesselId) : '-') },
+    { key: 'status', label: t('Status'), headerTitle: t('Outcome: Passed or Failed from the command\'s exit code, or Pending, Running, or Canceled.'), cellClassName: 'cell-nowrap', render: (run) => <StatusBadge status={run.status} /> },
+    { key: 'source', label: t('Source'), headerTitle: t('Armada means Armada ran the command; External means it was imported, for example from GitHub Actions.'), cellClassName: 'text-dim', render: (run) => (run.source === 'External' ? `${run.source}${run.providerName ? ` / ${run.providerName}` : ''}` : run.source) },
     {
-      key: 'environment', label: t('Environment'), cellClassName: 'text-dim',
+      key: 'environment', label: t('Environment'), headerTitle: t('Environment the check targeted, for deploy and verification checks.'), cellClassName: 'text-dim',
       clearFilter: () => setColFilters(f => ({ ...f, environmentName: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by environment')} value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by environment')} title={t('Show only runs whose environment name contains this text.')} value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} />,
       render: (run) => run.environmentName || '-',
     },
-    { key: 'duration', label: t('Duration'), cellClassName: 'text-dim cell-nowrap', render: (run) => (run.durationMs != null ? `${Math.round(run.durationMs)} ms` : '-') },
+    { key: 'duration', label: t('Duration'), headerTitle: t('How long the command ran, in milliseconds.'), cellClassName: 'text-dim cell-nowrap', render: (run) => (run.durationMs != null ? `${Math.round(run.durationMs)} ms` : '-') },
     {
-      key: 'created', label: t('Created'), cellClassName: 'text-dim cell-nowrap',
+      key: 'created', label: t('Created'), headerTitle: t('When the run started. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (run) => formatDateTime(run.createdUtc),
       render: (run) => formatRelativeTime(run.createdUtc),
     },
@@ -317,9 +331,10 @@ export default function CheckRuns() {
         <ActionMenu
           id={`check-run-${run.id}`}
           items={[
-            { label: 'Open', onClick: () => navigate(`/checks/${run.id}`) },
+            { label: 'Open', title: 'Open the check run with its full output, parsed results, and artifacts.', onClick: () => navigate(`/checks/${run.id}`) },
             {
               label: 'Draft Release',
+              title: 'Start a new release prefilled with this check run and its mission and voyage as evidence.',
               onClick: () => navigate('/releases/new', {
                 state: {
                   prefill: {
@@ -332,7 +347,7 @@ export default function CheckRuns() {
                 },
               }),
             },
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: run.label || run.id, data: run }) },
+            { label: 'View JSON', title: 'Show the raw check run record as returned by the API.', onClick: () => setJsonData({ open: true, title: run.label || run.id, data: run }) },
           ]}
         />
       ),
@@ -346,7 +361,7 @@ export default function CheckRuns() {
         subtitle={t('Structured build, test, deploy, and verification runs with durable output, artifacts, and retry support.')}
         actions={(
           <>
-            <button className="btn btn-primary" onClick={() => openRunModal()}>
+            <button className="btn btn-primary" onClick={() => openRunModal()} title={t('Run one of a vessel\'s workflow profile commands, such as a build or test, and record its output as evidence.')}>
               + {t('Run Check')}
             </button>
           </>
@@ -374,36 +389,36 @@ export default function CheckRuns() {
           <div className="modal modal-lg" onClick={(event) => event.stopPropagation()}>
             <h3>{t('Run Check')}</h3>
             <div className="detail-grid" style={{ marginBottom: '1rem' }}>
-              <label className="playbook-editor-field">
+              <label className="playbook-editor-field" title={tips.vessel}>
                 <span>{t('Vessel')}</span>
-                <select value={selectedVesselId} onChange={(event) => setSelectedVesselId(event.target.value)}>
+                <select title={tips.vessel} value={selectedVesselId} onChange={(event) => setSelectedVesselId(event.target.value)}>
                   <option value="">{t('Select a vessel...')}</option>
                   {vessels.map((vessel) => (
                     <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
                   ))}
                 </select>
               </label>
-              <label className="playbook-editor-field">
+              <label className="playbook-editor-field" title={tips.workflowProfile}>
                 <span>{t('Workflow Profile')}</span>
-                <select value={selectedWorkflowProfileId} onChange={(event) => setSelectedWorkflowProfileId(event.target.value)}>
+                <select title={tips.workflowProfile} value={selectedWorkflowProfileId} onChange={(event) => setSelectedWorkflowProfileId(event.target.value)}>
                   <option value="">{t('Resolved default')}</option>
                   {profiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>{profile.name}</option>
                   ))}
                 </select>
               </label>
-              <label className="playbook-editor-field">
+              <label className="playbook-editor-field" title={tips.checkType}>
                 <span>{t('Check Type')}</span>
-                <select value={selectedType} onChange={(event) => setSelectedType(event.target.value as CheckRunType)}>
+                <select title={tips.checkType} value={selectedType} onChange={(event) => setSelectedType(event.target.value as CheckRunType)}>
                   {availableTypes.map((type) => (
                     <option key={type} value={type}>{type}</option>
                   ))}
                 </select>
               </label>
               {requiresEnvironment(selectedType) && (
-                <label className="playbook-editor-field">
+                <label className="playbook-editor-field" title={tips.environment}>
                   <span>{t('Environment')}</span>
-                  <select value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)}>
+                  <select title={tips.environment} value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)}>
                     <option value="">{t('Select an environment...')}</option>
                     {environmentOptions.map((environment) => (
                       <option key={environment.environmentName} value={environment.environmentName}>{environment.environmentName}</option>
@@ -414,35 +429,35 @@ export default function CheckRuns() {
             </div>
 
             <div className="detail-grid" style={{ marginBottom: '1rem' }}>
-              <label className="playbook-editor-field">
+              <label className="playbook-editor-field" title={tips.label}>
                 <span>{t('Label')}</span>
-                <input type="text" value={label} onChange={(event) => setLabel(event.target.value)} placeholder={t('Optional display label')} />
+                <input title={tips.label} type="text" value={label} onChange={(event) => setLabel(event.target.value)} placeholder={t('Optional display label')} />
               </label>
-              <label className="playbook-editor-field">
+              <label className="playbook-editor-field" title={tips.missionId}>
                 <span>{t('Mission ID')}</span>
-                <input type="text" value={missionId} onChange={(event) => setMissionId(event.target.value)} placeholder="mis_..." />
+                <input title={tips.missionId} type="text" value={missionId} onChange={(event) => setMissionId(event.target.value)} placeholder="msn_..." />
               </label>
-              <label className="playbook-editor-field">
+              <label className="playbook-editor-field" title={tips.voyageId}>
                 <span>{t('Voyage ID')}</span>
-                <input type="text" value={voyageId} onChange={(event) => setVoyageId(event.target.value)} placeholder="voy_..." />
+                <input title={tips.voyageId} type="text" value={voyageId} onChange={(event) => setVoyageId(event.target.value)} placeholder="vyg_..." />
               </label>
-              <label className="playbook-editor-field">
+              <label className="playbook-editor-field" title={tips.deploymentId}>
                 <span>{t('Deployment ID')}</span>
-                <input type="text" value={deploymentId} onChange={(event) => setDeploymentId(event.target.value)} placeholder="dpl_..." />
+                <input title={tips.deploymentId} type="text" value={deploymentId} onChange={(event) => setDeploymentId(event.target.value)} placeholder="dpl_..." />
               </label>
-              <label className="playbook-editor-field">
+              <label className="playbook-editor-field" title={tips.branch}>
                 <span>{t('Branch')}</span>
-                <input type="text" value={branchName} onChange={(event) => setBranchName(event.target.value)} />
+                <input title={tips.branch} type="text" value={branchName} onChange={(event) => setBranchName(event.target.value)} />
               </label>
-              <label className="playbook-editor-field">
+              <label className="playbook-editor-field" title={tips.commit}>
                 <span>{t('Commit')}</span>
-                <input type="text" value={commitHash} onChange={(event) => setCommitHash(event.target.value)} />
+                <input title={tips.commit} type="text" value={commitHash} onChange={(event) => setCommitHash(event.target.value)} />
               </label>
             </div>
 
-            <label className="playbook-editor-field" style={{ marginBottom: '1rem' }}>
+            <label className="playbook-editor-field" title={tips.commandOverride} style={{ marginBottom: '1rem' }}>
               <span>{t('Command Override')}</span>
-              <textarea
+              <textarea title={tips.commandOverride}
                 value={commandOverride}
                 onChange={(event) => setCommandOverride(event.target.value)}
                 rows={4}
@@ -451,7 +466,7 @@ export default function CheckRuns() {
             </label>
 
             <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
-              <strong>{t('Resolved Profile')}</strong>
+              <strong title={t('The workflow profile this run will use, and the commands it defines for this vessel.')}>{t('Resolved Profile')}</strong>
               <div className="text-dim" style={{ marginTop: '0.4rem' }}>
                 {resolvingProfile
                   ? t('Resolving...')
@@ -486,10 +501,10 @@ export default function CheckRuns() {
             />
 
             <div className="modal-actions">
-              <button className="btn btn-primary" disabled={running || runBlocked} onClick={handleRunCheck}>
+              <button className="btn btn-primary" disabled={running || runBlocked} onClick={handleRunCheck} title={runBlocked ? t('Fix the errors listed under Preflight before running.') : t('Run the command now and wait for it to finish, then open the result.')}>
                 {running ? t('Running...') : t('Run Check')}
               </button>
-              <button className="btn" disabled={running} onClick={() => setShowRunModal(false)}>
+              <button className="btn" disabled={running} onClick={() => setShowRunModal(false)} title={t('Close without running.')}>
                 {t('Cancel')}
               </button>
             </div>
@@ -498,19 +513,19 @@ export default function CheckRuns() {
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('All check runs you can see, before filters.')}>
           <span>{t('Total Runs')}</span>
           <strong>{runs.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Runs whose command exited successfully.')}>
           <span>{t('Passed')}</span>
           <strong>{passedCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Runs whose command failed or timed out.')}>
           <span>{t('Failed')}</span>
           <strong>{failedCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Runs still in progress.')}>
           <span>{t('Running')}</span>
           <strong>{runningCount}</strong>
         </div>
@@ -518,13 +533,13 @@ export default function CheckRuns() {
 
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
         <div className="playbook-filter-row">
-          <select aria-label={t('All vessels')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
+          <select aria-label={t('All vessels')} title={t('Show only check runs for this vessel.')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
             <option value="all">{t('All vessels')}</option>
             {vessels.map((vessel) => (
               <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
             ))}
           </select>
-          <select aria-label={t('All statuses')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+          <select aria-label={t('All statuses')} title={t('Show only check runs with this outcome.')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
             <option value="all">{t('All statuses')}</option>
             <option value="Passed">{t('Passed')}</option>
             <option value="Failed">{t('Failed')}</option>
@@ -532,12 +547,12 @@ export default function CheckRuns() {
             <option value="Pending">{t('Pending')}</option>
             <option value="Canceled">{t('Canceled')}</option>
           </select>
-          <select aria-label={t('All sources')} value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as typeof sourceFilter)}>
+          <select aria-label={t('All sources')} title={t('Show only runs Armada executed, or only runs imported from an external provider.')} value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as typeof sourceFilter)}>
             <option value="all">{t('All sources')}</option>
             <option value="Armada">{t('Armada')}</option>
             <option value="External">{t('External')}</option>
           </select>
-          <select aria-label={t('All check types')} value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}>
+          <select aria-label={t('All check types')} title={t('Show only check runs of this type.')} value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}>
             <option value="all">{t('All check types')}</option>
             {ALL_CHECK_TYPES.map((type) => (
               <option key={type} value={type}>{type}</option>

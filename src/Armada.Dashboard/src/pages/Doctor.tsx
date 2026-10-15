@@ -56,6 +56,7 @@ export default function Doctor() {
               <span
                 className={`doctor-badge ${hasFailures ? 'doctor-fail' : allPassing ? 'doctor-pass' : 'doctor-warn'}`}
                 style={{ marginRight: '0.5rem' }}
+                title={hasFailures ? t('At least one check failed. See the Message column for what to fix.') : allPassing ? t('Every check passed.') : t('No check failed, but some returned warnings worth reviewing.')}
               >
                 {hasFailures ? t('Unhealthy') : allPassing ? t('Healthy') : t('Warnings')}
               </span>
@@ -64,7 +65,7 @@ export default function Doctor() {
               className="btn-primary btn-sm"
               onClick={runChecks}
               disabled={running}
-              title={t('Run all health checks')}
+              title={t('Run every diagnostic again: settings file, git, database, Admiral server, stalled captains, failed missions, and each agent runtime. Read-only.')}
             >
               {running ? t('Running...') : t('Run Checks')}
             </button>
@@ -84,19 +85,19 @@ export default function Doctor() {
         <>
           {/* Summary */}
           <div className="card-grid" style={{ marginBottom: '1.5rem' }}>
-            <div className="card">
+            <div className="card" title={t('Checks that found no problem.')}>
               <div className="card-label">{t('Passed')}</div>
               <div className="card-value" style={{ color: 'var(--color-success, #22c55e)' }}>
                 {passCount}
               </div>
             </div>
-            <div className="card">
+            <div className="card" title={t('Checks that found something worth a look but not blocking, such as an optional agent runtime that is not installed.')}>
               <div className="card-label">{t('Warnings')}</div>
               <div className="card-value" style={{ color: 'var(--color-warning, #f59e0b)' }}>
                 {warnCount}
               </div>
             </div>
-            <div className="card">
+            <div className="card" title={t('Checks that found a problem Armada needs fixed to work properly.')}>
               <div className="card-label">{t('Failed')}</div>
               <div className="card-value" style={{ color: 'var(--color-error, #ef4444)' }}>
                 {failCount}
@@ -112,9 +113,9 @@ export default function Doctor() {
             rowKey={(row) => String(row.index)}
             recordCount={null}
             columns={[
-              { key: 'check', label: t('Check'), required: true, render: ({ check }) => <span style={{ fontWeight: 500 }}>{check.name}</span> },
-              { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: ({ check }) => <StatusBadge status={check.status} /> },
-              { key: 'message', label: t('Message'), cellClassName: 'text-muted', render: ({ check }) => check.message },
+              { key: 'check', label: t('Check'), headerTitle: t('What was checked.'), required: true, render: ({ check }) => <span style={{ fontWeight: 500 }}>{check.name}</span> },
+              { key: 'status', label: t('Status'), headerTitle: t('Pass, Warn, or Fail for this check.'), cellClassName: 'cell-nowrap', render: ({ check }) => <StatusBadge status={check.status} /> },
+              { key: 'message', label: t('Message'), headerTitle: t('What the check found, and often how to fix it.'), cellClassName: 'text-muted', render: ({ check }) => check.message },
             ]}
           />
         </>

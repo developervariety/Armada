@@ -69,15 +69,15 @@ export default function CliPermissionDecisionControls({ request, onDecided, desc
 
   return (
     <div className="cli-perm-actions" onClick={(e) => e.stopPropagation()}>
-      <button type="button" className="btn btn-sm btn-primary" aria-describedby={describedBy} onClick={() => void decide('AllowOnce')} disabled={busy}>
+      <button type="button" className="btn btn-sm btn-primary" aria-describedby={describedBy} onClick={() => void decide('AllowOnce')} disabled={busy} title={t('Let the captain run this one call now. No rule is saved, so the next matching call asks again.')}>
         {busy && !rememberOpen && !denyOpen ? t('Working...') : t('Allow once')}
       </button>
       {request.canRemember && (
-        <button type="button" className="btn btn-sm" aria-describedby={describedBy} onClick={openRemember} disabled={busy}>
+        <button type="button" className="btn btn-sm" aria-describedby={describedBy} onClick={openRemember} disabled={busy} title={t('Allow this call now and save an allow rule so matching calls run without asking. You choose the pattern and scope next.')}>
           {t('Allow and remember')}
         </button>
       )}
-      <button type="button" className="btn btn-sm btn-danger" aria-describedby={describedBy} onClick={openDeny} disabled={busy}>
+      <button type="button" className="btn btn-sm btn-danger" aria-describedby={describedBy} onClick={openDeny} disabled={busy} title={t('Refuse this call. The tool does not run and the captain is told it was denied; you can add a message explaining why.')}>
         {t('Deny')}
       </button>
       {error && !rememberOpen && !denyOpen && <span className="cli-perm-error" role="alert">{error}</span>}
@@ -91,7 +91,7 @@ export default function CliPermissionDecisionControls({ request, onDecided, desc
         footer={(
           <>
             <button type="button" className="btn" onClick={() => setRememberOpen(false)} disabled={busy}>{t('Cancel')}</button>
-            <button type="button" className="btn btn-primary" onClick={() => void confirmRemember()} disabled={busy || !pattern.trim()}>
+            <button type="button" className="btn btn-primary" onClick={() => void confirmRemember()} disabled={busy || !pattern.trim()} title={t('Allow this call and save the rule. Later calls matching the pattern in the chosen scope run without asking.')}>
               {busy ? t('Working...') : t('Allow and create rule')}
             </button>
           </>
@@ -99,15 +99,15 @@ export default function CliPermissionDecisionControls({ request, onDecided, desc
       >
         {error && <div className="alert alert-error" role="alert">{error}</div>}
         <div className="form-group">
-          <label htmlFor={patternId}>{t('Rule pattern')}</label>
-          <input id={patternId} className="mono" value={pattern} onChange={(e) => setPattern(e.target.value)} aria-describedby={`${patternId}-help`} />
+          <label htmlFor={patternId} title={t('Which calls the new allow rule matches, in Claude Code rule syntax, for example Bash(git status:*). Prefilled with the suggested rule.')}>{t('Rule pattern')}</label>
+          <input id={patternId} className="mono" title={t('Which calls the new allow rule matches, in Claude Code rule syntax, for example Bash(git status:*). Prefilled with the suggested rule.')} value={pattern} onChange={(e) => setPattern(e.target.value)} aria-describedby={`${patternId}-help`} />
           <span id={`${patternId}-help`} className="text-dim form-help">
             {t('Claude Code permission rule syntax, for example Bash(git status:*) or WebFetch(domain:example.com).')}
           </span>
         </div>
         <div className="form-group">
-          <label htmlFor={scopeId}>{t('Remember for')}</label>
-          <select id={scopeId} value={scope} onChange={(e) => setScope(e.target.value as CliPermissionRuleScope)}>
+          <label htmlFor={scopeId} title={t('Where the rule applies: this captain (its missions and Ask turns), missions on this vessel, or every captain in the tenant.')}>{t('Remember for')}</label>
+          <select id={scopeId} title={t('Where the rule applies: this captain (its missions and Ask turns), missions on this vessel, or every captain in the tenant.')} value={scope} onChange={(e) => setScope(e.target.value as CliPermissionRuleScope)}>
             {request.captainId && <option value="Captain">{request.captainName ? t('Captain {{name}}', { name: request.captainName }) : t('This captain')}</option>}
             {request.vesselId && <option value="Vessel">{request.vesselName ? t('Vessel {{name}}', { name: request.vesselName }) : t('This vessel')}</option>}
             <option value="Global">{t('Everywhere (global)')}</option>
@@ -124,7 +124,7 @@ export default function CliPermissionDecisionControls({ request, onDecided, desc
         footer={(
           <>
             <button type="button" className="btn" onClick={() => setDenyOpen(false)} disabled={busy}>{t('Cancel')}</button>
-            <button type="button" className="btn btn-danger" onClick={() => void confirmDeny()} disabled={busy}>
+            <button type="button" className="btn btn-danger" onClick={() => void confirmDeny()} disabled={busy} title={t('Deny this call and send the message, if any, to the captain.')}>
               {busy ? t('Working...') : t('Deny')}
             </button>
           </>
@@ -132,8 +132,8 @@ export default function CliPermissionDecisionControls({ request, onDecided, desc
       >
         {error && <div className="alert alert-error" role="alert">{error}</div>}
         <div className="form-group">
-          <label htmlFor={messageId}>{t('Optional message for the captain')}</label>
-          <textarea id={messageId} rows={3} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('e.g., Use the test script instead of deleting files.')} />
+          <label htmlFor={messageId} title={t('Text passed back to the captain with the denial so it can try another approach. Leave blank to deny without a reason.')}>{t('Optional message for the captain')}</label>
+          <textarea id={messageId} title={t('Text passed back to the captain with the denial so it can try another approach. Leave blank to deny without a reason.')} rows={3} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('e.g., Use the test script instead of deleting files.')} />
         </div>
       </DialogShell>
     </div>

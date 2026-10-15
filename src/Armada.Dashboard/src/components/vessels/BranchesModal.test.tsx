@@ -54,7 +54,7 @@ describe('BranchesModal table', () => {
     render(<BranchesModal vesselId="vsl_1" vesselName="gateway" open onClose={() => undefined} />);
     await screen.findByText('Fix the login redirect loop');
     expect(getVesselBranches).toHaveBeenCalledTimes(1);
-    await act(async () => { fireEvent.click(screen.getByTitle('Refresh')); });
+    await act(async () => { fireEvent.click(screen.getByTitle('Reload the branch list and ahead/behind counts from the vessel repository.')); });
     expect(getVesselBranches).toHaveBeenCalledTimes(2);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Columns/ })); });
     expect(screen.getByRole('menuitemcheckbox', { name: /Branch/ })).toHaveAttribute('aria-disabled', 'true');

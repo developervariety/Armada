@@ -19,7 +19,6 @@ import CopyButton from '../components/shared/CopyButton';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import PageHeader from '../components/shared/PageHeader';
-import StatusBadge from '../components/shared/StatusBadge';
 import HarborMetricsPanel from '../components/harbors/HarborMetricsPanel';
 
 interface HarborForm {
@@ -27,6 +26,16 @@ interface HarborForm {
   maxConcurrentJobs: string;
   enabled: boolean;
 }
+
+const STATUS_TIPS: Record<string, string> = {
+  Connected: 'Connected: the Harbor has an open link and is sending heartbeats, so it can take work.',
+  Degraded: 'Degraded: the link is open but heartbeats are late, or the Harbor is finishing work before it stops.',
+  Disconnected: 'Disconnected: the Harbor has no open link. Work routed to it waits until it reconnects.',
+  Unknown: 'Unknown: registered here but has never connected, so its state is not known yet.',
+};
+const NAME_TIP = 'Name for this Harbor, usually the machine it runs on, for example joel-macbook. Shown wherever work is placed on it. Required.';
+const CAPACITY_TIP = 'Most jobs (captain runs and other host work) this Harbor runs at once, 1 or more. Default 4. The Harbor app reports its own value when it connects, which replaces this one.';
+const ENABLED_TIP = 'On: new missions can be sent to this Harbor. Off: it keeps its existing docks but gets no new missions.';
 
 const EMPTY_FORM: HarborForm = { name: 'New Harbor', maxConcurrentJobs: '4', enabled: true };
 
@@ -159,7 +168,7 @@ export default function Harbors() {
   // The ID used to sit under the name, and the capability list wrapped; both are one line now.
   const columns: DataTableColumn<Harbor>[] = [
     {
-      key: 'name', label: t('Harbor'), required: true, cellClassName: 'cell-nowrap',
+      key: 'name', label: t('Harbor'), required: true, headerTitle: t('Harbor name. A Harbor is the app on a developer machine that runs captains, git and worktrees there. (disabled) means it gets no new missions.'), cellClassName: 'cell-nowrap',
       render: (harbor) => (
         <>
           <strong>{harbor.name}</strong>
@@ -168,7 +177,7 @@ export default function Harbors() {
       ),
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique Harbor ID (hbr_ prefix). Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
       render: (harbor) => (
         <span className="id-display">
           <span className="id-value" title={harbor.id}>{harbor.id}</span>
@@ -176,32 +185,32 @@ export default function Harbors() {
         </span>
       ),
     },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (harbor) => <StatusBadge status={harbor.connectionStatus} /> },
+    { key: 'status', label: t('Status'), headerTitle: t('Connection as the Admiral sees it: Connected, Degraded (heartbeats late), Disconnected (no link) or Unknown (never connected).'), cellClassName: 'cell-nowrap', render: (harbor) => <span className={`tag ${(harbor.connectionStatus || '').toLowerCase()}`} title={t(STATUS_TIPS[harbor.connectionStatus] ?? harbor.connectionStatus)}>{t(harbor.connectionStatus)}</span> },
     {
-      key: 'capabilities', label: t('Capabilities'), cellClassName: 'text-dim',
+      key: 'capabilities', label: t('Capabilities'), headerTitle: t('Agent runtimes and tools this Harbor reported when it connected, such as git or claude. Work needing a runtime goes only to Harbors that have it.'), cellClassName: 'text-dim',
       render: (harbor) => {
         if (harbor.capabilities.length === 0) return '-';
         const text = harbor.capabilities.map((c) => c.name).join(', ');
         return <span className="cell-one-line" title={text}>{text}</span>;
       },
     },
-    { key: 'capacity', label: t('Capacity'), cellClassName: 'text-dim', render: (harbor) => harbor.maxConcurrentJobs },
+    { key: 'capacity', label: t('Capacity'), headerTitle: t('Most jobs this Harbor runs at the same time.'), cellClassName: 'text-dim', render: (harbor) => harbor.maxConcurrentJobs },
     {
-      key: 'lastSeen', label: t('Last Seen'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastSeen', label: t('Last Seen'), headerTitle: t('When the Harbor last sent a heartbeat or message. Never means it has not connected yet.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (harbor) => (harbor.lastSeenUtc ? formatDateTime(harbor.lastSeenUtc) : ''),
       render: (harbor) => (harbor.lastSeenUtc ? formatRelativeTime(harbor.lastSeenUtc) : t('Never')),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open the menu in a row to view details, edit, enable or disable, or delete that Harbor.'), fixed: true, interactive: true, className: 'text-right',
       render: (harbor) => (
         <ActionMenu
           id={`harbor-${harbor.id}`}
           items={[
-            { label: 'Details', onClick: () => setDetail({ open: true, harbor }) },
-            ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(harbor) }] : []),
-            ...(canManage ? [{ label: harbor.enabled ? 'Disable' : 'Enable', onClick: () => handleToggle(harbor) }] : []),
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: harbor.name, data: harbor }) },
-            ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(harbor) }] : []),
+            { label: 'Details', title: 'Show this Harbor\'s platform, capabilities and activity charts.', onClick: () => setDetail({ open: true, harbor }) },
+            ...(canManage ? [{ label: 'Edit', title: 'Change this Harbor\'s name, capacity and whether it gets new missions.', onClick: () => openEdit(harbor) }] : []),
+            ...(canManage ? [{ label: harbor.enabled ? 'Disable' : 'Enable', title: harbor.enabled ? 'Stop sending new missions to this Harbor. Running work and existing docks are kept.' : 'Let this Harbor receive new missions again.', onClick: () => handleToggle(harbor) }] : []),
+            { label: 'View JSON', title: 'Show this Harbor\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: harbor.name, data: harbor }) },
+            ...(canManage ? [{ label: 'Delete', danger: true as const, title: 'Remove this Harbor\'s registration. If the Harbor app connects again it registers itself anew. You confirm first.', onClick: () => handleDelete(harbor) }] : []),
           ]}
         />
       ),
@@ -216,7 +225,7 @@ export default function Harbors() {
         actions={(
           <>
             {canManage && (
-              <button className="btn btn-primary" onClick={openCreate}>+ {t('Harbor')}</button>
+              <button className="btn btn-primary" onClick={openCreate} title={t('Pre-register a Harbor to reserve its name and capacity before it connects. Harbors also register themselves the first time they connect.')}>+ {t('Harbor')}</button>
             )}
           </>
         )}
@@ -236,18 +245,18 @@ export default function Harbors() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSave}>
             <h3>{editing ? t('Edit Harbor') : t('Register Harbor')}</h3>
-            <label>{t('Name')}
-              <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+            <label title={t(NAME_TIP)}>{t('Name')}
+              <input type="text" title={t(NAME_TIP)} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </label>
-            <label>{t('Max Concurrent Jobs')}
-              <input type="number" min={1} value={form.maxConcurrentJobs} onChange={(e) => setForm({ ...form, maxConcurrentJobs: e.target.value })} />
+            <label title={t(CAPACITY_TIP)}>{t('Max Concurrent Jobs')}
+              <input type="number" min={1} title={t(CAPACITY_TIP)} value={form.maxConcurrentJobs} onChange={(e) => setForm({ ...form, maxConcurrentJobs: e.target.value })} />
             </label>
-            <label className="checkbox-row">
-              <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
+            <label className="checkbox-row" title={t(ENABLED_TIP)}>
+              <input type="checkbox" title={t(ENABLED_TIP)} checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
               <span>{t('Enabled for routing')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Register Harbor')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving} title={editing ? t('Save changes to this Harbor.') : t('Register this Harbor. It shows as Unknown until the Harbor app connects with the same ID.')}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Register Harbor')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -259,24 +268,24 @@ export default function Harbors() {
           <div className="modal modal-large harbor-detail-modal" onClick={(e) => e.stopPropagation()}>
             <h3>{detail.harbor.name}</h3>
             <dl className="detail-list">
-              <dt>{t('Status')}</dt>
-              <dd><StatusBadge status={detail.harbor.connectionStatus} /></dd>
-              <dt>{t('Enabled')}</dt>
+              <dt title={t('Connection as the Admiral sees it.')}>{t('Status')}</dt>
+              <dd><span className={`tag ${(detail.harbor.connectionStatus || '').toLowerCase()}`} title={t(STATUS_TIPS[detail.harbor.connectionStatus] ?? detail.harbor.connectionStatus)}>{t(detail.harbor.connectionStatus)}</span></dd>
+              <dt title={t(ENABLED_TIP)}>{t('Enabled')}</dt>
               <dd>{detail.harbor.enabled ? t('Yes') : t('No')}</dd>
-              <dt>{t('Capacity')}</dt>
+              <dt title={t('Most jobs this Harbor runs at the same time.')}>{t('Capacity')}</dt>
               <dd>{detail.harbor.maxConcurrentJobs}</dd>
-              <dt>{t('Platform')}</dt>
+              <dt title={t('Operating system and processor the Harbor reported, for example macOS / Arm64.')}>{t('Platform')}</dt>
               <dd>{[detail.harbor.osPlatform, detail.harbor.architecture].filter(Boolean).join(' / ') || '-'}</dd>
-              <dt>{t('Protocol')}</dt>
+              <dt title={t('Version of the Harbor link protocol the Harbor app speaks. A dash means it has never connected.')}>{t('Protocol')}</dt>
               <dd>{detail.harbor.protocolVersion || '-'}</dd>
-              <dt>{t('Last Seen')}</dt>
+              <dt title={t('When the Harbor last sent a heartbeat or message.')}>{t('Last Seen')}</dt>
               <dd>{detail.harbor.lastSeenUtc ? formatDateTime(detail.harbor.lastSeenUtc) : t('Never')}</dd>
-              <dt>{t('Capabilities')}</dt>
+              <dt title={t('Runtimes and tools the Harbor reported. Unavailable ones were found but cannot be used right now.')}>{t('Capabilities')}</dt>
               <dd>
                 {detail.harbor.capabilities.length === 0
                   ? '-'
                   : detail.harbor.capabilities.map((c) => (
-                      <span key={c.name} className="tag" style={{ marginRight: '0.35rem' }}>{c.name}{c.available ? '' : t(' (unavailable)')}</span>
+                      <span key={c.name} className="tag" style={{ marginRight: '0.35rem' }} title={c.available ? t('{{name}} is available on this Harbor.', { name: c.name }) : t('{{name}} was reported but is not usable right now, so work needing it is not sent here.', { name: c.name })}>{c.name}{c.available ? '' : t(' (unavailable)')}</span>
                     ))}
               </dd>
             </dl>
@@ -289,19 +298,19 @@ export default function Harbors() {
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('All registered Harbors, connected or not.')}>
           <span>{t('Total Harbors')}</span>
           <strong>{harbors.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Harbors with an open link and recent heartbeats.')}>
           <span>{t('Connected')}</span>
           <strong>{harbors.filter((h) => h.connectionStatus === 'Connected').length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Harbors with no open link right now.')}>
           <span>{t('Disconnected')}</span>
           <strong>{harbors.filter((h) => h.connectionStatus === 'Disconnected').length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Harbors that can receive new missions.')}>
           <span>{t('Enabled')}</span>
           <strong>{harbors.filter((h) => h.enabled).length}</strong>
         </div>
@@ -309,8 +318,8 @@ export default function Harbors() {
 
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
         <div className="playbook-filter-row">
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Search by name, platform, or ID...')} />
-          <select aria-label={t('All statuses')} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} title={t('Show only Harbors whose name, platform or ID contains this text.')} placeholder={t('Search by name, platform, or ID...')} />
+          <select aria-label={t('All statuses')} title={t('Show Harbors with any connection status, or only one.')} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="all">{t('All statuses')}</option>
             <option value="Connected">{t('Connected')}</option>
             <option value="Degraded">{t('Degraded')}</option>
@@ -328,7 +337,7 @@ export default function Harbors() {
         onRowClick={(harbor) => setDetail({ open: true, harbor })}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle="Refresh harbors"
+        refreshTitle={t('Refresh harbors')}
         emptyMessage={emptyState}
         placeholder={harbors.length > 0 ? undefined : loading ? <p className="text-dim">{t('Loading...')}</p> : emptyState}
       />
@@ -336,8 +345,8 @@ export default function Harbors() {
       {chartHarbor && (
         <div className="harbor-metrics-page-section">
           <div className="harbor-metrics-picker">
-            <label>{t('Charts for')}
-              <select aria-label={t('Harbor to chart')} value={chartHarbor.id} onChange={(e) => setChartHarborId(e.target.value)}>
+            <label title={t('Choose which Harbor\'s activity charts to show below.')}>{t('Charts for')}
+              <select aria-label={t('Harbor to chart')} title={t('Choose which Harbor\'s activity charts to show below.')} value={chartHarbor.id} onChange={(e) => setChartHarborId(e.target.value)}>
                 {harbors.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
               </select>
             </label>

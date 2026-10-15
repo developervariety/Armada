@@ -31,6 +31,13 @@ interface StageFormEntry {
 }
 
 
+const PIPELINE_NAME_TIP = 'Unique pipeline name that vessels, fleets and dispatches refer to, for example Reviewed or FullPipeline. Required.';
+const PIPELINE_DESCRIPTION_TIP = 'Optional note on what this pipeline is for, shown in lists and pickers.';
+const STAGE_PERSONA_TIP = 'The persona (role) for this stage, such as Architect, Worker or Judge. The stage becomes a mission routed to a captain for that persona. Required.';
+const STAGE_OPTIONAL_TIP = 'Reserved: the setting is saved but has no effect today. Every stage runs whether or not it is marked optional.';
+const STAGE_REVIEW_TIP = 'Review gate: when this stage finishes, the pipeline pauses until a person approves its work in Review. Off lets the next stage start right away.';
+const STAGE_DENY_TIP = 'What happens when a reviewer denies this stage: Retry stage sends it back to rework the same mission; Fail pipeline fails it and cancels the stages after it. Needs Review gate on.';
+
 export default function Pipelines() {
   const navigate = useNavigate();
   const { isAdmin, isTenantAdmin, user } = useAuth();
@@ -184,12 +191,12 @@ export default function Pipelines() {
 
   const columns: DataTableColumn<Pipeline>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Pipeline name -- click to sort'), cellClassName: 'cell-ident',
-      filter: <input type="text" className="col-filter" aria-label={t('Name')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Search...')} />,
+      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Pipeline name, chosen on a vessel, fleet or dispatch to decide which persona stages the work goes through. Click to sort.'), cellClassName: 'cell-ident',
+      filter: <input type="text" className="col-filter" aria-label={t('Name')} title={t('Show only pipelines whose name contains this text (not case sensitive).')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Search...')} />,
       render: (p) => <strong>{p.name}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique pipeline ID (ppl_ prefix). Pipelines are usually referred to by name; use the copy button to copy the ID.'), cellClassName: 'mono text-dim table-id-cell',
       render: (p) => (
         <span className="id-display">
           <span className="id-value" title={p.id}>{p.id}</span>
@@ -198,29 +205,29 @@ export default function Pipelines() {
       ),
     },
     {
-      key: 'description', label: t('Description'), sortKey: 'description', headerTitle: t('Description -- click to sort'), cellClassName: 'text-dim truncate-cell',
+      key: 'description', label: t('Description'), sortKey: 'description', headerTitle: t('What this pipeline is for. Hover a value for the full text; click to sort.'), cellClassName: 'text-dim truncate-cell',
       clearFilter: () => table.setColFilter('description', ''),
-      filter: <input type="text" className="col-filter" aria-label={t('Description')} value={table.colFilters.description ?? ''} onChange={e => table.setColFilter('description', e.target.value)} placeholder={t('Search...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Description')} title={t('Show only pipelines whose description contains this text.')} value={table.colFilters.description ?? ''} onChange={e => table.setColFilter('description', e.target.value)} placeholder={t('Search...')} />,
       render: (p) => p.description ? <span className="truncate-text" title={p.description}>{p.description}</span> : '-',
     },
-    { key: 'stages', label: t('Stages'), sortKey: 'stages', headerTitle: t('Stage count -- click to sort'), cellClassName: 'cell-ident', render: (p) => formatStages(p.stages) },
-    { key: 'visibility', label: t('Visibility'), render: (p) => <ScopeBadge scope={p.scope} /> },
-    { key: 'isBuiltIn', label: t('Built-in'), sortKey: 'isBuiltIn', headerTitle: t('Built-in -- click to sort'), render: (p) => <BoolIcon value={!!p.isBuiltIn} falseVariant="dash" trueTitle={t('Built-in')} falseTitle={t('Not built-in')} /> },
-    { key: 'active', label: t('Active'), sortKey: 'active', headerTitle: t('Active -- click to sort'), render: (p) => <BoolIcon value={p.active !== false} falseVariant="cross" trueTitle={t('Active')} falseTitle={t('Inactive')} /> },
+    { key: 'stages', label: t('Stages'), sortKey: 'stages', headerTitle: t('The persona stages in run order, for example Architect, Worker, Judge. Each stage becomes a mission that waits for the one before it. Click to sort.'), cellClassName: 'cell-ident', render: (p) => formatStages(p.stages) },
+    { key: 'visibility', label: t('Visibility'), headerTitle: t('Tenant-wide pipelines are usable by everyone in the tenant and edited by admins; personal ones only by their owner.'), render: (p) => <ScopeBadge scope={p.scope} /> },
+    { key: 'isBuiltIn', label: t('Built-in'), sortKey: 'isBuiltIn', headerTitle: t('Built-in pipelines ship with Armada and cannot be deleted. Click to sort.'), render: (p) => <BoolIcon value={!!p.isBuiltIn} falseVariant="dash" trueTitle={t('Built-in: ships with Armada and cannot be deleted.')} falseTitle={t('Custom: created by a user and can be deleted.')} /> },
+    { key: 'active', label: t('Active'), sortKey: 'active', headerTitle: t('Marks the pipeline as in use or retired. It is a label only: dispatch does not skip inactive pipelines. Click to sort.'), render: (p) => <BoolIcon value={p.active !== false} falseVariant="cross" trueTitle={t('Active (a label only; it does not change dispatch).')} falseTitle={t('Inactive (a label only; dispatch can still use it).')} /> },
     {
-      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('Created date -- click to sort'),
+      key: 'created', label: t('Created'), sortKey: 'createdUtc', headerTitle: t('When this pipeline was created. Hover a value for the exact time; click to sort.'),
       cellClassName: 'text-dim cell-nowrap', cellTitle: (p) => formatDateTime(p.createdUtc),
       render: (p) => formatRelativeTime(p.createdUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open the menu in a row to view, edit, duplicate or delete that pipeline.'), fixed: true, interactive: true, className: 'text-right',
       render: (p) => (
         <ActionMenu id={`pipeline-${p.id}`} items={[
-          { label: 'View Detail', onClick: () => navigate(`/pipelines/${encodeURIComponent(p.name)}`) },
-          ...(canEditScoped(viewer, p) ? [{ label: 'Edit', onClick: () => openEdit(p) }] : []),
-          { label: 'Duplicate', onClick: () => void handleDuplicate(p) },
-          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Pipeline')}: ${p.name}`, data: p }) },
-          ...(!p.isBuiltIn && canEditScoped(viewer, p) ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(p.name) }] : []),
+          { label: 'View Detail', title: 'Open this pipeline\'s page with its stages and settings.', onClick: () => navigate(`/pipelines/${encodeURIComponent(p.name)}`) },
+          ...(canEditScoped(viewer, p) ? [{ label: 'Edit', title: 'Change this pipeline\'s name, description, visibility and stages.', onClick: () => openEdit(p) }] : []),
+          { label: 'Duplicate', title: 'Create a copy of this pipeline under a new name, with the same stages, then open it.', onClick: () => void handleDuplicate(p) },
+          { label: 'View JSON', title: 'Show this pipeline\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: `${t('Pipeline')}: ${p.name}`, data: p }) },
+          ...(!p.isBuiltIn && canEditScoped(viewer, p) ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this pipeline. Vessels, fleets and dispatches that name it can no longer use it. You confirm first.', onClick: () => handleDelete(p.name) }] : []),
         ]} />
       ),
     },
@@ -233,7 +240,7 @@ export default function Pipelines() {
         subtitle={t('Multi-stage workflows combining different personas')}
         actions={(
           <>
-            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Pipeline')}</button>
+            <button className="btn btn-primary btn-sm" onClick={openCreate} title={t('Create a pipeline: an ordered list of persona stages, such as Architect then Worker then Judge, that a dispatch runs through.')}>+ {t('Pipeline')}</button>
           </>
         )}
       />
@@ -245,15 +252,16 @@ export default function Pipelines() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{ maxWidth: '720px', width: '90%' }}>
             <h3>{editing ? t('Edit Pipeline') : t('Create Pipeline')}</h3>
-            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label>{t('Description')}<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+            <label title={t(PIPELINE_NAME_TIP)}>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} title={t(PIPELINE_NAME_TIP)} required /></label>
+            <label title={t(PIPELINE_DESCRIPTION_TIP)}>{t('Description')}<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} title={t(PIPELINE_DESCRIPTION_TIP)} /></label>
             <ScopeSelect viewer={viewer} value={form.scope} onChange={(scope) => setForm({ ...form, scope })} />
             <div style={{ marginTop: '1rem' }}>
-              <strong>{t('Stages')}</strong>
+              <strong title={t('Stages run top to bottom. Each stage creates a mission for its persona that starts when the stage before it finishes.')}>{t('Stages')}</strong>
               {form.stages.map((stage, i) => (
                 <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem', marginTop: '0.5rem' }}>
                   <span className="text-dim" style={{ minWidth: '1.5rem' }}>{i + 1}.</span>
                   <select aria-label={t('Select persona...')}
+                    title={t(STAGE_PERSONA_TIP)}
                     value={stage.personaName}
                     onChange={e => updateStage(i, 'personaName', e.target.value)}
                     required
@@ -264,18 +272,20 @@ export default function Pipelines() {
                       <option key={name} value={name}>{name}</option>
                     ))}
                   </select>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
+                  <label title={t(STAGE_OPTIONAL_TIP)} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
                     <input
                       type="checkbox"
+                      title={t(STAGE_OPTIONAL_TIP)}
                       checked={stage.isOptional}
                       onChange={e => updateStage(i, 'isOptional', e.target.checked)}
                       style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }}
                     />
                     <span style={{ verticalAlign: 'middle' }}>{t('Optional')}</span>
                   </label>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
+                  <label title={t(STAGE_REVIEW_TIP)} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
                     <input
                       type="checkbox"
+                      title={t(STAGE_REVIEW_TIP)}
                       checked={stage.requiresReview}
                       onChange={e => updateStage(i, 'requiresReview', e.target.checked)}
                       style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }}
@@ -283,6 +293,7 @@ export default function Pipelines() {
                     <span style={{ verticalAlign: 'middle' }}>{t('Review gate')}</span>
                   </label>
                   <select aria-label={t('Retry stage')}
+                    title={t(STAGE_DENY_TIP)}
                     value={stage.reviewDenyAction}
                     disabled={!stage.requiresReview}
                     onChange={e => updateStage(i, 'reviewDenyAction', e.target.value as 'RetryStage' | 'FailPipeline')}
@@ -292,16 +303,16 @@ export default function Pipelines() {
                     <option value="FailPipeline">{t('Fail pipeline')}</option>
                   </select>
                   <span style={{ width: '0.75rem', flexShrink: 0 }} />
-                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, -1)} disabled={i === 0} title={t('Move up')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25B2'}</button>
-                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1} title={t('Move down')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25BC'}</button>
+                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, -1)} disabled={i === 0} title={t('Move this stage one place earlier in the run order.')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25B2'}</button>
+                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1} title={t('Move this stage one place later in the run order.')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25BC'}</button>
                   <span style={{ width: '0.5rem', flexShrink: 0 }} />
-                  <button type="button" className="btn btn-sm btn-danger" onClick={() => removeStage(i)} title={t('Remove stage')} style={{ flexShrink: 0 }}>X</button>
+                  <button type="button" className="btn btn-sm btn-danger" onClick={() => removeStage(i)} title={t('Remove this stage from the pipeline. Nothing changes until you save.')} style={{ flexShrink: 0 }}>X</button>
                 </div>
               ))}
-              <button type="button" className="btn btn-sm" onClick={addStage} style={{ marginTop: '0.5rem' }}>+ {t('Stage')}</button>
+              <button type="button" className="btn btn-sm" onClick={addStage} title={t('Add a stage at the end of the pipeline, so it runs last.')} style={{ marginTop: '0.5rem' }}>+ {t('Stage')}</button>
             </div>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="submit" className="btn btn-primary" title={editing ? t('Save changes to this pipeline. Dispatches started after saving use the new stages; running ones keep theirs.') : t('Create this pipeline.')}>{t('Save')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
@@ -336,7 +347,7 @@ export default function Pipelines() {
         pagination={table.paginationProps}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle="Refresh pipeline data"
+        refreshTitle={t('Refresh pipeline data')}
         emptyMessage={t('No pipelines match the current filters.')}
         placeholder={pipelines.length > 0 ? undefined : <p className="text-dim">{loading ? t('Loading...') : t('No pipelines configured.')}</p>}
       />

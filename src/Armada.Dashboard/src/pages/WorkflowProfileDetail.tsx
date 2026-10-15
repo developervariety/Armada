@@ -30,6 +30,41 @@ import { buildWorkflowProfileDuplicatePayload } from '../lib/duplicates';
 
 
 
+const NAME_TIP = 'Name for this profile, for example dotnet-service or web-frontend. Required.';
+const DESCRIPTION_TIP = 'Optional note on what kind of project this profile is for.';
+const SCOPE_TIP = 'Which vessels the profile applies to: Global for all, Fleet for one fleet\'s vessels, Vessel for one repository. A vessel uses its Vessel profile first, then Fleet, then Global.';
+const FLEET_TIP = 'The fleet whose vessels this profile applies to. Required when Scope is Fleet.';
+const VESSEL_TIP = 'The single repository this profile applies to. Required when Scope is Vessel.';
+const HINTS_TIP = 'Optional languages and tools the project uses, one per line, for example dotnet or react. For reference only; Armada does not act on them.';
+const ARTIFACTS_TIP = 'Files the checks produce, one path per line relative to the vessel\'s working directory, for example coverage/summary.xml. Armada collects them onto each check run.';
+const DEFAULT_TIP = 'When several active profiles match the same vessel at the same scope, the default one is used. Otherwise the most recently updated wins.';
+const ACTIVE_TIP = 'On: Armada can use this profile. Off: it is never chosen, even when a vessel names it.';
+const INPUT_PROVIDER_TIP = 'Where the input lives: an environment variable, a file or folder on the machine that runs checks, or a secret manager such as AWS Secrets Manager, Azure Key Vault, HashiCorp Vault or 1Password.';
+const INPUT_ENV_TIP = 'Limit this input to one environment, for example prod. All Environments means it applies everywhere.';
+const INPUT_KEY_TIP = 'The variable name, path or secret reference to look for, for example NUGET_API_KEY or ~/.aws/credentials. Only the reference is stored, never the secret value.';
+const INPUT_DESCRIPTION_TIP = 'Optional note on what the input is for, shown with readiness warnings.';
+const ENV_NAME_TIP = 'Environment name, for example dev, staging or prod. Deployments and check runs for an environment with this name use the commands below. Required.';
+const CMD_LINTCOMMAND_TIP = 'Shell command Armada runs for a Lint check in the vessel\'s working directory, for example npm run lint. Leave blank if the project has no lint step.';
+const CMD_BUILDCOMMAND_TIP = 'Shell command Armada runs for a Build check in the vessel\'s working directory, for example dotnet build. Leave blank if the project has no build step.';
+const CMD_UNITTESTCOMMAND_TIP = 'Shell command Armada runs for an Unit Test check in the vessel\'s working directory, for example dotnet test. Leave blank if the project has no unit test step.';
+const CMD_INTEGRATIONTESTCOMMAND_TIP = 'Shell command Armada runs for an Integration Test check in the vessel\'s working directory, for example npm run test:integration. Leave blank if the project has no integration test step.';
+const CMD_E2ETESTCOMMAND_TIP = 'Shell command Armada runs for an E2E Test check in the vessel\'s working directory, for example npx playwright test. Leave blank if the project has no end-to-end test step.';
+const CMD_MIGRATIONCOMMAND_TIP = 'Shell command Armada runs for a Migration check in the vessel\'s working directory, for example dotnet ef database update. Leave blank if the project has no database migration step.';
+const CMD_SECURITYSCANCOMMAND_TIP = 'Shell command Armada runs for a Security Scan check in the vessel\'s working directory, for example npm audit --audit-level=high. Leave blank if the project has no security scan step.';
+const CMD_PERFORMANCECOMMAND_TIP = 'Shell command Armada runs for a Performance check in the vessel\'s working directory, for example k6 run perf.js. Leave blank if the project has no performance step.';
+const CMD_PACKAGECOMMAND_TIP = 'Shell command Armada runs for a Package check in the vessel\'s working directory, for example dotnet publish -c Release. Leave blank if the project has no package step.';
+const CMD_DEPLOYMENTVERIFICATIONCOMMAND_TIP = 'Default command that checks a deployment worked, for example curl -f https://example.com/health. An environment below can set its own. Leave blank if not needed.';
+const CMD_ROLLBACKVERIFICATIONCOMMAND_TIP = 'Default command that checks a rollback worked. An environment below can set its own. Leave blank if not needed.';
+const CMD_PUBLISHARTIFACTCOMMAND_TIP = 'Shell command Armada runs for a Publish Artifact check in the vessel\'s working directory, for example dotnet nuget push *.nupkg. Leave blank if the project has no publish step.';
+const CMD_RELEASEVERSIONINGCOMMAND_TIP = 'Shell command Armada runs for a Release Versioning check in the vessel\'s working directory, for example npm version patch. Leave blank if the project has no versioning step.';
+const CMD_CHANGELOGGENERATIONCOMMAND_TIP = 'Shell command Armada runs for a Changelog check in the vessel\'s working directory, for example npx conventional-changelog -p angular. Leave blank if the project has no changelog step.';
+const ENV_DEPLOY_TIP = 'Command that deploys to this environment, for example ./deploy.sh staging. Runs when a deployment to this environment starts.';
+const ENV_ROLLBACK_TIP = 'Command that returns this environment to the previous release. Runs when a deployment here is rolled back.';
+const ENV_SMOKE_TIP = 'Quick test run against this environment after a deploy to confirm the basics work, for example npm run smoke -- --env staging.';
+const ENV_HEALTH_TIP = 'Command that checks this environment is up, for example curl -f https://staging.example.com/health. A non-zero exit means unhealthy.';
+const ENV_DEPLOY_VERIFY_TIP = 'Command that confirms a deployment to this environment worked. Overrides the profile-wide verification command for this environment.';
+const ENV_ROLLBACK_VERIFY_TIP = 'Command that confirms a rollback in this environment worked. Overrides the profile-wide rollback verification command here.';
+
 export default function WorkflowProfileDetail() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
@@ -308,17 +343,17 @@ export default function WorkflowProfileDetail() {
           <>
             {!createMode && <StatusBadge status={active ? 'Active' : 'Inactive'} />}
             {!createMode && (
-              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: name, data: profile })}>
+              <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: name, data: profile })} title={t('Show this profile\'s saved record as JSON, as the API returns it. Unsaved edits are not included.')}>
                 {t('View JSON')}
               </button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()}>
+              <button className="btn btn-sm" disabled={saving} onClick={() => void handleDuplicate()} title={t('Create a copy of this profile under a new name, then open it.')}>
                 {t('Duplicate')}
               </button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+              <button className="btn btn-sm btn-danger" onClick={handleDelete} title={t('Permanently delete this profile. Past check runs are kept; vessels fall back to the next matching profile. You confirm first.')}>
                 {t('Delete')}
               </button>
             )}
@@ -345,7 +380,7 @@ export default function WorkflowProfileDetail() {
       {!createMode && profile && (
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
           <div className="detail-field">
-            <span className="detail-label">{t('ID')}</span>
+            <span className="detail-label" title={t('Unique workflow profile ID (wfp_ prefix), used when a vessel or check run names a profile directly.')}>{t('ID')}</span>
             <span className="id-display">
               <span className="mono">{profile.id}</span>
               <CopyButton text={profile.id} />
@@ -360,7 +395,7 @@ export default function WorkflowProfileDetail() {
             <span>{formatDateTime(profile.lastUpdateUtc)}</span>
           </div>
           <div className="detail-field">
-            <span className="detail-label">{t('Scope')}</span>
+            <span className="detail-label" title={t(SCOPE_TIP)}>{t('Scope')}</span>
             <StatusBadge status={profile.scope} />
           </div>
         </div>
@@ -369,17 +404,17 @@ export default function WorkflowProfileDetail() {
       {validation && (
         <div className="card" style={{ marginBottom: '1rem' }}>
           <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-            <h3>{t('Validation')}</h3>
-            <StatusBadge status={validation.isValid ? 'Valid' : 'Needs Attention'} />
+            <h3 title={t('Result of the last Validate click, checked against the form as it was then (saved or not).')}>{t('Validation')}</h3>
+            <span className={`tag ${validation.isValid ? 'valid' : 'needs attention'}`} title={validation.isValid ? t('No errors found. Warnings, if any, are listed below.') : t('The profile has errors to fix. They are listed below.')}>{t(validation.isValid ? 'Valid' : 'Needs Attention')}</span>
           </div>
           <div className="detail-grid">
             <div className="detail-field">
-              <span className="detail-label">{t('Available Check Types')}</span>
+              <span className="detail-label" title={t('Check types this profile has a command for, so check runs of these types can run. Types missing here cannot run.')}>{t('Available Check Types')}</span>
               <span>{validation.availableCheckTypes.length > 0 ? validation.availableCheckTypes.join(', ') : t('None')}</span>
             </div>
           </div>
           <div style={{ marginTop: '0.9rem' }}>
-            <strong>{t('Resolved Commands')}</strong>
+            <strong title={t('Every command Armada would run, per check type and environment, after environment overrides are applied.')}>{t('Resolved Commands')}</strong>
             <div style={{ marginTop: '0.5rem' }}>
               <WorkflowCommandPreview
                 commands={validation.commandPreviews}
@@ -389,7 +424,7 @@ export default function WorkflowProfileDetail() {
           </div>
           {validation.errors.length > 0 && (
             <div style={{ marginTop: '0.75rem' }}>
-              <strong>{t('Errors')}</strong>
+              <strong title={t('Problems that must be fixed before the profile can be relied on.')}>{t('Errors')}</strong>
               <ul style={{ marginTop: '0.4rem' }}>
                 {validation.errors.map((item) => <li key={item}>{item}</li>)}
               </ul>
@@ -397,7 +432,7 @@ export default function WorkflowProfileDetail() {
           )}
           {validation.warnings.length > 0 && (
             <div style={{ marginTop: '0.75rem' }}>
-              <strong>{t('Warnings')}</strong>
+              <strong title={t('Things worth checking that do not stop the profile from working.')}>{t('Warnings')}</strong>
               <ul style={{ marginTop: '0.4rem' }}>
                 {validation.warnings.map((item) => <li key={item}>{item}</li>)}
               </ul>
@@ -408,22 +443,22 @@ export default function WorkflowProfileDetail() {
 
       <div className="card playbook-editor-card">
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(NAME_TIP)}>
             <span>{t('Name')}</span>
-            <input type="text" value={name} disabled={!canManage} onChange={(event) => setName(event.target.value)} />
+            <input type="text" title={t(NAME_TIP)} value={name} disabled={!canManage} onChange={(event) => setName(event.target.value)} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(SCOPE_TIP)}>
             <span>{t('Scope')}</span>
-            <select value={scope} disabled={!canManage} onChange={(event) => setScope(event.target.value as 'Global' | 'Fleet' | 'Vessel')}>
+            <select title={t(SCOPE_TIP)} value={scope} disabled={!canManage} onChange={(event) => setScope(event.target.value as 'Global' | 'Fleet' | 'Vessel')}>
               <option value="Global">{t('Global')}</option>
               <option value="Fleet">{t('Fleet')}</option>
               <option value="Vessel">{t('Vessel')}</option>
             </select>
           </label>
           {scope === 'Fleet' && (
-            <label className="playbook-editor-field">
+            <label className="playbook-editor-field" title={t(FLEET_TIP)}>
               <span>{t('Fleet')}</span>
-              <select value={fleetId} disabled={!canManage} onChange={(event) => setFleetId(event.target.value)}>
+              <select title={t(FLEET_TIP)} value={fleetId} disabled={!canManage} onChange={(event) => setFleetId(event.target.value)}>
                 <option value="">{t('Select a fleet...')}</option>
                 {fleetOptions.map((fleet) => (
                   <option key={fleet.id} value={fleet.id}>{fleet.name}</option>
@@ -432,9 +467,9 @@ export default function WorkflowProfileDetail() {
             </label>
           )}
           {scope === 'Vessel' && (
-            <label className="playbook-editor-field">
+            <label className="playbook-editor-field" title={t(VESSEL_TIP)}>
               <span>{t('Vessel')}</span>
-              <select value={vesselId} disabled={!canManage} onChange={(event) => setVesselId(event.target.value)}>
+              <select title={t(VESSEL_TIP)} value={vesselId} disabled={!canManage} onChange={(event) => setVesselId(event.target.value)}>
                 <option value="">{t('Select a vessel...')}</option>
                 {vesselOptions.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
@@ -444,38 +479,38 @@ export default function WorkflowProfileDetail() {
           )}
         </div>
 
-        <label className="playbook-editor-field">
+        <label className="playbook-editor-field" title={t(DESCRIPTION_TIP)}>
           <span>{t('Description')}</span>
-          <input type="text" value={description} disabled={!canManage} onChange={(event) => setDescription(event.target.value)} />
+          <input type="text" title={t(DESCRIPTION_TIP)} value={description} disabled={!canManage} onChange={(event) => setDescription(event.target.value)} />
         </label>
 
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
-          <label className="playbook-toggle">
-            <input type="checkbox" checked={isDefault} disabled={!canManage} onChange={(event) => setIsDefault(event.target.checked)} />
+          <label className="playbook-toggle" title={t(DEFAULT_TIP)}>
+            <input type="checkbox" title={t(DEFAULT_TIP)} checked={isDefault} disabled={!canManage} onChange={(event) => setIsDefault(event.target.checked)} />
             <span>{t('Default for this scope')}</span>
           </label>
-          <label className="playbook-toggle">
-            <input type="checkbox" checked={active} disabled={!canManage} onChange={(event) => setActive(event.target.checked)} />
+          <label className="playbook-toggle" title={t(ACTIVE_TIP)}>
+            <input type="checkbox" title={t(ACTIVE_TIP)} checked={active} disabled={!canManage} onChange={(event) => setActive(event.target.checked)} />
             <span>{t('Active')}</span>
           </label>
         </div>
 
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(HINTS_TIP)}>
             <span>{t('Language / Runtime Hints')}</span>
-            <textarea value={languageHints} disabled={!canManage} onChange={(event) => setLanguageHints(event.target.value)} rows={3} placeholder={t('dotnet\nreact\npostgres')} />
+            <textarea title={t(HINTS_TIP)} value={languageHints} disabled={!canManage} onChange={(event) => setLanguageHints(event.target.value)} rows={3} placeholder={t('dotnet\nreact\npostgres')} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(ARTIFACTS_TIP)}>
             <span>{t('Expected Artifacts')}</span>
-            <textarea value={expectedArtifacts} disabled={!canManage} onChange={(event) => setExpectedArtifacts(event.target.value)} rows={3} placeholder={t('bin/Release/app.zip\ncoverage/summary.xml')} />
+            <textarea title={t(ARTIFACTS_TIP)} value={expectedArtifacts} disabled={!canManage} onChange={(event) => setExpectedArtifacts(event.target.value)} rows={3} placeholder={t('bin/Release/app.zip\ncoverage/summary.xml')} />
           </label>
         </div>
 
         <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
           <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-            <h3>{t('Required Inputs')}</h3>
+            <h3 title={t('Secrets, files or folders the commands need, listed by reference only. Armada uses them to warn before checks run when something is missing.')}>{t('Required Inputs')}</h3>
             {canManage && (
-              <button type="button" className="btn btn-sm" onClick={() => setRequiredInputs((current) => [...current, blankInputReference()])}>
+              <button type="button" className="btn btn-sm" onClick={() => setRequiredInputs((current) => [...current, blankInputReference()])} title={t('Add a required input row.')}>
                 + {t('Input')}
               </button>
             )}
@@ -489,9 +524,9 @@ export default function WorkflowProfileDetail() {
             <div style={{ display: 'grid', gap: '0.75rem' }}>
               {requiredInputs.map((item, index) => (
                 <div key={`input-${index}`} className="detail-grid">
-                  <label className="playbook-editor-field">
+                  <label className="playbook-editor-field" title={t(INPUT_PROVIDER_TIP)}>
                     <span>{t('Provider')}</span>
-                    <select value={item.provider} disabled={!canManage} onChange={(event) => updateInputReference(index, { provider: event.target.value as WorkflowInputReference['provider'] })}>
+                    <select title={t(INPUT_PROVIDER_TIP)} value={item.provider} disabled={!canManage} onChange={(event) => updateInputReference(index, { provider: event.target.value as WorkflowInputReference['provider'] })}>
                       <option value="EnvironmentVariable">{t('Environment Variable')}</option>
                       <option value="FilePath">{t('File Path')}</option>
                       <option value="DirectoryPath">{t('Directory Path')}</option>
@@ -501,9 +536,9 @@ export default function WorkflowProfileDetail() {
                       <option value="OnePassword">{t('1Password')}</option>
                     </select>
                   </label>
-                  <label className="playbook-editor-field">
+                  <label className="playbook-editor-field" title={t(INPUT_ENV_TIP)}>
                     <span>{t('Environment Scope')}</span>
-                    <select value={item.environmentName || ''} disabled={!canManage} onChange={(event) => updateInputReference(index, { environmentName: event.target.value || null })}>
+                    <select title={t(INPUT_ENV_TIP)} value={item.environmentName || ''} disabled={!canManage} onChange={(event) => updateInputReference(index, { environmentName: event.target.value || null })}>
                       <option value="">{t('All Environments')}</option>
                       {environments.map((environment) => (
                         <option key={`input-env-${environment.environmentName}-${index}`} value={environment.environmentName}>
@@ -512,20 +547,22 @@ export default function WorkflowProfileDetail() {
                       ))}
                     </select>
                   </label>
-                  <label className="playbook-editor-field">
+                  <label className="playbook-editor-field" title={t(INPUT_KEY_TIP)}>
                     <span>{t('Key / Path')}</span>
                     <input
                       type="text"
+                      title={t(INPUT_KEY_TIP)}
                       value={item.key}
                       disabled={!canManage}
                       onChange={(event) => updateInputReference(index, { key: event.target.value })}
                       placeholder={t(inputReferencePlaceholder(item))}
                     />
                   </label>
-                  <label className="playbook-editor-field">
+                  <label className="playbook-editor-field" title={t(INPUT_DESCRIPTION_TIP)}>
                     <span>{t('Description')}</span>
                     <input
                       type="text"
+                      title={t(INPUT_DESCRIPTION_TIP)}
                       value={item.description || ''}
                       disabled={!canManage}
                       onChange={(event) => updateInputReference(index, { description: event.target.value || null })}
@@ -535,7 +572,7 @@ export default function WorkflowProfileDetail() {
                   {canManage && (
                     <div className="playbook-editor-field">
                       <span>{t('Actions')}</span>
-                      <button type="button" className="btn btn-sm btn-danger" onClick={() => setRequiredInputs((current) => current.filter((_, currentIndex) => currentIndex !== index))}>
+                      <button type="button" className="btn btn-sm btn-danger" onClick={() => setRequiredInputs((current) => current.filter((_, currentIndex) => currentIndex !== index))} title={t('Remove this required input. Nothing changes until you save.')}>
                         {t('Remove')}
                       </button>
                     </div>
@@ -547,69 +584,69 @@ export default function WorkflowProfileDetail() {
         </div>
 
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_LINTCOMMAND_TIP)}>
             <span>{t('Lint Command')}</span>
-            <textarea value={lintCommand} disabled={!canManage} onChange={(event) => setLintCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_LINTCOMMAND_TIP)} value={lintCommand} disabled={!canManage} onChange={(event) => setLintCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_BUILDCOMMAND_TIP)}>
             <span>{t('Build Command')}</span>
-            <textarea value={buildCommand} disabled={!canManage} onChange={(event) => setBuildCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_BUILDCOMMAND_TIP)} value={buildCommand} disabled={!canManage} onChange={(event) => setBuildCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_UNITTESTCOMMAND_TIP)}>
             <span>{t('Unit Test Command')}</span>
-            <textarea value={unitTestCommand} disabled={!canManage} onChange={(event) => setUnitTestCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_UNITTESTCOMMAND_TIP)} value={unitTestCommand} disabled={!canManage} onChange={(event) => setUnitTestCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_INTEGRATIONTESTCOMMAND_TIP)}>
             <span>{t('Integration Test Command')}</span>
-            <textarea value={integrationTestCommand} disabled={!canManage} onChange={(event) => setIntegrationTestCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_INTEGRATIONTESTCOMMAND_TIP)} value={integrationTestCommand} disabled={!canManage} onChange={(event) => setIntegrationTestCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_E2ETESTCOMMAND_TIP)}>
             <span>{t('E2E Test Command')}</span>
-            <textarea value={e2eTestCommand} disabled={!canManage} onChange={(event) => setE2ETestCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_E2ETESTCOMMAND_TIP)} value={e2eTestCommand} disabled={!canManage} onChange={(event) => setE2ETestCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_MIGRATIONCOMMAND_TIP)}>
             <span>{t('Migration Command')}</span>
-            <textarea value={migrationCommand} disabled={!canManage} onChange={(event) => setMigrationCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_MIGRATIONCOMMAND_TIP)} value={migrationCommand} disabled={!canManage} onChange={(event) => setMigrationCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_SECURITYSCANCOMMAND_TIP)}>
             <span>{t('Security Scan Command')}</span>
-            <textarea value={securityScanCommand} disabled={!canManage} onChange={(event) => setSecurityScanCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_SECURITYSCANCOMMAND_TIP)} value={securityScanCommand} disabled={!canManage} onChange={(event) => setSecurityScanCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_PERFORMANCECOMMAND_TIP)}>
             <span>{t('Performance Command')}</span>
-            <textarea value={performanceCommand} disabled={!canManage} onChange={(event) => setPerformanceCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_PERFORMANCECOMMAND_TIP)} value={performanceCommand} disabled={!canManage} onChange={(event) => setPerformanceCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_PACKAGECOMMAND_TIP)}>
             <span>{t('Package Command')}</span>
-            <textarea value={packageCommand} disabled={!canManage} onChange={(event) => setPackageCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_PACKAGECOMMAND_TIP)} value={packageCommand} disabled={!canManage} onChange={(event) => setPackageCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_DEPLOYMENTVERIFICATIONCOMMAND_TIP)}>
             <span>{t('Deployment Verification Command')}</span>
-            <textarea value={deploymentVerificationCommand} disabled={!canManage} onChange={(event) => setDeploymentVerificationCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_DEPLOYMENTVERIFICATIONCOMMAND_TIP)} value={deploymentVerificationCommand} disabled={!canManage} onChange={(event) => setDeploymentVerificationCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_ROLLBACKVERIFICATIONCOMMAND_TIP)}>
             <span>{t('Rollback Verification Command')}</span>
-            <textarea value={rollbackVerificationCommand} disabled={!canManage} onChange={(event) => setRollbackVerificationCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_ROLLBACKVERIFICATIONCOMMAND_TIP)} value={rollbackVerificationCommand} disabled={!canManage} onChange={(event) => setRollbackVerificationCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_PUBLISHARTIFACTCOMMAND_TIP)}>
             <span>{t('Publish Artifact Command')}</span>
-            <textarea value={publishArtifactCommand} disabled={!canManage} onChange={(event) => setPublishArtifactCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_PUBLISHARTIFACTCOMMAND_TIP)} value={publishArtifactCommand} disabled={!canManage} onChange={(event) => setPublishArtifactCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_RELEASEVERSIONINGCOMMAND_TIP)}>
             <span>{t('Release Versioning Command')}</span>
-            <textarea value={releaseVersioningCommand} disabled={!canManage} onChange={(event) => setReleaseVersioningCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_RELEASEVERSIONINGCOMMAND_TIP)} value={releaseVersioningCommand} disabled={!canManage} onChange={(event) => setReleaseVersioningCommand(event.target.value)} rows={3} />
           </label>
-          <label className="playbook-editor-field">
+          <label className="playbook-editor-field" title={t(CMD_CHANGELOGGENERATIONCOMMAND_TIP)}>
             <span>{t('Changelog Generation Command')}</span>
-            <textarea value={changelogGenerationCommand} disabled={!canManage} onChange={(event) => setChangelogGenerationCommand(event.target.value)} rows={3} />
+            <textarea title={t(CMD_CHANGELOGGENERATIONCOMMAND_TIP)} value={changelogGenerationCommand} disabled={!canManage} onChange={(event) => setChangelogGenerationCommand(event.target.value)} rows={3} />
           </label>
         </div>
 
         <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
           <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-            <h3>{t('Environment Commands')}</h3>
+            <h3 title={t('Deploy, rollback and verification commands per environment, such as staging or prod. Deployments to an environment use the commands with its name.')}>{t('Environment Commands')}</h3>
             {canManage && (
-              <button className="btn btn-sm" type="button" onClick={() => setEnvironments((current) => [...current, blankWorkflowEnvironment()])}>
+              <button className="btn btn-sm" type="button" onClick={() => setEnvironments((current) => [...current, blankWorkflowEnvironment()])} title={t('Add an environment with its own deploy and verification commands.')}>
                 + {t('Environment')}
               </button>
             )}
@@ -624,39 +661,39 @@ export default function WorkflowProfileDetail() {
                   <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
                     <h4>{environment.environmentName || t('Environment')}</h4>
                     {canManage && (
-                      <button className="btn btn-sm btn-danger" type="button" onClick={() => setEnvironments((current) => current.filter((_, currentIndex) => currentIndex !== index))}>
+                      <button className="btn btn-sm btn-danger" type="button" onClick={() => setEnvironments((current) => current.filter((_, currentIndex) => currentIndex !== index))} title={t('Remove this environment and its commands. Nothing changes until you save.')}>
                         {t('Remove')}
                       </button>
                     )}
                   </div>
                   <div className="detail-grid">
-                    <label className="playbook-editor-field">
+                    <label className="playbook-editor-field" title={t(ENV_NAME_TIP)}>
                       <span>{t('Name')}</span>
-                      <input type="text" value={environment.environmentName} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'environmentName', event.target.value)} />
+                      <input type="text" title={t(ENV_NAME_TIP)} value={environment.environmentName} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'environmentName', event.target.value)} />
                     </label>
-                    <label className="playbook-editor-field">
+                    <label className="playbook-editor-field" title={t(ENV_DEPLOY_TIP)}>
                       <span>{t('Deploy Command')}</span>
-                      <textarea value={environment.deployCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'deployCommand', event.target.value)} rows={3} />
+                      <textarea title={t(ENV_DEPLOY_TIP)} value={environment.deployCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'deployCommand', event.target.value)} rows={3} />
                     </label>
-                    <label className="playbook-editor-field">
+                    <label className="playbook-editor-field" title={t(ENV_ROLLBACK_TIP)}>
                       <span>{t('Rollback Command')}</span>
-                      <textarea value={environment.rollbackCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'rollbackCommand', event.target.value)} rows={3} />
+                      <textarea title={t(ENV_ROLLBACK_TIP)} value={environment.rollbackCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'rollbackCommand', event.target.value)} rows={3} />
                     </label>
-                    <label className="playbook-editor-field">
+                    <label className="playbook-editor-field" title={t(ENV_SMOKE_TIP)}>
                       <span>{t('Smoke Test Command')}</span>
-                      <textarea value={environment.smokeTestCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'smokeTestCommand', event.target.value)} rows={3} />
+                      <textarea title={t(ENV_SMOKE_TIP)} value={environment.smokeTestCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'smokeTestCommand', event.target.value)} rows={3} />
                     </label>
-                    <label className="playbook-editor-field">
+                    <label className="playbook-editor-field" title={t(ENV_HEALTH_TIP)}>
                       <span>{t('Health Check Command')}</span>
-                      <textarea value={environment.healthCheckCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'healthCheckCommand', event.target.value)} rows={3} />
+                      <textarea title={t(ENV_HEALTH_TIP)} value={environment.healthCheckCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'healthCheckCommand', event.target.value)} rows={3} />
                     </label>
-                    <label className="playbook-editor-field">
+                    <label className="playbook-editor-field" title={t(ENV_DEPLOY_VERIFY_TIP)}>
                       <span>{t('Deployment Verification Command')}</span>
-                      <textarea value={environment.deploymentVerificationCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'deploymentVerificationCommand', event.target.value)} rows={3} />
+                      <textarea title={t(ENV_DEPLOY_VERIFY_TIP)} value={environment.deploymentVerificationCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'deploymentVerificationCommand', event.target.value)} rows={3} />
                     </label>
-                    <label className="playbook-editor-field">
+                    <label className="playbook-editor-field" title={t(ENV_ROLLBACK_VERIFY_TIP)}>
                       <span>{t('Rollback Verification Command')}</span>
-                      <textarea value={environment.rollbackVerificationCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'rollbackVerificationCommand', event.target.value)} rows={3} />
+                      <textarea title={t(ENV_ROLLBACK_VERIFY_TIP)} value={environment.rollbackVerificationCommand || ''} disabled={!canManage} onChange={(event) => updateEnvironment(index, 'rollbackVerificationCommand', event.target.value)} rows={3} />
                     </label>
                   </div>
                 </div>
@@ -666,13 +703,13 @@ export default function WorkflowProfileDetail() {
         </div>
 
         <div className="playbook-editor-actions">
-          <button className="btn" disabled={validating} onClick={handleValidate}>
+          <button className="btn" disabled={validating} onClick={handleValidate} title={t('Check the profile as currently filled in, without saving, and list errors, warnings and the commands that would run.')}>
             {validating ? t('Validating...') : t('Validate')}
           </button>
-          <button className="btn btn-primary" disabled={!canManage || saving} onClick={handleSave}>
+          <button className="btn btn-primary" disabled={!canManage || saving} onClick={handleSave} title={createMode ? t('Create this workflow profile.') : t('Save changes. Check runs started after saving use the new commands.')}>
             {saving ? t('Saving...') : createMode ? t('Create Workflow Profile') : t('Save Changes')}
           </button>
-          <button className="btn" onClick={() => navigate('/workflow-profiles')}>
+          <button className="btn" onClick={() => navigate('/workflow-profiles')} title={t('Return to the workflow profile list. Unsaved changes are discarded.')}>
             {t('Back')}
           </button>
         </div>

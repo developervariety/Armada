@@ -165,33 +165,33 @@ export default function TokenUsage() {
       {harborId && (
         <div className="token-usage-filter-note">
           <span>{t('Showing captains run on Harbor {{id}}', { id: harborId })}</span>
-          <button type="button" className="btn btn-sm" onClick={clearHarbor}>{t('Show all')}</button>
+          <button type="button" className="btn btn-sm" onClick={clearHarbor} title={t('Remove the Harbor filter and show token usage from every host.')}>{t('Show all')}</button>
         </div>
       )}
       {/* Shared controls -- apply to both charts, live outside them. */}
       <div className="token-usage-controls">
         <div className="mission-history-time-tabs">
           {TIME_RANGES.map(r => (
-            <button key={r.value} className={'mission-history-time-tab' + (timeRange === r.value ? ' active' : '')} onClick={() => setTimeRange(r.value)}>{t(r.label)}</button>
+            <button key={r.value} className={'mission-history-time-tab' + (timeRange === r.value ? ' active' : '')} onClick={() => setTimeRange(r.value)} title={t('Time window for the totals and both charts. Shorter windows use smaller time buckets.')}>{t(r.label)}</button>
           ))}
         </div>
         <div className="mission-history-time-tabs">
-          <button className={'mission-history-time-tab' + (metric === 'total' ? ' active' : '')} onClick={() => setMetric('total')}>{t('Total')}</button>
-          <button className={'mission-history-time-tab' + (metric === 'byType' ? ' active' : '')} onClick={() => setMetric('byType')}>{t('By token type')}</button>
+          <button className={'mission-history-time-tab' + (metric === 'total' ? ' active' : '')} onClick={() => setMetric('total')} title={t('Color the charts by model, showing each model\'s total tokens.')}>{t('Total')}</button>
+          <button className={'mission-history-time-tab' + (metric === 'byType' ? ' active' : '')} onClick={() => setMetric('byType')} title={t('Split the charts into input, output, and cached tokens instead of by model.')}>{t('By token type')}</button>
         </div>
         <div className="mission-history-time-tabs">
-          <button className={'mission-history-time-tab' + (shape === 'bars' ? ' active' : '')} onClick={() => setShape('bars')}>{t('Stacked bars')}</button>
-          <button className={'mission-history-time-tab' + (shape === 'lines' ? ' active' : '')} onClick={() => setShape('lines')}>{t('Lines')}</button>
+          <button className={'mission-history-time-tab' + (shape === 'bars' ? ' active' : '')} onClick={() => setShape('bars')} title={t('Draw usage over time as stacked bars, so each bar\'s height is the bucket total.')}>{t('Stacked bars')}</button>
+          <button className={'mission-history-time-tab' + (shape === 'lines' ? ' active' : '')} onClick={() => setShape('lines')} title={t('Draw usage over time as one line per series, which makes trends easier to compare.')}>{t('Lines')}</button>
         </div>
       </div>
 
       <div className="mission-history-stats token-usage-stats">
-        <span><span className="mission-history-stat-value">{formatTokens(totalTokens)}</span> {t('Total')}</span>
-        <span><span className="mission-history-stat-value" style={{ color: TYPE_COLORS.input }}>{formatTokens(totalInput)}</span> {t('Input')}</span>
-        <span><span className="mission-history-stat-value" style={{ color: TYPE_COLORS.output }}>{formatTokens(totalOutput)}</span> {t('Output')}</span>
-        <span><span className="mission-history-stat-value" style={{ color: TYPE_COLORS.cached }}>{formatTokens(totalCached)}</span> {t('Cached')}</span>
+        <span title={t('All tokens consumed by missions, Ask Armada, and planning in the selected window.')}><span className="mission-history-stat-value">{formatTokens(totalTokens)}</span> {t('Total')}</span>
+        <span title={t('Prompt tokens sent to models in the selected window.')}><span className="mission-history-stat-value" style={{ color: TYPE_COLORS.input }}>{formatTokens(totalInput)}</span> {t('Input')}</span>
+        <span title={t('Completion tokens the models generated in the selected window.')}><span className="mission-history-stat-value" style={{ color: TYPE_COLORS.output }}>{formatTokens(totalOutput)}</span> {t('Output')}</span>
+        <span title={t('Prompt tokens served from the provider\'s prompt cache, usually billed at a lower rate.')}><span className="mission-history-stat-value" style={{ color: TYPE_COLORS.cached }}>{formatTokens(totalCached)}</span> {t('Cached')}</span>
         {(data?.estimatedCount ?? 0) > 0 && (
-          <span className="token-usage-estimated-note">{t('{{estimated}} of {{total}} records estimated', { estimated: data!.estimatedCount, total: data!.recordCount })}</span>
+          <span className="token-usage-estimated-note" title={t('Some runtimes do not report real usage, so Armada estimates those counts. Totals that include estimates are approximate.')}>{t('{{estimated}} of {{total}} records estimated', { estimated: data!.estimatedCount, total: data!.recordCount })}</span>
         )}
       </div>
 
@@ -200,7 +200,7 @@ export default function TokenUsage() {
       {/* Chart 1 -- Usage over time. Title + axis labels live inside the SVG so the copied image includes them. */}
       <div className="token-usage-chart-card">
         <div className="token-usage-chart-header">
-          <button className={'token-usage-copy-btn' + (copiedTime === 'fail' ? ' failed' : '')} onClick={() => copyChart(timeChartRef, setCopiedTime)} disabled={!hasTimeData}>{copyLabel(copiedTime)}</button>
+          <button className={'token-usage-copy-btn' + (copiedTime === 'fail' ? ' failed' : '')} onClick={() => copyChart(timeChartRef, setCopiedTime)} disabled={!hasTimeData} title={t('Copy the usage-over-time chart to the clipboard as an image.')}>{copyLabel(copiedTime)}</button>
         </div>
         {loading ? (
           <div className="mission-history-empty">{t('Loading token usage...')}</div>
@@ -271,7 +271,7 @@ export default function TokenUsage() {
       {/* Chart 2 -- Usage by model. Title inside the SVG so the copied image includes it. */}
       <div className="token-usage-chart-card">
         <div className="token-usage-chart-header">
-          <button className={'token-usage-copy-btn' + (copiedModel === 'fail' ? ' failed' : '')} onClick={() => copyChart(modelChartRef, setCopiedModel)} disabled={!hasModelData}>{copyLabel(copiedModel)}</button>
+          <button className={'token-usage-copy-btn' + (copiedModel === 'fail' ? ' failed' : '')} onClick={() => copyChart(modelChartRef, setCopiedModel)} disabled={!hasModelData} title={t('Copy the usage-by-model chart to the clipboard as an image.')}>{copyLabel(copiedModel)}</button>
         </div>
         {loading ? (
           <div className="mission-history-empty">{t('Loading token usage...')}</div>

@@ -20,16 +20,32 @@ interface ChatToolChipsProps {
   permissionDeniedNote?: string;
   /** Accessible label of the refused marker (already localized). */
   permissionDeniedLabel?: string;
+  /** Translator for the chips' hover text. The chips render outside a LocaleProvider in some tests, so it is
+   *  passed in; without it the English text is used with its {{name}} placeholders filled. */
+  t?: (value: string, vars?: Record<string, string | number>) => string;
 }
 
-export default function ChatToolChips({ tools, runtimeLabel, runningLabel, argumentsLabel, resultLabel, noDetailsLabel, permissionDeniedNote, permissionDeniedLabel }: ChatToolChipsProps) {
+function englishTemplate(value: string, vars?: Record<string, string | number>): string {
+  return value.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => String(vars?.[key] ?? ''));
+}
+
+export default function ChatToolChips({ tools, runtimeLabel, runningLabel, argumentsLabel, resultLabel, noDetailsLabel, permissionDeniedNote, permissionDeniedLabel, t = englishTemplate }: ChatToolChipsProps) {
   if (!tools || tools.length === 0) return null;
   return (
     <div className="chat-tools">
       {tools.map((tool) => (
         <Fragment key={tool.id}>
         <details className={`chat-tool chat-tool-${tool.status}${tool.permissionDenied ? ' chat-tool-denied' : ''}`}>
-          <summary className="chat-tool-summary">
+          <summary
+            className="chat-tool-summary"
+            title={tool.permissionDenied
+              ? t('Tool {{name}} was refused: the CLI did not have permission to run it. Click to see what was asked.', { name: tool.name })
+              : tool.status === 'running'
+                ? t('Tool {{name}} is running. Click to see the arguments it was called with.', { name: tool.name })
+                : tool.status === 'success'
+                  ? t('Tool {{name}} succeeded. Click to see its arguments and result.', { name: tool.name })
+                  : t('Tool {{name}} failed. Click to see its arguments and the error.', { name: tool.name })}
+          >
             {tool.permissionDenied && <span className="chat-tool-status" aria-hidden="true">{'\u2715!'}</span>}
             {!tool.permissionDenied && (
             <span className="chat-tool-status" aria-hidden="true">
@@ -38,7 +54,7 @@ export default function ChatToolChips({ tools, runtimeLabel, runningLabel, argum
             )}
             {tool.permissionDenied && permissionDeniedLabel && <span className="sr-only">{permissionDeniedLabel}</span>}
             <span className="chat-tool-name">{tool.name}</span>
-            {runtimeLabel && <span className="chat-tool-runtime">{runtimeLabel}</span>}
+            {runtimeLabel && <span className="chat-tool-runtime" title={t('Runtime that ran this tool call.')}>{runtimeLabel}</span>}
             {tool.status !== 'running' && tool.result && (
               <span className="chat-tool-result-preview" title={resultPreview(tool.result)}>{resultPreview(tool.result)}</span>
             )}

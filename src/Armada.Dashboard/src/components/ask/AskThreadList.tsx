@@ -98,7 +98,7 @@ export default function AskThreadList(props: AskThreadListProps) {
             </button>
           )}
         </div>
-        <button type="button" className="btn btn-primary btn-sm ask-new-btn" onClick={onNew}>
+        <button type="button" className="btn btn-primary btn-sm ask-new-btn" onClick={onNew} title={t('Start an empty conversation. It is saved once you send the first message.')}>
           + {t('New conversation')}
         </button>
         <input
@@ -108,9 +108,10 @@ export default function AskThreadList(props: AskThreadListProps) {
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder={t('Search conversations')}
           aria-label={t('Search conversations')}
+          title={t('Find conversations by title text.')}
         />
-        <label className="ask-threads-archived">
-          <input type="checkbox" checked={includeArchived} onChange={(e) => onIncludeArchivedChange(e.target.checked)} />
+        <label className="ask-threads-archived" title={t('Also list archived conversations. Archiving hides a conversation without deleting it; old inactive ones are archived automatically.')}>
+          <input type="checkbox" title={t('Also list archived conversations. Archiving hides a conversation without deleting it; old inactive ones are archived automatically.')} checked={includeArchived} onChange={(e) => onIncludeArchivedChange(e.target.checked)} />
           {t('Show archived')}
         </label>
       </div>
@@ -118,7 +119,7 @@ export default function AskThreadList(props: AskThreadListProps) {
       {error && (
         <div className="alert alert-error ask-threads-error" role="alert">
           <span>{error}</span>
-          <button type="button" className="btn btn-sm" onClick={onRetry}>{t('Retry')}</button>
+          <button type="button" className="btn btn-sm" onClick={onRetry} title={t('Try loading the conversation list again.')}>{t('Retry')}</button>
         </div>
       )}
 
@@ -144,6 +145,7 @@ export default function AskThreadList(props: AskThreadListProps) {
                     value={renameValue}
                     maxLength={200}
                     aria-label={t('Conversation title')}
+                    title={t('Type a new title and press Enter to save, or Escape to cancel. Up to 200 characters.')}
                     onChange={(e) => setRenameValue(e.target.value)}
                     onBlur={() => commitRename(thread)}
                     onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setRenamingId(null); } }}
@@ -159,23 +161,23 @@ export default function AskThreadList(props: AskThreadListProps) {
                   title={title}
                 >
                   <span className="ask-thread-row-top">
-                    {thread.pinned && <span className="ask-thread-pin" aria-label={t('Pinned')} title={t('Pinned')}>&#128204;</span>}
+                    {thread.pinned && <span className="ask-thread-pin" aria-label={t('Pinned')} title={t('Pinned: kept at the top of the list and never archived or deleted automatically.')}>&#128204;</span>}
                     <span className="ask-thread-name">{title}</span>
                     {unread > 0 && (
-                      <span className="ask-unread-badge" aria-label={t('{{count}} unread', { count: unread })}>
+                      <span className="ask-unread-badge" aria-label={t('{{count}} unread', { count: unread })} title={t('{{count}} new messages since you last opened this conversation.', { count: unread })}>
                         {unread > 99 ? '99+' : unread}
                       </span>
                     )}
                   </span>
                   <span className="ask-thread-row-bottom text-dim">
                     {working && (
-                      <span className="ask-thread-working">
+                      <span className="ask-thread-working" title={t('Work started from this conversation, such as a voyage or fleet action run, is still running.')}>
                         <span className="ask-live-dot" aria-hidden="true" />
                         {t('Working')}
                       </span>
                     )}
-                    {!working && replying && <span className="ask-thread-working">{t('Replying...')}</span>}
-                    {thread.archived && <span className="ask-thread-archived-tag">{t('Archived')}</span>}
+                    {!working && replying && <span className="ask-thread-working" title={t('The captain is writing a reply in this conversation.')}>{t('Replying...')}</span>}
+                    {thread.archived && <span className="ask-thread-archived-tag" title={t('Archived: hidden from the list unless Show archived is on. Unarchive it from its menu.')}>{t('Archived')}</span>}
                     <span className="ask-thread-time">
                       {thread.lastMessageUtc ? formatRelativeTime(thread.lastMessageUtc) : ''}
                     </span>
@@ -190,7 +192,7 @@ export default function AskThreadList(props: AskThreadListProps) {
 
       {loading && <p className="ask-threads-loading text-dim" role="status">{t('Loading conversations...')}</p>}
       {hasMore && !loading && (
-        <button type="button" className="btn btn-sm ask-threads-more" onClick={onLoadMore}>{t('Load more')}</button>
+        <button type="button" className="btn btn-sm ask-threads-more" onClick={onLoadMore} title={t('Load the next page of older conversations.')}>{t('Load more')}</button>
       )}
     </nav>
   );

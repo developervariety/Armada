@@ -758,7 +758,7 @@ export default function Workspace() {
   return (
     <div className="workspace-page">
       <div className="breadcrumbs">
-        <Link to="/workspace">{t('Workspace')}</Link>
+        <Link to="/workspace" title={t('Back to the Workspace vessel picker.')}>{t('Workspace')}</Link>
         <span className="bc-sep">&gt;</span>
         <span>{currentVessel?.name || vesselId}</span>
       </div>
@@ -768,29 +768,29 @@ export default function Workspace() {
           <h2>{currentVessel?.name || t('Workspace')}</h2>
           <div className="workspace-header-row">
             <div className="workspace-header-status">
-              <span className="workspace-status-pill">{status?.branchName || t('No branch')}</span>
-              <span className="workspace-status-pill">{status?.isDirty ? t('Dirty working tree') : t('Clean working tree')}</span>
-              <span className="workspace-status-pill">{status?.activeMissionCount || 0} {t('active mission(s)')}</span>
-              <span className="workspace-status-pill">{status?.commitsAhead ?? 0} {t('ahead')} / {status?.commitsBehind ?? 0} {t('behind')}</span>
+              <span className="workspace-status-pill" title={t('Branch currently checked out in the vessel working directory.')}>{status?.branchName || t('No branch')}</span>
+              <span className="workspace-status-pill" title={status?.isDirty ? t('The working directory has uncommitted changes. Review them in Review Diff below.') : t('The working directory has no uncommitted changes.')}>{status?.isDirty ? t('Dirty working tree') : t('Clean working tree')}</span>
+              <span className="workspace-status-pill" title={t('Missions currently running on this vessel. Selecting a file one of them is changing shows a warning in the Selection pane.')}>{status?.activeMissionCount || 0} {t('active mission(s)')}</span>
+              <span className="workspace-status-pill" title={t('Commits the checked-out branch has that its remote tracking branch lacks (ahead), and commits it is missing (behind).')}>{status?.commitsAhead ?? 0} {t('ahead')} / {status?.commitsBehind ?? 0} {t('behind')}</span>
             </div>
 
             <div className="workspace-header-actions">
               <div className="workspace-header-toolbar">
-                <button type="button" className="btn btn-sm" onClick={() => void refreshWorkspace()}>{t('Refresh')}</button>
-                <button type="button" className="btn btn-sm btn-primary" onClick={() => void handleSaveActiveFile()} disabled={!activePath || !activeFile?.isEditable || !hasUnsavedChanges}>
+                <button type="button" className="btn btn-sm" onClick={() => void refreshWorkspace()} title={t('Reload the file tree and git status from disk. Unsaved edits in open tabs are kept.')}>{t('Refresh')}</button>
+                <button type="button" className="btn btn-sm btn-primary" onClick={() => void handleSaveActiveFile()} disabled={!activePath || !activeFile?.isEditable || !hasUnsavedChanges} title={t('Write the active tab to disk in the working directory. Refused if the file changed on disk since you opened it.')}>
                   {t('Save')}
                 </button>
-                <button type="button" className="btn btn-sm" onClick={handleRunCheck}>{t('Run Check')}</button>
-                <button type="button" className="btn btn-sm" onClick={handlePlanSelection} disabled={actionablePaths.length === 0}>{t('Plan')}</button>
-                <button type="button" className="btn btn-sm" onClick={handleDispatchSelection} disabled={actionablePaths.length === 0}>{t('Dispatch')}</button>
-                <button type="button" className="btn btn-sm" onClick={openContextModal}>{t('Context')}</button>
+                <button type="button" className="btn btn-sm" onClick={handleRunCheck} title={t('Go to Checks with this vessel and its current branch filled in, to run a build, test or other check.')}>{t('Run Check')}</button>
+                <button type="button" className="btn btn-sm" onClick={handlePlanSelection} disabled={actionablePaths.length === 0} title={t('Start a planning chat with a captain, pre-filled with the selected files (or the active tab), to work out the change before dispatching.')}>{t('Plan')}</button>
+                <button type="button" className="btn btn-sm" onClick={handleDispatchSelection} disabled={actionablePaths.length === 0} title={t('Go to Dispatch with a mission draft scoped to the selected files (or the active tab). Nothing runs until you submit it there.')}>{t('Dispatch')}</button>
+                <button type="button" className="btn btn-sm" onClick={openContextModal} title={t('Edit this vessel Project Context, Style Guide and Model Context, which are added to every captain prompt for it.')}>{t('Context')}</button>
               </div>
 
               <select aria-label={t('Switch vessel')}
                 className="workspace-header-select"
                 value={vesselId}
                 onChange={(event) => navigate(`/workspace/${event.target.value}`)}
-                title={t('Switch vessel')}
+                title={t('Open a different vessel in Workspace. Unsaved edits in the open tabs are discarded, so save first.')}
               >
                 {vessels.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
@@ -824,10 +824,10 @@ export default function Workspace() {
       <div className={`workspace-shell${showSelectionPane ? ' has-selection-pane' : ''}`}>
         <aside className="workspace-pane workspace-pane-left">
           <div className="workspace-pane-header">
-            <h3>{t('Files')}</h3>
+            <h3 title={t('Files and folders in the vessel working directory. Check files to select them for Plan, Dispatch and Context.')}>{t('Files')}</h3>
             <div className="workspace-mini-actions">
-              <button type="button" className="btn btn-sm" onClick={() => void handleCreateFile()}>{t('New File')}</button>
-              <button type="button" className="btn btn-sm" onClick={() => void handleCreateDirectory()}>{t('New Folder')}</button>
+              <button type="button" className="btn btn-sm" onClick={() => void handleCreateFile()} title={t('Create an empty file. You are asked for its path relative to the repository root, e.g. docs/notes.md.')}>{t('New File')}</button>
+              <button type="button" className="btn btn-sm" onClick={() => void handleCreateDirectory()} title={t('Create a folder. You are asked for its path relative to the repository root, e.g. docs/guides.')}>{t('New Folder')}</button>
             </div>
           </div>
 
@@ -851,11 +851,11 @@ export default function Workspace() {
             <div className="workspace-tabs">
               {tabs.map((path) => (
                 <div key={path} className={`workspace-tab${activePath === path ? ' active' : ''}`}>
-                  <button type="button" onClick={() => setActivePath(path)}>
+                  <button type="button" onClick={() => setActivePath(path)} title={isDirty(path) ? t('{{path}} (unsaved changes)', { path }) : path}>
                     {getWorkspaceName(path)}
                     {isDirty(path) && <span className="workspace-tab-dirty">*</span>}
                   </button>
-                  <button type="button" className="workspace-tab-close" onClick={() => closeTab(path)}>x</button>
+                  <button type="button" className="workspace-tab-close" onClick={() => closeTab(path)} title={t('Close the {{name}} tab. Unsaved edits are not written to disk.', { name: getWorkspaceName(path) })} aria-label={t('Close {{name}}', { name: getWorkspaceName(path) })}>x</button>
                 </div>
               ))}
             </div>
@@ -872,11 +872,12 @@ export default function Workspace() {
                       className="btn btn-sm btn-primary"
                       onClick={() => void handleSaveActiveFile()}
                       disabled={!activeFile.isEditable || !hasUnsavedChanges}
+                      title={t('Write this file to disk in the working directory. Refused if the file changed on disk since you opened it.')}
                     >
                       {t('Save')}
                     </button>
-                    <button type="button" className="btn btn-sm" onClick={() => void handleRenameEntry()}>{t('Rename')}</button>
-                    <button type="button" className="btn btn-sm btn-danger" onClick={() => void handleDeleteEntry()}>{t('Delete')}</button>
+                    <button type="button" className="btn btn-sm" onClick={() => void handleRenameEntry()} title={t('Rename or move this file. Enter a new path relative to the repository root; it moves on disk immediately.')}>{t('Rename')}</button>
+                    <button type="button" className="btn btn-sm btn-danger" onClick={() => void handleDeleteEntry()} title={t('Permanently delete this file from the working directory after you confirm. Commit first if you may need it back.')}>{t('Delete')}</button>
                   </div>
                 </div>
 
@@ -896,6 +897,7 @@ export default function Workspace() {
                       onScroll={(event) => syncLineNumberScroll(editorLineNumberRef, event.currentTarget.scrollTop)}
                       spellCheck={false}
                       wrap="off"
+                      title={t('Editing {{path}}. Changes stay in this tab until you click Save.', { path: activeFile.path })}
                     />
                   </div>
                 ) : (
@@ -938,7 +940,7 @@ export default function Workspace() {
         {showSelectionPane && (
         <aside className="workspace-pane workspace-pane-right">
           <div className="workspace-pane-header">
-            <h3>{t('Selection')}</h3>
+            <h3 title={t('Files that Plan, Dispatch and Append Selection act on: the checked files, or the active tab when none are checked.')}>{t('Selection')}</h3>
           </div>
 
           <div className="workspace-action-rail">
@@ -950,11 +952,11 @@ export default function Workspace() {
 
             {overlappingMissions.length > 0 && (
               <div className="workspace-mission-warning">
-                <strong>{t('Active mission overlap')}</strong>
+                <strong title={t('These running missions are scoped to files you selected. Changing those files now may conflict with what the captains are doing.')}>{t('Active mission overlap')}</strong>
                 {overlappingMissions.map((mission) => (
                   <div key={mission.missionId} className="workspace-mission-warning-item">
                     <span>{mission.title}</span>
-                    <span className="text-dim">{mission.status}</span>
+                    <span className="text-dim" title={t('Current status of the overlapping mission.')}>{mission.status}</span>
                   </div>
                 ))}
               </div>
@@ -1020,7 +1022,7 @@ export default function Workspace() {
               )}
             </div>
             <div className="modal-actions">
-              <button type="button" className="btn" onClick={() => setMetadataEntry(null)}>{t('Close')}</button>
+              <button type="button" className="btn" onClick={() => setMetadataEntry(null)} title={t('Close the metadata view.')}>{t('Close')}</button>
             </div>
           </div>
         </div>
@@ -1036,15 +1038,15 @@ export default function Workspace() {
               void handleSaveContextModal();
             }}
           >
-            <h3>{t('Vessel Context')}</h3>
+            <h3 title={t('Text Armada adds to every captain prompt for this vessel. Saving here updates the vessel, the same as Edit Vessel.')}>{t('Vessel Context')}</h3>
             <p className="text-dim workspace-context-modal-intro">
               {t('Edit the vessel context fields directly, or append the current Workspace selection into any field.')}
             </p>
 
             <div className="workspace-context-section">
               <div className="workspace-context-section-header">
-                <strong>{t('Project Context')}</strong>
-                <button type="button" className="btn btn-sm" onClick={() => void appendSelectionToContextDraft('projectContext')} disabled={actionablePaths.length === 0 || savingContext}>
+                <strong title={t('What this project is: purpose, architecture, key files and dependencies.')}>{t('Project Context')}</strong>
+                <button type="button" className="btn btn-sm" title={t('Append the contents of up to six selected text files to this field as a snippet. Nothing is saved until you click Save Context.')} onClick={() => void appendSelectionToContextDraft('projectContext')} disabled={actionablePaths.length === 0 || savingContext}>
                   {t('Append Selection')}
                 </button>
               </div>
@@ -1059,8 +1061,8 @@ export default function Workspace() {
 
             <div className="workspace-context-section">
               <div className="workspace-context-section-header">
-                <strong>{t('Style Guide')}</strong>
-                <button type="button" className="btn btn-sm" onClick={() => void appendSelectionToContextDraft('styleGuide')} disabled={actionablePaths.length === 0 || savingContext}>
+                <strong title={t('Coding rules captains must follow here: naming, patterns, language restrictions, preferred libraries.')}>{t('Style Guide')}</strong>
+                <button type="button" className="btn btn-sm" title={t('Append the contents of up to six selected text files to this field as a snippet. Nothing is saved until you click Save Context.')} onClick={() => void appendSelectionToContextDraft('styleGuide')} disabled={actionablePaths.length === 0 || savingContext}>
                   {t('Append Selection')}
                 </button>
               </div>
@@ -1075,8 +1077,8 @@ export default function Workspace() {
 
             <div className="workspace-context-section">
               <div className="workspace-context-section-header">
-                <strong>{t('Model Context')}</strong>
-                <button type="button" className="btn btn-sm" onClick={() => void appendSelectionToContextDraft('modelContext')} disabled={actionablePaths.length === 0 || savingContext}>
+                <strong title={t('Notes captains have accumulated about this repo during missions, fed to future missions.')}>{t('Model Context')}</strong>
+                <button type="button" className="btn btn-sm" title={t('Append the contents of up to six selected text files to this field as a snippet. Nothing is saved until you click Save Context.')} onClick={() => void appendSelectionToContextDraft('modelContext')} disabled={actionablePaths.length === 0 || savingContext}>
                   {t('Append Selection')}
                 </button>
               </div>
@@ -1090,8 +1092,8 @@ export default function Workspace() {
             </div>
 
             <div className="modal-actions">
-              <button type="button" className="btn" onClick={() => setShowContextModal(false)} disabled={savingContext}>{t('Cancel')}</button>
-              <button type="submit" className="btn btn-primary" disabled={savingContext}>{savingContext ? t('Saving...') : t('Save Context')}</button>
+              <button type="button" className="btn" onClick={() => setShowContextModal(false)} disabled={savingContext} title={t('Close without saving changes to the context fields.')}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={savingContext} title={t('Save all three context fields to the vessel. Missions dispatched from now on use the new text.')}>{savingContext ? t('Saving...') : t('Save Context')}</button>
             </div>
           </form>
         </div>

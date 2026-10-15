@@ -15,9 +15,9 @@ export default function AutoRefreshSelect({ seconds, onChange, className }: Auto
   const { t } = useLocale();
 
   return (
-    <label className={`auto-refresh-select${className ? ` ${className}` : ''}`} title={t('Auto-refresh interval')}>
+    <label className={`auto-refresh-select${className ? ` ${className}` : ''}`} title={t('How often this table reloads on its own. None turns it off. The choice is remembered for this table in this browser.')}>
       <span className="auto-refresh-select-label">{t('Auto-refresh')}</span>
-      <select value={seconds} onChange={(event) => onChange(Number(event.target.value))} aria-label={t('Auto-refresh interval')}>
+      <select value={seconds} onChange={(event) => onChange(Number(event.target.value))} aria-label={t('Auto-refresh interval')} title={t('How often this table reloads on its own. None turns it off. The choice is remembered for this table in this browser.')}>
         {AUTO_REFRESH_OPTIONS.map((option) => (
           <option key={option} value={option}>
             {option === 0 ? t('None') : t('{{seconds}}s', { seconds: option })}

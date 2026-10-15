@@ -53,7 +53,7 @@ export default function VesselOnboarding() {
       <div key={item.code} className={`readiness-checklist-item${item.isSatisfied ? ' satisfied' : ''}`}>
         <div className="readiness-checklist-title-row">
           <strong>{item.title}</strong>
-          <span className={`readiness-issue-severity ${item.severity.toLowerCase()}`}>
+          <span className={`readiness-issue-severity ${item.severity.toLowerCase()}`} title={item.isSatisfied ? t('This setup step is complete.') : item.severity === 'Error' ? t('Required setup step that is not done yet.') : item.severity === 'Warning' ? t('Recommended setup step that is not done yet.') : t('Optional setup step.')}>
             {item.isSatisfied ? t('Done') : item.severity}
           </span>
         </div>
@@ -76,8 +76,8 @@ export default function VesselOnboarding() {
   return (
     <div>
       <div className="breadcrumb">
-        <Link to="/vessels">{t('Vessels')}</Link> <span className="breadcrumb-sep">&gt;</span>{' '}
-        <Link to={`/vessels/${vessel.id}`}>{vessel.name}</Link> <span className="breadcrumb-sep">&gt;</span>{' '}
+        <Link to="/vessels" title={t('Back to the list of all vessels.')}>{t('Vessels')}</Link> <span className="breadcrumb-sep">&gt;</span>{' '}
+        <Link to={`/vessels/${vessel.id}`} title={t('Back to this vessel page.')}>{vessel.name}</Link> <span className="breadcrumb-sep">&gt;</span>{' '}
         <span>{t('Onboarding')}</span>
       </div>
 
@@ -89,13 +89,13 @@ export default function VesselOnboarding() {
           </div>
         </div>
         <div className="inline-actions">
-          <button type="button" className="btn btn-sm" onClick={() => navigate(`/workspace/${vessel.id}`)}>
+          <button type="button" className="btn btn-sm" onClick={() => navigate(`/workspace/${vessel.id}`)} title={t('Browse, edit and run commands in this vessel working directory.')}>
             {t('Open Workspace')}
           </button>
-          <button type="button" className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } })}>
+          <button type="button" className="btn btn-sm" onClick={() => navigate('/checks', { state: { prefill: { vesselId: vessel.id, branchName: vessel.defaultBranch || '' } } })} title={t('Go to Checks with this vessel and its default branch filled in, to run a build, test or other check.')}>
             {t('Run Check')}
           </button>
-          <button type="button" className="btn btn-sm" onClick={() => navigate(`/vessels/${vessel.id}`)}>
+          <button type="button" className="btn btn-sm" onClick={() => navigate(`/vessels/${vessel.id}`)} title={t('Back to this vessel page.')}>
             {t('Back To Vessel')}
           </button>
         </div>
@@ -104,19 +104,19 @@ export default function VesselOnboarding() {
       <ErrorModal error={error} onClose={() => setError('')} />
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Setup checklist steps done, out of the total.')}>
           <span>{t('Completed')}</span>
           <strong>{`${readiness?.setupChecklistSatisfiedCount || 0}/${readiness?.setupChecklistTotalCount || 0}`}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Readiness errors that stop missions from running or landing on this vessel. Listed under Open Issues.')}>
           <span>{t('Blocking Issues')}</span>
           <strong>{readiness?.errorCount || 0}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Readiness warnings: not blocking, but worth fixing. Listed under Open Issues.')}>
           <span>{t('Warnings')}</span>
           <strong>{readiness?.warningCount || 0}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Deployment environments (such as staging or production) configured for this vessel.')}>
           <span>{t('Environments')}</span>
           <strong>{readiness?.deploymentEnvironments.length || 0}</strong>
         </div>
@@ -125,13 +125,13 @@ export default function VesselOnboarding() {
       {nextChecklistItem && (
         <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
           <div className="detail-header" style={{ marginBottom: '0.5rem' }}>
-            <h3>{t('Next Recommended Step')}</h3>
+            <h3 title={t('The first unfinished step in the setup checklist.')}>{t('Next Recommended Step')}</h3>
           </div>
           <strong>{nextChecklistItem.title}</strong>
           <div className="text-dim" style={{ marginTop: '0.35rem' }}>{nextChecklistItem.message}</div>
           {!nextChecklistItem.isSatisfied && nextChecklistItem.actionLabel && nextChecklistItem.actionRoute && (
             <div style={{ marginTop: '0.75rem' }}>
-              <Link to={nextChecklistItem.actionRoute} className="btn btn-sm btn-primary">
+              <Link to={nextChecklistItem.actionRoute} className="btn btn-sm btn-primary" title={t('Go to the page where you can complete this step.')}>
                 {nextChecklistItem.actionLabel}
               </Link>
             </div>
@@ -159,17 +159,17 @@ export default function VesselOnboarding() {
       {readiness && readiness.issues.length > 0 && (
         <div className="card" style={{ padding: '1rem' }}>
           <div className="detail-header" style={{ marginBottom: '0.75rem' }}>
-            <h3>{t('Open Issues')}</h3>
+            <h3 title={t('Every readiness error and warning for this vessel, with the setting or value involved.')}>{t('Open Issues')}</h3>
           </div>
           <div className="readiness-issues">
             {readiness.issues.map((issue, index) => (
               <div key={`${issue.code}-${index}`} className={`readiness-issue ${issue.severity.toLowerCase()}`}>
                 <div className="readiness-issue-title-row">
                   <strong>{issue.title}</strong>
-                  <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`}>{issue.severity}</span>
+                  <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`} title={issue.severity === 'Error' ? t('Error: this blocks landing until it is fixed.') : issue.severity === 'Warning' ? t('Warning: landing can proceed, but this is worth fixing.') : t('Information only; nothing is blocked.')}>{issue.severity}</span>
                 </div>
                 <div className="text-dim">{issue.message}</div>
-                {issue.relatedValue && <div className="readiness-related-value mono">{issue.relatedValue}</div>}
+                {issue.relatedValue && <div className="readiness-related-value mono" title={t('The setting, path or value this issue is about.')}>{issue.relatedValue}</div>}
               </div>
             ))}
           </div>

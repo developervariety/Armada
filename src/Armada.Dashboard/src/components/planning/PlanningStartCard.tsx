@@ -60,7 +60,7 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
 
   return (
     <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
-      <h3 style={{ marginBottom: '0.35rem' }}>{t('Start Session')}</h3>
+      <h3 style={{ marginBottom: '0.35rem' }} title={t('Open a chat with one captain on one vessel. The transcript is saved, and you can dispatch work straight from any reply.')}>{t('Start Session')}</h3>
       <p className="text-muted" style={{ marginBottom: '1rem' }}>
         {t('Reserve a captain on a vessel, then use the transcript as the source of truth for a later dispatch.')}
       </p>
@@ -73,8 +73,9 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
       ) : (
         <div className="dispatch-form">
           <div className="form-group planning-start-title-group">
-            <label>{t('Title')}</label>
+            <label title={t('Name for this planning session, shown in the session list. Optional; leave blank and Armada names it for you.')}>{t('Title')}</label>
             <input aria-label={t('Title')}
+              title={t('Name for this planning session, shown in the session list. Optional; leave blank and Armada names it for you.')}
               value={title}
               disabled={creating}
               onChange={(event) => onTitleChange(event.target.value)}
@@ -84,8 +85,8 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
 
           <div className="planning-start-grid">
             <div className="form-group">
-              <label>{t('Captain')}</label>
-              <select aria-label={t('Captain')} value={captainId} disabled={creating} onChange={(event) => onCaptainChange(event.target.value)}>
+              <label title={t('Captain you will chat with. It is reserved for the whole session, so it takes no missions until you end it. Only idle captains whose runtime supports planning can be chosen.')}>{t('Captain')}</label>
+              <select aria-label={t('Captain')} title={t('Captain you will chat with. It is reserved for the whole session, so it takes no missions until you end it. Only idle captains whose runtime supports planning can be chosen.')} value={captainId} disabled={creating} onChange={(event) => onCaptainChange(event.target.value)}>
                 <option value="">{t('Select a captain...')}</option>
                 {captains.map((captain) => (
                   <option
@@ -100,8 +101,8 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
             </div>
 
             <div className="form-group">
-              <label>{t('Fleet')}</label>
-              <select aria-label={t('Fleet')} value={fleetId} disabled={creating} onChange={(event) => onFleetChange(event.target.value)}>
+              <label title={t('Narrows the Vessel list to one fleet. Any fleet lists every vessel. This does not change the session itself.')}>{t('Fleet')}</label>
+              <select aria-label={t('Fleet')} title={t('Narrows the Vessel list to one fleet. Any fleet lists every vessel. This does not change the session itself.')} value={fleetId} disabled={creating} onChange={(event) => onFleetChange(event.target.value)}>
                 <option value="">{t('Any fleet')}</option>
                 {fleets.map((fleet) => (
                   <option key={fleet.id} value={fleet.id}>
@@ -112,8 +113,8 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
             </div>
 
             <div className="form-group">
-              <label>{t('Vessel')}</label>
-              <select aria-label={t('Vessel')} value={vesselId} disabled={creating} onChange={(event) => onVesselChange(event.target.value)}>
+              <label title={t('Repository the captain plans against. Armada gives the captain its own dock (worktree) on this vessel for the session. Required.')}>{t('Vessel')}</label>
+              <select aria-label={t('Vessel')} title={t('Repository the captain plans against. Armada gives the captain its own dock (worktree) on this vessel for the session. Required.')} value={vesselId} disabled={creating} onChange={(event) => onVesselChange(event.target.value)}>
                 <option value="">{t('Select a vessel...')}</option>
                 {availableVessels.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>
@@ -125,10 +126,10 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
 
             <div className="form-group">
               <div className="form-label-row">
-                <label>{t('Pipeline')}</label>
-                <Link to="/pipelines" className="form-label-link">{t('Manage pipelines')}</Link>
+                <label title={t('Pipeline to use when you dispatch from this session. Inherit leaves it to the vessel or fleet setting at dispatch time.')}>{t('Pipeline')}</label>
+                <Link to="/pipelines" className="form-label-link" title={t('Open Pipelines to create or edit the stage sequences offered here.')}>{t('Manage pipelines')}</Link>
               </div>
-              <select aria-label={t('Pipeline')} value={pipelineId} disabled={creating} onChange={(event) => onPipelineChange(event.target.value)}>
+              <select aria-label={t('Pipeline')} title={t('Pipeline to use when you dispatch from this session. Inherit leaves it to the vessel or fleet setting at dispatch time.')} value={pipelineId} disabled={creating} onChange={(event) => onPipelineChange(event.target.value)}>
                 <option value="">{t('Inherit later during dispatch')}</option>
                 {pipelines.map((pipeline) => (
                   <option key={pipeline.id} value={pipeline.id}>
@@ -180,6 +181,7 @@ export default function PlanningStartCard(props: PlanningStartCardProps) {
               disabled={!canStartSession}
               onClick={onStart}
               aria-busy={creating}
+              title={canStartSession ? t('Reserve the captain, set up its dock on the vessel and open the chat. First-time repository setup can take a few minutes.') : t('Choose an idle captain that supports planning and a vessel first.')}
             >
               {creating ? t('Starting Planning Session...') : t('Start Planning Session')}
             </button>

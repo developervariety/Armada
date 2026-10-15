@@ -176,7 +176,7 @@ export default function Dispatch() {
             <div className="alert" style={{ marginBottom: '1rem' }}>
               {t(dispatchPrefillNotice(location.state as DispatchPrefillState | null) ?? '')}
               {objectiveId && (
-                <button type="button" className="btn btn-sm" style={{ marginLeft: '0.75rem' }} onClick={() => navigate(`/backlog/${objectiveId}`)}>
+                <button type="button" className="btn btn-sm" style={{ marginLeft: '0.75rem' }} onClick={() => navigate(`/backlog/${objectiveId}`)} title={t('Open the backlog item this dispatch was started from. The voyage you create is linked to it.')}>
                   {t('Open Backlog Item')}
                 </button>
               )}
@@ -196,8 +196,9 @@ export default function Dispatch() {
           {/* Row 1: Vessel + Pipeline + Priority + Optional Voyage Title */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 1.5rem' }}>
             <div className="form-group">
-              <label>{t('Vessel')}</label>
+              <label title={t('Repository the work runs in. The request becomes a voyage on this vessel, and its missions get their own branches there. Required.')}>{t('Vessel')}</label>
               <select aria-label={t('Vessel')}
+                title={t('Repository the work runs in. The request becomes a voyage on this vessel, and its missions get their own branches there. Required.')}
                 value={vesselId}
                 onChange={(e) => setVesselId(e.target.value)}
                 required
@@ -212,10 +213,11 @@ export default function Dispatch() {
             </div>
             <div className="form-group">
               <div className="form-label-row">
-                <label>{t('Pipeline')}</label>
-                <Link to="/pipelines" className="form-label-link">{t('Manage pipelines')}</Link>
+                <label title={t('Sequence of persona stages the work runs through, such as Architect then Worker then Judge. Inherit uses the vessel\'s pipeline, then the fleet\'s, then Worker only.')}>{t('Pipeline')}</label>
+                <Link to="/pipelines" className="form-label-link" title={t('Open Pipelines to create or edit the stage sequences offered here.')}>{t('Manage pipelines')}</Link>
               </div>
               <select aria-label={t('Pipeline')}
+                title={t('Sequence of persona stages the work runs through, such as Architect then Worker then Judge. Inherit uses the vessel\'s pipeline, then the fleet\'s, then Worker only.')}
                 value={selectedPipeline}
                 onChange={(e) => setSelectedPipeline(e.target.value)}
               >
@@ -228,19 +230,20 @@ export default function Dispatch() {
               </select>
             </div>
             <div className="form-group">
-              <label>{t('Priority')}</label>
-              <input aria-label={t('Higher priority missions are assigned first (default 100)')}
+              <label title={t('Dispatch order from 0 to 1000. Lower numbers are assigned to a captain first; the default is 100.')}>{t('Priority')}</label>
+              <input aria-label={t('Priority')}
                 type="number"
                 value={priority}
                 onChange={(e) => setPriority(parseDispatchPriority(e.target.value))}
                 min={0}
                 max={1000}
-                title={t('Higher priority missions are assigned first (default 100)')}
+                title={t('Dispatch order from 0 to 1000. Lower numbers are assigned to a captain first; the default is 100.')}
               />
             </div>
             <div className="form-group">
-              <label>{t('Voyage Title')}</label>
+              <label title={t('Name for the voyage this creates. Leave blank to use the first 80 characters of the description.')}>{t('Voyage Title')}</label>
               <input aria-label={t('Voyage Title')}
+                title={t('Name for the voyage this creates. Leave blank to use the first 80 characters of the description.')}
                 value={voyageTitle}
                 onChange={(e) => setVoyageTitle(e.target.value)}
                 placeholder={t('Optional override for the voyage title')}
@@ -250,8 +253,9 @@ export default function Dispatch() {
 
           {/* Prompt */}
           <div className="form-group">
-            <label>{t('Description')}</label>
+            <label title={t('What you want done, in plain language. This becomes the mission\'s instructions, so include where to look and how to tell it is finished. Required.')}>{t('Description')}</label>
             <textarea aria-label={t('Description')}
+              title={t('What you want done, in plain language. This becomes the mission\'s instructions, so include where to look and how to tell it is finished. Required.')}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={12}
@@ -266,8 +270,8 @@ Armada will dispatch this request as a voyage on the selected vessel.`)}
           {effectivePersonas.length > 0 && (
             <div className="form-group">
               <div className="form-label-row">
-                <label>{t('Captain Assignments')}</label>
-                <Link to="/personas" className="form-label-link">{t('Manage persona defaults')}</Link>
+                <label title={t('Optional: pick which captain should run each pipeline step. Blank leaves the choice to normal routing by persona and tier.')}>{t('Captain Assignments')}</label>
+                <Link to="/personas" className="form-label-link" title={t('Open Personas to change the default captain and fallback tier each persona uses.')}>{t('Manage persona defaults')}</Link>
               </div>
               <p className="text-dim" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
                 {stepPersonas.length > 0
@@ -276,9 +280,9 @@ Armada will dispatch this request as a voyage on the selected vessel.`)}
               </p>
               <div className="card" style={{ padding: '0.5rem 0.85rem' }}>
                 <div className="captain-assignment-row" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-dim)' }}>
-                  <span>{t('Step')}</span>
-                  <span>{t('Preferred Captain')}</span>
-                  <span>{t('Fallback Tier')}</span>
+                  <span title={t('Pipeline step, named by the persona that runs it.')}>{t('Step')}</span>
+                  <span title={t('Captain to use for this step when it is idle. Blank lets Armada pick an idle captain automatically.')}>{t('Preferred Captain')}</span>
+                  <span title={t('When the preferred captain is busy, Armada uses an idle captain at this capability tier or higher instead.')}>{t('Fallback Tier')}</span>
                 </div>
                 {effectivePersonas.map((persona) => {
                   const assignment = stepAssignments[persona] ?? { captainId: null, fallbackTier: null };
@@ -311,6 +315,7 @@ Armada will dispatch this request as a voyage on the selected vessel.`)}
               className="btn-primary"
               disabled={dispatching || !vesselId || !prompt.trim()}
               onClick={handleDispatch}
+              title={!vesselId || !prompt.trim() ? t('Choose a vessel and write a description first.') : t('Create a voyage from this request and queue its missions for idle captains on the selected vessel.')}
             >
               {dispatching ? t('Dispatching...') : t('Dispatch')}
             </button>

@@ -42,24 +42,24 @@ export default function CaptainToolViewer({ open, captainName, loading, error, d
 
   function renderServerTable(tableKey: string, title: string, servers: CaptainToolServerSummary[], emptyMessage: string) {
     const columns: DataTableColumn<CaptainToolServerSummary>[] = [
-      { key: 'source', label: t('Source'), required: true, render: (server) => <strong>{server.name}</strong> },
-      { key: 'transport', label: t('Transport'), render: (server) => server.transport || '-' },
+      { key: 'source', label: t('Source'), required: true, headerTitle: t('Name of the tool source, usually the MCP server name from the runtime\'s configuration.'), render: (server) => <strong>{server.name}</strong> },
+      { key: 'transport', label: t('Transport'), headerTitle: t('How the runtime talks to the source: stdio launches a local command, http or streamable_http connects to a URL.'), render: (server) => server.transport || '-' },
       {
-        key: 'endpoint', label: t('Endpoint / Target'), cellClassName: 'mono captain-tool-viewer-endpoint-cell',
+        key: 'endpoint', label: t('Endpoint / Target'), headerTitle: t('The URL (credentials and query removed) or launch command (arguments omitted) the runtime uses for this source.'), cellClassName: 'mono captain-tool-viewer-endpoint-cell',
         // One line; the full endpoint is in the tooltip.
         render: (server) => <span className="cell-one-line" title={formatEndpoint(server)}>{formatEndpoint(server)}</span>,
       },
       {
-        key: 'status', label: t('Status'), cellClassName: 'cell-nowrap',
+        key: 'status', label: t('Status'), headerTitle: t('Whether Armada reached the source when this view loaded. Green is reachable, amber is enabled but did not answer, grey is disabled.'), cellClassName: 'cell-nowrap',
         render: (server) => (
-          <span className={`tag ${server.reachable ? 'complete' : server.enabled ? 'review' : 'idle'}`}>
+          <span className={`tag ${server.reachable ? 'complete' : server.enabled ? 'review' : 'idle'}`} title={server.reachable ? t('Armada reached this source and listed its tools.') : server.enabled ? t('Enabled in the runtime configuration, but it did not respond. It may just be offline right now.') : t('Disabled in the runtime configuration, so the captain does not use it.')}>
             {server.status}
           </span>
         ),
       },
-      { key: 'tools', label: t('Tools'), render: (server) => server.toolCount },
+      { key: 'tools', label: t('Tools'), headerTitle: t('Number of tools the source returned, after its allow and deny filters are applied.'), render: (server) => server.toolCount },
       {
-        key: 'notes', label: t('Notes'), cellClassName: 'text-dim captain-tool-viewer-notes-cell',
+        key: 'notes', label: t('Notes'), headerTitle: t('Working directory (WD), timeouts, how many headers, env vars and tool filters are set (values hidden), and any error.'), cellClassName: 'text-dim captain-tool-viewer-notes-cell',
         cellTitle: (server) => formatServerNotes(server),
         render: (server) => <span className="line-clamp-2">{formatServerNotes(server)}</span>,
       },
@@ -85,12 +85,12 @@ export default function CaptainToolViewer({ open, captainName, loading, error, d
 
   function renderToolTable(tableKey: string, title: string, tools: CaptainToolSummary[], emptyMessage: string) {
     const columns: DataTableColumn<CaptainToolSummary>[] = [
-      { key: 'tool', label: t('Tool'), required: true, cellClassName: 'mono captain-tool-viewer-tool-name', render: (tool) => tool.name },
+      { key: 'tool', label: t('Tool'), required: true, headerTitle: t('Tool name as the agent sees and calls it.'), cellClassName: 'mono captain-tool-viewer-tool-name', render: (tool) => tool.name },
       {
-        key: 'source', label: t('Server / Source'), cellClassName: 'captain-tool-viewer-source',
-        render: (tool) => <span className="tag idle">{tool.registrationSource || t('Internal')}</span>,
+        key: 'source', label: t('Server / Source'), headerTitle: t('The MCP server that provides the tool, or Internal for a tool built into the runtime.'), cellClassName: 'captain-tool-viewer-source',
+        render: (tool) => <span className="tag idle" title={tool.registrationSource ? t('Provided by the {{source}} source.', { source: tool.registrationSource }) : t('Built into the runtime itself, not provided by an MCP server.')}>{tool.registrationSource || t('Internal')}</span>,
       },
-      { key: 'description', label: t('Description'), render: (tool) => tool.description },
+      { key: 'description', label: t('Description'), headerTitle: t('What the tool does, as its source describes it.'), render: (tool) => tool.description },
     ];
     return (
       <section className="captain-tool-viewer-section">
@@ -119,7 +119,7 @@ export default function CaptainToolViewer({ open, captainName, loading, error, d
             <h3>{t('Available Tools')}</h3>
             <p className="text-dim">{captainName}</p>
           </div>
-          <button type="button" className="btn btn-sm" onClick={onClose}>
+          <button type="button" className="btn btn-sm" onClick={onClose} title={t('Close the tool list.')}>
             {t('Close')}
           </button>
         </div>
@@ -131,22 +131,22 @@ export default function CaptainToolViewer({ open, captainName, loading, error, d
           <>
             <p className="text-dim captain-tool-viewer-summary">{data.summary}</p>
             <div className="captain-tool-viewer-meta">
-              <span className={`tag ${data.toolsAccessible ? 'complete' : 'failed'}`}>
+              <span className={`tag ${data.toolsAccessible ? 'complete' : 'failed'}`} title={data.toolsAccessible ? t('Armada believes this captain can use its tools, including the Armada MCP tools.') : t('Armada believes this captain cannot use its tools right now. See the summary above for why.')}>
                 {data.toolsAccessible ? t('Accessible') : t('Unavailable')}
               </span>
-              <span className={`tag ${data.availabilityVerified ? 'working' : 'review'}`}>
+              <span className={`tag ${data.availabilityVerified ? 'working' : 'review'}`} title={data.availabilityVerified ? t('Armada checked tool availability live, by contacting the runtime or its sources.') : t('Armada inferred tool availability from configuration without contacting the sources, so it may be out of date.')}>
                 {data.availabilityVerified ? t('Verified') : t('Inferred')}
               </span>
-              <span className="tag idle">{data.runtime}</span>
+              <span className="tag idle" title={t('The agent runtime this captain runs.')}>{data.runtime}</span>
               {data.configuredServerCount > 0 && (
-                <span className="tag idle">{t('{{count}} sources', { count: data.configuredServerCount })}</span>
+                <span className="tag idle" title={t('Number of tool sources (MCP servers and runtime sources) Armada inspected for this captain.')}>{t('{{count}} sources', { count: data.configuredServerCount })}</span>
               )}
               {data.reachableServerCount > 0 && (
-                <span className="tag idle">{t('{{count}} reachable', { count: data.reachableServerCount })}</span>
+                <span className="tag idle" title={t('Number of those sources that answered when this view loaded.')}>{t('{{count}} reachable', { count: data.reachableServerCount })}</span>
               )}
-              {data.endpointName && <span className="tag idle">{data.endpointName}</span>}
+              {data.endpointName && <span className="tag idle" title={t('The mux endpoint this captain launches with.')}>{data.endpointName}</span>}
               {typeof data.effectiveToolCount === 'number' && (
-                <span className="tag idle">{t('{{count}} listed tools', { count: data.effectiveToolCount })}</span>
+                <span className="tag idle" title={t('Number of tools the runtime itself reports it can call.')}>{t('{{count}} listed tools', { count: data.effectiveToolCount })}</span>
               )}
             </div>
             {data.configuredServerCount > data.reachableServerCount && (

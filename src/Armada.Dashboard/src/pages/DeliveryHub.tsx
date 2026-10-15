@@ -20,12 +20,12 @@ function panel(node: ReactNode): ReactNode {
  */
 export default function DeliveryHub() {
   const tabs: TabDef[] = [
-    { key: 'deployments', label: 'Deployments', render: () => panel(<Deployments />) },
-    { key: 'environments', label: 'Environments', render: () => panel(<Environments />) },
-    { key: 'releases', label: 'Releases', render: () => panel(<Releases />) },
-    { key: 'incidents', label: 'Incidents', render: () => panel(<Incidents />) },
-    { key: 'checks', label: 'Checks', render: () => panel(<CheckRuns />) },
-    { key: 'runbooks', label: 'Runbooks', render: () => panel(<Runbooks />) },
+    { key: 'deployments', label: 'Deployments', tooltip: 'Each time a release was deployed to an environment, with approval, verification, and rollback state.', render: () => panel(<Deployments />) },
+    { key: 'environments', label: 'Environments', tooltip: 'Named deployment targets for vessels (for example staging or production), with URLs, configuration, approval requirements, and notes.', render: () => panel(<Environments />) },
+    { key: 'releases', label: 'Releases', tooltip: 'Release records that bundle a version, notes, the voyages and missions in it, its checks, and its artifacts.', render: () => panel(<Releases />) },
+    { key: 'incidents', label: 'Incidents', tooltip: 'Problems after a deployment or release, with hotfix context, rollback history, recovery notes, and postmortems.', render: () => panel(<Incidents />) },
+    { key: 'checks', label: 'Checks', tooltip: 'Runs of a workflow profile\'s commands (lint, build, test, and so on) and their results.', render: () => panel(<CheckRuns />) },
+    { key: 'runbooks', label: 'Runbooks', tooltip: 'Operational procedures built on playbooks, with parameters, step tracking, and a history of each run.', render: () => panel(<Runbooks />) },
   ];
 
   return <Tabs tabs={tabs} defaultTabKey="deployments" ariaLabel="Delivery sections" />;

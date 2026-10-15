@@ -41,9 +41,10 @@ export default function ImportCategorizationOptions({
 
   return (
     <fieldset className="form-fieldset import-categorization">
-      <legend className="form-label">{t('Fleet recommendations')}</legend>
-      <label className="checkbox-row">
+      <legend className="form-label" title={t('After the vessels are created, a captain reads each imported repository and suggests fleets to group them. It runs in the background and uses that captain and its model tokens.')}>{t('Fleet recommendations')}</legend>
+      <label className="checkbox-row" title={t('After the vessels are created, a captain reads each imported repository and suggests fleets to group them. It runs in the background and uses that captain and its model tokens.')}>
         <input
+          title={t('After the vessels are created, a captain reads each imported repository and suggests fleets to group them. It runs in the background and uses that captain and its model tokens.')}
           type="checkbox"
           checked={value.enabled}
           onChange={(e) => onChange({ ...value, enabled: e.target.checked, prompt: value.prompt || defaultPrompt })}
@@ -56,7 +57,7 @@ export default function ImportCategorizationOptions({
 
       {value.enabled && (
         <div className="import-categorization-body">
-          <span className="form-label">{t('Captain')}</span>
+          <span className="form-label" title={t('Captain that analyzes the repositories and proposes fleets. Only idle captains can be chosen; it stays busy until the analysis finishes or times out.')}>{t('Captain')}</span>
           <CaptainPicker
             id="import-categorization-captain"
             captains={captains}
@@ -84,18 +85,20 @@ export default function ImportCategorizationOptions({
 
           <div className="form-field">
             <span className="form-label-row">
-              <label className="form-label" htmlFor="import-categorization-prompt">{t('Instructions for the captain')}</label>
+              <label className="form-label" htmlFor="import-categorization-prompt" title={t('What the captain is told about grouping repositories into fleets. Edit it for this import only; Armada always appends the required output format.')}>{t('Instructions for the captain')}</label>
               <button
                 type="button"
                 className="btn-link"
                 onClick={() => onChange({ ...value, prompt: defaultPrompt })}
                 disabled={promptIsDefault || !defaultPrompt}
+                title={t('Replace your edits with the default import.fleet_categorization instructions.')}
               >
                 {t('Reset to default')}
               </button>
             </span>
             <textarea
               id="import-categorization-prompt"
+              title={t('What the captain is told about grouping repositories into fleets. Edit it for this import only; Armada always appends the required output format.')}
               rows={7}
               value={value.prompt}
               onChange={(e) => onChange({ ...value, prompt: e.target.value })}
@@ -111,8 +114,8 @@ export default function ImportCategorizationOptions({
             </span>
           </div>
 
-          <label className="checkbox-row">
-            <input type="checkbox" checked={value.applyAutomatically} onChange={(e) => onChange({ ...value, applyAutomatically: e.target.checked })} />
+          <label className="checkbox-row" title={t('Create the recommended fleets (reusing any with the same name) and assign the vessels as soon as the captain finishes. Leave off to review and edit the fleets first.')}>
+            <input title={t('Create the recommended fleets (reusing any with the same name) and assign the vessels as soon as the captain finishes. Leave off to review and edit the fleets first.')} type="checkbox" checked={value.applyAutomatically} onChange={(e) => onChange({ ...value, applyAutomatically: e.target.checked })} />
             <span>{t('Apply recommendations automatically')}</span>
           </label>
           <p className="text-dim form-help">

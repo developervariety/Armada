@@ -61,7 +61,7 @@ export default function AskConversationHeader(props: AskConversationHeaderProps)
 
   return (
     <header className="ask-conv-header">
-      <button type="button" className="btn btn-sm ask-open-list" onClick={onOpenList} aria-label={t('Show conversations')}>
+      <button type="button" className="btn btn-sm ask-open-list" onClick={onOpenList} aria-label={t('Show conversations')} title={t('Open the list of your conversations to switch, search, or start a new one.')}>
         &#9776; <span>{t('Conversations')}</span>
       </button>
 
@@ -73,6 +73,7 @@ export default function AskConversationHeader(props: AskConversationHeaderProps)
               value={value}
               maxLength={200}
               aria-label={t('Conversation title')}
+              title={t('Type a new title and press Enter to save, or Escape to cancel. Up to 200 characters.')}
               onChange={(e) => setValue(e.target.value)}
               onBlur={commit}
               onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setEditing(false); } }}
@@ -85,7 +86,7 @@ export default function AskConversationHeader(props: AskConversationHeaderProps)
                 type="button"
                 className="ask-conv-title-btn"
                 onClick={() => { setValue(thread.title || ''); setEditing(true); }}
-                title={t('Rename conversation')}
+                title={t('Click to rename this conversation. The title shows in the conversation list.')}
               >
                 {thread.title || t('New conversation')}
                 <span className="ask-conv-title-edit" aria-hidden="true">&#9998;</span>
@@ -96,12 +97,13 @@ export default function AskConversationHeader(props: AskConversationHeaderProps)
       </div>
 
       <div className="ask-conv-controls">
-        <label className="ask-captain-field">
+        <label className="ask-captain-field" title={t('The captain (AI agent) that answers in this conversation. Changing it applies to the next message; no captain means only quick actions work. Locked while a reply is running.')}>
           <span className="text-dim">{t('Captain')}</span>
           <select
             id={CAPTAIN_SELECT_ID}
             value={captainValue}
             disabled={busy}
+            title={t('The captain (AI agent) that answers in this conversation. Changing it applies to the next message; no captain means only quick actions work. Locked while a reply is running.')}
             onChange={(e) => (thread ? onCaptainChange(e.target.value || null) : onDraftCaptainChange(e.target.value))}
             aria-label={t('Captain')}
           >
@@ -115,6 +117,7 @@ export default function AskConversationHeader(props: AskConversationHeaderProps)
             <input
               type="checkbox"
               role="switch"
+              title={autoWarning}
               checked={!!thread.autoApprove}
               onChange={(e) => onAutoApproveChange(e.target.checked)}
               aria-describedby="ask-auto-approve-help"
@@ -126,17 +129,18 @@ export default function AskConversationHeader(props: AskConversationHeaderProps)
         )}
 
         {thread && onCliPolicyChange && (
-          <div className="ask-cli-policy-field" title={t('How the captain CLI handles shell commands, file edits, and fetches that need permission. Inherit uses the captain policy, then the server default.')}>
+          <div className="ask-cli-policy-field" title={t('How the captain CLI handles shell commands, file edits, and fetches that need permission in this conversation. Inherit uses the captain policy, then the server default.')}>
             <span className="text-dim" id="ask-cli-policy-label">{t('CLI tools')}</span>
             <CliPermissionPolicySelect
               value={thread.cliPermissionPolicy ?? null}
               onChange={onCliPolicyChange}
               allowBypass={!!canBypassCli}
               ariaLabel={t('CLI tools')}
+              title={t('How the captain CLI handles shell commands, file edits, and fetches that need permission in this conversation. Inherit uses the captain policy, then the server default.')}
               ariaDescribedBy={thread.cliPermission ? 'ask-cli-policy-effective' : undefined}
             />
             {thread.cliPermission && (
-              <span id="ask-cli-policy-effective" className="ask-cli-policy-effective text-dim" data-testid="ask-cli-policy-effective">
+              <span id="ask-cli-policy-effective" className="ask-cli-policy-effective text-dim" data-testid="ask-cli-policy-effective" title={t('The policy actually in force for this conversation and which setting it came from.')}>
                 {resolutionSummary(t, { ...thread.cliPermission, fallbackReason: null })}
               </span>
             )}
@@ -144,7 +148,7 @@ export default function AskConversationHeader(props: AskConversationHeaderProps)
         )}
 
         {thread && (
-          <button type="button" className="btn btn-sm" onClick={onSummarize} title={t('Post a short summary of this conversation')}>
+          <button type="button" className="btn btn-sm" onClick={onSummarize} title={t('Ask the captain to post a short summary of this conversation. The summary also stands in for older messages the captain no longer sees each turn.')}>
             {t('Summarize')}
           </button>
         )}

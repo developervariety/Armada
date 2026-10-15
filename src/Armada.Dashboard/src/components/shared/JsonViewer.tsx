@@ -32,7 +32,7 @@ export default function JsonViewer({ open, title, subtitle, id, data, onClose }:
         <div className="json-viewer-header">
           {/* Titles arrive already rendered (translated label plus entity name); they are not passed through t() again. */}
           <h3>{title}</h3>
-          <button className="json-viewer-close" onClick={onClose} title={t('Close')} aria-label={t('Close')}>&times;</button>
+          <button className="json-viewer-close" onClick={onClose} title={t('Close this viewer.')} aria-label={t('Close')}>&times;</button>
         </div>
         {(subtitle || id) && (
           <div className="json-viewer-sub">
@@ -44,6 +44,7 @@ export default function JsonViewer({ open, title, subtitle, id, data, onClose }:
           <button
             className={`json-viewer-copy btn btn-sm${copied ? ' copied' : ''}`}
             onClick={handleCopy}
+            title={t('Copy the full JSON shown below to the clipboard.')}
           >
             {copied ? t('Copied!') : t('Copy')}
           </button>

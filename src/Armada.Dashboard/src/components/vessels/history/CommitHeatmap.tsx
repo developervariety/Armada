@@ -121,7 +121,7 @@ export default function CommitHeatmap({ activity, selectedDate, onSelectDate, ra
                     tabIndex={day.date === activeDate ? 0 : -1}
                     aria-label={label}
                     aria-selected={selected}
-                    title={label}
+                    title={`${label}. ${t('Click to list that day\'s commits.')}`}
                     className={`vhist-heat-cell level-${level}${selected ? ' selected' : ''}`}
                     onClick={() => { setFocusDate(day.date); onSelectDate(day.date); }}
                     onFocus={() => setFocusDate(day.date)}
@@ -133,10 +133,10 @@ export default function CommitHeatmap({ activity, selectedDate, onSelectDate, ra
         </div>
       </div>
       <div className="vhist-heatmap-footer">
-        <span className="vhist-heatmap-total">
+        <span className="vhist-heatmap-total" title={t('Commits on the selected branch in the range shown, by commit date. Darker squares mean more commits that day.')}>
           {t('{count, plural, one {# commit} other {# commits}} in {{range}}', { count: activity.totalCommits, range: rangeLabel })}
         </span>
-        <span className="vhist-heatmap-legend" aria-hidden="true">
+        <span className="vhist-heatmap-legend" aria-hidden="true" title={t('Color scale: lighter squares are days with fewer commits, darker squares days with more, relative to the busiest day shown.')}>
           <span>{t('Less')}</span>
           {[0, 1, 2, 3, 4].map((level) => <span key={level} className={`vhist-heat-cell level-${level}`} />)}
           <span>{t('More')}</span>

@@ -122,7 +122,7 @@ export default function ColumnChooser({ options, isVisible, onToggle, onReset, i
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        title={t('Choose visible columns')}
+        title={t('Show or hide columns in this table. Your choice is remembered for this table in this browser.')}
         onClick={() => setOpen((v) => !v)}
       >
         <span>{label}</span>
@@ -151,7 +151,9 @@ export default function ColumnChooser({ options, isVisible, onToggle, onReset, i
                 aria-disabled={option.required ? true : undefined}
                 tabIndex={-1}
                 className={`column-chooser-item${option.required ? ' column-chooser-locked' : ''}`}
-                title={option.required ? t('Always shown') : undefined}
+                title={option.required
+                  ? t('Always shown: this column identifies the row, so it cannot be hidden.')
+                  : checked ? t('Shown. Click to hide this column.') : t('Hidden. Click to show this column.')}
                 onClick={toggle}
                 onKeyDown={(e) => {
                   if (e.key === ' ' || e.key === 'Enter') {
@@ -173,6 +175,7 @@ export default function ColumnChooser({ options, isVisible, onToggle, onReset, i
             tabIndex={-1}
             aria-disabled={isDefault ? true : undefined}
             className="column-chooser-item column-chooser-reset"
+            title={isDefault ? t('This table already shows its default columns.') : t('Go back to this table\'s default set of columns.')}
             onClick={() => { if (!isDefault) onReset(); }}
             onKeyDown={(e) => {
               if ((e.key === ' ' || e.key === 'Enter') && !isDefault) {

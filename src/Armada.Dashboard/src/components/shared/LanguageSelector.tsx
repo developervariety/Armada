@@ -21,14 +21,14 @@ export default function LanguageSelector({
   ].filter(Boolean).join(' ');
 
   return (
-    <label className={wrapClassName} title={t('Language')}>
+    <label className={wrapClassName} title={t('Language of the dashboard. Applies right away and is remembered in this browser; it does not change what captains write.')}>
       {showLabel && <span className="locale-select-label">{t('Language')}</span>}
       <select
         className="locale-select"
         value={locale}
         onChange={(e) => setLocale(e.target.value)}
         aria-label={t('Language')}
-        title={t('Language')}
+        title={t('Language of the dashboard. Applies right away and is remembered in this browser; it does not change what captains write.')}
       >
         {supportedLocales.map((item) => (
           <option key={item.code} value={item.code}>

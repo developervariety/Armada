@@ -86,13 +86,13 @@ export default function MissionHistoryChart({ vessels, fleets, onRefresh }: Miss
   return (
     <div className="mission-history-section">
       <div className="mission-history-header">
-        <span className="mission-history-title">{t('Mission History')}</span>
+        <span className="mission-history-title" title={t('Missions created in each time slot, colored by their current status: Complete, Failed or Other. Hover a bar for its numbers.')}>{t('Mission History')}</span>
         <div className="mission-history-controls">
-          <select aria-label={t('Filter by fleet')} value={fleetId} onChange={e => { setFleetId(e.target.value); setVesselId(''); }} title={t('Filter by fleet')}>
+          <select aria-label={t('Filter by fleet')} value={fleetId} onChange={e => { setFleetId(e.target.value); setVesselId(''); }} title={t('Chart only missions on vessels in this fleet. Changing it resets the vessel filter.')}>
             <option value="">{t('All Fleets')}</option>
             {fleets.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
-          <select aria-label={t('Filter by vessel')} value={vesselId} onChange={e => setVesselId(e.target.value)} title={t('Filter by vessel')}>
+          <select aria-label={t('Filter by vessel')} value={vesselId} onChange={e => setVesselId(e.target.value)} title={t('Chart only missions on this vessel.')}>
             <option value="">{t('All Vessels')}</option>
             {filteredVessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
@@ -102,22 +102,23 @@ export default function MissionHistoryChart({ vessels, fleets, onRefresh }: Miss
                 key={r.value}
                 className={'mission-history-time-tab' + (timeRange === r.value ? ' active' : '')}
                 onClick={() => setTimeRange(r.value)}
+                title={t('Show the {{range}}. Each bar covers a shorter slot for short ranges and a longer one for long ranges.', { range: t(r.label).toLowerCase() })}
               >
                 {t(r.label)}
               </button>
             ))}
           </div>
-          <button className="mission-history-refresh-btn" onClick={refresh} title={t('Refresh')}>
+          <button className="mission-history-refresh-btn" onClick={refresh} title={t('Reload the chart and the rest of the dashboard now.')} aria-label={t('Refresh')}>
             &#x21bb;
           </button>
         </div>
       </div>
 
       <div className="mission-history-stats">
-        <span><span className="mission-history-stat-value">{history?.totalCount ?? 0}</span> {t('Total')}</span>
-        <span><span className="mission-history-stat-value" style={{ color: 'var(--green)' }}>{totalComplete}</span> {t('Complete')}</span>
-        <span><span className="mission-history-stat-value" style={{ color: 'var(--red)' }}>{totalFailed}</span> {t('Failed')}</span>
-        {totalOther > 0 && <span><span className="mission-history-stat-value" style={{ color: 'var(--text-dim)' }}>{totalOther}</span> {t('Other')}</span>}
+        <span title={t('All missions created in the selected range that match the filters.')}><span className="mission-history-stat-value">{history?.totalCount ?? 0}</span> {t('Total')}</span>
+        <span title={t('Missions whose work is done or landing: Complete, WorkProduced, PullRequestOpen, Testing or Review.')}><span className="mission-history-stat-value" style={{ color: 'var(--green)' }}>{totalComplete}</span> {t('Complete')}</span>
+        <span title={t('Missions that are Failed or LandingFailed.')}><span className="mission-history-stat-value" style={{ color: 'var(--red)' }}>{totalFailed}</span> {t('Failed')}</span>
+        {totalOther > 0 && <span title={t('Missions still waiting or running (Pending, Assigned, InProgress) or Cancelled.')}><span className="mission-history-stat-value" style={{ color: 'var(--text-dim)' }}>{totalOther}</span> {t('Other')}</span>}
       </div>
 
       {loading ? (

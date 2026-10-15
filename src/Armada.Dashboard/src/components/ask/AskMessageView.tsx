@@ -99,7 +99,7 @@ export default function AskMessageView({ message, proposal, captainName, proposa
             <span className="ask-msg-label">{t('Progress update')}</span>
             {when}
             {onShowWork && (
-              <button type="button" className="ask-link-btn ask-milestone-link" onClick={onShowWork}>
+              <button type="button" className="ask-link-btn ask-milestone-link" onClick={onShowWork} title={t('Scroll to the live card for this work, which shows its current status.')}>
                 {t('Show live card')}
               </button>
             )}
@@ -177,14 +177,14 @@ export default function AskMessageView({ message, proposal, captainName, proposa
       <div className="ask-bubble ask-bubble-assistant">
         <div className="ask-bubble-head text-dim">
           <span>{captainName || t('Captain')}</span>
-          {isReport && <span className="ask-report-tag" title={t('Posted automatically when the work finished')}>{t('Report')}</span>}
-          {message.durationMs != null && <span title={t('Turn duration')}>{formatDuration(message.durationMs)}</span>}
+          {isReport && <span className="ask-report-tag" title={t('Posted automatically by the captain when the work finished, summarizing the outcome. Turn this off in Server Settings > Ask Armada.')}>{t('Report')}</span>}
+          {message.durationMs != null && <span title={t('How long the captain took to produce this reply.')}>{formatDuration(message.durationMs)}</span>}
           {stats.length > 0 && <ChatMetricsInfo rows={stats} />}
           {when}
         </div>
         {message.thinkingText && message.thinkingText.trim() && (
           <details className="chat-thinking">
-            <summary className="text-dim">{t('Thinking')}</summary>
+            <summary className="text-dim" title={t('Show the reasoning the captain wrote before this reply.')}>{t('Thinking')}</summary>
             <div className="ask-thinking-text">{message.thinkingText}</div>
           </details>
         )}

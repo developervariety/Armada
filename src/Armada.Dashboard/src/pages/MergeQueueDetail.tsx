@@ -165,14 +165,14 @@ export default function MergeQueueDetail() {
   if (!entry) return <p className="text-dim">{t('Merge entry not found.')}</p>;
 
   const actionItems = [
-    { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Merge Entry: {{id}}', { id: entry.id }), data: entry }) },
-    { label: 'Process', onClick: handleProcess },
-    { label: 'Cancel', onClick: handleCancel },
+    { label: 'View JSON', title: 'Show the raw merge entry record as the API returns it.', onClick: () => setJsonData({ open: true, title: t('Merge Entry: {{id}}', { id: entry.id }), data: entry }) },
+    { label: 'Process', title: 'Merge, test and land this entry now instead of waiting for the next automatic pass.', onClick: handleProcess },
+    { label: 'Cancel', title: 'Take this entry out of the queue without merging it. The record is kept.', onClick: handleCancel },
     ...(entry.missionId ? [
-      { label: 'Mission Diff', onClick: handleMissionDiff },
-      { label: 'Mission Log', onClick: handleMissionLog },
+      { label: 'Mission Diff', title: 'Show the code changes made by the mission this entry merges.', onClick: handleMissionDiff },
+      { label: 'Mission Log', title: 'Show the captain\'s session log for the mission this entry merges.', onClick: handleMissionLog },
     ] : []),
-    { label: 'Delete', danger: true as const, onClick: handleDelete },
+    { label: 'Delete', danger: true as const, title: 'Permanently delete a finished entry (Landed, Failed or Cancelled), or cancel one that is still active. You confirm first.', onClick: handleDelete },
   ];
 
   return (
@@ -188,8 +188,8 @@ export default function MergeQueueDetail() {
           <>
             {entry.missionId && (
               <>
-                <button className="btn btn-sm" onClick={handleMissionDiff} title={t('View mission diff')}>{t('Diff')}</button>
-                <button className="btn btn-sm" onClick={handleMissionLog} title={t('View mission log')}>{t('Log')}</button>
+                <button className="btn btn-sm" onClick={handleMissionDiff} title={t('Show the code changes made by the mission this entry merges.')}>{t('Diff')}</button>
+                <button className="btn btn-sm" onClick={handleMissionLog} title={t('Show the captain\'s session log for the mission this entry merges.')}>{t('Log')}</button>
               </>
             )}
             <ActionMenu id={`merge-entry-action-${entry.id}`} items={actionItems} />
@@ -222,10 +222,10 @@ export default function MergeQueueDetail() {
       <div className="card landing-preview-card" style={{ marginBottom: '1rem' }}>
         <div className="readiness-panel-header">
           <div>
-            <h3>{t('Landing Preview')}</h3>
-            <div className="readiness-panel-meta">{`${entry.branchName} -> ${entry.targetBranch}`}</div>
+            <h3 title={t('What would happen if this branch landed now, based on the vessel\'s landing mode, branch protection and check rules. Nothing is merged by viewing it.')}>{t('Landing Preview')}</h3>
+            <div className="readiness-panel-meta" title={t('Branch being merged, then the target branch it merges into.')}>{`${entry.branchName} -> ${entry.targetBranch}`}</div>
           </div>
-          <span className={`readiness-pill ${landingPreview?.isReadyToLand ? 'ready' : 'warning'}`}>
+          <span className={`readiness-pill ${landingPreview?.isReadyToLand ? 'ready' : 'warning'}`} title={landingPreview?.isReadyToLand ? t('No blocking issues were found; the entry can land when the queue processes it.') : t('Something may block landing. See the issues listed in this card.')}>
             {landingPreview?.isReadyToLand ? t('Ready To Land') : t('Needs Review')}
           </span>
         </div>
@@ -236,16 +236,16 @@ export default function MergeQueueDetail() {
         ) : (
           <>
             <div className="readiness-summary-row">
-              <span>{t('Branch category')}: {landingPreview.branchCategory}</span>
-              <span>{t('Landing mode')}: {landingPreview.landingMode || t('Inherited')}</span>
-              <span>{t('Cleanup')}: {landingPreview.branchCleanupPolicy || t('Inherited')}</span>
-              {landingPreview.expectedLandingAction && <span>{t('Action')}: {landingPreview.expectedLandingAction}</span>}
+              <span title={t('Kind of target branch (for example Default or Release), which decides which landing rules apply.')}>{t('Branch category')}: {landingPreview.branchCategory}</span>
+              <span title={t('How the work lands: LocalMerge, MergeAndPush, PullRequest, MergeQueue or None (merge by hand). Inherited means the voyage, vessel or server default applies.')}>{t('Landing mode')}: {landingPreview.landingMode || t('Inherited')}</span>
+              <span title={t('What happens to the mission branch after it lands, such as deleting it locally or on the remote. Inherited means the default applies.')}>{t('Cleanup')}: {landingPreview.branchCleanupPolicy || t('Inherited')}</span>
+              {landingPreview.expectedLandingAction && <span title={t('The landing step Armada expects to take once all policies are applied.')}>{t('Action')}: {landingPreview.expectedLandingAction}</span>}
             </div>
             <div className="readiness-summary-row">
-              <span>{landingPreview.targetBranchProtected ? t('Protected target branch') : t('Target branch not protected')}</span>
-              {landingPreview.protectedBranchMatch && <span>{t('Policy')}: <span className="mono">{landingPreview.protectedBranchMatch}</span></span>}
-              {landingPreview.requirePullRequestForProtectedBranches && <span>{t('PR required for protected branches')}</span>}
-              {landingPreview.requireMergeQueueForReleaseBranches && <span>{t('Merge queue required for release branches')}</span>}
+              <span title={t('Whether the target branch matches one of the vessel\'s protected-branch patterns, which can force pull-request landing.')}>{landingPreview.targetBranchProtected ? t('Protected target branch') : t('Target branch not protected')}</span>
+              {landingPreview.protectedBranchMatch && <span title={t('Protected-branch pattern that matched the target branch.')}>{t('Policy')}: <span className="mono">{landingPreview.protectedBranchMatch}</span></span>}
+              {landingPreview.requirePullRequestForProtectedBranches && <span title={t('This vessel lands into protected branches only through a pull request, never a direct merge.')}>{t('PR required for protected branches')}</span>}
+              {landingPreview.requireMergeQueueForReleaseBranches && <span title={t('This vessel lands into release branches only through the merge queue, which tests each change before merging.')}>{t('Merge queue required for release branches')}</span>}
             </div>
             {landingPreview.issues.length > 0 ? (
               <div className="readiness-issues">
@@ -253,7 +253,7 @@ export default function MergeQueueDetail() {
                   <div key={`${issue.code}-${index}`} className={`readiness-issue ${issue.severity.toLowerCase()}`}>
                     <div className="readiness-issue-title-row">
                       <strong>{issue.title}</strong>
-                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`}>{issue.severity}</span>
+                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`} title={t('Error blocks landing; Warning is worth checking but does not block it.')}>{issue.severity}</span>
                     </div>
                     <div className="text-dim">{issue.message}</div>
                   </div>
@@ -269,46 +269,46 @@ export default function MergeQueueDetail() {
       {/* Entry Info */}
       <div className="detail-grid">
         <div className="detail-field">
-          <span className="detail-label">{t('ID')}</span>
+          <span className="detail-label" title={t('Unique merge entry ID (mrg_ prefix).')}>{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{entry.id}</span>
             <CopyButton text={entry.id} />
           </span>
         </div>
-        <div className="detail-field"><span className="detail-label">{t('Status')}</span><StatusBadge status={entry.status} /></div>
-        <div className="detail-field"><span className="detail-label">{t('Branch')}</span><span className="mono">{entry.branchName}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Target Branch')}</span><span className="mono">{entry.targetBranch}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Priority')}</span><span>{entry.priority}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Queued waits its turn, Testing is merging and running tests, Landed is merged, Failed hit a conflict or failing test, Cancelled was removed.')}>{t('Status')}</span><StatusBadge status={entry.status} /></div>
+        <div className="detail-field"><span className="detail-label" title={t('Branch being merged, usually a mission branch.')}>{t('Branch')}</span><span className="mono">{entry.branchName}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Branch this entry merges into.')}>{t('Target Branch')}</span><span className="mono">{entry.targetBranch}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Order within this vessel and target branch. Lower numbers are processed first.')}>{t('Priority')}</span><span>{entry.priority}</span></div>
         <div className="detail-field">
-          <span className="detail-label">{t('Vessel')}</span>
+          <span className="detail-label" title={t('Repository the branch is merged in.')}>{t('Vessel')}</span>
           {entry.vesselId
             ? <Link to={`/vessels/${entry.vesselId}`}>{vesselName(entry.vesselId)}</Link>
             : <span>-</span>}
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Mission')}</span>
+          <span className="detail-label" title={t('Mission whose work this entry merges. Shows - for a branch enqueued by hand.')}>{t('Mission')}</span>
           {entry.missionId
             ? <Link to={`/missions/${entry.missionId}`} className="mono">{entry.missionId}</Link>
             : <span>-</span>}
         </div>
-        <div className="detail-field"><span className="detail-label">{t('Batch ID')}</span><span className="mono">{entry.batchId || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Test Exit Code')}</span><span>{entry.testExitCode ?? '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Tenant ID')}</span><span className="mono">{entry.tenantId || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Test Command')}</span><span className="mono">{entry.testCommand || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Processing batch this entry was tested in, if any.')}>{t('Batch ID')}</span><span className="mono">{entry.batchId || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Exit code of the test command. 0 means the tests passed; anything else marks the entry Failed.')}>{t('Test Exit Code')}</span><span>{entry.testExitCode ?? '-'}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Tenant (organization) that owns this entry.')}>{t('Tenant ID')}</span><span className="mono">{entry.tenantId || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Shell command run in the merged result before landing. - means no tests are run.')}>{t('Test Command')}</span><span className="mono">{entry.testCommand || '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">{t('Created')}</span>
+          <span className="detail-label" title={t('When the entry was added to the queue.')}>{t('Created')}</span>
           <span>{formatRelativeTime(entry.createdUtc)} <span className="text-dim">({formatDateTime(entry.createdUtc)})</span></span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Test Started')}</span>
+          <span className="detail-label" title={t('When the queue started merging and testing this entry.')}>{t('Test Started')}</span>
           <span>{entry.testStartedUtc ? <>{formatRelativeTime(entry.testStartedUtc)} <span className="text-dim">({formatDateTime(entry.testStartedUtc)})</span></> : '-'}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Completed')}</span>
+          <span className="detail-label" title={t('When the entry landed, failed or was cancelled.')}>{t('Completed')}</span>
           <span>{entry.completedUtc ? <>{formatRelativeTime(entry.completedUtc)} <span className="text-dim">({formatDateTime(entry.completedUtc)})</span></> : '-'}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Last Updated')}</span>
+          <span className="detail-label" title={t('When anything on this entry last changed.')}>{t('Last Updated')}</span>
           <span>{formatRelativeTime(entry.lastUpdateUtc)} <span className="text-dim">({formatDateTime(entry.lastUpdateUtc)})</span></span>
         </div>
       </div>
@@ -316,7 +316,7 @@ export default function MergeQueueDetail() {
       {/* Test Command */}
       {entry.testCommand && (
         <div className="detail-context-section">
-          <h4>{t('Test Command')}</h4>
+          <h4 title={t('Shell command run in the merged result before landing.')}>{t('Test Command')}</h4>
           <pre className="detail-context-block">{entry.testCommand}</pre>
         </div>
       )}
@@ -324,7 +324,7 @@ export default function MergeQueueDetail() {
       {/* Test Output */}
       {entry.testOutput && (
         <div className="detail-context-section">
-          <h4>{t('Test Output')}</h4>
+          <h4 title={t('Output of the test command from the last run, useful when the entry Failed.')}>{t('Test Output')}</h4>
           <pre className="detail-context-block">{entry.testOutput}</pre>
         </div>
       )}

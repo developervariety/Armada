@@ -26,6 +26,21 @@ import { canEdit as canEditScoped, type ScopeViewer } from '../lib/scoping';
 
 
 
+const NAME_TIP = 'Name for this project profile, for example web-app or payments-service. Required.';
+const DESCRIPTION_TIP = 'Optional note on what this profile customizes.';
+const SCOPE_TIP = 'Which vessels the profile applies to: Global for all, Fleet for one fleet\'s vessels, Vessel for one repository. A vessel uses its Vessel profile first, then Fleet, then Global.';
+const FLEET_TIP = 'The fleet whose vessels this profile applies to. Required when Scope is Fleet.';
+const VESSEL_TIP = 'The single repository this profile applies to. Required when Scope is Vessel.';
+const PIPELINE_TIP = 'ID of the pipeline (ppl_ prefix) missions for these vessels run through, copied from the Pipelines tab. Blank keeps the vessel or fleet default pipeline.';
+const WORKFLOW_TIP = 'ID of the workflow profile (wfp_ prefix) whose commands these vessels use for checks, copied from the Workflow Profiles tab. Blank uses normal workflow profile matching.';
+const SKILLS_TIP = 'Skills to add to every mission prompt for these vessels, one name or ID per line, for example tdd. Unknown or inactive skills are skipped.';
+const DEFAULT_TIP = 'When several active profiles match the same vessel at the same scope, the default one is used. Otherwise the most recently updated wins.';
+const ACTIVE_TIP = 'On: Armada can use this profile. Off: it is never chosen, even when a vessel names it.';
+const OVERRIDE_PERSONA_TIP = 'Name of the persona to customize, for example Worker or Architect. It must match the persona name exactly.';
+const OVERRIDE_TEMPLATE_TIP = 'Prompt template to use for this persona on these vessels instead of its own, for example persona.architect.strict. Blank keeps the persona\'s template.';
+const OVERRIDE_ENABLED_TIP = 'On: the override is applied. Off: it is kept here but ignored.';
+const OVERRIDE_INSTRUCTIONS_TIP = 'Extra text added to the end of the persona\'s prompt for these vessels, for example Always update the API docs. Optional.';
+
 export default function ProjectProfileDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -171,10 +186,10 @@ export default function ProjectProfileDetail() {
           <>
             {!createMode && <StatusBadge status={active ? 'Active' : 'Inactive'} />}
             {!createMode && profile && (
-              <button className="btn btn-sm" onClick={() => setJsonOpen(true)}>{t('View JSON')}</button>
+              <button className="btn btn-sm" onClick={() => setJsonOpen(true)} title={t('Show this profile\'s saved record as JSON, as the API returns it. Unsaved edits are not included.')}>{t('View JSON')}</button>
             )}
             {!createMode && canManage && (
-              <button className="btn btn-sm btn-danger" onClick={() => setConfirmOpen(true)}>{t('Delete')}</button>
+              <button className="btn btn-sm btn-danger" onClick={() => setConfirmOpen(true)} title={t('Permanently delete this profile. Vessels using it fall back to their fleet or global profile. You confirm first.')}>{t('Delete')}</button>
             )}
           </>
         }
@@ -199,7 +214,7 @@ export default function ProjectProfileDetail() {
       {!createMode && profile && (
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
           <div className="detail-field">
-            <span className="detail-label">{t('ID')}</span>
+            <span className="detail-label" title={t('Unique project profile ID (ppf_ prefix).')}>{t('ID')}</span>
             <span className="id-display">
               <span className="mono">{profile.id}</span>
               <CopyButton text={profile.id} />
@@ -214,7 +229,7 @@ export default function ProjectProfileDetail() {
             <span>{formatDateTime(profile.lastUpdateUtc)}</span>
           </div>
           <div className="detail-field">
-            <span className="detail-label">{t('Status')}</span>
+            <span className="detail-label" title={t('Only active profiles are used. An inactive profile is never chosen, even when a vessel names it.')}>{t('Status')}</span>
             <StatusBadge status={active ? 'Active' : 'Inactive'} />
           </div>
         </div>
@@ -222,54 +237,54 @@ export default function ProjectProfileDetail() {
 
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
         <div className="form-grid">
-          <label>
+          <label title={t(NAME_TIP)}>
             <span>{t('Name')}</span>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={!canManage} />
+            <input type="text" title={t(NAME_TIP)} value={name} onChange={(e) => setName(e.target.value)} disabled={!canManage} />
           </label>
-          <label>
+          <label title={t(DESCRIPTION_TIP)}>
             <span>{t('Description')}</span>
-            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} disabled={!canManage} />
+            <input type="text" title={t(DESCRIPTION_TIP)} value={description} onChange={(e) => setDescription(e.target.value)} disabled={!canManage} />
           </label>
-          <label>
+          <label title={t(SCOPE_TIP)}>
             <span>{t('Scope')}</span>
-            <select value={scope} onChange={(e) => setScope(e.target.value as typeof scope)} disabled={!canManage}>
+            <select title={t(SCOPE_TIP)} value={scope} onChange={(e) => setScope(e.target.value as typeof scope)} disabled={!canManage}>
               <option value="Global">{t('Global')}</option>
               <option value="Fleet">{t('Fleet')}</option>
               <option value="Vessel">{t('Vessel')}</option>
             </select>
           </label>
           {scope === 'Fleet' && (
-            <label>
+            <label title={t(FLEET_TIP)}>
               <span>{t('Fleet')}</span>
-              <select value={fleetId} onChange={(e) => setFleetId(e.target.value)} disabled={!canManage}>
+              <select title={t(FLEET_TIP)} value={fleetId} onChange={(e) => setFleetId(e.target.value)} disabled={!canManage}>
                 <option value="">{t('Select a fleet...')}</option>
                 {fleets.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
             </label>
           )}
           {scope === 'Vessel' && (
-            <label>
+            <label title={t(VESSEL_TIP)}>
               <span>{t('Vessel')}</span>
-              <select value={vesselId} onChange={(e) => setVesselId(e.target.value)} disabled={!canManage}>
+              <select title={t(VESSEL_TIP)} value={vesselId} onChange={(e) => setVesselId(e.target.value)} disabled={!canManage}>
                 <option value="">{t('Select a vessel...')}</option>
                 {vessels.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </label>
           )}
-          <label>
+          <label title={t(PIPELINE_TIP)}>
             <span>{t('Default Pipeline ID')}</span>
-            <input type="text" value={defaultPipelineId} onChange={(e) => setDefaultPipelineId(e.target.value)} placeholder="ppl_..." disabled={!canManage} />
+            <input type="text" title={t(PIPELINE_TIP)} value={defaultPipelineId} onChange={(e) => setDefaultPipelineId(e.target.value)} placeholder="ppl_..." disabled={!canManage} />
           </label>
-          <label>
+          <label title={t(WORKFLOW_TIP)}>
             <span>{t('Workflow Profile ID')}</span>
-            <input type="text" value={workflowProfileId} onChange={(e) => setWorkflowProfileId(e.target.value)} placeholder="wfp_..." disabled={!canManage} />
+            <input type="text" title={t(WORKFLOW_TIP)} value={workflowProfileId} onChange={(e) => setWorkflowProfileId(e.target.value)} placeholder="wfp_..." disabled={!canManage} />
           </label>
-          <label className="checkbox-row">
-            <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} disabled={!canManage} />
+          <label className="checkbox-row" title={t(DEFAULT_TIP)}>
+            <input type="checkbox" title={t(DEFAULT_TIP)} checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} disabled={!canManage} />
             <span>{t('Default for scope')}</span>
           </label>
-          <label className="checkbox-row">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} disabled={!canManage} />
+          <label className="checkbox-row" title={t(ACTIVE_TIP)}>
+            <input type="checkbox" title={t(ACTIVE_TIP)} checked={active} onChange={(e) => setActive(e.target.checked)} disabled={!canManage} />
             <span>{t('Active')}</span>
           </label>
         </div>
@@ -277,9 +292,9 @@ export default function ProjectProfileDetail() {
 
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
         <div className="view-header" style={{ marginBottom: '0.5rem' }}>
-          <h3>{t('Persona Overrides')}</h3>
+          <h3 title={t('Per-project changes to a persona: use a different prompt template and/or add instructions, without changing the shared persona.')}>{t('Persona Overrides')}</h3>
           {canManage && (
-            <button className="btn" onClick={() => setOverrides((c) => [...c, blankPersonaOverride()])}>+ {t('Override')}</button>
+            <button className="btn" onClick={() => setOverrides((c) => [...c, blankPersonaOverride()])} title={t('Add a persona override row.')}>+ {t('Override')}</button>
           )}
         </div>
         <p className="text-dim" style={{ marginTop: 0 }}>
@@ -291,25 +306,25 @@ export default function ProjectProfileDetail() {
           overrides.map((o, index) => (
             <div key={index} className="card" style={{ padding: '0.75rem', marginBottom: '0.5rem' }}>
               <div className="form-grid">
-                <label>
+                <label title={t(OVERRIDE_PERSONA_TIP)}>
                   <span>{t('Persona')}</span>
-                  <input list="known-personas" type="text" value={o.personaName} onChange={(e) => updateOverride(index, { personaName: e.target.value })} disabled={!canManage} />
+                  <input title={t(OVERRIDE_PERSONA_TIP)} list="known-personas" type="text" value={o.personaName} onChange={(e) => updateOverride(index, { personaName: e.target.value })} disabled={!canManage} />
                 </label>
-                <label>
+                <label title={t(OVERRIDE_TEMPLATE_TIP)}>
                   <span>{t('Prompt Template Name')}</span>
-                  <input type="text" value={o.promptTemplateName || ''} onChange={(e) => updateOverride(index, { promptTemplateName: e.target.value || null })} placeholder="persona.architect" disabled={!canManage} />
+                  <input title={t(OVERRIDE_TEMPLATE_TIP)} type="text" value={o.promptTemplateName || ''} onChange={(e) => updateOverride(index, { promptTemplateName: e.target.value || null })} placeholder="persona.architect" disabled={!canManage} />
                 </label>
-                <label className="checkbox-row">
-                  <input type="checkbox" checked={o.enabled} onChange={(e) => updateOverride(index, { enabled: e.target.checked })} disabled={!canManage} />
+                <label className="checkbox-row" title={t(OVERRIDE_ENABLED_TIP)}>
+                  <input type="checkbox" title={t(OVERRIDE_ENABLED_TIP)} checked={o.enabled} onChange={(e) => updateOverride(index, { enabled: e.target.checked })} disabled={!canManage} />
                   <span>{t('Enabled')}</span>
                 </label>
                 {canManage && (
-                  <button className="btn btn-danger" onClick={() => setOverrides((c) => c.filter((_, i) => i !== index))}>{t('Remove')}</button>
+                  <button className="btn btn-danger" onClick={() => setOverrides((c) => c.filter((_, i) => i !== index))} title={t('Remove this override. Nothing changes until you save.')}>{t('Remove')}</button>
                 )}
               </div>
-              <label style={{ display: 'block', marginTop: '0.5rem' }}>
+              <label style={{ display: 'block', marginTop: '0.5rem' }} title={t(OVERRIDE_INSTRUCTIONS_TIP)}>
                 <span>{t('Additional Instructions')}</span>
-                <textarea rows={3} value={o.additionalInstructions || ''} onChange={(e) => updateOverride(index, { additionalInstructions: e.target.value || null })} disabled={!canManage} />
+                <textarea title={t(OVERRIDE_INSTRUCTIONS_TIP)} rows={3} value={o.additionalInstructions || ''} onChange={(e) => updateOverride(index, { additionalInstructions: e.target.value || null })} disabled={!canManage} />
               </label>
             </div>
           ))
@@ -320,18 +335,18 @@ export default function ProjectProfileDetail() {
       </div>
 
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
-        <h3>{t('Skills')}</h3>
+        <h3 title={t(SKILLS_TIP)}>{t('Skills')}</h3>
         <p className="text-dim" style={{ marginTop: 0 }}>{t('One skill per line. Attached to this project.')}</p>
-        <textarea aria-label={t('Skills')} rows={4} value={skills} onChange={(e) => setSkills(e.target.value)} disabled={!canManage} placeholder={'dotnet\ntdd'} />
+        <textarea aria-label={t('Skills')} title={t(SKILLS_TIP)} rows={4} value={skills} onChange={(e) => setSkills(e.target.value)} disabled={!canManage} placeholder={'dotnet\ntdd'} />
       </div>
 
       {!createMode && (
         <div className="card" style={{ padding: '1rem' }}>
           <div className="view-header" style={{ marginBottom: '0.5rem' }}>
-            <h3>{t('Persona Prompt Diff')}</h3>
+            <h3 title={t('Compare a persona\'s normal prompt with the prompt this profile produces for it, using the saved overrides.')}>{t('Persona Prompt Diff')}</h3>
             <div className="view-actions">
-              <input list="known-personas" type="text" aria-label={t('Persona')} value={previewPersona} onChange={(e) => setPreviewPersona(e.target.value)} />
-              <button className="btn" onClick={loadPreview} disabled={previewLoading}>
+              <input list="known-personas" type="text" aria-label={t('Persona')} title={t('Persona name to preview, for example Worker or Architect.')} value={previewPersona} onChange={(e) => setPreviewPersona(e.target.value)} />
+              <button className="btn" onClick={loadPreview} disabled={previewLoading} title={t('Show the base and effective prompt for this persona. Uses the saved profile, so save your changes first.')}>
                 {previewLoading ? t('Loading...') : t('Preview')}
               </button>
             </div>
@@ -348,11 +363,11 @@ export default function ProjectProfileDetail() {
               </p>
               <div className="diff-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
-                  <strong>{t('Base')}</strong>
+                  <strong title={t('The persona\'s prompt without this profile\'s override.')}>{t('Base')}</strong>
                   <pre className="code-block" style={{ whiteSpace: 'pre-wrap', maxHeight: '360px', overflow: 'auto' }}>{preview.basePrompt}</pre>
                 </div>
                 <div>
-                  <strong>{t('Effective')}</strong>
+                  <strong title={t('The prompt the persona gets on vessels using this profile.')}>{t('Effective')}</strong>
                   <pre className="code-block" style={{ whiteSpace: 'pre-wrap', maxHeight: '360px', overflow: 'auto' }}>{preview.effectivePrompt}</pre>
                 </div>
               </div>
@@ -363,11 +378,11 @@ export default function ProjectProfileDetail() {
 
       <div className="inline-actions" style={{ marginTop: '1rem' }}>
         {canManage && (
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving} title={createMode ? t('Create this project profile.') : t('Save changes. Missions dispatched after saving use the new settings.')}>
             {saving ? t('Saving...') : createMode ? t('Create Project Profile') : t('Save Changes')}
           </button>
         )}
-        <button className="btn" onClick={() => navigate('/project-profiles')}>{t('Back')}</button>
+        <button className="btn" onClick={() => navigate('/project-profiles')} title={t('Return to the project profile list. Unsaved changes are discarded.')}>{t('Back')}</button>
       </div>
     </div>
   );

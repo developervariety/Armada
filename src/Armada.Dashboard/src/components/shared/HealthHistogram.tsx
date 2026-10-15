@@ -1,4 +1,5 @@
 import type { ModelEndpointHealthRecord } from '../../types/models';
+import { useLocale } from '../../context/LocaleContext';
 
 interface HealthHistogramProps {
   history: ModelEndpointHealthRecord[];
@@ -20,8 +21,9 @@ interface Bucket {
  * health histogram used across the sibling dashboards (conductor, pneuma, assistanthub, isis).
  */
 export default function HealthHistogram({ history, width = 80, height = 18, fill = false }: HealthHistogramProps) {
+  const { t, formatDateTime } = useLocale();
   if (!history || history.length === 0) {
-    return <span className="text-dim" style={{ fontSize: '0.75rem' }}>No data</span>;
+    return <span className="text-dim" style={{ fontSize: '0.75rem' }} title={t('No health checks have been recorded for this endpoint yet.')}>{t('No data')}</span>;
   }
 
   const now = Date.now();
@@ -59,11 +61,12 @@ export default function HealthHistogram({ history, width = 80, height = 18, fill
     <div
       className="health-histogram"
       style={{ height: `${height}px`, width: fill ? '100%' : `${width}px`, maxWidth: fill ? '100%' : `${width}px` }}
-      aria-label="Health check history"
+      aria-label={t('Health check history')}
+      title={t('Recent health checks, oldest on the left. Green: all passed. Amber: some failed. Red: all failed. Hover a bar for its time and counts.')}
     >
       {buckets.map((b, i) => {
         const tone = b.fail === 0 ? 'ok' : b.success === 0 ? 'fail' : 'mixed';
-        const title = `${new Date(b.time).toLocaleString()} - ${b.success} ok, ${b.fail} fail`;
+        const title = t('{{time}}: {{ok}} passed, {{fail}} failed', { time: formatDateTime(new Date(b.time).toISOString()), ok: b.success, fail: b.fail });
         return <span key={i} className={`hh-bar hh-${tone}`} title={title} />;
       })}
     </div>

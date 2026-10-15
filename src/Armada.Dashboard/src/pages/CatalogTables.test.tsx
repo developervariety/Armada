@@ -190,7 +190,7 @@ describe('catalog list tables on the shared DataTable', () => {
     expectOneLine('Needs a vessel before planning, dispatch, or release drafting can start.', 'vessels');
     // "Blocked by" stays on the state row.
     expect((document.querySelector('tbody td[data-col="state"]') as HTMLElement)).toHaveClass('cell-nowrap');
-    await expectChooser(['Backlog Item', 'ID'], 'Refresh backlog');
+    await expectChooser(['Backlog Item', 'ID'], 'Reload the backlog from the server now.');
   });
 
   it('keeps the toolbar and refresh when a list is empty', async () => {

@@ -137,7 +137,7 @@ export default function ActionMenu({ items, id, triggerLabel }: ActionMenuProps)
 
   return (
     <div className="action-menu-wrap" ref={wrapRef} data-menu-id={id}>
-      <button ref={triggerRef} type="button" className="action-menu-btn" onClick={handleToggle} title={triggerLabel ?? t('Actions')} aria-label={triggerLabel ?? t('Actions')} aria-haspopup="menu" aria-expanded={open}>
+      <button ref={triggerRef} type="button" className="action-menu-btn" onClick={handleToggle} title={triggerLabel ?? t('Open the list of actions for this item, such as edit, copy or delete.')} aria-label={triggerLabel ?? t('Actions')} aria-haspopup="menu" aria-expanded={open}>
         &#8942;
       </button>
       {open && createPortal(

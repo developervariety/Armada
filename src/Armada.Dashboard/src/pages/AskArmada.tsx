@@ -568,7 +568,7 @@ export default function AskArmada() {
       </p>
       <div className="ask-empty-actions">
         {quickActions.map((action) => (
-          <button key={action.name} type="button" className="btn btn-sm" onClick={() => composerRef.current?.choose(action)} title={action.description ? t(action.description) : undefined}>
+          <button key={action.name} type="button" className="btn btn-sm" onClick={() => composerRef.current?.choose(action)} title={action.description ? t(action.description) : t('Put this quick action in the message box so you can fill it in and send it.')}>
             <code>{action.command || `/${action.name}`}</code>
           </button>
         ))}
@@ -651,7 +651,7 @@ export default function AskArmada() {
         {mcpMissing && (
           <div className="ask-mcp-note" role="note">
             <span>{t('This captain is not connected to Armada over MCP, so it can answer but cannot propose actions. Quick actions still work.')}</span>
-            <a href={instructionsDocUrl(activeCaptain?.runtime)} target="_blank" rel="noopener noreferrer">{t('How to connect')}</a>
+            <a href={instructionsDocUrl(activeCaptain?.runtime)} target="_blank" rel="noopener noreferrer" title={t('Open the setup guide, in a new tab, for connecting this captain runtime to the Armada MCP server.')}>{t('How to connect')}</a>
           </div>
         )}
 
@@ -660,7 +660,7 @@ export default function AskArmada() {
         {convError ? (
           <div className="ask-conv-error">
             <ErrorState message={convError} onRetry={routeThreadId ? () => void loadConversation(routeThreadId) : undefined} />
-            <button type="button" className="btn btn-sm" onClick={() => navigate('/ask')}>{t('Start a new conversation')}</button>
+            <button type="button" className="btn btn-sm" onClick={() => navigate('/ask')} title={t('Leave this conversation and open an empty one.')}>{t('Start a new conversation')}</button>
           </div>
         ) : convLoading && conv.messages.length === 0 ? (
           <div className="ask-transcript ask-transcript-loading"><LoadingState label={t('Loading conversation...')} /></div>

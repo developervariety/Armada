@@ -37,7 +37,7 @@ export default function UserScopeFilter({ value, onChange }: UserScopeFilterProp
   if (!canScope) return null;
 
   return (
-    <select aria-label={t('View records for a specific user')} value={value} onChange={(event) => onChange(event.target.value)} title={t('View records for a specific user')}>
+    <select aria-label={t('View records for a specific user')} value={value} onChange={(event) => onChange(event.target.value)} title={t('Admins only: show just the records one user owns, or All users for the whole tenant. This filters the list; it does not change anyone\'s access.')}>
       <option value="">{t('All users')}</option>
       {users.map((user) => (
         <option key={user.id} value={user.id}>{userScopeLabel(user)}</option>

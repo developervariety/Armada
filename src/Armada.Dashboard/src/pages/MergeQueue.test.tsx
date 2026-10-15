@@ -62,7 +62,7 @@ describe('MergeQueue table', () => {
     const { container } = render(<MemoryRouter><MergeQueue /></MemoryRouter>);
     await screen.findByText('armada/feature-x');
     const bar = container.querySelector('.data-table .pagination-bar') as HTMLElement;
-    expect(within(bar).getByTitle('Refresh merge queue')).toBeInTheDocument();
+    expect(within(bar).getByTitle('Reload the merge queue from the server now.')).toBeInTheDocument();
     expect(within(bar).getByLabelText('Auto-refresh interval')).toBeInTheDocument();
     await act(async () => { fireEvent.click(within(bar).getByRole('button', { name: /^Columns/ })); });
     const menu = screen.getByRole('menu', { name: 'Choose visible columns' });

@@ -56,13 +56,13 @@ export default function Pagination({
   return (
     <div className="pagination-bar">
       <div className="pagination-info">
-        <span className="pagination-records">
+        <span className="pagination-records" title={t('Total rows across all pages, after any filters.')}>
           {t(totalRecords === 1 ? '{{count}} record' : '{{count}} records', {
             count: totalRecords.toLocaleString(),
           })}
         </span>
         {totalMs !== undefined && (
-          <span className="pagination-timing">{totalMs}ms</span>
+          <span className="pagination-timing" title={t('Time the server took to answer this page of results, in milliseconds.')}>{totalMs}ms</span>
         )}
       </div>
       <div className="pagination-controls">
@@ -72,6 +72,7 @@ export default function Pagination({
             type="button"
             className="btn btn-sm"
             disabled={pageNumber <= 1}
+            title={t('Show the previous page of results.')}
             onClick={() => { onPageChange(pageNumber - 1); setPageInput(String(pageNumber - 1)); }}
           >
             {t('Prev')}
@@ -81,6 +82,7 @@ export default function Pagination({
               type="number"
               className="page-input"
               aria-label={t('Page number')}
+              title={t('Type a page number from 1 to {{totalPages}} and press Enter to jump to it.', { totalPages: totalPages.toLocaleString() })}
               value={pageInput}
               onChange={e => setPageInput(e.target.value)}
               onBlur={handlePageInputSubmit}
@@ -94,6 +96,7 @@ export default function Pagination({
             type="button"
             className="btn btn-sm"
             disabled={pageNumber >= totalPages}
+            title={t('Show the next page of results.')}
             onClick={() => { onPageChange(pageNumber + 1); setPageInput(String(pageNumber + 1)); }}
           >
             {t('Next')}
@@ -101,6 +104,7 @@ export default function Pagination({
           <select
             className="page-size-select"
             aria-label={t('Items per page')}
+            title={t('Rows shown per page. Your choice is remembered for this table and becomes the default for tables you have not set.')}
             value={pageSize}
             onChange={e => onPageSizeChange(parseInt(e.target.value, 10))}
           >

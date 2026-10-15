@@ -74,6 +74,21 @@ export default function Environments() {
 
   const canManage = isAdmin || isTenantAdmin;
 
+  const tips = {
+    vessel: t('Repository this environment belongs to. Deployments can only target environments of their own vessel.'),
+    name: t('Environment name, such as staging or production. It must match the environment name in the workflow profile so the right deploy and rollback commands run.'),
+    kind: t('Classification of the environment: Development, Test, Staging, Production, or Custom. Used for labeling and filtering.'),
+    configurationSource: t('Where this environment\'s settings live, for operators to reference, such as Helm values or appsettings.Production.json. Not read by Armada.'),
+    baseUrl: t('Root URL of the deployed service, such as https://staging.example.com. Health checks and relative verification paths are resolved against it.'),
+    healthEndpoint: t('Path or URL requested after each deploy, such as /health. The health check runs only when both this and the Base URL are set.'),
+    description: t('Short description of what this environment is for. Shown in the list tooltip and searchable.'),
+    accessNotes: t('How operators reach or sign in to this environment, such as a VPN or bastion host. Do not paste secrets here.'),
+    deploymentRules: t('Freeze windows, policies, or constraints operators should follow. Informational only; use Requires approval to enforce a gate.'),
+    requiresApproval: t('When checked, new deployments to this environment wait in Pending Approval until someone approves or denies them.'),
+    isDefault: t('Target used when a deployment names no environment. Only one per vessel; setting it clears the flag on the vessel\'s other environments.'),
+    active: t('Inactive environments are skipped when Armada picks a default target and are not rollout-monitored.'),
+  };
+
   function openCreate() {
     setEditing(null);
     setCreateForm({
@@ -233,14 +248,14 @@ export default function Environments() {
 
   const columns: DataTableColumn<DeploymentEnvironment>[] = [
     {
-      key: 'name', label: t('Environment'), required: true,
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by name')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
+      key: 'name', label: t('Environment'), required: true, headerTitle: t('Environment name. Hover a row for its description.'),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by name')} title={t('Show only environments whose name contains this text.')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
       // One line: default/active state and description have their own columns; the description is also in the tooltip.
       cellTitle: (environment) => [environment.name, environment.description].filter(Boolean).join('\n'),
       render: (environment) => <strong className="cell-one-line">{environment.name}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Environment ID (env_ prefix), used by the REST API, MCP tools, and links.'), cellClassName: 'mono text-dim table-id-cell',
       render: (environment) => (
         <span className="id-display">
           <span className="id-value" title={environment.id}>{environment.id}</span>
@@ -248,36 +263,36 @@ export default function Environments() {
         </span>
       ),
     },
-    { key: 'kind', label: t('Kind'), cellClassName: 'text-dim', render: (environment) => environment.kind },
-    { key: 'vessel', label: t('Vessel'), cellClassName: 'text-dim', render: (environment) => (environment.vesselId ? (vesselMap.get(environment.vesselId) || environment.vesselId) : '-') },
+    { key: 'kind', label: t('Kind'), headerTitle: t('Classification: Development, Test, Staging, Production, or Custom.'), cellClassName: 'text-dim', render: (environment) => environment.kind },
+    { key: 'vessel', label: t('Vessel'), headerTitle: t('Repository this environment belongs to.'), cellClassName: 'text-dim', render: (environment) => (environment.vesselId ? (vesselMap.get(environment.vesselId) || environment.vesselId) : '-') },
     {
-      key: 'state', label: t('State'), cellClassName: 'text-dim cell-nowrap',
+      key: 'state', label: t('State'), headerTitle: t('Active or inactive, and whether it is the vessel\'s default target when a deployment names no environment.'), cellClassName: 'text-dim cell-nowrap',
       render: (environment) => `${environment.active ? t('Active') : t('Inactive')}${environment.isDefault ? ` \u2022 ${t('Default target')}` : ''}`,
     },
     {
-      key: 'baseUrl', label: t('Base URL'), cellClassName: 'text-dim',
+      key: 'baseUrl', label: t('Base URL'), headerTitle: t('Root URL of the deployed service; health checks and verification paths resolve against it.'), cellClassName: 'text-dim',
       cellTitle: (environment) => environment.baseUrl || undefined,
       clearFilter: () => setColFilters(f => ({ ...f, baseUrl: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by base URL')} value={colFilters.baseUrl} onChange={e => setColFilters(f => ({ ...f, baseUrl: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by base URL')} title={t('Show only environments whose base URL contains this text.')} value={colFilters.baseUrl} onChange={e => setColFilters(f => ({ ...f, baseUrl: e.target.value }))} placeholder={t('Filter...')} />,
       render: (environment) => <span className="cell-clip"><span>{environment.baseUrl || '-'}</span></span>,
     },
     {
-      key: 'health', label: t('Health'), cellClassName: 'text-dim',
+      key: 'health', label: t('Health'), headerTitle: t('Health endpoint requested after each deploy, when a Base URL is also set.'), cellClassName: 'text-dim',
       cellTitle: (environment) => environment.healthEndpoint || undefined,
       clearFilter: () => setColFilters(f => ({ ...f, health: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by health endpoint')} value={colFilters.health} onChange={e => setColFilters(f => ({ ...f, health: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by health endpoint')} title={t('Show only environments whose health endpoint contains this text.')} value={colFilters.health} onChange={e => setColFilters(f => ({ ...f, health: e.target.value }))} placeholder={t('Filter...')} />,
       render: (environment) => <span className="cell-clip"><span>{environment.healthEndpoint || '-'}</span></span>,
     },
     {
-      key: 'policy', label: t('Policy'), cellClassName: 'text-dim cell-nowrap',
+      key: 'policy', label: t('Policy'), headerTitle: t('Approval required means deployments wait for someone to approve them; self-service deployments run right away.'), cellClassName: 'text-dim cell-nowrap',
       render: (environment) => (environment.requiresApproval ? t('Approval required') : t('Self-service')),
     },
     {
-      key: 'description', label: t('Description'), defaultHidden: true, cellClassName: 'text-dim',
+      key: 'description', label: t('Description'), headerTitle: t('What the environment is for.'), defaultHidden: true, cellClassName: 'text-dim',
       render: (environment) => <span className="cell-one-line" title={environment.description || undefined}>{environment.description || '-'}</span>,
     },
     {
-      key: 'lastUpdated', label: t('Last Updated'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastUpdated', label: t('Last Updated'), headerTitle: t('When the environment record last changed. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (environment) => formatDateTime(environment.lastUpdateUtc),
       render: (environment) => formatRelativeTime(environment.lastUpdateUtc),
     },
@@ -287,11 +302,11 @@ export default function Environments() {
         <ActionMenu
           id={`environment-${environment.id}`}
           items={[
-            { label: 'Open', onClick: () => navigate(`/environments/${environment.id}`) },
-            ...(canManage ? [{ label: 'Edit', onClick: () => openEdit(environment) }] : []),
-            ...(canManage ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(environment) }] : []),
-            { label: 'View JSON', onClick: () => setJsonData({ open: true, title: environment.name, data: environment }) },
-            ...(canManage ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(environment) }] : []),
+            { label: 'Open', title: 'Open the environment detail page with its verification checks, monitoring settings, deployments, and incidents.', onClick: () => navigate(`/environments/${environment.id}`) },
+            ...(canManage ? [{ label: 'Edit', title: 'Change this environment\'s URLs, notes, approval rule, and default or active state.', onClick: () => openEdit(environment) }] : []),
+            ...(canManage ? [{ label: 'Duplicate', title: 'Create a copy with the same settings and verification checks, not set as default, and open it.', onClick: () => void handleDuplicate(environment) }] : []),
+            { label: 'View JSON', title: 'Show the raw environment record as returned by the API.', onClick: () => setJsonData({ open: true, title: environment.name, data: environment }) },
+            ...(canManage ? [{ label: 'Delete', title: 'Delete this environment record. Existing deployments keep their environment name. Cannot be undone.', danger: true as const, onClick: () => handleDelete(environment) }] : []),
           ]}
         />
       ),
@@ -306,7 +321,7 @@ export default function Environments() {
         actions={(
           <>
             {canManage && (
-              <button className="btn btn-primary" onClick={openCreate}>
+              <button className="btn btn-primary" onClick={openCreate} title={t('Create a named deployment target for a vessel, such as staging or production.')}>
                 + {t('Environment')}
               </button>
             )}
@@ -328,78 +343,78 @@ export default function Environments() {
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal modal-large" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
             <h3>{editing ? t('Edit Environment') : t('Create Environment')}</h3>
-            <label>{t('Vessel')}
-              <select value={createForm.vesselId} onChange={(event) => setCreateForm({ ...createForm, vesselId: event.target.value })}>
+            <label title={tips.vessel}>{t('Vessel')}
+              <select title={tips.vessel} value={createForm.vesselId} onChange={(event) => setCreateForm({ ...createForm, vesselId: event.target.value })}>
                 <option value="">{t('Select a vessel')}</option>
                 {vessels.map((vessel) => (
                   <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Name')}
-              <input type="text" value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} required />
+            <label title={tips.name}>{t('Name')}
+              <input type="text" title={tips.name} value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} required />
             </label>
-            <label>{t('Kind')}
-              <select value={createForm.kind} onChange={(event) => setCreateForm({ ...createForm, kind: event.target.value as EnvironmentKind })}>
+            <label title={tips.kind}>{t('Kind')}
+              <select title={tips.kind} value={createForm.kind} onChange={(event) => setCreateForm({ ...createForm, kind: event.target.value as EnvironmentKind })}>
                 {ENVIRONMENT_KINDS.map((value) => (
                   <option key={value} value={value}>{value}</option>
                 ))}
               </select>
             </label>
-            <label>{t('Configuration Source')}
-              <input type="text" value={createForm.configurationSource} onChange={(event) => setCreateForm({ ...createForm, configurationSource: event.target.value })} placeholder={t('e.g. Helm values, appsettings.Production.json, Azure slot config')} />
+            <label title={tips.configurationSource}>{t('Configuration Source')}
+              <input type="text" title={tips.configurationSource} value={createForm.configurationSource} onChange={(event) => setCreateForm({ ...createForm, configurationSource: event.target.value })} placeholder={t('e.g. Helm values, appsettings.Production.json, Azure slot config')} />
             </label>
-            <label>{t('Base URL')}
-              <input type="text" value={createForm.baseUrl} onChange={(event) => setCreateForm({ ...createForm, baseUrl: event.target.value })} placeholder="https://service.example.com" />
+            <label title={tips.baseUrl}>{t('Base URL')}
+              <input type="text" title={tips.baseUrl} value={createForm.baseUrl} onChange={(event) => setCreateForm({ ...createForm, baseUrl: event.target.value })} placeholder="https://service.example.com" />
             </label>
-            <label>{t('Health Endpoint')}
-              <input type="text" value={createForm.healthEndpoint} onChange={(event) => setCreateForm({ ...createForm, healthEndpoint: event.target.value })} placeholder="/health or https://service.example.com/health" />
+            <label title={tips.healthEndpoint}>{t('Health Endpoint')}
+              <input type="text" title={tips.healthEndpoint} value={createForm.healthEndpoint} onChange={(event) => setCreateForm({ ...createForm, healthEndpoint: event.target.value })} placeholder="/health or https://service.example.com/health" />
             </label>
-            <label>{t('Description')}
-              <textarea rows={3} value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} />
+            <label title={tips.description}>{t('Description')}
+              <textarea title={tips.description} rows={3} value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} />
             </label>
-            <label>{t('Access Notes')}
-              <textarea rows={3} value={createForm.accessNotes} onChange={(event) => setCreateForm({ ...createForm, accessNotes: event.target.value })} placeholder={t('How do operators reach or authenticate to this environment?')} />
+            <label title={tips.accessNotes}>{t('Access Notes')}
+              <textarea title={tips.accessNotes} rows={3} value={createForm.accessNotes} onChange={(event) => setCreateForm({ ...createForm, accessNotes: event.target.value })} placeholder={t('How do operators reach or authenticate to this environment?')} />
             </label>
-            <label>{t('Deployment Rules')}
-              <textarea rows={3} value={createForm.deploymentRules} onChange={(event) => setCreateForm({ ...createForm, deploymentRules: event.target.value })} placeholder={t('Document freeze windows, approval policy, maintenance constraints, or rollout notes.')} />
+            <label title={tips.deploymentRules}>{t('Deployment Rules')}
+              <textarea title={tips.deploymentRules} rows={3} value={createForm.deploymentRules} onChange={(event) => setCreateForm({ ...createForm, deploymentRules: event.target.value })} placeholder={t('Document freeze windows, approval policy, maintenance constraints, or rollout notes.')} />
             </label>
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-                <input type="checkbox" checked={createForm.requiresApproval} onChange={(event) => setCreateForm({ ...createForm, requiresApproval: event.target.checked })} />
+              <label title={tips.requiresApproval} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+                <input type="checkbox" title={tips.requiresApproval} checked={createForm.requiresApproval} onChange={(event) => setCreateForm({ ...createForm, requiresApproval: event.target.checked })} />
                 <span>{t('Requires approval')}</span>
               </label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-                <input type="checkbox" checked={createForm.isDefault} onChange={(event) => setCreateForm({ ...createForm, isDefault: event.target.checked })} />
+              <label title={tips.isDefault} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+                <input type="checkbox" title={tips.isDefault} checked={createForm.isDefault} onChange={(event) => setCreateForm({ ...createForm, isDefault: event.target.checked })} />
                 <span>{t('Default environment for vessel')}</span>
               </label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-                <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm({ ...createForm, active: event.target.checked })} />
+              <label title={tips.active} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+                <input type="checkbox" title={tips.active} checked={createForm.active} onChange={(event) => setCreateForm({ ...createForm, active: event.target.checked })} />
                 <span>{t('Active')}</span>
               </label>
             </div>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Environment')}</button>
-              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving} title={editing ? t('Save changes to this environment. Existing deployments are not re-run.') : t('Create this environment for the selected vessel.')}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Environment')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving} title={t('Close without saving.')}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('All environment records you can see, before filters.')}>
           <span>{t('Total Environments')}</span>
           <strong>{environments.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Environments that are active and can be picked as a default target or monitored.')}>
           <span>{t('Active')}</span>
           <strong>{activeCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Environments marked as their vessel\'s default target. At most one per vessel.')}>
           <span>{t('Default Targets')}</span>
           <strong>{defaultCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Environments where deployments wait for someone to approve them before running.')}>
           <span>{t('Require Approval')}</span>
           <strong>{approvalCount}</strong>
         </div>
@@ -412,20 +427,21 @@ export default function Environments() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t('Search by name, description, base URL, configuration source, or ID...')}
+            title={t('Filters the list to environments whose name, description, base URL, configuration source, or ID contains this text.')}
           />
-          <select aria-label={t('All kinds')} value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}>
+          <select aria-label={t('All kinds')} title={t('Show only environments of this kind.')} value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}>
             <option value="all">{t('All kinds')}</option>
             {ENVIRONMENT_KINDS.map((kind) => (
               <option key={kind} value={kind}>{kind}</option>
             ))}
           </select>
-          <select aria-label={t('All vessels')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
+          <select aria-label={t('All vessels')} title={t('Show only environments for this vessel.')} value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
             <option value="all">{t('All vessels')}</option>
             {vessels.map((vessel) => (
               <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
             ))}
           </select>
-          <select aria-label={t('All states')} value={activeFilter} onChange={(event) => setActiveFilter(event.target.value as typeof activeFilter)}>
+          <select aria-label={t('All states')} title={t('Show only active or only inactive environments.')} value={activeFilter} onChange={(event) => setActiveFilter(event.target.value as typeof activeFilter)}>
             <option value="all">{t('All states')}</option>
             <option value="active">{t('Active')}</option>
             <option value="inactive">{t('Inactive')}</option>

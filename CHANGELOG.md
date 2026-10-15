@@ -23,6 +23,7 @@ All notable changes to Armada are documented in this file.
 - See [REST_API.md](docs/REST_API.md#workflow-profiles).
 
 ### Page size is remembered
+- The mobile app shares the dashboard's table modules. They no longer touch browser storage directly: the dashboard registers localStorage for page sizes at startup, and other hosts keep the choice in memory. (The first version broke the mobile Vessels tab.)
 - The "n / page" choice is saved for each table and reused on every later visit. A table you have not sized yet starts with the size you last chose anywhere.
 - Before, Missions, Voyages, Captains, Docks, Signals, Events, Merge Queue, Request History, Prompt Templates, Memories, Tenants, Users, Credentials, the vessel import screens, and every list built on the shared table hook went back to the default on each visit.
 
@@ -90,6 +91,11 @@ All notable changes to Armada are documented in this file.
 - Generated tooltips follow the selected language.
 - Harbor's windows do the same for every label, field, button, and list that had no tooltip.
 - The captain Model field explains, per runtime, that for Mux it is a `--model` override and not the mux endpoint name (that goes in Mux Endpoint).
+- Every tooltip was then rewritten by hand to say what the control is for, what it does, what format it takes, and what follows from it. Generated text such as "Local Path: type a value" is gone. About 2,800 new strings cover every dashboard page, form, table header, menu item, tab, and chart, translated into all eight languages. For example:
+  - Local Path now reads: "Folder on the Admiral host where Armada keeps its bare clone of the repo; mission worktrees are made from it. Leave blank and Armada clones into its repos directory on first dispatch."
+  - Working Directory now reads: "Your own checkout of this repo on the Admiral host, e.g. /home/me/code/my-service. Local Merge lands here, and Workspace, checks, health and fleet actions run in it. Armada never deletes it."
+- The fallback for controls without an authored tooltip uses the field's description, its help text, and its placeholder as an example; it never writes "type a value" or "click to activate".
+- Harbor's settings, log browser, repository folders, and dialogs have authored tooltips that explain each setting's units, limits, and effect (for example that an idle captain is removed after the timeout, and what each landing mode does). A text field without one reads "Label (for example: ...)" instead of echoing its placeholder.
 
 ### Build
 - Pinned patched `System.Security.Cryptography.Pkcs` releases (8.0.2 and 10.0.13) to clear the NU1902/NU1903 vulnerability warnings from `Microsoft.Data.SqlClient`, and fixed the nullable warnings in the test project, so the solution builds with no warnings.

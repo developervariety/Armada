@@ -77,9 +77,10 @@ export default function AskFleetActionForm({ busy, onSubmit, onCancel }: AskFlee
       </div>
       {loadError && <div className="alert alert-error" role="alert">{loadError}</div>}
 
-      <label className="ask-field">
+      <label className="ask-field" title={t('The saved fleet action to run. Manage actions on the Fleet Actions page.')}>
         <span>{t('Action')}</span>
         <select
+          title={t('The saved fleet action to run. Manage actions on the Fleet Actions page.')}
           value={draft.actionId}
           onChange={(e) => setDraft((d) => ({ ...d, actionId: e.target.value }))}
           disabled={loading || busy}
@@ -101,8 +102,9 @@ export default function AskFleetActionForm({ busy, onSubmit, onCancel }: AskFlee
             onChange={(e) => setFilter(e.target.value)}
             placeholder={t('Filter vessels')}
             aria-label={t('Filter vessels')}
+            title={t('Show only vessels whose name contains this text. Selected vessels stay selected when hidden.')}
           />
-          <button type="button" className="btn btn-sm" onClick={toggleAllVisible} disabled={visible.length === 0 || busy}>
+          <button type="button" className="btn btn-sm" onClick={toggleAllVisible} disabled={visible.length === 0 || busy} title={allVisibleSelected ? t('Clear every vessel shown by the filter.') : t('Select every vessel shown by the filter.')}>
             {allVisibleSelected ? t('Clear visible') : t('Select visible')}
           </button>
         </div>
@@ -122,8 +124,8 @@ export default function AskFleetActionForm({ busy, onSubmit, onCancel }: AskFlee
 
       <div className="ask-inline-form-actions">
         <span className="text-dim">{t('Submitting this form is the confirmation; the run starts right away.')}</span>
-        <button type="button" className="btn btn-sm" onClick={onCancel} disabled={busy}>{t('Cancel')}</button>
-        <button type="submit" className="btn btn-sm btn-primary" disabled={busy || loading}>{busy ? t('Starting...') : t('Run action')}</button>
+        <button type="button" className="btn btn-sm" onClick={onCancel} disabled={busy} title={t('Close the form without running anything (Escape).')}>{t('Cancel')}</button>
+        <button type="submit" className="btn btn-sm btn-primary" disabled={busy || loading} title={t('Start the run on the selected vessels now. There is no separate confirmation step; progress is posted in this conversation.')}>{busy ? t('Starting...') : t('Run action')}</button>
       </div>
     </form>
   );

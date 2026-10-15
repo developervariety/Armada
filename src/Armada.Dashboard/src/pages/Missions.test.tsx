@@ -62,7 +62,7 @@ describe('Missions table', () => {
     const bar = container.querySelector('.data-table .pagination-bar') as HTMLElement;
     expect(within(bar).getByText('1 record')).toBeInTheDocument();
     expect(within(bar).getByLabelText('Auto-refresh interval')).toBeInTheDocument();
-    expect(within(bar).getByTitle('Refresh mission data')).toBeInTheDocument();
+    expect(within(bar).getByTitle('Reload the mission list from the server now.')).toBeInTheDocument();
     expect(container.querySelector('.page-header .auto-refresh-select')).toBeNull();
 
     await act(async () => { fireEvent.click(within(bar).getByRole('button', { name: /^Columns/ })); });

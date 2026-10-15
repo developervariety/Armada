@@ -68,7 +68,9 @@ namespace Armada.Harbor
 
             Button cancel = new Button { Content = "Cancel", IsCancel = true };
             cancel.Click += (sender, args) => Close();
+            ToolTip.SetTip(cancel, "Close without restoring anything");
             _Restore = new Button { Content = "Restore...", IsDefault = true, IsEnabled = false };
+            ToolTip.SetTip(_Restore, "Put the selected version back into the editor. Nothing is written until you save.");
             _Restore.Classes.Add("accent");
             _Restore.Click += (sender, args) => Choose();
             StackPanel buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };

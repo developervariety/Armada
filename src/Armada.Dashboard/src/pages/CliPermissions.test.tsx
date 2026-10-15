@@ -137,7 +137,7 @@ describe('CLI Tool Permissions page', () => {
     expect(pattern).toHaveClass('cell-one-line');
     expect(pattern).toHaveAttribute('title', 'Bash(rm -rf:*)');
     const bar = document.querySelector('.data-table .pagination-bar') as HTMLElement;
-    expect(within(bar).getByTitle('Refresh rules')).toBeInTheDocument();
+    expect(within(bar).getByTitle('Reload the rule list.')).toBeInTheDocument();
     fireEvent.click(within(bar).getByRole('button', { name: /^Columns/ }));
     const menu = await screen.findByRole('menu', { name: 'Choose visible columns' });
     expect(within(menu).getByRole('menuitemcheckbox', { name: /^Pattern/ })).toHaveAttribute('aria-disabled', 'true');

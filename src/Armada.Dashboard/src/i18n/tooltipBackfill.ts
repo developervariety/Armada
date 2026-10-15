@@ -8,6 +8,10 @@ import { translateTemplate, type I18nCatalog } from './catalog';
  * Rules:
  * - An author title (any non-empty title we did not write) is never overwritten. When the author later sets a title
  *   on an element we had backfilled, theirs wins and our marker is dropped.
+ * - Generated text carries only information that is actually there: the element's name, its current state, its
+ *   aria-description or aria-describedby text, the visible help text in its field group (form-help and similar),
+ *   and its placeholder as an example. With nothing more to say it is just the name, never filler such as
+ *   "type a value" or "click to activate". Author-written titles are still the goal; this is the safety net.
  * - Generated titles are rebuilt whenever the element's content, label, value or the locale changes.
  * - Generated text is built from the rendered DOM (which the document translator has already localized) and from
  *   catalog templates rendered in the active locale, so the document translator skips generated titles
@@ -100,7 +104,7 @@ function isTarget(element: Element): boolean {
 }
 
 /** Visible text of an element, skipping hidden subtrees and the option lists and values of nested controls. */
-function visibleText(element: Element, excludeControls: boolean): string {
+function visibleText(element: Element, excludeControls: boolean, excludeHints = false): string {
   const parts: string[] = [];
   const walk = (node: Node) => {
     if (node.nodeType === Node.TEXT_NODE) {
@@ -112,6 +116,8 @@ function visibleText(element: Element, excludeControls: boolean): string {
     const tag = node.tagName;
     if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEMPLATE') return;
     if (excludeControls && (tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'OPTION' || tag === 'DATALIST')) return;
+    // A label's name excludes help text nested inside it; the help is carried separately (controlHint).
+    if (excludeHints && isHintElement(node)) return;
     if (tag === 'svg' || tag === 'SVG') {
       const svgTitle = node.querySelector('title');
       if (svgTitle) parts.push(` ${svgTitle.textContent ?? ''} `);
@@ -177,7 +183,7 @@ export function controlLabel(control: Element): string {
   }
   const label = findLabelElement(control);
   if (label) {
-    const text = visibleText(label, true);
+    const text = visibleText(label, true, true);
     if (text) return text;
   }
   const placeholder = collapse(control.getAttribute('placeholder'));
@@ -211,25 +217,120 @@ function withDisabled(ctx: Context, element: Element, text: string): string {
   return isDisabled(element) ? tr(ctx, '{{text}} (unavailable right now)', { text }) : text;
 }
 
-function describeSelect(ctx: Context, select: HTMLSelectElement): string {
-  const label = controlLabel(select) || tr(ctx, 'this list');
-  if (select.multiple) {
-    const chosen = Array.from(select.selectedOptions).map((o) => collapse(o.textContent)).filter(Boolean).join(', ');
-    return chosen
-      ? tr(ctx, '{{label}}: currently {{value}}. Click to change the selection.', { label, value: chosen })
-      : tr(ctx, '{{label}}: click to choose one or more options.', { label });
+/** Longest help text carried into a generated title. */
+const MAX_HINT_LENGTH = 260;
+
+/** A class token naming a field's visible help text ("form-help", "settings-hint", "persona-priority-help"). */
+const HINT_TOKEN = /^(form-help|field-help|form-hint|field-hint|settings-hint|help-text|hint-text)$|-(help|hint)$/;
+
+/** Containers that group one control with its label and help text. */
+const FIELD_GROUP_SELECTOR = '.form-group, .form-field, .field, .setting-row, .settings-row, .wizard-field';
+
+const CONTROL_SELECTOR = 'input:not([type="hidden"]), select, textarea';
+
+function isHintElement(element: Element): boolean {
+  const className = element.getAttribute('class');
+  if (!className) return false;
+  for (const token of className.split(/\s+/)) {
+    if (token && HINT_TOKEN.test(token)) return true;
   }
-  const option = select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
-  const value = collapse(option?.textContent);
-  return value
-    ? tr(ctx, '{{label}}: currently {{value}}. Click to choose a different option.', { label, value })
-    : tr(ctx, '{{label}}: click to choose an option.', { label });
+  return false;
 }
 
-function describeToggle(ctx: Context, label: string, on: boolean): string {
-  return on
-    ? tr(ctx, '{{label}}: on. Click to turn it off.', { label })
-    : tr(ctx, '{{label}}: off. Click to turn it on.', { label });
+function clipHint(text: string): string {
+  return text.length > MAX_HINT_LENGTH ? `${text.slice(0, MAX_HINT_LENGTH - 3).trimEnd()}...` : text;
+}
+
+/** The field group holding this control and no other control, or null. */
+function fieldGroupOf(control: Element): Element | null {
+  const group = control.closest(FIELD_GROUP_SELECTOR);
+  if (!group) return null;
+  return group.querySelectorAll(CONTROL_SELECTOR).length === 1 ? group : null;
+}
+
+/**
+ * Help text that actually describes a control: aria-description, aria-describedby, or the visible help element
+ * (form-help and similar) in the field group that holds only this control.
+ */
+export function controlHint(control: Element): string {
+  const description = collapse(control.getAttribute('aria-description'));
+  if (description) return clipHint(description);
+  const describedBy = control.getAttribute('aria-describedby');
+  if (describedBy) {
+    const text = textOfIds(describedBy, control.ownerDocument);
+    if (text) return clipHint(text);
+  }
+  const group = fieldGroupOf(control);
+  if (group) {
+    for (const el of Array.from(group.querySelectorAll('[class]'))) {
+      if (!isHintElement(el) || el.closest(SKIP_SELECTOR)) continue;
+      const text = visibleText(el, true);
+      if (text) return clipHint(text);
+    }
+  }
+  return '';
+}
+
+function sameText(a: string, b: string): boolean {
+  return a.trim().toLowerCase().replace(/[.:\s]+$/, '') === b.trim().toLowerCase().replace(/[.:\s]+$/, '');
+}
+
+/**
+ * What a placeholder adds beyond the label: a literal value (a path, URL, number or single token) reads as an
+ * example; a phrase ("e.g. main", "Leave blank to use the default") is shown as written; a placeholder that only
+ * repeats the label adds nothing.
+ */
+interface PlaceholderDetail {
+  phrase: string;
+  example: string;
+}
+
+function placeholderDetail(ctx: Context, control: Element, label: string): PlaceholderDetail {
+  const placeholder = collapse(control.getAttribute('placeholder'));
+  if (!placeholder || sameText(placeholder, label)) return { phrase: '', example: '' };
+  const literal = !/\s/.test(placeholder) || /^[\w.+-]+:\/\//.test(placeholder) || /^[~./\\]/.test(placeholder);
+  return literal
+    ? { phrase: '', example: tr(ctx, 'Example: {{example}}', { example: placeholder }) }
+    : { phrase: placeholder, example: '' };
+}
+
+/**
+ * Join a label with any details (each ends as a sentence) and an optional example (left unpunctuated, so a path
+ * or URL is not followed by a period). With no details, the label alone: filler words add nothing.
+ */
+function withDetails(ctx: Context, label: string, details: Array<string | null | undefined>, example = ''): string {
+  const parts: string[] = [];
+  for (const raw of details) {
+    const part = collapse(raw);
+    if (!part || sameText(part, label) || parts.some((p) => sameText(p, part))) continue;
+    parts.push(/[.!?:)]$/.test(part) ? part : `${part}.`);
+  }
+  if (example) parts.push(example);
+  if (parts.length === 0) return label;
+  return tr(ctx, '{{label}}: {{detail}}', { label, detail: parts.join(' ') });
+}
+
+function describeSelect(ctx: Context, select: HTMLSelectElement): string | null {
+  const label = controlLabel(select);
+  const hint = controlHint(select);
+  let state = '';
+  if (select.multiple) {
+    const chosen = Array.from(select.selectedOptions).map((o) => collapse(o.textContent)).filter(Boolean).join(', ');
+    state = chosen ? tr(ctx, 'Currently {{value}}.', { value: chosen }) : tr(ctx, 'Nothing selected.');
+  } else {
+    const option = select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
+    const value = collapse(option?.textContent);
+    if (value) state = tr(ctx, 'Currently {{value}}.', { value });
+    // The chosen option's own title, when the author explained what choosing it does.
+    const optionTitle = collapse(option?.getAttribute('title'));
+    if (optionTitle) state = `${state} ${optionTitle}`.trim();
+  }
+  if (!label) return withDetails(ctx, state, [hint]) || null;
+  return withDetails(ctx, label, [state, hint]);
+}
+
+function describeToggle(ctx: Context, label: string, on: boolean, hint: string): string {
+  return withDetails(ctx, label, [on ? tr(ctx, 'Currently on.') : tr(ctx, 'Currently off.'), hint]);
 }
 
 function describeInput(ctx: Context, input: HTMLInputElement): string | null {
@@ -237,32 +338,41 @@ function describeInput(ctx: Context, input: HTMLInputElement): string | null {
   if (type === 'hidden') return null;
   if (type === 'button' || type === 'submit' || type === 'reset' || type === 'image') {
     const label = actionLabel(input) || collapse(input.getAttribute('alt'));
-    return label ? tr(ctx, '{{label}} (click to activate)', { label }) : null;
+    return label ? withDetails(ctx, label, [collapse(input.getAttribute('aria-description'))]) : null;
   }
-  const label = controlLabel(input) || tr(ctx, 'this field');
-  if (type === 'checkbox') return describeToggle(ctx, label, input.checked);
+  const label = controlLabel(input);
+  const hint = controlHint(input);
+  if (!label) return hint || null;
+  if (type === 'checkbox') return describeToggle(ctx, label, input.checked, hint);
   if (type === 'radio') {
-    return input.checked
-      ? tr(ctx, '{{label}}: selected.', { label })
-      : tr(ctx, '{{label}}: click to select this option.', { label });
+    return withDetails(ctx, label, [input.checked ? tr(ctx, 'Selected.') : tr(ctx, 'Not selected.'), hint]);
   }
-  if (type === 'file') return tr(ctx, '{{label}}: click to choose a file.', { label });
-  if (type === 'range') return tr(ctx, '{{label}}: drag to adjust the value (currently {{value}}).', { label, value: input.value });
-  if (type === 'color') return tr(ctx, '{{label}}: click to pick a color.', { label });
-  if (input.readOnly) return tr(ctx, '{{label}} (read only)', { label });
-  if (type === 'password') return tr(ctx, '{{label}}: type a value. It stays hidden as you type.', { label });
-  if (type === 'search') return tr(ctx, '{{label}}: type to search.', { label });
-  return tr(ctx, '{{label}}: type a value.', { label });
+  if (type === 'file') return withDetails(ctx, label, [hint || tr(ctx, 'Click to choose a file.')]);
+  if (type === 'range') return withDetails(ctx, label, [tr(ctx, 'Currently {{value}}.', { value: input.value }), hint]);
+  const readOnly = input.readOnly ? tr(ctx, '{{label}} (read only)', { label }) : label;
+  const placeholder = placeholderDetail(ctx, input, label);
+  return withDetails(ctx, readOnly, [hint, placeholder.phrase], placeholder.example);
 }
 
 function describeControl(ctx: Context, control: Element): string | null {
   if (control instanceof HTMLSelectElement) return describeSelect(ctx, control);
   if (control instanceof HTMLTextAreaElement) {
-    const label = controlLabel(control) || tr(ctx, 'this field');
-    return control.readOnly ? tr(ctx, '{{label}} (read only)', { label }) : tr(ctx, '{{label}}: type text.', { label });
+    const label = controlLabel(control);
+    const hint = controlHint(control);
+    if (!label) return hint || null;
+    const base = control.readOnly ? tr(ctx, '{{label}} (read only)', { label }) : label;
+    const placeholder = placeholderDetail(ctx, control, label);
+    return withDetails(ctx, base, [hint, placeholder.phrase], placeholder.example);
   }
   if (control instanceof HTMLInputElement) return describeInput(ctx, control);
   return null;
+}
+
+/** An activatable element's name plus its aria-description, if any. */
+function describeAction(ctx: Context, element: Element): string | null {
+  const label = actionLabel(element);
+  if (!label) return null;
+  return withDetails(ctx, label, [collapse(element.getAttribute('aria-description'))]);
 }
 
 /** The generated tooltip for an element, or null when there is nothing useful to say. */
@@ -280,13 +390,14 @@ export function describeElement(element: Element, ctx: Context): string | null {
     text = visibleText(element, false) || null;
   } else if (role === 'switch' || role === 'checkbox' || role === 'menuitemcheckbox') {
     const label = actionLabel(element);
-    if (label) text = describeToggle(ctx, label, element.getAttribute('aria-checked') === 'true');
+    const hint = collapse(element.getAttribute('aria-description'));
+    if (label) text = describeToggle(ctx, label, element.getAttribute('aria-checked') === 'true', hint);
   } else if (role === 'radio' || role === 'menuitemradio') {
     const label = actionLabel(element);
     if (label) {
-      text = element.getAttribute('aria-checked') === 'true'
-        ? tr(ctx, '{{label}}: selected.', { label })
-        : tr(ctx, '{{label}}: click to select this option.', { label });
+      const checked = element.getAttribute('aria-checked') === 'true';
+      text = withDetails(ctx, label, [checked ? tr(ctx, 'Selected.') : tr(ctx, 'Not selected.'),
+        collapse(element.getAttribute('aria-description'))]);
     }
   } else if (role === 'tab') {
     const label = actionLabel(element);
@@ -312,7 +423,7 @@ export function describeElement(element: Element, ctx: Context): string | null {
     const label = actionLabel(element);
     if (label) {
       const sortHeader = element.closest('th[aria-sort]');
-      text = sortHeader ? tr(ctx, 'Sort by {{label}}', { label }) : tr(ctx, '{{label}} (click to activate)', { label });
+      text = sortHeader ? tr(ctx, 'Sort by {{label}}', { label }) : describeAction(ctx, element);
     }
   } else if (isBadgeLike(element)) {
     text = visibleText(element, false) || null;
@@ -398,6 +509,14 @@ function collectAffected(element: Element, into: Set<Element>) {
   if (isFormControl(element)) {
     const label = findLabelElement(element);
     if (label) into.add(label);
+  }
+  // Help text names the control in its field group.
+  const hint = element.closest('[class]');
+  for (let node: Element | null = hint; node; node = node.parentElement) {
+    if (!isHintElement(node)) continue;
+    const group = node.closest(FIELD_GROUP_SELECTOR);
+    if (group) for (const control of Array.from(group.querySelectorAll(CONTROL_SELECTOR))) into.add(control);
+    break;
   }
 }
 

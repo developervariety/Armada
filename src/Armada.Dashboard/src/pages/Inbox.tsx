@@ -70,6 +70,7 @@ export default function Inbox() {
         className="card clickable"
         style={{ padding: '0.75rem 1rem', borderLeft: `3px solid ${severityColor(item.severity)}`, cursor: 'pointer' }}
         onClick={() => navigate(item.href)}
+        title={t('Click to open the page where you can act on this item.')}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0, flex: '1 1 240px' }}>
@@ -81,6 +82,7 @@ export default function Inbox() {
             <span
               className="badge"
               style={{ color: severityColor(item.severity), borderColor: severityColor(item.severity), whiteSpace: 'nowrap' }}
+              title={t('How urgent this is. Critical items block work now; Warning items need attention soon.')}
             >
               {t(item.severity)}
             </span>
@@ -95,6 +97,7 @@ export default function Inbox() {
                 type="button"
                 className="btn btn-sm"
                 onClick={(e) => { e.stopPropagation(); navigate(item.href); }}
+                title={t('Open the page where you can approve or decide this item.')}
               >
                 {inboxActionLabel(t, item)}
               </button>
@@ -118,7 +121,7 @@ export default function Inbox() {
         actions={(
           <>
             <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
-            <RefreshButton onRefresh={load} title={t('Refresh inbox')} />
+            <RefreshButton onRefresh={load} title={t('Reload everything waiting on you from the server now.')} />
           </>
         )}
       />
@@ -127,19 +130,19 @@ export default function Inbox() {
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">
-          <span>{t('Total')}</span>
+          <span title={t('Everything waiting on a decision or intervention from you.')}>{t('Total')}</span>
           <strong>{items.length}</strong>
         </div>
         <div className="card playbook-overview-card">
-          <span>{t('Critical')}</span>
+          <span title={t('Items blocking work now, such as a failed landing or merge, or an overdue review.')}>{t('Critical')}</span>
           <strong style={{ color: severityColor('Critical') }}>{counts.critical}</strong>
         </div>
         <div className="card playbook-overview-card">
-          <span>{t('Warning')}</span>
+          <span title={t('Items that need attention soon, such as a failed mission, a stalled captain or a review waiting for you.')}>{t('Warning')}</span>
           <strong style={{ color: severityColor('Warning') }}>{counts.warning}</strong>
         </div>
         <div className="card playbook-overview-card">
-          <span>{t('Unread alerts')}</span>
+          <span title={t('Dashboard notifications you have not read yet. They are kept in this browser only.')}>{t('Unread alerts')}</span>
           <strong>{unreadCount}</strong>
         </div>
       </div>
@@ -155,7 +158,7 @@ export default function Inbox() {
         <>
           {approvals.length > 0 && (
             <section aria-label={t('Waiting for your approval')} style={{ marginBottom: '1rem' }}>
-              <h2 style={{ fontSize: '1rem', margin: '0 0 0.5rem' }}>{t('Waiting for your approval')} ({approvals.length})</h2>
+              <h2 style={{ fontSize: '1rem', margin: '0 0 0.5rem' }} title={t('Requests that cannot continue until you approve or deny them, such as review gates, deployments and captain tool permissions.')}>{t('Waiting for your approval')} ({approvals.length})</h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {approvals.map(renderItem)}
               </div>
@@ -163,7 +166,7 @@ export default function Inbox() {
           )}
           {interventions.length > 0 && (
             <section aria-label={t('Needs intervention')}>
-              <h2 style={{ fontSize: '1rem', margin: '0 0 0.5rem' }}>{t('Needs intervention')} ({interventions.length})</h2>
+              <h2 style={{ fontSize: '1rem', margin: '0 0 0.5rem' }} title={t('Problems Armada could not resolve on its own, such as failed missions, failed landings or merges, and stalled captains.')}>{t('Needs intervention')} ({interventions.length})</h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {interventions.map(renderItem)}
               </div>
@@ -180,7 +183,7 @@ export default function Inbox() {
                 ? t('Recent alerts ({{shown}} of {{total}})', { shown: unreadAlerts.length.toLocaleString(), total: allUnreadAlerts.length.toLocaleString() })
                 : t('Recent alerts ({{count}})', { count: unreadAlerts.length.toLocaleString() })}
             </h2>
-            <button className="btn-sm" onClick={markAllRead} title={t('Mark all notifications as read')}>
+            <button className="btn-sm" onClick={markAllRead} title={t('Mark every dashboard notification as read in this browser. Nothing in the Needs You list above changes.')}>
               {t('Mark all read')}
             </button>
           </div>
@@ -193,6 +196,7 @@ export default function Inbox() {
                   className={`card${route ? ' clickable' : ''}`}
                   style={{ padding: '0.6rem 0.9rem', cursor: route ? 'pointer' : 'default' }}
                   onClick={() => { markRead(n.id); if (route) navigate(route); }}
+                  title={route ? t('Click to mark this alert read and open the related page.') : t('Click to mark this alert read.')}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
                     <div style={{ minWidth: 0 }}>

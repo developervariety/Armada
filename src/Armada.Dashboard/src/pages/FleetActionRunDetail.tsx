@@ -221,25 +221,25 @@ export default function FleetActionRunDetail() {
         subtitle={(
           <span className="id-display">
             <span>{t(KIND_LABELS[run.kind])}</span>
-            {!run.actionId && <span className="tag idle">{t('Ad hoc')}</span>}
+            {!run.actionId && <span className="tag idle" title={t('Started with a one-off inline definition instead of a saved action.')}>{t('Ad hoc')}</span>}
             <span className="mono">{run.id}</span>
-            <CopyButton text={run.id} />
+            <CopyButton text={run.id} title={t('Copy the run ID, for example to check it with the CLI or MCP tools.')} />
           </span>
         )}
         actions={(
           <>
-            <span className={`refresh-state${autoRefreshing ? ' refresh-state-live' : ''}`} role="status" aria-live="polite">
+            <span className={`refresh-state${autoRefreshing ? ' refresh-state-live' : ''}`} role="status" aria-live="polite" title={t('This page reloads on its own while the run is active and stops once it finishes. It pauses while a panel is open.')}>
               {autoRefreshing && <span className="follow-dot follow-dot-active" aria-hidden="true" />}
               {refreshState}
             </span>
-            <button type="button" className="btn btn-sm" onClick={() => setShowJson(true)}>{t('View JSON')}</button>
+            <button type="button" className="btn btn-sm" onClick={() => setShowJson(true)} title={t('Show the raw run record as returned by the API.')}>{t('View JSON')}</button>
             {!active && run.failedCount > 0 && isTenantAdmin && (
-              <button type="button" className="btn btn-sm" onClick={() => void startRerunFailed()} disabled={rerunLoading}>
+              <button type="button" className="btn btn-sm" onClick={() => void startRerunFailed()} disabled={rerunLoading} title={t('Start a new run of the same action on only the vessels that failed or timed out. You review it before it starts.')}>
                 {rerunLoading ? t('Loading...') : t('Re-run failed targets')}
               </button>
             )}
             {active && isTenantAdmin && (
-              <button type="button" className="btn btn-sm btn-danger" onClick={() => setConfirmCancel(true)}>{t('Cancel run')}</button>
+              <button type="button" className="btn btn-sm btn-danger" onClick={() => setConfirmCancel(true)} title={t('Stop the run: pending vessels are cancelled, running commands are killed, and unfinished voyages are cancelled. Asks first.')}>{t('Cancel run')}</button>
             )}
           </>
         )}
@@ -250,23 +250,23 @@ export default function FleetActionRunDetail() {
       <div className="card fleet-run-summary">
         <RunProgress run={run} />
         <div className="fleet-run-stats">
-          <div className="fleet-run-stat"><span className="fleet-run-stat-label">{t('Targets')}</span><span className="fleet-run-stat-value">{run.targetCount.toLocaleString()}</span></div>
-          <div className="fleet-run-stat"><span className="fleet-run-stat-label">{t('Succeeded')}</span><span className="fleet-run-stat-value">{run.succeededCount.toLocaleString()}</span></div>
-          <div className="fleet-run-stat"><span className="fleet-run-stat-label">{t('Failed')}</span><span className="fleet-run-stat-value">{run.failedCount.toLocaleString()}</span></div>
-          <div className="fleet-run-stat"><span className="fleet-run-stat-label">{t('Skipped')}</span><span className="fleet-run-stat-value">{run.skippedCount.toLocaleString()}</span></div>
-          <div className="fleet-run-stat"><span className="fleet-run-stat-label">{t('Cancelled')}</span><span className="fleet-run-stat-value">{run.cancelledCount.toLocaleString()}</span></div>
-          <div className="fleet-run-stat"><span className="fleet-run-stat-label">{t('Concurrency')}</span><span className="fleet-run-stat-value">{run.concurrency.toLocaleString()}</span></div>
-          <div className="fleet-run-stat"><span className="fleet-run-stat-label">{t('Duration')}</span><span className="fleet-run-stat-value mono">{formatDurationMs(t, locale, duration)}</span></div>
+          <div className="fleet-run-stat" title={t('Vessels included in this run.')}><span className="fleet-run-stat-label">{t('Targets')}</span><span className="fleet-run-stat-value">{run.targetCount.toLocaleString()}</span></div>
+          <div className="fleet-run-stat" title={t('Vessels where the command exited 0 or the voyage completed.')}><span className="fleet-run-stat-label">{t('Succeeded')}</span><span className="fleet-run-stat-value">{run.succeededCount.toLocaleString()}</span></div>
+          <div className="fleet-run-stat" title={t('Vessels where the command failed or timed out, or the voyage failed.')}><span className="fleet-run-stat-label">{t('Failed')}</span><span className="fleet-run-stat-value">{run.failedCount.toLocaleString()}</span></div>
+          <div className="fleet-run-stat" title={t('Vessels Armada declined to act on, for example a dirty tree or no working directory. Not counted as failures.')}><span className="fleet-run-stat-label">{t('Skipped')}</span><span className="fleet-run-stat-value">{run.skippedCount.toLocaleString()}</span></div>
+          <div className="fleet-run-stat" title={t('Vessels that were not finished because the run was cancelled.')}><span className="fleet-run-stat-label">{t('Cancelled')}</span><span className="fleet-run-stat-value">{run.cancelledCount.toLocaleString()}</span></div>
+          <div className="fleet-run-stat" title={t('How many vessels this run works on at once.')}><span className="fleet-run-stat-label">{t('Concurrency')}</span><span className="fleet-run-stat-value">{run.concurrency.toLocaleString()}</span></div>
+          <div className="fleet-run-stat" title={t('Time from the first vessel starting to the last one finishing, or so far.')}><span className="fleet-run-stat-label">{t('Duration')}</span><span className="fleet-run-stat-value mono">{formatDurationMs(t, locale, duration)}</span></div>
         </div>
         <dl className="detail-kv detail-kv-inline">
           <dt>{t('Created')}</dt><dd title={formatDateTime(run.createdUtc)}>{formatRelativeTime(run.createdUtc)}</dd>
           <dt>{t('Started')}</dt><dd title={formatDateTime(run.startedUtc)}>{run.startedUtc ? formatRelativeTime(run.startedUtc) : '-'}</dd>
           <dt>{t('Completed')}</dt><dd title={formatDateTime(run.completedUtc)}>{run.completedUtc ? formatRelativeTime(run.completedUtc) : '-'}</dd>
-          {run.kind === 'Command' && <><dt>{t('Timeout')}</dt><dd>{t('{{value}} s', { value: run.timeoutSeconds.toLocaleString() })}</dd></>}
-          {run.kind === 'Command' && <><dt>{t('Clean-tree check')}</dt><dd>{run.requiresCleanWorkingTree ? t('On') : t('Off')}</dd></>}
+          {run.kind === 'Command' && <><dt title={t('Seconds the command may run on each vessel before it is killed.')}>{t('Timeout')}</dt><dd>{t('{{value}} s', { value: run.timeoutSeconds.toLocaleString() })}</dd></>}
+          {run.kind === 'Command' && <><dt title={t('On means vessels with uncommitted or untracked changes were skipped.')}>{t('Clean-tree check')}</dt><dd>{run.requiresCleanWorkingTree ? t('On') : t('Off')}</dd></>}
         </dl>
         <details className="fleet-run-definition">
-          <summary>{run.kind === 'Command' ? t('Command (snapshot)') : t('Prompt template (snapshot)')}</summary>
+          <summary title={t('The definition as it was when this run started. Later edits to the action do not change it.')}>{run.kind === 'Command' ? t('Command (snapshot)') : t('Prompt template (snapshot)')}</summary>
           <pre className="code-block" data-i18n-skip="true">{(run.kind === 'Command' ? run.commandText : run.promptTemplate) ?? ''}</pre>
         </details>
       </div>
@@ -276,12 +276,12 @@ export default function FleetActionRunDetail() {
           <h3 className="table-toolbar-title">{t('Targets')}</h3>
           <label className="inline-filter">
             <span>{t('Status')}</span>
-            <select value={targetStatus} onChange={(e) => updateParams({ status: e.target.value, page: null })} aria-label={t('Filter targets by status')}>
+            <select value={targetStatus} onChange={(e) => updateParams({ status: e.target.value, page: null })} aria-label={t('Filter targets by status')} title={t('Show only vessels with one outcome, for example Failed or Skipped.')}>
               <option value="">{t('All statuses')}</option>
               {TARGET_STATUSES.map((s) => <option key={s} value={s}>{t(TARGET_STATUS_META[s].label)}</option>)}
             </select>
           </label>
-          {targetStatus && <button type="button" className="btn btn-sm" onClick={() => updateParams({ status: null, page: null })}>{t('Clear filter')}</button>}
+          {targetStatus && <button type="button" className="btn btn-sm" onClick={() => updateParams({ status: null, page: null })} title={t('Show vessels of every status again.')}>{t('Clear filter')}</button>}
         </div>
       </div>
 
@@ -301,18 +301,18 @@ export default function FleetActionRunDetail() {
           onPageSizeChange: (s) => { setPageSize(s); updateParams({ page: null }); },
         }}
         onRefresh={refresh}
-        refreshTitle={t('Refresh run')}
+        refreshTitle={t('Reload the run and its vessel results now.')}
         placeholder={targetsTotal > 0 ? undefined : (targetsLoading && !targetsError) ? <LoadingState /> : !targetsError ? (
           <EmptyState title={targetStatus ? t('No targets match this status') : t('This run has no targets')} />
         ) : <></>}
         columns={[
           {
-            key: 'vessel', label: t('Vessel'), required: true,
+            key: 'vessel', label: t('Vessel'), headerTitle: t('The vessel this row is about. Click a row for its output, or its voyage for Mission runs.'), required: true,
             cellTitle: (target) => target.vesselId,
             render: (target) => <Link to={`/vessels/${target.vesselId}`} onClick={(e) => e.stopPropagation()}><strong>{target.vesselName}</strong></Link>,
           },
           {
-            key: 'vesselId', label: t('Vessel ID'), defaultHidden: true, cellClassName: 'mono text-dim table-id-cell',
+            key: 'vesselId', label: t('Vessel ID'), headerTitle: t('Vessel ID (vsl_ prefix).'), defaultHidden: true, cellClassName: 'mono text-dim table-id-cell',
             render: (target) => (
               <span className="id-display">
                 <span className="id-value" title={target.vesselId}>{target.vesselId}</span>
@@ -320,34 +320,34 @@ export default function FleetActionRunDetail() {
               </span>
             ),
           },
-          { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (target) => <CodeStatusBadge {...targetStatusBadge(t, target.status)} /> },
+          { key: 'status', label: t('Status'), headerTitle: t('Outcome for this vessel. Hover a badge for what it means.'), cellClassName: 'cell-nowrap', render: (target) => <CodeStatusBadge {...targetStatusBadge(t, target.status)} /> },
           {
-            key: 'reason', label: t('Reason'),
+            key: 'reason', label: t('Reason'), headerTitle: t('Why the vessel was skipped or failed. Hover a cell for the reason code.'),
             cellTitle: (target) => target.skipReason ?? target.failureReason ?? '',
             render: (target) => reasonLabel(t, target.skipReason, target.failureReason) || <span className="text-dim">-</span>,
           },
           ...(run.kind === 'Command' ? [{
-            key: 'exitCode', label: t('Exit code'), className: 'text-right', cellClassName: 'mono',
+            key: 'exitCode', label: t('Exit code'), headerTitle: t('Exit code of the command. 0 is success.'), className: 'text-right', cellClassName: 'mono',
             render: (target: FleetActionRunTargetSummary) => target.exitCode ?? '-',
           }] : []),
           {
-            key: 'duration', label: t('Duration'), className: 'text-right', cellClassName: 'mono nowrap',
+            key: 'duration', label: t('Duration'), headerTitle: t('How long this vessel took, or so far while running.'), className: 'text-right', cellClassName: 'mono nowrap',
             render: (target) => formatDurationMs(t, locale, target.durationMs ?? durationBetween(target.startedUtc, target.completedUtc, target.status === 'Running')),
           },
           ...(run.kind === 'Mission' ? [{
-            key: 'voyage', label: t('Voyage'), cellClassName: 'mono',
+            key: 'voyage', label: t('Voyage'), headerTitle: t('The voyage dispatched for this vessel. Open it to follow the captain work.'), cellClassName: 'mono',
             render: (target: FleetActionRunTargetSummary) => (target.voyageId
               ? <Link to={`/voyages/${target.voyageId}`} className="mono" onClick={(e) => e.stopPropagation()}>{target.voyageId}</Link>
               : <span className="text-dim">-</span>),
           }] : []),
           ...(run.kind === 'Command' ? [{
-            key: 'output', label: t('Output'), interactive: true, cellClassName: 'cell-nowrap',
+            key: 'output', label: t('Output'), headerTitle: t('Captured standard output and error of the command.'), interactive: true, cellClassName: 'cell-nowrap',
             render: (target: FleetActionRunTargetSummary) => (
               <>
-                <button type="button" className="btn btn-sm" onClick={() => setDrawerTargetId(target.id)} aria-label={t('View output for {{name}}', { name: target.vesselName })}>
+                <button type="button" className="btn btn-sm" onClick={() => setDrawerTargetId(target.id)} aria-label={t('View output for {{name}}', { name: target.vesselName })} title={t('Open the command, exit code, and captured output for this vessel.')}>
                   {t('View output')}
                 </button>
-                {target.outputTruncated && <span className="tag review" style={{ marginLeft: '0.35rem' }} title={t('Output was truncated.')}>{t('Truncated')}</span>}
+                {target.outputTruncated && <span className="tag review" style={{ marginLeft: '0.35rem' }} title={t('The output was longer than the per-stream limit, so only its end was kept. Change the limit in Server Settings > Fleet Actions.')}>{t('Truncated')}</span>}
               </>
             ),
           }] : []),

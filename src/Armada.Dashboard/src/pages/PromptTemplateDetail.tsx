@@ -19,6 +19,11 @@ import { buildPromptTemplateDuplicatePayload } from '../lib/duplicates';
 const PARAMETER_GROUPS = PROMPT_TEMPLATE_PARAMETER_GROUPS;
 const PROMPT_TEMPLATE_CATEGORY_OPTIONS = PROMPT_TEMPLATE_CATEGORIES;
 
+const TEMPLATE_NAME_TIP = 'Unique name Armada looks the template up by, in dotted form, for example persona.reviewer or mission.rules.custom. A persona or setting must name it for it to be used. Required.';
+const TEMPLATE_CATEGORY_TIP = 'Group the template belongs to, for example mission, persona, commit or landing. Pick a suggestion or type your own; it is used for filtering. Required.';
+const TEMPLATE_DESCRIPTION_TIP = 'Optional note on what this template is for, shown in the template list. It is not sent to the captain.';
+const TEMPLATE_CONTENT_TIP = 'The prompt text. Placeholders in braces, such as {MissionTitle}, are filled in when the prompt is built; click one on the right to insert it. Required.';
+
 export default function PromptTemplateDetail() {
   const { t, formatDateTime } = useLocale();
   const { isAdmin, isTenantAdmin, user } = useAuth();
@@ -241,15 +246,15 @@ export default function PromptTemplateDetail() {
         actions={
           <>
             {createMode ? (
-              <StatusBadge status={category || 'mission'} />
+              <span className={`tag ${(category || 'mission').toLowerCase()}`} title={t('Template category: the part of Armada that uses this template, such as persona, mission, commit or landing.')}>{t(category || 'mission')}</span>
             ) : (
               <>
-                <StatusBadge status={template!.category} />
-                {template!.isBuiltIn && <StatusBadge status="Built-in" />}
+                <span className={`tag ${template!.category.toLowerCase()}`} title={t('Template category: the part of Armada that uses this template, such as persona, mission, commit or landing.')}>{t(template!.category)}</span>
+                {template!.isBuiltIn && <span className="tag built-in" title={t('Ships with Armada. It cannot be deleted, and Reset to Default restores its original text.')}>{t('Built-in')}</span>}
                 <ActionMenu id={`template-${template!.name}`} items={[
-                  { label: 'Duplicate', onClick: () => void handleDuplicate() },
-                  { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Template: {{name}}', { name: template!.name }), data: template }) },
-                  ...(template!.isBuiltIn && canEditThis ? [{ label: 'Reset to Default', danger: true as const, onClick: handleReset }] : []),
+                  { label: 'Duplicate', title: 'Create a copy of this template under a new name, then open it. Armada only uses the copy where something refers to that new name.', onClick: () => void handleDuplicate() },
+                  { label: 'View JSON', title: 'Show this template\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: t('Template: {{name}}', { name: template!.name }), data: template }) },
+                  ...(template!.isBuiltIn && canEditThis ? [{ label: 'Reset to Default', danger: true as const, title: 'Replace this built-in template\'s text with the version that ships with Armada. Your edits are lost. You confirm first.', onClick: handleReset }] : []),
                 ]} />
               </>
             )}
@@ -404,19 +409,21 @@ export default function PromptTemplateDetail() {
       <div className="detail-grid">
         {createMode ? (
           <>
-            <label className="detail-field template-meta-field">
+            <label className="detail-field template-meta-field" title={t(TEMPLATE_NAME_TIP)}>
               <span className="detail-label">{t('Name')}</span>
               <input
                 className="template-description-input"
+                title={t(TEMPLATE_NAME_TIP)}
                 value={templateName}
                 onChange={e => handleTemplateNameChange(e.target.value)}
                 placeholder={t('mission.rules.custom')}
               />
             </label>
-            <label className="detail-field template-meta-field">
+            <label className="detail-field template-meta-field" title={t(TEMPLATE_CATEGORY_TIP)}>
               <span className="detail-label">{t('Category')}</span>
               <input
                 className="template-description-input"
+                title={t(TEMPLATE_CATEGORY_TIP)}
                 list="prompt-template-category-options"
                 value={category}
                 onChange={e => handleCategoryChange(e.target.value)}
@@ -429,20 +436,20 @@ export default function PromptTemplateDetail() {
               </datalist>
             </label>
             <div className="detail-field">
-              <span className="detail-label">{t('Type')}</span>
+              <span className="detail-label" title={t('Templates you create are custom: they can be edited or deleted, and have no built-in default to reset to.')}>{t('Type')}</span>
               <span>{t('Custom template')}</span>
             </div>
           </>
         ) : (
           <>
             <div className="detail-field">
-              <span className="detail-label">{t('ID')}</span>
+              <span className="detail-label" title={t('Unique template ID. Armada looks templates up by name, not ID.')}>{t('ID')}</span>
               <span className="id-display">
                 <span className="mono">{template!.id}</span>
                 <CopyButton text={template!.id} />
               </span>
             </div>
-            <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={template!.active !== false ? 'Active' : 'Inactive'} /></div>
+            <div className="detail-field"><span className="detail-label" title={t('Marks the template as in use or retired. It is a label only: Armada still uses inactive templates.')}>{t('Active')}</span><StatusBadge status={template!.active !== false ? 'Active' : 'Inactive'} /></div>
             <div className="detail-field"><span className="detail-label">{t('Created')}</span><span>{formatDateTime(template!.createdUtc)}</span></div>
             <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{template!.lastUpdateUtc ? formatDateTime(template!.lastUpdateUtc) : '-'}</span></div>
           </>
@@ -452,11 +459,12 @@ export default function PromptTemplateDetail() {
       <div className="template-editor-layout">
         {/* Left: Editor Panel */}
         <div className="template-editor-panel">
-          <label style={{ fontSize: '0.85em', color: 'var(--text-dim)' }}>
+          <label style={{ fontSize: '0.85em', color: 'var(--text-dim)' }} title={t(TEMPLATE_DESCRIPTION_TIP)}>
             {t('Description')}
             <input
               type="text"
               className="template-description-input"
+              title={t(TEMPLATE_DESCRIPTION_TIP)}
               value={description}
               onChange={e => handleDescriptionChange(e.target.value)}
               placeholder={t('Template description...')}
@@ -464,17 +472,18 @@ export default function PromptTemplateDetail() {
           </label>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <label style={{ fontSize: '0.85em', color: 'var(--text-dim)', margin: 0 }}>
+            <label style={{ fontSize: '0.85em', color: 'var(--text-dim)', margin: 0 }} title={t(TEMPLATE_CONTENT_TIP)}>
               {t('Template Content')}
-              {dirty && <span className="template-dirty-indicator" title={t('Unsaved changes')} />}
+              {dirty && <span className="template-dirty-indicator" title={t('You have unsaved changes. Click Save to keep them.')} />}
             </label>
-            <span className="template-char-count">{content.length} {t('characters')}</span>
+            <span className="template-char-count" title={t('Length of the template text before placeholders are filled in.')}>{content.length} {t('characters')}</span>
           </div>
 
           <textarea
             ref={textareaRef}
             className="template-editor-textarea"
             aria-label={t('Template Content')}
+            title={t(TEMPLATE_CONTENT_TIP)}
             value={content}
             onChange={e => handleContentChange(e.target.value)}
             rows={30}
@@ -486,6 +495,7 @@ export default function PromptTemplateDetail() {
               className="btn btn-primary"
               onClick={handleSave}
               disabled={saving || !dirty || !canEditThis || (createMode && (!templateName.trim() || !category.trim() || !content.trim()))}
+              title={createMode ? t('Create this template. Name, category and content are required.') : t('Save the description and content. Prompts built after saving use the new text; running missions keep theirs.')}
             >
               {saving ? t('Saving...') : t('Save')}
             </button>
@@ -494,6 +504,7 @@ export default function PromptTemplateDetail() {
                 className="btn"
                 onClick={handleReset}
                 disabled={saving}
+                title={t('Replace this built-in template\'s text with the version that ships with Armada. Your edits are lost. You confirm first.')}
               >
                 {t('Reset to Default')}
               </button>
@@ -501,6 +512,7 @@ export default function PromptTemplateDetail() {
             <button
               className="btn"
               onClick={() => navigate('/prompt-templates')}
+              title={t('Return to the template list. Unsaved changes are discarded.')}
             >
               {t('Back')}
             </button>
@@ -509,7 +521,7 @@ export default function PromptTemplateDetail() {
 
         {/* Right: Parameter Reference Panel */}
         <div className="template-param-panel" role="region" aria-label={t('Parameters')} tabIndex={0}>
-          <h4>{t('Parameters')}</h4>
+          <h4 title={t('Placeholders Armada fills in when it builds a prompt from this template. Not every placeholder applies to every category.')}>{t('Parameters')}</h4>
           <p style={{ fontSize: '0.78em', color: 'var(--text-dim)', margin: '0 0 0.75rem 0' }}>
             {t('Click a parameter to insert it at the cursor position.')}
           </p>

@@ -135,10 +135,10 @@ export default function CheckRunDetail() {
         actions={
           <>
             <StatusBadge status={run.status} />
-            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: run.label || run.id, data: run })}>
+            <button className="btn btn-sm" onClick={() => setJsonData({ open: true, title: run.label || run.id, data: run })} title={t('Show the raw check run record as returned by the API.')}>
               {t('View JSON')}
             </button>
-            <button className="btn btn-sm" disabled={retrying} onClick={handleRetry}>
+            <button className="btn btn-sm" disabled={retrying} onClick={handleRetry} title={t('Run the same command again with the same links as a new check run, then open it. This run is kept.')}>
               {retrying ? t('Retrying...') : t('Retry')}
             </button>
             <button
@@ -154,10 +154,11 @@ export default function CheckRunDetail() {
                   },
                 },
               })}
+              title={t('Start a new release prefilled with this check run and its mission and voyage as evidence.')}
             >
               {t('Draft Release')}
             </button>
-            <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+            <button className="btn btn-sm btn-danger" onClick={handleDelete} title={t('Delete this check run record and its captured output. Releases and deployments linking it lose that evidence. Cannot be undone.')}>
               {t('Delete')}
             </button>
           </>
@@ -176,50 +177,50 @@ export default function CheckRunDetail() {
 
       <div className="detail-grid" style={{ marginBottom: '1rem' }}>
         <div className="detail-field">
-          <span className="detail-label">{t('ID')}</span>
+          <span className="detail-label" title={t('Check run ID (chk_ prefix), used by the REST API, MCP tools, and links.')}>{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{run.id}</span>
             <CopyButton text={run.id} />
           </span>
         </div>
-        <div className="detail-field"><span className="detail-label">{t('Type')}</span><span>{run.type}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Status')}</span><StatusBadge status={run.status} /></div>
-        <div className="detail-field"><span className="detail-label">{t('Exit Code')}</span><span>{run.exitCode ?? '-'}</span></div>
+        <div className="detail-field" title={t('Which workflow profile command ran, such as Build, UnitTest, Deploy, or HealthCheck.')}><span className="detail-label">{t('Type')}</span><span>{run.type}</span></div>
+        <div className="detail-field" title={t('Outcome: Passed or Failed from the command\'s exit code, or Pending, Running, or Canceled.')}><span className="detail-label">{t('Status')}</span><StatusBadge status={run.status} /></div>
+        <div className="detail-field" title={t('Process exit code of the command. 0 means success; anything else marks the run Failed.')}><span className="detail-label">{t('Exit Code')}</span><span>{run.exitCode ?? '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">{t('Vessel')}</span>
+          <span className="detail-label" title={t('Repository the check ran against.')}>{t('Vessel')}</span>
           <span>{run.vesselId ? <Link to={`/vessels/${run.vesselId}`}>{vessel?.name || run.vesselId}</Link> : '-'}</span>
         </div>
         <div className="detail-field">
-          <span className="detail-label">{t('Workflow Profile')}</span>
+          <span className="detail-label" title={t('Profile whose command ran. Resolved override only means a command override was used without a profile.')}>{t('Workflow Profile')}</span>
           <span>{run.workflowProfileId ? <Link to={`/workflow-profiles/${run.workflowProfileId}`}>{profile?.name || run.workflowProfileId}</Link> : t('Resolved override only')}</span>
         </div>
-        <div className="detail-field"><span className="detail-label">{t('Source')}</span><span>{run.source}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Provider')}</span><span>{run.providerName || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('External ID')}</span><span className="mono">{run.externalId || '-'}</span></div>
+        <div className="detail-field" title={t('Armada means Armada ran the command; External means it was imported, for example from GitHub Actions.')}><span className="detail-label">{t('Source')}</span><span>{run.source}</span></div>
+        <div className="detail-field" title={t('External system an imported run came from, such as GitHubActions.')}><span className="detail-label">{t('Provider')}</span><span>{run.providerName || '-'}</span></div>
+        <div className="detail-field" title={t('Run identifier in the external provider. Re-syncing the same ID updates this record instead of duplicating it.')}><span className="detail-label">{t('External ID')}</span><span className="mono">{run.externalId || '-'}</span></div>
         <div className="detail-field">
-          <span className="detail-label">{t('External URL')}</span>
+          <span className="detail-label" title={t('Link to the run on the external provider, such as the GitHub Actions run page.')}>{t('External URL')}</span>
           <span>{run.externalUrl ? <a href={run.externalUrl} target="_blank" rel="noopener noreferrer">{run.externalUrl}</a> : '-'}</span>
         </div>
-        <div className="detail-field"><span className="detail-label">{t('Environment')}</span><span>{run.environmentName || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Duration')}</span><span>{formatCheckDuration(run.durationMs)}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Mission ID')}</span><span>{run.missionId ? <Link to={`/missions/${run.missionId}`}>{run.missionId}</Link> : '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Voyage ID')}</span><span>{run.voyageId ? <Link to={`/voyages/${run.voyageId}`}>{run.voyageId}</Link> : '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Deployment ID')}</span><span>{run.deploymentId ? <Link to={`/deployments/${run.deploymentId}`}>{run.deploymentId}</Link> : '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Branch')}</span><span className="mono">{run.branchName || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Commit')}</span><span className="mono">{run.commitHash || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Created')}</span><span>{formatDateTime(run.createdUtc)}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Started')}</span><span>{run.startedUtc ? formatDateTime(run.startedUtc) : '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Completed')}</span><span>{run.completedUtc ? formatDateTime(run.completedUtc) : '-'}</span></div>
+        <div className="detail-field" title={t('Environment the check targeted, for deploy and verification checks.')}><span className="detail-label">{t('Environment')}</span><span>{run.environmentName || '-'}</span></div>
+        <div className="detail-field" title={t('How long the command ran.')}><span className="detail-label">{t('Duration')}</span><span>{formatCheckDuration(run.durationMs)}</span></div>
+        <div className="detail-field" title={t('Mission this run is linked to as evidence.')}><span className="detail-label">{t('Mission ID')}</span><span>{run.missionId ? <Link to={`/missions/${run.missionId}`}>{run.missionId}</Link> : '-'}</span></div>
+        <div className="detail-field" title={t('Voyage this run is linked to as evidence.')}><span className="detail-label">{t('Voyage ID')}</span><span>{run.voyageId ? <Link to={`/voyages/${run.voyageId}`}>{run.voyageId}</Link> : '-'}</span></div>
+        <div className="detail-field" title={t('Deployment this run belongs to, such as its deploy or verification step.')}><span className="detail-label">{t('Deployment ID')}</span><span>{run.deploymentId ? <Link to={`/deployments/${run.deploymentId}`}>{run.deploymentId}</Link> : '-'}</span></div>
+        <div className="detail-field" title={t('Branch recorded on the run. Used to pick the comparison baseline; Armada does not check it out.')}><span className="detail-label">{t('Branch')}</span><span className="mono">{run.branchName || '-'}</span></div>
+        <div className="detail-field" title={t('Commit hash recorded on the run, for evidence.')}><span className="detail-label">{t('Commit')}</span><span className="mono">{run.commitHash || '-'}</span></div>
+        <div className="detail-field" title={t('When the run record was created.')}><span className="detail-label">{t('Created')}</span><span>{formatDateTime(run.createdUtc)}</span></div>
+        <div className="detail-field" title={t('When the command began running.')}><span className="detail-label">{t('Started')}</span><span>{run.startedUtc ? formatDateTime(run.startedUtc) : '-'}</span></div>
+        <div className="detail-field" title={t('When the command finished.')}><span className="detail-label">{t('Completed')}</span><span>{run.completedUtc ? formatDateTime(run.completedUtc) : '-'}</span></div>
       </div>
 
       <div className="card" style={{ marginBottom: '1rem' }}>
-        <h3>{t('Command')}</h3>
+        <h3 title={t('Exact shell command that ran, from the workflow profile or the command override.')}>{t('Command')}</h3>
         <pre className="detail-context-block" style={{ whiteSpace: 'pre-wrap' }}>{run.command}</pre>
       </div>
 
       {run.summary && (
         <div className="card" style={{ marginBottom: '1rem' }}>
-          <h3>{t('Summary')}</h3>
+          <h3 title={t('One-line result summary recorded for the run.')}>{t('Summary')}</h3>
           <p style={{ margin: 0 }}>{run.summary}</p>
         </div>
       )}
@@ -228,7 +229,7 @@ export default function CheckRunDetail() {
         <div className="card check-run-comparison-card" style={{ marginBottom: '1rem' }}>
           <div className="check-run-comparison-header">
             <div className="check-run-comparison-meta">
-              <h3>{t('Compare to Previous Run')}</h3>
+              <h3 title={t('Differences from the previous run of the same type, preferring the same branch, then profile, then environment. Positive deltas mean more.')}>{t('Compare to Previous Run')}</h3>
               <p className="check-run-comparison-summary">
                 {t('Compared to')} <Link to={`/checks/${comparison.baseline.id}`}>{comparison.baseline.label || comparison.baseline.id}</Link>{' '}
                 ({formatCheckRunComparisonScope(comparison.scope)}) • {formatDateTime(comparison.baseline.createdUtc)}
@@ -236,25 +237,25 @@ export default function CheckRunDetail() {
               <p className="check-run-comparison-summary">{formatCheckRunComparisonSummary(comparison)}</p>
             </div>
             <div className="check-run-comparison-badges">
-              <span className="tag">{t(formatCheckRunComparisonScope(comparison.scope))}</span>
-              <span className={`tag ${comparison.hasRegression ? 'failed' : comparison.hasImprovement ? 'passed' : ''}`.trim()}>
+              <span className="tag" title={t('Which earlier run was chosen as the baseline: the previous run of this type on the same branch, profile, or environment.')}>{t(formatCheckRunComparisonScope(comparison.scope))}</span>
+              <span className={`tag ${comparison.hasRegression ? 'failed' : comparison.hasImprovement ? 'passed' : ''}`.trim()} title={t('Regression means more failures, a worse status, or lower coverage than the baseline; improvement means the opposite.')}>
                 {comparison.hasRegression ? t('Regression detected') : comparison.hasImprovement ? t('Improvement detected') : t('No significant change')}
               </span>
             </div>
           </div>
 
           <div className="detail-grid">
-            <div className="detail-field"><span className="detail-label">{t('Status')}</span><span>{comparison.baseline.status} {'->'} {run.status}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Duration Delta')}</span><span>{formatSignedDurationDelta(comparison.durationDeltaMs) || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Artifact Delta')}</span><span>{formatSignedCountDelta(comparison.artifactCountDelta, 'artifacts') || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Passed Delta')}</span><span>{formatSignedCountDelta(comparison.testDelta.passed, 'passed') || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Failed Delta')}</span><span>{formatSignedCountDelta(comparison.testDelta.failed, 'failed') || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Skipped Delta')}</span><span>{formatSignedCountDelta(comparison.testDelta.skipped, 'skipped') || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Total Delta')}</span><span>{formatSignedCountDelta(comparison.testDelta.total, 'tests') || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Line Coverage Delta')}</span><span>{formatSignedPercentageDelta(comparison.coverageDelta.linesPct) || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Branch Coverage Delta')}</span><span>{formatSignedPercentageDelta(comparison.coverageDelta.branchesPct) || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Function Coverage Delta')}</span><span>{formatSignedPercentageDelta(comparison.coverageDelta.functionsPct) || '-'}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Statement Coverage Delta')}</span><span>{formatSignedPercentageDelta(comparison.coverageDelta.statementsPct) || '-'}</span></div>
+            <div className="detail-field" title={t('Baseline run status, then this run\'s status.')}><span className="detail-label">{t('Status')}</span><span>{comparison.baseline.status} {'->'} {run.status}</span></div>
+            <div className="detail-field" title={t('Change in run time versus the baseline run.')}><span className="detail-label">{t('Duration Delta')}</span><span>{formatSignedDurationDelta(comparison.durationDeltaMs) || '-'}</span></div>
+            <div className="detail-field" title={t('Change in the number of collected artifacts versus the baseline run.')}><span className="detail-label">{t('Artifact Delta')}</span><span>{formatSignedCountDelta(comparison.artifactCountDelta, 'artifacts') || '-'}</span></div>
+            <div className="detail-field" title={t('Change in passing tests versus the baseline run.')}><span className="detail-label">{t('Passed Delta')}</span><span>{formatSignedCountDelta(comparison.testDelta.passed, 'passed') || '-'}</span></div>
+            <div className="detail-field" title={t('Change in failing tests versus the baseline run. An increase is a regression.')}><span className="detail-label">{t('Failed Delta')}</span><span>{formatSignedCountDelta(comparison.testDelta.failed, 'failed') || '-'}</span></div>
+            <div className="detail-field" title={t('Change in skipped tests versus the baseline run.')}><span className="detail-label">{t('Skipped Delta')}</span><span>{formatSignedCountDelta(comparison.testDelta.skipped, 'skipped') || '-'}</span></div>
+            <div className="detail-field" title={t('Change in total tests versus the baseline run.')}><span className="detail-label">{t('Total Delta')}</span><span>{formatSignedCountDelta(comparison.testDelta.total, 'tests') || '-'}</span></div>
+            <div className="detail-field" title={t('Change in line coverage percentage versus the baseline run.')}><span className="detail-label">{t('Line Coverage Delta')}</span><span>{formatSignedPercentageDelta(comparison.coverageDelta.linesPct) || '-'}</span></div>
+            <div className="detail-field" title={t('Change in branch coverage percentage versus the baseline run.')}><span className="detail-label">{t('Branch Coverage Delta')}</span><span>{formatSignedPercentageDelta(comparison.coverageDelta.branchesPct) || '-'}</span></div>
+            <div className="detail-field" title={t('Change in function coverage percentage versus the baseline run.')}><span className="detail-label">{t('Function Coverage Delta')}</span><span>{formatSignedPercentageDelta(comparison.coverageDelta.functionsPct) || '-'}</span></div>
+            <div className="detail-field" title={t('Change in statement coverage percentage versus the baseline run.')}><span className="detail-label">{t('Statement Coverage Delta')}</span><span>{formatSignedPercentageDelta(comparison.coverageDelta.statementsPct) || '-'}</span></div>
           </div>
         </div>
       )}
@@ -263,28 +264,28 @@ export default function CheckRunDetail() {
         <div className="detail-grid" style={{ marginBottom: '1rem' }}>
           {run.testSummary && (
             <div className="card">
-              <h3>{t('Test Results')}</h3>
+              <h3 title={t('Test counts parsed from a result file (TRX, JUnit, NUnit, Jest, or Vitest) or from the command\'s console summary.')}>{t('Test Results')}</h3>
               <div className="detail-grid">
-                <div className="detail-field"><span className="detail-label">{t('Format')}</span><span>{run.testSummary.format || '-'}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Passed')}</span><span>{run.testSummary.passed ?? '-'}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Failed')}</span><span>{run.testSummary.failed ?? '-'}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Skipped')}</span><span>{run.testSummary.skipped ?? '-'}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Total')}</span><span>{run.testSummary.total ?? '-'}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Test Duration')}</span><span>{formatCheckDuration(run.testSummary.durationMs)}</span></div>
+                <div className="detail-field" title={t('Parser that produced the test counts, such as trx, junit, jest-json, or dotnet for console output.')}><span className="detail-label">{t('Format')}</span><span>{run.testSummary.format || '-'}</span></div>
+                <div className="detail-field" title={t('Tests that passed.')}><span className="detail-label">{t('Passed')}</span><span>{run.testSummary.passed ?? '-'}</span></div>
+                <div className="detail-field" title={t('Tests that failed.')}><span className="detail-label">{t('Failed')}</span><span>{run.testSummary.failed ?? '-'}</span></div>
+                <div className="detail-field" title={t('Tests skipped or marked todo.')}><span className="detail-label">{t('Skipped')}</span><span>{run.testSummary.skipped ?? '-'}</span></div>
+                <div className="detail-field" title={t('All tests the runner reported.')}><span className="detail-label">{t('Total')}</span><span>{run.testSummary.total ?? '-'}</span></div>
+                <div className="detail-field" title={t('Test run time reported by the test runner.')}><span className="detail-label">{t('Test Duration')}</span><span>{formatCheckDuration(run.testSummary.durationMs)}</span></div>
               </div>
             </div>
           )}
 
           {run.coverageSummary && (
             <div className="card">
-              <h3>{t('Coverage')}</h3>
+              <h3 title={t('Code coverage parsed from a coverage report the run produced.')}>{t('Coverage')}</h3>
               <div className="detail-grid">
-                <div className="detail-field"><span className="detail-label">{t('Format')}</span><span>{run.coverageSummary.format || '-'}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Source')}</span><span className="mono">{run.coverageSummary.sourcePath || '-'}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Lines')}</span><span>{formatCoverageMetric(run.coverageSummary.lines) || '-'}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Branches')}</span><span>{formatCoverageMetric(run.coverageSummary.branches) || '-'}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Functions')}</span><span>{formatCoverageMetric(run.coverageSummary.functions) || '-'}</span></div>
-                <div className="detail-field"><span className="detail-label">{t('Statements')}</span><span>{formatCoverageMetric(run.coverageSummary.statements) || '-'}</span></div>
+                <div className="detail-field" title={t('Coverage report format, such as cobertura, lcov, jacoco, or opencover.')}><span className="detail-label">{t('Format')}</span><span>{run.coverageSummary.format || '-'}</span></div>
+                <div className="detail-field" title={t('Coverage report file the numbers were read from.')}><span className="detail-label">{t('Source')}</span><span className="mono">{run.coverageSummary.sourcePath || '-'}</span></div>
+                <div className="detail-field" title={t('Lines covered out of coverable lines.')}><span className="detail-label">{t('Lines')}</span><span>{formatCoverageMetric(run.coverageSummary.lines) || '-'}</span></div>
+                <div className="detail-field" title={t('Branches covered out of all branches.')}><span className="detail-label">{t('Branches')}</span><span>{formatCoverageMetric(run.coverageSummary.branches) || '-'}</span></div>
+                <div className="detail-field" title={t('Functions covered out of all functions.')}><span className="detail-label">{t('Functions')}</span><span>{formatCoverageMetric(run.coverageSummary.functions) || '-'}</span></div>
+                <div className="detail-field" title={t('Statements covered out of all statements.')}><span className="detail-label">{t('Statements')}</span><span>{formatCoverageMetric(run.coverageSummary.statements) || '-'}</span></div>
               </div>
             </div>
           )}
@@ -292,7 +293,7 @@ export default function CheckRunDetail() {
       )}
 
       <div className="card" style={{ marginBottom: '1rem' }}>
-        <h3>{t('Artifacts')}</h3>
+        <h3 title={t('Files the run produced that match the profile\'s expected artifacts, such as build outputs and test reports.')}>{t('Artifacts')}</h3>
         {run.artifacts.length === 0 ? (
           <p className="text-dim">{t('No artifacts were collected for this run.')}</p>
         ) : (
@@ -303,18 +304,18 @@ export default function CheckRunDetail() {
             recordCount={null}
             columns={[
               {
-                key: 'path', label: t('Path'), required: true, cellClassName: 'mono',
+                key: 'path', label: t('Path'), headerTitle: t('Artifact path, relative to the directory the check ran in.'), required: true, cellClassName: 'mono',
                 render: (artifact) => <span className="cell-one-line" style={{ ['--cell-max' as string]: '40rem' }} title={artifact.path}>{artifact.path}</span>,
               },
-              { key: 'size', label: t('Size'), cellClassName: 'cell-nowrap', render: (artifact) => `${artifact.sizeBytes.toLocaleString()} ${t('bytes')}` },
-              { key: 'lastWrite', label: t('Last Write'), cellClassName: 'cell-nowrap', render: (artifact) => formatDateTime(artifact.lastWriteUtc) },
+              { key: 'size', label: t('Size'), headerTitle: t('File size in bytes when the artifact was recorded.'), cellClassName: 'cell-nowrap', render: (artifact) => `${artifact.sizeBytes.toLocaleString()} ${t('bytes')}` },
+              { key: 'lastWrite', label: t('Last Write'), headerTitle: t('When the artifact file was last written.'), cellClassName: 'cell-nowrap', render: (artifact) => formatDateTime(artifact.lastWriteUtc) },
             ]}
           />
         )}
       </div>
 
       <div className="card">
-        <h3>{t('Output')}</h3>
+        <h3 title={t('Console output captured from the command.')}>{t('Output')}</h3>
         <div className="workspace-code-view" style={{ maxHeight: '32rem' }}>
           <div className="workspace-code-line-numbers" aria-hidden="true">
             {Array.from({ length: outputLineCount }, (_, index) => (

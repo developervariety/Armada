@@ -4,6 +4,8 @@ import { useLocale } from '../../../context/LocaleContext';
 export interface ChecklistOption {
   value: string;
   label: string;
+  /** Already-translated tooltip for this option. */
+  title?: string;
 }
 
 interface ChecklistDropdownProps {
@@ -17,13 +19,15 @@ interface ChecklistDropdownProps {
   onClear?: () => void;
   /** Already-translated accessible name for the popover group. */
   ariaLabel: string;
+  /** Already-translated tooltip for the button. */
+  title?: string;
 }
 
 /**
  * Compact multi-select: a button that opens a small checkbox popover. Used for the status filters (the column
  * chooser is the shared DataTable's). Closes on outside click and Escape; the popover lives outside table scroll areas.
  */
-export default function ChecklistDropdown({ label, summary, options, selected, onToggle, onClear, ariaLabel }: ChecklistDropdownProps) {
+export default function ChecklistDropdown({ label, summary, options, selected, onToggle, onClear, ariaLabel, title }: ChecklistDropdownProps) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -58,6 +62,7 @@ export default function ChecklistDropdown({ label, summary, options, selected, o
         aria-haspopup="true"
         aria-expanded={open}
         aria-controls={popoverId}
+        title={title}
         onClick={() => setOpen((v) => !v)}
       >
         <span>{label}</span>
@@ -69,8 +74,9 @@ export default function ChecklistDropdown({ label, summary, options, selected, o
           {options.map((option) => {
             const checked = selected.includes(option.value);
             return (
-              <label key={option.value} className="vh-checklist-item">
+              <label key={option.value} className="vh-checklist-item" title={option.title}>
                 <input
+                  title={option.title}
                   type="checkbox"
                   checked={checked}
                   onChange={() => onToggle(option.value)}
@@ -82,7 +88,7 @@ export default function ChecklistDropdown({ label, summary, options, selected, o
           {onClear && (
             <div className="vh-checklist-footer">
               {onClear && (
-                <button type="button" className="btn btn-sm" onClick={() => onClear()} disabled={!active}>
+                <button type="button" className="btn btn-sm" onClick={() => onClear()} disabled={!active} title={t('Uncheck every option so this filter no longer narrows the list.')}>
                   {t('Clear')}
                 </button>
               )}

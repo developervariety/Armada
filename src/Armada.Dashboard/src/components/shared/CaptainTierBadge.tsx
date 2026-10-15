@@ -16,7 +16,7 @@ export default function CaptainTierBadge({ tier, className }: CaptainTierBadgePr
   return (
     <span
       className={`captain-tier-badge captain-tier-${key}${className ? ` ${className}` : ''}`}
-      title={t('Capability tier: {{tier}}', { tier: t(tier) })}
+      title={t('Capability tier: {{tier}}. Tiers rank captains Economy, Standard, Premium; a mission that sets a minimum tier is only given to captains at or above it.', { tier: t(tier) })}
     >
       {t(tier)}
     </span>

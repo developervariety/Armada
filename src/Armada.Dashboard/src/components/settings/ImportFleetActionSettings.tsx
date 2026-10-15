@@ -115,8 +115,8 @@ export default function ImportFleetActionSettings({ importSettings, fleetActionS
   function numberInput(id: string, label: string, help: string, value: string, error: string, range: NumberField, onChange: (v: string) => void) {
     return (
       <div className="form-group">
-        <label htmlFor={id}>{label}</label>
-        <input id={id} type="number" min={range.min} max={range.max} value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={Boolean(error)} aria-describedby={`${id}-help`} />
+        <label htmlFor={id} title={help}>{label}</label>
+        <input id={id} title={help} type="number" min={range.min} max={range.max} value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={Boolean(error)} aria-describedby={`${id}-help`} />
         <span id={`${id}-help`} className={error ? 'field-error' : 'text-dim form-help'}>{error ? rangeText(range) : help}</span>
       </div>
     );
@@ -156,10 +156,10 @@ export default function ImportFleetActionSettings({ importSettings, fleetActionS
             {numberInput('import-categorization-timeout', t('Fleet categorization time limit (minutes)'), t('Longest a captain may spend recommending fleets for an import before it is stopped (1-240, default 20).'), importDraft.categorizationTimeoutMinutes, importErrors.categorizationTimeoutMinutes, IMPORT_RANGES.categorizationTimeoutMinutes, (v) => setImport({ categorizationTimeoutMinutes: v }))}
           </div>
           <div className="settings-actions">
-            <button type="button" className="btn-primary btn-sm" onClick={() => void saveImport()} disabled={!importValid || savingImport || !importDirty}>
+            <button type="button" className="btn-primary btn-sm" onClick={() => void saveImport()} disabled={!importValid || savingImport || !importDirty} title={t('Save this section to the Admiral. It applies immediately; other sections are saved separately.')}>
               {savingImport ? t('Saving...') : t('Save Import Settings')}
             </button>
-            {importDirty && <button type="button" className="btn btn-sm" onClick={() => { setImportDirty(false); setImportDraft(toImportDraft(importSettings)); }}>{t('Discard changes')}</button>}
+            {importDirty && <button type="button" className="btn btn-sm" onClick={() => { setImportDirty(false); setImportDraft(toImportDraft(importSettings)); }} title={t('Throw away the unsaved edits in this section and show the saved values again.')}>{t('Discard changes')}</button>}
             {importDirty && <span className="text-dim">{t('Unsaved changes')}</span>}
           </div>
         </fieldset>
@@ -178,10 +178,10 @@ export default function ImportFleetActionSettings({ importSettings, fleetActionS
             {numberInput('fa-retention', t('Run retention (days)'), t('Finished runs older than this are pruned (1-3650, default 30).'), fleetDraft.runRetentionDays, fleetErrors.runRetentionDays, FLEET_ACTION_RANGES.runRetentionDays, (v) => setFleet({ runRetentionDays: v }))}
           </div>
           <div className="settings-actions">
-            <button type="button" className="btn-primary btn-sm" onClick={() => void saveFleet()} disabled={!fleetValid || savingFleet || !fleetDirty}>
+            <button type="button" className="btn-primary btn-sm" onClick={() => void saveFleet()} disabled={!fleetValid || savingFleet || !fleetDirty} title={t('Save this section to the Admiral. It applies immediately; other sections are saved separately.')}>
               {savingFleet ? t('Saving...') : t('Save Fleet Action Settings')}
             </button>
-            {fleetDirty && <button type="button" className="btn btn-sm" onClick={() => { setFleetDirty(false); setFleetDraft(toFleetDraft(fleetActionSettings)); }}>{t('Discard changes')}</button>}
+            {fleetDirty && <button type="button" className="btn btn-sm" onClick={() => { setFleetDirty(false); setFleetDraft(toFleetDraft(fleetActionSettings)); }} title={t('Throw away the unsaved edits in this section and show the saved values again.')}>{t('Discard changes')}</button>}
             {fleetDirty && <span className="text-dim">{t('Unsaved changes')}</span>}
           </div>
         </fieldset>

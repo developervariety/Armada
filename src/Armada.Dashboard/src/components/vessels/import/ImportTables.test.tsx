@@ -52,7 +52,7 @@ describe('ImportHistory', () => {
   it('refreshes from the toolbar and distinguishes the two Created columns in the chooser', async () => {
     render(<ImportHistory onOpen={() => undefined} />);
     await screen.findByTitle('vib_1');
-    await act(async () => { fireEvent.click(screen.getByTitle('Refresh')); });
+    await act(async () => { fireEvent.click(screen.getByTitle('Reload the import history.')); });
     expect(enumerateVesselImportBatches).toHaveBeenCalledTimes(2);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Columns/ })); });
     expect(screen.getByRole('menuitemcheckbox', { name: /Vessels created/ })).toBeInTheDocument();

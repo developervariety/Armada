@@ -42,21 +42,21 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
 
   const columns: DataTableColumn<PlanningSession>[] = [
     {
-      key: 'title', label: t('Title'), required: true,
+      key: 'title', label: t('Title'), required: true, headerTitle: t('Name of the planning session. Click a row to open its transcript.'),
       render: (session) => <div className="planning-session-title">{session.title}</div>,
     },
     {
       // The session ID used to be a second line under the title; it is its own one-line column now.
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique planning session ID.'), cellClassName: 'mono text-dim table-id-cell',
       render: (session) => <span className="cell-one-line planning-session-subtitle" title={session.id}>{session.id}</span>,
     },
-    { key: 'captain', label: t('Captain'), render: (session) => resolveCaptainName(session.captainId) },
-    { key: 'vessel', label: t('Vessel'), render: (session) => resolveVesselName(session.vesselId) },
-    { key: 'pipeline', label: t('Pipeline'), render: (session) => resolvePipelineName(session.pipelineId) },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (session) => <StatusBadge status={session.status} /> },
-    { key: 'updated', label: t('Updated'), cellClassName: 'cell-nowrap', render: (session) => formatRelativeTime(session.lastUpdateUtc) },
+    { key: 'captain', label: t('Captain'), headerTitle: t('Captain reserved for this session. It takes no missions until the session ends.'), render: (session) => resolveCaptainName(session.captainId) },
+    { key: 'vessel', label: t('Vessel'), headerTitle: t('Repository the session plans against.'), render: (session) => resolveVesselName(session.vesselId) },
+    { key: 'pipeline', label: t('Pipeline'), headerTitle: t('Pipeline used when dispatching from this session. - means it is inherited from the vessel or fleet at dispatch time.'), render: (session) => resolvePipelineName(session.pipelineId) },
+    { key: 'status', label: t('Status'), headerTitle: t('Active is ready for your next message, Responding is the captain replying, Stopping and Stopped mean it has ended, Failed means setup or a turn failed.'), cellClassName: 'cell-nowrap', render: (session) => <StatusBadge status={session.status} /> },
+    { key: 'updated', label: t('Updated'), headerTitle: t('When the session last changed, such as a new message.'), cellClassName: 'cell-nowrap', render: (session) => formatRelativeTime(session.lastUpdateUtc) },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('End or delete a planning session.'), fixed: true, interactive: true, className: 'text-right',
       render: (session) => {
         const canEndSession = session.status === 'Active' || session.status === 'Responding';
         const ending = endingSessionId === session.id || session.status === 'Stopping';
@@ -64,11 +64,13 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
         if (canEndSession || ending) {
           items.push({
             label: ending ? t('Ending...') : t('End Session'),
+            title: 'Stop the session, release the captain and reclaim its dock. The transcript is kept.',
             onClick: () => { if (!ending) onEndSession(session); },
           });
         }
         items.push({
           label: t('Delete'),
+          title: 'Delete the session and its transcript. An active session is stopped first. Cannot be undone.',
           danger: true,
           onClick: () => onDeleteSession(session),
         });
@@ -90,6 +92,7 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
           style={{ flex: 1 }}
           onClick={() => setExpanded((prev) => !prev)}
           aria-expanded={expanded}
+          title={expanded ? t('Hide the list of planning sessions.') : t('Show the list of planning sessions. Click one to open its transcript.')}
         >
           <span className="collapsible-caret" aria-hidden="true">{expanded ? '\u25BE' : '\u25B8'}</span>
           <span className="collapsible-title">{t('Recent Sessions')}</span>
@@ -101,7 +104,7 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
             className="btn btn-sm btn-danger"
             onClick={onDeleteAll}
             disabled={deletingAll}
-            title={t('Delete all planning sessions')}
+            title={t('Delete every planning session and its transcript, stopping active ones first. You confirm first; cannot be undone.')}
           >
             {deletingAll ? t('Deleting...') : t('Delete All')}
           </button>

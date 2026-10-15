@@ -21,6 +21,17 @@ import StatusBadge from '../components/shared/StatusBadge';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 
+const NAME_TIP = 'Name for this project profile, for example web-app or payments-service. Required.';
+const DESCRIPTION_TIP = 'Optional note on what this profile customizes.';
+const SCOPE_TIP = 'Which vessels the profile applies to: Global for all, Fleet for one fleet\'s vessels, Vessel for one repository. A vessel uses its Vessel profile first, then Fleet, then Global.';
+const FLEET_TIP = 'The fleet whose vessels this profile applies to. Required when Scope is Fleet.';
+const VESSEL_TIP = 'The single repository this profile applies to. Required when Scope is Vessel.';
+const PIPELINE_TIP = 'ID of the pipeline (ppl_ prefix) missions for these vessels run through, copied from the Pipelines tab. Blank keeps the vessel or fleet default pipeline.';
+const WORKFLOW_TIP = 'ID of the workflow profile (wfp_ prefix) whose commands these vessels use for checks, copied from the Workflow Profiles tab. Blank uses normal workflow profile matching.';
+const SKILLS_TIP = 'Skills to add to every mission prompt for these vessels, one name or ID per line, for example tdd. Unknown or inactive skills are skipped.';
+const DEFAULT_TIP = 'When several active profiles match the same vessel at the same scope, the default one is used. Otherwise the most recently updated wins.';
+const ACTIVE_TIP = 'On: Armada can use this profile. Off: it is never chosen, even when a vessel names it.';
+
 export default function ProjectProfiles() {
   const navigate = useNavigate();
   const { isAdmin, isTenantAdmin, user } = useAuth();
@@ -198,13 +209,13 @@ export default function ProjectProfiles() {
   // Name, ID and description used to stack in one cell, and "Default" sat under the scope badge; each is on one line now.
   const columns: DataTableColumn<ProjectProfile>[] = [
     {
-      key: 'name', label: t('Profile'), required: true,
+      key: 'name', label: t('Profile'), required: true, headerTitle: t('Project profile name. A project profile picks the pipeline, workflow profile, persona overrides and skills for the vessels it applies to.'),
       clearFilter: () => setColFilters(f => ({ ...f, name: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Profile')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={t('Profile')} title={t('Show only profiles whose name contains this text.')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
       render: (profile) => <strong>{profile.name}</strong>,
     },
     {
-      key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+      key: 'id', label: t('ID'), required: true, headerTitle: t('Unique project profile ID (ppf_ prefix). Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
       render: (profile) => (
         <span className="id-display">
           <span className="id-value" title={profile.id}>{profile.id}</span>
@@ -213,39 +224,39 @@ export default function ProjectProfiles() {
       ),
     },
     {
-      key: 'description', label: t('Description'), defaultHidden: true, cellClassName: 'text-dim truncate-cell',
+      key: 'description', label: t('Description'), headerTitle: t('What this profile is for. Hover a value for the full text.'), defaultHidden: true, cellClassName: 'text-dim truncate-cell',
       render: (profile) => profile.description ? <span className="truncate-text" title={profile.description}>{profile.description}</span> : '-',
     },
     {
-      key: 'scope', label: t('Scope'), cellClassName: 'cell-nowrap',
+      key: 'scope', label: t('Scope'), headerTitle: t(SCOPE_TIP), cellClassName: 'cell-nowrap',
       render: (profile) => (
         <>
           <StatusBadge status={profile.scope} />
-          {profile.isDefault && <span className="text-dim"> {t('Default')}</span>}
+          {profile.isDefault && <span className="text-dim" title={t('Default: chosen first among active profiles that match the same scope.')}> {t('Default')}</span>}
         </>
       ),
     },
-    { key: 'visibility', label: t('Visibility'), cellClassName: 'cell-nowrap', render: (profile) => <ScopeBadge scope={profile.ownershipScope} /> },
-    { key: 'overrides', label: t('Overrides'), cellClassName: 'text-dim cell-nowrap', render: (profile) => <>{profile.personaOverrides?.length || 0} {t('personas')}</> },
-    { key: 'skills', label: t('Skills'), cellClassName: 'text-dim cell-nowrap', render: (profile) => <>{profile.skills?.length || 0} {t('skills')}</> },
-    { key: 'status', label: t('Status'), cellClassName: 'cell-nowrap', render: (profile) => <StatusBadge status={profile.active ? 'Active' : 'Inactive'} /> },
+    { key: 'visibility', label: t('Visibility'), headerTitle: t('Tenant-wide profiles are usable by everyone in the tenant and edited by admins; personal ones only by their owner.'), cellClassName: 'cell-nowrap', render: (profile) => <ScopeBadge scope={profile.ownershipScope} /> },
+    { key: 'overrides', label: t('Overrides'), headerTitle: t('How many personas this profile customizes, with a different prompt template or extra instructions for this project.'), cellClassName: 'text-dim cell-nowrap', render: (profile) => <>{profile.personaOverrides?.length || 0} {t('personas')}</> },
+    { key: 'skills', label: t('Skills'), headerTitle: t('How many skills are added to mission prompts for vessels using this profile.'), cellClassName: 'text-dim cell-nowrap', render: (profile) => <>{profile.skills?.length || 0} {t('skills')}</> },
+    { key: 'status', label: t('Status'), headerTitle: t('Only active profiles are used. An inactive profile is never chosen, even when a vessel names it.'), cellClassName: 'cell-nowrap', render: (profile) => <StatusBadge status={profile.active ? 'Active' : 'Inactive'} /> },
     {
-      key: 'lastUpdated', label: t('Last Updated'), cellClassName: 'text-dim cell-nowrap',
+      key: 'lastUpdated', label: t('Last Updated'), headerTitle: t('When this profile was last changed. Among equally matching profiles, the newest wins after the default.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (profile) => formatDateTime(profile.lastUpdateUtc),
       render: (profile) => formatRelativeTime(profile.lastUpdateUtc),
     },
     {
-      key: 'actions', label: t('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open the menu in a row to open, edit or delete that profile.'), fixed: true, interactive: true, className: 'text-right',
       render: (profile) => {
         const canEditRow = canEditProfile(profile);
         return (
           <ActionMenu
             id={`project-profile-${profile.id}`}
             items={[
-              { label: 'Open', onClick: () => navigate(`/project-profiles/${profile.id}`) },
-              ...(canEditRow ? [{ label: 'Edit', onClick: () => openEdit(profile) }] : []),
-              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: profile.name, data: profile }) },
-              ...(canEditRow ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(profile) }] : []),
+              { label: 'Open', title: 'Open the full editor, including persona overrides.', onClick: () => navigate(`/project-profiles/${profile.id}`) },
+              ...(canEditRow ? [{ label: 'Edit', title: 'Quick edit of the name, scope, pipeline, workflow profile and skills. Use Open for persona overrides.', onClick: () => openEdit(profile) }] : []),
+              { label: 'View JSON', title: 'Show this profile\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: profile.name, data: profile }) },
+              ...(canEditRow ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this profile. Vessels using it fall back to their fleet or global profile. You confirm first.', onClick: () => handleDelete(profile) }] : []),
             ]}
           />
         );
@@ -260,7 +271,7 @@ export default function ProjectProfiles() {
         subtitle={t('Per-project customization that binds a pipeline, workflow profile, persona prompt overrides, and skills, resolved global to fleet to vessel.')}
         actions={(
           <>
-            <button className="btn btn-primary" onClick={openCreate}>
+            <button className="btn btn-primary" onClick={openCreate} title={t('Create a project profile to choose the pipeline, workflow profile, persona overrides and skills for some vessels.')}>
               + {t('Project Profile')}
             </button>
           </>
@@ -281,14 +292,14 @@ export default function ProjectProfiles() {
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <form className="modal" onClick={(event) => event.stopPropagation()} onSubmit={handleCreate}>
             <h3>{editing ? t('Edit Project Profile') : t('Create Project Profile')}</h3>
-            <label>{t('Name')}
-              <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} required />
+            <label title={t(NAME_TIP)}>{t('Name')}
+              <input title={t(NAME_TIP)} value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} required />
             </label>
-            <label>{t('Description')}
-              <input value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
+            <label title={t(DESCRIPTION_TIP)}>{t('Description')}
+              <input title={t(DESCRIPTION_TIP)} value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} />
             </label>
-            <label>{t('Scope')}
-              <select value={createForm.scope} onChange={(event) => setCreateForm((current) => ({ ...current, scope: event.target.value as 'Global' | 'Fleet' | 'Vessel' }))}>
+            <label title={t(SCOPE_TIP)}>{t('Scope')}
+              <select title={t(SCOPE_TIP)} value={createForm.scope} onChange={(event) => setCreateForm((current) => ({ ...current, scope: event.target.value as 'Global' | 'Fleet' | 'Vessel' }))}>
                 <option value="Global">{t('Global')}</option>
                 <option value="Fleet">{t('Fleet')}</option>
                 <option value="Vessel">{t('Vessel')}</option>
@@ -296,40 +307,40 @@ export default function ProjectProfiles() {
             </label>
             <ScopeSelect viewer={viewer} value={createForm.ownershipScope} onChange={(ownershipScope) => setCreateForm((current) => ({ ...current, ownershipScope }))} />
             {createForm.scope === 'Fleet' && (
-              <label>{t('Fleet')}
-                <select value={createForm.fleetId} onChange={(event) => setCreateForm((current) => ({ ...current, fleetId: event.target.value }))}>
+              <label title={t(FLEET_TIP)}>{t('Fleet')}
+                <select title={t(FLEET_TIP)} value={createForm.fleetId} onChange={(event) => setCreateForm((current) => ({ ...current, fleetId: event.target.value }))}>
                   <option value="">{t('Select a fleet...')}</option>
                   {fleets.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
               </label>
             )}
             {createForm.scope === 'Vessel' && (
-              <label>{t('Vessel')}
-                <select value={createForm.vesselId} onChange={(event) => setCreateForm((current) => ({ ...current, vesselId: event.target.value }))}>
+              <label title={t(VESSEL_TIP)}>{t('Vessel')}
+                <select title={t(VESSEL_TIP)} value={createForm.vesselId} onChange={(event) => setCreateForm((current) => ({ ...current, vesselId: event.target.value }))}>
                   <option value="">{t('Select a vessel...')}</option>
                   {vessels.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                 </select>
               </label>
             )}
-            <label>{t('Default Pipeline ID')}
-              <input value={createForm.defaultPipelineId} onChange={(event) => setCreateForm((current) => ({ ...current, defaultPipelineId: event.target.value }))} placeholder="ppl_..." />
+            <label title={t(PIPELINE_TIP)}>{t('Default Pipeline ID')}
+              <input title={t(PIPELINE_TIP)} value={createForm.defaultPipelineId} onChange={(event) => setCreateForm((current) => ({ ...current, defaultPipelineId: event.target.value }))} placeholder="ppl_..." />
             </label>
-            <label>{t('Workflow Profile ID')}
-              <input value={createForm.workflowProfileId} onChange={(event) => setCreateForm((current) => ({ ...current, workflowProfileId: event.target.value }))} placeholder="wfp_..." />
+            <label title={t(WORKFLOW_TIP)}>{t('Workflow Profile ID')}
+              <input title={t(WORKFLOW_TIP)} value={createForm.workflowProfileId} onChange={(event) => setCreateForm((current) => ({ ...current, workflowProfileId: event.target.value }))} placeholder="wfp_..." />
             </label>
-            <label>{t('Skills')}
-              <textarea rows={4} value={createForm.skills} onChange={(event) => setCreateForm((current) => ({ ...current, skills: event.target.value }))} placeholder={'dotnet\ntdd'} />
+            <label title={t(SKILLS_TIP)}>{t('Skills')}
+              <textarea rows={4} title={t(SKILLS_TIP)} value={createForm.skills} onChange={(event) => setCreateForm((current) => ({ ...current, skills: event.target.value }))} placeholder={'dotnet\ntdd'} />
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-              <input type="checkbox" checked={createForm.isDefault} onChange={(event) => setCreateForm((current) => ({ ...current, isDefault: event.target.checked }))} />
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }} title={t(DEFAULT_TIP)}>
+              <input type="checkbox" title={t(DEFAULT_TIP)} checked={createForm.isDefault} onChange={(event) => setCreateForm((current) => ({ ...current, isDefault: event.target.checked }))} />
               <span>{t('Default for scope')}</span>
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
-              <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm((current) => ({ ...current, active: event.target.checked }))} />
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }} title={t(ACTIVE_TIP)}>
+              <input type="checkbox" title={t(ACTIVE_TIP)} checked={createForm.active} onChange={(event) => setCreateForm((current) => ({ ...current, active: event.target.checked }))} />
               <span>{t('Active')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Project Profile')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving} title={editing ? t('Save changes. Missions dispatched after saving use the new settings.') : t('Create this project profile.')}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Project Profile')}</button>
               <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
@@ -337,19 +348,19 @@ export default function ProjectProfiles() {
       )}
 
       <div className="playbook-overview-grid">
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('All project profiles you can see, active and inactive.')}>
           <span>{t('Total Profiles')}</span>
           <strong>{profiles.length}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Profiles Armada can choose for vessels.')}>
           <span>{t('Active')}</span>
           <strong>{activeCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Profiles marked default, which win over other profiles that match the same scope.')}>
           <span>{t('Defaults')}</span>
           <strong>{defaultCount}</strong>
         </div>
-        <div className="card playbook-overview-card">
+        <div className="card playbook-overview-card" title={t('Total persona customizations across all project profiles.')}>
           <span>{t('Persona Overrides')}</span>
           <strong>{overrideCount}</strong>
         </div>
@@ -361,15 +372,16 @@ export default function ProjectProfiles() {
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
+            title={t('Show only profiles whose name, description or ID contains this text.')}
             placeholder={t('Search by name, description, or ID...')}
           />
-          <select aria-label={t('All scopes')} value={scopeFilter} onChange={(event) => setScopeFilter(event.target.value as typeof scopeFilter)}>
+          <select aria-label={t('All scopes')} title={t('Show profiles of every scope, or only Global, Fleet or Vessel ones.')} value={scopeFilter} onChange={(event) => setScopeFilter(event.target.value as typeof scopeFilter)}>
             <option value="all">{t('All scopes')}</option>
             <option value="Global">{t('Global')}</option>
             <option value="Fleet">{t('Fleet')}</option>
             <option value="Vessel">{t('Vessel')}</option>
           </select>
-          <select aria-label={t('All statuses')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+          <select aria-label={t('All statuses')} title={t('Show all profiles, or only active or only inactive ones.')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
             <option value="all">{t('All statuses')}</option>
             <option value="active">{t('Active only')}</option>
             <option value="inactive">{t('Inactive only')}</option>
@@ -385,7 +397,7 @@ export default function ProjectProfiles() {
         onRowClick={(profile) => (canEditProfile(profile) ? openEdit(profile) : navigate(`/project-profiles/${profile.id}`))}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
-        refreshTitle="Refresh project profiles"
+        refreshTitle={t('Refresh project profiles')}
         emptyMessage={emptyState}
         placeholder={profiles.length > 0 ? undefined : loading ? <p className="text-dim">{t('Loading...')}</p> : emptyState}
       />

@@ -116,17 +116,17 @@ export default function FleetDetail() {
       <PageHeader
         breadcrumb={
           <>
-            <Link to="/fleets">{t('Fleets')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{fleet.name}</span>
+            <Link to="/fleets" title={t('Back to the list of all fleets.')}>{t('Fleets')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{fleet.name}</span>
           </>
         }
         title={fleet.name}
         actions={
           <>
             <ActionMenu id={`fleet-${fleet.id}`} items={[
-              { label: 'Edit', onClick: openEdit },
-              { label: 'Duplicate', onClick: () => void handleDuplicate() },
-              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Fleet: {{name}}', { name: fleet.name }), data: fleet }) },
-              { label: 'Delete', danger: true, onClick: handleDelete },
+              { label: 'Edit', title: 'Change the fleet name, description or default pipeline.', onClick: openEdit },
+              { label: 'Duplicate', title: 'Create a new fleet with the same description and default pipeline. Vessels are not copied.', onClick: () => void handleDuplicate() },
+              { label: 'View JSON', title: 'Show the raw fleet record as JSON.', onClick: () => setJsonData({ open: true, title: t('Fleet: {{name}}', { name: fleet.name }), data: fleet }) },
+              { label: 'Delete', title: 'Delete the fleet after you confirm. Its vessels are kept and left without a fleet.', danger: true, onClick: handleDelete },
             ]} />
           </>
         }
@@ -139,10 +139,10 @@ export default function FleetDetail() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{t('Edit Fleet')}</h3>
-            <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label>{t('Description')}<input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
-            <label>{t('Default Pipeline')}
-              <select value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })}>
+            <label title={t('Fleet name shown across Armada and used to pick the fleet in dispatch, e.g. Payments or Web Frontends. Required.')}>{t('Name')}<input title={t('Fleet name shown across Armada and used to pick the fleet in dispatch, e.g. Payments or Web Frontends. Required.')} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+            <label title={t('Optional note about what the repositories in this fleet have in common. Shown in the fleet list.')}>{t('Description')}<input title={t('Optional note about what the repositories in this fleet have in common. Shown in the fleet list.')} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+            <label title={t('Pipeline used for dispatches to vessels in this fleet when the vessel itself has no default pipeline. None means a single Worker stage.')}>{t('Default Pipeline')}
+              <select title={t('Pipeline used for dispatches to vessels in this fleet when the vessel itself has no default pipeline. None means a single Worker stage.')} value={form.defaultPipelineId} onChange={e => setForm({ ...form, defaultPipelineId: e.target.value })}>
                 <option value="">{t('None (WorkerOnly)')}</option>
                 {pipelines.map(p => (
                   <option key={p.id} value={p.id}>{p.name} ({p.stages.map(s => s.personaName).join(' -> ')})</option>
@@ -150,8 +150,8 @@ export default function FleetDetail() {
               </select>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Save')}</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" title={t('Save your changes to this fleet.')}>{t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)} title={t('Close without saving.')}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -164,7 +164,7 @@ export default function FleetDetail() {
       {/* Fleet Info */}
       <div className="detail-grid">
         <div className="detail-field">
-          <span className="detail-label">{t('ID')}</span>
+          <span className="detail-label" title={t('Fleet ID (flt_...), used by the CLI, API and MCP tools.')}>{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{fleet.id}</span>
             <CopyButton text={fleet.id} />
@@ -172,16 +172,16 @@ export default function FleetDetail() {
         </div>
         <div className="detail-field"><span className="detail-label">{t('Name')}</span><span>{fleet.name}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Description')}</span><span>{fleet.description || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Default Pipeline')}</span><span>{pipelines.find(p => p.id === fleet.defaultPipelineId)?.name || fleet.defaultPipelineId || <span className="text-dim">{t('None (WorkerOnly)')}</span>}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Active')}</span><span>{fleet.active !== false ? t('Yes') : t('No')}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Pipeline used for dispatches to vessels in this fleet when the vessel itself has no default pipeline. None means a single Worker stage.')}>{t('Default Pipeline')}</span><span>{pipelines.find(p => p.id === fleet.defaultPipelineId)?.name || fleet.defaultPipelineId || <span className="text-dim">{t('None (WorkerOnly)')}</span>}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Whether the fleet is marked active. This is a label only; it does not stop dispatches to its vessels.')}>{t('Active')}</span><span>{fleet.active !== false ? t('Yes') : t('No')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Created')}</span><span title={fleet.createdUtc}>{formatDateTime(fleet.createdUtc)}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{formatDateTime(fleet.lastUpdateUtc)}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('When the fleet settings were last changed.')}>{t('Last Updated')}</span><span>{formatDateTime(fleet.lastUpdateUtc)}</span></div>
       </div>
 
       {/* Linked Vessels */}
       {vessels.length > 0 && (
         <div>
-          <h3>{t('Vessels')}</h3>
+          <h3 title={t('Repositories in this fleet. Click a row to open the vessel. Assign a vessel to a fleet from its Edit Vessel form.')}>{t('Vessels')}</h3>
           <DataTable
             tableKey="fleet-detail-vessels"
             rows={vessels}
@@ -189,9 +189,9 @@ export default function FleetDetail() {
             recordCount={null}
             onRowClick={(v) => navigate(`/vessels/${v.id}`)}
             columns={[
-              { key: 'name', label: t('Name'), required: true, headerTitle: t('Vessel name and unique identifier'), render: (v) => <strong>{v.name}</strong> },
+              { key: 'name', label: t('Name'), required: true, headerTitle: t('Vessel name. Click a row to open the vessel.'), render: (v) => <strong>{v.name}</strong> },
               {
-                key: 'id', label: t('ID'), required: true, cellClassName: 'mono text-dim table-id-cell',
+                key: 'id', label: t('ID'), headerTitle: t('Vessel ID (vsl_...), used by the CLI, API and MCP tools.'), required: true, cellClassName: 'mono text-dim table-id-cell',
                 render: (v) => (
                   <span className="id-display">
                     <span className="id-value" title={v.id}>{v.id}</span>
@@ -200,16 +200,16 @@ export default function FleetDetail() {
                 ),
               },
               {
-                key: 'repoUrl', label: t('Repo URL'), headerTitle: t('Git repository URL'), cellClassName: 'text-dim vessel-repo-cell table-url-cell',
+                key: 'repoUrl', label: t('Repo URL'), headerTitle: t('Git remote Armada clones from and pushes to for this vessel.'), cellClassName: 'text-dim vessel-repo-cell table-url-cell',
                 render: (v) => v.repoUrl ? (
                   <span className="id-display">
                     <span className="url-value" title={v.repoUrl}>{v.repoUrl}</span>
-                    <CopyButton text={v.repoUrl} onClick={e => e.stopPropagation()} title={t('Copy URL')} />
+                    <CopyButton text={v.repoUrl} onClick={e => e.stopPropagation()} />
                   </span>
                 ) : '-',
               },
               {
-                key: 'branch', label: t('Branch'), headerTitle: t('Default branch for merging'), cellClassName: 'mono',
+                key: 'branch', label: t('Branch'), headerTitle: t('Branch missions start from and land into by default.'), cellClassName: 'mono',
                 render: (v) => <span className="cell-one-line" title={v.defaultBranch || 'main'}>{v.defaultBranch || 'main'}</span>,
               },
             ]}

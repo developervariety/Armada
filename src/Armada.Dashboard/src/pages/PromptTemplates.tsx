@@ -147,48 +147,48 @@ export default function PromptTemplates() {
 
   const columns: DataTableColumn<PromptTemplate>[] = [
     {
-      key: 'name', label: translate('Name'), required: true, sortKey: 'name', headerTitle: translate('Template name -- click to sort'),
-      filter: <input type="text" className="col-filter" aria-label={translate('Filter by name')} value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={translate('Filter...')} />,
+      key: 'name', label: translate('Name'), required: true, sortKey: 'name', headerTitle: translate('Template name, the key Armada looks it up by, for example mission.rules or persona.worker. Click to sort.'),
+      filter: <input type="text" className="col-filter" aria-label={translate('Filter by name')} title={translate('Show only templates whose name contains this text, for example persona.')} value={colFilters.name} onChange={e => { setColFilters(f => ({ ...f, name: e.target.value })); setPageNumber(1); }} placeholder={translate('Filter...')} />,
       render: (template) => <strong>{template.name}</strong>,
     },
     {
-      key: 'description', label: translate('Description'), sortKey: 'description', headerTitle: translate('Description -- click to sort'),
+      key: 'description', label: translate('Description'), sortKey: 'description', headerTitle: translate('What the template is used for. Hover a value for the full text; click to sort.'),
       // One line; the full description is in the tooltip.
       cellClassName: 'text-dim truncate-cell', cellTitle: (template) => template.description || undefined,
       clearFilter: () => setColFilters(f => ({ ...f, description: '' })),
-      filter: <input type="text" className="col-filter" aria-label={translate('Filter by description')} value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder={translate('Filter...')} />,
+      filter: <input type="text" className="col-filter" aria-label={translate('Filter by description')} title={translate('Show only templates whose description contains this text.')} value={colFilters.description} onChange={e => { setColFilters(f => ({ ...f, description: e.target.value })); setPageNumber(1); }} placeholder={translate('Filter...')} />,
       render: (template) => <span className="truncate-text">{template.description || '-'}</span>,
     },
-    { key: 'category', label: translate('Category'), sortKey: 'category', headerTitle: translate('Category -- click to sort'), render: (template) => <StatusBadge status={template.category} /> },
-    { key: 'visibility', label: translate('Visibility'), render: (template) => <ScopeBadge scope={template.scope} /> },
+    { key: 'category', label: translate('Category'), sortKey: 'category', headerTitle: translate('The part of Armada that uses the template: mission, persona, structure, commit, landing, agent or import. Click to sort.'), render: (template) => <StatusBadge status={template.category} /> },
+    { key: 'visibility', label: translate('Visibility'), headerTitle: translate('Tenant-wide templates are used by everyone in the tenant and edited by admins; personal ones only by their owner.'), render: (template) => <ScopeBadge scope={template.scope} /> },
     {
-      key: 'isBuiltIn', label: translate('Built-in'), sortKey: 'isBuiltIn', headerTitle: translate('Built-in -- click to sort'),
-      render: (template) => (template.isBuiltIn ? <StatusBadge status="Built-in" /> : '-'),
+      key: 'isBuiltIn', label: translate('Built-in'), sortKey: 'isBuiltIn', headerTitle: translate('Built-in templates ship with Armada. They cannot be deleted, but can be edited and reset to their default text. Click to sort.'),
+      render: (template) => (template.isBuiltIn ? <span className="tag built-in" title={translate('Ships with Armada. It cannot be deleted, and Reset to Default restores its original text.')}>{translate('Built-in')}</span> : '-'),
     },
     {
-      key: 'contentLength', label: translate('Content Length'), sortKey: 'contentLength', headerTitle: translate('Content length -- click to sort'),
+      key: 'contentLength', label: translate('Content Length'), sortKey: 'contentLength', headerTitle: translate('Length of the template text in characters, before placeholders are filled in. Longer templates make every prompt that uses them longer. Click to sort.'),
       cellClassName: 'mono text-dim cell-nowrap',
       render: (template) => `${(template.content ?? '').length.toLocaleString()} ${translate('chars')}`,
     },
     {
-      key: 'active', label: translate('Active'), sortKey: 'active', headerTitle: translate('Active -- click to sort'),
+      key: 'active', label: translate('Active'), sortKey: 'active', headerTitle: translate('Marks the template as in use or retired. It is a label only: Armada still uses inactive templates. Click to sort.'),
       render: (template) => <StatusBadge status={template.active !== false ? 'Active' : 'Inactive'} />,
     },
     {
-      key: 'lastUpdateUtc', label: translate('Last Updated'), sortKey: 'lastUpdateUtc', headerTitle: translate('Last updated -- click to sort'),
+      key: 'lastUpdateUtc', label: translate('Last Updated'), sortKey: 'lastUpdateUtc', headerTitle: translate('When this template was last changed. Hover a value for the exact time; click to sort.'),
       cellClassName: 'text-dim cell-nowrap', cellTitle: (template) => formatDateTime(template.lastUpdateUtc),
       render: (template) => formatRelativeTime(template.lastUpdateUtc),
     },
     {
-      key: 'actions', label: translate('Actions'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: translate('Actions'), headerTitle: translate('Open the menu in a row to edit, duplicate or reset that template.'), fixed: true, interactive: true, className: 'text-right',
       render: (template) => (
         <ActionMenu id={`template-${template.id}`} items={[
           canEditScoped(viewer, template)
-            ? { label: 'Edit', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(template.name)}`) }
-            : { label: 'Open', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(template.name)}`) },
-          { label: 'Duplicate', onClick: () => void handleDuplicate(template) },
-          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${translate('Template')}: ${template.name}`, data: template }) },
-          ...(template.isBuiltIn && canEditScoped(viewer, template) ? [{ label: 'Reset to Default', danger: true as const, onClick: () => handleResetToDefault(template.name) }] : []),
+            ? { label: 'Edit', title: 'Open this template to change its text and see its placeholders.', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(template.name)}`) }
+            : { label: 'Open', title: 'Open this template to read its text and placeholders.', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(template.name)}`) },
+          { label: 'Duplicate', title: 'Create a copy of this template under a new name, then open it. Armada only uses the copy where something refers to that new name.', onClick: () => void handleDuplicate(template) },
+          { label: 'View JSON', title: 'Show this template\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: `${translate('Template')}: ${template.name}`, data: template }) },
+          ...(template.isBuiltIn && canEditScoped(viewer, template) ? [{ label: 'Reset to Default', danger: true as const, title: 'Replace this built-in template\'s text with the version that ships with Armada. Your edits are lost. You confirm first.', onClick: () => handleResetToDefault(template.name) }] : []),
         ]} />
       ),
     },
@@ -201,7 +201,7 @@ export default function PromptTemplates() {
         subtitle={translate('Prompt templates define the instructions and structure used when generating prompts for captains and missions.')}
         actions={(
           <>
-            <button className="btn btn-primary btn-sm" onClick={() => navigate('/prompt-templates/create')}>
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/prompt-templates/create')} title={translate('Create a prompt template, for example the role instructions for a new persona.')}>
               + {translate('Prompt Template')}
             </button>
           </>
@@ -237,6 +237,7 @@ export default function PromptTemplates() {
               key={cat}
               className={`btn btn-sm${categoryFilter === cat ? ' btn-primary' : ''}`}
               onClick={() => { setCategoryFilter(cat); setPageNumber(1); }}
+              title={cat === 'all' ? translate('Show templates in every category.') : translate('Show only {{category}} templates.', { category: translate(cat) })}
               style={{ textTransform: 'capitalize', padding: '0.25rem 0.75rem', fontSize: '0.85rem' }}
             >
               {cat === 'all' ? translate('All') : translate(cat)}

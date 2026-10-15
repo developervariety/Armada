@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLocale } from '../../context/LocaleContext';
-import { flattenNavCommands } from '../navConfig';
+import { askArmadaItem, dashboardItem, flattenNavCommands, navSections } from '../navConfig';
+
+/** The sidebar tooltip of each destination, so the palette explains a page the same way the sidebar does. */
+const DESTINATION_TOOLTIPS: Record<string, string> = Object.fromEntries(
+  [dashboardItem, askArmadaItem, ...navSections.flatMap((section) => section.items)]
+    .filter((item) => item.tooltip)
+    .map((item) => [item.to, item.tooltip as string]),
+);
 
 /**
  * Cmd-K / Ctrl-K launcher. An accelerator, not a replacement for the sidebar:
@@ -102,6 +109,7 @@ export default function CommandPalette() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           aria-label={t('Search destinations')}
+          title={t('Type part of a page or section name to filter. Up and Down pick, Enter opens, Escape closes. Ctrl+K or Cmd+K opens this anywhere.')}
         />
         {results.length > 0 ? (
           <ul className="command-palette-list" aria-label={t('Search destinations')}>
@@ -113,6 +121,7 @@ export default function CommandPalette() {
                   aria-current={index === selectedIndex ? 'true' : undefined}
                   onMouseEnter={() => setSelectedIndex(index)}
                   onClick={() => runCommand(cmd.to)}
+                  title={DESTINATION_TOOLTIPS[cmd.to] ? t(DESTINATION_TOOLTIPS[cmd.to]) : undefined}
                 >
                   <span className="command-palette-item-label">{t(cmd.label)}</span>
                   {cmd.section && <span className="command-palette-item-section">{t(cmd.section)}</span>}

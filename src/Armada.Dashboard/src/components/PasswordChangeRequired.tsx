@@ -57,21 +57,21 @@ export default function PasswordChangeRequired() {
         <form onSubmit={handleSubmit}>
           <label>
             {t('Current password')}
-            <input type="password" autoComplete="current-password" value={current} onChange={e => setCurrent(e.target.value)} required />
+            <input type="password" autoComplete="current-password" title={t('The password you just signed in with. For a new install this is the default password.')} value={current} onChange={e => setCurrent(e.target.value)} required />
           </label>
           <label>
             {t('New password')}
-            <input type="password" autoComplete="new-password" value={next} onChange={e => setNext(e.target.value)} required minLength={8} />
+            <input type="password" autoComplete="new-password" title={t('At least 8 characters, and different from both the current password and the default.')} value={next} onChange={e => setNext(e.target.value)} required minLength={8} />
           </label>
           <label>
             {t('Confirm new password')}
-            <input type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} required minLength={8} />
+            <input type="password" autoComplete="new-password" title={t('Type the new password again to catch typos.')} value={confirm} onChange={e => setConfirm(e.target.value)} required minLength={8} />
           </label>
-          <button type="submit" disabled={busy}>{busy ? t('Saving...') : t('Change password')}</button>
+          <button type="submit" disabled={busy} title={t('Saves the new password and opens the dashboard. This also disables the default bearer token.')}>{busy ? t('Saving...') : t('Change password')}</button>
         </form>
         <div className="login-actions">
-          <button type="button" className="link-btn" onClick={() => setConfirmSkip(true)}>{t('Skip for now')}</button>
-          <button type="button" className="link-btn" onClick={logout}>{t('Sign out')}</button>
+          <button type="button" className="link-btn" onClick={() => setConfirmSkip(true)} title={t('Open the dashboard without changing the password, after you confirm the risk. The warning banner stays until it is changed.')}>{t('Skip for now')}</button>
+          <button type="button" className="link-btn" onClick={logout} title={t('End this session and return to the sign-in screen without changing anything.')}>{t('Sign out')}</button>
         </div>
         <ConfirmDialog
           open={confirmSkip}

@@ -39,8 +39,8 @@ function PipelineFlow({ stages, label }: { stages: PipelineStage[]; label: (key:
             <div className="text-dim" style={{ fontSize: '0.7rem' }}>{label('Stage')} {i + 1}</div>
             <strong>{stage.personaName || label('(unset)')}</strong>
             <div style={{ marginTop: '0.3rem', display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-              {stage.isOptional && <span className="badge badge-info">{label('Optional')}</span>}
-              {stage.requiresReview && <span className="badge badge-warning">{label('Review')}</span>}
+              {stage.isOptional && <span className="badge badge-info" title={label('Marked optional. This is reserved and has no effect today: the stage still runs.')}>{label('Optional')}</span>}
+              {stage.requiresReview && <span className="badge badge-warning" title={label('Review gate: the pipeline pauses after this stage until a person approves its work.')}>{label('Review')}</span>}
             </div>
           </div>
           {i < ordered.length - 1 && <span style={{ padding: '0 0.4rem', color: 'var(--text-dim)' }}>{'→'}</span>}
@@ -49,6 +49,15 @@ function PipelineFlow({ stages, label }: { stages: PipelineStage[]; label: (key:
     </div>
   );
 }
+
+const PIPELINE_DESCRIPTION_TIP = 'Optional note on what this pipeline is for, shown in lists and pickers.';
+const STAGE_PERSONA_TIP = 'The persona (role) for this stage, such as Architect, Worker or Judge. The stage becomes a mission routed to a captain for that persona. Required.';
+const STAGE_OPTIONAL_TIP = 'Reserved: the setting is saved but has no effect today. Every stage runs whether or not it is marked optional.';
+const STAGE_REVIEW_TIP = 'Review gate: when this stage finishes, the pipeline pauses until a person approves its work in Review. Off lets the next stage start right away.';
+const STAGE_DENY_TIP = 'What happens when a reviewer denies this stage: Retry stage sends it back to rework the same mission; Fail pipeline fails it and cancels the stages after it. Needs Review gate on.';
+const RUN_VESSEL_TIP = 'The repository the pipeline works on. Every stage mission runs against this vessel. Required.';
+const RUN_TITLE_TIP = 'Name for the voyage and its missions, shown in lists, for example Add CSV export. Required.';
+const RUN_DESCRIPTION_TIP = 'What you want done, in plain words. It becomes the mission instructions each stage works from. Optional, but captains do much better with a clear goal.';
 
 export default function PipelineDetail() {
   const { t, formatDateTime } = useLocale();
@@ -238,15 +247,15 @@ export default function PipelineDetail() {
         actions={
           <>
             {canManage && (
-              <button className="btn btn-primary" onClick={openRun} disabled={pipeline.stages.length === 0} title={t('Dispatch a voyage using this pipeline')}>
+              <button className="btn btn-primary" onClick={openRun} disabled={pipeline.stages.length === 0} title={t('Start a voyage on a vessel that runs this pipeline\'s stages in order. You pick the vessel and describe the work first. Needs at least one stage.')}>
                 {'▶'} {t('Run')}
               </button>
             )}
             <ActionMenu id={`pipeline-${pipeline.name}`} items={[
-              { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Pipeline: {{name}}', { name: pipeline.name }), data: pipeline }) },
-              { label: 'Edit', onClick: openEdit },
-              { label: 'Duplicate', onClick: () => void handleDuplicate() },
-              { label: 'Delete', danger: true, onClick: handleDelete, disabled: pipeline.isBuiltIn },
+              { label: 'View JSON', title: 'Show this pipeline\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: t('Pipeline: {{name}}', { name: pipeline.name }), data: pipeline }) },
+              { label: 'Edit', title: 'Change this pipeline\'s description and stages.', onClick: openEdit },
+              { label: 'Duplicate', title: 'Create a copy of this pipeline under a new name, with the same stages, then open it.', onClick: () => void handleDuplicate() },
+              { label: 'Delete', danger: true, title: pipeline.isBuiltIn ? 'Built-in pipelines ship with Armada and cannot be deleted.' : 'Permanently delete this pipeline. Vessels, fleets and dispatches that name it can no longer use it. You confirm first.', onClick: handleDelete, disabled: pipeline.isBuiltIn },
             ]} />
           </>
         }
@@ -259,16 +268,17 @@ export default function PipelineDetail() {
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit} style={{ maxWidth: '720px', width: '90%' }}>
             <h3>{t('Edit Pipeline')}</h3>
-            <label>{t('Description')}<textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} /></label>
+            <label title={t(PIPELINE_DESCRIPTION_TIP)}>{t('Description')}<textarea title={t(PIPELINE_DESCRIPTION_TIP)} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} /></label>
             <div style={{ marginTop: '1rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <strong>{t('Stages')}</strong>
-                <button type="button" className="btn" onClick={addStage}>+ {t('Add Stage')}</button>
+                <strong title={t('Stages run top to bottom. Each stage creates a mission for its persona that starts when the stage before it finishes.')}>{t('Stages')}</strong>
+                <button type="button" className="btn" onClick={addStage} title={t('Add a stage at the end of the pipeline, so it runs last.')}>+ {t('Add Stage')}</button>
               </div>
               {form.stages.map((stage, i) => (
                 <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
                   <span className="text-dim" style={{ minWidth: '1.5rem' }}>{i + 1}.</span>
                   <select aria-label={t('Select persona...')}
+                    title={t(STAGE_PERSONA_TIP)}
                     value={stage.personaName}
                     onChange={e => updateStage(i, 'personaName', e.target.value)}
                     required
@@ -279,15 +289,16 @@ export default function PipelineDetail() {
                       <option key={personaName} value={personaName}>{personaName}</option>
                     ))}
                   </select>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={stage.isOptional} onChange={e => updateStage(i, 'isOptional', e.target.checked)} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
+                  <label title={t(STAGE_OPTIONAL_TIP)} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
+                    <input type="checkbox" title={t(STAGE_OPTIONAL_TIP)} checked={stage.isOptional} onChange={e => updateStage(i, 'isOptional', e.target.checked)} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
                     <span style={{ verticalAlign: 'middle' }}>{t('Optional')}</span>
                   </label>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={stage.requiresReview} onChange={e => updateStage(i, 'requiresReview', e.target.checked)} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
+                  <label title={t(STAGE_REVIEW_TIP)} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
+                    <input type="checkbox" title={t(STAGE_REVIEW_TIP)} checked={stage.requiresReview} onChange={e => updateStage(i, 'requiresReview', e.target.checked)} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
                     <span style={{ verticalAlign: 'middle' }}>{t('Review gate')}</span>
                   </label>
                   <select aria-label={t('Retry stage')}
+                    title={t(STAGE_DENY_TIP)}
                     value={stage.reviewDenyAction}
                     disabled={!stage.requiresReview}
                     onChange={e => updateStage(i, 'reviewDenyAction', e.target.value as 'RetryStage' | 'FailPipeline')}
@@ -297,16 +308,16 @@ export default function PipelineDetail() {
                     <option value="FailPipeline">{t('Fail pipeline')}</option>
                   </select>
                   <span style={{ width: '0.75rem', flexShrink: 0 }} />
-                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, -1)} disabled={i === 0} title={t('Move up')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25B2'}</button>
-                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1} title={t('Move down')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25BC'}</button>
+                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, -1)} disabled={i === 0} title={t('Move this stage one place earlier in the run order.')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25B2'}</button>
+                  <button type="button" className="btn btn-sm" onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1} title={t('Move this stage one place later in the run order.')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25BC'}</button>
                   <span style={{ width: '0.5rem', flexShrink: 0 }} />
-                  <button type="button" className="btn btn-sm btn-danger" onClick={() => removeStage(i)} title={t('Remove stage')} style={{ flexShrink: 0 }}>X</button>
+                  <button type="button" className="btn btn-sm btn-danger" onClick={() => removeStage(i)} title={t('Remove this stage from the pipeline. Nothing changes until you save.')} style={{ flexShrink: 0 }}>X</button>
                 </div>
               ))}
               {form.stages.length === 0 && <p className="text-dim">{t('No stages defined.')}</p>}
             </div>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Save')}</button>
+              <button type="submit" className="btn btn-primary" title={t('Save changes to this pipeline. Dispatches started after saving use the new stages; running ones keep theirs.')}>{t('Save')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
@@ -319,16 +330,16 @@ export default function PipelineDetail() {
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleRun} style={{ maxWidth: '520px', width: '90%' }}>
             <h3>{t('Run Pipeline')}</h3>
             <p className="text-dim" style={{ marginTop: 0 }}>{t('Dispatch a voyage that runs this pipeline\'s stages against a vessel.')}</p>
-            <label>{t('Vessel')}
-              <select value={runVesselId} onChange={e => setRunVesselId(e.target.value)} required>
+            <label title={t(RUN_VESSEL_TIP)}>{t('Vessel')}
+              <select title={t(RUN_VESSEL_TIP)} value={runVesselId} onChange={e => setRunVesselId(e.target.value)} required>
                 <option value="">{t('Select a vessel...')}</option>
                 {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </label>
-            <label>{t('Title')}<input type="text" value={runTitle} onChange={e => setRunTitle(e.target.value)} required /></label>
-            <label>{t('Objective / Description')}<textarea rows={4} value={runDescription} onChange={e => setRunDescription(e.target.value)} /></label>
+            <label title={t(RUN_TITLE_TIP)}>{t('Title')}<input type="text" title={t(RUN_TITLE_TIP)} value={runTitle} onChange={e => setRunTitle(e.target.value)} required /></label>
+            <label title={t(RUN_DESCRIPTION_TIP)}>{t('Objective / Description')}<textarea rows={4} title={t(RUN_DESCRIPTION_TIP)} value={runDescription} onChange={e => setRunDescription(e.target.value)} /></label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={running || !runVesselId}>{running ? t('Launching...') : t('Launch Voyage')}</button>
+              <button type="submit" className="btn btn-primary" disabled={running || !runVesselId} title={t('Create the voyage now. Its first stage mission is queued for a captain right away; this starts real agent work.')}>{running ? t('Launching...') : t('Launch Voyage')}</button>
               <button type="button" className="btn" onClick={() => setShowRun(false)}>{t('Cancel')}</button>
             </div>
           </form>
@@ -342,7 +353,7 @@ export default function PipelineDetail() {
       {/* Pipeline Info */}
       <div className="detail-grid">
         <div className="detail-field">
-          <span className="detail-label">{t('ID')}</span>
+          <span className="detail-label" title={t('Unique pipeline ID (ppl_ prefix). Pipelines are usually referred to by name.')}>{t('ID')}</span>
           <span className="id-display">
             <span className="mono">{pipeline.id}</span>
             <CopyButton text={pipeline.id} />
@@ -350,8 +361,8 @@ export default function PipelineDetail() {
         </div>
         <div className="detail-field"><span className="detail-label">{t('Name')}</span><span>{pipeline.name}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Description')}</span><span>{pipeline.description || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Built-in')}</span><span>{pipeline.isBuiltIn ? <span className="badge badge-info">{t('Yes')}</span> : <span className="badge">{t('No')}</span>}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Active')}</span><span>{pipeline.active !== false ? <span className="badge badge-success">{t('Yes')}</span> : <span className="badge badge-dim">{t('No')}</span>}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Built-in pipelines ship with Armada and cannot be deleted.')}>{t('Built-in')}</span><span>{pipeline.isBuiltIn ? <span className="badge badge-info" title={t('Built-in: ships with Armada and cannot be deleted.')}>{t('Yes')}</span> : <span className="badge" title={t('Custom: created by a user and can be deleted.')}>{t('No')}</span>}</span></div>
+        <div className="detail-field"><span className="detail-label" title={t('Marks the pipeline as in use or retired. It is a label only: dispatch does not skip inactive pipelines.')}>{t('Active')}</span><span>{pipeline.active !== false ? <span className="badge badge-success" title={t('Active (a label only; it does not change dispatch).')}>{t('Yes')}</span> : <span className="badge badge-dim" title={t('Inactive (a label only; dispatch can still use it).')}>{t('No')}</span>}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Created')}</span><span title={pipeline.createdUtc}>{formatDateTime(pipeline.createdUtc)}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Last Updated')}</span><span>{formatDateTime(pipeline.lastUpdateUtc)}</span></div>
       </div>
@@ -359,8 +370,8 @@ export default function PipelineDetail() {
       {/* Visual flow */}
       <div style={{ marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3>{t('Flow')}</h3>
-          {canManage && <button className="btn" onClick={openEdit}>{t('Edit stages')}</button>}
+          <h3 title={t('The stages as a diagram, in the order missions run. Review gates are shown on the stages that have them.')}>{t('Flow')}</h3>
+          {canManage && <button className="btn" onClick={openEdit} title={t('Add, remove, reorder or change this pipeline\'s stages.')}>{t('Edit stages')}</button>}
         </div>
         <div className="table-wrap" style={{ overflowX: 'auto' }}>
           <PipelineFlow stages={pipeline.stages} label={t} />
@@ -377,22 +388,22 @@ export default function PipelineDetail() {
             rowKey={(stage) => stage.id}
             recordCount={null}
             columns={[
-              { key: 'order', label: t('Order'), required: true, headerTitle: t('Execution order of the stage'), cellClassName: 'cell-nowrap', render: (stage) => stage.order },
-              { key: 'persona', label: t('Persona Name'), required: true, headerTitle: t('Name of the persona assigned to this stage'), cellClassName: 'cell-ident', render: (stage) => <strong>{stage.personaName}</strong> },
+              { key: 'order', label: t('Order'), required: true, headerTitle: t('Run order. Stage 1 runs first; each later stage waits for the one before it.'), cellClassName: 'cell-nowrap', render: (stage) => stage.order },
+              { key: 'persona', label: t('Persona Name'), required: true, headerTitle: t('The persona (role) this stage\'s mission is given, which decides its instructions and which captains can take it.'), cellClassName: 'cell-ident', render: (stage) => <strong>{stage.personaName}</strong> },
               {
-                key: 'optional', label: t('Optional'), headerTitle: t('Whether this stage can be skipped'), cellClassName: 'cell-nowrap',
-                render: (stage) => stage.isOptional ? <span className="badge badge-info">{t('Yes')}</span> : <span className="badge">{t('No')}</span>,
+                key: 'optional', label: t('Optional'), headerTitle: t('Reserved: saved but has no effect today. Every stage runs whether or not it is marked optional.'), cellClassName: 'cell-nowrap',
+                render: (stage) => stage.isOptional ? <span className="badge badge-info" title={t('Marked optional. This is reserved and has no effect today: the stage still runs.')}>{t('Yes')}</span> : <span className="badge" title={t('Not marked optional.')}>{t('No')}</span>,
               },
               {
-                key: 'review', label: t('Review'), headerTitle: t('Whether this stage requires an explicit review approval'), cellClassName: 'cell-nowrap',
-                render: (stage) => stage.requiresReview ? <span className="badge badge-warning">{t('Required')}</span> : <span className="text-dim">{t('None')}</span>,
+                key: 'review', label: t('Review'), headerTitle: t('Required means the pipeline pauses after this stage until a person approves its work in Review.'), cellClassName: 'cell-nowrap',
+                render: (stage) => stage.requiresReview ? <span className="badge badge-warning" title={t('Review gate: the pipeline pauses after this stage until a person approves its work.')}>{t('Required')}</span> : <span className="text-dim">{t('None')}</span>,
               },
               {
-                key: 'onDeny', label: t('On Deny'), headerTitle: t('Action to take if the review gate is denied'), cellClassName: 'cell-nowrap',
+                key: 'onDeny', label: t('On Deny'), headerTitle: t('What a denied review does: Retry stage reworks the same mission; Fail pipeline fails it and cancels the stages after it.'), cellClassName: 'cell-nowrap',
                 render: (stage) => stage.requiresReview ? <span>{stage.reviewDenyAction === 'FailPipeline' ? t('Fail pipeline') : t('Retry stage')}</span> : <span className="text-dim">-</span>,
               },
               {
-                key: 'description', label: t('Description'), headerTitle: t('Description of this stage'), cellClassName: 'text-dim',
+                key: 'description', label: t('Description'), headerTitle: t('What this stage is for. Hover a value for the full text.'), cellClassName: 'text-dim',
                 cellTitle: (stage) => stage.description || undefined,
                 render: (stage) => <span className="line-clamp-2">{stage.description || '-'}</span>,
               },

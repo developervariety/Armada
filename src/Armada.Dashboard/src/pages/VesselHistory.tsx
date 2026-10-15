@@ -253,24 +253,24 @@ export default function VesselHistory() {
       <PageHeader
         breadcrumb={
           <>
-            <Link to="/vessels">{t('Vessels')}</Link> <span className="breadcrumb-sep">&gt;</span>{' '}
-            <Link to={`/vessels/${vessel.id}`}>{vessel.name}</Link> <span className="breadcrumb-sep">&gt;</span>{' '}
+            <Link to="/vessels" title={t('Back to the list of all vessels.')}>{t('Vessels')}</Link> <span className="breadcrumb-sep">&gt;</span>{' '}
+            <Link to={`/vessels/${vessel.id}`} title={t('Back to this vessel page.')}>{vessel.name}</Link> <span className="breadcrumb-sep">&gt;</span>{' '}
             <span>{t('History')}</span>
           </>
         }
         title={t('History')}
         subtitle={t('Commit activity and history for {{name}}.', { name: vessel.name })}
         actions={
-          <button type="button" className="btn btn-sm" onClick={() => navigate(`/vessels/${vessel.id}`)}>
+          <button type="button" className="btn btn-sm" onClick={() => navigate(`/vessels/${vessel.id}`)} title={t('Back to this vessel page.')}>
             {t('Back To Vessel')}
           </button>
         }
       />
 
       <div className="vhist-toolbar card">
-        <label className="vhist-field">
+        <label className="vhist-field" title={t('Branch whose history and heatmap are shown. Defaults to the vessel default branch.')}>
           <span>{t('Branch')}</span>
-          <select value={branch ?? ''} onChange={(e) => changeBranch(e.target.value)} aria-label={t('Branch')}>
+          <select title={t('Branch whose history and heatmap are shown. Defaults to the vessel default branch.')} value={branch ?? ''} onChange={(e) => changeBranch(e.target.value)} aria-label={t('Branch')}>
             {branches.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         </label>
@@ -283,7 +283,7 @@ export default function VesselHistory() {
               onClick={() => setYear(yearOptions[yearIndex + 1] ?? null)}
               disabled={yearIndex >= yearOptions.length - 1}
               aria-label={t('Previous year')}
-              title={t('Previous year')}
+              title={t('Show the year before in the heatmap.')}
             >
               &lt;
             </button>
@@ -291,6 +291,7 @@ export default function VesselHistory() {
               value={year === null ? '' : String(year)}
               onChange={(e) => setYear(e.target.value ? Number(e.target.value) : null)}
               aria-label={t('Year')}
+              title={t('Year shown in the heatmap. Last year shows the 12 months up to today.')}
             >
               <option value="">{t('Last year')}</option>
               {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
@@ -301,14 +302,14 @@ export default function VesselHistory() {
               onClick={() => setYear(yearOptions[yearIndex - 1] ?? null)}
               disabled={yearIndex <= 0}
               aria-label={t('Next year')}
-              title={t('Next year')}
+              title={t('Show the year after in the heatmap.')}
             >
               &gt;
             </button>
           </div>
         </div>
         <form className="vhist-field vhist-jump" onSubmit={handleJump}>
-          <label htmlFor="vhist-jump-date">{t('Jump to date')}</label>
+          <label htmlFor="vhist-jump-date" title={t('Pick a date to list the commits made on or before it; the heatmap moves to that year if needed. Click Latest to go back.')}>{t('Jump to date')}</label>
           <div className="inline-actions">
             <input
               id="vhist-jump-date"
@@ -316,9 +317,10 @@ export default function VesselHistory() {
               max={today}
               value={jumpValue}
               onChange={(e) => setJumpValue(e.target.value)}
+              title={t('Pick a date to list the commits made on or before it; the heatmap moves to that year if needed. Click Latest to go back.')}
             />
-            <button type="submit" className="btn btn-sm" disabled={!parseIsoDate(jumpValue)}>{t('Go')}</button>
-            <button type="button" className="btn btn-sm" onClick={resetToLatest} disabled={!selectedDate}>{t('Latest')}</button>
+            <button type="submit" className="btn btn-sm" disabled={!parseIsoDate(jumpValue)} title={t('List commits made on or before the chosen date.')}>{t('Go')}</button>
+            <button type="button" className="btn btn-sm" onClick={resetToLatest} disabled={!selectedDate} title={t('Clear the chosen date and list the newest commits again.')}>{t('Latest')}</button>
           </div>
         </form>
       </div>
@@ -346,7 +348,7 @@ export default function VesselHistory() {
             {selectedDate && (
               <div className="vhist-jump-banner">
                 <span>{t('Showing commits on or before {{date}}.', { date: selectedLabel })}</span>
-                <button type="button" className="btn btn-sm" onClick={resetToLatest}>{t('Latest')}</button>
+                <button type="button" className="btn btn-sm" onClick={resetToLatest} title={t('Clear the chosen date and list the newest commits again.')}>{t('Latest')}</button>
               </div>
             )}
           </div>
@@ -366,7 +368,7 @@ export default function VesselHistory() {
               <div className="vhist-list-footer">
                 {loadMoreError && <ErrorState message={loadMoreError} />}
                 {nextCursor ? (
-                  <button type="button" className="btn btn-sm" onClick={loadMore} disabled={loadingMore}>
+                  <button type="button" className="btn btn-sm" onClick={loadMore} disabled={loadingMore} title={t('Load the next page of older commits. Scrolling to the bottom also loads more.')}>
                     {loadingMore ? t('Loading...') : t('Load more')}
                   </button>
                 ) : listLoaded && commits.length > 0 ? (
