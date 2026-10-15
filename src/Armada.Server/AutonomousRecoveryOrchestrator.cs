@@ -1680,7 +1680,8 @@ namespace Armada.Server
 
             string note = "Autonomous rescue deferred: " + reason + ". No rescue mission was created and no recovery attempt was spent. "
                 + "Recovery sweeps can retry while the original failure remains inside the configured lookback. "
-                + "After that window, an operator must resume the failure. This is an execution-resource deferral, not a dispatch hold.";
+                + "After that window, an operator must dispatch a new voyage or rescue from the objective and preserved work. "
+                + "This is an execution-resource deferral, not a dispatch hold.";
             await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
             {
                 RecoveryNotes = AppendNote(incident.RecoveryNotes, note)
@@ -1867,7 +1868,6 @@ namespace Armada.Server
         {
             int attemptNumber = failedMission.RecoveryAttempts + 1;
             string rescuePersona = ResolveRescuePersona(failedMission.Persona, failedMission.FailureReason);
-            owningObjective ??= await ResolveOwningObjectiveAsync(failedMission, token).ConfigureAwait(false);
             List<SelectedPlaybook> rescuePlaybooks = await ResolveRescuePlaybooksAsync(
                 failedMission,
                 owningObjective,
@@ -1933,6 +1933,7 @@ namespace Armada.Server
                 attemptNumber,
                 recoveryPipeline,
                 rescuePlaybooks,
+                owningObjective,
                 token).ConfigureAwait(false);
         }
 
@@ -2178,6 +2179,7 @@ namespace Armada.Server
             int attemptNumber,
             Pipeline? recoveryPipeline,
             List<SelectedPlaybook> rescuePlaybooks,
+            Objective? owningObjective,
             CancellationToken token)
         {
             // The rescue voyage is written before the admiral admits the Worker, so the hold is
@@ -2185,7 +2187,9 @@ namespace Armada.Server
             _DispatchHold?.ThrowIfActive();
             Voyage rescueVoyage = await _Database.Voyages.CreateAsync(new Voyage(
                 "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 80),
-                "Autonomous revise/retest/rejudge loop for failed mission " + failedMission.Id + ".")
+                AppendCurrentObjectiveBrief(
+                    "Autonomous revise/retest/rejudge loop for failed mission " + failedMission.Id + ".",
+                    owningObjective))
             {
                 TenantId = failedMission.TenantId,
                 UserId = failedMission.UserId,
@@ -2235,7 +2239,8 @@ namespace Armada.Server
                                 groupDependencyId,
                                 stage,
                                 attemptNumber,
-                                rescuePlaybooks),
+                                rescuePlaybooks,
+                                owningObjective),
                             token).ConfigureAwait(false);
                         await PersistRescuePlaybookSnapshotsAsync(chainedStage, token).ConfigureAwait(false);
                         lastMissionInGroup = chainedStage.Id;
@@ -2339,7 +2344,8 @@ namespace Armada.Server
             string dependsOnMissionId,
             PipelineStage stage,
             int attemptNumber,
-            List<SelectedPlaybook> rescuePlaybooks)
+            List<SelectedPlaybook> rescuePlaybooks,
+            Objective? owningObjective = null)
         {
             MissionOutputArtifactPage chainedOutput = MissionOutputArtifact.Build(failedMission, 0, MissionOutputArtifact.MaximumPageLength);
             bool chainedReviewFallback = IsReviewerPersona(failedMission.Persona)
@@ -2368,7 +2374,8 @@ namespace Armada.Server
                 ReviewDenyAction = stage.ReviewDenyAction,
                 SelectedPlaybooks = ClonePlaybookSelections(rescuePlaybooks),
                 Title = "Rescue " + attemptNumber + " " + stage.PersonaName + ": " + Truncate(failedMission.Title, 90),
-                Description = _RescueMarker + Environment.NewLine +
+                Description = AppendCurrentObjectiveBrief(
+                    _RescueMarker + Environment.NewLine +
                     BuildRescueOutputReference(
                         chainedOutput,
                         IsReviewerPersona(failedMission.Persona),
@@ -2376,7 +2383,8 @@ namespace Armada.Server
                     "Read the complete failed mission output with armada_mission_output before editing or re-verifying." + Environment.NewLine +
                     "Read the complete failed stage brief with armada_mission_status (missionId=" + failedMission.Id + ", includeDescription=true) if the description omits scope." + Environment.NewLine +
                     "Re-verification stage for the autonomous revision rescue of failed mission " + failedMission.Id + "." + Environment.NewLine +
-                    "Confirm the revised branch resolves the original reviewer feedback before it lands."
+                    "Confirm the revised branch resolves the original reviewer feedback before it lands.",
+                    owningObjective)
             };
         }
 
