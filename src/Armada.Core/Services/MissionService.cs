@@ -1554,7 +1554,14 @@ namespace Armada.Core.Services
                         };
                     }
 
-                    if (mission.RequiresReview)
+                    if (!mission.RequiresReview && !rejectedPass && isBlockingVerdict && exhibitsAffectedCase
+                        && await TryScheduleJudgeReworkAsync(mission, token).ConfigureAwait(false))
+                    {
+                        // The Judge asked for concrete changes: the work goes back to a Worker on the same branch with
+                        // the review, then to a new Judge. The rest of the pipeline now waits on that Judge.
+                        _Logging.Info(_Header + "judge mission " + mission.Id + " asked for revisions (" + blockingReason + "); sent back for rework");
+                    }
+                    else if (mission.RequiresReview)
                     {
                         // The stage has a review gate: a person decides. Approving overrides the Judge and lands the
                         // work; denying with FailPipeline stops the pipeline, RetryStage runs the Judge again.
@@ -4675,6 +4682,84 @@ namespace Armada.Core.Services
             for (Exception? current = ex; current != null; current = current.InnerException)
                 if (current is T match) return match;
             return null;
+        }
+
+        private const int _MaxJudgeReworkRounds = 2;
+
+        private async Task<bool> TryScheduleJudgeReworkAsync(Mission judge, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(judge.VoyageId) || String.IsNullOrEmpty(judge.DependsOnMissionId)) return false;
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(judge.VoyageId!, token).ConfigureAwait(false);
+            Dictionary<string, Mission> byId = voyageMissions.ToDictionary(m => m.Id, StringComparer.Ordinal);
+
+            // The Worker this Judge reviews, and how many rework rounds this chain has had.
+            Mission? worker = null;
+            int rounds = 0;
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+            for (Mission? cursor = judge; cursor != null && !String.IsNullOrEmpty(cursor.DependsOnMissionId) && seen.Add(cursor.Id);)
+            {
+                cursor = byId.TryGetValue(cursor.DependsOnMissionId!, out Mission? up) ? up : null;
+                if (cursor == null) break;
+                if (cursor.Title.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal)) rounds++;
+                if (worker == null && PersonaCatalog.Matches(cursor.Persona, PersonaCatalog.Worker)) worker = cursor;
+            }
+
+            if (worker == null || rounds >= _MaxJudgeReworkRounds) return false;
+            int round = rounds + 1;
+            string baseTitle = worker.Title.Replace(" [Worker]", "", StringComparison.Ordinal);
+            if (baseTitle.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal))
+            {
+                int colon = baseTitle.IndexOf(": ", StringComparison.Ordinal);
+                if (colon > 0) baseTitle = baseTitle.Substring(colon + 2);
+            }
+
+            string taskSpec = StripPipelineHandoff(worker.Description);
+            Mission rework = new Mission(_ReworkTitlePrefix + round + ": " + baseTitle + " [Worker]",
+                taskSpec + "\n\n## Rework round " + round + " requested by the Judge\n"
+                + "A reviewer checked this branch and asked for the changes in its review below (the previous stage output). "
+                + "Fix exactly what it lists, keep everything that is already right, run the tests, and commit. Do not start over.");
+            rework.TenantId = judge.TenantId;
+            rework.UserId = judge.UserId;
+            rework.VoyageId = judge.VoyageId;
+            rework.VesselId = judge.VesselId;
+            rework.Persona = PersonaCatalog.Worker;
+            rework.Tier = worker.Tier;
+            rework.DependsOnMissionId = judge.Id;
+            rework.RequiresReview = false;
+            rework = await _Database.Missions.CreateAsync(rework, token).ConfigureAwait(false);
+
+            Mission nextJudge = new Mission("[Judge] Review rework " + round + ": " + baseTitle, taskSpec);
+            nextJudge.TenantId = judge.TenantId;
+            nextJudge.UserId = judge.UserId;
+            nextJudge.VoyageId = judge.VoyageId;
+            nextJudge.VesselId = judge.VesselId;
+            nextJudge.Persona = PersonaCatalog.Judge;
+            nextJudge.Tier = judge.Tier;
+            nextJudge.DependsOnMissionId = rework.Id;
+            nextJudge.RequiresReview = judge.RequiresReview;
+            nextJudge.ReviewDenyAction = judge.ReviewDenyAction;
+            nextJudge = await _Database.Missions.CreateAsync(nextJudge, token).ConfigureAwait(false);
+
+            // The stages after this Judge (Recorder, landing) now follow the new Judge.
+            foreach (Mission dependent in voyageMissions.Where(m => m.DependsOnMissionId == judge.Id))
+            {
+                dependent.DependsOnMissionId = nextJudge.Id;
+                dependent.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
+            }
+
+            _Logging.Info(_Header + "judge " + judge.Id + ": rework round " + round + " as Worker mission " + rework.Id + ", re-review " + nextJudge.Id);
+            return true;
+        }
+
+        private const string _ReworkTitlePrefix = "[Worker] Rework ";
+
+        private static string StripPipelineHandoff(string? description)
+        {
+            // A stage's description is the task plus what earlier stages handed it; keep the task.
+            string text = description ?? String.Empty;
+            int cut = text.IndexOf("\n\n---\n## Prior Stage Output", StringComparison.Ordinal);
+            return cut > 0 ? text.Substring(0, cut).TrimEnd() : text;
         }
 
         /// <summary>

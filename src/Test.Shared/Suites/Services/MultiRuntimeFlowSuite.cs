@@ -203,6 +203,52 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("judge_revision_sends_work_back", "An ungated Judge asking for concrete revisions sends the work back to a Worker on the same branch, then to a new Judge, and the rest of the pipeline follows the new Judge; after two rounds the chain fails", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                h.Missions.OnGetMissionOutput = _ => "## Correctness\nMostly right.\n## Affected Case\nFile: tests/test_cli.py:70\nThe test leaks stderr.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                int landingCalls = 0;
+                h.Missions.OnMissionComplete = (m, d) => { landingCalls++; return Task.CompletedTask; };
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("pipeline") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("Add the CLI [Worker]", "Write textkit/cli.py.") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, BranchName = "armada/flow/judge" }).ConfigureAwait(false);
+                Captain codex = await CreateCaptainAsync(testDb, "Codex", AgentRuntimeEnum.Codex, CaptainStateEnum.Working).ConfigureAwait(false);
+                Mission judge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, codex, "Judge", false).ConfigureAwait(false);
+                judge.DependsOnMissionId = worker.Id;
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                Mission recorder = await testDb.Driver.Missions.CreateAsync(new Mission("Record [Recorder]", "Record.") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Recorder", DependsOnMissionId = judge.Id }).ConfigureAwait(false);
+
+                await h.Missions.HandleCompletionAsync(codex, judge.Id).ConfigureAwait(false);
+
+                Mission? reviewed = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                AssertNotEqual(MissionStatusEnum.Failed, reviewed!.Status, "a fixable review does not fail the chain");
+                List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                Mission? rework = all.Find(m => m.DependsOnMissionId == judge.Id && m.Persona == "Worker");
+                AssertNotNull(rework, "a rework Worker follows the Judge");
+                AssertContains("Rework round 1", rework.Description);
+                AssertContains("Write textkit/cli.py.", rework.Description);
+                AssertEqual("armada/flow/judge", rework.BranchName, "the rework continues on the same branch");
+                Mission? nextJudge = all.Find(m => m.DependsOnMissionId == rework.Id && m.Persona == "Judge");
+                AssertNotNull(nextJudge, "a new Judge reviews the rework");
+                Mission? movedRecorder = await testDb.Driver.Missions.ReadAsync(recorder.Id).ConfigureAwait(false);
+                AssertEqual(nextJudge.Id, movedRecorder!.DependsOnMissionId, "the Recorder now waits for the new Judge");
+                AssertEqual(0, landingCalls, "nothing lands before the work passes");
+
+                // Two rework rounds already in the chain: the next block fails it.
+                Mission round2 = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Rework 2: Add the CLI [Worker]", "x") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, DependsOnMissionId = nextJudge.Id, BranchName = "armada/flow/judge" }).ConfigureAwait(false);
+                rework.Status = MissionStatusEnum.WorkProduced;
+                await testDb.Driver.Missions.UpdateAsync(rework).ConfigureAwait(false);
+                Captain codex2 = await CreateCaptainAsync(testDb, "Codex 2", AgentRuntimeEnum.Codex, CaptainStateEnum.Working).ConfigureAwait(false);
+                Mission lastJudge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, codex2, "Judge", false).ConfigureAwait(false);
+                lastJudge.DependsOnMissionId = round2.Id;
+                await testDb.Driver.Missions.UpdateAsync(lastJudge).ConfigureAwait(false);
+                await h.Missions.HandleCompletionAsync(codex2, lastJudge.Id).ConfigureAwait(false);
+                Mission? exhausted = await testDb.Driver.Missions.ReadAsync(lastJudge.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Failed, exhausted!.Status, "after two rework rounds the chain fails");
+            }));
+
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Multi-Runtime Flow", cases: cases);
         }
 
