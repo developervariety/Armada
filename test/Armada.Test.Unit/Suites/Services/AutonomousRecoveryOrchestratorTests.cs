@@ -1709,6 +1709,91 @@ namespace Armada.Test.Unit.Suites.Services
                     "The stale frame is not promoted into the current rescue contract.");
             }).ConfigureAwait(false);
 
+            await RunTest("Every chained rescue stage and voyage retain the current child objective contract", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                const string tenantId = "ten_rescue_child_pipeline";
+                const string userId = "usr_rescue_child_pipeline";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("Child objective rescue pipeline")
+                {
+                    TenantId = tenantId,
+                    Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "TestEngineer"),
+                        new PipelineStage(3, "Judge")
+                    }
+                }).ConfigureAwait(false);
+                Voyage parentVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent child voyage", "")
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Objective stale = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Old umbrella scope",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VoyageIds = new List<string> { parentVoyage.Id },
+                    AcceptanceCriteria = new List<string> { "The stale umbrella criterion must not govern the rescue." }
+                }).ConfigureAwait(false);
+                Objective child = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Current child scope",
+                    Description = "Keep the contract for this specific child objective.",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    ParentObjectiveId = stale.Id,
+                    VoyageIds = new List<string> { parentVoyage.Id },
+                    SuggestedPipelineId = pipeline.Id,
+                    AcceptanceCriteria = new List<string> { "The current child criterion must govern every rescue stage." }
+                }).ConfigureAwait(false);
+                parentVoyage.Description = ObjectiveBriefRenderer.Render(child);
+                await testDb.Driver.Voyages.UpdateAsync(parentVoyage).ConfigureAwait(false);
+
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.VoyageId = parentVoyage.Id;
+                failed.Description = ObjectiveBriefRenderer.Render(stale);
+                failed = await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()));
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "The rescue Worker is dispatched once.");
+                Mission worker = admiral.DispatchedMissions[0];
+                List<Mission> stages = await testDb.Driver.Missions.EnumerateByVoyageAsync(worker.VoyageId!).ConfigureAwait(false);
+                AssertEqual(3, stages.Count, "The configured Worker, TestEngineer, and Judge stages are all persisted.");
+                foreach (Mission stage in stages)
+                {
+                    string description = stage.Description ?? String.Empty;
+                    AssertContains("<!-- armada-objective-brief:" + child.Id + " -->", description,
+                        "Every rescue stage carries the current child objective frame.");
+                    List<string> criteria = JudgeAcceptanceWalk.ExtractCriteria(description);
+                    AssertEqual(1, criteria.Count, "Every rescue stage exposes one authoritative criterion.");
+                    AssertEqual(child.AcceptanceCriteria[0], criteria[0], "Every rescue stage carries the child criterion.");
+                    AssertContains(child.Description!, description, "Every rescue stage carries the child scope.");
+                    AssertContains("mission-output:" + failed.Id, description, "Every rescue stage retains the full failed-mission output pointer.");
+                    AssertTrue(!JudgeAcceptanceWalk.ExtractCriteria(description).Contains(stale.AcceptanceCriteria[0]),
+                        "No rescue stage promotes the stale parent criterion.");
+                }
+
+                Voyage rescueVoyage = (await testDb.Driver.Voyages.ReadAsync(worker.VoyageId!).ConfigureAwait(false))!;
+                AssertEqual(child.Id, VoyageObjectiveResolver.ReadBriefObjectiveId(rescueVoyage.Description),
+                    "The rescue voyage names the same child objective as all of its stages.");
+            }).ConfigureAwait(false);
+
             await RunTest("Rescue defers when a required execution resource is unavailable without spending its budget", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1745,6 +1830,7 @@ namespace Armada.Test.Unit.Suites.Services
                     new RunbookService(testDb.Driver, new LoggingModule()));
 
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 AssertEqual(0, admiral.DispatchedMissions.Count,
                     "The rescue must not launch when the required captain execution environment is unavailable.");
@@ -1764,8 +1850,13 @@ namespace Armada.Test.Unit.Suites.Services
                     "The incident records the stable execution-resource reason.");
 
                 List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(failed.Id, 100).ConfigureAwait(false);
-                AssertTrue(events.Any(item => item.EventType == "autonomous_recovery.rescue_deferred_execution_unavailable"),
-                    "The resource deferral has a distinct event and is not labeled as a dispatch hold.");
+                AssertEqual(1, events.Count(item => item.EventType == "autonomous_recovery.rescue_deferred_execution_unavailable"),
+                    "Repeated handling deduplicates the resource deferral event.");
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                AssertEqual(1, vesselMissions.Count, "Repeated handling creates no rescue mission row.");
+                AssertTrue(vesselMissions.All(item => item.Id == failed.Id), "The original mission remains the only mission on the vessel.");
+                AssertTrue(!String.IsNullOrWhiteSpace(incidentPage.Objects[0].RecoveryNotes),
+                    "The incident keeps the deferred resource reason for operator action.");
             }).ConfigureAwait(false);
 
             await RunTest("Rescue dispatches when its required execution environment is available", async () =>
