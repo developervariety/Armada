@@ -196,16 +196,7 @@ namespace Armada.Runtimes
                     : null;
                 if (endpoint == null)
                     throw new InvalidOperationException("API-endpoint captain has no resolvable inference endpoint to delegate to the Harbor.");
-                request.InferenceEndpoint = new HarborInferenceEndpoint
-                {
-                    Name = endpoint.Name,
-                    Provider = endpoint.Provider,
-                    Kind = endpoint.Kind,
-                    BaseUrl = endpoint.BaseUrl ?? string.Empty,
-                    Model = endpoint.Model,
-                    ApiKey = endpoint.ApiKey,
-                    TimeoutMs = endpoint.TimeoutMs
-                };
+                request.InferenceEndpoint = HarborInferenceEndpoint.FromEndpoint(endpoint);
             }
 
             await _Manager.LaunchAsync(_HarborId, request, this, token).ConfigureAwait(false);

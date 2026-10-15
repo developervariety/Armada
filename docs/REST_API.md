@@ -6201,7 +6201,12 @@ Create a model endpoint. Supply `ApiKey` to store a provider key; it is write-on
 | `Dimensionality` | int | no | Embedding dimensionality (default 0) |
 | `TimeoutMs` | int | no | Request timeout in milliseconds (default 120000, clamped to 1000..600000) |
 | `Enabled` | bool | no | Whether the endpoint participates in health sweeps (default true) |
-| `ApiKey` | string | no | Provider key / Vertex service-account JSON / AWS secret access key. Write-only: accepted here, never returned on reads. |
+| `ApiKey` | string | no | The secret: provider key, bearer token, Basic password, header or query value, Vertex service-account JSON, or AWS secret access key, depending on `AuthType`. Write-only: accepted here, never returned on reads. |
+| `AuthType` | string | no | How requests authenticate: `ProviderDefault` (default; Bearer for Ollama/OpenAI/OpenAI-compatible/Voyage AI, `x-api-key` for Anthropic, `x-goog-api-key` for Gemini, `api-key` for Azure OpenAI, signing for Vertex AI and Bedrock), `None`, `Bearer` (`Authorization: Bearer <ApiKey>`), `Basic` (`AuthUsername` and `ApiKey`), `Header` (`<AuthHeaderName>: <ApiKey>`), or `QueryParameter` (`?<AuthQueryParameter>=<ApiKey>`). `VertexAI` and `Bedrock` accept only `ProviderDefault`. |
+| `AuthUsername` | string | no | User name for `Basic`. |
+| `AuthHeaderName` | string | no | Header that carries the secret for `Header`, for example `X-API-Key`. |
+| `AuthQueryParameter` | string | no | Query parameter that carries the secret for `QueryParameter`, for example `key`. |
+| `Headers` | array | no | Extra headers sent with every request, each `{ "Name", "Value" }` (for example Cloudflare Access headers). Values are write-only. On update a supplied list replaces the stored one, an entry without `Value` keeps the stored value of the header with the same name (case-insensitive), and an omitted list keeps the stored headers. |
 
 For `VertexAI` and `Bedrock`, `BaseUrl` is optional (the endpoint is derived from `Region`).
 
@@ -7682,20 +7687,23 @@ These helper routes support runtime-specific UX and validation: Mux endpoint dis
 
 List saved Mux endpoints, optionally from an explicit config directory.
 
+Mux runs where Mux captains run: on the caller's own connected Harbor, otherwise on another Harbor the tenant may use (unless `requireHarborForLaunch` restricts launches to the caller's own Harbors). Only an Admiral with no eligible Harbor runs `mux` itself. `configDirectory` is a path on that machine.
+
 **Permission:** Authenticated
 
-- Query: optional `configDirectory`
-- Response: `200 OK` - `MuxEndpointListResult`
+- Query: optional `configDirectory`; optional `harborId` to ask a specific connected Harbor
+- Response: `200 OK` - `MuxEndpointListResult`, with `HarborId` set to the Harbor that answered (null when the Admiral ran mux)
+- Errors: `503 Service Unavailable` with `ErrorCode` `harbor_unavailable` when Harbors are required and none of the caller's is connected; `400 Bad Request` when mux cannot be started on the chosen machine
 
 #### GET /api/v1/runtimes/mux/endpoints/{name}
 
-Inspect one saved Mux endpoint with redacted secret values.
+Inspect one saved Mux endpoint with redacted secret values. Mux runs on the same machine as for the list above.
 
 **Permission:** Authenticated
 
-- Query: optional `configDirectory`
-- Response: `200 OK` - `MuxEndpointShowResult`
-- Errors: `404 Not Found` when the named endpoint does not exist
+- Query: optional `configDirectory`; optional `harborId`
+- Response: `200 OK` - `MuxEndpointShowResult`, with `HarborId`
+- Errors: `404 Not Found` when the named endpoint does not exist; `503 Service Unavailable` (`harbor_unavailable`) as above
 
 ---
 
@@ -8850,6 +8858,11 @@ A managed reference to an external embedding or inference model behind a provide
 | `Enabled` | bool | true | Whether the endpoint participates in health sweeps |
 | `ApiKey` | string | -- | Write-only input (provider key / service-account JSON / AWS secret). Accepted on create/update; never returned on reads. |
 | `HasApiKey` | bool | false | Read-only. Indicates whether a provider key/credential is stored. |
+| `AuthType` | string | `ProviderDefault` | `ProviderDefault`, `None`, `Bearer`, `Basic`, `Header`, or `QueryParameter`; see Create Model Endpoint. |
+| `AuthUsername` | string? | null | User name for `Basic` authentication. |
+| `AuthHeaderName` | string? | null | Header that carries the secret for `Header` authentication. |
+| `AuthQueryParameter` | string? | null | Query parameter that carries the secret for `QueryParameter` authentication. |
+| `Headers` | array | [] | Extra headers sent with every request. Reads return each `{ Name, Value: null, HasValue }`; values are never returned. |
 | `HealthStatus` | string | `Unknown` | `Unknown`, `Healthy`, or `Unhealthy` |
 | `LastHealthCheckUtc` | datetime? | null | Timestamp of the last probe (UTC) |
 | `LastHealthError` | string? | null | Error text from the last failed probe |

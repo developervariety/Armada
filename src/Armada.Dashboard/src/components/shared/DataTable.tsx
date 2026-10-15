@@ -1,5 +1,6 @@
 import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useLocale } from '../../context/LocaleContext';
+import { isGeneratedTitle } from '../../i18n/tooltipBackfill';
 import { useColumnVisibility } from '../../lib/useColumnVisibility';
 import AutoRefreshSelect from './AutoRefreshSelect';
 import ColumnChooser from './ColumnChooser';
@@ -117,7 +118,8 @@ export function syncNameTitles(root: HTMLElement | null): void {
   for (const el of Array.from(root.querySelectorAll<HTMLElement>('td > a, td > strong'))) {
     const text = (el.textContent ?? '').trim();
     const auto = el.hasAttribute(AUTO_TITLE_ATTR);
-    if (el.hasAttribute('title') && !auto) continue;
+    // A title the global tooltip backfill generated (data-tooltip-generated) is replaceable; a page's own is not.
+    if (el.hasAttribute('title') && !auto && !isGeneratedTitle(el)) continue;
     if (!text) {
       if (auto) { el.removeAttribute('title'); el.removeAttribute(AUTO_TITLE_ATTR); }
       continue;

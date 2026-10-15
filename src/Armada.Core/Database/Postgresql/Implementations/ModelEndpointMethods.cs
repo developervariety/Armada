@@ -38,9 +38,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"INSERT INTO model_endpoints
-                        (id, tenant_id, user_id, name, kind, scope, provider, base_url, api_key, model, region, project, api_version, access_key_id, dimensionality, timeout_ms, enabled, health_status, last_health_check_utc, last_health_error, last_latency_ms, health_history_json, created_utc, last_update_utc)
+                        (id, tenant_id, user_id, name, kind, scope, provider, base_url, api_key, model, region, project, api_version, access_key_id, auth_type, auth_username, auth_header_name, auth_query_parameter, auth_headers_json, dimensionality, timeout_ms, enabled, health_status, last_health_check_utc, last_health_error, last_latency_ms, health_history_json, created_utc, last_update_utc)
                         VALUES
-                        (@id, @tenant_id, @user_id, @name, @kind, @scope, @provider, @base_url, @api_key, @model, @region, @project, @api_version, @access_key_id, @dimensionality, @timeout_ms, @enabled, @health_status, @last_health_check_utc, @last_health_error, @last_latency_ms, @health_history_json, @created_utc, @last_update_utc);";
+                        (@id, @tenant_id, @user_id, @name, @kind, @scope, @provider, @base_url, @api_key, @model, @region, @project, @api_version, @access_key_id, @auth_type, @auth_username, @auth_header_name, @auth_query_parameter, @auth_headers_json, @dimensionality, @timeout_ms, @enabled, @health_status, @last_health_check_utc, @last_health_error, @last_latency_ms, @health_history_json, @created_utc, @last_update_utc);";
                     BindEndpoint(cmd, endpoint);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -73,6 +73,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         project = @project,
                         api_version = @api_version,
                         access_key_id = @access_key_id,
+                        auth_type = @auth_type,
+                        auth_username = @auth_username,
+                        auth_header_name = @auth_header_name,
+                        auth_query_parameter = @auth_query_parameter,
+                        auth_headers_json = @auth_headers_json,
                         dimensionality = @dimensionality,
                         timeout_ms = @timeout_ms,
                         enabled = @enabled,
@@ -296,6 +301,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
             cmd.Parameters.AddWithValue("@project", (object?)endpoint.Project ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@api_version", (object?)endpoint.ApiVersion ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@access_key_id", (object?)endpoint.AccessKeyId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@auth_type", endpoint.AuthType.ToString());
+            cmd.Parameters.AddWithValue("@auth_username", (object?)endpoint.AuthUsername ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@auth_header_name", (object?)endpoint.AuthHeaderName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@auth_query_parameter", (object?)endpoint.AuthQueryParameter ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@auth_headers_json", (object?)ModelEndpointHeaderRecord.SerializeHeaders(endpoint.Headers) ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@dimensionality", endpoint.Dimensionality);
             cmd.Parameters.AddWithValue("@timeout_ms", endpoint.TimeoutMs);
             cmd.Parameters.AddWithValue("@enabled", endpoint.Enabled);
@@ -337,6 +347,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
             };
 
             endpoint.ApiKey = NullableString(reader["api_key"]);
+            endpoint.AuthType = ParseEnum(reader["auth_type"], ModelEndpointAuthTypeEnum.ProviderDefault);
+            endpoint.AuthUsername = NullableString(reader["auth_username"]);
+            endpoint.AuthHeaderName = NullableString(reader["auth_header_name"]);
+            endpoint.AuthQueryParameter = NullableString(reader["auth_query_parameter"]);
+            endpoint.Headers = ModelEndpointHeaderRecord.DeserializeHeaders(NullableString(reader["auth_headers_json"]));
 
             string? historyJson = NullableString(reader["health_history_json"]);
             if (!String.IsNullOrWhiteSpace(historyJson))

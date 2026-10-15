@@ -2,6 +2,7 @@ namespace Test.Shared.Infrastructure
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics.CodeAnalysis;
     using System.Net;
     using System.Net.Http;
     using System.Threading.Tasks;
@@ -22,7 +23,7 @@ namespace Test.Shared.Infrastructure
         /// </summary>
         /// <param name="condition">Condition to evaluate.</param>
         /// <param name="message">Message describing the expectation.</param>
-        public static void Assert(bool condition, string message)
+        public static void Assert([DoesNotReturnIf(false)] bool condition, string message)
         {
             if (!condition) throw new AssertionException(message);
         }
@@ -64,7 +65,7 @@ namespace Test.Shared.Infrastructure
         /// </summary>
         /// <param name="value">Value to check.</param>
         /// <param name="label">Optional label for context.</param>
-        public static void AssertNotNull(object? value, string? label = null)
+        public static void AssertNotNull([NotNull] object? value, string? label = null)
         {
             if (value == null) throw new AssertionException((label ?? "Value") + " was null");
         }
@@ -84,7 +85,7 @@ namespace Test.Shared.Infrastructure
         /// </summary>
         /// <param name="condition">Condition to evaluate.</param>
         /// <param name="label">Optional label for context.</param>
-        public static void AssertTrue(bool condition, string? label = null)
+        public static void AssertTrue([DoesNotReturnIf(false)] bool condition, string? label = null)
         {
             if (!condition) throw new AssertionException((label ?? "Condition") + " was false");
         }
@@ -94,7 +95,7 @@ namespace Test.Shared.Infrastructure
         /// </summary>
         /// <param name="condition">Condition to evaluate.</param>
         /// <param name="label">Optional label for context.</param>
-        public static void AssertFalse(bool condition, string? label = null)
+        public static void AssertFalse([DoesNotReturnIf(true)] bool condition, string? label = null)
         {
             if (condition) throw new AssertionException((label ?? "Condition") + " was true");
         }

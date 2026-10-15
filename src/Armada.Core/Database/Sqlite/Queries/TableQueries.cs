@@ -2046,7 +2046,13 @@ namespace Armada.Core.Database.Sqlite.Queries
                         minimum_tier TEXT NULL,
                         PRIMARY KEY (persona_id, priority_order),
                         FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE CASCADE
-                    );")
+                    );"),
+                new SchemaMigration(84, "Add authentication type, settings, and extra headers to model_endpoints",
+                    @"ALTER TABLE model_endpoints ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'ProviderDefault';",
+                    @"ALTER TABLE model_endpoints ADD COLUMN auth_username TEXT;",
+                    @"ALTER TABLE model_endpoints ADD COLUMN auth_header_name TEXT;",
+                    @"ALTER TABLE model_endpoints ADD COLUMN auth_query_parameter TEXT;",
+                    @"ALTER TABLE model_endpoints ADD COLUMN auth_headers_json TEXT;")
 
             };
         }

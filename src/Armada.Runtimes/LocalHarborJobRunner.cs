@@ -108,17 +108,7 @@ namespace Armada.Runtimes
                 if (request.InferenceEndpoint == null)
                     throw new NotSupportedException("API-endpoint captain launch did not include an inference endpoint.");
 
-                HarborInferenceEndpoint shipped = request.InferenceEndpoint;
-                Armada.Core.Models.ModelEndpoint endpoint = new Armada.Core.Models.ModelEndpoint
-                {
-                    Name = shipped.Name,
-                    Provider = shipped.Provider,
-                    Kind = shipped.Kind,
-                    BaseUrl = shipped.BaseUrl,
-                    Model = shipped.Model,
-                    TimeoutMs = shipped.TimeoutMs
-                };
-                endpoint.ApiKey = shipped.ApiKey;
+                Armada.Core.Models.ModelEndpoint endpoint = request.InferenceEndpoint.ToEndpoint();
                 runtime = new ApiAgentRuntime(endpoint, _Logging);
             }
             else

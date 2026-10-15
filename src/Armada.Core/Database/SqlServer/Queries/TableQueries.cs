@@ -1711,7 +1711,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                         minimum_tier VARCHAR(64) NULL,
                         PRIMARY KEY (persona_id, priority_order),
                         FOREIGN KEY (persona_id) REFERENCES personas(id) ON DELETE CASCADE
-                    );")
+                    );"),
+                new SchemaMigration(84, "Add authentication type, settings, and extra headers to model_endpoints",
+                    @"IF COL_LENGTH('model_endpoints','auth_type') IS NULL ALTER TABLE model_endpoints ADD auth_type VARCHAR(64) NOT NULL DEFAULT 'ProviderDefault';",
+                    @"IF COL_LENGTH('model_endpoints','auth_username') IS NULL ALTER TABLE model_endpoints ADD auth_username NVARCHAR(256) NULL;",
+                    @"IF COL_LENGTH('model_endpoints','auth_header_name') IS NULL ALTER TABLE model_endpoints ADD auth_header_name NVARCHAR(256) NULL;",
+                    @"IF COL_LENGTH('model_endpoints','auth_query_parameter') IS NULL ALTER TABLE model_endpoints ADD auth_query_parameter NVARCHAR(256) NULL;",
+                    @"IF COL_LENGTH('model_endpoints','auth_headers_json') IS NULL ALTER TABLE model_endpoints ADD auth_headers_json NVARCHAR(MAX) NULL;")
 
             };
         }

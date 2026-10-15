@@ -2,7 +2,7 @@ import type { ModelEndpoint, WorkflowProfile } from '@dashboard/types/models';
 import type { ScopeViewer } from '@dashboard/lib/scoping';
 import { countProfileCapabilities, formatHealthSpan, formatStages, splitList, unsupportedEndpointReason } from '@dashboard/lib/configuration';
 import { scopeValue } from '../screens/configuration/common';
-import { endpointPayload, endpointValues } from '../screens/configuration/endpointForm';
+import { addHeaderRow, endpointFields, endpointPayload, endpointSentAs, endpointValidate, endpointValues, removeHeaderRow, type AuthModelEndpoint } from '../screens/configuration/endpointForm';
 import { memoryFilters, memoryPayload, memoryValues } from '../screens/configuration/MemoriesTab';
 import { moveStage, stageEntries, stagesPayload } from '../screens/configuration/pipelineForm';
 import { applyWorkflowValues, blankWorkflowProfile, projectPayload, projectValues, blankProjectProfile, workflowPayload, workflowValues } from '../screens/configuration/profileForms';
@@ -68,6 +68,72 @@ describe('configuration form logic', () => {
     expect(unsupportedEndpointReason('OpenAI', 'Embedding')).toBeNull();
     expect(formatHealthSpan('2026-10-01T00:00:00Z', Date.parse('2026-10-02T03:04:00Z'))).toBe('1d 3h');
     expect(formatHealthSpan(null)).toBe('-');
+  });
+
+  it('endpoints: auth types, per-type fields, secret labels, and the sent-as description', () => {
+    const t = (text: string, params?: Record<string, string | number | null | undefined>) => text.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => String(params?.[k] ?? ''));
+    const base = endpointValues(ADMIN, null);
+    expect(base.authType).toBe('ProviderDefault');
+    const labels = (v: Record<string, string | boolean>) => endpointFields(t, ADMIN, v, null).map((f) => f.label);
+    expect(labels(base)).toContain('Authentication');
+    expect(labels(base)).toContain('API Key');
+    expect(endpointSentAs(t, base)).toBe('Sent as: Authorization: Bearer <key>');
+    expect(endpointSentAs(t, { ...base, provider: 'Anthropic' })).toBe('Sent as: x-api-key: <key>');
+    expect(endpointSentAs(t, { ...base, provider: 'Gemini' })).toBe('Sent as: x-goog-api-key: <key>');
+    expect(endpointSentAs(t, { ...base, provider: 'AzureOpenAI' })).toBe('Sent as: api-key: <key>');
+    expect(labels({ ...base, authType: 'Bearer' })).toContain('Bearer token');
+    expect(labels({ ...base, authType: 'Basic' })).toEqual(expect.arrayContaining(['Username', 'Password']));
+    expect(labels({ ...base, authType: 'Header' })).toEqual(expect.arrayContaining(['Header name', 'Header value']));
+    expect(labels({ ...base, authType: 'QueryParameter' })).toEqual(expect.arrayContaining(['Query parameter name', 'API Key']));
+    expect(endpointSentAs(t, { ...base, authType: 'Header', authHeaderName: 'X-Token' })).toBe('Sent as: X-Token: <value>');
+    expect(endpointSentAs(t, { ...base, authType: 'QueryParameter', authQueryParameter: 'key' })).toBe('Sent as: ?key=<key>');
+    // None hides the secret and never sends it.
+    const none = { ...base, authType: 'None', apiKey: 'typed' };
+    expect(labels(none)).not.toContain('API Key');
+    expect(endpointSentAs(t, none)).toBe('No credential is sent.');
+    expect(endpointPayload(ADMIN, none, null)).not.toHaveProperty('apiKey');
+    // VertexAI and Bedrock allow only ProviderDefault: no selector, and the payload forces it.
+    const vertex = { ...base, provider: 'VertexAI', authType: 'Bearer' };
+    expect(endpointFields(t, ADMIN, vertex, null).some((f) => f.key === 'authType')).toBe(false);
+    expect(labels(vertex)).toContain('Service Account JSON');
+    expect(endpointPayload(ADMIN, vertex, null).authType).toBe('ProviderDefault');
+    expect(labels({ ...base, provider: 'Bedrock', authType: 'Basic' })).toContain('AWS Secret Access Key');
+    // Validation per type.
+    expect(endpointValidate(t, { ...base, authType: 'Basic' }, null)).toBe('Basic authentication needs a username.');
+    expect(endpointValidate(t, { ...base, authType: 'Header' }, null)).toBe('Header authentication needs a header name.');
+    expect(endpointValidate(t, { ...base, authType: 'QueryParameter' }, null)).toBe('Query parameter authentication needs a parameter name.');
+    expect(endpointValidate(t, { ...base, authType: 'Basic', authUsername: 'svc' }, null)).toBeNull();
+    // Only the active type's field is sent.
+    expect(endpointPayload(ADMIN, { ...base, authType: 'Basic', authUsername: ' svc ', authHeaderName: 'X', apiKey: 'pw' }, null)).toMatchObject({
+      authType: 'Basic', authUsername: 'svc', authHeaderName: null, authQueryParameter: null, apiKey: 'pw', headers: [],
+    });
+  });
+
+  it('endpoints: extra headers add, remove, keep stored values, and validate', () => {
+    const t = (text: string, params?: Record<string, string | number | null | undefined>) => text.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => String(params?.[k] ?? ''));
+    const existing = {
+      id: 'mep_1', scope: 'TenantWide', name: 'E', kind: 'Inference', provider: 'OpenAICompatible', baseUrl: 'https://x', hasApiKey: true, dimensionality: 0, timeoutMs: 1000, enabled: true,
+      authType: 'Header', authHeaderName: 'X-Token', headers: [{ name: 'X-Org', value: null, hasValue: true }, { name: 'X-Team', value: null, hasValue: true }],
+    } as AuthModelEndpoint;
+    const v = endpointValues(ADMIN, existing);
+    expect(v).toMatchObject({ authType: 'Header', authHeaderName: 'X-Token', headerCount: '2', headerName0: 'X-Org', headerValue0: '', headerName1: 'X-Team' });
+    // Unchanged: stored values are kept by sending null.
+    expect(endpointPayload(ADMIN, v, existing).headers).toEqual([{ name: 'X-Org', value: null }, { name: 'X-Team', value: null }]);
+    expect(endpointValidate(t, v, existing)).toBeNull();
+    // Remove the first row; add a new one that needs a value.
+    const removed = removeHeaderRow(v, 0);
+    expect(removed).toMatchObject({ headerCount: '1', headerName0: 'X-Team' });
+    expect(removed).not.toHaveProperty('headerName1');
+    const added = { ...addHeaderRow(removed), headerName1: 'X-New' };
+    expect(endpointValidate(t, added, existing)).toBe('Header "X-New" needs a value.');
+    expect(endpointPayload(ADMIN, { ...added, headerValue1: 'n' }, existing).headers).toEqual([{ name: 'X-Team', value: null }, { name: 'X-New', value: 'n' }]);
+    expect(endpointValidate(t, { ...added, headerName1: 'x-team', headerValue1: 'n' }, existing)).toBe('Header "x-team" is listed more than once.');
+    expect(endpointValidate(t, { ...added, headerName1: '', headerValue1: 'n' }, existing)).toBe('Each extra header needs a name.');
+    expect(endpointValidate(t, { ...added, headerName1: 'Bad Name', headerValue1: 'n' }, existing)).toMatch(/cannot contain spaces/);
+    // Removing every row replaces the list with an empty one; a record without headers omits the list.
+    expect(endpointPayload(ADMIN, removeHeaderRow(removed, 0), existing).headers).toEqual([]);
+    const plain = { ...existing, headers: [] } as AuthModelEndpoint;
+    expect(endpointPayload(ADMIN, endpointValues(ADMIN, plain), plain)).not.toHaveProperty('headers');
   });
 
   it('memories and playbooks', () => {

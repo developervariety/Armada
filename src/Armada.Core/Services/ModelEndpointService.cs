@@ -104,6 +104,7 @@ namespace Armada.Core.Services
             if (endpoint == null) throw new ArgumentNullException(nameof(endpoint));
 
             ValidateShape(endpoint);
+            ModelEndpointAuth.Validate(endpoint);
 
             endpoint.TenantId = auth.TenantId;
             endpoint.UserId = auth.UserId;
@@ -155,6 +156,12 @@ namespace Armada.Core.Services
             existing.TimeoutMs = endpoint.TimeoutMs;
             existing.Enabled = endpoint.Enabled;
             if (endpoint.ApiKeySpecified) existing.ApiKey = endpoint.ApiKey;
+            existing.AuthType = endpoint.AuthType;
+            existing.AuthUsername = endpoint.AuthUsername;
+            existing.AuthHeaderName = endpoint.AuthHeaderName;
+            existing.AuthQueryParameter = endpoint.AuthQueryParameter;
+            ModelEndpointAuth.MergeHeaders(existing, endpoint);
+            ModelEndpointAuth.Validate(existing);
             existing.LastUpdateUtc = DateTime.UtcNow;
 
             _Logging.Info(_Header + "updating endpoint " + existing.Id);
@@ -277,14 +284,15 @@ namespace Armada.Core.Services
 
             // Ordinal (case-sensitive): the normalized URL is already lower-cased, but API keys are
             // case-sensitive, so the composite key must not fold case. A null separator cannot occur in a
-            // URL, enum name, or API key, so the parts cannot collide.
+            // URL, enum name, or API key, so the parts cannot collide. The fingerprint covers the authentication
+            // type and extra headers, so endpoints that authenticate differently are probed separately.
             Dictionary<string, List<ModelEndpoint>> groups = new Dictionary<string, List<ModelEndpoint>>(StringComparer.Ordinal);
             foreach (ModelEndpoint endpoint in enabled)
             {
                 string key = NormalizeBaseUrl(endpoint.BaseUrl)
                     + "\0" + endpoint.Provider
                     + "\0" + endpoint.Kind
-                    + "\0" + (endpoint.ApiKey ?? String.Empty);
+                    + "\0" + ModelEndpointAuth.Fingerprint(endpoint);
                 if (!groups.ContainsKey(key)) groups[key] = new List<ModelEndpoint>();
                 groups[key].Add(endpoint);
             }

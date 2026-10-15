@@ -77,6 +77,7 @@ namespace Armada.Harbor
         public override void Initialize()
         {
             AvaloniaXamlLoader.Load(this);
+            HarborTooltips.Install();
             _Menus = new HarborMenuBuilder(this);
             NativeMenu.SetMenu(this, _Menus.BuildApplicationMenu());
         }

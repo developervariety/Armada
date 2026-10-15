@@ -1,6 +1,9 @@
 namespace Armada.Core.Harbor
 {
+    using System;
+    using System.Collections.Generic;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
 
     /// <summary>
     /// A fully resolved inference endpoint shipped to a Harbor so it can drive an API-endpoint captain. This
@@ -48,6 +51,51 @@ namespace Armada.Core.Harbor
         /// </summary>
         public int TimeoutMs { get; set; } = 120000;
 
+        /// <summary>
+        /// Cloud region (Vertex AI, Bedrock), or null.
+        /// </summary>
+        public string? Region { get; set; } = null;
+
+        /// <summary>
+        /// GCP project id (Vertex AI), or null.
+        /// </summary>
+        public string? Project { get; set; } = null;
+
+        /// <summary>
+        /// API version (Azure OpenAI), or null.
+        /// </summary>
+        public string? ApiVersion { get; set; } = null;
+
+        /// <summary>
+        /// AWS access key id (Bedrock), or null.
+        /// </summary>
+        public string? AccessKeyId { get; set; } = null;
+
+        /// <summary>
+        /// How the endpoint authenticates (see <see cref="ModelEndpointAuthTypeEnum"/>); <see cref="ApiKey"/> is the secret.
+        /// </summary>
+        public ModelEndpointAuthTypeEnum AuthType { get; set; } = ModelEndpointAuthTypeEnum.ProviderDefault;
+
+        /// <summary>
+        /// Basic authentication user name, or null.
+        /// </summary>
+        public string? AuthUsername { get; set; } = null;
+
+        /// <summary>
+        /// Header that carries the secret for header authentication, or null.
+        /// </summary>
+        public string? AuthHeaderName { get; set; } = null;
+
+        /// <summary>
+        /// Query parameter that carries the secret for query parameter authentication, or null.
+        /// </summary>
+        public string? AuthQueryParameter { get; set; } = null;
+
+        /// <summary>
+        /// Extra headers with their values. Never null.
+        /// </summary>
+        public List<ModelEndpointHeaderRecord> Headers { get; set; } = new List<ModelEndpointHeaderRecord>();
+
         #endregion
 
         #region Constructors-and-Factories
@@ -57,6 +105,68 @@ namespace Armada.Core.Harbor
         /// </summary>
         public HarborInferenceEndpoint()
         {
+        }
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// The transport form of a resolved endpoint, credentials included.
+        /// </summary>
+        /// <param name="endpoint">Endpoint.</param>
+        /// <returns>Transport endpoint.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="endpoint"/> is null.</exception>
+        public static HarborInferenceEndpoint FromEndpoint(ModelEndpoint endpoint)
+        {
+            if (endpoint == null) throw new ArgumentNullException(nameof(endpoint));
+            return new HarborInferenceEndpoint
+            {
+                Name = endpoint.Name,
+                Provider = endpoint.Provider,
+                Kind = endpoint.Kind,
+                BaseUrl = endpoint.BaseUrl ?? String.Empty,
+                Model = endpoint.Model,
+                ApiKey = endpoint.ApiKey,
+                TimeoutMs = endpoint.TimeoutMs,
+                Region = endpoint.Region,
+                Project = endpoint.Project,
+                ApiVersion = endpoint.ApiVersion,
+                AccessKeyId = endpoint.AccessKeyId,
+                AuthType = endpoint.AuthType,
+                AuthUsername = endpoint.AuthUsername,
+                AuthHeaderName = endpoint.AuthHeaderName,
+                AuthQueryParameter = endpoint.AuthQueryParameter,
+                Headers = ModelEndpointHeaderRecord.FromHeaders(endpoint.Headers)
+            };
+        }
+
+        /// <summary>
+        /// The endpoint this transport form describes, credentials included.
+        /// </summary>
+        /// <returns>Endpoint.</returns>
+        public ModelEndpoint ToEndpoint()
+        {
+            ModelEndpoint endpoint = new ModelEndpoint
+            {
+                Name = Name,
+                Provider = Provider,
+                Kind = Kind,
+                BaseUrl = BaseUrl,
+                Model = Model,
+                TimeoutMs = TimeoutMs,
+                Region = Region,
+                Project = Project,
+                ApiVersion = ApiVersion,
+                AccessKeyId = AccessKeyId,
+                AuthType = AuthType,
+                AuthUsername = AuthUsername,
+                AuthHeaderName = AuthHeaderName,
+                AuthQueryParameter = AuthQueryParameter,
+                Headers = ModelEndpointHeaderRecord.ToHeaders(Headers)
+            };
+            endpoint.ApiKey = ApiKey;
+            return endpoint;
         }
 
         #endregion

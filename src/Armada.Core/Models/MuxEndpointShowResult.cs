@@ -11,6 +11,11 @@ namespace Armada.Core.Models
         public int ContractVersion { get; set; } = 0;
 
         /// <summary>
+        /// Harbor whose mux answered, or null when mux ran on the Admiral host. Set by the Admiral, not by mux.
+        /// </summary>
+        public string? HarborId { get; set; } = null;
+
+        /// <summary>
         /// Whether the command succeeded.
         /// </summary>
         public bool Success { get; set; } = false;

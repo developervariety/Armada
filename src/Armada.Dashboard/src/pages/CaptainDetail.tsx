@@ -469,7 +469,7 @@ export default function CaptainDetail() {
                 {captain.quarantineReason || t('quarantined')}
                 {captain.quarantineUntilUtc ? ` (${t('until')} ${formatDateTime(captain.quarantineUntilUtc)})` : ''}
               </span>
-              <button type="button" className="btn btn-sm" onClick={handleUnquarantine}>{t('Lift Quarantine')}</button>
+              <button type="button" className="btn btn-sm" onClick={handleUnquarantine} title={t('Lift the quarantine now so this captain can be assigned missions again before the quarantine expires.')}>{t('Lift Quarantine')}</button>
             </span>
           </div>
         )}

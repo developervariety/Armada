@@ -1331,7 +1331,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Runtime helpers
-            new RuntimeRoutes(_Logging)
+            new RuntimeRoutes(_Logging, new MuxHostResolver(_Settings, _Database, () => _HarborConnectionManager, _Logging))
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Planning sessions

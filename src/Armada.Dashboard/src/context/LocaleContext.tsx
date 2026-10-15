@@ -17,6 +17,7 @@ import {
   type I18nCatalog,
   type LocaleMeta,
 } from '../i18n/runtime';
+import { installTooltipBackfill } from '../i18n/tooltipBackfill';
 
 interface LocaleState {
   locale: string;
@@ -71,6 +72,15 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     installDialogOverrides(() => localeRef.current, () => catalogRef.current);
     return installDocumentTranslator(document.body, () => localeRef.current, () => catalogRef.current);
   }, []);
+
+  // Every control, label, cell and badge gets a hover title (generated where the author gave none). Reinstalled on a
+  // locale or catalog change so the first pass regenerates every generated title in the new language.
+  useEffect(() => {
+    if (!document.body) return;
+    localeRef.current = locale;
+    catalogRef.current = catalog;
+    return installTooltipBackfill(document.body, () => localeRef.current, () => catalogRef.current);
+  }, [locale, catalog]);
 
   const setLocale = useCallback((nextLocale: string) => {
     const normalized = normalizeLocale(nextLocale, catalogRef.current);

@@ -406,7 +406,7 @@ export default function MissionDetail() {
         actions={
           <>
             {canResolveReview && (
-              <button className="btn btn-sm btn-primary" onClick={() => setReviewDecision({ comment: mission.reviewComment || '' })}>{t('Resolve Review')}</button>
+              <button className="btn btn-sm btn-primary" onClick={() => setReviewDecision({ comment: mission.reviewComment || '' })} title={t('Decide this review gate: approve, conditionally approve, request more work, or deny (which fails the pipeline).')}>{t('Resolve Review')}</button>
             )}
             {canMarkComplete && (
               <button className="btn btn-sm btn-primary" onClick={handleMarkComplete} title={t('Graduate this mission out of Review to Complete')}>{t('Mark Complete')}</button>
@@ -585,7 +585,7 @@ export default function MissionDetail() {
               </select>
             </label>
             <div className="modal-actions">
-              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionStatus}>{t('Transition')}</button>
+              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionStatus} title={t('Force the mission into the selected status, bypassing the normal workflow. Use this only to correct a stuck mission.')}>{t('Transition')}</button>
               <button className="btn" onClick={() => setShowTransition(false)}>{t('Cancel')}</button>
             </div>
           </div>

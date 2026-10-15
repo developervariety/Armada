@@ -5,7 +5,8 @@ import { errorText } from '../../resource/useLoad';
 import { spacing } from '../../theme/typography';
 import { AppText } from '../ui/AppText';
 import { BottomSheet } from '../ui/BottomSheet';
-import { Button } from '../ui/Button';
+import { Button, type ButtonVariant } from '../ui/Button';
+import type { IconName } from '../ui/Icon';
 import { FormActions } from '../ui/StickyFooter';
 import { SelectField, type SelectOption } from '../ui/SelectSheet';
 import { SwitchField } from '../ui/SwitchField';
@@ -28,7 +29,9 @@ export type FormField =
   | (BaseField & { kind: 'text' | 'multiline' | 'secret' | 'number' | 'integer'; placeholder?: string })
   | (BaseField & { kind: 'switch' })
   | (BaseField & { kind: 'select'; options: SelectOption<string>[]; placeholder?: string })
-  | (BaseField & { kind: 'note' });
+  | (BaseField & { kind: 'note' })
+  /** A button that rewrites the form values (for example to add or remove a row of a repeated group). */
+  | (BaseField & { kind: 'action'; apply: (values: FormValues) => FormValues; variant?: ButtonVariant; icon?: IconName; accessibilityHint?: string });
 
 /** String value of a form field ('' when missing or a switch). */
 export function str(values: FormValues, key: string): string {
@@ -132,7 +135,7 @@ function useFormSheet({ open, initial, fields, submitLabel, onSubmit, onClose, v
 
   async function submit() {
     for (const f of current) {
-      if (f.required && f.kind !== 'switch' && f.kind !== 'note' && !str(values, f.key).trim()) {
+      if (f.required && f.kind !== 'switch' && f.kind !== 'note' && f.kind !== 'action' && !str(values, f.key).trim()) {
         setError(t('{{field}} is required.', { field: f.label }));
         return;
       }
@@ -160,6 +163,23 @@ function useFormSheet({ open, initial, fields, submitLabel, onSubmit, onClose, v
         switch (f.kind) {
           case 'note':
             return <AppText key={f.key} variant="caption" muted style={styles.note}>{f.label}</AppText>;
+          case 'action':
+            return (
+              <Button
+                key={f.key}
+                label={f.label}
+                variant={f.variant ?? 'secondary'}
+                icon={f.icon}
+                accessibilityHint={f.accessibilityHint}
+                disabled={f.disabled}
+                onPress={() => setValues((prev) => {
+                  const next = f.apply(prev);
+                  return onChange ? onChange(next, prev) : next;
+                })}
+                style={styles.action}
+                testID={id}
+              />
+            );
           case 'switch':
             return <SwitchField key={f.key} label={f.label} hint={f.hint} value={bool(values, f.key)} onChange={(v) => set(f.key, v)} disabled={f.disabled} testID={id} />;
           case 'select':
@@ -214,5 +234,6 @@ function useFormSheet({ open, initial, fields, submitLabel, onSubmit, onClose, v
 
 const styles = StyleSheet.create({
   note: { marginBottom: spacing.md },
+  action: { marginBottom: spacing.md },
   error: { marginBottom: spacing.md },
 });

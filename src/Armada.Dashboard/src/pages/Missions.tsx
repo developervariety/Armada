@@ -364,7 +364,7 @@ export default function Missions() {
             </select>
             <UserScopeFilter value={userScope} onChange={(id) => { setUserScope(id); setPageNumber(1); }} />
             {selected.length > 0 && (
-              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} title={t('Permanently delete the selected missions. You confirm first; this cannot be undone.')}>
                 {t('Delete Selected')} ({selected.length})
               </button>
             )}
@@ -417,7 +417,7 @@ export default function Missions() {
               </select>
             </label>
             <div className="modal-actions">
-              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionTarget}>{t('Transition')}</button>
+              <button className="btn btn-primary" onClick={handleTransition} disabled={!transitionTarget} title={t('Force the mission into the selected status, bypassing the normal workflow. Use this only to correct a stuck mission.')}>{t('Transition')}</button>
               <button className="btn" onClick={() => setTransitionModal(null)}>{t('Cancel')}</button>
             </div>
           </div>

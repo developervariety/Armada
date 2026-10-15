@@ -218,7 +218,7 @@ namespace Test.Shared.Suites.E2E
             if (envelope.Error != null) throw new AssertionException("MCP " + tool + " returned a JSON-RPC error: " + body);
             if (envelope.Result == null || envelope.Result.Content.Count == 0) throw new AssertionException("MCP " + tool + " returned no content: " + body);
             if (envelope.Result.IsError) throw new AssertionException("MCP " + tool + " returned an untyped tool error: " + body);
-            return envelope.Result.Content[0].Text;
+            return envelope.Result.Content[0].Text ?? String.Empty;
         }
 
         #endregion

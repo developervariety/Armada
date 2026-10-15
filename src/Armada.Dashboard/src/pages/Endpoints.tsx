@@ -7,7 +7,7 @@ import {
   validateModelEndpoint,
   healthCheckModelEndpoints,
 } from '../api/client';
-import type { ModelEndpoint, ModelEndpointKind, ModelProvider, ModelEndpointProbeResult, ScopeEnum } from '../types/models';
+import type { ModelEndpoint, ModelEndpointAuthType, ModelEndpointKind, ModelProvider, ModelEndpointProbeResult, ScopeEnum } from '../types/models';
 import { canEdit as canEditScoped, resolveCreateScope, type ScopeViewer } from '../lib/scoping';
 import ScopeBadge from '../components/shared/ScopeBadge';
 import ScopeSelect from '../components/shared/ScopeSelect';
@@ -25,13 +25,31 @@ import StatusBadge from '../components/shared/StatusBadge';
 import HealthHistogram from '../components/shared/HealthHistogram';
 import CopyButton from '../components/shared/CopyButton';
 import { formatHealthSpan, MODEL_ENDPOINT_KINDS, MODEL_PROVIDERS, unsupportedEndpointReason } from '../lib/configuration';
+import {
+  allowedAuthTypes,
+  authFormFromEndpoint,
+  authSecretLabel,
+  authSecretPlaceholder,
+  authSentAs,
+  authSummary,
+  authTypeLabel,
+  buildEndpointAuthPayload,
+  effectiveAuthType,
+  headerKeepsStoredValue,
+  newHeaderRow,
+  providerSignsRequests,
+  validateEndpointAuth,
+  type EndpointAuthForm,
+  type EndpointHeaderRow,
+  type LocalizedText,
+} from '../lib/endpointAuth';
 
 const PROVIDERS = MODEL_PROVIDERS;
 const KINDS = MODEL_ENDPOINT_KINDS;
 const formatSpan = (firstUtc: string | null) => formatHealthSpan(firstUtc);
 const unsupportedReason = unsupportedEndpointReason;
 
-interface EndpointForm {
+interface EndpointForm extends EndpointAuthForm {
   name: string;
   kind: ModelEndpointKind;
   provider: ModelProvider;
@@ -65,6 +83,7 @@ const EMPTY_FORM: EndpointForm = {
   timeoutMs: '120000',
   enabled: true,
   scope: 'TenantWide',
+  ...authFormFromEndpoint(null),
 };
 
 
@@ -102,7 +121,24 @@ export default function Endpoints() {
   const isBedrock = form.provider === 'Bedrock';
   // Vertex AI and Bedrock derive their endpoint from the region, so a base URL is optional (override only).
   const baseUrlRequired = !isVertex && !isBedrock;
-  const credentialLabel = isVertex ? t('Service Account JSON') : isBedrock ? t('AWS Secret Access Key') : t('API Key');
+  const signsRequests = providerSignsRequests(form.provider);
+  const formAuthType = effectiveAuthType(form.provider, form.authType);
+  const secretLabelKey = authSecretLabel(form.provider, formAuthType);
+  const hasStoredSecret = !!editing && editing.hasApiKey;
+  const sentAs = authSentAs(form.provider, formAuthType, form);
+  const lt = (text: LocalizedText) => t(text.key, text.params);
+
+  function updateHeader(id: string, patch: Partial<EndpointHeaderRow>) {
+    setForm((current) => ({ ...current, headers: current.headers.map((row) => (row.id === id ? { ...row, ...patch } : row)) }));
+  }
+
+  function removeHeader(id: string) {
+    setForm((current) => ({ ...current, headers: current.headers.filter((row) => row.id !== id) }));
+  }
+
+  function addHeader() {
+    setForm((current) => ({ ...current, headers: [...current.headers, newHeaderRow()] }));
+  }
 
   function openCreate() {
     setEditing(null);
@@ -128,6 +164,7 @@ export default function Endpoints() {
       timeoutMs: String(endpoint.timeoutMs ?? 120000),
       enabled: endpoint.enabled,
       scope: endpoint.scope,
+      ...authFormFromEndpoint(endpoint),
     });
     setShowForm(true);
   }
@@ -136,6 +173,8 @@ export default function Endpoints() {
     e.preventDefault();
     if (saving) return;
     if (formReason) { setError(formReason); return; }
+    const authProblem = validateEndpointAuth(form.provider, form);
+    if (authProblem) { setError(lt(authProblem)); return; }
     setSaving(true);
     try {
       const payload: Partial<ModelEndpoint> & { apiKey?: string | null } = {
@@ -152,9 +191,10 @@ export default function Endpoints() {
         timeoutMs: Number.parseInt(form.timeoutMs, 10) || 120000,
         enabled: form.enabled,
         scope: form.scope,
+        ...buildEndpointAuthPayload(form.provider, form),
       };
       // Only send apiKey when the operator actually typed one, so an unchanged edit keeps the stored key.
-      if (form.apiKeyTouched) payload.apiKey = form.apiKey;
+      if (form.apiKeyTouched && formAuthType !== 'None') payload.apiKey = form.apiKey;
 
       if (editing) {
         const updated = await updateModelEndpoint(editing.id, payload);
@@ -247,6 +287,16 @@ export default function Endpoints() {
     });
   }
 
+  /** "Bearer token, key stored, 2 extra headers": what the endpoint authenticates with, without any secret. */
+  function credentialSummary(endpoint: ModelEndpoint): string {
+    const parts = [lt(authSummary(endpoint))];
+    const type = effectiveAuthType(endpoint.provider, endpoint.authType);
+    if (type !== 'None') parts.push(endpoint.hasApiKey ? t('secret stored') : t('no secret stored'));
+    const headerCount = endpoint.headers?.length ?? 0;
+    if (headerCount > 0) parts.push(t('{count, plural, one {# extra header} other {# extra headers}}', { count: headerCount }));
+    return parts.join(', ');
+  }
+
   const columns: DataTableColumn<ModelEndpoint>[] = [
     {
       key: 'name', label: t('Endpoint'), required: true, cellClassName: 'cell-nowrap',
@@ -274,6 +324,11 @@ export default function Endpoints() {
     },
     { key: 'kind', label: t('Kind'), cellClassName: 'text-dim', render: (endpoint) => endpoint.kind },
     { key: 'provider', label: t('Provider'), cellClassName: 'text-dim', render: (endpoint) => endpoint.provider },
+    {
+      key: 'auth', label: t('Authentication'), cellClassName: 'text-dim cell-nowrap',
+      cellTitle: (endpoint) => credentialSummary(endpoint),
+      render: (endpoint) => <span className="cell-one-line">{credentialSummary(endpoint)}</span>,
+    },
     {
       key: 'model', label: t('Model'), cellClassName: 'text-dim',
       render: (endpoint) => <span className="cell-one-line" title={endpoint.model || undefined}>{endpoint.model || '-'}</span>,
@@ -309,10 +364,10 @@ export default function Endpoints() {
             id={`endpoint-${endpoint.id}`}
             items={[
               { label: 'Health', onClick: () => setHealth({ open: true, endpoint }) },
-              ...(canEditRow ? [{ label: validating === endpoint.id ? 'Validating...' : 'Validate', onClick: () => handleValidate(endpoint) }] : []),
+              ...(canEditRow ? [{ label: validating === endpoint.id ? 'Validating...' : 'Validate', title: 'Send a real request to the configured model with the stored credentials. The provider may bill for it.', onClick: () => handleValidate(endpoint) }] : []),
               ...(canEditRow ? [{ label: 'Edit', onClick: () => openEdit(endpoint) }] : []),
               { label: 'View JSON', onClick: () => setJsonData({ open: true, title: endpoint.name, data: endpoint }) },
-              ...(canEditRow ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(endpoint) }] : []),
+              ...(canEditRow ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this endpoint, its stored secrets and its health history. Anything configured to use it needs another endpoint.', onClick: () => handleDelete(endpoint) }] : []),
             ]}
           />
         );
@@ -405,26 +460,92 @@ export default function Endpoints() {
                 </label>
               )}
             </div>
-            <label>{credentialLabel}
-              {isVertex ? (
-                <textarea
-                  value={form.apiKey}
-                  onChange={(e) => setForm({ ...form, apiKey: e.target.value, apiKeyTouched: true })}
-                  placeholder={editing && editing.hasApiKey ? t('(unchanged - leave blank to keep stored credential)') : t('Paste the service-account JSON')}
-                  rows={4}
-                  autoComplete="off"
-                  style={{ fontFamily: 'monospace' }}
-                />
-              ) : (
-                <input
-                  type="password"
-                  value={form.apiKey}
-                  onChange={(e) => setForm({ ...form, apiKey: e.target.value, apiKeyTouched: true })}
-                  placeholder={editing && editing.hasApiKey ? t('(unchanged - leave blank to keep stored key)') : t('Optional')}
-                  autoComplete="new-password"
-                />
+            <fieldset className="endpoint-auth-section">
+              <legend>{t('Authentication')}</legend>
+              {!signsRequests && (
+                <label title={t('How the secret is attached to each request. Provider default sends it the way this provider expects.')}>{t('Authentication type')}
+                  <select
+                    value={formAuthType}
+                    onChange={(e) => setForm({ ...form, authType: e.target.value as ModelEndpointAuthType })}
+                  >
+                    {allowedAuthTypes(form.provider).map((type) => <option key={type} value={type}>{t(authTypeLabel(type))}</option>)}
+                  </select>
+                </label>
               )}
-            </label>
+              {formAuthType === 'Basic' && (
+                <label>{t('Username')}
+                  <input type="text" value={form.authUsername} onChange={(e) => setForm({ ...form, authUsername: e.target.value })} required autoComplete="off" />
+                </label>
+              )}
+              {formAuthType === 'Header' && (
+                <label>{t('Header name')}
+                  <input type="text" value={form.authHeaderName} onChange={(e) => setForm({ ...form, authHeaderName: e.target.value })} placeholder="X-API-Key" required autoComplete="off" />
+                </label>
+              )}
+              {formAuthType === 'QueryParameter' && (
+                <label>{t('Query parameter name')}
+                  <input type="text" value={form.authQueryParameter} onChange={(e) => setForm({ ...form, authQueryParameter: e.target.value })} placeholder="key" required autoComplete="off" />
+                </label>
+              )}
+              {secretLabelKey && (
+                <label>{t(secretLabelKey)}
+                  {isVertex ? (
+                    <textarea
+                      value={form.apiKey}
+                      onChange={(e) => setForm({ ...form, apiKey: e.target.value, apiKeyTouched: true })}
+                      placeholder={t(authSecretPlaceholder(form.provider, formAuthType, hasStoredSecret))}
+                      rows={4}
+                      autoComplete="off"
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  ) : (
+                    <input
+                      type="password"
+                      value={form.apiKey}
+                      onChange={(e) => setForm({ ...form, apiKey: e.target.value, apiKeyTouched: true })}
+                      placeholder={t(authSecretPlaceholder(form.provider, formAuthType, hasStoredSecret))}
+                      autoComplete="new-password"
+                    />
+                  )}
+                </label>
+              )}
+              <p className="form-help endpoint-auth-sent-as" data-i18n-skip="true">{lt(sentAs)}</p>
+              <div className="endpoint-headers">
+                <div className="endpoint-headers-title">
+                  <span className="form-label">{t('Extra headers')}</span>
+                  <span className="form-help">{t('Sent on every request, for example the two Cloudflare Access service token headers. Values are stored as secrets.')}</span>
+                </div>
+                {form.headers.map((row, index) => (
+                  <div key={row.id} className="endpoint-header-row">
+                    <input
+                      type="text"
+                      aria-label={t('Header {{index}} name', { index: index + 1 })}
+                      value={row.name}
+                      onChange={(e) => updateHeader(row.id, { name: e.target.value })}
+                      placeholder="CF-Access-Client-Id"
+                      autoComplete="off"
+                    />
+                    <input
+                      type="password"
+                      aria-label={t('Header {{index}} value', { index: index + 1 })}
+                      value={row.value}
+                      onChange={(e) => updateHeader(row.id, { value: e.target.value })}
+                      placeholder={headerKeepsStoredValue(row) ? t('(stored - leave blank to keep stored value)') : t('Value')}
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => removeHeader(row.id)}
+                      title={t('Remove this header. It stops being sent once you save.')}
+                    >
+                      {t('Remove')}
+                    </button>
+                  </div>
+                ))}
+                <button type="button" className="btn btn-sm endpoint-header-add" onClick={addHeader} title={t('Add a header that is sent on every request to this endpoint.')}>+ {t('Add header')}</button>
+              </div>
+            </fieldset>
             <div className="detail-form-grid">
               <label>{t('Dimensionality')}
                 <input type="number" min={0} value={form.dimensionality} onChange={(e) => setForm({ ...form, dimensionality: e.target.value })} />
@@ -476,6 +597,10 @@ export default function Endpoints() {
               <div className="health-meta">
                 <span><strong>{t('Base URL')}:</strong> <code>{health.endpoint.baseUrl}</code></span>
                 {health.endpoint.model && <span><strong>{t('Model')}:</strong> {health.endpoint.model}</span>}
+                <span><strong>{t('Authentication')}:</strong> {credentialSummary(health.endpoint)}</span>
+                {(health.endpoint.headers?.length ?? 0) > 0 && (
+                  <span><strong>{t('Extra headers')}:</strong> <code>{health.endpoint.headers.map((h) => h.name).join(', ')}</code></span>
+                )}
                 {health.endpoint.lastLatencyMs != null && <span><strong>{t('Latency')}:</strong> {health.endpoint.lastLatencyMs} ms</span>}
               </div>
 

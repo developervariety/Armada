@@ -19,7 +19,7 @@ import { useNotifications } from '../../notifications/NotificationContext';
 import type { StatusTone } from '../../components/ui/StatusBadge';
 import { errorText, useLoad, useReloadOnFocus } from '../../resource/useLoad';
 import { LocalBody, LocalMasterDetail, scopeBadge, useLocalSelection, useViewer } from './common';
-import { endpointFields, endpointPayload, endpointReason, endpointValues } from './endpointForm';
+import { authTypeLabel, endpointFields, endpointPayload, endpointSecretLabel, endpointValidate, endpointValues, type AuthModelEndpoint } from './endpointForm';
 
 function healthTone(e: ModelEndpoint): StatusTone {
   return e.healthStatus === 'Healthy' ? 'success' : e.healthStatus === 'Unhealthy' ? 'failed' : 'cancelled';
@@ -51,6 +51,7 @@ function EndpointDetail({ id, inSheet, onEdit, onDelete, onChanged }: EndpointDe
 
   if (!endpoint) return <DetailPending loading={loading} error={error} onRetry={() => void reload()} />;
   const e: ModelEndpoint = endpoint;
+  const auth = e as AuthModelEndpoint;
   const editable = canEdit(viewer, e);
   const canManage = isAdmin || isTenantAdmin;
 
@@ -104,7 +105,14 @@ function EndpointDetail({ id, inSheet, onEdit, onDelete, onChanged }: EndpointDe
         {e.project ? <Field label={t('Project')} value={e.project} /> : null}
         {e.apiVersion ? <Field label={t('API Version')} value={e.apiVersion} /> : null}
         {e.accessKeyId ? <Field label={t('Access Key ID')} value={e.accessKeyId} /> : null}
-        <Field label={t('API Key')} value={e.hasApiKey ? t('Stored') : t('None')} />
+        <Field label={t('Authentication')} value={authTypeLabel(t, auth.authType)} />
+        {auth.authType === 'Basic' && auth.authUsername ? <Field label={t('Username')} value={auth.authUsername} /> : null}
+        {auth.authType === 'Header' && auth.authHeaderName ? <Field label={t('Header name')} value={auth.authHeaderName} mono /> : null}
+        {auth.authType === 'QueryParameter' && auth.authQueryParameter ? <Field label={t('Query parameter name')} value={auth.authQueryParameter} mono /> : null}
+        {auth.authType !== 'None' ? <Field label={endpointSecretLabel(t, auth.authType, e.provider)} value={e.hasApiKey ? t('Stored') : t('None')} /> : null}
+        {(auth.headers ?? []).length > 0 ? (
+          <Field label={t('Extra headers')} value={(auth.headers ?? []).map((h) => `${h.name}: ${h.hasValue ? '******' : ''}`).join('\n')} mono />
+        ) : null}
         <Field label={t('Dimensionality')} value={e.dimensionality} />
         <Field label={t('Timeout (ms)')} value={e.timeoutMs} />
       </FieldCard>
@@ -221,7 +229,7 @@ export function EndpointsTab() {
           <ResourceRow
             testID={`endpoint-row-${e.id}`}
             title={e.enabled ? e.name : `${e.name} (${t('disabled')})`}
-            subtitle={[`${e.kind} \u2022 ${e.provider}`, e.model, e.baseUrl].filter(Boolean).join(' \u2022 ')}
+            subtitle={[`${e.kind} \u2022 ${e.provider}`, authTypeLabel(t, (e as AuthModelEndpoint).authType), e.model, e.baseUrl].filter(Boolean).join(' \u2022 ')}
             badge={{ label: t(e.healthStatus), tone: healthTone(e) }}
             meta={e.lastHealthCheckUtc ? formatRelativeTime(e.lastHealthCheckUtc) : t('Never')}
             selected={selection.selected === e.id}
@@ -254,7 +262,7 @@ export function EndpointsTab() {
         title={existing ? t('Edit Endpoint') : t('Create Endpoint')}
         initial={endpointValues(viewer, existing)}
         fields={(v) => endpointFields(t, viewer, v, existing)}
-        validate={(v) => endpointReason(t, v)}
+        validate={(v) => endpointValidate(t, v, existing)}
         submitLabel={existing ? t('Save Changes') : t('Create Endpoint')}
         onClose={() => setEditing(null)}
         onSubmit={async (v) => {

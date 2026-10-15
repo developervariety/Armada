@@ -7,6 +7,8 @@ export interface ActionMenuItem {
   onClick: () => void;
   danger?: boolean;
   disabled?: boolean;
+  /** Hover text explaining what the item does (a catalog key, translated here). */
+  title?: string;
 }
 
 interface ActionMenuProps {
@@ -155,6 +157,7 @@ export default function ActionMenu({ items, id, triggerLabel }: ActionMenuProps)
               role="menuitem"
               className={`action-menu-item${item.danger ? ' danger' : ''}`}
               disabled={item.disabled}
+              title={item.title ? t(item.title) : undefined}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();

@@ -6,6 +6,43 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Model endpoints: authentication types and extra headers
+- Model endpoints now choose how they authenticate instead of offering a single "API key" box:
+  - **Provider default:** what the box did before, and what existing endpoints keep. Ollama, OpenAI-compatible, and Voyage AI send it as `Authorization: Bearer`; Anthropic sends `x-api-key`; Gemini sends `x-goog-api-key`.
+  - **None:** no credential is sent.
+  - **Bearer token:** `Authorization: Bearer <token>`.
+  - **Basic:** a username and password.
+  - **Custom header:** a header name and its value, for example `X-API-Key`.
+  - **Query parameter:** a parameter name and its value.
+- Any endpoint can also send extra headers on every request, for example the two Cloudflare Access headers in front of a self-hosted Ollama. Header values are write-only like the secret: reads show only the names. On edit, leaving a value blank keeps the stored one.
+- Vertex AI and Bedrock sign their own requests, so they keep the provider default.
+- The dashboard, TUI, and mobile endpoint forms show the fields for the chosen type, with the secret labeled by what it is, a note of exactly what is sent, and an editable extra-headers list. The endpoint lists show the authentication type.
+- The REST API and the MCP `create_model_endpoint` and `update_model_endpoint` tools take `authType`, `authUsername`, `authHeaderName`, `authQueryParameter`, and `headers` (schema migration 84 on all four databases).
+- API-endpoint captains running on a Harbor receive the full endpoint: authentication, extra headers, and the Azure, Vertex AI, and Bedrock fields, which were left out before.
+- Fixed: `update_model_endpoint` over MCP ignored a new `apiKey`; it now replaces the stored secret.
+
+### Mux captains run discovery and validation on your Harbor
+- Picking a Mux captain's endpoint and saving the captain no longer run `mux` on the Admiral. In a container the Admiral has no mux, so these failed with "An error occurred trying to start process 'mux' with working directory '/app'".
+- Both now ask the mux on your own connected Harbor, or another Harbor your tenant may use unless launches are restricted to your own. Only a standalone Admiral with no eligible Harbor runs mux itself.
+- The dashboard says which Harbor answered, and `GET /api/v1/runtimes/mux/endpoints` takes an optional `harborId`.
+- Saving a Mux captain while your Harbor is offline no longer fails; the launch checks the endpoint again.
+- A mux that cannot be started now says that it must be installed and on the PATH of the Harbor's machine, instead of showing the raw process error.
+
+### Tooltips everywhere
+- Every dashboard control now has a hover tooltip:
+  - Fields describe what they set.
+  - Buttons and links describe what they do.
+  - Table cells and badges show their full text.
+  - Labels describe their field.
+  - Select boxes and switches state their current value.
+- Hand-written tooltips explain the consequences of destructive and costly actions, such as bulk delete, transition, lift quarantine, and endpoint validation.
+- Generated tooltips follow the selected language.
+- Harbor's windows do the same for every label, field, button, and list that had no tooltip.
+- The captain Model field explains, per runtime, that for Mux it is a `--model` override and not the mux endpoint name (that goes in Mux Endpoint).
+
+### Build
+- Pinned patched `System.Security.Cryptography.Pkcs` releases (8.0.2 and 10.0.13) to clear the NU1902/NU1903 vulnerability warnings from `Microsoft.Data.SqlClient`, and fixed the nullable warnings in the test project, so the solution builds with no warnings.
+
 ### Harbor: a full macOS menu bar
 - Harbor's macOS menu bar now follows the standard Mac layout: Harbor (with Close Window), a new Edit menu (Undo, Redo,
   Cut, Copy, Paste, Select All on the focused text field), View (Status, Activity, Logs, an Appearance submenu for

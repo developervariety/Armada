@@ -430,7 +430,7 @@ export default function Captains() {
           <>
             <UserScopeFilter value={userScope} onChange={(id) => { setUserScope(id); setPageNumber(1); }} />
             {selected.length > 0 && (
-              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} title={t('Permanently remove the selected captains. You confirm first; this cannot be undone.')}>
                 {t('Delete Selected')} ({selected.length})
               </button>
             )}

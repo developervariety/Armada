@@ -2094,6 +2094,16 @@ namespace Armada.Core.Database.Mysql.Queries
                     );"
         };
 
+        /// <summary>Migration v84: authentication type, settings, and extra headers on model_endpoints.</summary>
+        public static readonly string[] MigrationV84Statements = new string[]
+        {
+            "ALTER TABLE model_endpoints ADD COLUMN auth_type VARCHAR(64) NOT NULL DEFAULT 'ProviderDefault';",
+            "ALTER TABLE model_endpoints ADD COLUMN auth_username VARCHAR(256) NULL;",
+            "ALTER TABLE model_endpoints ADD COLUMN auth_header_name VARCHAR(256) NULL;",
+            "ALTER TABLE model_endpoints ADD COLUMN auth_query_parameter VARCHAR(256) NULL;",
+            "ALTER TABLE model_endpoints ADD COLUMN auth_headers_json LONGTEXT NULL;"
+        };
+
         /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>

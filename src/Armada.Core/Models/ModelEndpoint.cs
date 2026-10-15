@@ -192,6 +192,63 @@ namespace Armada.Core.Models
         public bool ApiKeySpecified { get; private set; } = false;
 
         /// <summary>
+        /// How the endpoint authenticates; the secret is <see cref="ApiKey"/>. Defaults to the provider's own scheme,
+        /// which is what endpoints created before authentication types existed use.
+        /// </summary>
+        public ModelEndpointAuthTypeEnum AuthType { get; set; } = ModelEndpointAuthTypeEnum.ProviderDefault;
+
+        /// <summary>
+        /// User name for <see cref="ModelEndpointAuthTypeEnum.Basic"/> (the password is <see cref="ApiKey"/>). Not a
+        /// secret, so it is returned on reads.
+        /// </summary>
+        public string? AuthUsername
+        {
+            get => _AuthUsername;
+            set => _AuthUsername = Normalize(value);
+        }
+
+        /// <summary>
+        /// Header that carries the secret for <see cref="ModelEndpointAuthTypeEnum.Header"/>, for example <c>X-API-Key</c>.
+        /// </summary>
+        public string? AuthHeaderName
+        {
+            get => _AuthHeaderName;
+            set => _AuthHeaderName = Normalize(value);
+        }
+
+        /// <summary>
+        /// Query string parameter that carries the secret for <see cref="ModelEndpointAuthTypeEnum.QueryParameter"/>,
+        /// for example <c>key</c>.
+        /// </summary>
+        public string? AuthQueryParameter
+        {
+            get => _AuthQueryParameter;
+            set => _AuthQueryParameter = Normalize(value);
+        }
+
+        /// <summary>
+        /// Extra headers sent with every request, whatever <see cref="AuthType"/> is. Values are secret (see
+        /// <see cref="ModelEndpointHeader"/>). On update, a supplied list replaces the stored one, a header without a
+        /// value keeps the stored value of the header with the same name (case-insensitive), and an omitted list keeps
+        /// the stored headers.
+        /// </summary>
+        public List<ModelEndpointHeader> Headers
+        {
+            get => _Headers;
+            set
+            {
+                _Headers = value ?? new List<ModelEndpointHeader>();
+                HeadersSpecified = true;
+            }
+        }
+
+        /// <summary>
+        /// Whether <see cref="Headers"/> was explicitly supplied (during JSON deserialization or by a caller).
+        /// </summary>
+        [JsonIgnore]
+        public bool HeadersSpecified { get; private set; } = false;
+
+        /// <summary>
         /// Result of the most recent health check for this endpoint's base URL.
         /// </summary>
         public EndpointHealthStatusEnum HealthStatus { get; set; } = EndpointHealthStatusEnum.Unknown;
@@ -335,6 +392,10 @@ namespace Armada.Core.Models
         private string? _Project = null;
         private string? _ApiVersion = null;
         private string? _AccessKeyId = null;
+        private string? _AuthUsername = null;
+        private string? _AuthHeaderName = null;
+        private string? _AuthQueryParameter = null;
+        private List<ModelEndpointHeader> _Headers = new List<ModelEndpointHeader>();
         private List<ModelEndpointHealthRecord> _HealthHistory = new List<ModelEndpointHealthRecord>();
 
         #endregion

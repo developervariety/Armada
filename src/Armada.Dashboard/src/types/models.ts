@@ -2146,6 +2146,8 @@ export interface MuxEndpointListResult {
   errorCode: string;
   errorMessage: string;
   endpoints: MuxEndpointInfo[];
+  /** Harbor whose mux answered, or null when the Admiral ran mux itself. */
+  harborId?: string | null;
 }
 
 export interface MuxEndpointShowResult {
@@ -2703,6 +2705,22 @@ export type ModelEndpointKind = 'Embedding' | 'Inference';
 export type ModelProvider = 'Ollama' | 'OpenAI' | 'OpenAICompatible' | 'Anthropic' | 'Gemini' | 'VoyageAI' | 'AzureOpenAI' | 'VertexAI' | 'Bedrock';
 export type EndpointHealthStatus = 'Unknown' | 'Healthy' | 'Unhealthy';
 
+/**
+ * How a model endpoint sends its secret (the write-only apiKey). ProviderDefault sends it the way the provider
+ * expects (Bearer, x-api-key, x-goog-api-key, api-key, service-account JSON, or AWS SigV4); VertexAI and Bedrock
+ * sign requests and accept only ProviderDefault.
+ */
+export type ModelEndpointAuthType = 'ProviderDefault' | 'None' | 'Bearer' | 'Basic' | 'Header' | 'QueryParameter';
+
+/** An extra header sent on every request. Reads return value null with hasValue; values are secret. */
+export interface ModelEndpointHeader {
+  name: string;
+  /** Write: the value to store; null or omitted keeps the stored value of the header with the same name. */
+  value?: string | null;
+  /** Read: whether a value is stored. */
+  hasValue?: boolean;
+}
+
 export interface ModelEndpointHealthRecord {
   timestampUtc: string;
   success: boolean;
@@ -2722,6 +2740,14 @@ export interface ModelEndpoint {
   project: string | null;
   apiVersion: string | null;
   accessKeyId: string | null;
+  authType: ModelEndpointAuthType;
+  /** Basic only. */
+  authUsername: string | null;
+  /** Header only (for example X-API-Key). */
+  authHeaderName: string | null;
+  /** QueryParameter only (for example key). */
+  authQueryParameter: string | null;
+  headers: ModelEndpointHeader[];
   dimensionality: number;
   timeoutMs: number;
   enabled: boolean;

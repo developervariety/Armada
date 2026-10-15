@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Net.Http;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using PolyPrompt.Auth;
@@ -77,33 +78,34 @@ namespace Armada.Core.Services
             if (reason != null) throw new InvalidOperationException(reason);
 
             string baseUrl = endpoint.BaseUrl ?? String.Empty;
-            string apiKey = endpoint.ApiKey ?? String.Empty;
+            string apiKey = ModelEndpointAuth.ProviderSecret(endpoint);
+            HttpClient? http = ModelEndpointAuth.CreateHttpClient(endpoint);
 
             CompletionClientBase client;
             switch (endpoint.Provider)
             {
                 case ModelProviderEnum.Ollama:
-                    client = new OllamaCompletionClient(baseUrl, apiKey, logging, null);
+                    client = new OllamaCompletionClient(baseUrl, apiKey, logging, http);
                     break;
                 case ModelProviderEnum.OpenAI:
                 case ModelProviderEnum.OpenAICompatible:
-                    client = new OpenAiCompletionClient(baseUrl, apiKey, logging, null);
+                    client = new OpenAiCompletionClient(baseUrl, apiKey, logging, http);
                     break;
                 case ModelProviderEnum.Anthropic:
-                    client = new AnthropicCompletionClient(baseUrl, apiKey, logging, null);
+                    client = new AnthropicCompletionClient(baseUrl, apiKey, logging, http);
                     break;
                 case ModelProviderEnum.Gemini:
-                    client = new GeminiCompletionClient(baseUrl, apiKey, logging, null);
+                    client = new GeminiCompletionClient(baseUrl, apiKey, logging, http);
                     break;
                 case ModelProviderEnum.AzureOpenAI:
                     RequireAzure(endpoint, baseUrl, apiKey);
-                    client = new AzureOpenAiCompletionClient(baseUrl, endpoint.Model!, apiKey, endpoint.ApiVersion, logging, null);
+                    client = new AzureOpenAiCompletionClient(baseUrl, endpoint.Model!, apiKey, endpoint.ApiVersion, logging, http);
                     break;
                 case ModelProviderEnum.VertexAI:
-                    client = new VertexAiCompletionClient(endpoint.Project!, endpoint.Region!, VertexCredential(endpoint, apiKey), EndpointOverride(baseUrl), logging, null);
+                    client = new VertexAiCompletionClient(endpoint.Project!, endpoint.Region!, VertexCredential(endpoint, apiKey), EndpointOverride(baseUrl), logging, http);
                     break;
                 case ModelProviderEnum.Bedrock:
-                    client = new BedrockCompletionClient(BedrockCredential(endpoint, apiKey), endpoint.Region!, EndpointOverride(baseUrl), logging, null);
+                    client = new BedrockCompletionClient(BedrockCredential(endpoint, apiKey), endpoint.Region!, EndpointOverride(baseUrl), logging, http);
                     break;
                 default:
                     throw new InvalidOperationException("Unsupported provider: " + endpoint.Provider);
@@ -132,33 +134,34 @@ namespace Armada.Core.Services
             if (reason != null) throw new InvalidOperationException(reason);
 
             string baseUrl = endpoint.BaseUrl ?? String.Empty;
-            string apiKey = endpoint.ApiKey ?? String.Empty;
+            string apiKey = ModelEndpointAuth.ProviderSecret(endpoint);
+            HttpClient? http = ModelEndpointAuth.CreateHttpClient(endpoint);
 
             EmbeddingClientBase client;
             switch (endpoint.Provider)
             {
                 case ModelProviderEnum.Ollama:
-                    client = new OllamaEmbeddingClient(baseUrl, apiKey, logging, null);
+                    client = new OllamaEmbeddingClient(baseUrl, apiKey, logging, http);
                     break;
                 case ModelProviderEnum.OpenAI:
                 case ModelProviderEnum.OpenAICompatible:
-                    client = new OpenAiEmbeddingClient(baseUrl, apiKey, logging, null);
+                    client = new OpenAiEmbeddingClient(baseUrl, apiKey, logging, http);
                     break;
                 case ModelProviderEnum.Gemini:
-                    client = new GeminiEmbeddingClient(baseUrl, apiKey, logging, null);
+                    client = new GeminiEmbeddingClient(baseUrl, apiKey, logging, http);
                     break;
                 case ModelProviderEnum.VoyageAI:
-                    client = new VoyageAiEmbeddingClient(baseUrl, apiKey, logging, null);
+                    client = new VoyageAiEmbeddingClient(baseUrl, apiKey, logging, http);
                     break;
                 case ModelProviderEnum.AzureOpenAI:
                     RequireAzure(endpoint, baseUrl, apiKey);
-                    client = new AzureOpenAiEmbeddingClient(baseUrl, endpoint.Model!, apiKey, endpoint.ApiVersion, logging, null);
+                    client = new AzureOpenAiEmbeddingClient(baseUrl, endpoint.Model!, apiKey, endpoint.ApiVersion, logging, http);
                     break;
                 case ModelProviderEnum.VertexAI:
-                    client = new VertexAiEmbeddingClient(endpoint.Project!, endpoint.Region!, VertexCredential(endpoint, apiKey), EndpointOverride(baseUrl), logging, null);
+                    client = new VertexAiEmbeddingClient(endpoint.Project!, endpoint.Region!, VertexCredential(endpoint, apiKey), EndpointOverride(baseUrl), logging, http);
                     break;
                 case ModelProviderEnum.Bedrock:
-                    client = new BedrockEmbeddingClient(BedrockCredential(endpoint, apiKey), endpoint.Region!, EndpointOverride(baseUrl), logging, null);
+                    client = new BedrockEmbeddingClient(BedrockCredential(endpoint, apiKey), endpoint.Region!, EndpointOverride(baseUrl), logging, http);
                     break;
                 default:
                     throw new InvalidOperationException("Unsupported provider: " + endpoint.Provider);
@@ -179,7 +182,7 @@ namespace Armada.Core.Services
         {
             Require(baseUrl, "Azure OpenAI requires a base URL (the resource endpoint, e.g. https://my-resource.openai.azure.com).");
             Require(endpoint.Model, "Azure OpenAI requires a model, which is the deployment name.");
-            Require(apiKey, "Azure OpenAI requires an API key.");
+            if (endpoint.AuthType == ModelEndpointAuthTypeEnum.ProviderDefault) Require(apiKey, "Azure OpenAI requires an API key.");
         }
 
         private static ICredentialProvider VertexCredential(ModelEndpoint endpoint, string apiKey)

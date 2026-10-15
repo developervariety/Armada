@@ -22,6 +22,8 @@ namespace Armada.Core.Services
             PropertyNameCaseInsensitive = true
         };
         private readonly TimeSpan _DefaultTimeout = TimeSpan.FromSeconds(10);
+        private const string MuxNotFoundMessage = "mux could not be started: it is not installed or not on the PATH of the machine that ran it. "
+            + "Mux captains run on a Harbor; start Armada Harbor on the machine where mux is installed (and make sure mux is on that Harbor's PATH).";
 
         #endregion
 
@@ -173,7 +175,21 @@ namespace Armada.Core.Services
                 TimeoutMs = (int)timeout.TotalMilliseconds
             };
 
-            HostCommandResult result = await _CommandExecutor.RunAsync(request, token).ConfigureAwait(false);
+            HostCommandResult result;
+            try
+            {
+                result = await _CommandExecutor.RunAsync(request, token).ConfigureAwait(false);
+            }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                throw new InvalidOperationException(MuxNotFoundMessage, ex);
+            }
+
+            // A Harbor reports a process that could not start as exit code -1 with the start error on stderr.
+            if (result.ExitCode == -1 && (result.StandardError ?? String.Empty).IndexOf("trying to start process", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                throw new InvalidOperationException(MuxNotFoundMessage);
+            }
 
             if (result.TimedOut)
             {

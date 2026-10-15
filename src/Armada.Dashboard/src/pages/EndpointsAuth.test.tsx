@@ -1,0 +1,112 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as client from '../api/client';
+import { translateTemplate } from '../i18n/runtime';
+import Endpoints from './Endpoints';
+
+vi.mock('../api/client', () => ({
+  listModelEndpoints: vi.fn(), createModelEndpoint: vi.fn(), updateModelEndpoint: vi.fn(), deleteModelEndpoint: vi.fn(),
+  validateModelEndpoint: vi.fn(), healthCheckModelEndpoints: vi.fn(),
+}));
+
+const localeValue = {
+  t: (text: string, params?: Record<string, string | number | null | undefined>) => translateTemplate('en', text, null, params),
+  locale: 'en',
+  formatDateTime: (v: string | null | undefined) => v ?? '',
+  formatRelativeTime: (v: string | null | undefined) => v ?? '',
+};
+vi.mock('../context/LocaleContext', () => ({ useLocale: () => localeValue }));
+vi.mock('../context/NotificationContext', () => ({ useNotifications: () => ({ pushToast: vi.fn() }) }));
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({ isAdmin: true, isTenantAdmin: true, user: { user: { id: 'usr_1', tenantId: 'ten_1' } } }),
+}));
+
+const STORED = {
+  id: 'mep_1', name: 'tunnel-ollama', enabled: true, kind: 'Inference', provider: 'Ollama', model: 'llama3',
+  baseUrl: 'https://ollama.example.com', scope: 'TenantWide', tenantId: 'ten_1', userId: 'usr_1',
+  healthStatus: 'Healthy', healthHistory: [], lastHealthCheckUtc: null, hasApiKey: true,
+  authType: 'Bearer', authUsername: null, authHeaderName: null, authQueryParameter: null,
+  headers: [
+    { name: 'CF-Access-Client-Id', value: null, hasValue: true },
+    { name: 'CF-Access-Client-Secret', value: null, hasValue: true },
+  ],
+  dimensionality: 0, timeoutMs: 120000,
+};
+
+beforeEach(() => {
+  localStorage.clear();
+  vi.mocked(client.listModelEndpoints).mockResolvedValue([STORED] as never);
+  vi.mocked(client.updateModelEndpoint).mockResolvedValue(STORED as never);
+  vi.mocked(client.createModelEndpoint).mockResolvedValue(STORED as never);
+});
+
+afterEach(() => vi.clearAllMocks());
+
+async function openEdit() {
+  render(<MemoryRouter><Endpoints /></MemoryRouter>);
+  fireEvent.click(await screen.findByText('tunnel-ollama', { selector: 'strong' }));
+  return await screen.findByRole('heading', { name: 'Edit Endpoint' });
+}
+
+describe('Endpoints authentication', () => {
+  it('summarizes the credential in the list', async () => {
+    render(<MemoryRouter><Endpoints /></MemoryRouter>);
+    expect(await screen.findByText('Bearer token, secret stored, 2 extra headers')).toBeInTheDocument();
+  });
+
+  it('shows the stored auth type and headers, and keeps stored values when left blank', async () => {
+    await openEdit();
+    expect(screen.getByLabelText('Authentication type')).toHaveValue('Bearer');
+    expect(screen.getByLabelText('Bearer token')).toHaveAttribute('placeholder', '(unchanged - leave blank to keep stored key)');
+    expect(screen.getByText('Sent as: Authorization: Bearer <secret>')).toBeInTheDocument();
+    expect(screen.getByLabelText('Header 1 name')).toHaveValue('CF-Access-Client-Id');
+    expect(screen.getByLabelText('Header 1 value')).toHaveAttribute('placeholder', '(stored - leave blank to keep stored value)');
+
+    fireEvent.change(screen.getByLabelText('Header 2 value'), { target: { value: 'rotated' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(client.updateModelEndpoint).toHaveBeenCalled());
+    const payload = vi.mocked(client.updateModelEndpoint).mock.calls[0][1] as Record<string, unknown>;
+    expect(payload.authType).toBe('Bearer');
+    expect(payload).not.toHaveProperty('apiKey');
+    expect(payload.headers).toEqual([
+      { name: 'CF-Access-Client-Id', value: null },
+      { name: 'CF-Access-Client-Secret', value: 'rotated' },
+    ]);
+  });
+
+  it('switches the fields and the wire format with the auth type; None hides the secret', async () => {
+    await openEdit();
+    const type = screen.getByLabelText('Authentication type');
+    fireEvent.change(type, { target: { value: 'Header' } });
+    fireEvent.change(screen.getByLabelText('Header name'), { target: { value: 'X-API-Key' } });
+    expect(screen.getByLabelText('Header value')).toBeInTheDocument();
+    expect(screen.getByText('Sent as: X-API-Key: <secret>')).toBeInTheDocument();
+
+    fireEvent.change(type, { target: { value: 'Basic' } });
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'svc' } });
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    expect(screen.getByText('Sent as: Authorization: Basic base64(svc:<secret>)')).toBeInTheDocument();
+
+    fireEvent.change(type, { target: { value: 'None' } });
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+    expect(screen.getByText('No credential is sent. Extra headers below are still sent.')).toBeInTheDocument();
+  });
+
+  it('hides the auth type for signing providers but keeps extra headers', async () => {
+    await openEdit();
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'Bedrock' } });
+    expect(screen.queryByLabelText('Authentication type')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('AWS Secret Access Key')).toBeInTheDocument();
+    expect(screen.getByLabelText('Header 1 name')).toBeInTheDocument();
+  });
+
+  it('adds and removes header rows', async () => {
+    await openEdit();
+    fireEvent.click(screen.getByRole('button', { name: '+ Add header' }));
+    expect(screen.getByLabelText('Header 3 name')).toHaveValue('');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0]);
+    expect(screen.getByLabelText('Header 1 name')).toHaveValue('CF-Access-Client-Secret');
+    expect(screen.queryByLabelText('Header 3 name')).not.toBeInTheDocument();
+  });
+});

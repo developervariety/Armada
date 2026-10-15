@@ -298,7 +298,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }
@@ -327,7 +328,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }
@@ -356,7 +358,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }
@@ -385,7 +388,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }
@@ -414,7 +418,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }
@@ -443,7 +448,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }
@@ -472,7 +478,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }
@@ -501,7 +508,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }
@@ -530,7 +538,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }
@@ -559,7 +568,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }
@@ -588,7 +598,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }
@@ -619,7 +630,8 @@ namespace Test.Shared.Suites.Services
                     if (String.IsNullOrEmpty(mission.RequestedCaptainId)) AssertNull(read.RequestedCaptainId, "Hierarchy must not pin a captain");
                     if (!assigned)
                     {
-                        MissionAssignmentBlocker blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(read).ConfigureAwait(false);
+                        AssertNotNull(blocker, "assignment blocker");
                         AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker.Reason);
                     }
                 }

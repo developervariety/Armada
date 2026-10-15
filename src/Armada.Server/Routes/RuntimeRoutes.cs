@@ -16,7 +16,8 @@ namespace Armada.Server.Routes
     {
         #region Private-Members
 
-        private readonly MuxCliService _MuxCli;
+        private readonly LoggingModule _Logging;
+        private readonly MuxHostResolver _MuxHosts;
         #endregion
 
         #region Constructors-and-Factories
@@ -24,9 +25,13 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Instantiate.
         /// </summary>
-        public RuntimeRoutes(LoggingModule logging)
+        /// <param name="logging">Logging.</param>
+        /// <param name="muxHosts">Decides where mux runs (the caller's Harbor, or the Admiral host in standalone mode).</param>
+        /// <exception cref="ArgumentNullException">Thrown when an argument is null.</exception>
+        public RuntimeRoutes(LoggingModule logging, MuxHostResolver muxHosts)
         {
-            _MuxCli = new MuxCliService(logging ?? throw new ArgumentNullException(nameof(logging)));
+            _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _MuxHosts = muxHosts ?? throw new ArgumentNullException(nameof(muxHosts));
         }
 
         #endregion
@@ -57,7 +62,15 @@ namespace Armada.Server.Routes
                 try
                 {
                     string? configDirectory = req.Query.GetValueOrDefault("configDirectory");
-                    MuxEndpointListResult result = await _MuxCli.ListEndpointsAsync(configDirectory).ConfigureAwait(false);
+                    MuxHost host = await _MuxHosts.ResolveAsync(ctx.TenantId, ctx.UserId, req.Query.GetValueOrDefault("harborId"), null).ConfigureAwait(false);
+                    if (host.Executor == null)
+                    {
+                        req.Http.Response.StatusCode = 503;
+                        return (object)new MuxEndpointListResult { ErrorCode = "harbor_unavailable", ErrorMessage = host.Error ?? "No host can run mux." };
+                    }
+
+                    MuxEndpointListResult result = await new MuxCliService(_Logging, host.Executor).ListEndpointsAsync(configDirectory).ConfigureAwait(false);
+                    result.HarborId = host.HarborId;
                     if (!result.Success)
                     {
                         req.Http.Response.StatusCode = MapMuxErrorStatusCode(result.ErrorCode);
@@ -74,8 +87,9 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Runtimes")
                 .WithSummary("List saved Mux endpoints")
-                .WithDescription("Returns the endpoints configured in the selected Mux config directory, with secret values redacted.")
-                .WithParameter(OpenApiParameterMetadata.Query("configDirectory", "Optional Mux config directory override", false))
+                .WithDescription("Returns the endpoints configured in the selected Mux config directory, with secret values redacted. Mux runs on the caller's connected Harbor (or another Harbor the tenant may use); only a standalone Admiral with no eligible Harbor runs it locally.")
+                .WithParameter(OpenApiParameterMetadata.Query("configDirectory", "Optional Mux config directory override (a path on the machine that runs mux)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("harborId", "Optional Harbor whose mux to ask; by default the caller's own connected Harbor", false))
                 .WithResponse(200, OpenApiJson.For<MuxEndpointListResult>("Mux endpoint list"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
@@ -97,7 +111,15 @@ namespace Armada.Server.Routes
                 {
                     string endpointName = req.Parameters["name"];
                     string? configDirectory = req.Query.GetValueOrDefault("configDirectory");
-                    MuxEndpointShowResult result = await _MuxCli.ShowEndpointAsync(endpointName, configDirectory).ConfigureAwait(false);
+                    MuxHost host = await _MuxHosts.ResolveAsync(ctx.TenantId, ctx.UserId, req.Query.GetValueOrDefault("harborId"), null).ConfigureAwait(false);
+                    if (host.Executor == null)
+                    {
+                        req.Http.Response.StatusCode = 503;
+                        return (object)new MuxEndpointShowResult { ErrorCode = "harbor_unavailable", ErrorMessage = host.Error ?? "No host can run mux." };
+                    }
+
+                    MuxEndpointShowResult result = await new MuxCliService(_Logging, host.Executor).ShowEndpointAsync(endpointName, configDirectory).ConfigureAwait(false);
+                    result.HarborId = host.HarborId;
                     if (!result.Success)
                     {
                         req.Http.Response.StatusCode = MapMuxErrorStatusCode(result.ErrorCode);
@@ -116,7 +138,8 @@ namespace Armada.Server.Routes
                 .WithSummary("Inspect a saved Mux endpoint")
                 .WithDescription("Returns one configured Mux endpoint, including tool capability and redacted header names.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Mux endpoint name"))
-                .WithParameter(OpenApiParameterMetadata.Query("configDirectory", "Optional Mux config directory override", false))
+                .WithParameter(OpenApiParameterMetadata.Query("configDirectory", "Optional Mux config directory override (a path on the machine that runs mux)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("harborId", "Optional Harbor whose mux to ask; by default the caller's own connected Harbor", false))
                 .WithResponse(200, OpenApiJson.For<MuxEndpointShowResult>("Mux endpoint details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
@@ -132,6 +155,7 @@ namespace Armada.Server.Routes
             return errorCode?.Trim().ToLowerInvariant() switch
             {
                 "endpoint_not_found" => 404,
+                "harbor_unavailable" => 503,
                 _ => 400
             };
         }

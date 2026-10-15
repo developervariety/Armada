@@ -59,6 +59,24 @@ namespace Armada.Client
             JsonNode? node = JsonSerializer.SerializeToNode(data, ArmadaJson.Options);
             JsonObject obj = node as JsonObject ?? new JsonObject();
             if (apiKey != null) obj["apiKey"] = apiKey;
+
+            // Header values are write-only, so the model never serializes them: send the list (values included)
+            // only when the caller set it, and otherwise leave it out so the server keeps the stored headers.
+            obj.Remove("headers");
+            if (data.HeadersSpecified)
+            {
+                JsonArray headers = new JsonArray();
+                foreach (ModelEndpointHeader header in data.Headers)
+                {
+                    JsonObject entry = new JsonObject();
+                    entry["name"] = header.Name;
+                    entry["value"] = header.Value;
+                    headers.Add(entry);
+                }
+
+                obj["headers"] = headers;
+            }
+
             return obj;
         }
 

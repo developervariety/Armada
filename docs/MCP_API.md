@@ -4635,6 +4635,8 @@ Create a model endpoint. Supply `apiKey` to store a provider key; it is write-on
 
 **Response:** The newly created [ModelEndpoint](#modelendpoint) object (with `HasApiKey: true` and no API key field). Returns `{ "Error": "...", "ErrorCode": "InvalidArgument" }` when `Anthropic` is paired with `Embedding`, or `VoyageAI` is paired with `Inference`.
 
+**Authentication** (accepted on create and update): `authType` is `ProviderDefault` (default; the provider's own scheme), `None`, `Bearer` (`Authorization: Bearer <apiKey>`), `Basic` (`authUsername` and `apiKey`), `Header` (`<authHeaderName>: <apiKey>`), or `QueryParameter` (`?<authQueryParameter>=<apiKey>`); `VertexAI` and `Bedrock` accept only `ProviderDefault`. `headers` is a list of extra `{ name, value }` headers sent with every request; values are write-only, and on update an entry without `value` keeps the stored value of the header with the same name. On `update_model_endpoint`, `apiKey` now replaces the stored secret (before, it was ignored).
+
 **Provider-specific fields** (accepted on create and update): `AzureOpenAI` uses `baseUrl` (resource endpoint), `model` (deployment name), `apiKey`, and optional `apiVersion`. `VertexAI` requires `project` and `region`, with the service-account JSON supplied write-only as `apiKey`; `baseUrl` is an optional override. `Bedrock` requires `region` and `accessKeyId`, with the AWS secret access key supplied write-only as `apiKey`; `model` is the Bedrock model id and `baseUrl` is an optional override.
 
 ---
@@ -5337,6 +5339,11 @@ A managed reference to an external embedding or inference model behind a provide
 | `TimeoutMs` | int | Request timeout in milliseconds (default 120000, clamped to [1000, 600000]) |
 | `Enabled` | bool | Whether the endpoint participates in health sweeps (default true) |
 | `HasApiKey` | bool | Read-only. Whether a provider key/credential is stored. For `AzureOpenAI` this is the API key, for `VertexAI` the service-account JSON, for `Bedrock` the AWS secret access key. |
+| `AuthType` | string | `ProviderDefault`, `None`, `Bearer`, `Basic`, `Header`, or `QueryParameter` |
+| `AuthUsername` | string \| null | User name for `Basic` |
+| `AuthHeaderName` | string \| null | Header that carries the secret for `Header` |
+| `AuthQueryParameter` | string \| null | Query parameter that carries the secret for `QueryParameter` |
+| `Headers` | array | Extra headers, each `{ name, value: null, hasValue }`; values are never returned |
 | `HealthStatus` | string | `Unknown`, `Healthy`, or `Unhealthy` |
 | `LastHealthCheckUtc` | string \| null | ISO 8601 timestamp of the last probe |
 | `LastHealthError` | string \| null | Error text from the last failed probe |

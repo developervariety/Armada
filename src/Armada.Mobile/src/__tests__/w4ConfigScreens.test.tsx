@@ -222,6 +222,53 @@ describe('endpoints, harbors, memories', () => {
     await waitFor(() => expect(screen.getByText('40 ms')).toBeTruthy());
   });
 
+  it('endpoints: the form picks an auth type, adds an extra header, and the list shows the auth type', async () => {
+    const created = { ...ENDPOINT, id: 'mep_2', name: 'Gateway', authType: 'Basic', authUsername: 'svc' } as ModelEndpoint;
+    api.listModelEndpoints.mockResolvedValue([{ ...ENDPOINT, authType: 'Header', authHeaderName: 'X-Token' } as ModelEndpoint]);
+    api.createModelEndpoint.mockResolvedValue(created);
+    await renderW4Routes(ROUTES, '/configuration?tab=endpoints');
+    await waitFor(() => expect(screen.getByTestId('endpoint-row-mep_1')).toBeTruthy());
+    expect(screen.getByText(/Custom header/)).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('endpoints-create'));
+    await waitFor(() => expect(screen.getByTestId('endpoint-form-authType')).toBeTruthy());
+    expect(screen.getByLabelText('API Key')).toBeTruthy();
+    expect(screen.getByText('Sent as: Authorization: Bearer <key>')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('endpoint-form-authType'));
+    await fireEvent.press(screen.getByTestId('endpoint-form-authType-option-Basic'));
+    await waitFor(() => expect(screen.getByTestId('endpoint-form-authUsername')).toBeTruthy());
+    expect(screen.getByLabelText('Password')).toBeTruthy();
+    await fireEvent.changeText(screen.getByTestId('endpoint-form-baseUrl'), 'https://gw');
+    await act(async () => { await fireEvent.press(screen.getByTestId('endpoint-form-submit')); });
+    expect(screen.getByTestId('endpoint-form-error')).toHaveTextContent('Username is required.');
+    await fireEvent.changeText(screen.getByTestId('endpoint-form-authUsername'), 'svc');
+    await fireEvent.changeText(screen.getByTestId('endpoint-form-apiKey'), 'pw');
+    await fireEvent.press(screen.getByLabelText('Add header'));
+    await waitFor(() => expect(screen.getByTestId('endpoint-form-headerName0')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('endpoint-form-headerName0'), 'X-Org');
+    await fireEvent.changeText(screen.getByTestId('endpoint-form-headerValue0'), 'acme');
+    expect(screen.getByLabelText('Remove header 1')).toBeTruthy();
+    await act(async () => { await fireEvent.press(screen.getByTestId('endpoint-form-submit')); });
+    expect(api.createModelEndpoint).toHaveBeenCalledWith(expect.objectContaining({
+      baseUrl: 'https://gw', authType: 'Basic', authUsername: 'svc', authHeaderName: null, apiKey: 'pw', headers: [{ name: 'X-Org', value: 'acme' }],
+    }));
+  });
+
+  it('endpoints: VertexAI hides the auth selector; None hides the secret', async () => {
+    api.listModelEndpoints.mockResolvedValue([]);
+    await renderW4Routes(ROUTES, '/configuration?tab=endpoints');
+    await waitFor(() => expect(screen.getByTestId('endpoints-create')).toBeTruthy());
+    await fireEvent.press(screen.getByTestId('endpoints-create'));
+    await waitFor(() => expect(screen.getByTestId('endpoint-form-authType')).toBeTruthy());
+    await fireEvent.press(screen.getByTestId('endpoint-form-authType'));
+    await fireEvent.press(screen.getByTestId('endpoint-form-authType-option-None'));
+    await waitFor(() => expect(screen.queryByTestId('endpoint-form-apiKey')).toBeNull());
+    expect(screen.getByText('No credential is sent.')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('endpoint-form-provider'));
+    await fireEvent.press(screen.getByTestId('endpoint-form-provider-option-VertexAI'));
+    await waitFor(() => expect(screen.queryByTestId('endpoint-form-authType')).toBeNull());
+    expect(screen.getByLabelText('Service Account JSON')).toBeTruthy();
+  });
+
   it('harbors: enable / disable, and regular users cannot register', async () => {
     const harbor: Harbor = { id: 'hbr_1', tenantId: 'ten_1', userId: null, name: 'Laptop', capabilities: [{ name: 'git', available: true, detail: null }], connectionStatus: 'Connected', maxConcurrentJobs: 4, enabled: true, protocolVersion: '1', osPlatform: 'macOS', architecture: 'arm64', lastSeenUtc: null, lastConnectedUtc: null, ...STAMP };
     api.listHarbors.mockResolvedValue([harbor]);

@@ -169,10 +169,10 @@ namespace Test.Shared.Suites.E2E
 
                 FleetDetailResponse detail = await JsonHelper.DeserializeAsync<FleetDetailResponse>(response);
 
-                AssertEqual(fleetId, detail.Fleet.Id);
-                AssertStartsWith("GetTestFleet", detail.Fleet.Name);
-                AssertEqual("Get test description", detail.Fleet.Description);
-                AssertTrue(detail.Fleet.Active);
+                AssertEqual(fleetId, detail.Fleet!.Id);
+                AssertStartsWith("GetTestFleet", detail.Fleet!.Name);
+                AssertEqual("Get test description", detail.Fleet!.Description);
+                AssertTrue(detail.Fleet!.Active);
                 Assert(detail.Vessels != null, "Should have Vessels array");
             }));
 
@@ -208,11 +208,11 @@ namespace Test.Shared.Suites.E2E
 
                 Assert(detail.Fleet != null, "Should have Fleet");
                 Assert(detail.Vessels != null, "Should have Vessels");
-                Assert(!string.IsNullOrEmpty(detail.Fleet.Id), "Should have Id");
-                Assert(!string.IsNullOrEmpty(detail.Fleet.Name), "Should have Name");
-                Assert(detail.Fleet.Description != null, "Should have Description");
-                Assert(detail.Fleet.CreatedUtc != default, "Should have CreatedUtc");
-                Assert(detail.Fleet.LastUpdateUtc != default, "Should have LastUpdateUtc");
+                Assert(!string.IsNullOrEmpty(detail.Fleet!.Id), "Should have Id");
+                Assert(!string.IsNullOrEmpty(detail.Fleet!.Name), "Should have Name");
+                Assert(detail.Fleet!.Description != null, "Should have Description");
+                Assert(detail.Fleet!.CreatedUtc != default, "Should have CreatedUtc");
+                Assert(detail.Fleet!.LastUpdateUtc != default, "Should have LastUpdateUtc");
             }));
 
             #endregion
@@ -293,10 +293,10 @@ namespace Test.Shared.Suites.E2E
 
                 HttpResponseMessage getResp = await authClient.GetAsync("/api/v1/fleets/" + created.Id);
                 FleetDetailResponse detail = await JsonHelper.DeserializeAsync<FleetDetailResponse>(getResp);
-                AssertEqual(created.Name + "-b", detail.Fleet.Name);
-                AssertEqual(created.TenantId, detail.Fleet.TenantId);
-                AssertEqual(created.UserId, detail.Fleet.UserId);
-                Assert(Math.Abs((detail.Fleet.CreatedUtc - created.CreatedUtc).TotalSeconds) < 1, "CreatedUtc should be preserved");
+                AssertEqual(created.Name + "-b", detail.Fleet!.Name);
+                AssertEqual(created.TenantId, detail.Fleet!.TenantId);
+                AssertEqual(created.UserId, detail.Fleet!.UserId);
+                Assert(Math.Abs((detail.Fleet!.CreatedUtc - created.CreatedUtc).TotalSeconds) < 1, "CreatedUtc should be preserved");
             }));
 
             cases.Add(CaseAsync("update_fleet_verify_via_get", "Update Fleet Verify Via Get", TestTags.Positive, async () =>
@@ -315,7 +315,7 @@ namespace Test.Shared.Suites.E2E
                 HttpResponseMessage getResp = await authClient.GetAsync("/api/v1/fleets/" + fleetId);
                 FleetDetailResponse detail = await JsonHelper.DeserializeAsync<FleetDetailResponse>(getResp);
 
-                AssertEqual("After", detail.Fleet.Description);
+                AssertEqual("After", detail.Fleet!.Description);
             }));
 
             cases.Add(CaseAsync("update_fleet_last_update_utc_changes", "Update Fleet LastUpdateUtc Changes", TestTags.Positive, async () =>
@@ -424,7 +424,7 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(HttpStatusCode.OK, getResp.StatusCode);
 
                 FleetDetailResponse detail = await JsonHelper.DeserializeAsync<FleetDetailResponse>(getResp);
-                AssertStartsWith("KeepMe", detail.Fleet.Name);
+                AssertStartsWith("KeepMe", detail.Fleet!.Name);
             }));
 
             #endregion
@@ -1358,8 +1358,8 @@ namespace Test.Shared.Suites.E2E
                 HttpResponseMessage getResp = await authClient.GetAsync("/api/v1/fleets/" + fleetId);
                 AssertEqual(HttpStatusCode.OK, getResp.StatusCode);
                 FleetDetailResponse getDetail = await JsonHelper.DeserializeAsync<FleetDetailResponse>(getResp);
-                AssertEqual(createdName, getDetail.Fleet.Name);
-                AssertEqual("Lifecycle description", getDetail.Fleet.Description);
+                AssertEqual(createdName, getDetail.Fleet!.Name);
+                AssertEqual("Lifecycle description", getDetail.Fleet!.Description);
 
                 // Update
                 string updatedName = "UpdatedLifecycle-" + Guid.NewGuid().ToString("N").Substring(0, 8);
@@ -1373,7 +1373,7 @@ namespace Test.Shared.Suites.E2E
                 // Verify update persisted
                 HttpResponseMessage getResp2 = await authClient.GetAsync("/api/v1/fleets/" + fleetId);
                 FleetDetailResponse getDetail2 = await JsonHelper.DeserializeAsync<FleetDetailResponse>(getResp2);
-                AssertEqual(updatedName, getDetail2.Fleet.Name);
+                AssertEqual(updatedName, getDetail2.Fleet!.Name);
 
                 // Delete
                 HttpResponseMessage deleteResp = await authClient.DeleteAsync("/api/v1/fleets/" + fleetId);

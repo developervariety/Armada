@@ -400,7 +400,7 @@ export default function Vessels() {
               {t('Run action...')}
             </button>
           )}
-          <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+          <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} title={t('Permanently delete the selected vessels from Armada. You confirm first; this cannot be undone.')}>
             {t('Delete Selected')} ({table.selected.length})
           </button>
           <button className="btn btn-sm" onClick={() => table.clearSelection()}>{t('Clear selection')}</button>

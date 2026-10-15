@@ -5,18 +5,158 @@ import { bool, str, type FormField, type FormValues } from '../../components/res
 import type { Translate } from '../../i18n/LocaleContext';
 import { scopeField, scopeValue } from './common';
 
-export function endpointValues(viewer: ScopeViewer, e: ModelEndpoint | null): FormValues {
+/** How the endpoint's secret is sent (the server's ModelEndpoint.authType). */
+export type EndpointAuthType = 'ProviderDefault' | 'None' | 'Bearer' | 'Basic' | 'Header' | 'QueryParameter';
+
+export const ENDPOINT_AUTH_TYPES: EndpointAuthType[] = ['ProviderDefault', 'None', 'Bearer', 'Basic', 'Header', 'QueryParameter'];
+
+/** An extra header sent on every request. Reads return value null and hasValue; a null value on save keeps the stored one. */
+export interface EndpointHeader {
+  name: string;
+  value?: string | null;
+  hasValue?: boolean;
+}
+
+/** The authentication fields of a model endpoint (optional so older servers without them still type-check). */
+export interface EndpointAuthFields {
+  authType?: EndpointAuthType | null;
+  authUsername?: string | null;
+  authHeaderName?: string | null;
+  authQueryParameter?: string | null;
+  headers?: EndpointHeader[] | null;
+}
+
+/** A model endpoint as read, including the authentication fields. */
+export type AuthModelEndpoint = ModelEndpoint & EndpointAuthFields;
+
+/** The create / update body. */
+export type EndpointPayload = Partial<ModelEndpoint> & EndpointAuthFields & { apiKey?: string | null };
+
+const HEADER_COUNT = 'headerCount';
+const headerNameKey = (i: number) => `headerName${i}`;
+const headerValueKey = (i: number) => `headerValue${i}`;
+
+/** Providers whose credential has a fixed shape (service-account JSON, AWS secret): only ProviderDefault applies. */
+export function providerAllowsAuthChoice(provider: string): boolean {
+  return provider !== 'VertexAI' && provider !== 'Bedrock';
+}
+
+/** The effective auth type for the current values (ProviderDefault when the provider has no choice). */
+export function endpointAuthType(v: FormValues): EndpointAuthType {
+  if (!providerAllowsAuthChoice(str(v, 'provider'))) return 'ProviderDefault';
+  const raw = str(v, 'authType');
+  return (ENDPOINT_AUTH_TYPES as string[]).includes(raw) ? (raw as EndpointAuthType) : 'ProviderDefault';
+}
+
+/** The auth type's display label (also used in the endpoint list and detail). */
+export function authTypeLabel(t: Translate, type: EndpointAuthType | null | undefined): string {
+  switch (type) {
+    case 'None': return t('No authentication');
+    case 'Bearer': return t('Bearer token');
+    case 'Basic': return t('Basic');
+    case 'Header': return t('Custom header');
+    case 'QueryParameter': return t('Query parameter');
+    default: return t('Provider default');
+  }
+}
+
+/** The secret field's label for the auth type ("Bearer token", "Password", "Header value", or the provider's key). */
+export function endpointSecretLabel(t: Translate, type: EndpointAuthType | null | undefined, provider: string): string {
+  switch (type) {
+    case 'Bearer': return t('Bearer token');
+    case 'Basic': return t('Password');
+    case 'Header': return t('Header value');
+    default: return provider === 'VertexAI' ? t('Service Account JSON') : provider === 'Bedrock' ? t('AWS Secret Access Key') : t('API Key');
+  }
+}
+
+/** The provider's usual way of sending the secret (ProviderDefault). */
+function providerDefaultSentAs(t: Translate, provider: string): string {
+  switch (provider) {
+    case 'Anthropic': return 'x-api-key: <key>';
+    case 'Gemini': return 'x-goog-api-key: <key>';
+    case 'AzureOpenAI': return 'api-key: <key>';
+    case 'VertexAI': return t('an OAuth token from the service-account JSON');
+    case 'Bedrock': return t('an AWS signature made with the secret access key');
+    default: return 'Authorization: Bearer <key>';
+  }
+}
+
+/** A short "Sent as: ..." description of how the secret reaches the provider. */
+export function endpointSentAs(t: Translate, v: FormValues): string {
+  const type = endpointAuthType(v);
+  if (type === 'None') return t('No credential is sent.');
+  let how: string;
+  switch (type) {
+    case 'Bearer': how = 'Authorization: Bearer <token>'; break;
+    case 'Basic': how = 'Authorization: Basic base64(<username>:<password>)'; break;
+    case 'Header': how = `${str(v, 'authHeaderName').trim() || '<header>'}: <value>`; break;
+    case 'QueryParameter': how = `?${str(v, 'authQueryParameter').trim() || '<parameter>'}=<key>`; break;
+    default: how = providerDefaultSentAs(t, str(v, 'provider'));
+  }
+  return t('Sent as: {{how}}', { how });
+}
+
+export function endpointValues(viewer: ScopeViewer, endpoint: ModelEndpoint | null): FormValues {
+  const e = endpoint as AuthModelEndpoint | null;
   if (!e) {
     return {
       name: 'New Endpoint', kind: 'Inference', provider: 'OpenAI', baseUrl: '', model: '', apiKey: '', region: '', project: '', apiVersion: '', accessKeyId: '',
+      authType: 'ProviderDefault', authUsername: '', authHeaderName: '', authQueryParameter: '', [HEADER_COUNT]: '0',
       dimensionality: '0', timeoutMs: '120000', enabled: true, scope: resolveCreateScope(viewer),
     };
   }
-  return {
+  const headers = e.headers ?? [];
+  const values: FormValues = {
     name: e.name, kind: e.kind, provider: e.provider, baseUrl: e.baseUrl, model: e.model || '', apiKey: '', region: e.region || '', project: e.project || '',
-    apiVersion: e.apiVersion || '', accessKeyId: e.accessKeyId || '', dimensionality: String(e.dimensionality ?? 0), timeoutMs: String(e.timeoutMs ?? 120000),
-    enabled: e.enabled, scope: e.scope,
+    apiVersion: e.apiVersion || '', accessKeyId: e.accessKeyId || '',
+    authType: e.authType || 'ProviderDefault', authUsername: e.authUsername || '', authHeaderName: e.authHeaderName || '', authQueryParameter: e.authQueryParameter || '',
+    [HEADER_COUNT]: String(headers.length),
+    dimensionality: String(e.dimensionality ?? 0), timeoutMs: String(e.timeoutMs ?? 120000), enabled: e.enabled, scope: e.scope,
   };
+  // Stored header values are write-only: the row starts blank and a blank value keeps the stored one.
+  headers.forEach((h, i) => {
+    values[headerNameKey(i)] = h.name;
+    values[headerValueKey(i)] = '';
+  });
+  return values;
+}
+
+function headerCount(v: FormValues): number {
+  const n = Number.parseInt(str(v, HEADER_COUNT), 10);
+  return Number.isNaN(n) || n < 0 ? 0 : n;
+}
+
+/** The header rows as typed (blank rows included). */
+export function headerRows(v: FormValues): { name: string; value: string }[] {
+  const rows: { name: string; value: string }[] = [];
+  for (let i = 0; i < headerCount(v); i++) rows.push({ name: str(v, headerNameKey(i)).trim(), value: str(v, headerValueKey(i)) });
+  return rows;
+}
+
+/** Adds a blank header row. */
+export function addHeaderRow(v: FormValues): FormValues {
+  const n = headerCount(v);
+  return { ...v, [HEADER_COUNT]: String(n + 1), [headerNameKey(n)]: '', [headerValueKey(n)]: '' };
+}
+
+/** Removes header row `index`, shifting the later rows up. */
+export function removeHeaderRow(v: FormValues, index: number): FormValues {
+  const n = headerCount(v);
+  if (index < 0 || index >= n) return v;
+  const next: FormValues = { ...v, [HEADER_COUNT]: String(n - 1) };
+  for (let i = index; i < n - 1; i++) {
+    next[headerNameKey(i)] = str(v, headerNameKey(i + 1));
+    next[headerValueKey(i)] = str(v, headerValueKey(i + 1));
+  }
+  delete next[headerNameKey(n - 1)];
+  delete next[headerValueKey(n - 1)];
+  return next;
+}
+
+function storedHeaderHasValue(existing: AuthModelEndpoint | null, name: string): boolean {
+  const lower = name.toLowerCase();
+  return !!existing?.headers?.some((h) => h.name.toLowerCase() === lower && h.hasValue);
 }
 
 /** The provider/kind guard message (translated), or null when the combination is valid. */
@@ -25,12 +165,37 @@ export function endpointReason(t: Translate, v: FormValues): string | null {
   return reason ? t(reason) : null;
 }
 
+/** Everything that blocks saving beyond required fields: the provider guard, auth fields, and header rows. */
+export function endpointValidate(t: Translate, v: FormValues, existing: ModelEndpoint | null): string | null {
+  const reason = endpointReason(t, v);
+  if (reason) return reason;
+  const type = endpointAuthType(v);
+  if (type === 'Basic' && !str(v, 'authUsername').trim()) return t('Basic authentication needs a username.');
+  if (type === 'Header' && !str(v, 'authHeaderName').trim()) return t('Header authentication needs a header name.');
+  if (type === 'QueryParameter' && !str(v, 'authQueryParameter').trim()) return t('Query parameter authentication needs a parameter name.');
+  const seen = new Set<string>();
+  for (const row of headerRows(v)) {
+    if (!row.name) {
+      if (row.value) return t('Each extra header needs a name.');
+      continue;
+    }
+    if (/[\s:]/.test(row.name)) return t('Header name "{{name}}" cannot contain spaces or colons.', { name: row.name });
+    const lower = row.name.toLowerCase();
+    if (seen.has(lower)) return t('Header "{{name}}" is listed more than once.', { name: row.name });
+    seen.add(lower);
+    if (!row.value && !storedHeaderHasValue(existing as AuthModelEndpoint | null, row.name)) return t('Header "{{name}}" needs a value.', { name: row.name });
+  }
+  return null;
+}
+
 /**
  * The payload the dashboard saves. The credential is a secret: it is never shown, and it is sent only when typed, so
- * an unchanged edit keeps the stored key (the dashboard's apiKeyTouched).
+ * an unchanged edit keeps the stored key (the dashboard's apiKeyTouched). Header values work the same way: a blank
+ * value is sent as null, which keeps the stored value for that name.
  */
-export function endpointPayload(viewer: ScopeViewer, v: FormValues, existing: ModelEndpoint | null): Partial<ModelEndpoint> & { apiKey?: string | null } {
-  const payload: Partial<ModelEndpoint> & { apiKey?: string | null } = {
+export function endpointPayload(viewer: ScopeViewer, v: FormValues, existing: ModelEndpoint | null): EndpointPayload {
+  const type = endpointAuthType(v);
+  const payload: EndpointPayload = {
     name: str(v, 'name'),
     kind: str(v, 'kind') as ModelEndpointKind,
     provider: str(v, 'provider') as ModelProvider,
@@ -40,22 +205,51 @@ export function endpointPayload(viewer: ScopeViewer, v: FormValues, existing: Mo
     project: str(v, 'project').trim() || null,
     apiVersion: str(v, 'apiVersion').trim() || null,
     accessKeyId: str(v, 'accessKeyId').trim() || null,
+    authType: type,
+    authUsername: type === 'Basic' ? str(v, 'authUsername').trim() || null : null,
+    authHeaderName: type === 'Header' ? str(v, 'authHeaderName').trim() || null : null,
+    authQueryParameter: type === 'QueryParameter' ? str(v, 'authQueryParameter').trim() || null : null,
     dimensionality: Number.parseInt(str(v, 'dimensionality'), 10) || 0,
     timeoutMs: Number.parseInt(str(v, 'timeoutMs'), 10) || 120000,
     enabled: bool(v, 'enabled'),
     scope: scopeValue(viewer, v, existing?.scope ?? null),
   };
-  if (str(v, 'apiKey')) payload.apiKey = str(v, 'apiKey');
+  if (type !== 'None' && str(v, 'apiKey')) payload.apiKey = str(v, 'apiKey');
+  const rows = headerRows(v).filter((r) => r.name);
+  // Sending headers replaces the list; omitting them keeps it, so an edit of a record without headers sends none.
+  const stored = (existing as AuthModelEndpoint | null)?.headers;
+  if (!existing || rows.length > 0 || (stored != null && stored.length > 0)) {
+    payload.headers = rows.map((r) => ({ name: r.name, value: r.value || null }));
+  }
   return payload;
 }
 
-export function endpointFields(t: Translate, viewer: ScopeViewer, v: FormValues, existing: ModelEndpoint | null): FormField[] {
+export function endpointFields(t: Translate, viewer: ScopeViewer, v: FormValues, endpoint: ModelEndpoint | null): FormField[] {
+  const existing = endpoint as AuthModelEndpoint | null;
   const provider = str(v, 'provider');
   const isAzure = provider === 'AzureOpenAI';
   const isVertex = provider === 'VertexAI';
   const isBedrock = provider === 'Bedrock';
+  const authChoice = providerAllowsAuthChoice(provider);
+  const type = endpointAuthType(v);
   const reason = endpointReason(t, v);
   const keepNote = existing?.hasApiKey ? (isVertex ? t('(unchanged - leave blank to keep stored credential)') : t('(unchanged - leave blank to keep stored key)')) : null;
+  const secretLabel = endpointSecretLabel(t, type, provider);
+  const sentAs = endpointSentAs(t, v);
+  const headerFields: FormField[] = [];
+  headerRows(v).forEach((row, i) => {
+    const n = i + 1;
+    const keep = row.name && storedHeaderHasValue(existing, row.name) ? t('(unchanged - leave blank to keep stored value)') : null;
+    headerFields.push(
+      { kind: 'text', key: headerNameKey(i), label: t('Header {{n}} name', { n }), placeholder: 'X-Organization' },
+      { kind: 'secret', key: headerValueKey(i), label: t('Header {{n}} value', { n }), placeholder: keep ?? undefined, hint: keep },
+      {
+        kind: 'action', key: `headerRemove${i}`, label: t('Remove header {{n}}', { n }), variant: 'ghost', icon: 'trash-outline',
+        accessibilityHint: row.name ? t('Removes the {{name}} header.', { name: row.name }) : undefined,
+        apply: (values) => removeHeaderRow(values, i),
+      },
+    );
+  });
   return [
     { kind: 'text', key: 'name', label: t('Name'), required: true },
     { kind: 'select', key: 'kind', label: t('Kind'), options: MODEL_ENDPOINT_KINDS.map((k) => ({ value: k, label: k })) },
@@ -74,12 +268,21 @@ export function endpointFields(t: Translate, viewer: ScopeViewer, v: FormValues,
       placeholder: isAzure ? 'gpt-4o' : isBedrock ? 'anthropic.claude-3-5-sonnet-20240620-v1:0' : str(v, 'kind') === 'Embedding' ? 'text-embedding-3-small' : 'gpt-4o-mini',
     },
     ...(isAzure ? [{ kind: 'text' as const, key: 'apiVersion', label: t('API Version'), placeholder: '2024-10-21 (default)' }] : []),
-    {
-      kind: isVertex ? 'multiline' : 'secret', key: 'apiKey',
-      label: isVertex ? t('Service Account JSON') : isBedrock ? t('AWS Secret Access Key') : t('API Key'),
+    ...(authChoice
+      ? [{ kind: 'select' as const, key: 'authType', label: t('Authentication'), options: ENDPOINT_AUTH_TYPES.map((a) => ({ value: a, label: authTypeLabel(t, a) })), hint: sentAs }]
+      : [{ kind: 'note' as const, key: 'authNote', label: sentAs }]),
+    ...(type === 'Basic' ? [{ kind: 'text' as const, key: 'authUsername', label: t('Username'), required: true }] : []),
+    ...(type === 'Header' ? [{ kind: 'text' as const, key: 'authHeaderName', label: t('Header name'), required: true, placeholder: 'X-API-Key' }] : []),
+    ...(type === 'QueryParameter' ? [{ kind: 'text' as const, key: 'authQueryParameter', label: t('Query parameter name'), required: true, placeholder: 'key' }] : []),
+    ...(type === 'None' ? [] : [{
+      kind: isVertex ? 'multiline' as const : 'secret' as const, key: 'apiKey',
+      label: secretLabel,
       placeholder: keepNote ?? (isVertex ? t('Paste the service-account JSON') : t('Optional')),
       hint: keepNote,
-    },
+    }]),
+    { kind: 'note', key: 'headersNote', label: t('Extra headers are sent on every request.') },
+    ...headerFields,
+    { kind: 'action', key: 'headerAdd', label: t('Add header'), icon: 'add', apply: addHeaderRow },
     { kind: 'integer', key: 'dimensionality', label: t('Dimensionality') },
     { kind: 'integer', key: 'timeoutMs', label: t('Timeout (ms)') },
     scopeField(t, viewer),

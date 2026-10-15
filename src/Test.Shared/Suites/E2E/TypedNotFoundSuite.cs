@@ -134,8 +134,8 @@ namespace Test.Shared.Suites.E2E
 
         private static McpToolError AssertToolError(object result)
         {
-            AssertTrue(result is McpToolError, "expected an McpToolError, got " + (result?.GetType().Name ?? "null"));
-            return (McpToolError)result;
+            if (result is McpToolError error) return error;
+            throw new AssertionException("expected an McpToolError, got " + (result?.GetType().Name ?? "null"));
         }
 
         private static async Task AssertStatusAsync(HttpClient client, HttpMethod method, string path, string? body, int expectedStatus, ApiResultEnum expectedResult)

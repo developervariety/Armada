@@ -53,7 +53,7 @@ namespace Armada.Server
         private CliPermissionService? _CliPermissions = null;
         private HarborConnectionManager? _HarborConnections;
         private Func<string, ModelEndpoint?>? _EndpointResolver;
-        private MuxCliService _MuxCli;
+        private MuxHostResolver _MuxHosts;
         private IAdmiralService _Admiral;
         private IMessageTemplateService _TemplateService;
         private IPromptTemplateService? _PromptTemplateService;
@@ -196,7 +196,7 @@ namespace Armada.Server
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _RuntimeFactory = runtimeFactory ?? throw new ArgumentNullException(nameof(runtimeFactory));
             _HostProcessExecutor = new LocalHostProcessExecutor(_RuntimeFactory);
-            _MuxCli = new MuxCliService(_Logging);
+            _MuxHosts = new MuxHostResolver(_Settings, _Database, () => _HarborConnections, _Logging);
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
             _TemplateService = templateService ?? throw new ArgumentNullException(nameof(templateService));
             _PromptTemplateService = promptTemplateService;
@@ -1718,9 +1718,18 @@ namespace Armada.Server
                 return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.NamedEndpointRequired, "Mux captains require a named endpoint.");
             }
 
+            // Mux runs next to the Harbor that will run this captain, so probe that mux, not one on the Admiral host.
+            MuxHost host = await _MuxHosts.ResolveAsync(captain.TenantId, captain.UserId, null, captain, token).ConfigureAwait(false);
+            if (host.Executor == null)
+            {
+                // Saving a captain must not require the developer's machine to be online; the launch checks again.
+                _Logging.Warn(_Header + "skipping mux validation for captain " + captain.Id + ": " + host.Error);
+                return null;
+            }
+
             try
             {
-                MuxProbeResult probe = await _MuxCli.ProbeAsync(captain, token).ConfigureAwait(false);
+                MuxProbeResult probe = await new MuxCliService(_Logging, host.Executor).ProbeAsync(captain, host.WorkingDirectory, token).ConfigureAwait(false);
                 if (probe.ContractVersion != 1)
                 {
                     return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.UnsupportedContractVersion, "Mux returned structured output contract version " + probe.ContractVersion +
@@ -1732,7 +1741,7 @@ namespace Armada.Server
                     string error = !String.IsNullOrWhiteSpace(probe.ErrorMessage)
                         ? probe.ErrorMessage
                         : "Mux probe failed with error code " + (String.IsNullOrWhiteSpace(probe.ErrorCode) ? "unknown" : probe.ErrorCode) + ".";
-                    return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointProbeFailed, "Mux endpoint '" + options.Endpoint + "' failed validation: " + error);
+                    return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointProbeFailed, "Mux endpoint '" + options.Endpoint + "' failed validation" + MuxHostSuffix(host) + ": " + error);
                 }
 
                 if (!probe.ToolsEnabled || probe.EffectiveToolCount <= 0)
@@ -1748,8 +1757,13 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
-                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointProbeFailed, "Mux endpoint '" + options.Endpoint + "' failed validation: " + ex.Message);
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointProbeFailed, "Mux endpoint '" + options.Endpoint + "' failed validation" + MuxHostSuffix(host) + ": " + ex.Message);
             }
+        }
+
+        private static string MuxHostSuffix(MuxHost host)
+        {
+            return host.IsRemote ? " on Harbor " + host.HarborId : " on the Admiral host";
         }
 
         private static string? ExtractModelValidationError(string output)

@@ -1,6 +1,8 @@
 namespace Armada.Server.Mcp
 {
+    using System.Collections.Generic;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Arguments for creating or updating a managed model endpoint via MCP.
@@ -43,6 +45,32 @@ namespace Armada.Server.Mcp
         /// API key/credential. Stored but never returned. On update, omit to keep the existing key.
         /// </summary>
         public string? ApiKey { get; set; } = null;
+
+        /// <summary>
+        /// Authentication type, or null to leave it unchanged (ProviderDefault on create).
+        /// </summary>
+        public ModelEndpointAuthTypeEnum? AuthType { get; set; } = null;
+
+        /// <summary>
+        /// Basic authentication user name, or null to leave it unchanged.
+        /// </summary>
+        public string? AuthUsername { get; set; } = null;
+
+        /// <summary>
+        /// Header that carries the secret for Header authentication, or null to leave it unchanged.
+        /// </summary>
+        public string? AuthHeaderName { get; set; } = null;
+
+        /// <summary>
+        /// Query parameter that carries the secret for QueryParameter authentication, or null to leave it unchanged.
+        /// </summary>
+        public string? AuthQueryParameter { get; set; } = null;
+
+        /// <summary>
+        /// Extra headers, or null to leave them unchanged. A supplied list replaces the stored one; a header without a
+        /// value keeps the stored value of the header with the same name.
+        /// </summary>
+        public List<ModelEndpointHeader>? Headers { get; set; } = null;
 
         /// <summary>
         /// Optional embedding dimensionality hint.

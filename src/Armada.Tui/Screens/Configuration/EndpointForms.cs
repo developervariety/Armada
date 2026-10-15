@@ -36,6 +36,70 @@ namespace Armada.Tui.Screens.Configuration
         }
 
         /// <summary>
+        /// What the secret is and how it is sent, for a provider and authentication type.
+        /// </summary>
+        /// <param name="provider">Provider.</param>
+        /// <param name="authType">Authentication type.</param>
+        /// <returns>English hint.</returns>
+        public static string SecretHint(ModelProviderEnum provider, ModelEndpointAuthTypeEnum authType)
+        {
+            switch (authType)
+            {
+                case ModelEndpointAuthTypeEnum.None: return "No credential is sent.";
+                case ModelEndpointAuthTypeEnum.Bearer: return "Bearer token, sent as Authorization: Bearer <token>. Blank keeps the stored secret.";
+                case ModelEndpointAuthTypeEnum.Basic: return "Password, sent with the username as Authorization: Basic. Blank keeps the stored secret.";
+                case ModelEndpointAuthTypeEnum.Header: return "Header value, sent in the header named above. Blank keeps the stored secret.";
+                case ModelEndpointAuthTypeEnum.QueryParameter: return "Value of the query parameter named above, appended to every request URL. Blank keeps the stored secret.";
+            }
+
+            switch (provider)
+            {
+                case ModelProviderEnum.Anthropic: return "API key, sent as x-api-key. Blank keeps the stored secret.";
+                case ModelProviderEnum.Gemini: return "API key, sent as x-goog-api-key. Blank keeps the stored secret.";
+                case ModelProviderEnum.AzureOpenAI: return "API key, sent as api-key. Blank keeps the stored secret.";
+                case ModelProviderEnum.VertexAI: return "Service account JSON, exchanged for an OAuth token. Blank keeps the stored secret.";
+                case ModelProviderEnum.Bedrock: return "AWS secret access key, used to sign requests. Blank keeps the stored secret.";
+                default: return "API key or token, sent as Authorization: Bearer <key>. Blank keeps the stored secret.";
+            }
+        }
+
+        /// <summary>
+        /// Parse the extra headers text: one <c>Name: value</c> per line; a name with no value keeps the stored value.
+        /// </summary>
+        /// <param name="text">Text.</param>
+        /// <param name="error">English error, or null.</param>
+        /// <returns>Headers, or null when <paramref name="error"/> is set.</returns>
+        public static List<ModelEndpointHeader>? ParseHeaders(string? text, out string? error)
+        {
+            error = null;
+            List<ModelEndpointHeader> headers = new List<ModelEndpointHeader>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string raw in (text ?? "").Replace("\r\n", "\n").Split('\n'))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0) continue;
+                int colon = line.IndexOf(':');
+                string name = (colon < 0 ? line : line.Substring(0, colon)).Trim();
+                string value = colon < 0 ? "" : line.Substring(colon + 1).Trim();
+                if (name.Length == 0 || name.Contains(' '))
+                {
+                    error = "Each extra header line must be Name: value.";
+                    return null;
+                }
+
+                if (!seen.Add(name))
+                {
+                    error = "Header \"" + name + "\" is listed more than once.";
+                    return null;
+                }
+
+                headers.Add(new ModelEndpointHeader(name, value.Length == 0 ? null : value));
+            }
+
+            return headers;
+        }
+
+        /// <summary>
         /// Open the create/edit form.
         /// </summary>
         /// <param name="context">Context.</param>
@@ -55,10 +119,32 @@ namespace Armada.Tui.Screens.Configuration
             InputField baseUrl = form.Text("Base URL", existing?.BaseUrl, "https://api.openai.com", false, "Optional override for Vertex AI and Bedrock; the resource endpoint for Azure OpenAI.");
             InputField model = form.Text("Model", existing?.Model, "gpt-4o-mini", false, "Deployment name for Azure OpenAI; Bedrock model id for Bedrock.");
             InputField apiVersion = form.Text("API Version", existing?.ApiVersion, "2024-10-21 (default)", false, "Azure OpenAI only.");
+            SelectField<string> authType = form.Enum("Authentication", existing != null ? existing.AuthType : ModelEndpointAuthTypeEnum.ProviderDefault,
+                "How requests authenticate. Provider default uses the provider's own scheme; the others send the secret below as a bearer token, basic authentication, a custom header, or a query parameter. Vertex AI and Bedrock support only the provider default.");
+            InputField authUsername = form.Text("Username", existing?.AuthUsername, "user", false, "Basic authentication user name; the password is the secret.");
+            InputField authHeaderName = form.Text("Header Name", existing?.AuthHeaderName, "X-API-Key", false, "Header that carries the secret.");
+            InputField authQueryParameter = form.Text("Query Parameter", existing?.AuthQueryParameter, "key", false, "Query string parameter that carries the secret.");
             bool hasKey = existing != null && existing.HasApiKey;
-            InputField apiKey = form.Text("API Key", "", hasKey ? context.Loc.T("(unchanged - leave blank to keep stored key)") : context.Loc.T("Optional"), false,
-                "Service Account JSON for Vertex AI; AWS Secret Access Key for Bedrock. Blank keeps the stored secret.");
+            InputField apiKey = form.Text("Secret", "", hasKey ? context.Loc.T("(unchanged - leave blank to keep stored key)") : context.Loc.T("Optional"), false,
+                SecretHint(existing != null ? existing.Provider : ModelProviderEnum.OpenAI, existing != null ? existing.AuthType : ModelEndpointAuthTypeEnum.ProviderDefault));
             apiKey.Masked = true;
+            TextAreaField headers = form.Area("Extra Headers", HeaderLines(existing), 3, false,
+                "Sent with every request, one per line as Name: value (for example CF-Access-Client-Id: abc). A stored header shows only its name; leave its value blank to keep it. Values are shown while you type.", ".txt");
+            FormRow secretRow = form.View.Rows.First(r => ReferenceEquals(r.Field, apiKey));
+            void SyncAuth()
+            {
+                ModelProviderEnum pr = EntityForm.EnumValue(provider, ModelProviderEnum.OpenAI);
+                ModelEndpointAuthTypeEnum at = EntityForm.EnumValue(authType, ModelEndpointAuthTypeEnum.ProviderDefault);
+                authUsername.Visible = at == ModelEndpointAuthTypeEnum.Basic;
+                authHeaderName.Visible = at == ModelEndpointAuthTypeEnum.Header;
+                authQueryParameter.Visible = at == ModelEndpointAuthTypeEnum.QueryParameter;
+                apiKey.Visible = at != ModelEndpointAuthTypeEnum.None;
+                secretRow.Hint = SecretHint(pr, at);
+            }
+
+            authType.ValueChanged += (s, e) => SyncAuth();
+            provider.ValueChanged += (s, e) => SyncAuth();
+            SyncAuth();
             InputField dimensionality = form.Number("Dimensionality", existing?.Dimensionality ?? 0, 0, 100000);
             InputField timeout = form.Number("Timeout (ms)", existing?.TimeoutMs ?? 120000, 1000, 600000);
             SelectField<string> scope = form.Scope(existing != null ? existing.Scope : ScopeRules.ResolveCreateScope(context.Session, null));
@@ -80,6 +166,13 @@ namespace Armada.Tui.Screens.Configuration
                 if (bedrock && String.IsNullOrWhiteSpace(accessKeyId.Value)) return "Access Key ID is required for Bedrock.";
                 if (!vertex && !bedrock && String.IsNullOrWhiteSpace(baseUrl.Value)) return "Base URL is required.";
                 if (azure && String.IsNullOrWhiteSpace(model.Value)) return "Deployment name is required for Azure OpenAI.";
+                ModelEndpointAuthTypeEnum at = EntityForm.EnumValue(authType, ModelEndpointAuthTypeEnum.ProviderDefault);
+                if ((vertex || bedrock) && at != ModelEndpointAuthTypeEnum.ProviderDefault) return "Vertex AI and Bedrock support only the provider default authentication.";
+                if (at == ModelEndpointAuthTypeEnum.Basic && String.IsNullOrWhiteSpace(authUsername.Value)) return "Basic authentication needs a username.";
+                if (at == ModelEndpointAuthTypeEnum.Header && String.IsNullOrWhiteSpace(authHeaderName.Value)) return "Header authentication needs a header name.";
+                if (at == ModelEndpointAuthTypeEnum.QueryParameter && String.IsNullOrWhiteSpace(authQueryParameter.Value)) return "Query parameter authentication needs a parameter name.";
+                List<ModelEndpointHeader>? extra = ParseHeaders(headers.Value, out string? headerError);
+                if (extra == null) return headerError;
 
                 ModelEndpoint payload = new ModelEndpoint();
                 payload.Name = name.Value.Trim();
@@ -95,7 +188,12 @@ namespace Armada.Tui.Screens.Configuration
                 payload.TimeoutMs = EntityForm.IntValue(timeout) ?? 120000;
                 payload.Enabled = enabled.Value;
                 payload.Scope = ScopeRules.ResolveCreateScope(context.Session, EntityForm.EnumValue(scope, ScopeEnum.TenantWide));
-                string? key = String.IsNullOrEmpty(apiKey.Value) ? null : apiKey.Value;
+                payload.AuthType = at;
+                payload.AuthUsername = at == ModelEndpointAuthTypeEnum.Basic ? EntityUi.Blank(authUsername.Value) : null;
+                payload.AuthHeaderName = at == ModelEndpointAuthTypeEnum.Header ? EntityUi.Blank(authHeaderName.Value) : null;
+                payload.AuthQueryParameter = at == ModelEndpointAuthTypeEnum.QueryParameter ? EntityUi.Blank(authQueryParameter.Value) : null;
+                payload.Headers = extra;
+                string? key = at == ModelEndpointAuthTypeEnum.None || String.IsNullOrEmpty(apiKey.Value) ? null : apiKey.Value;
                 saved = existing != null
                     ? await context.Client.UpdateModelEndpointAsync(existing.Id, payload, key, ct).ConfigureAwait(false)
                     : await context.Client.CreateModelEndpointAsync(payload, key, ct).ConfigureAwait(false);
@@ -172,6 +270,7 @@ namespace Armada.Tui.Screens.Configuration
             EndpointHealthView view = new EndpointHealthView();
             LinkDetailView s = view.Summary;
             s.Row("Base URL", EntityUi.Dash(endpoint.BaseUrl), t => t.Code);
+            s.Row("Authentication", AuthSummary(endpoint));
             if (!String.IsNullOrEmpty(endpoint.Model)) s.Row("Model", endpoint.Model);
             if (endpoint.LastLatencyMs.HasValue) s.Row("Latency", endpoint.LastLatencyMs.Value.ToString(CultureInfo.InvariantCulture) + " ms");
             s.Row("Status", EntityUi.Badge(context, endpoint.HealthStatus.ToString()), t => Widgets.StatusBadge.Style(endpoint.HealthStatus, t));
@@ -207,6 +306,27 @@ namespace Armada.Tui.Screens.Configuration
             modal.CopyRequested += (s2, e) => context.Clipboard.Copy(Armada.Client.ArmadaJson.Serialize(endpoint), "JSON");
             context.Modals.Show(modal);
             return modal;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static string AuthSummary(ModelEndpoint endpoint)
+        {
+            string summary = endpoint.AuthType.ToString();
+            if (endpoint.AuthType == ModelEndpointAuthTypeEnum.Basic && !String.IsNullOrEmpty(endpoint.AuthUsername)) summary += " (" + endpoint.AuthUsername + ")";
+            if (endpoint.AuthType == ModelEndpointAuthTypeEnum.Header && !String.IsNullOrEmpty(endpoint.AuthHeaderName)) summary += " (" + endpoint.AuthHeaderName + ")";
+            if (endpoint.AuthType == ModelEndpointAuthTypeEnum.QueryParameter && !String.IsNullOrEmpty(endpoint.AuthQueryParameter)) summary += " (?" + endpoint.AuthQueryParameter + "=)";
+            if (endpoint.AuthType != ModelEndpointAuthTypeEnum.None) summary += endpoint.HasApiKey ? ", secret stored" : ", no secret";
+            if (endpoint.Headers.Count > 0) summary += ", headers: " + String.Join(", ", endpoint.Headers.Select(h => h.Name));
+            return summary;
+        }
+
+        private static string HeaderLines(ModelEndpoint? existing)
+        {
+            if (existing == null || existing.Headers.Count == 0) return "";
+            return String.Join("\n", existing.Headers.Select(h => h.Name + ":"));
         }
 
         #endregion

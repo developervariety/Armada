@@ -62,6 +62,11 @@ namespace Armada.Server.Mcp.Tools
                         baseUrl = new { type = "string", description = "Base URL of the endpoint" },
                         model = new { type = "string", description = "Model identifier to request (optional)" },
                         apiKey = new { type = "string", description = "API key/credential (optional; stored but never returned)" },
+                        authType = new { type = "string", description = "How the endpoint authenticates; the secret is apiKey. " + McpToolHelpers.EnumNames<ModelEndpointAuthTypeEnum>() + ". ProviderDefault (default) uses the provider's scheme (Bearer for Ollama/OpenAI, x-api-key for Anthropic, ...); Bearer sends Authorization: Bearer <apiKey>; Basic sends authUsername and apiKey; Header sends <authHeaderName>: <apiKey>; QueryParameter appends ?<authQueryParameter>=<apiKey>; None sends no credential. Vertex AI and Bedrock accept only ProviderDefault." },
+                        authUsername = new { type = "string", description = "User name for Basic authentication" },
+                        authHeaderName = new { type = "string", description = "Header that carries apiKey for Header authentication, e.g. X-API-Key" },
+                        authQueryParameter = new { type = "string", description = "Query parameter that carries apiKey for QueryParameter authentication, e.g. key" },
+                        headers = new { type = "array", description = "Extra headers sent with every request, e.g. Cloudflare Access headers. Values are stored but never returned.", items = new { type = "object", properties = new { name = new { type = "string" }, value = new { type = "string" } }, required = new[] { "name" } } },
                         dimensionality = new { type = "integer", description = "Optional embedding dimensionality hint" },
                         timeoutMs = new { type = "integer", description = "Per-request timeout in milliseconds (default 120000, clamped to 1000-600000)" },
                         enabled = new { type = "boolean", description = "Whether the endpoint is enabled (default true)" }
@@ -84,6 +89,11 @@ namespace Armada.Server.Mcp.Tools
                     if (request.TimeoutMs.HasValue) endpoint.TimeoutMs = request.TimeoutMs.Value;
                     if (request.Enabled.HasValue) endpoint.Enabled = request.Enabled.Value;
                     if (request.ApiKey != null) endpoint.ApiKey = request.ApiKey;
+                    if (request.AuthType.HasValue) endpoint.AuthType = request.AuthType.Value;
+                    endpoint.AuthUsername = request.AuthUsername;
+                    endpoint.AuthHeaderName = request.AuthHeaderName;
+                    endpoint.AuthQueryParameter = request.AuthQueryParameter;
+                    if (request.Headers != null) endpoint.Headers = request.Headers;
 
                     try
                     {
@@ -110,6 +120,11 @@ namespace Armada.Server.Mcp.Tools
                         baseUrl = new { type = "string", description = "Base URL of the endpoint" },
                         model = new { type = "string", description = "Model identifier to request" },
                         apiKey = new { type = "string", description = "API key/credential (omit to keep the stored key)" },
+                        authType = new { type = "string", description = "How the endpoint authenticates; the secret is apiKey. " + McpToolHelpers.EnumNames<ModelEndpointAuthTypeEnum>() + ". ProviderDefault (default) uses the provider's scheme (Bearer for Ollama/OpenAI, x-api-key for Anthropic, ...); Bearer sends Authorization: Bearer <apiKey>; Basic sends authUsername and apiKey; Header sends <authHeaderName>: <apiKey>; QueryParameter appends ?<authQueryParameter>=<apiKey>; None sends no credential. Vertex AI and Bedrock accept only ProviderDefault." },
+                        authUsername = new { type = "string", description = "User name for Basic authentication" },
+                        authHeaderName = new { type = "string", description = "Header that carries apiKey for Header authentication, e.g. X-API-Key" },
+                        authQueryParameter = new { type = "string", description = "Query parameter that carries apiKey for QueryParameter authentication, e.g. key" },
+                        headers = new { type = "array", description = "Extra headers (replaces the stored list; omit to keep it). A header without a value keeps the stored value of the header with the same name.", items = new { type = "object", properties = new { name = new { type = "string" }, value = new { type = "string" } }, required = new[] { "name" } } },
                         dimensionality = new { type = "integer", description = "Embedding dimensionality hint" },
                         timeoutMs = new { type = "integer", description = "Per-request timeout in milliseconds" },
                         enabled = new { type = "boolean", description = "Whether the endpoint is enabled" }
@@ -135,7 +150,13 @@ namespace Armada.Server.Mcp.Tools
                     if (request.Dimensionality.HasValue) existing.Dimensionality = request.Dimensionality.Value;
                     if (request.TimeoutMs.HasValue) existing.TimeoutMs = request.TimeoutMs.Value;
                     if (request.Enabled.HasValue) existing.Enabled = request.Enabled.Value;
-                    if (request.ApiKey != null) existing.ApiKey = request.ApiKey;
+                    // Through the write-only input, so the service sees the key as supplied (a plain set was ignored).
+                    if (request.ApiKey != null) existing.ApiKeyInput = request.ApiKey;
+                    if (request.AuthType.HasValue) existing.AuthType = request.AuthType.Value;
+                    if (request.AuthUsername != null) existing.AuthUsername = request.AuthUsername;
+                    if (request.AuthHeaderName != null) existing.AuthHeaderName = request.AuthHeaderName;
+                    if (request.AuthQueryParameter != null) existing.AuthQueryParameter = request.AuthQueryParameter;
+                    if (request.Headers != null) existing.Headers = request.Headers;
 
                     try
                     {

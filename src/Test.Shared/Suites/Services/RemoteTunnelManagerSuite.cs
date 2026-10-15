@@ -114,7 +114,7 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(status.Enabled);
                 AssertEqual(RemoteTunnelStateEnum.Disabled, status.State);
                 AssertNotNull(status.CapabilityManifest);
-                AssertTrue(status.InstanceId.StartsWith("armada-"), "Auto-generated instance ID should be stable and prefixed");
+                AssertTrue((status.InstanceId ?? String.Empty).StartsWith("armada-", StringComparison.Ordinal), "Auto-generated instance ID should be stable and prefixed");
             }));
 
             cases.Add(Case("status_reports_typed_error_code", "A misconfigured tunnel reports LastErrorCode in the status", TestTags.Negative, () =>

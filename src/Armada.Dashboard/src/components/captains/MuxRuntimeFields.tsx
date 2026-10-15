@@ -18,6 +18,7 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
   const [endpoints, setEndpoints] = useState<MuxEndpointInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [harborId, setHarborId] = useState<string | null>(null);
   const configDirectory = form.muxConfigDirectory.trim();
 
   const loadEndpoints = useCallback(async () => {
@@ -35,6 +36,7 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
       }
 
       setEndpoints(result.endpoints ?? []);
+      setHarborId(result.harborId ?? null);
       setLoadError('');
     } catch (error) {
       setEndpoints([]);
@@ -53,9 +55,11 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
     if (!isMuxRuntime(runtime)) return '';
     if (loading) return t('Loading saved Mux endpoints...');
     if (loadError) return loadError;
-    if (endpoints.length === 0) return t('No saved Mux endpoints were found for this config directory.');
-    return t('{{count}} saved Mux endpoint(s) available.', { count: endpoints.length });
-  }, [endpoints.length, loadError, loading, runtime, t]);
+    // Mux runs on the user's Harbor (where Mux captains run); say which machine answered.
+    const source = harborId ? t('Read from the mux on Harbor {{harbor}}.', { harbor: harborId }) : t('Read from the mux on the Admiral host.');
+    if (endpoints.length === 0) return t('No saved Mux endpoints were found for this config directory.') + ' ' + source;
+    return t('{{count}} saved Mux endpoint(s) available.', { count: endpoints.length }) + ' ' + source;
+  }, [endpoints.length, harborId, loadError, loading, runtime, t]);
 
   if (!isMuxRuntime(runtime)) return null;
 
@@ -63,7 +67,7 @@ export default function MuxRuntimeFields({ runtime, form, onChange, t, compact =
     <div className="mux-runtime-fields" style={{ marginTop: compact ? '0.5rem' : '0.75rem' }}>
       <div className="wizard-form-grid">
         <div className="form-group">
-          <label title={t('Optional mux config directory override. Leave blank to use mux defaults.')}>{t('Mux Config Directory')}</label>
+          <label title={t('Optional mux config directory override, a path on the machine that runs mux (your Harbor). Leave blank to use mux defaults.')}>{t('Mux Config Directory')}</label>
           <input aria-label={t('Mux Config Directory')}
             value={form.muxConfigDirectory}
             onChange={(event) => onChange({ muxConfigDirectory: event.target.value })}
