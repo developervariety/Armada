@@ -662,7 +662,7 @@ namespace Test.Shared.Suites.Services
                     mission.VoyageId = voyage.Id;
                     mission.Status = MissionStatusEnum.InProgress;
                     mission.ProcessId = 5151;
-                    mission.RedispatchAttempts = 1; // already at the max, so a further interruption must fail terminally
+                    mission.RedispatchAttempts = 3; // interruptions get at least 3 redispatches; at the max a further one must fail terminally
                     await db.Missions.CreateAsync(mission);
 
                     Captain captain = new Captain("exhausted-judge");

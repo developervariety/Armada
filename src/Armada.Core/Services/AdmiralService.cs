@@ -96,6 +96,12 @@ namespace Armada.Core.Services
 
         private static readonly TimeSpan _StalledCaptainRetryAfter = TimeSpan.FromMinutes(15);
 
+        // A Harbor laptop sleeps and an Admiral is redeployed; an interrupted mission is re-dispatched at least this
+        // many times (more when MaxNoOpRedispatchAttempts is higher) before an interruption fails it.
+        private const int _MinInterruptedRedispatches = 3;
+
+        private int InterruptedRedispatchLimit => Math.Max(_Settings.MaxNoOpRedispatchAttempts, _MinInterruptedRedispatches);
+
         private string _Header = "[AdmiralService] ";
         private static readonly TimeSpan _AssignedOrphanRecoveryGracePeriod = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan _WorkProducedReleaseGracePeriod = TimeSpan.FromMinutes(2);
@@ -905,7 +911,7 @@ namespace Armada.Core.Services
                 if (exitCode.HasValue && exitCode.Value < 0
                     && mission != null
                     && mission.Status != MissionStatusEnum.Cancelled
-                    && mission.RedispatchAttempts < _Settings.MaxNoOpRedispatchAttempts)
+                    && mission.RedispatchAttempts < InterruptedRedispatchLimit)
                 {
                     await HandleInterruptedProcessExitAsync(captain, mission, missionId, exitCode.Value, token).ConfigureAwait(false);
                     await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
@@ -1322,7 +1328,7 @@ namespace Armada.Core.Services
                     if (exitCode < 0
                         && mission != null
                         && mission.Status != MissionStatusEnum.Cancelled
-                        && mission.RedispatchAttempts < _Settings.MaxNoOpRedispatchAttempts)
+                        && mission.RedispatchAttempts < InterruptedRedispatchLimit)
                     {
                         await HandleInterruptedProcessExitAsync(captain, mission, missionId, exitCode, token).ConfigureAwait(false);
                         return;
@@ -1945,7 +1951,7 @@ namespace Armada.Core.Services
 
             _Logging.Warn(_Header + "mission " + missionId + " interrupted (process exit code " + exitCode +
                 ", treated as a stop/restart cancellation rather than a failure); re-dispatching (attempt " +
-                mission.RedispatchAttempts + "/" + _Settings.MaxNoOpRedispatchAttempts + ") and leaving the voyage running");
+                mission.RedispatchAttempts + "/" + InterruptedRedispatchLimit + ") and leaving the voyage running");
 
             await EmitEventAsync("mission.redispatched",
                 "Mission re-dispatched after interruption (exit code " + exitCode + "): " + mission.Title,
