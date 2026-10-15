@@ -14,6 +14,11 @@ namespace Armada.Core.Services.Interfaces
         Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
 
         /// <summary>
+        /// Take the telemetry the lifecycle handler recorded for a mission's latest launch (runtime-reported usage and model), or null.
+        /// </summary>
+        Func<string, ChatTurnTelemetryRecorder?>? OnTakeMissionTelemetry { get; set; }
+
+        /// <summary>
         /// Delegate invoked when a mission completes and branch should be pushed/PR created.
         /// </summary>
         Func<Mission, Dock, Task>? OnMissionComplete { get; set; }
@@ -81,6 +86,20 @@ namespace Armada.Core.Services.Interfaces
         /// next captain must consider ("Conditionally Approve"). Ignored when there is no downstream stage.</param>
         /// <param name="token">Cancellation token.</param>
         Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, bool conditional = false, CancellationToken token = default);
+
+        /// <summary>
+        /// Restart a Failed, LandingFailed, or Cancelled mission: back to Pending with its run state cleared. A later
+        /// pipeline stage keeps the previous stage's branch (so it sees that work), a finished voyage is reopened, and
+        /// the following stages that were cancelled because this one failed are restored to Pending.
+        /// </summary>
+        /// <param name="mission">The mission (already read and access-checked by the caller).</param>
+        /// <param name="title">New title, or null to keep it.</param>
+        /// <param name="description">New description, or null to keep it.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The restarted mission.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when mission is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the mission is not Failed, LandingFailed, or Cancelled.</exception>
+        Task<Mission> RestartAsync(Mission mission, string? title = null, string? description = null, CancellationToken token = default);
 
         /// <summary>
         /// Deny a mission that is waiting at a review gate.

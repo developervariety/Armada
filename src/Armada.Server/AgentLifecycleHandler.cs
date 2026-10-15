@@ -93,6 +93,13 @@ namespace Armada.Server
         private System.Collections.Concurrent.ConcurrentDictionary<string, string> _MissionFinalMessageFiles = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
 
         /// <summary>
+        /// Per-mission telemetry of the running captain, observed over the CLI's raw stdout (before any structured
+        /// decoding), so the runtime's own usage report (Claude Code's result event, Codex's turn.completed, Mux's
+        /// run_completed) and model are known when the mission completes. Taken by <see cref="TakeMissionTelemetry"/>.
+        /// </summary>
+        private System.Collections.Concurrent.ConcurrentDictionary<string, ChatTurnTelemetryRecorder> _MissionTelemetry = new System.Collections.Concurrent.ConcurrentDictionary<string, ChatTurnTelemetryRecorder>(StringComparer.Ordinal);
+
+        /// <summary>
         /// Tracks launches that have started but have not yet completed HandleLaunchAgentAsync registration.
         /// This closes the race where a fast process can emit output or exit before the PID mapping is written.
         /// </summary>
@@ -435,6 +442,19 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Take (and forget) the telemetry recorded for a mission's latest launch: the token counts, cost, and model its
+        /// runtime reported in its raw output, observed on the Admiral host and for a Harbor run alike. Null when the
+        /// mission has no launch recorded, or it was already taken.
+        /// </summary>
+        /// <param name="missionId">Mission ID.</param>
+        /// <returns>The recorder, or null.</returns>
+        public ChatTurnTelemetryRecorder? TakeMissionTelemetry(string missionId)
+        {
+            if (String.IsNullOrEmpty(missionId)) return null;
+            return _MissionTelemetry.TryRemove(missionId, out ChatTurnTelemetryRecorder? recorder) ? recorder : null;
+        }
+
+        /// <summary>
         /// Check whether a process exit has already been received for the given PID.
         /// The health check uses this to avoid triggering recovery for a process
         /// whose exit is already being handled by the async exit callback.
@@ -684,6 +704,17 @@ namespace Armada.Server
                 MissionId = mission.Id
             };
             runtime.OnProcessStarted += processId => HandleProcessStarted(processId, launchKey);
+
+            // Token usage and the model come from the CLI's own events, read from its raw stdout as it arrives (a mission
+            // streaming its progress raises decoded text on OnStdoutReceived, which no longer carries them).
+            ChatTurnTelemetryRecorder telemetry = new ChatTurnTelemetryRecorder();
+            AgentRuntimeEnum telemetryRuntime = captain.Runtime;
+            _MissionTelemetry[mission.Id] = telemetry;
+            if (runtime is IRawStdoutSource rawSource)
+                rawSource.OnRawStdoutReceived += (processId, line) => telemetry.ObserveLine(telemetryRuntime, line);
+            else
+                runtime.OnStdoutReceived += (processId, line) => telemetry.ObserveLine(telemetryRuntime, line);
+
             runtime.OnOutputReceived += HandleAgentOutput;
             runtime.OnOutputReceived += HandleAgentHeartbeat;
             runtime.OnStdoutReceived += HandleAgentStdout;
@@ -836,6 +867,7 @@ namespace Armada.Server
             {
                 _PendingLaunches.TryRemove(launchKey, out _);
                 _MissionFinalMessageFiles.TryRemove(mission.Id, out _);
+                _MissionTelemetry.TryRemove(new KeyValuePair<string, ChatTurnTelemetryRecorder>(mission.Id, telemetry));
                 EndMissionActivity(mission.Id, activityBroadcast);
 
                 // The launch fell back to the Admiral host only because the Harbor does not have the dock, and the
@@ -1422,7 +1454,19 @@ namespace Armada.Server
         {
             _ProcessProviderErrors.TryRemove(processId, out RuntimeProviderError? providerError);
             RuntimeExitInfo exitInfo = RuntimeFailureClassifier.Decide(exitCode, providerError);
-            await _Admiral.HandleProcessExitAsync(processId, exitInfo, captainId, missionId).ConfigureAwait(false);
+
+            // The completion flow takes this launch's telemetry; whatever it left (a failed or interrupted exit) is
+            // dropped afterwards, unless the mission was relaunched meanwhile and the entry is the new launch's.
+            _MissionTelemetry.TryGetValue(missionId, out ChatTurnTelemetryRecorder? launchTelemetry);
+            try
+            {
+                await _Admiral.HandleProcessExitAsync(processId, exitInfo, captainId, missionId).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (launchTelemetry != null)
+                    _MissionTelemetry.TryRemove(new KeyValuePair<string, ChatTurnTelemetryRecorder>(missionId, launchTelemetry));
+            }
         }
 
         /// <summary>

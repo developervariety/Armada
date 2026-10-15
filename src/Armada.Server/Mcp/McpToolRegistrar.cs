@@ -72,6 +72,7 @@ namespace Armada.Server.Mcp
         /// <param name="askThreads">Optional Ask Armada conversation service; with the turn coordinator and action service it enables the Ask tools.</param>
         /// <param name="askTurns">Optional Ask Armada turn coordinator.</param>
         /// <param name="askActions">Optional Ask Armada action service.</param>
+        /// <param name="missionService">Optional mission service; with it the review gate tools (approve_mission_review, deny_mission_review) decide gates, without it they answer Unavailable.</param>
         /// <param name="cliPermissionService">Optional CLI permission service; without it the CLI permission tools are
         /// registered and answer a typed Unavailable error.</param>
         public static void RegisterAll(
@@ -107,7 +108,8 @@ namespace Armada.Server.Mcp
             CliPermissionService? cliPermissionService = null,
             Armada.Core.Services.Ask.AskThreadService? askThreads = null,
             Armada.Server.Ask.AskTurnCoordinator? askTurns = null,
-            Armada.Server.Ask.AskActionService? askActions = null)
+            Armada.Server.Ask.AskActionService? askActions = null,
+            IMissionService? missionService = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             register = MapToolExceptions(MarkExperimental(register));
@@ -118,7 +120,7 @@ namespace Armada.Server.Mcp
             McpVesselTools.Register(register, database, dockService, vesselService, settings);
             if (vesselImportService != null) McpVesselImportTools.Register(register, vesselImportService, fleetCategorizationService);
             McpVoyageTools.Register(register, database, admiral, settings);
-            McpMissionTools.Register(register, database, admiral, settings, git, landingService);
+            McpMissionTools.Register(register, database, admiral, settings, git, landingService, missionService);
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, captainToolService);
             McpSignalTools.Register(register, database);
             McpEventTools.Register(register, database);
@@ -144,6 +146,7 @@ namespace Armada.Server.Mcp
             if (vesselHealthService != null) McpVesselHealthTools.Register(register, vesselHealthService);
             McpCliPermissionTools.Register(register, database, cliPermissionService);
             McpAskTools.Register(register, askThreads, askTurns, askActions);
+            McpMissionReviewTools.Register(register, database, missionService);
         }
 
         /// <summary>
@@ -229,6 +232,7 @@ namespace Armada.Server.Mcp
             if (vesselHealthService != null) RegisterCatalogGroup("Armada MCP / Vessel Health", register => McpVesselHealthTools.Register(register, vesselHealthService));
             RegisterCatalogGroup("Armada MCP / CLI Permissions", register => McpCliPermissionTools.Register(register, database, cliPermissionService));
             RegisterCatalogGroup("Armada MCP / Ask Armada", register => McpAskTools.Register(register, null, null, null));
+            RegisterCatalogGroup("Armada MCP / Review Gates", register => McpMissionReviewTools.Register(register, database, null));
 
             return tools
                 .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)

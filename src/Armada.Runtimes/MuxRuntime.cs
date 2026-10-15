@@ -1,6 +1,7 @@
 namespace Armada.Runtimes
 {
     using System;
+    using System.IO;
     using Armada.Core.Models;
     using Armada.Core.Protocol;
     using Armada.Core.Services;
@@ -41,6 +42,10 @@ namespace Armada.Runtimes
         #region Private-Members
 
         private string _ExecutablePath = "mux";
+        private string _Header = "[MuxRuntime] ";
+        private LoggingModule _Logging;
+        private MuxRunOutcomeTracker _Outcome = new MuxRunOutcomeTracker();
+        private string? _FinalMessageFilePath = null;
 
         #endregion
 
@@ -51,15 +56,13 @@ namespace Armada.Runtimes
         /// </summary>
         public MuxRuntime(LoggingModule logging) : base(logging)
         {
+            _Logging = logging;
         }
 
         #endregion
 
         #region Private-Methods
 
-        /// <summary>
-        /// Get the mux CLI command.
-        /// </summary>
         /// <summary>
         /// The runtime this adapter drives.
         /// </summary>
@@ -121,6 +124,71 @@ namespace Armada.Runtimes
 
             int insertAt = args.Count > 0 ? args.Count - 1 : 0;
             args.InsertRange(insertAt, extraArguments);
+        }
+
+        /// <summary>
+        /// Start following a new run: its outcome and its final-message file.
+        /// </summary>
+        /// <param name="finalMessageFilePath">The launch's final-message file, or null.</param>
+        protected override void BeginLaunch(string? finalMessageFilePath)
+        {
+            _Outcome = new MuxRunOutcomeTracker();
+            _FinalMessageFilePath = String.IsNullOrEmpty(finalMessageFilePath) ? null : finalMessageFilePath;
+        }
+
+        /// <summary>
+        /// Read mux's own structured error channel on stdout: each <c>error</c> event, and a failed <c>run_completed</c>
+        /// status no error event explained, becomes a provider error with a human-readable reason (see
+        /// <see cref="MuxRunOutcomeTracker"/>). Every stdout line is also followed for the run's outcome.
+        /// </summary>
+        /// <param name="line">One output line.</param>
+        /// <param name="fromStdout">True for a stdout line.</param>
+        /// <returns>The provider error, or null.</returns>
+        protected override RuntimeProviderError? TryParseProviderError(string line, bool fromStdout)
+        {
+            if (!fromStdout) return null;
+            return _Outcome.ObserveLine(line);
+        }
+
+        /// <summary>
+        /// Report mux's error exits (1 after an error event, 2 after a denied tool call) as 0 when the run's
+        /// <c>run_completed</c> event says it completed (with or without errors) and no fatal error was reported. Mux
+        /// skips --output-last-message on a non-zero exit, so the final reply rebuilt from the stream is written there
+        /// when mux wrote nothing.
+        /// </summary>
+        /// <param name="exitCode">The process exit code, or null when unknown.</param>
+        /// <returns>The exit code to report.</returns>
+        protected override int? ResolveExitCode(int? exitCode)
+        {
+            int? resolved = _Outcome.ResolveExitCode(exitCode);
+            if (resolved != exitCode)
+                _Logging.Info(_Header + "mux exited " + exitCode + " but its run " + _Outcome.RunStatus + "; reporting exit 0");
+            if (resolved == 0 && _Outcome.Succeeded) WriteFinalMessageIfMissing(_FinalMessageFilePath, _Outcome.FinalAssistantText);
+            return resolved;
+        }
+
+        /// <summary>
+        /// Write a final message rebuilt from the stream to the final-message file when mux left it missing or empty.
+        /// </summary>
+        /// <param name="finalMessageFilePath">The final-message file, or null.</param>
+        /// <param name="text">The rebuilt final message, or null.</param>
+        /// <returns>True when the file was written.</returns>
+        public static bool WriteFinalMessageIfMissing(string? finalMessageFilePath, string? text)
+        {
+            if (String.IsNullOrEmpty(finalMessageFilePath) || String.IsNullOrWhiteSpace(text)) return false;
+            try
+            {
+                if (File.Exists(finalMessageFilePath) && !String.IsNullOrWhiteSpace(File.ReadAllText(finalMessageFilePath))) return false;
+                string? directory = Path.GetDirectoryName(finalMessageFilePath);
+                if (!String.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+                File.WriteAllText(finalMessageFilePath, text);
+                return true;
+            }
+            catch (Exception)
+            {
+                // The final message is optional; callers fall back to the streamed output.
+                return false;
+            }
         }
 
         #endregion

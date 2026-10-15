@@ -156,7 +156,8 @@ export default function Captains() {
   }
 
   function openEdit(c: Captain) {
-    setForm(captainFormFromCaptain(c, { withEndpoint: true }));
+    // Carry the persona fields even though this modal does not show them, so saving keeps them unchanged.
+    setForm(captainFormFromCaptain(c, { withEndpoint: true, withPersonas: true }));
     setEditing(c);
     setShowForm(true);
   }

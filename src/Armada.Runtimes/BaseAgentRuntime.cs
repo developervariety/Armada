@@ -9,7 +9,7 @@ namespace Armada.Runtimes
     /// <summary>
     /// Base implementation for agent runtimes with common process management.
     /// </summary>
-    public abstract class BaseAgentRuntime : IAgentRuntime
+    public abstract class BaseAgentRuntime : IAgentRuntime, IRawStdoutSource
     {
         #region Public-Members
 
@@ -40,6 +40,13 @@ namespace Armada.Runtimes
         /// (chat, planning) subscribe here so CLI stderr banners are excluded from the captured reply.
         /// </summary>
         public event Action<int, string>? OnStdoutReceived;
+
+        /// <summary>
+        /// Event raised for each non-empty stdout line exactly as the CLI wrote it, before any structured decoding (see
+        /// <see cref="IRawStdoutSource"/>). Without structured decoding it carries the same lines as
+        /// <see cref="OnStdoutReceived"/>.
+        /// </summary>
+        public event Action<int, string>? OnRawStdoutReceived;
 
         /// <summary>
         /// Event raised only when the agent writes a line to stderr (every such line is also raised on
@@ -80,6 +87,15 @@ namespace Armada.Runtimes
         /// already streams JSON (chat). Default false.
         /// </summary>
         public bool StructuredProgress { get; set; } = false;
+
+        /// <summary>
+        /// When true together with <see cref="StructuredProgress"/>, the CLI still runs with its structured mission output
+        /// (Claude Code stream-json without partial messages, Codex exec --json, Mux jsonl), but the runtime does not
+        /// decode it: every stdout line is raised unchanged on <see cref="OnOutputReceived"/> and
+        /// <see cref="OnStdoutReceived"/>, so a consumer elsewhere (the Admiral, for a mission run on a Harbor) decodes
+        /// the raw events itself. Default false.
+        /// </summary>
+        public bool StructuredPassthrough { get; set; } = false;
 
         /// <summary>
         /// Milliseconds to wait for an agent process to exit gracefully (after closing stdin) before it
@@ -209,6 +225,7 @@ namespace Armada.Runtimes
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
 
             ShowThinking = showThinking;
+            BeginLaunch(finalMessageFilePath);
             string command = GetCommand();
             List<string> args = BuildArguments(workingDirectory, prompt, model, finalMessageFilePath, captain);
 
@@ -342,7 +359,8 @@ namespace Armada.Runtimes
             Process process = new Process { StartInfo = startInfo };
 
             // Mission progress: decode structured stdout into the readable output text mode prints plus activities.
-            Armada.Core.Services.MissionStreamDecoder? decoder = StructuredProgressActive ? Armada.Core.Services.MissionStreamDecoder.For(RuntimeType) : null;
+            // A passthrough launch keeps the structured lines raw for a consumer that decodes them itself.
+            Armada.Core.Services.MissionStreamDecoder? decoder = StructuredProgressActive && !StructuredPassthrough ? Armada.Core.Services.MissionStreamDecoder.For(RuntimeType) : null;
             object decoderLock = new object();
 
             // Captured once after Start: the Exited handler disposes the Process, after which reading process.Id throws.
@@ -353,6 +371,12 @@ namespace Armada.Runtimes
 
             process.OutputDataReceived += (sender, e) =>
             {
+                if (!String.IsNullOrEmpty(e.Data))
+                {
+                    try { OnRawStdoutReceived?.Invoke(launchedPid, e.Data); }
+                    catch { }
+                }
+
                 if (!String.IsNullOrEmpty(e.Data) && decoder != null)
                 {
                     _Logging.Debug(_Header + "[stdout] " + e.Data);
@@ -440,14 +464,24 @@ namespace Armada.Runtimes
                     try { processId = process.Id; } catch { }
                 }
                 try { code = ((Process?)sender)?.ExitCode; } catch { }
-                try { logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Agent exited with code " + (code?.ToString() ?? "unknown")); }
+
+                // The runtime decides what its CLI's exit means (Mux exits non-zero after a recoverable error even when its
+                // run completed) and may supply the final message the CLI skipped.
+                int? reportedCode = code;
+                try { reportedCode = ResolveExitCode(code); }
+                catch (Exception ex) { _Logging.Warn(_Header + "exit code resolution failed for process " + processId + ": " + ex.Message); }
+
+                string exitNote = "Agent exited with code " + (code?.ToString() ?? "unknown");
+                if (reportedCode != code)
+                    exitNote += " (its run completed; reported as " + (reportedCode?.ToString() ?? "unknown") + ")";
+                try { logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] " + exitNote); }
                 catch (ObjectDisposedException) { }
                 logWriter?.Dispose();
 
                 // Notify subscribers that the process has exited BEFORE disposing.
                 // Disposing first invalidates the PID, which can cause the health check
                 // to race with the exit handler and trigger spurious recovery.
-                try { OnProcessExited?.Invoke(processId, code); }
+                try { OnProcessExited?.Invoke(processId, reportedCode); }
                 catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessExited handler for process " + processId + ": " + ex.ToString()); }
 
                 // A per-launch scoped config holds a session token; remove it as soon as the process is gone.
@@ -582,6 +616,7 @@ namespace Armada.Runtimes
         /// <param name="line">Output line.</param>
         protected void RaiseStdout(int processId, string line)
         {
+            if (!String.IsNullOrEmpty(line)) OnRawStdoutReceived?.Invoke(processId, line);
             OnOutputReceived?.Invoke(processId, line);
             OnStdoutReceived?.Invoke(processId, line);
         }
@@ -679,6 +714,28 @@ namespace Armada.Runtimes
         protected virtual RuntimeProviderError? TryParseProviderError(string line, bool fromStdout)
         {
             return null;
+        }
+
+        /// <summary>
+        /// Called at the start of each <see cref="StartAsync"/>, before the arguments are built, so a runtime can reset
+        /// the per-launch state it keeps (for example the run outcome a Mux launch tracks). The default does nothing.
+        /// </summary>
+        /// <param name="finalMessageFilePath">The launch's final-message file, or null.</param>
+        protected virtual void BeginLaunch(string? finalMessageFilePath)
+        {
+        }
+
+        /// <summary>
+        /// Decide the exit code reported for the launch's process (on <see cref="OnProcessExited"/> and in the log), after
+        /// all of its output was read and before subscribers learn of the exit. A runtime whose CLI exits non-zero for a
+        /// run that completed overrides this, and may write the final message the CLI skipped. The default reports the
+        /// exit code unchanged.
+        /// </summary>
+        /// <param name="exitCode">The process exit code, or null when unknown.</param>
+        /// <returns>The exit code to report.</returns>
+        protected virtual int? ResolveExitCode(int? exitCode)
+        {
+            return exitCode;
         }
 
         /// <summary>

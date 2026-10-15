@@ -72,9 +72,6 @@ namespace Armada.Runtimes
         #region Private-Methods
 
         /// <summary>
-        /// Get the codex CLI command.
-        /// </summary>
-        /// <summary>
         /// The runtime this adapter drives.
         /// </summary>
         protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.Codex;
@@ -157,6 +154,19 @@ namespace Armada.Runtimes
             // truncated at the first newline, so the agent would receive only the first line of the prompt.
             // 'codex exec' reads the prompt from stdin when no positional prompt is supplied.
             return args;
+        }
+
+        /// <summary>
+        /// Recognize Codex's own structured error output: in 'codex exec --json' mode (chat, or a mission streaming its
+        /// progress) the <c>error</c> and <c>turn.failed</c> events on stdout. Text mode has no structured error channel.
+        /// </summary>
+        /// <param name="line">One output line.</param>
+        /// <param name="fromStdout">True for a stdout line.</param>
+        /// <returns>The provider error, or null.</returns>
+        protected override RuntimeProviderError? TryParseProviderError(string line, bool fromStdout)
+        {
+            if (!fromStdout || !(JsonOutput || StructuredProgressActive)) return null;
+            return RuntimeProviderErrorParser.TryParseCodexJsonLine(line);
         }
 
         /// <summary>

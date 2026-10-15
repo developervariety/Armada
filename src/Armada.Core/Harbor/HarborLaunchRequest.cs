@@ -108,6 +108,18 @@ namespace Armada.Core.Harbor
         public bool? AutoApprove { get; set; } = null;
 
         /// <summary>
+        /// The captain's runtime options JSON (for example a Mux captain's endpoint, config directory, temperature, max
+        /// tokens, approval policy, and system prompt). The Harbor has no database, so the options travel here; null (an
+        /// older Admiral, or a captain without options) launches with the runtime defaults.
+        /// </summary>
+        public string? RuntimeOptionsJson { get; set; } = null;
+
+        /// <summary>
+        /// The captain's reasoning effort, or null for the runtime default.
+        /// </summary>
+        public Armada.Core.Enums.ReasoningEffortEnum? ReasoningEffort { get; set; } = null;
+
+        /// <summary>
         /// Mission-scoped MCP session token for the captain's Armada MCP connection (sent as X-Token to the MCP URL the
         /// Admiral advertised in the handshake), or null when none was minted. Valid only while the mission runs.
         /// </summary>

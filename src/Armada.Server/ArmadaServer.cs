@@ -441,6 +441,7 @@ namespace Armada.Server
             _Admiral.OnIsProcessExitHandled = _AgentLifecycle.IsProcessExitHandled;
             admiralService.OnIsProcessTracked = _AgentLifecycle.IsProcessTracked;
             missionService.OnGetMissionOutput = _AgentLifecycle.GetAndClearMissionOutput;
+            missionService.OnTakeMissionTelemetry = _AgentLifecycle.TakeMissionTelemetry;
 
             // When RequireHarborForLaunch is set, defer a mission until an eligible Harbor owned by the
             // requesting user is connected -- never run it in-process or on another user's Harbor.
@@ -460,7 +461,19 @@ namespace Armada.Server
             missionService.DockHosts = dockHosts;
             missionService.ResolveDockPlacementAsync = _AgentLifecycle.ResolveDockPlacementAsync;
             _MissionLanding.DockHosts = dockHosts;
-            if (_MergeQueue is MergeQueueService mergeQueueImpl) mergeQueueImpl.DockHosts = dockHosts;
+            if (_MergeQueue is MergeQueueService mergeQueueImpl)
+            {
+                mergeQueueImpl.DockHosts = dockHosts;
+                mergeQueueImpl.OnMissionReconciled = (mission) =>
+                {
+                    bool done = mission.Status == MissionStatusEnum.Complete;
+                    _WebSocketHub?.BroadcastToTenant(mission.TenantId, done ? "mission.completed" : "mission.landing_failed",
+                        (done ? "Mission completed: " : "Landing failed: ") + mission.Title,
+                        new { entityType = "mission", entityId = mission.Id, captainId = mission.CaptainId, missionId = mission.Id, vesselId = mission.VesselId, voyageId = mission.VoyageId });
+                    _WebSocketHub?.BroadcastMissionChange(mission, mission.Status.ToString());
+                    return Task.CompletedTask;
+                };
+            }
 
             _Admiral.OnMissionComplete = _MissionLanding.HandleMissionCompleteAsync;
             _Admiral.OnVoyageComplete = _MissionLanding.HandleVoyageCompleteAsync;
@@ -648,6 +661,7 @@ namespace Armada.Server
             _AskTurns.CliPermissions = _CliPermissions;
             _AgentLifecycle.SetCliPermissionService(_CliPermissions);
             _WebSocketHub.SetCliPermissionService(_CliPermissions);
+            _WebSocketHub.SetMissionService(_MissionService);
             _AskThreads.SessionTokensAvailable = _SessionTokenService != null;
 
             // Push notifications to the mobile apps: fed from the hub's broadcast points and new Ask proposals; delivery
@@ -1827,7 +1841,8 @@ namespace Armada.Server
                 _CliPermissions,
                 _AskThreads,
                 _AskTurns,
-                _AskActions);
+                _AskActions,
+                _MissionService);
         }
 
         /// <summary>

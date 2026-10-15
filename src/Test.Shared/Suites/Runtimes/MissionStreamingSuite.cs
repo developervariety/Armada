@@ -99,7 +99,8 @@ namespace Test.Shared.Suites.Runtimes
             {
                 AssertTrue(MissionStreamDecoder.Supports(AgentRuntimeEnum.ClaudeCode));
                 AssertTrue(MissionStreamDecoder.Supports(AgentRuntimeEnum.Codex));
-                foreach (AgentRuntimeEnum runtime in new AgentRuntimeEnum[] { AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.Mux, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.ApiEndpoint })
+                AssertTrue(MissionStreamDecoder.Supports(AgentRuntimeEnum.Mux));
+                foreach (AgentRuntimeEnum runtime in new AgentRuntimeEnum[] { AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.ApiEndpoint })
                 {
                     AssertFalse(MissionStreamDecoder.Supports(runtime), runtime + " has no structured mission output");
                     AssertNull(MissionStreamDecoder.For(runtime), runtime + " has no decoder");

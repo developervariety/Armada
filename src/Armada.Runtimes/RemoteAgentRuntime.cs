@@ -16,7 +16,7 @@ namespace Armada.Runtimes
     /// exactly as it does a local process. Liveness and termination route to the Harbor by the reported
     /// process id.
     /// </summary>
-    public class RemoteAgentRuntime : IAgentRuntime, IHarborJobListener
+    public class RemoteAgentRuntime : IAgentRuntime, IHarborJobListener, IRawStdoutSource
     {
         #region Public-Members
 
@@ -37,6 +37,12 @@ namespace Armada.Runtimes
 
         /// <inheritdoc />
         public event Action<int, string>? OnStdoutReceived;
+
+        /// <summary>
+        /// Raised for each stdout line the Harbor reported, exactly as the CLI wrote it, before this runtime decodes a
+        /// mission's structured output (see <see cref="IRawStdoutSource"/>).
+        /// </summary>
+        public event Action<int, string>? OnRawStdoutReceived;
 
         /// <inheritdoc />
         public event Action<int>? OnProcessStarted;
@@ -80,9 +86,13 @@ namespace Armada.Runtimes
         public string? MissionId { get; set; } = null;
 
         /// <summary>
-        /// Whether a mission runs with its runtime's structured output on the Harbor (see
-        /// <see cref="HarborLaunchRequest.StructuredProgress"/>): the Harbor reports readable output as before and the
-        /// captain's activity, raised on <see cref="OnActivity"/>. Sent only for runtimes that have structured output.
+        /// Whether a mission runs with its runtime's structured output (Claude Code, Codex, Mux; see
+        /// <see cref="MissionStreamDecoder.Supports"/>). The Harbor is asked to stream the raw structured events
+        /// (<see cref="HarborLaunchRequest.StreamJsonOutput"/> together with
+        /// <see cref="HarborLaunchRequest.StructuredProgress"/>), and this runtime decodes them here: the readable output
+        /// text mode prints is raised on <see cref="OnOutputReceived"/> and <see cref="OnStdoutReceived"/>, each activity
+        /// on <see cref="OnActivity"/>, and the raw events on <see cref="OnRawStdoutReceived"/>, so the Admiral reads the
+        /// runtime's usage and errors from the events themselves. Ignored for runtimes without structured output.
         /// </summary>
         public bool StructuredProgress { get; set; } = false;
 
@@ -113,6 +123,11 @@ namespace Armada.Runtimes
         private readonly object _LogLock = new object();
         private string? _FinalMessageFilePath = null;
         private int _Finished = 0;
+        private Armada.Core.Services.MissionStreamDecoder? _Decoder = null;
+        private readonly object _DecoderLock = new object();
+        private bool _DecodedAny = false;
+        private MuxRunOutcomeTracker? _MuxOutcome = null;
+        private bool _ParseStructuredErrors = false;
 
         #endregion
 
@@ -159,6 +174,20 @@ namespace Armada.Runtimes
             _FinalMessageFilePath = String.IsNullOrEmpty(finalMessageFilePath) ? null : finalMessageFilePath;
             Interlocked.Exchange(ref _Finished, 0);
 
+            // A mission streaming its progress: the Harbor passes the raw structured events through and they are decoded
+            // here. Older Harbors already pass raw events through for StreamJsonOutput (Claude Code, Codex) and always for
+            // Mux, whose CLI only speaks jsonl; a current Harbor runs the mission's own structured mode (no partial
+            // messages) and keeps its job log readable.
+            bool decodeHere = StructuredProgress && MissionStreamDecoder.Supports(_RuntimeType);
+            lock (_DecoderLock)
+            {
+                _Decoder = decodeHere ? MissionStreamDecoder.For(_RuntimeType) : null;
+                _DecodedAny = false;
+            }
+            _MuxOutcome = _RuntimeType == AgentRuntimeEnum.Mux ? new MuxRunOutcomeTracker() : null;
+            bool streamsJson = StreamJsonOutput && (_RuntimeType == AgentRuntimeEnum.ClaudeCode || _RuntimeType == AgentRuntimeEnum.Codex);
+            _ParseStructuredErrors = decodeHere || streamsJson;
+
             // Mirror the captain's streamed output into the Admiral-side mission log file so live-follow
             // (which tails this file) and the stored log read identically to a local run. The captain process
             // itself runs on the Harbor, so this is the only server-side copy of its transcript.
@@ -175,15 +204,17 @@ namespace Armada.Runtimes
                 Arguments = new List<string>(),
                 Environment = environment ?? new Dictionary<string, string>(),
                 AutoApprove = captain != null ? CaptainRuntimeOptions.GetAutoApprove(captain) : (bool?)null,
+                RuntimeOptionsJson = captain != null && !String.IsNullOrWhiteSpace(captain.RuntimeOptionsJson) ? captain.RuntimeOptionsJson : null,
+                ReasoningEffort = captain?.ReasoningEffort,
                 McpSessionToken = String.IsNullOrEmpty(McpSessionToken) ? null : McpSessionToken,
                 ScratchWorkingDirectory = UseScratchWorkingDirectory,
-                StreamJsonOutput = StreamJsonOutput && (_RuntimeType == AgentRuntimeEnum.ClaudeCode || _RuntimeType == AgentRuntimeEnum.Codex),
+                StreamJsonOutput = streamsJson || decodeHere,
                 ShowThinking = showThinking,
                 ReturnFinalMessage = _FinalMessageFilePath != null,
                 JobKind = JobKind.ToString(),
                 MissionId = String.IsNullOrWhiteSpace(MissionId) ? null : MissionId,
                 CaptainId = captain != null && !String.IsNullOrWhiteSpace(captain.Id) ? captain.Id : null,
-                StructuredProgress = StructuredProgress && MissionStreamDecoder.Supports(_RuntimeType),
+                StructuredProgress = decodeHere,
                 Display = Display != null && !Display.IsEmpty() ? Display.Clone() : null
             };
 
@@ -269,22 +300,38 @@ namespace Armada.Runtimes
                 return;
             }
 
-            WriteLog(stream == HarborOutputStreamEnum.Stderr ? "[stderr] " + data : data);
-            OnOutputReceived?.Invoke(_ProcessId, data);
-            if (stream == HarborOutputStreamEnum.Stdout)
-                OnStdoutReceived?.Invoke(_ProcessId, data);
-
-            // A harbor runs Claude Code missions in text mode, so the CLI's own whole-line protocol errors are the
-            // structured error channel here as well.
-            if (_RuntimeType == AgentRuntimeEnum.ClaudeCode)
+            bool fromStdout = stream == HarborOutputStreamEnum.Stdout;
+            if (fromStdout && !String.IsNullOrEmpty(data))
             {
-                RuntimeProviderError? error = RuntimeProviderErrorParser.TryParseClaudeTextLine(data);
-                if (error != null)
+                try { OnRawStdoutReceived?.Invoke(_ProcessId, data); }
+                catch { }
+            }
+
+            RaiseProviderError(ParseProviderError(data, fromStdout));
+
+            if (fromStdout && !String.IsNullOrEmpty(data))
+            {
+                Armada.Core.Services.MissionStreamDecodeResult? decoded = null;
+                lock (_DecoderLock)
                 {
-                    try { OnProviderError?.Invoke(_ProcessId, error); }
-                    catch { }
+                    if (_Decoder != null)
+                    {
+                        decoded = _Decoder.Decode(data, DateTime.UtcNow);
+                        if (decoded.Structured) _DecodedAny = true;
+                    }
+                }
+
+                if (decoded != null && decoded.Structured)
+                {
+                    RaiseDecoded(decoded);
+                    return;
                 }
             }
+
+            WriteLog(stream == HarborOutputStreamEnum.Stderr ? "[stderr] " + data : data);
+            OnOutputReceived?.Invoke(_ProcessId, data);
+            if (fromStdout)
+                OnStdoutReceived?.Invoke(_ProcessId, data);
         }
 
         /// <summary>
@@ -295,6 +342,13 @@ namespace Armada.Runtimes
         void IHarborJobListener.OnActivity(RuntimeActivity activity)
         {
             if (activity == null) return;
+
+            // The raw events are decoded here, which reports the same activity; the Harbor's copy would repeat it.
+            lock (_DecoderLock)
+            {
+                if (_Decoder != null && _DecodedAny) return;
+            }
+
             WriteLog("> " + activity.Summary);
             try { OnActivity?.Invoke(_ProcessId, activity); }
             catch { }
@@ -305,8 +359,28 @@ namespace Armada.Runtimes
         {
             if (Interlocked.Exchange(ref _Finished, 1) == 1) return;
             _Manager.UnregisterProcessId(_ProcessId);
+
+            // Output the decoder still holds (a Codex message whose turn never completed, a Mux line without a newline).
+            Armada.Core.Services.MissionStreamDecodeResult? rest = null;
+            lock (_DecoderLock)
+            {
+                if (_Decoder != null) rest = _Decoder.Flush(DateTime.UtcNow);
+            }
+            if (rest != null) RaiseDecoded(rest);
+
+            // Mux exits 1 or 2 after a recoverable error even when its run completed, and then writes no final message:
+            // decide from its run_completed event, as a local Mux launch does.
+            int reported = exitCode;
+            MuxRunOutcomeTracker? outcome = _MuxOutcome;
+            if (outcome != null)
+            {
+                reported = outcome.ResolveExitCode(exitCode) ?? exitCode;
+                if (reported == 0 && outcome.Succeeded) MuxRuntime.WriteFinalMessageIfMissing(_FinalMessageFilePath, outcome.FinalAssistantText);
+                if (reported != exitCode) WriteLog("Agent exited with code " + exitCode + " (its run " + outcome.RunStatus + "; reported as " + reported + ")");
+            }
+
             CloseLog();
-            OnProcessExited?.Invoke(_ProcessId, exitCode);
+            OnProcessExited?.Invoke(_ProcessId, reported);
         }
 
         /// <inheritdoc />
@@ -327,6 +401,58 @@ namespace Armada.Runtimes
         #endregion
 
         #region Private-Methods
+
+        private RuntimeProviderError? ParseProviderError(string data, bool fromStdout)
+        {
+            if (String.IsNullOrEmpty(data)) return null;
+            switch (_RuntimeType)
+            {
+                case AgentRuntimeEnum.ClaudeCode:
+                    // Text mode: the CLI's own whole-line protocol errors. Structured mode: the error result event too.
+                    if (_ParseStructuredErrors && fromStdout)
+                        return RuntimeProviderErrorParser.TryParseClaudeStreamJsonLine(data) ?? RuntimeProviderErrorParser.TryParseClaudeTextLine(data);
+                    return RuntimeProviderErrorParser.TryParseClaudeTextLine(data);
+                case AgentRuntimeEnum.Codex:
+                    return _ParseStructuredErrors && fromStdout ? RuntimeProviderErrorParser.TryParseCodexJsonLine(data) : null;
+                case AgentRuntimeEnum.Mux:
+                    return fromStdout ? _MuxOutcome?.ObserveLine(data) : null;
+                default:
+                    return null;
+            }
+        }
+
+        private void RaiseProviderError(RuntimeProviderError? error)
+        {
+            if (error == null) return;
+            try { OnProviderError?.Invoke(_ProcessId, error); }
+            catch { }
+        }
+
+        private void RaiseDecoded(Armada.Core.Services.MissionStreamDecodeResult decoded)
+        {
+            foreach (RuntimeActivity activity in decoded.Activities)
+            {
+                WriteLog("> " + activity.Summary);
+                try { OnActivity?.Invoke(_ProcessId, activity); }
+                catch { }
+            }
+
+            foreach (string line in decoded.TranscriptLines)
+            {
+                WriteLog("[stderr] " + line);
+                try { OnOutputReceived?.Invoke(_ProcessId, line); }
+                catch { }
+            }
+
+            foreach (string line in decoded.OutputLines)
+            {
+                WriteLog(line);
+                try { OnOutputReceived?.Invoke(_ProcessId, line); }
+                catch { }
+                try { OnStdoutReceived?.Invoke(_ProcessId, line); }
+                catch { }
+            }
+        }
 
         private void OpenLog(string? logFilePath, string prompt)
         {

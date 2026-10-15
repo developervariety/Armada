@@ -293,6 +293,8 @@ export interface Mission {
   vesselId: string | null;
   captainId: string | null;
   requestedCaptainId?: string | null;
+  /** Harbor (host runner) the mission was routed to, or null when it runs on the Admiral host or is not routed yet. */
+  assignedHarborId?: string | null;
   title: string;
   description: string | null;
   status: string;

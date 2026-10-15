@@ -259,9 +259,11 @@ that turns split mode on or off. Whenever at least one Harbor is connected, each
 advertising `maxConcurrentJobs` (omitted, or not positive); an existing registration keeps its capacity in that case.
 The Harbor app always advertises its `MaxConcurrentJobs`, so the default matters only for other link clients.
 `harbor.heartbeatIntervalSeconds` (15) is reserved: accepted and validated but not read in 1.0.
-`harbor.heartbeatTimeoutSeconds` (45) is not a liveness check either: a Harbor is marked `Disconnected` when its link
-closes, not on a missed heartbeat, and nothing marks a Harbor `Degraded`. It is how long a closed link counts as
-reconnecting in the [Harbor metrics](#harbor-metrics) link timeline before it counts as down.
+`harbor.heartbeatTimeoutSeconds` (45) is how long a closed link counts as reconnecting in the
+[Harbor metrics](#harbor-metrics) link timeline before it counts as down. Liveness is separate: a link silent for longer
+than max(45 seconds, 3x the Harbor's heartbeat interval) is closed and the Harbor marked `Disconnected`, and job output
+produced while a link is down is replayed after the reconnect (see
+[Reconnection](HARBOR_PROTOCOL.md#reconnection)).
 
 ## Managing Harbors
 
@@ -398,15 +400,32 @@ its worktrees.
 Everything after that runs on the Harbor too: the mission's instruction file and playbooks, the captain, the
 Definition-of-Done gate (through `/bin/sh -lc`), diff and commit capture, landing, and removing the dock (`git worktree
 remove`, then `prune`). Landing uses your checkout as the vessel's working directory on that machine: **LocalMerge**
-merges the mission branch into it, **MergeAndPush** then pushes it, and **PullRequest** pushes the branch and runs `gh`
-from the dock. As with a working directory on the Admiral, a merge into a checkout with uncommitted changes is refused
-(the mission becomes `LandingFailed` and the branch is kept). A vessel served from the Harbor's own clone has no
-checkout to merge into, so LocalMerge and MergeAndPush leave the work on the branch (`WorkProduced`); use PullRequest
-landing or map the vessel to a checkout. **MergeQueue** landing processes the entry on the same Harbor: in the
-repository that holds the branch, the queue fetches the origin, creates a temporary integration worktree from
-`origin/<target>` next to the dock (your checkout's own branches are not touched), merges the mission branch, runs the
-merge queue test command there, and pushes the result to the target branch on the origin. While that Harbor is not
-connected the entry fails with a reason naming it; reconnect the Harbor and retry the entry.
+merges the mission branch into its target branch, **MergeAndPush** then pushes that branch, and **PullRequest** pushes
+the mission branch and runs `gh` from the dock. As with a working directory on the Admiral, a merge into a checkout with
+uncommitted changes to tracked files is refused (the mission becomes `LandingFailed` and the branch is kept). The merge
+records the branch your checkout is on, checks out the target branch, fast-forwards it to `origin/<target>` when it is
+only behind, merges (always with a merge commit when a merge commit template is configured, so its message is kept),
+and then switches the checkout back to the branch you were on, after a failed merge too; MergeAndPush pushes the target
+branch by name, never the branch you are on. MergeAndPush refuses before merging when the checkout's target branch has
+commits that are not on `origin/<target>` (the push would publish them too, or be rejected): push or reconcile them,
+then retry the landing. When a pull request merges, the checkout is fetched, and its target branch is fast-forwarded
+only when it is the branch checked out there, the working tree is clean, and it has no commits of its own. A vessel
+served from the Harbor's own clone has no checkout to merge into, so LocalMerge and MergeAndPush leave the work on the
+branch (`WorkProduced`); use PullRequest landing or map the vessel to a checkout.
+
+**MergeQueue** landing processes the entry on the Harbor that holds the branch (found from the most recent dock of the
+vessel on that branch, so a manual entry without a mission resolves too): in that repository the queue fetches the
+origin, creates a temporary integration worktree from `origin/<target>` next to the dock (your checkout's own branches
+are not touched), merges the mission branch, runs the merge queue test command there, and pushes the result to the
+target branch on the origin. Landing an entry moves its mission to `Complete` (with the same `mission.completed` event
+and broadcast as other landings); a conflict, failed tests, or a failed push moves it to `LandingFailed` with the reason.
+While that Harbor is not connected (or if it disconnects mid-run) the entry stays `Queued` with "Waiting for Harbor ...
+to reconnect" in its test output and is retried on later passes; the mission is not failed. Before processing on a host,
+the queue removes integration worktrees and `armada/merge-queue/*` branches an interrupted earlier run left there.
+Deleting an entry deletes its branch (locally and on the origin) only when the entry Landed, or was Cancelled and the
+branch is already merged into the target; a Failed entry's branch is always kept, since in your checkout it may be the
+only copy of the work. Enqueueing a mission that is already `Complete`, or a branch already contained in the target, is
+refused (REST 409, MCP Conflict).
 
 If no connected eligible Harbor can serve the vessel, the earlier behavior applies: with `requireHarborForLaunch` on the
 mission waits (Pending) and the Admiral logs why, for example "Harbor Mac (hbr_...) cannot serve vessel app: it has no
@@ -491,9 +510,11 @@ When a Harbor's link closes, the Admiral marks the Harbor `Disconnected`, fails 
 still waiting for its reply, and stops routing new work to it. Captain processes already running on that host keep
 running, and the Harbor app reconnects on its own (it retries every 3 seconds).
 
-Output and exit events a captain produces while the link is down are not buffered or replayed. If the Harbor
-reconnects while the captain is still running, later output streams to the same job again and the mission carries on.
-Otherwise the mission is recovered by stall detection, which is the accepted 1.0 behavior:
+Output and exit events a captain produces while the link is down are kept on the Harbor and replayed in order after
+it reconnects, so a captain that finished during a Wi-Fi drop or a closed lid still reports its result. After the
+reconnect the Admiral compares the jobs it tracks with the jobs the Harbor lists: a started job the Harbor no longer
+has is reported as interrupted within about 20 seconds and its mission is redispatched, and a job the Admiral no longer
+owns is stopped on the Harbor. Stall detection remains the backstop when a Harbor stays away:
 
 1. The Admiral keeps treating the delegated captain process as alive (it cannot probe a process on another host), so
    the mission is not failed the moment the link drops.

@@ -18,8 +18,9 @@ namespace Armada.Core.Services
     /// <remarks>
     /// Usage per runtime: Claude Code's stream-json <c>result</c> event (input, output, cache-read and cache-creation
     /// tokens, and total_cost_usd); Codex's <c>turn.completed</c> usage (input including cached, cached input, output);
-    /// OpenCode's <c>step_finish</c> parts (input, output, reasoning, cache read and write, cost; summed across steps).
-    /// Mux, Gemini, Cursor, and the in-process API runtime report no per-turn usage, so their completion tokens are
+    /// OpenCode's <c>step_finish</c> parts (input, output, reasoning, cache read and write, cost; summed across steps);
+    /// Mux's <c>run_completed</c> usage (contract version 2, unless stats are off). Gemini, Cursor, and the in-process
+    /// API runtime report no per-turn usage, so their completion tokens are
     /// estimated from the reply. Input tokens always include cached tokens, and cached tokens are the cache-read
     /// subset, matching <see cref="TokenUsageCapture"/>. Thread safe: output callbacks may arrive on any thread.
     /// </remarks>
@@ -83,6 +84,15 @@ namespace Armada.Core.Services
             get { lock (_Lock) return _CostUsd; }
         }
 
+        /// <summary>
+        /// The model the runtime reported it ran (Claude Code's system init event, Mux's run_started event), or null.
+        /// For a Mux captain this is the endpoint's model, which the captain record usually does not name.
+        /// </summary>
+        public string? Model
+        {
+            get { lock (_Lock) return _Model; }
+        }
+
         #endregion
 
         #region Private-Members
@@ -96,6 +106,7 @@ namespace Armada.Core.Services
         private long? _OutputTokens = null;
         private long? _CachedTokens = null;
         private double? _CostUsd = null;
+        private string? _Model = null;
 
         #endregion
 
@@ -168,6 +179,19 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Note the model the runtime reported. The first non-blank report is kept.
+        /// </summary>
+        /// <param name="model">Model name, or null.</param>
+        public void SetModel(string? model)
+        {
+            if (String.IsNullOrWhiteSpace(model)) return;
+            lock (_Lock)
+            {
+                if (_Model == null) _Model = model!.Trim();
+            }
+        }
+
+        /// <summary>
         /// Observe one stdout line of a runtime: its typed event when the line is one (Claude Code stream-json, Codex
         /// exec --json, OpenCode --format json, Mux protocol), otherwise plain reply text.
         /// </summary>
@@ -212,6 +236,7 @@ namespace Armada.Core.Services
         public void ObserveClaude(ClaudeStreamLine evt)
         {
             if (evt == null) return;
+            if (evt.Type == ClaudeStreamLine.TypeSystem) SetModel(evt.Model);
             if (!String.IsNullOrEmpty(evt.TextDelta))
             {
                 MarkText();
@@ -319,13 +344,15 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Observe a Mux protocol event: assistant text is reply text; thinking and tool calls are output. Mux reports
-        /// only a whole-context token estimate, which is not the reply's size, so no usage is taken from it.
+        /// Observe a Mux protocol event: assistant text is reply text; thinking and tool calls are output; run_started
+        /// (and an error event) names the endpoint's model; and run_completed carries the run's usage (contract version 2).
+        /// The whole-context token estimate is not the reply's size, so no usage is taken from it.
         /// </summary>
         /// <param name="evt">The event.</param>
         public void ObserveMux(MuxProtocolEvent evt)
         {
             if (evt == null) return;
+            if (evt.EventType == MuxProtocolEvent.RunStarted || evt.EventType == MuxProtocolEvent.Error) SetModel(evt.Model);
             if (evt.EventType == MuxProtocolEvent.AssistantText && !String.IsNullOrEmpty(evt.Text))
                 MarkText();
             else if (evt.EventType == MuxProtocolEvent.AssistantThinking || evt.EventType == MuxProtocolEvent.ToolCallProposed)

@@ -267,6 +267,15 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
+        /// Provide the mission service for the restart_mission WebSocket command.
+        /// </summary>
+        /// <param name="service">Service, or null.</param>
+        public void SetMissionService(IMissionService? service)
+        {
+            _CommandHandler.Missions = service;
+        }
+
+        /// <summary>
         /// Deliver a CLI permission event (cli_permission.requested or cli_permission.resolved) to the request's
         /// approvers and owner: global admins (of this tenant, or opted in to all tenants), the tenant's tenant admins,
         /// and the owning user. Each recipient's copy carries its own canDecide and canRemember.

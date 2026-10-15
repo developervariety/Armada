@@ -251,7 +251,7 @@ namespace Armada.Server
                         await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                         _Logging.Info(_Header + "created PR: " + prUrl);
 
-                        // PR created — transition to PullRequestOpen (not Complete).
+                        // PR created -- transition to PullRequestOpen (not Complete).
                         // Complete is reserved for when the PR is actually merged.
                         mission.Status = MissionStatusEnum.PullRequestOpen;
                         mission.LastUpdateUtc = DateTime.UtcNow;
@@ -290,7 +290,7 @@ namespace Armada.Server
                             _WebSocketHub.BroadcastMissionChange(mission, MissionStatusEnum.PullRequestOpen.ToString());
                         }
 
-                        // PR path handles its own status — skip the generic landing result block below
+                        // PR path handles its own status -- skip the generic landing result block below
                         landingSucceeded = false;
                         landingAttempted = false;
 
@@ -379,6 +379,7 @@ namespace Armada.Server
                     {
                     // Local merge flow: fetch captain's branch from bare repo and merge into user's working directory
                     landingAttempted = true;
+                    string? pushBlocker = null;
                     try
                     {
                         // Render merge commit message from template
@@ -386,6 +387,14 @@ namespace Armada.Server
                         Dictionary<string, string> mergeContext = _TemplateService.BuildContext(mission, null, vessel, voyage, dock);
                         mergeMessage = _TemplateService.RenderMergeCommitMessage(_Settings.MessageTemplates, mergeContext);
 
+                        // MergeAndPush: refuse before merging when the checkout's target branch has commits that are not on
+                        // origin (the push would publish them too, or be rejected); a target that is only behind is
+                        // fast-forwarded by the merge itself.
+                        if (effectivePush) pushBlocker = await TargetPushBlockerAsync(git, targetWorkDir, vessel.DefaultBranch).ConfigureAwait(false);
+                        if (pushBlocker != null) throw new InvalidOperationException(pushBlocker);
+
+                        // The checkout is often the user's own: the merge switches it to the target branch and back to
+                        // the branch it was on.
                         await git.MergeBranchLocalAsync(targetWorkDir, sourceRepoPath, dock.BranchName, vessel.DefaultBranch, mergeMessage).ConfigureAwait(false);
                         _Logging.Debug(_Header + "merged branch " + dock.BranchName + " into " + targetWorkDir + (harborDock ? " on Harbor " + dock.HarborId : ""));
 
@@ -397,8 +406,13 @@ namespace Armada.Server
                         {
                             try
                             {
-                                await git.PushBranchAsync(targetWorkDir).ConfigureAwait(false);
-                                _Logging.Debug(_Header + "pushed merged changes from " + targetWorkDir);
+                                // Push the target branch itself: the checkout may be back on another branch now.
+                                string? checkedOut = await git.GetCurrentBranchAsync(targetWorkDir).ConfigureAwait(false);
+                                if (String.Equals(checkedOut, vessel.DefaultBranch, StringComparison.Ordinal))
+                                    await git.PushBranchAsync(targetWorkDir).ConfigureAwait(false);
+                                else
+                                    await git.PushLocalBranchAsync(targetWorkDir, vessel.DefaultBranch).ConfigureAwait(false);
+                                _Logging.Debug(_Header + "pushed merged " + vessel.DefaultBranch + " from " + targetWorkDir);
                             }
                             catch (Exception pushEx)
                             {
@@ -427,14 +441,14 @@ namespace Armada.Server
                         }
                         else
                         {
-                            _Logging.Debug(_Header + "branch cleanup policy is None — retaining branch " + dock.BranchName + " for inspection");
+                            _Logging.Debug(_Header + "branch cleanup policy is None -- retaining branch " + dock.BranchName + " for inspection");
                         }
                     }
                     catch (Exception ex)
                     {
                         _Logging.Warn(_Header + "error merging locally for mission " + mission.Id + ": " + ex.ToString() + " -- branch " + dock.BranchName + " is still available in the bare repo");
                         landingSucceeded = false;
-                        landingFailureReason = "Error merging locally: " + ex.Message;
+                        landingFailureReason = pushBlocker ?? ("Error merging locally: " + ex.Message);
                     }
                     } // end hasChanges else
                 }
@@ -470,7 +484,7 @@ namespace Armada.Server
                     }
                     catch (Exception mqEx)
                     {
-                        _Logging.Warn(_Header + "error auto-enqueuing merge entry for mission " + mission.Id + ": " + mqEx.Message + " — branch " + dock.BranchName + " is still available for manual enqueue");
+                        _Logging.Warn(_Header + "error auto-enqueuing merge entry for mission " + mission.Id + ": " + mqEx.Message + " -- branch " + dock.BranchName + " is still available for manual enqueue");
                     }
                     // Mission stays as WorkProduced; merge queue processing will land it
                 }
@@ -482,8 +496,8 @@ namespace Armada.Server
                 }
                 else
                 {
-                    _Logging.Info(_Header + "mission " + mission.Id + " work produced — branch " + dock.BranchName + " available in bare repo (landing mode: " + resolvedLandingMode + ")");
-                    // No landing configured or LandingMode.None — mission stays as WorkProduced
+                    _Logging.Info(_Header + "mission " + mission.Id + " work produced -- branch " + dock.BranchName + " available in bare repo (landing mode: " + resolvedLandingMode + ")");
+                    // No landing configured or LandingMode.None -- mission stays as WorkProduced
                 }
             }
             finally
@@ -652,17 +666,11 @@ namespace Armada.Server
                     await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     _Logging.Info(_Header + "PR reconciler: mission " + mission.Id + " PR merged, status set to Complete");
 
-                    // Pull latest into working directory if available
+                    // Bring the checkout up to date without disturbing the user's work there: fetch, and fast-forward
+                    // the target branch only when it is checked out and clean.
                     if (!String.IsNullOrEmpty(pullDir))
                     {
-                        try
-                        {
-                            await git.PullAsync(pullDir).ConfigureAwait(false);
-                        }
-                        catch (Exception pullEx)
-                        {
-                            _Logging.Warn(_Header + "PR reconciler: pull failed for " + pullDir + ": " + pullEx.Message);
-                        }
+                        await SyncCheckoutAfterPrMergeAsync(git, pullDir, vessel?.DefaultBranch ?? "main").ConfigureAwait(false);
                     }
 
                     return true;
@@ -702,9 +710,8 @@ namespace Armada.Server
                     bool merged = await git.IsPrMergedAsync(workingDirectory, prUrl).ConfigureAwait(false);
                     if (merged)
                     {
-                        _Logging.Debug(_Header + "PR " + prUrl + " merged, pulling into " + workingDirectory);
-                        await git.PullAsync(workingDirectory).ConfigureAwait(false);
-                        _Logging.Debug(_Header + "pulled latest into " + workingDirectory + " after PR merge");
+                        _Logging.Debug(_Header + "PR " + prUrl + " merged, updating " + workingDirectory);
+                        await SyncCheckoutAfterPrMergeAsync(git, workingDirectory, await MissionTargetBranchAsync(missionId).ConfigureAwait(false)).ConfigureAwait(false);
 
                         // Transition mission from PullRequestOpen to Complete
                         try
@@ -784,19 +791,114 @@ namespace Armada.Server
                         }
                         else
                         {
-                            _Logging.Debug(_Header + "branch cleanup policy is None — retaining branch " + branchName + " for inspection");
+                            _Logging.Debug(_Header + "branch cleanup policy is None -- retaining branch " + branchName + " for inspection");
                         }
 
                         return;
                     }
                 }
 
-                _Logging.Info(_Header + "PR " + prUrl + " not merged within 5 minutes — mission " + missionId + " stays PullRequestOpen until merge is confirmed");
+                _Logging.Info(_Header + "PR " + prUrl + " not merged within 5 minutes -- mission " + missionId + " stays PullRequestOpen until merge is confirmed");
             }
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "error polling/pulling after merge for mission " + missionId + ": " + ex.ToString());
             }
+        }
+
+        /// <summary>
+        /// Why MergeAndPush must not merge into a checkout: its target branch has commits that are not on origin's copy,
+        /// so the push would publish them too, or be rejected as a non-fast-forward after the merge was already made
+        /// locally. Null when landing may go ahead (including when the comparison cannot be made).
+        /// </summary>
+        private async Task<string?> TargetPushBlockerAsync(IGitService git, string targetWorkDir, string targetBranch)
+        {
+            try
+            {
+                await git.FetchRemotesAsync(targetWorkDir).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not fetch in " + targetWorkDir + " before landing: " + ex.Message);
+                return null;
+            }
+
+            GitDivergenceCounts? divergence = null;
+            try
+            {
+                divergence = await git.GetDivergenceAsync(targetWorkDir, "refs/remotes/origin/" + targetBranch, "refs/heads/" + targetBranch).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not compare " + targetBranch + " with origin in " + targetWorkDir + ": " + ex.Message);
+            }
+
+            if (divergence == null || divergence.Ahead <= 0) return null;
+
+            return "Not merged: " + targetBranch + " in " + targetWorkDir + " has " + divergence.Ahead + " commit(s) that are not on origin/" + targetBranch
+                + (divergence.Behind > 0 ? " and is " + divergence.Behind + " commit(s) behind it" : "")
+                + ", so merging and pushing would publish those commits too or be rejected. Push or reconcile " + targetBranch
+                + " in that checkout, then retry the landing.";
+        }
+
+        /// <summary>
+        /// After a pull request merged: fetch in the checkout, and fast-forward the target branch only when it is the
+        /// branch checked out there, the working tree is clean, and it has no commits of its own. Otherwise the checkout
+        /// is left as it is (only its remote-tracking refs move).
+        /// </summary>
+        private async Task SyncCheckoutAfterPrMergeAsync(IGitService git, string checkoutPath, string targetBranch)
+        {
+            try
+            {
+                await git.FetchRemotesAsync(checkoutPath).ConfigureAwait(false);
+
+                string? current = await git.GetCurrentBranchAsync(checkoutPath).ConfigureAwait(false);
+                if (!String.Equals(current, targetBranch, StringComparison.Ordinal))
+                {
+                    _Logging.Debug(_Header + "fetched in " + checkoutPath + "; not fast-forwarding " + targetBranch + " because the checkout is on " + (current ?? "a detached HEAD"));
+                    return;
+                }
+
+                GitWorkingTreeStatus status = await git.GetWorkingTreeStatusAsync(checkoutPath).ConfigureAwait(false);
+                if (!status.IsClean)
+                {
+                    _Logging.Debug(_Header + "fetched in " + checkoutPath + "; not fast-forwarding " + targetBranch + " because the working tree has changes");
+                    return;
+                }
+
+                bool? behindOnly = await git.IsAncestorAsync(checkoutPath, "HEAD", "refs/remotes/origin/" + targetBranch).ConfigureAwait(false);
+                if (behindOnly != true)
+                {
+                    _Logging.Debug(_Header + "fetched in " + checkoutPath + "; " + targetBranch + " cannot be fast-forwarded to origin");
+                    return;
+                }
+
+                await git.PullAsync(checkoutPath).ConfigureAwait(false);
+                _Logging.Debug(_Header + "fast-forwarded " + targetBranch + " in " + checkoutPath + " after PR merge");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not update " + checkoutPath + " after PR merge: " + ex.Message);
+            }
+        }
+
+        private async Task<string> MissionTargetBranchAsync(string missionId)
+        {
+            try
+            {
+                Mission? mission = await _Database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                if (mission != null && !String.IsNullOrEmpty(mission.VesselId))
+                {
+                    Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId).ConfigureAwait(false);
+                    if (vessel != null && !String.IsNullOrEmpty(vessel.DefaultBranch)) return vessel.DefaultBranch;
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not read the target branch for mission " + missionId + ": " + ex.Message);
+            }
+
+            return "main";
         }
 
         /// <summary>

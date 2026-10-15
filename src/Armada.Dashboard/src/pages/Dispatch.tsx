@@ -275,14 +275,14 @@ Armada will dispatch this request as a voyage on the selected vessel.`)}
               </div>
               <p className="text-dim" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
                 {stepPersonas.length > 0
-                  ? t('Pick a preferred captain per pipeline step. When it is busy, Armada falls back to an idle captain at or above the fallback tier. Defaults come from each persona.')
-                  : t('No specific pipeline selected. This captain applies to every step of the mission; leave blank to let Armada auto-assign an idle captain.')}
+                  ? t('A captain chosen for a step overrides the persona\'s captain priorities. When it is busy, the step falls back to another idle captain at or above the fallback tier (Auto: the chosen captain\'s own tier).')
+                  : t('No specific pipeline selected. A captain chosen here runs every step and overrides the persona\'s captain priorities; when it is busy, another idle captain at or above the fallback tier (Auto: its own tier) is used. Leave on Auto for normal routing.')}
               </p>
               <div className="card" style={{ padding: '0.5rem 0.85rem' }}>
                 <div className="captain-assignment-row" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-dim)' }}>
                   <span title={t('Pipeline step, named by the persona that runs it.')}>{t('Step')}</span>
-                  <span title={t('Captain to use for this step when it is idle. Blank lets Armada pick an idle captain automatically.')}>{t('Preferred Captain')}</span>
-                  <span title={t('When the preferred captain is busy, Armada uses an idle captain at this capability tier or higher instead.')}>{t('Fallback Tier')}</span>
+                  <span title={t('Captain to use for this step; choosing one overrides the persona\'s captain priorities. Auto uses normal routing.')}>{t('Preferred Captain')}</span>
+                  <span title={t('When the chosen captain is busy, the step uses another idle captain at this tier or higher. Auto means the chosen captain\'s own tier.')}>{t('Fallback Tier')}</span>
                 </div>
                 {effectivePersonas.map((persona) => {
                   const assignment = stepAssignments[persona] ?? { captainId: null, fallbackTier: null };
@@ -295,12 +295,14 @@ Armada will dispatch this request as a voyage on the selected vessel.`)}
                         onChange={(captainId) => setStepAssignments((cur) => ({ ...cur, [persona]: { ...assignment, captainId } }))}
                         disabled={dispatching}
                         ariaLabel={t('Preferred captain for {{persona}}', { persona })}
+                        title={t('Captain to use for this step; choosing one overrides the persona\'s captain priorities. Auto uses normal routing.')}
                       />
                       <FallbackTierSelect
                         value={assignment.fallbackTier}
                         onChange={(fallbackTier) => setStepAssignments((cur) => ({ ...cur, [persona]: { ...assignment, fallbackTier } }))}
                         disabled={dispatching}
                         ariaLabel={t('Fallback tier for {{persona}}', { persona })}
+                        title={t('When the chosen captain is busy, the step uses another idle captain at this tier or higher. Auto means the chosen captain\'s own tier.')}
                       />
                     </div>
                   );

@@ -88,9 +88,6 @@ namespace Armada.Runtimes
         #region Private-Methods
 
         /// <summary>
-        /// Get the claude CLI command.
-        /// </summary>
-        /// <summary>
         /// The runtime this adapter drives.
         /// </summary>
         protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode;

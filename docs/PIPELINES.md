@@ -130,12 +130,16 @@ Key design decisions:
 | Name | Stages | Description |
 |------|--------|-------------|
 | WorkerOnly | Worker | Backward-compatible default |
-| Reviewed | Worker [review] -> Judge [review] | Implementation + review |
-| Tested | Worker [review] -> Test Engineer [review] -> Judge [review] | Implementation + testing + review |
-| FullPipeline | Product Manager [review] -> Architect [review] -> Worker [review] -> Usability Engineer [review] -> Test Engineer [review] -> Linter [review] -> Judge [review] -> Recorder | Full lifecycle: frame, plan, implement, refine, test, lint, review, and record durable memory |
-| Recorded | Worker [review] -> Recorder | Do the work, then distill durable memories from it |
+| Reviewed | Worker -> Judge | Implementation + review |
+| Tested | Worker -> Test Engineer -> Judge | Implementation + testing + review |
+| FullPipeline | Product Manager -> Architect -> Worker -> Usability Engineer -> Test Engineer -> Linter -> Judge -> Recorder | Full lifecycle: frame, plan, implement, refine, test, lint, review, and record durable memory |
+| Recorded | Worker -> Recorder | Do the work, then distill durable memories from it |
 
-`[review]` marks a stage seeded with `RequiresReview = true` (a human review gate; see [Review Gates](#review-gates)). Judge stages are seeded with `ReviewDenyAction = FailPipeline`; every other gated stage uses the default `RetryStage`. WorkerOnly and the Recorder stages have no gate.
+The built-in pipelines run unattended: no stage has a human review gate, so finished work lands with the server's
+landing mode (MergeAndPush by default) as soon as the last stage completes. The Judge is the automatic quality gate: a
+Judge that does not PASS fails the pipeline and nothing lands. Judge stages are seeded with
+`ReviewDenyAction = FailPipeline`. To have a person approve a stage, turn on its `RequiresReview` (see
+[Review Gates](#review-gates)); existing installations keep whatever their pipelines already have.
 
 **Source:** `src/Armada.Core/Services/PersonaSeedService.cs`
 
@@ -310,7 +314,25 @@ When a stage's mission finishes and its `RequiresReview` is true, the mission mo
 - **Dashboard / TUI:** the mission page's **Resolve Review** action (also reachable from **Needs You**). The dialog offers Approve, Conditionally Approve (continue, but the next stage must consider your feedback), More Work Required, and Deny; feedback is required for Conditionally Approve and More Work Required.
 - **REST:** `POST /api/v1/missions/{id}/review/approve` and `POST /api/v1/missions/{id}/review/deny`.
 
-Approving a non-terminal stage continues to the next pipeline stage; approving the last stage continues to landing. Denying applies the stage's `ReviewDenyAction` (or an action supplied with the deny): `RetryStage` sends the same stage back for rework, `FailPipeline` fails the stage and cancels its downstream stages. If nobody resolves a review within `ReviewTimeoutMinutes` (default 1440; 0 disables), the watchdog escalates and releases the held captain while preserving the mission and its dock for the reviewer.
+- **MCP:** `approve_mission_review` and `deny_mission_review` (a person's credential is required; captain sessions are refused, so a captain cannot pass its own gate). `transition_mission_status` refuses to move a mission out of `Review` (other than to Cancelled), because that would skip the handoff.
+
+Approving a non-terminal stage continues to the next pipeline stage; approving the last stage continues to landing. Denying applies the stage's `ReviewDenyAction` (or an action supplied with the deny): `RetryStage` sends the same stage back for rework, `FailPipeline` fails the stage and cancels its downstream stages. If nobody resolves a review within `ReviewTimeoutMinutes` (default 1440; 0 disables), the watchdog raises the review's severity in Needs You and emits an event; the mission and its dock stay as they are for the reviewer.
+
+A gated **Judge** stage that does not PASS (FAIL, NEEDS_REVISION, an unsubstantiated PASS, or no verdict) also goes to `Review` instead of failing the voyage, with the Judge's reason as the review comment. Approving overrides the Judge and lands the work; denying with FailPipeline stops the pipeline, and RetryStage runs the Judge again. An ungated Judge that does not PASS fails the mission and nothing lands.
+
+Approving a stage whose handoff then fails (for example an Architect whose output has no parsable plan) fails that stage and cancels the stages after it, so they do not stay Pending.
+
+### Restarting a stage
+
+`restart_mission` (MCP), `POST /api/v1/missions/{id}/restart`, and the WebSocket `restart_mission` command share one implementation. A Failed, LandingFailed, or Cancelled mission returns to Pending. A later pipeline stage keeps the previous stage's branch, so a restarted Judge reviews the Worker's commits; a first stage starts on a fresh branch. A finished voyage is reopened, and the stages after the restarted one that were cancelled because it failed are restored to Pending.
+
+### When a stage crashes
+
+A pipeline voyage halts only the failed stage's own chain: the stages after it are cancelled, sibling chains (other Architect sub-missions) keep running, missions waiting in Review are kept, and the voyage becomes Failed once nothing is left active. A voyage of independent missions (no pipeline) still halts as a whole.
+
+### Work a captain did not commit
+
+When a captain finishes, Armada commits anything it left uncommitted in the dock (on the Harbor for Harbor docks) before taking the diff, with the message "Armada: commit work left uncommitted by <captain>". Without this, a model that edits files but never runs `git commit` produces an empty diff and the edits are deleted with the dock. Judge and Architect stages are excluded: they must not change the branch.
 
 ### Handoff
 

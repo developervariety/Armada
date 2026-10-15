@@ -88,3 +88,36 @@ describe('Server agent settings landing mode', () => {
     expect((onlyCallArgs(vi.mocked(updateSettings))[0] as Record<string, unknown>).landingMode).toBe('MergeAndPush');
   });
 });
+
+describe('Server agent settings Harbor requirement', () => {
+  beforeEach(() => {
+    vi.mocked(getHealth).mockResolvedValue({ status: 'Healthy', uptime: '1m', version: '1.0.0' } as never);
+    vi.mocked(updateSettings).mockReset();
+  });
+
+  it('loads and saves Require Harbor for Launch with an explaining tooltip', async () => {
+    vi.mocked(getSettings).mockResolvedValue({ ...baseSettings, requireHarborForLaunch: false } as never);
+    vi.mocked(updateSettings).mockImplementation((data) => Promise.resolve({ ...baseSettings, ...data } as never));
+    renderServer();
+
+    const box = await screen.findByLabelText('Require Harbor for Launch') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(box.title).toContain('In Docker the Admiral has no claude, codex or mux installed');
+    fireEvent.click(box);
+    fireEvent.click(screen.getByRole('button', { name: 'Save Agent Settings' }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    expect((onlyCallArgs(vi.mocked(updateSettings))[0] as Record<string, unknown>).requireHarborForLaunch).toBe(true);
+  });
+
+  it('hides the switch and leaves the value out for a server that does not report it', async () => {
+    vi.mocked(getSettings).mockResolvedValue({ ...baseSettings } as never);
+    vi.mocked(updateSettings).mockImplementation((data) => Promise.resolve({ ...baseSettings, ...data } as never));
+    renderServer();
+
+    await screen.findByLabelText('Default Landing Mode');
+    expect(screen.queryByLabelText('Require Harbor for Launch')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Agent Settings' }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    expect(onlyCallArgs(vi.mocked(updateSettings))[0]).not.toHaveProperty('requireHarborForLaunch');
+  });
+});

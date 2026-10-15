@@ -550,10 +550,10 @@ namespace Test.Shared.Suites.Services
 
                     string currentBranch = (await RunGitAsync(targetDir, "rev-parse", "--abbrev-ref", "HEAD").ConfigureAwait(false)).Trim();
                     string localBranch = (await RunGitAsync(targetDir, "branch", "--list", "armada-v050-live").ConfigureAwait(false)).Trim();
-                    string mergedReadme = await File.ReadAllTextAsync(Path.Combine(targetDir, "README.md")).ConfigureAwait(false);
-                    string targetBranchFile = await File.ReadAllTextAsync(Path.Combine(targetDir, "target-only.txt")).ConfigureAwait(false);
+                    string mergedReadme = await RunGitAsync(targetDir, "show", "armada-v050-live:README.md").ConfigureAwait(false);
+                    string targetBranchFile = await RunGitAsync(targetDir, "show", "armada-v050-live:target-only.txt").ConfigureAwait(false);
 
-                    AssertEqual("armada-v050-live", currentBranch, "Landing checkout should end on the materialized target branch");
+                    AssertEqual("main", currentBranch, "Landing restores the branch the user's checkout was on");
                     AssertTrue(!String.IsNullOrWhiteSpace(localBranch), "Landing checkout should create a local target branch when it is missing");
                     AssertEqual("base\nworker change\n", mergedReadme, "Landing merge should include worker changes");
                     AssertEqual("target branch content\n", targetBranchFile, "Landing merge should preserve target branch files");

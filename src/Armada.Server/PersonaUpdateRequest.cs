@@ -11,7 +11,7 @@ namespace Armada.Server
         public string? Description { get; set; }
         /// <summary>Optional prompt template name.</summary>
         public string? PromptTemplateName { get; set; }
-        /// <summary>Default captain; null clears the legacy default.</summary>
+        /// <summary>Default captain; omitted keeps it, an explicit null clears the legacy default.</summary>
         public string? DefaultCaptainId { get; set; }
         /// <summary>Optional ownership scope, editable by administrators.</summary>
         public ScopeEnum? Scope { get; set; }

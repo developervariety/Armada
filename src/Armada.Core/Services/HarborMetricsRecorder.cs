@@ -254,6 +254,33 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Record that a job was lost: its Harbor stopped listing it and its exit never arrived, so the Admiral gave up on
+        /// it. A job already ended keeps its outcome; an exit reported later still wins (see <see cref="OnExitedAsync"/>).
+        /// </summary>
+        /// <param name="jobId">Job identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task OnJobLostAsync(string jobId, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(jobId)) return;
+            DateTime now = _Clock();
+            _StopRequested.TryRemove(jobId, out bool _);
+            _FirstOutput.TryRemove(jobId, out DateTime _);
+            try
+            {
+                HarborJobRecord? record = await _Database.HarborJobs.ReadByJobIdAsync(jobId, token).ConfigureAwait(false);
+                if (record == null || record.EndedUtc.HasValue) return;
+                record.EndedUtc = now;
+                record.DurationMs = (long)(now - record.LaunchedUtc).TotalMilliseconds;
+                record.Outcome = HarborJobOutcomeEnum.Lost;
+                await _Database.HarborJobs.UpdateAsync(record, token).ConfigureAwait(false);
+            }
+            catch (Exception e) when (!(e is OperationCanceledException))
+            {
+                _Logging.Warn(_Header + "could not record loss of job " + jobId + ": " + e.Message);
+            }
+        }
+
+        /// <summary>
         /// Record that a Harbor could not launch a job (it reported an error for it).
         /// </summary>
         /// <param name="jobId">Job identifier.</param>

@@ -169,7 +169,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                string name = req.Parameters["name"];
+                string name = RouteParameters.Get(req, "name");
                 PromptTemplate? template = await _database.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false);
                 if (template == null || !ScopedVisibility.CanView(ctx, template.Scope, template.TenantId, template.UserId)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Prompt template not found" }; }
                 return (object)template;
@@ -192,7 +192,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                string name = req.Parameters["name"];
+                string name = RouteParameters.Get(req, "name");
                 PromptTemplate? existing = await _database.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false);
                 if (existing == null || !ScopedVisibility.CanView(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Prompt template not found" }; }
                 if (!ScopedVisibility.CanEdit(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 403; return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = "You may only modify your own prompt templates; a tenant-wide template requires a tenant admin." }; }
@@ -224,7 +224,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                string name = req.Parameters["name"];
+                string name = RouteParameters.Get(req, "name");
                 PromptTemplate? current = await _database.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false);
                 if (current != null && !ScopedVisibility.CanView(ctx, current.Scope, current.TenantId, current.UserId)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Prompt template not found" }; }
                 if (current != null && !ScopedVisibility.CanEdit(ctx, current.Scope, current.TenantId, current.UserId)) { req.Http.Response.StatusCode = 403; return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = "You may only reset your own prompt templates; a tenant-wide template requires a tenant admin." }; }

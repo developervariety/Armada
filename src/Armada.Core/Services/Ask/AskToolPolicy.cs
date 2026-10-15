@@ -115,7 +115,11 @@ namespace Armada.Core.Services.Ask
             "mark_ask_thread_read",
             "run_ask_quick_action",
             "approve_ask_proposal",
-            "reject_ask_proposal"
+            "reject_ask_proposal",
+
+            // ...and never pass a pipeline review gate.
+            "approve_mission_review",
+            "deny_mission_review"
         };
 
         #endregion

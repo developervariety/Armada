@@ -9,6 +9,7 @@ namespace Armada.Server.Routes
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -108,6 +109,15 @@ namespace Armada.Server.Routes
                     ?? throw new InvalidOperationException("Request body could not be deserialized as MergeEntry.");
                 entry.TenantId = ctx.TenantId;
                 entry.UserId = ctx.UserId;
+                if (_mergeQueue is MergeQueueService queueImpl)
+                {
+                    string? landed = await queueImpl.GetAlreadyLandedReasonAsync(entry).ConfigureAwait(false);
+                    if (landed != null)
+                    {
+                        req.Http.Response.StatusCode = 409;
+                        return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "Not enqueued: " + landed };
+                    }
+                }
                 entry = await _mergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return entry;
@@ -118,6 +128,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Adds a branch to the merge queue for testing and merging into the target branch.")
                 .WithRequestBody(OpenApiJson.BodyFor<MergeEntry>("Merge entry", true))
                 .WithResponse(201, OpenApiJson.For<MergeEntry>("Enqueued entry"))
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("The mission already landed, or the branch is already contained in the target branch"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/merge-queue/{id}", async (ApiRequest req) =>

@@ -78,6 +78,16 @@ namespace Armada.Harbor
         private HarborLinkStateEnum _LinkState = HarborLinkStateEnum.Idle;
         private string? _McpUrl = null;
         private HarborLinkClient? _Client = null;
+        // The job runner and what Harbor knows about its jobs live as long as the window, not one link session or one
+        // Connect: a job keeps running through a link drop or a Disconnect, keeps its place in Running now, is listed in
+        // the next session's heartbeats, and reports its remaining output and its exit when the link is back.
+        private readonly HarborJobState _JobState = new HarborJobState();
+        private readonly HarborLinkStatistics _LinkStatistics = new HarborLinkStatistics();
+        private readonly HarborRuntimeDetector _RuntimeDetector = new HarborRuntimeDetector();
+        private LocalHostCommandExecutor? _Executor = null;
+        private Armada.Runtimes.LocalHarborJobRunner? _JobRunner = null;
+        private HarborDockManager? _DockManager = null;
+        private string? _LastRuntimeSummary = null;
         private readonly DispatcherTimer _JobsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         private IDisposable? _StatusDotBinding = null;
 
@@ -200,23 +210,22 @@ namespace Armada.Harbor
         }
 
         /// <summary>
-        /// Identifiers of the jobs running on this Harbor now; empty when not linked.
+        /// Identifiers of the jobs running on this Harbor now, linked or not.
         /// </summary>
         /// <returns>Job identifiers.</returns>
         public List<string> LiveJobIds()
         {
-            HarborLinkClient? client = _Client;
-            return client != null ? client.LiveJobIds() : new List<string>();
+            return _JobState.LiveJobIds();
         }
 
         /// <summary>
-        /// The jobs running on this Harbor now (what each is, its runtime, and when it started); empty when not linked.
+        /// The jobs running on this Harbor now (what each is, its runtime, and when it started), linked or not: a job keeps
+        /// running while the link is down.
         /// </summary>
         /// <returns>Jobs, oldest first.</returns>
         public List<HarborJobInfo> LiveJobs()
         {
-            HarborLinkClient? client = _Client;
-            return client != null ? client.LiveJobs() : new List<HarborJobInfo>();
+            return _JobState.LiveJobs();
         }
 
         /// <summary>
@@ -255,6 +264,7 @@ namespace Armada.Harbor
             // Bring Harbor forward; otherwise the app that launched it (a terminal) stays active and keeps the menu bar.
             MacActivationPolicy.Activate();
             Activate();
+            ReportPathImport();
             // Connect automatically on startup so an operator does not have to click Connect; the link loop
             // reconnects on its own after transient drops.
             StartConnecting(true);
@@ -380,19 +390,26 @@ namespace Armada.Harbor
 
         private async Task RunLoopAsync(CancellationToken token)
         {
-            LocalHostCommandExecutor executor = new LocalHostCommandExecutor();
-            Armada.Runtimes.LocalHarborJobRunner jobRunner = new Armada.Runtimes.LocalHarborJobRunner(_Logging);
-            // Each job's output is also kept on this computer, so its log can be read here (Status > Logs) even when
-            // the Admiral is on another machine.
-            jobRunner.JobLogs = new HarborLogPaths(HarborAppSettings.LogDirectory());
-            // Reads the live settings on every request, so repository edits apply without reconnecting.
-            HarborDockManager dockManager = new HarborDockManager(() => _Settings.BuildDockSettings(), _Logging, executor);
-            List<HarborCapability> capabilities = BuildCapabilities();
-            // One set of link counters across sessions, so heartbeats report this process's reconnects.
-            HarborLinkStatistics linkStatistics = new HarborLinkStatistics();
+            // Created once and kept across Connect and Disconnect (see _JobState).
+            if (_JobRunner == null || _Executor == null || _DockManager == null)
+            {
+                _Executor = new LocalHostCommandExecutor();
+                _JobRunner = new Armada.Runtimes.LocalHarborJobRunner(_Logging);
+                // Each job's output is also kept on this computer, so its log can be read here (Status > Logs) even when
+                // the Admiral is on another machine.
+                _JobRunner.JobLogs = new HarborLogPaths(HarborAppSettings.LogDirectory());
+                // Reads the live settings on every request, so repository edits apply without reconnecting.
+                _DockManager = new HarborDockManager(() => _Settings.BuildDockSettings(), _Logging, _Executor);
+            }
+
+            LocalHostCommandExecutor executor = _Executor;
+            Armada.Runtimes.LocalHarborJobRunner jobRunner = _JobRunner;
+            HarborDockManager dockManager = _DockManager;
 
             while (!token.IsCancellationRequested)
             {
+                // Checked on every session, so a CLI installed while Harbor runs is offered after the next reconnect.
+                List<HarborCapability> capabilities = BuildCapabilities();
                 using (WebSocketHarborTransport transport = new WebSocketHarborTransport(new Uri(_Settings.ServerLinkUrl), BuildHeaders()))
                 {
                     HarborLinkClient client = new HarborLinkClient(
@@ -406,8 +423,10 @@ namespace Armada.Harbor
                         AppendLog,
                         jobRunner,
                         dockManager);
-                    client.LinkStatistics = linkStatistics;
+                    // One set of link counters across sessions, so heartbeats report this process's reconnects.
+                    client.LinkStatistics = _LinkStatistics;
                     client.LogClassifier = _LogClassifier;
+                    client.JobState = _JobState;
                     _Client = client;
 
                     try
@@ -477,16 +496,57 @@ namespace Armada.Harbor
                     capabilities.Add(new HarborCapability { Name = name, Available = true });
             }
 
-            // Advertise the agent runtimes this host can launch so the Admiral's router can match a captain's
-            // requested runtime. The local job runner can drive any runtime; a launch fails with a clear error
-            // if the corresponding CLI is not installed.
-            foreach (string runtime in Enum.GetNames(typeof(Armada.Core.Enums.AgentRuntimeEnum)))
+            // Advertise the agent runtimes this host can launch so the Admiral's router can match a captain's requested
+            // runtime: a runtime is available only when its CLI resolves on PATH (the login shell's PATH, imported at
+            // startup), so the Admiral does not route a captain here only for its launch to fail.
+            List<HarborCapability> runtimes = _RuntimeDetector.Detect();
+            foreach (HarborCapability runtime in runtimes)
             {
-                if (seen.Add(runtime))
-                    capabilities.Add(new HarborCapability { Name = runtime, Available = true });
+                if (seen.Add(runtime.Name)) capabilities.Add(runtime);
             }
 
+            ShowRuntimes(runtimes);
             return capabilities;
+        }
+
+        private void ShowRuntimes(List<HarborCapability> runtimes)
+        {
+            List<string> available = new List<string>();
+            List<string> missing = new List<string>();
+            List<string> details = new List<string>();
+            foreach (HarborCapability runtime in runtimes)
+            {
+                string? command = HarborRuntimeDetector.CommandFor(Enum.Parse<Armada.Core.Enums.AgentRuntimeEnum>(runtime.Name));
+                if (command == null) continue;
+                if (runtime.Available) available.Add(runtime.Name);
+                else missing.Add(runtime.Name + " (" + command + ")");
+                details.Add(runtime.Name + ": " + (runtime.Detail ?? (runtime.Available ? "found" : "not found")));
+            }
+
+            string summary = "Agents this computer can run: " + (available.Count > 0 ? String.Join(", ", available) : "none") + "."
+                + (missing.Count > 0 ? " Not found on PATH: " + String.Join(", ", missing) + "." : "");
+            string tip = String.Join(Environment.NewLine, details) + Environment.NewLine + "PATH: " + (Environment.GetEnvironmentVariable("PATH") ?? String.Empty);
+            if (!String.Equals(summary, _LastRuntimeSummary, StringComparison.Ordinal))
+            {
+                _LastRuntimeSummary = summary;
+                AppendInfo(summary, HarborLogCategoryEnum.General, missing.Count > 0 ? HarborLogOutcomeEnum.Failed : HarborLogOutcomeEnum.Ok);
+            }
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                RuntimesText.Text = summary;
+                ToolTip.SetTip(RuntimesText, tip);
+            });
+        }
+
+        private void ReportPathImport()
+        {
+            HarborPathImportResult? import = Program.PathImport;
+            if (import == null || import.Shell == null) return;
+            if (import.Added.Count > 0)
+                AppendInfo("Added to PATH from " + (import.LoginShellRead ? "the login shell (" + import.Shell + ")" : "the usual tool folders") + ": " + String.Join(", ", import.Added));
+            if (!import.LoginShellRead && import.Error != null)
+                AppendInfo("Could not read the login shell's PATH: " + import.Error, HarborLogCategoryEnum.General, HarborLogOutcomeEnum.Failed);
         }
 
         private Dictionary<string, string>? BuildHeaders()

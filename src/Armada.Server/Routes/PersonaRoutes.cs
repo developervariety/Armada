@@ -103,7 +103,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                string name = req.Parameters["name"];
+                string name = RouteParameters.Get(req, "name");
                 Persona? persona = await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
                 if (persona == null || !ScopedVisibility.CanView(ctx, persona.Scope, persona.TenantId, persona.UserId)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
                 return (object)persona;
@@ -166,7 +166,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                string name = req.Parameters["name"];
+                string name = RouteParameters.Get(req, "name");
                 Persona? existing = await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
                 if (existing == null || !ScopedVisibility.CanView(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
                 if (!ScopedVisibility.CanEdit(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 403; return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = "You may only modify your own personas; a tenant-wide persona requires a tenant admin." }; }
@@ -179,9 +179,11 @@ namespace Armada.Server.Routes
                 }
                 if (body.Description != null) existing.Description = body.Description;
                 if (body.PromptTemplateName != null) existing.PromptTemplateName = body.PromptTemplateName;
-                // Default captain is set to whatever the body carries (including null to clear the default),
-                // so the persona-detail editor can both assign and remove a default captain.
-                existing.DefaultCaptainId = body.DefaultCaptainId;
+                // Default captain changes only when the body carries the field: a value assigns it and an explicit
+                // null (or empty string) clears it, so the persona-detail editor can do both, while an editor that
+                // does not show the default captain (the Personas list) leaves it unchanged.
+                if (PersonaUpdateFieldPresence.FromJson(req.Http.Request.DataAsString, _jsonOptions).HasDefaultCaptainId)
+                    existing.DefaultCaptainId = String.IsNullOrEmpty(body.DefaultCaptainId) ? null : body.DefaultCaptainId;
                 if ((ctx.IsAdmin || ctx.IsTenantAdmin) && body.Scope.HasValue) existing.Scope = body.Scope.Value;
                 if (body.CaptainPriorities != null) existing.CaptainPriorities = body.CaptainPriorities;
                 if (body.PriorityAvailability.HasValue) existing.PriorityAvailability = body.PriorityAvailability.Value;
@@ -199,7 +201,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Personas")
                 .WithSummary("Update a persona")
-                .WithDescription("Updates a persona by name. Omitted routing fields are preserved; an empty CaptainPriorities list clears the hierarchy.")
+                .WithDescription("Updates a persona by name. Omitted fields (including DefaultCaptainId) are preserved; an explicit null DefaultCaptainId clears the default captain, and an empty CaptainPriorities list clears the hierarchy.")
                 .WithParameter(OpenApiParameterMetadata.Path("name", "Persona name (e.g. Worker, Architect)"))
                 .WithRequestBody(OpenApiJson.BodyFor<PersonaUpdateRequest>("Updated persona data", true))
                 .WithResponse(200, OpenApiJson.For<Persona>("Updated persona"))
@@ -216,7 +218,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                string name = req.Parameters["name"];
+                string name = RouteParameters.Get(req, "name");
                 Persona? existing = await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
                 if (existing == null || !ScopedVisibility.CanView(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
                 if (!ScopedVisibility.CanEdit(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 403; return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = "You may only delete your own personas; a tenant-wide persona requires a tenant admin." }; }

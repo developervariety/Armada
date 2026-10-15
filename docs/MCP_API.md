@@ -77,6 +77,8 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [retry_landing](#retry_landing)
     - [purge_mission](#purge_mission)
     - [delete_missions](#delete_missions)
+    - [approve_mission_review](#approve_mission_review)
+    - [deny_mission_review](#deny_mission_review)
     - [transition_mission_status](#transition_mission_status)
     - [get_mission_diff](#get_mission_diff)
     - [get_mission_log](#get_mission_log)
@@ -1380,12 +1382,13 @@ Dispatch a new voyage with missions to a vessel. This is the primary way to assi
 | `title` | string | Yes | Voyage title |
 | `description` | string | No | Voyage description |
 | `vesselId` | string | No | Target vessel ID (prefix `vsl_`). Omit (with no `missions`) to create a bare voyage; missions are added later. |
-| `missions` | array | No | Array of mission objects with `title` and optional `description`. Omit for a bare voyage. |
+| `missions` | array | No | Array of mission objects with `title` and optional `description`, `requestedCaptainId` (runs this mission, the first stage in a pipeline, overriding persona priorities), `tier` (minimum captain tier for every stage), and `persona` (single-stage missions without a pipeline; defaults to Worker). Omit for a bare voyage. |
 | `pipelineId` | string | No | Pipeline ID to use for this voyage (overrides vessel/fleet default) |
 | `pipeline` | string | No | Pipeline name to use (convenience alias for `pipelineId` -- resolves by name; a bad name is rejected) |
 | `objectiveId` | string | No | Objective (prefix `obj_`) to link this voyage to; must exist |
 | `selectedPlaybooks` | array | No | Ordered playbook selections with `playbookId` and `deliveryMode` |
-| `captainAssignments` | array | No | Per-persona captain overrides. Array of `{ persona` (required)`, captainId, fallbackTier` (`Economy`/`Standard`/`Premium`)` }` -- binds a pipeline step (persona) to a preferred captain and a fallback tier. |
+| `captainAssignments` | array | No | Per-persona captain overrides. Array of `{ persona` (required)`, captainId, fallbackTier` (`Economy`/`Standard`/`Premium`)` }` -- binds a pipeline step (persona) to a preferred captain and a fallback tier. Applied before the first stage is assigned. |
+| `landingMode` | string | No | `LocalMerge`, `MergeAndPush`, `PullRequest`, `MergeQueue`, or `None` for this voyage (overrides the vessel and server default) |
 
 > **Parity with REST.** This tool and `POST /api/v1/voyages` funnel through the same validation: a linked
 > objective must exist, a pipeline name must resolve, and a request with no vessel or no missions is created
@@ -2171,7 +2174,7 @@ Sets the mission status to `Cancelled`. Returns `{ "Error": "Mission not found",
 
 ### restart_mission
 
-Restart a failed or cancelled mission, resetting it to `Pending` for re-dispatch. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields.
+Restart a Failed, LandingFailed, or Cancelled mission, resetting it to `Pending` for re-dispatch. Optionally update the title and description (instructions) before restarting. Clears the captain assignment, dock, PR URL, commit, failure, review, and timing fields. A later pipeline stage keeps the previous stage's branch (a first stage starts on a fresh branch), a finished voyage is reopened, and the stages cancelled because this one failed are restored to Pending. `Conflict` for any other status.
 
 **Input Schema:**
 
@@ -2850,6 +2853,30 @@ Permanently delete multiple missions from the database by ID. Returns a summary 
 Returns `{ "Error": "ids is required and must not be empty", "ErrorCode": "InvalidArgument" }` if no IDs are provided.
 
 ---
+
+### approve_mission_review
+
+Approve a mission waiting at a pipeline review gate (status `Review`). A non-final stage continues to the next stage with this stage's branch, diff, and output; a final stage continues to landing. Requires a person's credential: captain sessions and the unauthenticated loopback identity get `Forbidden`, so a captain can never pass its own gate (also refused inside Ask Armada conversations).
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `missionId` | string | Yes | Mission ID (`msn_`) |
+| `comment` | string | No | Reviewer comment |
+| `conditional` | boolean | No | Approve with conditions: the comment is added as guidance for the following stages |
+
+**Response:** the mission. `Conflict` when it is not in `Review`.
+
+### deny_mission_review
+
+Deny a mission waiting at a review gate. `RetryStage` runs the stage again on the same branch with the comment added to its instructions; `FailPipeline` fails the mission and cancels the following stages. Same caller rules as `approve_mission_review`.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `missionId` | string | Yes | Mission ID (`msn_`) |
+| `comment` | string | No | What to change |
+| `action` | string | No | `RetryStage` or `FailPipeline`; defaults to the stage's configured action |
+
+**Response:** the mission.
 
 ### transition_mission_status
 

@@ -8,6 +8,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Enums;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -91,6 +92,11 @@ namespace Armada.Server.Mcp.Tools
                         entry.Priority = request.Priority.Value;
                     if (request.TestCommand != null)
                         entry.TestCommand = request.TestCommand;
+                    if (mergeQueue is MergeQueueService queueImpl)
+                    {
+                        string? landed = await queueImpl.GetAlreadyLandedReasonAsync(entry).ConfigureAwait(false);
+                        if (landed != null) return (object)McpToolError.Conflict("Not enqueued: " + landed);
+                    }
                     entry = await mergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
                     return (object)entry;
                 });

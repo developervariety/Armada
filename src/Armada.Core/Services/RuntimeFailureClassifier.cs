@@ -103,6 +103,11 @@ namespace Armada.Core.Services
                 case "not_found_error":
                 case "model_not_found":
                     return RuntimeFailureKindEnum.ModelUnavailable;
+                case "max_iterations_reached":
+                case "budget_exceeded":
+                case "degenerate_output":
+                case "context_limit_exceeded":
+                    return RuntimeFailureKindEnum.TaskFailure;
                 default:
                     return null;
             }

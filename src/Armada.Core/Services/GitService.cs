@@ -341,8 +341,16 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Merge a branch from a source repository into a target branch of a working directory.
+        /// Merge a branch from a source repository into a target branch of a working directory (often the user's own
+        /// checkout). The checkout must have no uncommitted changes to tracked files. When a target branch is given:
+        /// the branch the checkout was on (or its detached commit) is recorded, the target branch is checked out, it is
+        /// fast-forwarded to origin's copy when it is only behind it, the branch is merged, and the checkout is then
+        /// switched back to the recorded branch, after a failed merge too. With a commit message the merge always makes a
+        /// merge commit (--no-ff), so the message is not lost to a fast-forward.
         /// </summary>
+        /// <exception cref="ArgumentNullException">Thrown when targetWorkDir, sourceRepoPath, or branchName is null or empty.</exception>
+        /// <exception cref="GitDirtyCheckoutException">Thrown when the checkout has uncommitted changes to tracked files.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when git cannot check out the target or merge the branch.</exception>
         public async Task MergeBranchLocalAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch = null, string? commitMessage = null, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(targetWorkDir)) throw new ArgumentNullException(nameof(targetWorkDir));
@@ -352,59 +360,152 @@ namespace Armada.Core.Services
             _Logging.Debug(_Header + "merging branch " + branchName + " from " + sourceRepoPath + " into " + targetWorkDir);
             await EnsureTrackedFilesCleanAsync(targetWorkDir, token).ConfigureAwait(false);
 
-            // Ensure we are on the correct target branch before merging.
-            // Without this, a previous fetch/merge could leave HEAD on a different branch,
-            // causing subsequent merges to target the wrong branch.
+            // Record where the checkout is so it can be put back: landing must not leave the user's checkout on a
+            // different branch than the one they were working on.
+            string? originalBranch = null;
+            string? originalHead = null;
             if (!String.IsNullOrEmpty(targetBranch))
             {
-                await EnsureTargetBranchCheckedOutAsync(targetWorkDir, sourceRepoPath, targetBranch, token).ConfigureAwait(false);
+                originalBranch = await GetCurrentBranchAsync(targetWorkDir, token).ConfigureAwait(false);
+                if (originalBranch == null) originalHead = await GetHeadCommitHashAsync(targetWorkDir, token).ConfigureAwait(false);
             }
 
-            // Fetch the specific branch from the bare repo using explicit refspec
-            // Branch names with slashes (e.g. armada/claude-code-1/msn_xxx) require
-            // the full refs/heads/ prefix to resolve correctly from bare repos.
-            string fetchedBranchRef = await FetchBranchIntoLocalRefAsync(targetWorkDir, sourceRepoPath, branchName, token).ConfigureAwait(false);
-
-            // Merge the fetched local ref into the current branch.
-            // Using a concrete ref avoids FETCH_HEAD resolution issues across separate git
-            // invocations and keeps landing stable even when the target checkout is a worktree.
-            string message = commitMessage ?? ("Merge armada mission: " + branchName);
             try
             {
-                await MergeFetchedBranchAsync(targetWorkDir, sourceRepoPath, branchName, targetBranch, fetchedBranchRef, message, token).ConfigureAwait(false);
+                // Ensure we are on the correct target branch before merging.
+                // Without this, a previous fetch/merge could leave HEAD on a different branch,
+                // causing subsequent merges to target the wrong branch.
+                if (!String.IsNullOrEmpty(targetBranch))
+                {
+                    await EnsureTargetBranchCheckedOutAsync(targetWorkDir, sourceRepoPath, targetBranch, token).ConfigureAwait(false);
+                    await FastForwardTargetFromOriginAsync(targetWorkDir, targetBranch, token).ConfigureAwait(false);
+                }
+
+                // Fetch the specific branch from the bare repo using explicit refspec
+                // Branch names with slashes (e.g. armada/claude-code-1/msn_xxx) require
+                // the full refs/heads/ prefix to resolve correctly from bare repos.
+                string fetchedBranchRef = await FetchBranchIntoLocalRefAsync(targetWorkDir, sourceRepoPath, branchName, token).ConfigureAwait(false);
+
+                // Merge the fetched local ref into the current branch.
+                // Using a concrete ref avoids FETCH_HEAD resolution issues across separate git
+                // invocations and keeps landing stable even when the target checkout is a worktree.
+                string message = commitMessage ?? ("Merge armada mission: " + branchName);
+                bool noFastForward = !String.IsNullOrWhiteSpace(commitMessage);
+                try
+                {
+                    await MergeFetchedBranchAsync(targetWorkDir, sourceRepoPath, branchName, targetBranch, fetchedBranchRef, message, noFastForward, token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    // The armada-landing/* ref only carries the fetched branch into the merge; leaving it would add one
+                    // branch to the user's checkout for every landed mission.
+                    // Not cancellable: it must not replace the merge's own exception or leave the ref behind on cancel.
+                    await DeleteLocalRefQuietlyAsync(targetWorkDir, fetchedBranchRef, CancellationToken.None).ConfigureAwait(false);
+                }
             }
             finally
             {
-                // The armada-landing/* ref only carries the fetched branch into the merge; leaving it would add one
-                // branch to the user's checkout for every landed mission.
-                // Not cancellable: it must not replace the merge's own exception or leave the ref behind on cancel.
-                await DeleteLocalRefQuietlyAsync(targetWorkDir, fetchedBranchRef, CancellationToken.None).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(targetBranch))
+                {
+                    // Not cancellable: the checkout must go back even when the landing was cancelled.
+                    await RestoreOriginalCheckoutAsync(targetWorkDir, targetBranch, originalBranch, originalHead).ConfigureAwait(false);
+                }
             }
 
             _Logging.Debug(_Header + "merged " + branchName + " into " + targetWorkDir + (String.IsNullOrEmpty(targetBranch) ? "" : " (target: " + targetBranch + ")"));
         }
 
-        private async Task MergeFetchedBranchAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch, string fetchedBranchRef, string message, CancellationToken token)
+        private async Task MergeFetchedBranchAsync(string targetWorkDir, string sourceRepoPath, string branchName, string? targetBranch, string fetchedBranchRef, string message, bool noFastForward, CancellationToken token)
         {
             try
             {
+                List<string> args = new List<string> { "merge", fetchedBranchRef, "--no-edit" };
+                if (noFastForward) args.Add("--no-ff");
+
                 // Decide up front from git merge-base's exit code (1 = no common ancestor) instead of
                 // retrying after matching git's error wording.
                 GitProcessResult mergeBase = await ExecuteProcessAsync(targetWorkDir, "git", _NoMatch, token, "merge-base", "HEAD", fetchedBranchRef).ConfigureAwait(false);
                 if (mergeBase.ExitCode == 1)
                 {
                     _Logging.Warn(_Header + "no merge base between target and " + branchName + ", merging with --allow-unrelated-histories");
-                    await RunGitAsync(targetWorkDir, token, "merge", fetchedBranchRef, "--no-edit", "--allow-unrelated-histories", "-m", message).ConfigureAwait(false);
+                    args.Add("--allow-unrelated-histories");
                 }
-                else
-                {
-                    await RunGitAsync(targetWorkDir, token, "merge", fetchedBranchRef, "--no-edit", "-m", message).ConfigureAwait(false);
-                }
+
+                args.Add("-m");
+                args.Add(message);
+                await RunGitAsync(targetWorkDir, token, args.ToArray()).ConfigureAwait(false);
             }
             catch
             {
                 await RestoreAfterFailedMergeAsync(targetWorkDir, sourceRepoPath, targetBranch, token).ConfigureAwait(false);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Bring the checked-out target branch up to origin's copy when it is only behind it (git merge --ff-only), so
+        /// the landing merge is made on top of what is on the remote and a later push is a fast-forward. Best effort:
+        /// a checkout without an origin, a failed fetch, or a target that has its own commits is left as it is.
+        /// </summary>
+        private async Task FastForwardTargetFromOriginAsync(string targetWorkDir, string targetBranch, CancellationToken token)
+        {
+            GitProcessResult origin = await ExecuteProcessAsync(targetWorkDir, "git", new int[] { 2 }, token, "remote", "get-url", "origin").ConfigureAwait(false);
+            if (!origin.Succeeded)
+            {
+                _Logging.Debug(_Header + "no origin remote in " + targetWorkDir + "; not fast-forwarding " + targetBranch);
+                return;
+            }
+
+            string originRef = "refs/remotes/origin/" + targetBranch;
+            GitProcessResult fetched = await ExecuteProcessAsync(targetWorkDir, "git", token, "fetch", "--quiet", "origin", "+refs/heads/" + targetBranch + ":" + originRef).ConfigureAwait(false);
+            if (!fetched.Succeeded)
+            {
+                _Logging.Warn(_Header + "could not fetch " + targetBranch + " from origin in " + targetWorkDir + ": " + fetched.StandardError.Trim());
+                return;
+            }
+
+            bool? behind = await IsAncestorAsync(targetWorkDir, "HEAD", originRef, token).ConfigureAwait(false);
+            if (behind != true)
+            {
+                if (behind == false) _Logging.Debug(_Header + targetBranch + " in " + targetWorkDir + " has commits that are not on origin; merging without fast-forwarding it");
+                return;
+            }
+
+            string head = (await RunGitAsync(targetWorkDir, token, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+            string tip = (await RunGitAsync(targetWorkDir, token, "rev-parse", originRef).ConfigureAwait(false)).Trim();
+            if (String.Equals(head, tip, StringComparison.Ordinal)) return;
+
+            await RunGitAsync(targetWorkDir, token, "merge", "--ff-only", originRef).ConfigureAwait(false);
+            _Logging.Info(_Header + "fast-forwarded " + targetBranch + " in " + targetWorkDir + " to origin before landing");
+        }
+
+        /// <summary>
+        /// Switch the checkout back to the branch (or detached commit) it was on before landing switched it to the target.
+        /// </summary>
+        private async Task RestoreOriginalCheckoutAsync(string targetWorkDir, string targetBranch, string? originalBranch, string? originalHead)
+        {
+            if (originalBranch == null && originalHead == null) return;
+            if (originalBranch != null && String.Equals(originalBranch, targetBranch, StringComparison.Ordinal)) return;
+
+            try
+            {
+                string? current = await GetCurrentBranchAsync(targetWorkDir, CancellationToken.None).ConfigureAwait(false);
+                if (originalBranch != null)
+                {
+                    if (String.Equals(current, originalBranch, StringComparison.Ordinal)) return;
+                    await RunGitAsync(targetWorkDir, CancellationToken.None, "checkout", originalBranch).ConfigureAwait(false);
+                    _Logging.Info(_Header + "returned " + targetWorkDir + " to branch " + originalBranch + " after landing into " + targetBranch);
+                }
+                else
+                {
+                    await RunGitAsync(targetWorkDir, CancellationToken.None, "checkout", "--detach", originalHead!).ConfigureAwait(false);
+                    _Logging.Info(_Header + "returned " + targetWorkDir + " to commit " + originalHead + " after landing into " + targetBranch);
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "landing into " + targetBranch + " could not switch " + targetWorkDir + " back to "
+                    + (originalBranch ?? originalHead) + "; it is still on " + targetBranch + ": " + ex.Message);
             }
         }
 
@@ -935,6 +1036,31 @@ namespace Armada.Core.Services
             if (result.ExitCode == 0) return true;
             if (result.ExitCode == 1) return false;
             return null;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> CommitAllAsync(string worktreePath, string message, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrEmpty(message)) throw new ArgumentNullException(nameof(message));
+
+            string status = (await RunGitAsync(worktreePath, token, "status", "--porcelain", "--untracked-files=all").ConfigureAwait(false)).Trim();
+            if (status.Length == 0) return false;
+
+            await RunGitAsync(worktreePath, token, "add", "-A").ConfigureAwait(false);
+            try
+            {
+                await RunGitAsync(worktreePath, token, "commit", "--no-verify", "-m", message).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("user.email", StringComparison.OrdinalIgnoreCase)
+                || ex.Message.Contains("user.name", StringComparison.OrdinalIgnoreCase)
+                || ex.Message.Contains("identity", StringComparison.OrdinalIgnoreCase))
+            {
+                // No git identity on this host: commit as Armada rather than lose the work.
+                await RunGitAsync(worktreePath, token, "-c", "user.name=Armada", "-c", "user.email=armada@localhost", "commit", "--no-verify", "-m", message).ConfigureAwait(false);
+            }
+
+            return true;
         }
 
         /// <summary>

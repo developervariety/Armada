@@ -94,6 +94,8 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
+        private static readonly TimeSpan _StalledCaptainRetryAfter = TimeSpan.FromMinutes(15);
+
         private string _Header = "[AdmiralService] ";
         private static readonly TimeSpan _AssignedOrphanRecoveryGracePeriod = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan _WorkProducedReleaseGracePeriod = TimeSpan.FromMinutes(2);
@@ -356,6 +358,11 @@ namespace Armada.Core.Services
                     mission.RequiresReview = stage.RequiresReview;
                     mission.ReviewDenyAction = stage.ReviewDenyAction;
 
+                    // A mission's tier floor applies to every stage; a requested captain applies to the first stage
+                    // only (later stages are routed by their persona).
+                    mission.Tier = md.Tier;
+                    if (previousMissionId == null) mission.RequestedCaptainId = md.RequestedCaptainId;
+
                     // Only the first stage starts as Pending; dependent stages also start as Pending
                     // but won't be assigned until their dependency completes
                     mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
@@ -537,6 +544,7 @@ namespace Armada.Core.Services
         public async Task HealthCheckAsync(CancellationToken token = default)
         {
             await LiftExpiredQuarantinesAsync(token).ConfigureAwait(false);
+            await ReleaseRecoveredStalledCaptainsAsync(token).ConfigureAwait(false);
 
             List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
 
@@ -930,6 +938,24 @@ namespace Armada.Core.Services
         /// <summary>
         /// Return quarantined captains whose window has passed to the Idle pool so they can pick up work.
         /// </summary>
+        private async Task ReleaseRecoveredStalledCaptainsAsync(CancellationToken token)
+        {
+            // A captain is marked Stalled after a provider condition (usage limit, auth failure, model unavailable).
+            // Those usually clear on their own; without this a Stalled captain never takes work again, and every
+            // persona routed only to it (with Wait) stays Pending indefinitely.
+            List<Captain> stalled = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Stalled, token).ConfigureAwait(false);
+            foreach (Captain captain in stalled)
+            {
+                if (!String.IsNullOrEmpty(captain.CurrentMissionId)) continue;
+                if (DateTime.UtcNow - captain.LastUpdateUtc < _StalledCaptainRetryAfter) continue;
+
+                await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Idle, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "returned stalled captain " + captain.Id + " to Idle after " + _StalledCaptainRetryAfter.TotalMinutes.ToString("0") + " minutes; it is tried again with the next mission");
+                await EmitEventAsync("captain.stall_released", "Captain " + captain.Name + " returned to Idle after being stalled for " + _StalledCaptainRetryAfter.TotalMinutes.ToString("0") + " minutes",
+                    entityType: "captain", entityId: captain.Id, captainId: captain.Id, token: token).ConfigureAwait(false);
+            }
+        }
+
         private async Task LiftExpiredQuarantinesAsync(CancellationToken token)
         {
             List<Captain> quarantined = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Quarantined, token).ConfigureAwait(false);
@@ -1963,15 +1989,43 @@ namespace Armada.Core.Services
             if (voyage == null) return;
             if (voyage.Status == VoyageStatusEnum.Cancelled || voyage.Status == VoyageStatusEnum.Complete) return;
 
-            voyage.Status = VoyageStatusEnum.Cancelled;
-            voyage.CompletedUtc = DateTime.UtcNow;
-            voyage.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
-
             List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
+
+            // A pipeline voyage (stages chained by dependency, Architect fan-out) halts only the failed stage's own
+            // chain: sibling chains keep running, and the voyage settles as Failed once nothing is left active. A
+            // voyage of independent missions halts as a whole, as before.
+            bool pipelineVoyage = voyageMissions.Any(m => !String.IsNullOrEmpty(m.DependsOnMissionId));
+            HashSet<string>? chain = null;
+            if (pipelineVoyage)
+            {
+                chain = new HashSet<string>(StringComparer.Ordinal) { failedMissionId };
+                bool grew = true;
+                while (grew)
+                {
+                    grew = false;
+                    foreach (Mission candidate in voyageMissions)
+                    {
+                        if (chain.Contains(candidate.Id) || String.IsNullOrEmpty(candidate.DependsOnMissionId) || !chain.Contains(candidate.DependsOnMissionId!)) continue;
+                        chain.Add(candidate.Id);
+                        grew = true;
+                    }
+                }
+            }
+            else
+            {
+                voyage.Status = VoyageStatusEnum.Cancelled;
+                voyage.CompletedUtc = DateTime.UtcNow;
+                voyage.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+            }
+
             foreach (Mission otherMission in voyageMissions)
             {
                 if (otherMission.Id == failedMissionId) continue;
+                if (chain != null && !chain.Contains(otherMission.Id)) continue;
+
+                // Work waiting for a person's review is kept for that person to decide.
+                if (otherMission.Status == MissionStatusEnum.Review) continue;
 
                 bool isTerminal =
                     otherMission.Status == MissionStatusEnum.Complete ||
@@ -1990,6 +2044,26 @@ namespace Armada.Core.Services
                 otherMission.CompletedUtc = DateTime.UtcNow;
                 otherMission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(otherMission, token).ConfigureAwait(false);
+            }
+
+            if (pipelineVoyage)
+            {
+                List<Mission> after = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
+                bool anyActive = after.Any(m => m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned
+                    || m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.WorkProduced || m.Status == MissionStatusEnum.Review
+                    || m.Status == MissionStatusEnum.PullRequestOpen || m.Status == MissionStatusEnum.Testing);
+                if (!anyActive)
+                {
+                    voyage.Status = after.Any(m => m.Status == MissionStatusEnum.Complete) ? VoyageStatusEnum.Complete : VoyageStatusEnum.Failed;
+                    if (after.Any(m => m.Status == MissionStatusEnum.Failed || m.Status == MissionStatusEnum.LandingFailed)) voyage.Status = VoyageStatusEnum.Failed;
+                    voyage.CompletedUtc = DateTime.UtcNow;
+                    voyage.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+                }
+
+                await EmitEventAsync("voyage.stage_failed", "Pipeline stage " + failedMissionId + " failed; its following stages were cancelled",
+                    entityType: "voyage", entityId: voyage.Id, missionId: failedMissionId, voyageId: voyage.Id, token: token).ConfigureAwait(false);
+                return;
             }
 
             await EmitEventAsync("voyage.cancelled", "Voyage halted after mission " + failedMissionId + " failed",

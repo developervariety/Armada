@@ -5,10 +5,12 @@ namespace Armada.Core.Services
     using System.Text.Json;
     using System.Text.RegularExpressions;
     using Armada.Core.Models;
+    using Armada.Core.Protocol;
 
     /// <summary>
     /// Builds <see cref="RuntimeProviderError"/> values from the structured error channels captain runtimes expose:
-    /// an HTTP response (API-endpoint captains), Claude Code's stream-json terminal result event, and Claude Code's
+    /// an HTTP response (API-endpoint captains), Claude Code's stream-json terminal result event, Codex exec --json error
+    /// and turn.failed events, and Claude Code's
     /// own protocol error lines in text mode ("API Error: STATUS {json}" and "Claude AI usage limit reached|EPOCH").
     /// A protocol line only counts when it is the whole line; its status and error type come from the status token
     /// and the deserialized JSON body, never from a keyword search. Anything else (ordinary output that mentions
@@ -23,6 +25,10 @@ namespace Armada.Core.Services
 
         private static readonly Regex _ApiErrorLine = new Regex(
             @"^API Error: (?<status>[1-5]\d\d)(?:\s+(?<body>\{.*\}))?(?:\s.*)?$",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex _CodexStatus = new Regex(
+            @"\bstatus:?\s+(?<status>[1-5]\d\d)\b",
             RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
         private static readonly Regex _UsageLimitLine = new Regex(
@@ -130,9 +136,65 @@ namespace Armada.Core.Services
             return generic;
         }
 
+        /// <summary>
+        /// Try to read a provider error from one line of Codex exec --json output: an <c>error</c> event or a
+        /// <c>turn.failed</c> event. The message is the CLI's own; an HTTP status is taken only from the status token
+        /// the CLI writes into it ("unexpected status 401 Unauthorized", "last status: 429").
+        /// </summary>
+        /// <param name="line">One stdout line.</param>
+        /// <returns>The provider error, or null when the line is not a Codex error event.</returns>
+        public static RuntimeProviderError? TryParseCodexJsonLine(string? line)
+        {
+            if (!CodexStreamEvent.TryParse(line, out CodexStreamEvent? evt) || evt == null) return null;
+
+            string? message;
+            if (String.Equals(evt.Type, CodexStreamEvent.TypeError, StringComparison.Ordinal))
+            {
+                message = evt.Message;
+            }
+            else if (String.Equals(evt.Type, CodexStreamEvent.TypeTurnFailed, StringComparison.Ordinal))
+            {
+                message = null;
+                if (!String.IsNullOrWhiteSpace(evt.Error))
+                {
+                    try
+                    {
+                        CodexErrorPayload? payload = JsonSerializer.Deserialize<CodexErrorPayload>(evt.Error!);
+                        message = payload?.Message;
+                    }
+                    catch (JsonException)
+                    {
+                        message = null;
+                    }
+                }
+            }
+            else
+            {
+                return null;
+            }
+
+            RuntimeProviderError error = new RuntimeProviderError();
+            error.ErrorType = evt.Type;
+            error.Message = String.IsNullOrWhiteSpace(message) ? null : message!.Trim();
+            error.Reason = "codex " + (evt.Type == CodexStreamEvent.TypeTurnFailed ? "turn failed" : "error") + (error.Message != null ? ": " + Shorten(error.Message) : String.Empty);
+            if (error.Message != null)
+            {
+                Match match = _CodexStatus.Match(error.Message);
+                if (match.Success) error.HttpStatusCode = Int32.Parse(match.Groups["status"].Value, CultureInfo.InvariantCulture);
+            }
+
+            return error;
+        }
+
         #endregion
 
         #region Private-Methods
+
+        private static string Shorten(string text)
+        {
+            string flat = text.Replace("\r", " ").Replace("\n", " ").Trim();
+            return flat.Length > 300 ? flat.Substring(0, 297).TrimEnd() + "..." : flat;
+        }
 
         private static ProviderErrorEnvelope? DeserializeEnvelope(string json)
         {

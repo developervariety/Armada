@@ -101,6 +101,8 @@ export default function Personas() {
       if (validation) throw new Error(t(validation));
       const payload: Record<string, unknown> = { ...routing, name: form.name, promptTemplateName: form.promptTemplateName, scope: form.scope };
       if (form.description) payload.description = form.description;
+      // This modal does not edit the default captain; send the stored one so saving never clears it.
+      if (editing) payload.defaultCaptainId = editing.defaultCaptainId ?? null;
       if (editing) await updatePersona(editing.name, payload);
       else await createPersona(payload as Partial<Persona>);
       setShowForm(false);

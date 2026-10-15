@@ -117,15 +117,41 @@ namespace Armada.Runtimes
             }
 
             string jobId = request.JobId;
-            if (runtime is ClaudeCodeRuntime claudeRuntime && request.StreamJsonOutput)
-                claudeRuntime.StreamJsonOutput = true;
-            else if (runtime is CodexRuntime codexRuntime && request.StreamJsonOutput)
-                codexRuntime.JsonOutput = true;
 
-            // A mission streaming its progress: the runtime decodes its structured output into the readable output
-            // reported below (as text mode prints it) and activities, which go to the Running now list and the Admiral.
-            if (runtime is BaseAgentRuntime structured && request.StructuredProgress)
-                structured.StructuredProgress = true;
+            // A mission whose Admiral decodes the structured output itself (StructuredProgress with StreamJsonOutput): run
+            // the CLI in its mission structured mode (Claude Code stream-json without partial messages, Codex exec
+            // --json, Mux jsonl) and pass every event through unchanged, so the Admiral reads usage and errors from the
+            // events. This Harbor decodes the same events for its Running now list and a readable job log.
+            bool supportsStructured = MissionStreamDecoder.Supports(runtimeType);
+            bool missionPassthrough = request.StructuredProgress && request.StreamJsonOutput && supportsStructured && runtime is BaseAgentRuntime;
+            bool runtimeDecodes = false;
+            if (missionPassthrough)
+            {
+                BaseAgentRuntime passthrough = (BaseAgentRuntime)runtime;
+                passthrough.StructuredProgress = true;
+                passthrough.StructuredPassthrough = true;
+            }
+            else
+            {
+                if (runtime is ClaudeCodeRuntime claudeRuntime && request.StreamJsonOutput)
+                    claudeRuntime.StreamJsonOutput = true;
+                else if (runtime is CodexRuntime codexRuntime && request.StreamJsonOutput)
+                    codexRuntime.JsonOutput = true;
+
+                // A mission streaming its progress from an Admiral that expects decoded output: the runtime decodes its
+                // structured output into the readable output reported below (as text mode prints it) and activities,
+                // which go to the Running now list and the Admiral.
+                if (runtime is BaseAgentRuntime structured && request.StructuredProgress)
+                {
+                    structured.StructuredProgress = true;
+                    runtimeDecodes = supportsStructured && !request.StreamJsonOutput;
+                }
+            }
+
+            // Raw structured events reach the Admiral unchanged (a passthrough mission, an Ask or chat turn that streams
+            // JSON, or any Mux launch, whose CLI only speaks jsonl): read them here too, for the Running now list.
+            bool observeEvents = supportsStructured && !runtimeDecodes
+                && (request.StreamJsonOutput || runtimeType == AgentRuntimeEnum.Mux);
 
             // Working directory: the requested one, or (for interactive launches that allow it) a per-job scratch
             // directory owned by this Harbor when the request names none or names a path that does not exist here (the
@@ -163,9 +189,11 @@ namespace Armada.Runtimes
                 else _LogPaths[jobId] = jobLog.FilePath;
             }
 
+            // A passthrough mission's job log shows the decoded, readable lines (written by the observer below), not the
+            // raw events.
             Action<HarborOutputStreamEnum, string> report = (stream, line) =>
             {
-                jobLog?.WriteOutput(stream, line);
+                if (!(missionPassthrough && stream == HarborOutputStreamEnum.Stdout)) jobLog?.WriteOutput(stream, line);
                 onOutput(stream, line);
             };
 
@@ -193,25 +221,30 @@ namespace Armada.Runtimes
                 ReportActivity(jobId, activity);
             };
 
-            // An interactive launch that streams JSON (an Ask or chat turn) hands the raw events to the Admiral, which
-            // reads them itself. Read the same events here for the Running now list only; the output is not changed.
-            if (request.StreamJsonOutput && (runtimeType == AgentRuntimeEnum.ClaudeCode || runtimeType == AgentRuntimeEnum.Codex))
+            // Launches whose raw events go to the Admiral unchanged: read the same events here for the Running now list
+            // (and, for a passthrough mission, the readable job log); the output reported to the Admiral is not changed.
+            MissionStreamDecoder? observer = observeEvents ? MissionStreamDecoder.For(runtimeType) : null;
+            object observerLock = new object();
+            if (observer != null)
             {
-                MissionStreamDecoder? observer = MissionStreamDecoder.For(runtimeType);
-                object observerLock = new object();
-                if (observer != null)
+                runtime.OnStdoutReceived += (processId, line) =>
                 {
-                    runtime.OnStdoutReceived += (processId, line) =>
-                    {
-                        MissionStreamDecodeResult observed;
-                        lock (observerLock) observed = observer.Decode(line, DateTime.UtcNow);
-                        foreach (Armada.Core.Models.RuntimeActivity activity in observed.Activities) ReportActivity(jobId, activity);
-                    };
-                }
+                    MissionStreamDecodeResult observed;
+                    lock (observerLock) observed = observer.Decode(line, DateTime.UtcNow);
+                    if (missionPassthrough && !observed.Structured) jobLog?.WriteOutput(HarborOutputStreamEnum.Stdout, line);
+                    ObserveDecoded(jobId, observed, missionPassthrough ? jobLog : null);
+                };
             }
 
             runtime.OnProcessExited += (processId, exitCode) =>
             {
+                if (observer != null)
+                {
+                    MissionStreamDecodeResult rest;
+                    lock (observerLock) rest = observer.Flush(DateTime.UtcNow);
+                    ObserveDecoded(jobId, rest, missionPassthrough ? jobLog : null);
+                }
+
                 _Jobs.TryRemove(jobId, out JobEntry? _);
                 _LogPaths.TryRemove(jobId, out string? _);
                 SendFinalMessage(finalMessageFilePath, report);
@@ -223,13 +256,19 @@ namespace Armada.Runtimes
 
             _Logging.Info("[LocalHarborJobRunner] launching " + runtimeType + " for job " + jobId + " in " + workingDirectory);
 
-            // Apply the auto-approve decision the Admiral resolved (captain setting plus vessel override). The Harbor has
-            // no database, so the decision travels in the launch request; null (an older Admiral) keeps the default.
+            // Rebuild the captain the Admiral launched from what the request carries: its runtime options (a Mux
+            // captain's endpoint, config directory, and so on), its reasoning effort, and the auto-approve decision the
+            // Admiral resolved (captain setting plus vessel override), applied on top. The Harbor has no database, so
+            // all of it travels in the launch request; fields an older Admiral does not send keep the defaults.
             Armada.Core.Models.Captain? launchCaptain = null;
-            if (request.AutoApprove.HasValue)
+            if (request.AutoApprove.HasValue || !String.IsNullOrWhiteSpace(request.RuntimeOptionsJson) || request.ReasoningEffort.HasValue)
             {
                 launchCaptain = new Armada.Core.Models.Captain("harbor-job-" + jobId);
-                launchCaptain.RuntimeOptionsJson = CaptainRuntimeOptions.WithAutoApprove(null, request.AutoApprove.Value);
+                launchCaptain.Runtime = runtimeType;
+                launchCaptain.RuntimeOptionsJson = request.AutoApprove.HasValue
+                    ? CaptainRuntimeOptions.WithAutoApprove(request.RuntimeOptionsJson, request.AutoApprove.Value)
+                    : request.RuntimeOptionsJson;
+                launchCaptain.ReasoningEffort = request.ReasoningEffort;
             }
 
             // Bind the captain's Armada MCP connection to the mission-scoped token the Admiral shipped (O-04): the API
@@ -342,6 +381,19 @@ namespace Armada.Runtimes
             {
                 TryDeleteFile(finalMessageFilePath);
             }
+        }
+
+        private void ObserveDecoded(string jobId, MissionStreamDecodeResult decoded, HarborJobLog? jobLog)
+        {
+            foreach (Armada.Core.Models.RuntimeActivity activity in decoded.Activities)
+            {
+                jobLog?.WriteActivity(activity);
+                ReportActivity(jobId, activity);
+            }
+
+            if (jobLog == null) return;
+            foreach (string line in decoded.TranscriptLines) jobLog.WriteOutput(HarborOutputStreamEnum.Stderr, line);
+            foreach (string line in decoded.OutputLines) jobLog.WriteOutput(HarborOutputStreamEnum.Stdout, line);
         }
 
         private void ReportActivity(string jobId, Armada.Core.Models.RuntimeActivity activity)

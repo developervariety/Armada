@@ -21,9 +21,10 @@ import {
   listVessels,
   listCaptains,
   listDeployments,
+  getHarbor,
 } from '../api/client';
 import { listAll } from '../api/paging';
-import type { Captain, CheckRun, Deployment, GitHubPullRequestDetail, LandingPreviewResult, Mission, Vessel } from '../types/models';
+import type { Captain, CheckRun, Deployment, GitHubPullRequestDetail, Harbor, LandingPreviewResult, Mission, Vessel } from '../types/models';
 import ErrorModal from '../components/shared/ErrorModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -51,6 +52,7 @@ export default function MissionDetail() {
   const [mission, setMission] = useState<Mission | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
+  const [harbor, setHarbor] = useState<Harbor | null>(null);
   const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
   const [linkedCheckRuns, setLinkedCheckRuns] = useState<CheckRun[]>([]);
   const [linkedDeployments, setLinkedDeployments] = useState<Deployment[]>([]);
@@ -133,6 +135,19 @@ export default function MissionDetail() {
     listAll(listVessels).then(r => setVessels(r.objects || [])).catch(() => {});
     listAll(listCaptains).then(r => setCaptains(r.objects || [])).catch(() => {});
   }, []);
+
+  // Resolve the Harbor the mission ran on to its name (the id is shown if it cannot be read).
+  const assignedHarborId = mission?.assignedHarborId ?? null;
+  useEffect(() => {
+    if (!assignedHarborId) return undefined;
+    let cancelled = false;
+    getHarbor(assignedHarborId)
+      .then(h => { if (!cancelled) setHarbor(h); })
+      .catch(() => { if (!cancelled) setHarbor(null); });
+    return () => { cancelled = true; };
+  }, [assignedHarborId]);
+  const assignedHarbor = harbor && harbor.id === assignedHarborId ? harbor : null;
+  const actualCaptain = mission?.captainId ? captains.find(c => c.id === mission.captainId) ?? null : null;
 
   useEffect(() => {
     if (!id) {
@@ -784,7 +799,27 @@ export default function MissionDetail() {
         </div>
         <div className="detail-field">
           <span className="detail-label" title={t('Captain that ran or is running the mission. Shows - until dispatch assigns one.')}>{t('Actual Captain')}</span>
-          <CaptainRef captainId={mission.captainId} captains={captains} autoLabel="-" showTier={false} />
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <CaptainRef captainId={mission.captainId} captains={captains} autoLabel="-" showTier={false} />
+            {actualCaptain?.runtime
+              ? <span className="text-dim" data-testid="mission-captain-runtime" title={t('Agent program this captain runs, such as ClaudeCode, Codex, Mux or ApiEndpoint.')}>({actualCaptain.runtime})</span>
+              : null}
+          </span>
+        </div>
+        <div className="detail-field">
+          <span className="detail-label" title={t('Harbor (a developer machine running Armada Harbor) the mission was routed to. Admiral host means it ran on the Admiral itself, or has not been routed yet.')}>{t('Harbor')}</span>
+          {mission.assignedHarborId
+            ? (
+              <Link
+                to="/configuration?tab=harbors"
+                data-testid="mission-harbor"
+                title={t('Open Harbors to see this Harbor\'s connection, capacity and jobs. ID: {{id}}', { id: mission.assignedHarborId })}
+                className={assignedHarbor ? undefined : 'mono'}
+              >
+                {assignedHarbor?.name || mission.assignedHarborId}
+              </Link>
+            )
+            : <span className="text-dim" title={t('No Harbor took this mission: it ran on the Admiral host, or it has not been routed yet.')}>{t('Admiral host')}</span>}
         </div>
         <div className="detail-field">
           <span className="detail-label" title={t('Mission that created this one as a sub-task, for example an architect mission that planned it.')}>{t('Parent Mission')}</span>

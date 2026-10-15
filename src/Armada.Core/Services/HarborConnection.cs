@@ -28,9 +28,32 @@ namespace Armada.Core.Services
         public string? UserId { get; }
 
         /// <summary>
-        /// When the Harbor was last heard from (UTC).
+        /// When the Harbor was last heard from on this link (UTC): any message counts. The connection manager's sweep
+        /// treats a link that has been silent for longer than <see cref="StaleAfter"/> as dead.
         /// </summary>
         public DateTime LastSeenUtc { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// The heartbeat interval the Harbor advertised in its handshake, in milliseconds: null when it did not say (an
+        /// older Harbor), zero when it sends no heartbeats.
+        /// </summary>
+        public int? HeartbeatIntervalMs { get; set; } = null;
+
+        /// <summary>
+        /// When the last heartbeat arrived on this link (UTC), or null before the first.
+        /// </summary>
+        public DateTime? LastHeartbeatUtc { get; private set; } = null;
+
+        /// <summary>
+        /// Time between the last two heartbeats on this link, in milliseconds, or null before the second.
+        /// </summary>
+        public long? ObservedHeartbeatIntervalMs { get; private set; } = null;
+
+        /// <summary>
+        /// Closes the transport behind this link (the WebSocket), or null when the transport did not supply one. Called
+        /// when the connection manager drops a link it found dead, so a half-open socket does not linger.
+        /// </summary>
+        public Action? CloseLink { get; set; } = null;
 
         /// <summary>
         /// Whether this Harbor creates mission docks on its own host (it advertised
@@ -127,6 +150,53 @@ namespace Armada.Core.Services
                 foreach (string id in jobIds)
                     if (!String.IsNullOrWhiteSpace(id)) _LiveJobIds.Add(id);
             }
+        }
+
+        /// <summary>
+        /// Record a heartbeat's arrival: it refreshes <see cref="LastSeenUtc"/> and measures the interval between heartbeats.
+        /// </summary>
+        /// <param name="receivedUtc">When it arrived (UTC).</param>
+        public void RecordHeartbeat(DateTime receivedUtc)
+        {
+            if (LastHeartbeatUtc.HasValue && receivedUtc > LastHeartbeatUtc.Value)
+                ObservedHeartbeatIntervalMs = (long)(receivedUtc - LastHeartbeatUtc.Value).TotalMilliseconds;
+            LastHeartbeatUtc = receivedUtc;
+            LastSeenUtc = receivedUtc;
+        }
+
+        /// <summary>
+        /// How long this link may stay silent before it counts as dead: three heartbeat intervals, and never less than
+        /// <paramref name="minimum"/>. The interval is the one the Harbor advertised, else the one observed between its
+        /// heartbeats. Null when no heartbeats are expected (the Harbor turned them off, or an older Harbor has not sent two
+        /// yet), so a Harbor that legitimately runs without heartbeats is never judged.
+        /// </summary>
+        /// <param name="minimum">Lower bound of the timeout.</param>
+        /// <returns>The timeout, or null.</returns>
+        public TimeSpan? StaleAfter(TimeSpan minimum)
+        {
+            long? intervalMs = null;
+            if (HeartbeatIntervalMs.HasValue)
+            {
+                if (HeartbeatIntervalMs.Value <= 0) return null;
+                intervalMs = HeartbeatIntervalMs.Value;
+            }
+            else if (ObservedHeartbeatIntervalMs.HasValue && ObservedHeartbeatIntervalMs.Value > 0)
+            {
+                intervalMs = ObservedHeartbeatIntervalMs.Value;
+            }
+
+            if (!intervalMs.HasValue) return null;
+            TimeSpan threeBeats = TimeSpan.FromMilliseconds(intervalMs.Value * 3.0);
+            return threeBeats > minimum ? threeBeats : minimum;
+        }
+
+        /// <summary>
+        /// Snapshot of the job identifiers the Harbor last reported running.
+        /// </summary>
+        /// <returns>The identifiers.</returns>
+        public List<string> LiveJobIds()
+        {
+            lock (_JobLock) return new List<string>(_LiveJobIds);
         }
 
         /// <summary>

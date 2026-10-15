@@ -37,6 +37,7 @@ import {
   isKnownHealthStatus,
   isRebuildTerminal,
   mergeServerSettings,
+  REQUIRE_HARBOR_FOR_LAUNCH_TOOLTIP,
   type HealthInfo,
   type McpClientKey,
   type ServerSettings,
@@ -231,6 +232,7 @@ export default function Server() {
         stallThresholdMinutes: settings.stallThresholdMinutes,
         idleCaptainTimeoutSeconds: settings.idleCaptainTimeoutSeconds,
         landingMode: settings.landingMode || DEFAULT_GLOBAL_LANDING_MODE,
+        ...(settings.requireHarborForLaunch !== undefined ? { requireHarborForLaunch: settings.requireHarborForLaunch } : {}),
       });
       setSettings(mergeServerSettings(updated as unknown as ServerSettings));
       showToast('success', t('Agent settings saved'));
@@ -759,11 +761,25 @@ export default function Server() {
                 />
               </div>
               <DefaultLandingModeField value={settings.landingMode} onChange={(landingMode) => setSettings({ ...settings, landingMode })} />
+              {settings.requireHarborForLaunch !== undefined && (
+                <div className="form-group">
+                  <label className="settings-checkbox-label" title={t(REQUIRE_HARBOR_FOR_LAUNCH_TOOLTIP)}>
+                    <input
+                      type="checkbox"
+                      title={t(REQUIRE_HARBOR_FOR_LAUNCH_TOOLTIP)}
+                      checked={settings.requireHarborForLaunch}
+                      onChange={(e) => setSettings({ ...settings, requireHarborForLaunch: e.target.checked })}
+                    />
+                    <span>{t('Require Harbor for Launch')}</span>
+                  </label>
+                  <small className="text-dim">{t('On: missions wait for a Harbor. Off: they run on the Admiral host when no Harbor can take them.')}</small>
+                </div>
+              )}
             </div>
             <button
               className="btn-primary btn-sm"
               onClick={handleSaveAgentSettings}
-              title={t('Save the agent timing and default landing mode. They apply to the running Admiral immediately.')}
+              title={t('Save the agent timing, default landing mode and Harbor requirement. They apply to the running Admiral immediately.')}
             >
               {t('Save Agent Settings')}
             </button>

@@ -171,13 +171,14 @@ namespace Armada.Core.Services
                 List<MergeEntry> mergeFailed = await MergeEntriesByStatusAsync(auth, MergeStatusEnum.Failed, token).ConfigureAwait(false);
                 foreach (MergeEntry entry in mergeFailed)
                 {
+                    string? missionTitle = await MergeEntryMissionTitleAsync(entry, token).ConfigureAwait(false);
                     items.Add(new InboxItem
                     {
                         Kind = InboxItemKinds.MergeFailed,
                         Severity = InboxSeverityEnum.Critical,
-                        Title = "Merge failed: " + entry.TargetBranch,
+                        Title = "Merge failed: " + (missionTitle ?? entry.BranchName) + " -> " + entry.TargetBranch,
                         EntityName = entry.TargetBranch,
-                        Detail = "A queued merge failed testing or landing and needs attention.",
+                        Detail = MergeFailedDetail(entry, missionTitle),
                         EntityType = "merge_entry",
                         EntityId = entry.Id,
                         Href = "/merge-queue/" + entry.Id
@@ -346,6 +347,36 @@ namespace Armada.Core.Services
             }
 
             return visible;
+        }
+
+        private async Task<string?> MergeEntryMissionTitleAsync(MergeEntry entry, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(entry.MissionId)) return null;
+            try
+            {
+                Mission? mission = !String.IsNullOrEmpty(entry.TenantId)
+                    ? await _Database.Missions.ReadAsync(entry.TenantId, entry.MissionId, token).ConfigureAwait(false)
+                    : await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+                return mission == null || String.IsNullOrWhiteSpace(mission.Title) ? null : mission.Title;
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                _Logging.Debug(_Header + "could not read mission " + entry.MissionId + " for merge entry " + entry.Id + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        private static string MergeFailedDetail(MergeEntry entry, string? missionTitle)
+        {
+            string subject = missionTitle != null
+                ? "Mission \"" + missionTitle + "\" (branch " + entry.BranchName + ")"
+                : "Branch " + entry.BranchName;
+            string detail = subject + " could not be merged into " + entry.TargetBranch + ".";
+            if (!String.IsNullOrWhiteSpace(entry.TestOutput))
+                detail += " " + Clip(entry.TestOutput!.Trim(), 500);
+            else
+                detail += " It failed testing or landing and needs attention.";
+            return detail;
         }
 
         private static string Clip(string? text, int max)

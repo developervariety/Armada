@@ -961,31 +961,27 @@ namespace Armada.Server.Routes
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
-                if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled)
-                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Only Failed or Cancelled missions can be restarted" };
-
-                try
+                if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled && mission.Status != MissionStatusEnum.LandingFailed)
                 {
-                    MissionRestartRequest body = JsonSerializer.Deserialize<MissionRestartRequest>(req.Http.Request.DataAsString, _jsonOptions)
-                        ?? throw new InvalidOperationException("Request body could not be deserialized as MissionRestartRequest.");
-                    if (!String.IsNullOrEmpty(body.Title)) mission.Title = body.Title;
-                    if (!String.IsNullOrEmpty(body.Description)) mission.Description = body.Description;
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "Only Failed, LandingFailed, or Cancelled missions can be restarted (current: " + mission.Status + ")" };
                 }
-                catch { }
 
-                mission.Status = MissionStatusEnum.Pending;
-                mission.CreatedUtc = DateTime.UtcNow;
-                mission.CaptainId = null;
-                mission.BranchName = null;
-                mission.PrUrl = null;
-                mission.CommitHash = null;
-                mission.DockId = null;
-                mission.ProcessId = null;
-                mission.DiffSnapshot = null;
-                mission.StartedUtc = null;
-                mission.CompletedUtc = null;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                mission = await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                MissionRestartRequest? body = null;
+                if (!String.IsNullOrWhiteSpace(req.Http.Request.DataAsString))
+                {
+                    try
+                    {
+                        body = JsonSerializer.Deserialize<MissionRestartRequest>(req.Http.Request.DataAsString, _jsonOptions);
+                    }
+                    catch (JsonException)
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Request body is not a valid MissionRestartRequest." };
+                    }
+                }
+
+                mission = await _missionService.RestartAsync(mission, body?.Title, body?.Description).ConfigureAwait(false);
 
                 Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " restarted");
                 await _database.Signals.CreateAsync(signal).ConfigureAwait(false);

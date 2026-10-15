@@ -18,7 +18,9 @@ namespace Armada.Core.Services
     /// and carries out delegated host operations. Git/gh requests run through the supplied
     /// <see cref="IHostCommandExecutor"/>; captain launches run through the supplied
     /// <see cref="IHarborJobRunner"/> (when present) with their lifecycle streamed back. Outbound messages
-    /// are sent through a single ordered pump so streamed output cannot interleave or reorder. The protocol
+    /// are sent through a single ordered pump so streamed output cannot interleave or reorder. A job's lifecycle messages
+    /// go through the <see cref="HarborJobOutbox"/> of the shared <see cref="JobState"/>, which outlives the session: a
+    /// job that keeps running through a link drop reports its remaining output and its exit on the next link. The protocol
     /// logic is transport-agnostic so it can be exercised without a live socket.
     /// </summary>
     public class HarborLinkClient
@@ -72,6 +74,30 @@ namespace Armada.Core.Services
             get { lock (_HeartbeatLock) return _LastRoundTripMs; }
         }
 
+        /// <summary>
+        /// The Harbor's jobs: the ones running now and the outbox their lifecycle messages travel through. A Harbor runs
+        /// one client per session, so the owner of the reconnect loop sets the same instance on every session's client
+        /// (with the same job runner): a job started over one link then keeps reporting its output and exit after the link
+        /// drops, and heartbeats on the next link still list it. By default each client has its own.
+        /// </summary>
+        public HarborJobState JobState
+        {
+            get => _JobState;
+            set => _JobState = value ?? throw new ArgumentNullException(nameof(JobState));
+        }
+
+        /// <summary>
+        /// Minimum time, in milliseconds, without a heartbeat acknowledgement after which the Harbor treats its link as
+        /// dead and ends the session (so it reconnects). The timeout is the larger of this and three heartbeat intervals,
+        /// and applies only once the Admiral has acknowledged a heartbeat on the link (an Admiral that never does is not
+        /// judged). Minimum 1000; defaults to 45000.
+        /// </summary>
+        public int MinimumDeadLinkTimeoutMs
+        {
+            get => _MinimumDeadLinkTimeoutMs;
+            set => _MinimumDeadLinkTimeoutMs = value < 1000 ? 1000 : value;
+        }
+
         #endregion
 
         #region Private-Members
@@ -87,15 +113,20 @@ namespace Armada.Core.Services
         private readonly LoggingModule _Logging;
         private readonly int _HeartbeatIntervalMs;
         private readonly Action<HarborLogEntry>? _OnLog;
-        private readonly Dictionary<string, HarborJobInfo> _LiveJobs = new Dictionary<string, HarborJobInfo>(StringComparer.Ordinal);
-        private readonly object _JobLock = new object();
-        private readonly ConcurrentDictionary<string, Action<RuntimeActivity>> _ActivityHandlers = new ConcurrentDictionary<string, Action<RuntimeActivity>>(StringComparer.Ordinal);
+        private HarborJobState _JobState = new HarborJobState();
         private static readonly TimeSpan _ActivityInterval = TimeSpan.FromSeconds(1);
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _CommandLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
         private readonly ConcurrentDictionary<Task, byte> _CommandsInFlight = new ConcurrentDictionary<Task, byte>();
         private CancellationTokenSource? _SessionCommands = null;
         private Action? _OnConnected;
         private Channel<HarborMessage>? _Outbound;
+        private SemaphoreSlim? _Wake = null;
+        private CancellationTokenSource? _SessionLink = null;
+        private volatile bool _HandshakeSent = false;
+        private List<string> _HandshakeJobIds = new List<string>();
+        private long _LastAckTimestamp = 0;
+        private bool _AckSeen = false;
+        private int _MinimumDeadLinkTimeoutMs = 45000;
         private TimeProvider _Time = TimeProvider.System;
         private HarborLinkStatistics _LinkStatistics = new HarborLinkStatistics();
         private HarborLogClassifier _LogClassifier = new HarborLogClassifier();
@@ -152,7 +183,6 @@ namespace Armada.Core.Services
             _HeartbeatIntervalMs = heartbeatIntervalMs < 0 ? 0 : heartbeatIntervalMs;
             _OnLog = onLog;
             _JobRunner = jobRunner;
-            if (_JobRunner is IHarborJobProgressSource progress) progress.ActivityReported += OnJobActivity;
         }
 
         #endregion
@@ -165,7 +195,7 @@ namespace Armada.Core.Services
         /// <returns>Snapshot of the live job identifiers.</returns>
         public List<string> LiveJobIds()
         {
-            return SnapshotLiveJobs();
+            return _JobState.LiveJobIds();
         }
 
         /// <summary>
@@ -174,14 +204,7 @@ namespace Armada.Core.Services
         /// <returns>Copies of the live jobs.</returns>
         public List<HarborJobInfo> LiveJobs()
         {
-            List<HarborJobInfo> jobs = new List<HarborJobInfo>();
-            lock (_JobLock)
-            {
-                foreach (HarborJobInfo job in _LiveJobs.Values) jobs.Add(job.Clone());
-            }
-
-            jobs.Sort((a, b) => a.StartedUtc.CompareTo(b.StartedUtc));
-            return jobs;
+            return _JobState.LiveJobs();
         }
 
         /// <summary>
@@ -198,18 +221,40 @@ namespace Armada.Core.Services
             _OnConnected = onConnected;
             ResetHeartbeatTiming();
             Channel<HarborMessage> outbound = Channel.CreateUnbounded<HarborMessage>();
+            SemaphoreSlim wake = new SemaphoreSlim(0, Int32.MaxValue);
+            Action onJobMessage = () => Wake(wake);
             _Outbound = outbound;
+            _Wake = wake;
+            _HandshakeSent = false;
+            _JobState.Attach(_JobRunner);
 
-            await transport.ConnectAsync(token).ConfigureAwait(false);
+            try
+            {
+                await transport.ConnectAsync(token).ConfigureAwait(false);
+            }
+            catch
+            {
+                _Outbound = null;
+                _Wake = null;
+                throw;
+            }
 
             using (CancellationTokenSource sessionCts = CancellationTokenSource.CreateLinkedTokenSource(token))
             using (CancellationTokenSource commandCts = CancellationTokenSource.CreateLinkedTokenSource(token))
+            using (CancellationTokenSource linkCts = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
                 _SessionCommands = commandCts;
-                Task pump = SendPumpAsync(transport, outbound, sessionCts.Token);
+                _SessionLink = linkCts;
+
+                // Job messages held from earlier links are replayed on this one, in order, right after the handshake.
+                _JobState.Outbox.BeginSession();
+                _JobState.Outbox.MessageAdded += onJobMessage;
+                Task pump = SendPumpAsync(transport, outbound, wake, sessionCts.Token);
                 Task heartbeat = _HeartbeatIntervalMs > 0 ? HeartbeatLoopAsync(sessionCts.Token) : Task.CompletedTask;
 
-                Enqueue(BuildHandshake());
+                HarborHandshake handshake = BuildHandshake();
+                _HandshakeJobIds = handshake.LiveJobIds ?? new List<string>();
+                Enqueue(handshake);
                 _Logging.Debug(_Header + "harbor " + _HarborId + " sent handshake");
                 LogEntry(_LogClassifier.Link(HarborLogDirection.Out, "Handshake sent (harbor " + _HarborId + ")"));
 
@@ -217,7 +262,18 @@ namespace Armada.Core.Services
                 {
                     while (!token.IsCancellationRequested)
                     {
-                        string? raw = await transport.ReceiveAsync(token).ConfigureAwait(false);
+                        string? raw;
+                        try
+                        {
+                            raw = await transport.ReceiveAsync(linkCts.Token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (!token.IsCancellationRequested && linkCts.IsCancellationRequested)
+                        {
+                            // The heartbeat loop found the link dead (no acknowledgement for too long): end the session so
+                            // the owner reconnects.
+                            break;
+                        }
+
                         if (raw == null) break;
 
                         HarborMessage message;
@@ -237,16 +293,21 @@ namespace Armada.Core.Services
                 finally
                 {
                     // Commands still running belong to this link: nobody can read their results once it is gone. Stop
-                    // them, and let the ones that finish send their results before the outbound queue closes.
+                    // them, and let the ones that finish send their results before the outbound queue closes. Job
+                    // messages are not lost with the link: what the pump cannot write stays in the outbox for the next one.
                     commandCts.Cancel();
                     try { await Task.WhenAll(_CommandsInFlight.Keys).ConfigureAwait(false); } catch { }
                     _SessionCommands = null;
                     outbound.Writer.TryComplete();
+                    Wake(wake);
                     try { await pump.ConfigureAwait(false); } catch { }
+                    _JobState.Outbox.MessageAdded -= onJobMessage;
                     sessionCts.Cancel();
                     try { await heartbeat.ConfigureAwait(false); } catch { }
                     await transport.CloseAsync(CancellationToken.None).ConfigureAwait(false);
+                    _SessionLink = null;
                     _Outbound = null;
+                    _Wake = null;
                 }
             }
         }
@@ -265,7 +326,10 @@ namespace Armada.Core.Services
                 OsPlatform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
                 Architecture = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString(),
                 MaxConcurrentJobs = _MaxConcurrentJobs,
-                Capabilities = _Capabilities
+                Capabilities = _Capabilities,
+                LiveJobIds = _JobState.LiveJobIds(),
+                HeartbeatIntervalMs = _HeartbeatIntervalMs,
+                JobOutboxEpoch = _JobState.Outbox.Epoch
             };
         }
 
@@ -284,6 +348,12 @@ namespace Armada.Core.Services
                     _Logging.Info(_Header + "handshake accepted; mcp=" + (ack.McpBaseUrl ?? "(none)"));
                     LogEntry(_LogClassifier.Link(HarborLogDirection.In, "Handshake accepted by Admiral. MCP=" + (ack.McpBaseUrl ?? "(none)"), HarborLogOutcomeEnum.Ok));
                     _LinkStatistics.RecordAccepted(_Time.GetUtcNow().UtcDateTime);
+                    // Job messages are acknowledged in heartbeat acknowledgements; without heartbeats nothing would ever be
+                    // acknowledged, so drop what the Admiral already has and then drop each message once written.
+                    if (_HeartbeatIntervalMs <= 0 && ack.LastJobSequence.HasValue) _JobState.Outbox.Acknowledge(ack.LastJobSequence.Value);
+                    _JobState.Outbox.SetAcknowledgementMode(_HeartbeatIntervalMs > 0 ? ack.LastJobSequence : null);
+                    if (ack.OwnedJobIds != null) StopUnownedJobs(ack.OwnedJobIds);
+                    Wake(_Wake);
                     _OnConnected?.Invoke();
                 }
                 return;
@@ -292,6 +362,7 @@ namespace Armada.Core.Services
             if (message is HarborHeartbeatAck heartbeatAck)
             {
                 RecordHeartbeatAck(heartbeatAck.Sequence);
+                if (heartbeatAck.LastJobSequence.HasValue) _JobState.Outbox.Acknowledge(heartbeatAck.LastJobSequence.Value);
                 return;
             }
 
@@ -594,7 +665,7 @@ namespace Armada.Core.Services
 
             if (_JobRunner == null)
             {
-                Enqueue(new HarborError
+                EnqueueJob(new HarborError
                 {
                     CorrelationId = launch.CorrelationId,
                     JobId = launch.JobId,
@@ -618,16 +689,20 @@ namespace Armada.Core.Services
             // The job's activity (from its runtime's structured output) updates the Running now list at once and, when
             // the Admiral asked for structured progress, goes to the Admiral at most about once a second (newest wins).
             LatestValueThrottle<RuntimeActivity>? activityToAdmiral = launch.StructuredProgress
-                ? new LatestValueThrottle<RuntimeActivity>(_ActivityInterval, _Time, activity => Enqueue(new HarborActivity { JobId = jobId, Activity = activity }))
+                ? new LatestValueThrottle<RuntimeActivity>(_ActivityInterval, _Time, activity => EnqueueJob(new HarborActivity { JobId = jobId, Activity = activity }))
                 : null;
-            _ActivityHandlers[jobId] = activity =>
+
+            // Every callback below outlives this session: they report through the shared job state and outbox, never
+            // through this session's link, so a job that keeps running through a link drop still reports to the Admiral.
+            HarborJobState jobs = _JobState;
+            jobs.SetActivityHandler(jobId, activity =>
             {
                 // Structured output counts as output for the time to first output: a captain that streams its work has
                 // started answering even though it prints nothing readable until it finishes.
                 System.Threading.Interlocked.CompareExchange(ref firstOutputElapsedTicks, _Time.GetElapsedTime(started).Ticks, -1);
-                UpdateLiveJob(jobId, job => job.SetActivity(activity));
+                jobs.UpdateLiveJob(jobId, job => job.SetActivity(activity));
                 activityToAdmiral?.Submit(activity);
-            };
+            });
 
             try
             {
@@ -636,8 +711,8 @@ namespace Armada.Core.Services
                     McpBaseUrl,
                     processId =>
                     {
-                        AddLiveJob(launch);
-                        Enqueue(new HarborStarted { CorrelationId = launch.CorrelationId, JobId = launch.JobId, ProcessId = processId });
+                        AddLiveJob(jobs, launch);
+                        jobs.Outbox.Add(new HarborStarted { CorrelationId = launch.CorrelationId, JobId = launch.JobId, ProcessId = processId });
                         LogEntry(_LogClassifier.Started(launch, processId));
                     },
                     (stream, data) =>
@@ -645,70 +720,89 @@ namespace Armada.Core.Services
                         // Record the time to first output once (time-to-first-token proxy).
                         System.Threading.Interlocked.CompareExchange(ref firstOutputElapsedTicks, _Time.GetElapsedTime(started).Ticks, -1);
                         bool readable = stream == HarborOutputStreamEnum.Stderr || (stream == HarborOutputStreamEnum.Stdout && !stdoutIsProtocol);
-                        if (readable) UpdateLiveJob(jobId, job => job.AddRecentLine(data));
-                        Enqueue(new HarborOutput { JobId = launch.JobId, Stream = stream, Data = data });
+                        if (readable) jobs.UpdateLiveJob(jobId, job => job.AddRecentLine(data));
+                        jobs.Outbox.Add(new HarborOutput { JobId = launch.JobId, Stream = stream, Data = data });
                     },
                     exitCode =>
                     {
-                        EndActivity(jobId, activityToAdmiral);
-                        RemoveLiveJob(launch.JobId);
+                        EndActivity(jobs, jobId, activityToAdmiral);
                         long durationMs = (long)_Time.GetElapsedTime(started).TotalMilliseconds;
                         long firstOutput = System.Threading.Interlocked.Read(ref firstOutputElapsedTicks);
                         long? ttftMs = firstOutput < 0
                             ? (long?)null
                             : (long)TimeSpan.FromTicks(firstOutput).TotalMilliseconds;
-                        Enqueue(new HarborExited { JobId = launch.JobId, ExitCode = exitCode, DurationMs = durationMs, TimeToFirstTokenMs = ttftMs });
+                        // Queue the exit before the job leaves the live set, so a heartbeat that no longer lists the job
+                        // is built after its exit is queued.
+                        jobs.Outbox.Add(new HarborExited { JobId = launch.JobId, ExitCode = exitCode, DurationMs = durationMs, TimeToFirstTokenMs = ttftMs });
+                        jobs.RemoveLiveJob(launch.JobId);
                         LogEntry(_LogClassifier.Exited(launch, exitCode, durationMs, ttftMs));
                     },
                     token).ConfigureAwait(false);
             }
             catch (Exception e)
             {
-                EndActivity(jobId, activityToAdmiral);
-                RemoveLiveJob(launch.JobId);
-                Enqueue(new HarborError { CorrelationId = launch.CorrelationId, JobId = launch.JobId, Message = e.Message });
+                EndActivity(jobs, jobId, activityToAdmiral);
+                jobs.RemoveLiveJob(launch.JobId);
+                jobs.Outbox.Add(new HarborError { CorrelationId = launch.CorrelationId, JobId = launch.JobId, Message = e.Message });
                 LogEntry(_LogClassifier.LaunchFailed(launch, e.Message));
             }
         }
 
-        private void OnJobActivity(string jobId, RuntimeActivity activity)
+        private static void EndActivity(HarborJobState jobs, string jobId, LatestValueThrottle<RuntimeActivity>? activityToAdmiral)
         {
-            if (String.IsNullOrEmpty(jobId) || activity == null) return;
-            if (_ActivityHandlers.TryGetValue(jobId, out Action<RuntimeActivity>? handler))
-            {
-                try { handler(activity); }
-                catch (Exception e) { _Logging.Debug(_Header + "activity of job " + jobId + " not recorded: " + e.Message.TrimEnd('.')); }
-            }
-        }
-
-        private void EndActivity(string jobId, LatestValueThrottle<RuntimeActivity>? activityToAdmiral)
-        {
-            _ActivityHandlers.TryRemove(jobId, out Action<RuntimeActivity>? _);
+            jobs.RemoveActivityHandler(jobId);
             activityToAdmiral?.Dispose();
         }
 
-        private void UpdateLiveJob(string jobId, Action<HarborJobInfo> update)
+        private void StopUnownedJobs(List<string> ownedJobIds)
         {
-            lock (_JobLock)
+            if (_JobRunner == null) return;
+            HashSet<string> owned = new HashSet<string>(ownedJobIds, StringComparer.Ordinal);
+            foreach (string jobId in _HandshakeJobIds)
             {
-                if (_LiveJobs.TryGetValue(jobId, out HarborJobInfo? job)) update(job);
+                if (owned.Contains(jobId) || !_JobState.IsLive(jobId)) continue;
+
+                // The Admiral gave up on this job while the link was down (its mission was recovered elsewhere, or the
+                // Admiral restarted): stop it, so a second agent does not work in the same dock.
+                _Logging.Warn(_Header + "the Admiral no longer owns job " + jobId + "; stopping it");
+                LogEntry(_LogClassifier.Link(HarborLogDirection.In, "The Admiral no longer owns job " + jobId + "; stopping it", HarborLogOutcomeEnum.Failed));
+                IHarborJobRunner runner = _JobRunner;
+                string target = jobId;
+                _ = Task.Run(async () =>
+                {
+                    try { await runner.StopAsync(target, 10000, CancellationToken.None).ConfigureAwait(false); }
+                    catch (Exception e) { _Logging.Warn(_Header + "stop of unowned job " + target + " failed: " + e.Message); }
+                });
             }
         }
 
-        private async Task SendPumpAsync(IHarborTransport transport, Channel<HarborMessage> outbound, CancellationToken token)
+        private async Task SendPumpAsync(IHarborTransport transport, Channel<HarborMessage> outbound, SemaphoreSlim wake, CancellationToken token)
         {
             try
             {
-                await foreach (HarborMessage message in outbound.Reader.ReadAllAsync(token).ConfigureAwait(false))
+                while (true)
                 {
-                    string serialized = HarborProtocol.Serialize(message);
+                    bool sent = false;
 
-                    // Time a heartbeat from when it goes to the socket, so output queued ahead of it does not count as
-                    // link latency.
-                    if (message is HarborHeartbeat heartbeat && heartbeat.Sequence.HasValue)
-                        RecordHeartbeatSent(heartbeat.Sequence.Value);
+                    // Link messages first (the handshake is always the first), then one job message, in turn, so heavy
+                    // output cannot hold back heartbeats and command results.
+                    if (outbound.Reader.TryRead(out HarborMessage? message))
+                    {
+                        await SendMessageAsync(transport, message, token).ConfigureAwait(false);
+                        if (message is HarborHandshake) _HandshakeSent = true;
+                        sent = true;
+                    }
 
-                    await transport.SendAsync(serialized, token).ConfigureAwait(false);
+                    if (_HandshakeSent && _JobState.Outbox.TryPeekNext(out HarborMessage? job) && job != null)
+                    {
+                        await SendMessageAsync(transport, job, token).ConfigureAwait(false);
+                        _JobState.Outbox.MarkSent(job);
+                        sent = true;
+                    }
+
+                    if (sent) continue;
+                    if (outbound.Reader.Completion.IsCompleted) break;
+                    await wake.WaitAsync(token).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException)
@@ -720,6 +814,33 @@ namespace Armada.Core.Services
             }
         }
 
+        private async Task SendMessageAsync(IHarborTransport transport, HarborMessage message, CancellationToken token)
+        {
+            string serialized = HarborProtocol.Serialize(message);
+
+            // Time a heartbeat from when it goes to the socket, so output queued ahead of it does not count as link
+            // latency.
+            if (message is HarborHeartbeat heartbeat && heartbeat.Sequence.HasValue)
+                RecordHeartbeatSent(heartbeat.Sequence.Value);
+
+            await transport.SendAsync(serialized, token).ConfigureAwait(false);
+        }
+
+        private static void Wake(SemaphoreSlim? wake)
+        {
+            if (wake == null) return;
+            try
+            {
+                if (wake.CurrentCount == 0) wake.Release();
+            }
+            catch (SemaphoreFullException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+
         private async Task HeartbeatLoopAsync(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
@@ -727,6 +848,15 @@ namespace Armada.Core.Services
                 try
                 {
                     await Task.Delay(_HeartbeatIntervalMs, token).ConfigureAwait(false);
+                    if (IsLinkDead())
+                    {
+                        _Logging.Warn(_Header + "no heartbeat acknowledgement from the Admiral for " + DeadLinkTimeoutMs() + " ms; treating the link as dead");
+                        LogEntry(_LogClassifier.Link(HarborLogDirection.Info, "No answer from the Admiral for " + (DeadLinkTimeoutMs() / 1000) + "s; reconnecting", HarborLogOutcomeEnum.Failed));
+                        try { _SessionLink?.Cancel(); }
+                        catch (ObjectDisposedException) { }
+                        break;
+                    }
+
                     Enqueue(BuildHeartbeat());
                     LogEntry(_LogClassifier.Heartbeat());
                 }
@@ -760,7 +890,7 @@ namespace Armada.Core.Services
 
             return new HarborHeartbeat
             {
-                LiveJobIds = SnapshotLiveJobs(),
+                LiveJobIds = _JobState.LiveJobIds(),
                 Sequence = sequence,
                 LastRoundTripMs = lastRoundTrip,
                 ReconnectCount = _LinkStatistics.ReconnectCount,
@@ -775,6 +905,8 @@ namespace Armada.Core.Services
                 _HeartbeatSequence = 0;
                 _LastRoundTripMs = null;
                 _HeartbeatSentTimestamps.Clear();
+                _AckSeen = false;
+                _LastAckTimestamp = 0;
             }
         }
 
@@ -802,29 +934,50 @@ namespace Armada.Core.Services
                 if (!_HeartbeatSentTimestamps.TryGetValue(sequence, out long sent)) return;
                 _HeartbeatSentTimestamps.Remove(sequence);
                 _LastRoundTripMs = (long)Math.Round(_Time.GetElapsedTime(sent).TotalMilliseconds, MidpointRounding.AwayFromZero);
+                _AckSeen = true;
+                _LastAckTimestamp = _Time.GetTimestamp();
+            }
+        }
+
+        private long DeadLinkTimeoutMs()
+        {
+            long threeBeats = (long)_HeartbeatIntervalMs * 3;
+            return threeBeats > _MinimumDeadLinkTimeoutMs ? threeBeats : _MinimumDeadLinkTimeoutMs;
+        }
+
+        /// <summary>
+        /// Whether the link is dead: the Admiral acknowledged a heartbeat on this session, and has acknowledged none for
+        /// longer than the dead-link timeout (the larger of <see cref="MinimumDeadLinkTimeoutMs"/> and three heartbeat
+        /// intervals), measured on the monotonic clock.
+        /// </summary>
+        /// <returns>True when the link should be dropped.</returns>
+        internal bool IsLinkDead()
+        {
+            lock (_HeartbeatLock)
+            {
+                if (!_AckSeen) return false;
+                return _Time.GetElapsedTime(_LastAckTimestamp).TotalMilliseconds > DeadLinkTimeoutMs();
             }
         }
 
         private void Enqueue(HarborMessage message)
         {
-            _Outbound?.Writer.TryWrite(message);
+            Channel<HarborMessage>? outbound = _Outbound;
+            if (outbound == null) return;
+            outbound.Writer.TryWrite(message);
+            Wake(_Wake);
         }
 
-        private void AddLiveJob(HarborLaunchRequest launch)
+        private void EnqueueJob(HarborMessage message)
+        {
+            _JobState.Outbox.Add(message);
+        }
+
+        private void AddLiveJob(HarborJobState jobs, HarborLaunchRequest launch)
         {
             HarborJobInfo job = HarborJobInfo.FromLaunch(launch, _Time.GetUtcNow().UtcDateTime);
             if (_JobRunner is IHarborJobProgressSource progress) job.LogPath = progress.LogPathOf(launch.JobId);
-            lock (_JobLock) { _LiveJobs[launch.JobId] = job; }
-        }
-
-        private void RemoveLiveJob(string jobId)
-        {
-            lock (_JobLock) { _LiveJobs.Remove(jobId); }
-        }
-
-        private List<string> SnapshotLiveJobs()
-        {
-            lock (_JobLock) { return new List<string>(_LiveJobs.Keys); }
+            jobs.AddLiveJob(job);
         }
 
         private void LogEntry(HarborLogEntry entry)

@@ -42,6 +42,14 @@ namespace Armada.Core.Enums
         /// credentials. The captain cannot make progress until its model configuration is fixed.
         /// </summary>
         [EnumMember(Value = "ModelUnavailable")]
-        ModelUnavailable
+        ModelUnavailable,
+
+        /// <summary>
+        /// The agent ran but could not finish the task: it reached its iteration or token budget, degenerated into
+        /// repetition, or outgrew its context window. The mission fails, but the captain is healthy, so it does not
+        /// count toward crash-loop quarantine.
+        /// </summary>
+        [EnumMember(Value = "TaskFailure")]
+        TaskFailure
     }
 }

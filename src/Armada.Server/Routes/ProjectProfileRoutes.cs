@@ -175,7 +175,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Project profile not found" };
                 }
 
-                string persona = req.Parameters["persona"];
+                string persona = RouteParameters.Get(req, "persona");
                 PersonaPromptPreview preview = await ProjectProfileService.BuildPersonaPreviewAsync(profile, persona, _promptTemplates).ConfigureAwait(false);
                 return preview;
             },

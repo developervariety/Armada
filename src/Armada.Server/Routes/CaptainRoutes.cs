@@ -248,7 +248,10 @@ namespace Armada.Server.Routes
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
                 Captain updated = JsonSerializer.Deserialize<Captain>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Captain.");
-                updated = EntityUpdateMerger.MergeCaptain(existing, updated);
+                // Only the fields the body carries change; an omitted field (for example AllowedPersonas from a form
+                // that does not edit personas) keeps its stored value. An explicit null still clears it.
+                CaptainUpdateFieldPresence presence = CaptainUpdateFieldPresence.FromJson(req.Http.Request.DataAsString, _jsonOptions);
+                updated = EntityUpdateMerger.MergeCaptain(existing, updated, presence);
                 CaptainModelValidationFailure? updateValidationError = await _agentLifecycle.ValidateCaptainModelDetailedAsync(updated).ConfigureAwait(false);
                 if (updateValidationError != null)
                 {
@@ -262,7 +265,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Captains")
                 .WithSummary("Update a captain")
-                .WithDescription("Updates a captain's name, runtime, or max parallelism. Operational fields (state, process, mission) are preserved.")
+                .WithDescription("Partially updates a captain: only the configuration fields present in the body change (an explicit null clears a field); omitted fields keep their stored values. Operational fields (state, process, mission) are preserved.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<Captain>("Updated captain data", true))
                 .WithResponse(200, OpenApiJson.For<Captain>("Updated captain"))

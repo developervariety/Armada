@@ -46,10 +46,10 @@ namespace Armada.Core.Settings
 
         /// <summary>
         /// How long a Harbor whose link closed counts as reconnecting before its link-health timeline (Harbor metrics)
-        /// counts it as down, in seconds. Clamped to [5, 7200]; defaults to 45. Not a liveness check: a Harbor is marked
-        /// Disconnected when its link closes, never on a missed heartbeat, and nothing sets Degraded (a Harbor may
-        /// legitimately run with heartbeats disabled). Missions on a Harbor that stops responding are recovered by
-        /// stall detection.
+        /// counts it as down, in seconds. Clamped to [5, 7200]; defaults to 45. Liveness is checked separately: a link
+        /// silent for longer than max(45 seconds, 3x the Harbor's heartbeat interval) is closed and the Harbor marked
+        /// Disconnected (a Harbor with heartbeats disabled is never swept), and jobs a reconnecting Harbor no longer
+        /// lists are reported as interrupted so their missions are redispatched.
         /// </summary>
         public int HeartbeatTimeoutSeconds
         {

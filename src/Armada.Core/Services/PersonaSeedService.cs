@@ -102,8 +102,8 @@ namespace Armada.Core.Services
                 "Worker then Judge review.",
                 new List<PipelineStage>
                 {
-                    new PipelineStage(1, PersonaCatalog.Worker) { RequiresReview = true },
-                    new PipelineStage(2, PersonaCatalog.Judge) { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
+                    new PipelineStage(1, PersonaCatalog.Worker),
+                    new PipelineStage(2, PersonaCatalog.Judge) { ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
                 },
                 token).ConfigureAwait(false);
 
@@ -112,9 +112,9 @@ namespace Armada.Core.Services
                 "Worker then Test Engineer then Judge.",
                 new List<PipelineStage>
                 {
-                    new PipelineStage(1, PersonaCatalog.Worker) { RequiresReview = true },
-                    new PipelineStage(2, PersonaCatalog.TestEngineer) { RequiresReview = true },
-                    new PipelineStage(3, PersonaCatalog.Judge) { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
+                    new PipelineStage(1, PersonaCatalog.Worker),
+                    new PipelineStage(2, PersonaCatalog.TestEngineer),
+                    new PipelineStage(3, PersonaCatalog.Judge) { ReviewDenyAction = ReviewDenyActionEnum.FailPipeline }
                 },
                 token).ConfigureAwait(false);
 
@@ -123,13 +123,13 @@ namespace Armada.Core.Services
                 "Product Manager then Architect then Worker then Usability Engineer then Test Engineer then Linter then Judge then Recorder.",
                 new List<PipelineStage>
                 {
-                    new PipelineStage(1, PersonaCatalog.ProductManager) { RequiresReview = true },
-                    new PipelineStage(2, PersonaCatalog.Architect) { RequiresReview = true },
-                    new PipelineStage(3, PersonaCatalog.Worker) { RequiresReview = true },
-                    new PipelineStage(4, PersonaCatalog.UsabilityEngineer) { RequiresReview = true },
-                    new PipelineStage(5, PersonaCatalog.TestEngineer) { RequiresReview = true },
-                    new PipelineStage(6, PersonaCatalog.Linter) { RequiresReview = true },
-                    new PipelineStage(7, PersonaCatalog.Judge) { RequiresReview = true, ReviewDenyAction = ReviewDenyActionEnum.FailPipeline },
+                    new PipelineStage(1, PersonaCatalog.ProductManager),
+                    new PipelineStage(2, PersonaCatalog.Architect),
+                    new PipelineStage(3, PersonaCatalog.Worker),
+                    new PipelineStage(4, PersonaCatalog.UsabilityEngineer),
+                    new PipelineStage(5, PersonaCatalog.TestEngineer),
+                    new PipelineStage(6, PersonaCatalog.Linter),
+                    new PipelineStage(7, PersonaCatalog.Judge) { ReviewDenyAction = ReviewDenyActionEnum.FailPipeline },
                     new PipelineStage(8, PersonaCatalog.Recorder)
                 },
                 token).ConfigureAwait(false);
@@ -139,7 +139,7 @@ namespace Armada.Core.Services
                 "Worker then Recorder -- do the work, then distill durable memories from it.",
                 new List<PipelineStage>
                 {
-                    new PipelineStage(1, PersonaCatalog.Worker) { RequiresReview = true },
+                    new PipelineStage(1, PersonaCatalog.Worker),
                     new PipelineStage(2, PersonaCatalog.Recorder)
                 },
                 token).ConfigureAwait(false);

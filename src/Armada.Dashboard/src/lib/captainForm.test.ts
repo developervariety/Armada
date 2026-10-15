@@ -5,6 +5,7 @@ import {
   buildCaptainPayload,
   captainDetailActions,
   captainFormError,
+  captainFormErrorMessage,
   captainFormFromCaptain,
   cliPolicyChanged,
   emptyCaptainForm,
@@ -42,9 +43,35 @@ describe('captainForm', () => {
     const form = captainFormFromCaptain(captain({ runtime: '', allowedPersonas: '["Worker"]', modelEndpointId: 'mep_1' }), { withPersonas: true, defaultRuntime: 'ClaudeCode' });
     expect(form.runtime).toBe('ClaudeCode');
     const payload = buildCaptainPayload(form);
-    expect(payload).toMatchObject({ allowedPersonas: '["Worker"]' });
-    expect(payload).not.toHaveProperty('preferredPersona');
+    expect(payload).toMatchObject({ allowedPersonas: '["Worker"]', preferredPersona: null, systemInstructions: null });
     expect(payload).not.toHaveProperty('modelEndpointId');
+  });
+
+  it('keeps the persona fields and endpoint of a captain edited from the list', () => {
+    const form = captainFormFromCaptain(captain({ runtime: 'ApiEndpoint', allowedPersonas: '["Worker"]', preferredPersona: 'Worker', modelEndpointId: 'mep_1' }), { withEndpoint: true, withPersonas: true });
+    expect(buildCaptainPayload(form)).toMatchObject({ allowedPersonas: '["Worker"]', preferredPersona: 'Worker', modelEndpointId: 'mep_1' });
+    const cleared = buildCaptainPayload({ ...form, allowedPersonas: '', preferredPersona: ' ', systemInstructions: '' });
+    expect(cleared).toMatchObject({ allowedPersonas: null, preferredPersona: null, systemInstructions: null });
+    expect(buildCaptainCreatePayload({ ...form, allowedPersonas: '', preferredPersona: '' })).not.toHaveProperty('allowedPersonas');
+  });
+
+  it('rejects invalid Mux temperature and max tokens instead of saving null', () => {
+    const mux = { ...emptyCaptainForm(), name: 'M', runtime: 'Mux', muxEndpoint: 'local' };
+    expect(captainFormError({ ...mux, muxTemperature: 'warm' })).toBe('muxTemperatureInvalid');
+    expect(captainFormError({ ...mux, muxTemperature: '-1' })).toBe('muxTemperatureInvalid');
+    expect(captainFormError({ ...mux, muxTemperature: '0.2' })).toBeNull();
+    expect(captainFormError({ ...mux, muxMaxTokens: '12abc' })).toBe('muxMaxTokensInvalid');
+    expect(captainFormError({ ...mux, muxMaxTokens: '1.5' })).toBe('muxMaxTokensInvalid');
+    expect(captainFormError({ ...mux, muxMaxTokens: '0' })).toBe('muxMaxTokensInvalid');
+    expect(captainFormError({ ...mux, muxMaxTokens: '8192' })).toBeNull();
+    expect(captainFormErrorMessage('muxMaxTokensInvalid')).toContain('Max Tokens');
+    expect(captainFormError({ ...emptyCaptainForm(), runtime: 'Codex', muxTemperature: 'warm' })).toBeNull();
+  });
+
+  it('saves the unsupported mux approval policy ask as deny', () => {
+    const mux = { ...emptyCaptainForm(), name: 'M', runtime: 'Mux', muxEndpoint: 'local', muxApprovalPolicy: 'ask' };
+    expect(JSON.parse(buildCaptainPayload(mux).runtimeOptionsJson as string)).toMatchObject({ approvalPolicy: 'deny' });
+    expect(JSON.parse(buildCaptainPayload({ ...mux, muxApprovalPolicy: 'auto' }).runtimeOptionsJson as string)).toMatchObject({ approvalPolicy: 'auto' });
   });
 
   it('writes mux options and validates required fields', () => {

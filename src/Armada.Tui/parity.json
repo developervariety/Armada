@@ -4409,6 +4409,14 @@
     },
     {
       "kind": "setting",
+      "key": "settings.requireHarborForLaunch",
+      "status": "planned",
+      "tui": "ServerSettingsScreen",
+      "workstream": "W7.7",
+      "notes": ""
+    },
+    {
+      "kind": "setting",
       "key": "settings.retention",
       "status": "implemented",
       "tui": "ServerSettingsScreen",

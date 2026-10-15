@@ -94,6 +94,12 @@ namespace Armada.Server
         public int? RebuildSlotRetentionCount { get; set; }
 
         /// <summary>
+        /// When true, missions wait for an eligible Harbor instead of falling back to running on the Admiral host.
+        /// Null leaves the stored value unchanged.
+        /// </summary>
+        public bool? RequireHarborForLaunch { get; set; }
+
+        /// <summary>
         /// Optional remote-control tunnel settings update.
         /// When supplied, replaces the full remoteControl settings object.
         /// </summary>

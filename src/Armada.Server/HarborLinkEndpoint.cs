@@ -70,9 +70,18 @@ namespace Armada.Server
             string? harborId = null;
             HarborSendDelegate? link = null;
 
+            // Cancelled when the connection manager finds this link dead (no message for about three heartbeat
+            // intervals), so a half-open socket stops being read and the Harbor's next dial replaces it.
+            using CancellationTokenSource linkCts = CancellationTokenSource.CreateLinkedTokenSource(ctx.Token);
+            Action closeLink = () =>
+            {
+                try { linkCts.Cancel(); }
+                catch (ObjectDisposedException) { }
+            };
+
             try
             {
-                await foreach (WebSocketMessage message in session.ReadMessagesAsync(ctx.Token))
+                await foreach (WebSocketMessage message in session.ReadMessagesAsync(linkCts.Token))
                 {
                     if (message.MessageType != WebSocketMessageType.Text || String.IsNullOrEmpty(message.Text)) continue;
 
@@ -105,7 +114,7 @@ namespace Armada.Server
 
                         HarborSendDelegate send = (outbound, token) => SendAsync(session, outbound);
                         link = send;
-                        HarborHandshakeAck ack = await _Manager.OnHandshakeAsync(handshake, identity.TenantId, identity.UserId, send, ctx.Token).ConfigureAwait(false);
+                        HarborHandshakeAck ack = await _Manager.OnHandshakeAsync(handshake, identity.TenantId, identity.UserId, send, ctx.Token, closeLink).ConfigureAwait(false);
                         await SendAsync(session, ack).ConfigureAwait(false);
 
                         // Only an accepted link owns the id: a refused link must not mark the registered Harbor
@@ -120,7 +129,9 @@ namespace Armada.Server
             }
             catch (OperationCanceledException)
             {
-                // Server shutting down or link closed.
+                // Server shutting down, link closed, or the link was found dead.
+                if (linkCts.IsCancellationRequested && !ctx.Token.IsCancellationRequested)
+                    _Logging.Warn(_Header + "closing dead link" + (harborId != null ? " of harbor " + harborId : "") + " from " + session.RemoteIp + ":" + session.RemotePort);
             }
             catch (Exception e)
             {

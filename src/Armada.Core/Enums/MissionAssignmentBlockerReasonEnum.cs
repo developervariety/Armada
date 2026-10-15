@@ -68,6 +68,12 @@ namespace Armada.Core.Enums
         /// <summary>
         /// Idle captains exist, but none may take this mission's persona or required tier.
         /// </summary>
-        NoEligibleCaptain
+        NoEligibleCaptain,
+
+        /// <summary>
+        /// The captain could not be started (for example its CLI is missing on the host the mission was placed on);
+        /// assignment is retried after a backoff.
+        /// </summary>
+        LaunchFailing
     }
 }

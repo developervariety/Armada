@@ -32,11 +32,21 @@ namespace Armada.Core.Models
         #region Public-Methods
 
         /// <summary>
-        /// Human-readable summary suitable for a mission failure reason. Display text only; never parsed.
+        /// Human-readable summary suitable for a mission failure reason: the provider error's
+        /// <see cref="RuntimeProviderError.Reason"/> followed by the exit code when the runtime gave one, otherwise the
+        /// exit code and the provider error. Display text only; never parsed.
         /// </summary>
         /// <returns>Summary text.</returns>
         public string Describe()
         {
+            string exit = ExitCode.HasValue ? ExitCode.Value.ToString() : "unknown";
+            if (ProviderError != null && !String.IsNullOrWhiteSpace(ProviderError.Reason))
+            {
+                string reason = ProviderError.Reason!.Trim();
+                if (!reason.EndsWith(".", StringComparison.Ordinal)) reason += ".";
+                return reason + " Agent process exited with code " + exit + ".";
+            }
+
             string text = "Agent process exited with code " + (ExitCode.HasValue ? ExitCode.Value.ToString() : "unknown");
             if (ProviderError != null) text += " (" + ProviderError.ToString() + ")";
             return text;

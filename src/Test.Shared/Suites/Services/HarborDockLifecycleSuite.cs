@@ -174,7 +174,7 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(Directory.Exists(Path.Combine(git.AdmiralData, "repos")), "no Admiral-side clone was used");
             }));
 
-            cases.Add(CaseAsync("merge_queue_names_disconnected_harbor", "A merge queue entry whose branch is on a Harbor that is not connected fails with a reason naming the Harbor and what to do", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("merge_queue_waits_for_disconnected_harbor", "A merge queue entry whose branch is on a Harbor that is not connected stays queued with a reason naming the Harbor, and lands once it reconnects", TestTags.Negative, async () =>
             {
                 using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
                 using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
@@ -185,11 +185,222 @@ namespace Test.Shared.Suites.Services
                 }
 
                 MergeEntry entry = (await s.MergeQueue.ListAsync().ConfigureAwait(false)).Single(e => e.MissionId == run.Mission.Id);
+                MergeEntry? waiting = await s.MergeQueue.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                AssertNotNull(waiting, "processed");
+                AssertEqual(MergeStatusEnum.Queued, waiting!.Status, "left queued while the Harbor is away");
+                AssertContains("Waiting for Harbor", waiting.TestOutput ?? "");
+                AssertContains("reconnect", waiting.TestOutput ?? "");
+                AssertContains("not connected", waiting.TestOutput ?? "");
+                Mission? stillProduced = await s.Db.Driver.Missions.ReadAsync(run.Mission.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.WorkProduced, stillProduced!.Status, "the mission is not failed while it waits");
+
+                List<Mission> reconciled = new List<Mission>();
+                s.MergeQueue.OnMissionReconciled = (m) => { lock (reconciled) reconciled.Add(m); return Task.CompletedTask; };
+                using (InProcessHarbor back = await s.ConnectMappedAsync("hbr_queue_gone").ConfigureAwait(false))
+                {
+                    await s.MergeQueue.ProcessQueueAsync().ConfigureAwait(false);
+                }
+
+                MergeEntry? landed = await s.MergeQueue.GetAsync(entry.Id).ConfigureAwait(false);
+                AssertEqual(MergeStatusEnum.Landed, landed!.Status, landed.TestOutput);
+                AssertTrue(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "landed.txt").ConfigureAwait(false), "pushed to the origin's main");
+                Mission? complete = await s.Db.Driver.Missions.ReadAsync(run.Mission.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Complete, complete!.Status);
+                AssertEqual(1, reconciled.Count, "OnMissionReconciled raised once");
+                AssertEqual(MissionStatusEnum.Complete, reconciled[0].Status);
+                List<ArmadaEvent> events = await s.Db.Driver.Events.EnumerateRecentAsync(100).ConfigureAwait(false);
+                AssertTrue(events.Any(e => e.EventType == "mission.completed" && e.MissionId == run.Mission.Id), "mission.completed recorded");
+            }));
+
+            cases.Add(CaseAsync("merge_queue_failure_reconciles_mission", "A merge queue entry the Admiral cannot process fails and moves its mission to LandingFailed with the reason", TestTags.Negative, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                Vessel vessel = await s.CreateVesselAsync(git.Origin, LandingModeEnum.MergeQueue).ConfigureAwait(false);
+                vessel.LocalPath = Path.Combine(git.AdmiralData, "repos", "missing.git");
+                await s.Db.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                Mission mission = await s.CreateMissionAsync(vessel).ConfigureAwait(false);
+                mission.Status = MissionStatusEnum.WorkProduced;
+                await s.Db.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                MergeEntry entry = new MergeEntry("armada/no-clone", "main") { VesselId = vessel.Id, MissionId = mission.Id };
+                entry = await s.MergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
+
                 MergeEntry? processed = await s.MergeQueue.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
-                AssertNotNull(processed, "processed");
-                AssertEqual(MergeStatusEnum.Failed, processed.Status);
-                AssertContains("not connected", processed.TestOutput ?? "");
-                AssertContains("retry", processed.TestOutput ?? "");
+
+                AssertEqual(MergeStatusEnum.Failed, processed!.Status);
+                Mission? stored = await s.Db.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.LandingFailed, stored!.Status, "the mission does not stay WorkProduced");
+                AssertContains("no clone", stored.FailureReason ?? "");
+            }));
+
+            cases.Add(CaseAsync("merge_queue_manual_entry_resolves_harbor_by_branch", "A manual merge queue entry with no mission resolves the Harbor from the most recent dock on its branch", TestTags.Positive, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_queue_manual").ConfigureAwait(false);
+                LandingRun run = await s.RunLandingAsync("hbr_queue_manual", LandingModeEnum.None).ConfigureAwait(false);
+                Mission cleared = (await s.Db.Driver.Missions.ReadAsync(run.Mission.Id).ConfigureAwait(false))!;
+                cleared.DockId = null;
+                await s.Db.Driver.Missions.UpdateAsync(cleared).ConfigureAwait(false);
+
+                MergeEntry entry = new MergeEntry(run.Dock.BranchName!, "main") { VesselId = run.Dock.VesselId };
+                entry = await s.MergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
+                MergeEntry? processed = await s.MergeQueue.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+
+                AssertEqual(MergeStatusEnum.Landed, processed!.Status, processed.TestOutput);
+                AssertTrue(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "landed.txt").ConfigureAwait(false), "pushed from the Harbor's repository");
+                AssertFalse(Directory.Exists(Path.Combine(git.AdmiralData, "repos")), "no Admiral-side clone was used");
+            }));
+
+            cases.Add(CaseAsync("merge_queue_delete_failed_entry_keeps_branch", "Deleting a Failed merge queue entry keeps its branch in the user's repository and on the remote", TestTags.Negative, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_queue_delete").ConfigureAwait(false);
+                LandingRun run = await s.RunLandingAsync("hbr_queue_delete", LandingModeEnum.MergeQueue).ConfigureAwait(false);
+                await HarborDockGitFixture.GitAsync(git.Checkout, "push", "origin", run.Dock.BranchName!).ConfigureAwait(false);
+                await s.Docks.ReclaimAsync(run.Dock.Id).ConfigureAwait(false);
+                MergeEntry entry = (await s.MergeQueue.ListAsync().ConfigureAwait(false)).Single(e => e.MissionId == run.Mission.Id);
+                entry.Status = MergeStatusEnum.Failed;
+                await s.Db.Driver.MergeEntries.UpdateAsync(entry).ConfigureAwait(false);
+
+                bool deleted = await s.MergeQueue.DeleteAsync(entry.Id).ConfigureAwait(false);
+
+                AssertTrue(deleted, "the entry was deleted");
+                AssertEqual(run.WorkCommit, await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/" + run.Dock.BranchName).ConfigureAwait(false), "the local branch is kept");
+                AssertEqual(run.WorkCommit, await HarborDockGitFixture.ResolveAsync(git.Origin, "refs/heads/" + run.Dock.BranchName).ConfigureAwait(false), "the remote branch is kept");
+            }));
+
+            cases.Add(CaseAsync("merge_queue_delete_cancelled_unmerged_keeps_branch", "Deleting a Cancelled entry whose branch is not merged keeps the branch; a Landed entry's branch is deleted", TestTags.Positive, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_queue_cancel").ConfigureAwait(false);
+                LandingRun run = await s.RunLandingAsync("hbr_queue_cancel", LandingModeEnum.MergeQueue).ConfigureAwait(false);
+                await s.Docks.ReclaimAsync(run.Dock.Id).ConfigureAwait(false);
+                MergeEntry entry = (await s.MergeQueue.ListAsync().ConfigureAwait(false)).Single(e => e.MissionId == run.Mission.Id);
+                await s.MergeQueue.CancelAsync(entry.Id).ConfigureAwait(false);
+
+                AssertTrue(await s.MergeQueue.DeleteAsync(entry.Id).ConfigureAwait(false), "the cancelled entry was deleted");
+                AssertEqual(run.WorkCommit, await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/" + run.Dock.BranchName).ConfigureAwait(false), "an unmerged cancelled branch is kept");
+
+                MergeEntry again = await s.MergeQueue.EnqueueAsync(new MergeEntry(run.Dock.BranchName!, "main") { VesselId = run.Dock.VesselId, MissionId = run.Mission.Id }).ConfigureAwait(false);
+                MergeEntry? landed = await s.MergeQueue.ProcessSingleAsync(again.Id).ConfigureAwait(false);
+                AssertEqual(MergeStatusEnum.Landed, landed!.Status, landed.TestOutput);
+                AssertTrue(await s.MergeQueue.DeleteAsync(again.Id).ConfigureAwait(false), "the landed entry was deleted");
+                AssertNull(await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/" + run.Dock.BranchName).ConfigureAwait(false), "a landed branch is cleaned up");
+            }));
+
+            cases.Add(CaseAsync("merge_queue_prunes_leftover_integration_worktrees", "Processing an entry on a Harbor first removes integration worktrees and branches an earlier, interrupted run left there", TestTags.Positive, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_queue_prune").ConfigureAwait(false);
+                LandingRun run = await s.RunLandingAsync("hbr_queue_prune", LandingModeEnum.MergeQueue).ConfigureAwait(false);
+                string leftoverBranch = "armada/merge-queue/mq_mrg_interrupted_20200101000000";
+                string leftoverPath = Path.Combine(git.HarborDocks, "mq_mrg_interrupted_20200101000000");
+                await HarborDockGitFixture.GitAsync(git.Checkout, "worktree", "add", "-b", leftoverBranch, leftoverPath, "main").ConfigureAwait(false);
+                string orphanBranch = "armada/merge-queue/mq_mrg_orphan_20200101000000";
+                await HarborDockGitFixture.GitAsync(git.Checkout, "branch", orphanBranch, "main").ConfigureAwait(false);
+
+                MergeEntry entry = (await s.MergeQueue.ListAsync().ConfigureAwait(false)).Single(e => e.MissionId == run.Mission.Id);
+                MergeEntry? processed = await s.MergeQueue.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+
+                AssertEqual(MergeStatusEnum.Landed, processed!.Status, processed.TestOutput);
+                AssertFalse(Directory.Exists(leftoverPath), "the leftover integration worktree was removed");
+                AssertNull(await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/" + leftoverBranch).ConfigureAwait(false), "its branch was deleted");
+                AssertNull(await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/" + orphanBranch).ConfigureAwait(false), "an integration branch whose worktree is gone was deleted");
+                string remaining = await HarborDockGitFixture.GitAsync(git.Checkout, "for-each-ref", "refs/heads/armada/merge-queue/").ConfigureAwait(false);
+                AssertEqual(String.Empty, remaining, "no integration branches remain");
+            }));
+
+            cases.Add(CaseAsync("merge_queue_refuses_already_landed", "Enqueueing a mission that already landed, or a branch already in the target, is refused with a reason", TestTags.Negative, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_queue_landed").ConfigureAwait(false);
+                LandingRun run = await s.RunLandingAsync("hbr_queue_landed", LandingModeEnum.MergeQueue).ConfigureAwait(false);
+                MergeEntry entry = (await s.MergeQueue.ListAsync().ConfigureAwait(false)).Single(e => e.MissionId == run.Mission.Id);
+
+                AssertNull(await s.MergeQueue.GetAlreadyLandedReasonAsync(new MergeEntry(run.Dock.BranchName!, "main") { VesselId = run.Dock.VesselId, MissionId = run.Mission.Id }).ConfigureAwait(false), "not landed yet");
+                await s.MergeQueue.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+
+                string? missionReason = await s.MergeQueue.GetAlreadyLandedReasonAsync(new MergeEntry(run.Dock.BranchName!, "main") { VesselId = run.Dock.VesselId, MissionId = run.Mission.Id }).ConfigureAwait(false);
+                AssertNotNull(missionReason, "a Complete mission is refused");
+                AssertContains("already landed", missionReason!);
+
+                await HarborDockGitFixture.GitAsync(git.Checkout, "fetch", "origin").ConfigureAwait(false);
+                string? branchReason = await s.MergeQueue.GetAlreadyLandedReasonAsync(new MergeEntry(run.Dock.BranchName!, "main") { VesselId = run.Dock.VesselId }).ConfigureAwait(false);
+                AssertNotNull(branchReason, "a branch already in the target is refused");
+                AssertContains("already contained in main", branchReason!);
+            }));
+
+            cases.Add(CaseAsync("merge_and_push_restores_users_branch", "MergeAndPush into a checkout that is on another branch lands on main, pushes main, and returns the checkout to the user's branch", TestTags.Positive, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_land_restore").ConfigureAwait(false);
+                await HarborDockGitFixture.GitAsync(git.Checkout, "checkout", "-b", "my-feature").ConfigureAwait(false);
+                string featureTip = await HarborDockGitFixture.CommitFileAsync(git.Checkout, "feature.txt", "mine\n", "My work").ConfigureAwait(false);
+
+                LandingRun run = await s.RunLandingAsync("hbr_land_restore", LandingModeEnum.MergeAndPush).ConfigureAwait(false);
+
+                AssertEqual(MissionStatusEnum.Complete, run.Mission.Status, run.Mission.FailureReason);
+                AssertEqual("my-feature", await HarborDockGitFixture.GitAsync(git.Checkout, "symbolic-ref", "--short", "HEAD").ConfigureAwait(false), "the checkout is back on the user's branch");
+                AssertEqual(featureTip, await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/my-feature").ConfigureAwait(false), "the user's branch was not changed");
+                AssertTrue(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "landed.txt").ConfigureAwait(false), "main was pushed");
+                AssertFalse(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "feature.txt").ConfigureAwait(false), "the user's branch was not pushed into main");
+                AssertNull(await HarborDockGitFixture.ResolveAsync(git.Origin, "refs/heads/my-feature").ConfigureAwait(false), "the user's branch was not pushed");
+            }));
+
+            cases.Add(CaseAsync("merge_and_push_fast_forwards_behind_main", "MergeAndPush into a checkout whose main is behind origin fast-forwards it first, so the push succeeds", TestTags.Positive, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_land_behind").ConfigureAwait(false);
+                string other = Path.Combine(git.Root, "other");
+                await HarborDockGitFixture.GitAsync(git.Root, "clone", git.Origin, other).ConfigureAwait(false);
+                await HarborDockGitFixture.CommitFileAsync(other, "upstream.txt", "upstream\n", "Upstream work").ConfigureAwait(false);
+                await HarborDockGitFixture.GitAsync(other, "push", "origin", "main").ConfigureAwait(false);
+
+                LandingRun run = await s.RunLandingAsync("hbr_land_behind", LandingModeEnum.MergeAndPush).ConfigureAwait(false);
+
+                AssertEqual(MissionStatusEnum.Complete, run.Mission.Status, run.Mission.FailureReason);
+                AssertTrue(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "landed.txt").ConfigureAwait(false), "the mission landed on the origin");
+                AssertTrue(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "upstream.txt").ConfigureAwait(false), "the upstream work is kept");
+            }));
+
+            cases.Add(CaseAsync("merge_and_push_refuses_unpushed_main", "MergeAndPush into a checkout whose main has commits not on origin is refused before merging", TestTags.Negative, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_land_ahead").ConfigureAwait(false);
+                string localTip = await HarborDockGitFixture.CommitFileAsync(git.Checkout, "local-only.txt", "local\n", "Unpushed work").ConfigureAwait(false);
+
+                LandingRun run = await s.RunLandingAsync("hbr_land_ahead", LandingModeEnum.MergeAndPush).ConfigureAwait(false);
+
+                AssertEqual(MissionStatusEnum.LandingFailed, run.Mission.Status);
+                AssertContains("not on origin/main", run.Mission.FailureReason ?? "");
+                AssertEqual(localTip, await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/main").ConfigureAwait(false), "main was not merged into");
+                AssertFalse(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "landed.txt").ConfigureAwait(false), "nothing was pushed");
+                AssertNotNull(await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/" + run.Dock.BranchName).ConfigureAwait(false), "the mission branch is kept for a retry");
+            }));
+
+            cases.Add(CaseAsync("local_merge_uses_merge_commit_template", "LocalMerge with a merge commit template makes a merge commit with that message even when a fast-forward was possible", TestTags.Positive, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                s.Settings.MessageTemplates.EnableCommitMetadata = true;
+                s.Settings.MessageTemplates.MergeCommitTemplate = "Land {MissionId}";
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_land_template").ConfigureAwait(false);
+
+                LandingRun run = await s.RunLandingAsync("hbr_land_template", LandingModeEnum.LocalMerge).ConfigureAwait(false);
+
+                AssertEqual(MissionStatusEnum.Complete, run.Mission.Status, run.Mission.FailureReason);
+                string parents = await HarborDockGitFixture.GitAsync(git.Checkout, "rev-list", "--parents", "-n", "1", "refs/heads/main").ConfigureAwait(false);
+                AssertEqual(3, parents.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length, "a merge commit, not a fast-forward");
+                string subject = await HarborDockGitFixture.GitAsync(git.Checkout, "log", "-1", "--format=%s", "refs/heads/main").ConfigureAwait(false);
+                AssertEqual("Land " + run.Mission.Id, subject, "the template's message");
             }));
 
             cases.Add(CaseAsync("local_merge_refuses_dirty_checkout", "LocalMerge into a Harbor checkout with uncommitted changes is refused and the changes are kept", TestTags.Negative, async () =>

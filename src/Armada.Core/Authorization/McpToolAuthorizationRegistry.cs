@@ -133,6 +133,8 @@ namespace Armada.Core.Authorization
             Add("restart_mission", "Mission", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
             Add("retry_landing", "Mission", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
             Add("transition_mission_status", "Mission", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
+            Add("approve_mission_review", "Mission", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
+            Add("deny_mission_review", "Mission", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
             Add("delete_missions", "Mission", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
             Add("purge_mission", "Mission", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
             Add("cancel_voyage", "Voyage", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);

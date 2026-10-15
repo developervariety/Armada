@@ -67,6 +67,12 @@ namespace Armada.Client.Models
         public Armada.Core.Enums.LandingModeEnum? LandingMode { get; set; } = null;
 
         /// <summary>
+        /// Whether a mission waits for a Harbor instead of running on the Admiral host when no Harbor can take it;
+        /// null when the server does not report it.
+        /// </summary>
+        public bool? RequireHarborForLaunch { get; set; } = null;
+
+        /// <summary>
         /// Data directory (read-only).
         /// </summary>
         public string? DataDirectory { get; set; } = null;

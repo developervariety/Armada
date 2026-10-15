@@ -526,6 +526,9 @@ namespace Armada.Server.Routes
                 if (body.RebuildSlotRetentionCount.HasValue)
                     _settings.RebuildSlotRetentionCount = body.RebuildSlotRetentionCount.Value;
 
+                if (body.RequireHarborForLaunch.HasValue)
+                    _settings.RequireHarborForLaunch = body.RequireHarborForLaunch.Value;
+
                 if (body.Import != null)
                     _settings.Import = body.Import;
                 if (body.FleetActions != null)
@@ -721,6 +724,7 @@ namespace Armada.Server.Routes
                 ReposDirectory = _settings.ReposDirectory,
                 SelfVesselId = _settings.SelfVesselId,
                 RebuildSlotRetentionCount = _settings.RebuildSlotRetentionCount,
+                RequireHarborForLaunch = _settings.RequireHarborForLaunch,
                 RemoteControl = RedactRemoteControl(_settings.RemoteControl),
                 Import = _settings.Import,
                 FleetActions = _settings.FleetActions,

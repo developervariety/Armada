@@ -14,6 +14,13 @@ namespace Armada.Core.Harbor
         /// </summary>
         public long Sequence { get; set; } = 0;
 
+        /// <summary>
+        /// The highest <see cref="HarborMessage.OutboxSequence"/> the Admiral has received from this Harbor's job outbox,
+        /// or null from an Admiral that does not acknowledge job messages. The Harbor stops keeping job messages up to it
+        /// for replay.
+        /// </summary>
+        public long? LastJobSequence { get; set; } = null;
+
         #endregion
     }
 }

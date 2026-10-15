@@ -2,6 +2,7 @@ namespace Armada.Harbor
 {
     using System;
     using System.Runtime.InteropServices;
+    using Armada.Core.Harbor;
     using Armada.Core.Hosting;
     using Avalonia;
 
@@ -15,6 +16,12 @@ namespace Armada.Harbor
         /// the window.
         /// </summary>
         public static bool StartMinimized { get; private set; } = false;
+
+        /// <summary>
+        /// What startup did to the process's PATH (the login shell's PATH imported on macOS and Linux), or null before
+        /// startup ran it.
+        /// </summary>
+        public static HarborPathImportResult? PathImport { get; private set; } = null;
 
         /// <summary>
         /// Application entry point. --install-startup and --uninstall-startup register or remove the per-user login
@@ -32,6 +39,18 @@ namespace Armada.Harbor
             }
 
             StartMinimized = Array.Exists(args, a => String.Equals(a, RegistrationDefaults.HarborMinimizedFlag, StringComparison.Ordinal));
+
+            // Started from Finder, the Dock, or a login item, Harbor has launchd's minimal PATH, without the folders agent
+            // CLIs live in. Take the login shell's PATH before anything launches, so every captain inherits it.
+            try
+            {
+                PathImport = new HarborShellPath().ImportIntoProcess();
+            }
+            catch (Exception ex)
+            {
+                PathImport = new HarborPathImportResult { Error = ex.Message };
+            }
+
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
             return 0;
         }

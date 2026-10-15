@@ -35,6 +35,14 @@ With `FallThrough`, `priorityExhaustion: Wait` keeps unmatched work Pending unti
 
 All hierarchy candidates must satisfy mission ownership/tenant boundaries, AllowedPersonas, the mission's tier floor, and availability. Within a matched class, PreferredPersona breaks ties, followed by stable captain ID order. Hierarchy choices are reevaluated on every assignment attempt and are not saved as RequestedCaptainId.
 
+## Missions without a persona
+
+A mission dispatched without a persona (a plain dispatch with no pipeline, `create_mission`, a fleet action without a persona) is routed as a **Worker**: the Worker persona's captain priorities, AllowedPersonas fences, and the voyage's Worker or wildcard captain assignment apply to it. Its stored Persona stays empty.
+
+## When a captain cannot start
+
+If launching the chosen captain fails (for example its CLI is not installed on the host the mission was placed on), the mission returns to Pending and assignment backs off: 30 s, 1 m, 2 m, 4 m, then every 5 minutes. The mission's assignment blocker shows `LaunchFailing` with the reason and the next attempt time. After six failures caused by a missing CLI the mission fails (Infra) with a reason saying to connect the Harbor and turn on Require Harbor for launch. A captain marked Stalled by a provider condition (usage limit, authentication, model unavailable) is returned to Idle after 15 minutes and tried again.
+
 ## Explicit overrides and legacy defaults
 
 An explicit mission RequestedCaptainId takes precedence, followed by the voyage's exact per-persona captain assignment, then its wildcard (`*`) assignment. Those choices retain legacy behavior: an available requested captain bypasses AllowedPersonas and tier checks; a busy or deleted one falls back through ordinary persona/tier routing. Ownership and quarantine checks still apply. These explicit overrides bypass the hierarchy.

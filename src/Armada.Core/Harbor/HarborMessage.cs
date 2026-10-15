@@ -44,6 +44,16 @@ namespace Armada.Core.Harbor
         /// </summary>
         public string? TraceParent { get; set; } = null;
 
+        /// <summary>
+        /// Position of a job message (started, output, activity, exited, or a job-scoped error) in the Harbor's job outbox,
+        /// or null on every other message and from a Harbor that predates the outbox. Sequences start at 1 and increase
+        /// within one outbox (see <see cref="HarborHandshake.JobOutboxEpoch"/>), so the Admiral can drop a job message
+        /// the Harbor replays after a reconnect when it already received it, and acknowledge what it has received
+        /// (<see cref="HarborHandshakeAck.LastJobSequence"/>, <see cref="HarborHeartbeatAck.LastJobSequence"/>). An Admiral
+        /// that predates the outbox ignores the field.
+        /// </summary>
+        public long? OutboxSequence { get; set; } = null;
+
         #endregion
     }
 }

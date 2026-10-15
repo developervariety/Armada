@@ -39,6 +39,14 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime? ResetUtc { get; set; } = null;
 
+        /// <summary>
+        /// A complete, human-readable reason the runtime stopped, written by the runtime adapter from its CLI's own
+        /// structured error event (for example "mux stopped: reached the 50-iteration limit (max_iterations_reached)"),
+        /// or null. When set it is the failure reason shown to the user in place of the generic description. Display
+        /// text only; never parsed or classified.
+        /// </summary>
+        public string? Reason { get; set; } = null;
+
         #endregion
 
         #region Public-Methods
@@ -49,6 +57,7 @@ namespace Armada.Core.Models
         /// <returns>Description text.</returns>
         public override string ToString()
         {
+            if (!String.IsNullOrWhiteSpace(Reason)) return Reason!;
             string text = "provider error";
             if (HttpStatusCode.HasValue) text += " HTTP " + HttpStatusCode.Value;
             if (!String.IsNullOrWhiteSpace(ErrorType)) text += " " + ErrorType;

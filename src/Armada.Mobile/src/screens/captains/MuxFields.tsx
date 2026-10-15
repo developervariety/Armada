@@ -60,7 +60,6 @@ export function MuxFields({ runtime, form, onChange }: MuxFieldsProps) {
     { value: 'auto', label: 'auto' },
     { value: 'autoapprove', label: 'autoapprove' },
     { value: 'deny', label: 'deny' },
-    { value: 'ask', label: 'ask' },
   ];
 
   return (
@@ -69,7 +68,7 @@ export function MuxFields({ runtime, form, onChange }: MuxFieldsProps) {
         label={t('Mux Config Directory')}
         value={form.muxConfigDirectory}
         onChangeText={(v) => onChange({ muxConfigDirectory: v })}
-        placeholder={t('Optional path, e.g. C:\\Users\\you\\.mux')}
+        placeholder={t('Optional path, e.g. ~/.mux')}
         autoCapitalize="none"
         autoCorrect={false}
         testID="captain-form-muxConfigDirectory"

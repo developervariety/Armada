@@ -34,6 +34,11 @@ namespace Armada.Server.WebSocket
         public CliPermissionService? CliPermissions { get; set; } = null;
 
         /// <summary>
+        /// Mission service for restart_mission (pipeline-aware restart), or null (the command then answers Unavailable).
+        /// </summary>
+        public IMissionService? Missions { get; set; } = null;
+
+        /// <summary>
         /// Instantiate the command handler.
         /// </summary>
         /// <param name="admiral">Admiral service for command handling.</param>
@@ -676,22 +681,11 @@ namespace Armada.Server.WebSocket
                         return WebSocketCommandError.Create("restart_mission", WebSocketCommandErrorCodeEnum.Conflict, "Only Failed, LandingFailed, or Cancelled missions can be restarted");
                     else
                     {
+                        if (Missions == null)
+                            return WebSocketCommandError.Create("restart_mission", WebSocketCommandErrorCodeEnum.Unavailable, "Mission restart is not available");
                         WebSocketDataCommand<MissionRestartData>? rmData = null;
-                        try { rmData = JsonSerializer.Deserialize<WebSocketDataCommand<MissionRestartData>>(rawBody, _JsonOptions); } catch { }
-                        if (rmData?.Data != null)
-                        {
-                            if (!String.IsNullOrEmpty(rmData.Data.Title)) rmMission.Title = rmData.Data.Title;
-                            if (!String.IsNullOrEmpty(rmData.Data.Description)) rmMission.Description = rmData.Data.Description;
-                        }
-
-                        rmMission.Status = MissionStatusEnum.Pending;
-                        rmMission.CaptainId = null;
-                        rmMission.BranchName = null;
-                        rmMission.PrUrl = null;
-                        rmMission.StartedUtc = null;
-                        rmMission.CompletedUtc = null;
-                        rmMission.LastUpdateUtc = DateTime.UtcNow;
-                        rmMission = await _Database.Missions.UpdateAsync(rmMission).ConfigureAwait(false);
+                        try { rmData = JsonSerializer.Deserialize<WebSocketDataCommand<MissionRestartData>>(rawBody, _JsonOptions); } catch (JsonException) { }
+                        rmMission = await Missions.RestartAsync(rmMission, rmData?.Data?.Title, rmData?.Data?.Description).ConfigureAwait(false);
 
                         Signal rmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + rmId + " restarted");
                         await _Database.Signals.CreateAsync(rmSignal).ConfigureAwait(false);
@@ -846,7 +840,9 @@ namespace Armada.Server.WebSocket
                         Captain? updCptBody = JsonSerializer.Deserialize<WebSocketDataCommand<Captain>>(rawBody, _JsonOptions)?.Data;
                         if (updCptBody == null)
                             return WebSocketCommandError.Create("update_captain", WebSocketCommandErrorCodeEnum.InvalidArgument, "data is required");
-                        Captain updCpt = EntityUpdateMerger.MergeCaptain(existCpt, updCptBody);
+                        // Only the fields the command carries change (parity with REST PUT /captains/{id}).
+                        string? updCptData = JsonSerializer.Deserialize<WebSocketDataCommand<System.Text.Json.Nodes.JsonObject>>(rawBody, _JsonOptions)?.Data?.ToJsonString();
+                        Captain updCpt = EntityUpdateMerger.MergeCaptain(existCpt, updCptBody, CaptainUpdateFieldPresence.FromJson(updCptData, _JsonOptions));
                         await DuplicateEntityGuard.EnsureCaptainNameAvailableAsync(_Database, updCpt).ConfigureAwait(false);
                         updCpt = await _Database.Captains.UpdateAsync(updCpt).ConfigureAwait(false);
                         return new { type = "command.result", action = "update_captain", data = (object)updCpt };

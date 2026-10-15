@@ -61,7 +61,7 @@ namespace Armada.Server.Routes
 
                 try
                 {
-                    string? configDirectory = req.Query.GetValueOrDefault("configDirectory");
+                    string? configDirectory = RouteParameters.Decode(req.Query.GetValueOrDefault("configDirectory"));
                     MuxHost host = await _MuxHosts.ResolveAsync(ctx.TenantId, ctx.UserId, req.Query.GetValueOrDefault("harborId"), null).ConfigureAwait(false);
                     if (host.Executor == null)
                     {
@@ -109,8 +109,8 @@ namespace Armada.Server.Routes
 
                 try
                 {
-                    string endpointName = req.Parameters["name"];
-                    string? configDirectory = req.Query.GetValueOrDefault("configDirectory");
+                    string endpointName = RouteParameters.Get(req, "name");
+                    string? configDirectory = RouteParameters.Decode(req.Query.GetValueOrDefault("configDirectory"));
                     MuxHost host = await _MuxHosts.ResolveAsync(ctx.TenantId, ctx.UserId, req.Query.GetValueOrDefault("harborId"), null).ConfigureAwait(false);
                     if (host.Executor == null)
                     {

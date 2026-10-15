@@ -55,10 +55,14 @@ namespace Armada.Server.Mcp.Tools
                                 properties = new
                                 {
                                     title = new { type = "string" },
-                                    description = new { type = "string" }
+                                    description = new { type = "string" },
+                                    requestedCaptainId = new { type = "string", description = "Optional captain (cpt_ prefix) to run this mission (the first stage in a pipeline); overrides persona captain priorities" },
+                                    tier = new { type = "string", description = "Optional minimum captain tier for this mission: Economy, Standard, or Premium" },
+                                    persona = new { type = "string", description = "Optional persona for a single-stage mission when no pipeline is given (defaults to Worker)" }
                                 }
                             }
                         },
+                        landingMode = new { type = "string", description = "Optional landing mode for this voyage: LocalMerge, MergeAndPush, PullRequest, MergeQueue, or None (overrides the vessel and server default)" },
                         pipelineId = new { type = "string", description = "Pipeline ID to use for this dispatch (overrides vessel/fleet default)" },
                         pipeline = new { type = "string", description = "Pipeline name to use (convenience alias for pipelineId -- resolves by name)" },
                         objectiveId = new { type = "string", description = "Optional objective (obj_ prefix) to link this voyage to; must exist. Parity with REST dispatch." },
@@ -139,12 +143,16 @@ namespace Armada.Server.Mcp.Tools
                     }
                     else
                     {
-                        voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, selectedPlaybooks).ConfigureAwait(false);
+                        // The captain overrides go into the dispatch itself (parity with REST): the first stage is assigned
+                        // inline during dispatch, so overrides saved afterwards would miss it.
+                        string? overridesJson = request.CaptainAssignments != null && request.CaptainAssignments.Count > 0
+                            ? Armada.Core.Services.MissionService.SerializeCaptainOverrides(request.CaptainAssignments)
+                            : null;
+                        voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, selectedPlaybooks, overridesJson, request.LandingMode).ConfigureAwait(false);
                     }
 
-                    // Persist per-persona captain overrides (parity with REST) so assignment resolves the
-                    // preferred captain and fallback tier for every mission of a step, fan-out included.
-                    if (request.CaptainAssignments != null && request.CaptainAssignments.Count > 0)
+                    // A bare voyage has no missions yet: keep its overrides for the missions added to it later.
+                    if (validation.IsBareVoyage && request.CaptainAssignments != null && request.CaptainAssignments.Count > 0)
                     {
                         voyage.CaptainOverridesJson = Armada.Core.Services.MissionService.SerializeCaptainOverrides(request.CaptainAssignments);
                         voyage = await database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);

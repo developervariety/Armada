@@ -54,5 +54,10 @@ namespace Armada.Server.Mcp
         /// to a preferred captain and a fallback tier, applied to every mission of that persona.
         /// </summary>
         public List<CaptainAssignmentOverride>? CaptainAssignments { get; set; } = null;
+
+        /// <summary>
+        /// Landing mode for this voyage, overriding the vessel and server default; null keeps them.
+        /// </summary>
+        public Armada.Core.Enums.LandingModeEnum? LandingMode { get; set; } = null;
     }
 }

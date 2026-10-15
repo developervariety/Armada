@@ -11,9 +11,14 @@ namespace Armada.Core.Services
     /// <summary>
     /// Tracks the set of live Harbor links and applies the runtime state they report. Handshakes register
     /// or refresh a Harbor and are acknowledged with the advertised MCP base URL; heartbeats advance
-    /// liveness and the per-Harbor live-job set; disconnects mark the Harbor offline. The manager is
-    /// deliberately independent of the web-server transport, so the WebSocket handler simply feeds it typed
-    /// messages and supplies a send channel.
+    /// liveness and the per-Harbor live-job set; disconnects mark the Harbor offline. A Harbor's jobs survive a link drop:
+    /// on reconnect the handshake lists the jobs still running, the acknowledgement names the jobs the Admiral still owns
+    /// (the Harbor stops the rest), and the Harbor replays the job messages it could not deliver, which are deduplicated
+    /// by their outbox sequence. A job the Harbor no longer lists (in its handshake or a heartbeat) and whose exit does
+    /// not arrive within <see cref="VanishedJobGrace"/> is reported to its listener as failed, so its mission is recovered
+    /// at once. A periodic sweep (<see cref="SweepAsync"/>) also drops links that have gone silent for about three
+    /// heartbeat intervals. The manager is deliberately independent of the web-server transport, so the WebSocket handler
+    /// simply feeds it typed messages and supplies a send channel.
     /// </summary>
     public class HarborConnectionManager
     {
@@ -29,6 +34,43 @@ namespace Armada.Core.Services
         /// nothing.
         /// </summary>
         public HarborMetricsRecorder? Metrics { get; set; } = null;
+
+        /// <summary>
+        /// UTC clock for link liveness and the vanished-job grace; defaults to <see cref="DateTime.UtcNow"/>.
+        /// </summary>
+        public Func<DateTime> Clock
+        {
+            get => _Clock;
+            set => _Clock = value ?? throw new ArgumentNullException(nameof(Clock));
+        }
+
+        /// <summary>
+        /// How often the manager runs <see cref="SweepAsync"/> on its own while any Harbor is linked or a vanished job is
+        /// pending. <see cref="TimeSpan.Zero"/> (or less) turns the automatic sweep off; the caller then runs
+        /// <see cref="SweepAsync"/> itself. Defaults to 5 seconds.
+        /// </summary>
+        public TimeSpan SweepInterval { get; set; } = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// Lower bound of the time a link may stay silent before the sweep treats it as dead; the timeout is otherwise
+        /// three of the Harbor's heartbeat intervals. Minimum 1 second; defaults to 45 seconds.
+        /// </summary>
+        public TimeSpan MinimumStaleLinkTimeout
+        {
+            get => _MinimumStaleLinkTimeout;
+            set => _MinimumStaleLinkTimeout = value < TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : value;
+        }
+
+        /// <summary>
+        /// How long after a Harbor stops listing a started job (in its handshake or a heartbeat) the manager waits for the
+        /// job's exit (which the Harbor may still be replaying from its outbox) before it reports the job to its listener as
+        /// failed. Minimum zero; defaults to 20 seconds.
+        /// </summary>
+        public TimeSpan VanishedJobGrace
+        {
+            get => _VanishedJobGrace;
+            set => _VanishedJobGrace = value < TimeSpan.Zero ? TimeSpan.Zero : value;
+        }
 
         #endregion
 
@@ -46,6 +88,14 @@ namespace Armada.Core.Services
         private readonly ConcurrentDictionary<string, string> _PendingOwners = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, IHarborJobListener> _JobListeners = new ConcurrentDictionary<string, IHarborJobListener>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<int, HarborJobHandle> _JobsByProcessId = new ConcurrentDictionary<int, HarborJobHandle>();
+        private readonly ConcurrentDictionary<string, string> _JobOwners = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, byte> _StartedJobs = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, DateTime> _VanishedSince = new ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, HarborJobSequenceState> _JobSequences = new ConcurrentDictionary<string, HarborJobSequenceState>(StringComparer.Ordinal);
+        private Func<DateTime> _Clock = () => DateTime.UtcNow;
+        private TimeSpan _MinimumStaleLinkTimeout = TimeSpan.FromSeconds(45);
+        private TimeSpan _VanishedJobGrace = TimeSpan.FromSeconds(20);
+        private int _SweepRunning = 0;
 
         #endregion
 
@@ -78,14 +128,19 @@ namespace Armada.Core.Services
         /// <param name="userId">Owning user identifier.</param>
         /// <param name="send">Channel used to send messages to the Harbor.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The acknowledgement to send to the Harbor.</returns>
+        /// <param name="closeLink">Closes the transport behind the link, used when the sweep finds the link dead; null when
+        /// the transport cannot be closed from here.</param>
+        /// <returns>The acknowledgement to send to the Harbor. Besides acceptance it names the jobs the Admiral still owns on
+        /// the Harbor and the last job message received from it.</returns>
         /// <exception cref="ArgumentNullException">Thrown when required arguments are missing.</exception>
+        /// <exception cref="ArgumentException">Thrown when the handshake has no Harbor id or name.</exception>
         public async Task<HarborHandshakeAck> OnHandshakeAsync(
             HarborHandshake handshake,
             string? tenantId,
             string? userId,
             HarborSendDelegate send,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            Action? closeLink = null)
         {
             if (handshake == null) throw new ArgumentNullException(nameof(handshake));
             if (send == null) throw new ArgumentNullException(nameof(send));
@@ -119,21 +174,100 @@ namespace Armada.Core.Services
                 };
             }
 
+            DateTime now = _Clock();
             HarborConnection connection = new HarborConnection(handshake.HarborId, tenantId, userId, send);
-            connection.SetLiveJobs(null);
+            connection.SetLiveJobs(handshake.LiveJobIds);
             connection.HostsDocks = HasAvailableCapability(handshake.Capabilities, HarborProtocol.DockCapability);
             connection.HostsCheckouts = connection.HostsDocks && HasAvailableCapability(handshake.Capabilities, HarborProtocol.CheckoutCapability);
             connection.Name = handshake.Name;
+            connection.HeartbeatIntervalMs = handshake.HeartbeatIntervalMs;
+            connection.LastSeenUtc = now;
+            connection.CloseLink = closeLink;
             _Connections[handshake.HarborId] = connection;
 
-            _Logging.Info(_Header + "harbor " + handshake.HarborId + " linked (" + handshake.Name + ")");
+            long? lastJobSequence = null;
+            if (!String.IsNullOrWhiteSpace(handshake.JobOutboxEpoch))
+            {
+                HarborJobSequenceState state = _JobSequences.GetOrAdd(handshake.HarborId, _ => new HarborJobSequenceState());
+                lock (state)
+                {
+                    // A new epoch is a new Harbor process: its outbox counts from 1 again.
+                    if (!String.Equals(state.Epoch, handshake.JobOutboxEpoch, StringComparison.Ordinal))
+                    {
+                        state.Epoch = handshake.JobOutboxEpoch;
+                        state.LastSequence = 0;
+                    }
+
+                    lastJobSequence = state.LastSequence;
+                }
+            }
+            else
+            {
+                _JobSequences.TryRemove(handshake.HarborId, out HarborJobSequenceState? _);
+            }
+
+            // Jobs started over an earlier link that the Harbor no longer runs ended while the link was down; their exit
+            // may still arrive from the Harbor's outbox, so they are settled after the grace (see SweepAsync).
+            if (handshake.LiveJobIds != null) TrackReportedJobs(handshake.HarborId, handshake.LiveJobIds, now);
+            List<string> owned = OwnedJobIds(handshake.HarborId);
+
+            _Logging.Info(_Header + "harbor " + handshake.HarborId + " linked (" + handshake.Name + ")"
+                + (handshake.LiveJobIds != null ? "; running " + handshake.LiveJobIds.Count + " job(s), " + owned.Count + " owned by this Admiral" : ""));
             if (Metrics != null) await Metrics.OnLinkConnectedAsync(handshake.HarborId, token).ConfigureAwait(false);
+            EnsureSweepLoop();
             return new HarborHandshakeAck
             {
                 CorrelationId = handshake.CorrelationId,
                 Accepted = true,
-                McpBaseUrl = _AdvertisedMcpBaseUrl
+                McpBaseUrl = _AdvertisedMcpBaseUrl,
+                OwnedJobIds = owned,
+                LastJobSequence = lastJobSequence
             };
+        }
+
+        /// <summary>
+        /// The jobs this Admiral still tracks on a Harbor: launched there and waiting on their lifecycle (not exited, failed,
+        /// stopped, or given up on).
+        /// </summary>
+        /// <param name="harborId">Harbor identifier.</param>
+        /// <returns>Job identifiers.</returns>
+        public List<string> OwnedJobIds(string harborId)
+        {
+            List<string> owned = new List<string>();
+            if (String.IsNullOrWhiteSpace(harborId)) return owned;
+            foreach (KeyValuePair<string, string> owner in _JobOwners)
+            {
+                if (String.Equals(owner.Value, harborId, StringComparison.Ordinal) && _JobListeners.ContainsKey(owner.Key)) owned.Add(owner.Key);
+            }
+
+            return owned;
+        }
+
+        /// <summary>
+        /// Periodic upkeep, run on its own every <see cref="SweepInterval"/> while a Harbor is linked (and callable
+        /// directly). A link not heard from for longer than its stale timeout (three heartbeat intervals, at least
+        /// <see cref="MinimumStaleLinkTimeout"/>; links without heartbeats are never judged) is treated as closed: it is
+        /// removed, its transport is closed, and waiting requests fail. A started job its Harbor stopped listing more than
+        /// <see cref="VanishedJobGrace"/> ago, and whose exit never arrived, is reported to its listener as failed.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Number of links dropped plus jobs reported.</returns>
+        public async Task<int> SweepAsync(CancellationToken token = default)
+        {
+            DateTime now = _Clock();
+            int acted = 0;
+
+            foreach (KeyValuePair<string, HarborConnection> pair in _Connections)
+            {
+                TimeSpan? staleAfter = pair.Value.StaleAfter(_MinimumStaleLinkTimeout);
+                if (!staleAfter.HasValue || now - pair.Value.LastSeenUtc <= staleAfter.Value) continue;
+                _Logging.Warn(_Header + "harbor " + pair.Key + " not heard from for " + (int)(now - pair.Value.LastSeenUtc).TotalSeconds
+                    + "s (timeout " + (int)staleAfter.Value.TotalSeconds + "s); treating its link as closed");
+                if (await DropLinkAsync(pair.Key, pair.Value, token).ConfigureAwait(false)) acted++;
+            }
+
+            acted += await ReportVanishedJobsAsync(now, token).ConfigureAwait(false);
+            return acted;
         }
 
         /// <summary>
@@ -149,16 +283,28 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(harborId)) throw new ArgumentNullException(nameof(harborId));
             if (message == null) throw new ArgumentNullException(nameof(message));
 
+            // Any message shows the link is alive.
+            if (_Connections.TryGetValue(harborId, out HarborConnection? seen)) seen!.LastSeenUtc = _Clock();
+
+            // A job message the Harbor replays after a reconnect may have arrived over the earlier link already.
+            if (message.OutboxSequence.HasValue && !AcceptJobSequence(harborId, message.OutboxSequence.Value))
+            {
+                _Logging.Debug(_Header + "harbor " + harborId + " replayed job message " + message.OutboxSequence.Value + " already received; dropped");
+                return;
+            }
+
             if (message is HarborHeartbeat heartbeat)
             {
+                bool linked = false;
                 if (_Connections.TryGetValue(harborId, out HarborConnection? connection))
                 {
+                    linked = true;
                     // Acknowledge first, before any database work, so the Harbor's round-trip time measures the link.
                     if (heartbeat.Sequence.HasValue)
                     {
                         try
                         {
-                            await connection!.SendAsync(new HarborHeartbeatAck { Sequence = heartbeat.Sequence.Value }, token).ConfigureAwait(false);
+                            await connection!.SendAsync(new HarborHeartbeatAck { Sequence = heartbeat.Sequence.Value, LastJobSequence = LastJobSequence(harborId) }, token).ConfigureAwait(false);
                         }
                         catch (Exception e) when (!(e is OperationCanceledException))
                         {
@@ -166,13 +312,18 @@ namespace Armada.Core.Services
                         }
                     }
 
-                    connection!.LastSeenUtc = DateTime.UtcNow;
+                    DateTime now = _Clock();
+                    connection!.RecordHeartbeat(now);
                     connection.SetLiveJobs(heartbeat.LiveJobIds);
+                    TrackReportedJobs(harborId, heartbeat.LiveJobIds ?? new List<string>(), now);
                 }
 
                 if (Metrics != null) await Metrics.OnHeartbeatAsync(harborId, heartbeat, token).ConfigureAwait(false);
 
-                await _Harbors.MarkConnectionAsync(harborId, HarborConnectionStatusEnum.Connected, true, token).ConfigureAwait(false);
+                // A heartbeat that arrives on a link already dropped (the sweep found it dead) must not mark the Harbor
+                // connected again; its next handshake does.
+                if (linked) await _Harbors.MarkConnectionAsync(harborId, HarborConnectionStatusEnum.Connected, true, token).ConfigureAwait(false);
+                await ReportVanishedJobsAsync(_Clock(), token).ConfigureAwait(false);
                 return;
             }
 
@@ -208,7 +359,10 @@ namespace Armada.Core.Services
             {
                 if (Metrics != null) await Metrics.OnStartedAsync(started.JobId, token).ConfigureAwait(false);
                 if (_JobListeners.TryGetValue(started.JobId, out IHarborJobListener? startListener))
+                {
+                    _StartedJobs[started.JobId] = 0;
                     startListener.OnStarted(started.ProcessId);
+                }
                 return;
             }
 
@@ -232,6 +386,7 @@ namespace Armada.Core.Services
             if (message is HarborExited exited)
             {
                 if (Metrics != null) await Metrics.OnExitedAsync(exited, token).ConfigureAwait(false);
+                ForgetJob(exited.JobId);
                 if (_JobListeners.TryRemove(exited.JobId, out IHarborJobListener? exitListener))
                     exitListener.OnExited(exited.ExitCode);
                 return;
@@ -246,6 +401,7 @@ namespace Armada.Core.Services
                 // launch fails with the Harbor's reason instead of waiting out the start timeout.
                 if (!String.IsNullOrEmpty(error.JobId) && Metrics != null)
                     await Metrics.OnLaunchFailedAsync(error.JobId!, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(error.JobId)) ForgetJob(error.JobId!);
                 if (!String.IsNullOrEmpty(error.JobId) && _JobListeners.TryRemove(error.JobId!, out IHarborJobListener? failedListener))
                     failedListener.OnFailed(String.IsNullOrEmpty(error.Message) ? "The Harbor could not run the job." : error.Message);
                 return;
@@ -456,6 +612,7 @@ namespace Armada.Core.Services
                 throw new InvalidOperationException("Harbor " + harborId + " is not connected.");
 
             _JobListeners[request.JobId] = listener;
+            _JobOwners[request.JobId] = harborId;
 
             // Record before sending, so a Harbor that starts the job at once finds the record.
             if (Metrics != null) await Metrics.OnLaunchAsync(harborId, connection!.TenantId, request, token).ConfigureAwait(false);
@@ -466,14 +623,17 @@ namespace Armada.Core.Services
             catch
             {
                 _JobListeners.TryRemove(request.JobId, out IHarborJobListener? _);
+                ForgetJob(request.JobId);
                 if (Metrics != null) await Metrics.OnLaunchFailedAsync(request.JobId, CancellationToken.None).ConfigureAwait(false);
                 throw;
             }
         }
 
         /// <summary>
-        /// Send a stop request for a delegated job to a connected Harbor. No-op when the Harbor is not
-        /// connected (its jobs are gone with it).
+        /// Stop a delegated job: the Admiral stops tracking it at once, and a connected Harbor is sent a stop request. When
+        /// the Harbor is not connected the request cannot be delivered, but the job is not gone: a Harbor's jobs keep
+        /// running through a link drop. The Harbor stops it when it reconnects, because the handshake acknowledgement no
+        /// longer lists it among the jobs the Admiral owns (<see cref="HarborHandshakeAck.OwnedJobIds"/>).
         /// </summary>
         /// <param name="harborId">Target Harbor identifier.</param>
         /// <param name="jobId">Job identifier to stop.</param>
@@ -484,6 +644,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(harborId)) throw new ArgumentNullException(nameof(harborId));
             if (String.IsNullOrWhiteSpace(jobId)) throw new ArgumentNullException(nameof(jobId));
             _JobListeners.TryRemove(jobId, out IHarborJobListener? _);
+            ForgetJob(jobId);
             Metrics?.OnStopRequested(jobId);
             if (!_Connections.TryGetValue(harborId, out HarborConnection? connection)) return;
             await connection!.SendAsync(new HarborKillRequest { JobId = jobId, GracefulTimeoutMs = gracefulTimeoutMs }, token).ConfigureAwait(false);
@@ -712,6 +873,127 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private bool AcceptJobSequence(string harborId, long sequence)
+        {
+            if (!_JobSequences.TryGetValue(harborId, out HarborJobSequenceState? state)) return true;
+            lock (state!)
+            {
+                if (sequence <= state.LastSequence) return false;
+                state.LastSequence = sequence;
+                return true;
+            }
+        }
+
+        private long? LastJobSequence(string harborId)
+        {
+            if (!_JobSequences.TryGetValue(harborId, out HarborJobSequenceState? state)) return null;
+            lock (state!) return state.LastSequence;
+        }
+
+        private void ForgetJob(string jobId)
+        {
+            if (String.IsNullOrEmpty(jobId)) return;
+            _JobOwners.TryRemove(jobId, out string? _);
+            _StartedJobs.TryRemove(jobId, out byte _);
+            _VanishedSince.TryRemove(jobId, out DateTime _);
+        }
+
+        private void TrackReportedJobs(string harborId, List<string> liveJobIds, DateTime now)
+        {
+            HashSet<string> live = new HashSet<string>(liveJobIds ?? new List<string>(), StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> owner in _JobOwners)
+            {
+                if (!String.Equals(owner.Value, harborId, StringComparison.Ordinal)) continue;
+
+                // A job that has not reported its start may not be in the Harbor's live set yet; the launch's start timeout
+                // covers one that never starts.
+                if (!_StartedJobs.ContainsKey(owner.Key)) continue;
+                if (live.Contains(owner.Key)) _VanishedSince.TryRemove(owner.Key, out DateTime _);
+                else _VanishedSince.TryAdd(owner.Key, now);
+            }
+        }
+
+        private async Task<int> ReportVanishedJobsAsync(DateTime now, CancellationToken token)
+        {
+            int reported = 0;
+            foreach (KeyValuePair<string, DateTime> vanished in _VanishedSince)
+            {
+                if (now - vanished.Value < _VanishedJobGrace) continue;
+                if (!_VanishedSince.TryRemove(new KeyValuePair<string, DateTime>(vanished.Key, vanished.Value))) continue;
+
+                string jobId = vanished.Key;
+                _JobOwners.TryGetValue(jobId, out string? harborId);
+                ForgetJob(jobId);
+                if (!_JobListeners.TryRemove(jobId, out IHarborJobListener? listener)) continue;
+
+                _Logging.Warn(_Header + "harbor " + (harborId ?? "(unknown)") + " no longer runs job " + jobId
+                    + " and its exit did not arrive within " + (int)_VanishedJobGrace.TotalSeconds + "s; reporting it as failed");
+                if (Metrics != null) await Metrics.OnJobLostAsync(jobId, token).ConfigureAwait(false);
+                try
+                {
+                    listener!.OnFailed("Harbor " + Describe(harborId ?? String.Empty) + " no longer runs job " + jobId
+                        + " (it ended while the link to the Harbor was down, and its exit was not reported).");
+                }
+                catch (Exception e)
+                {
+                    _Logging.Warn(_Header + "listener of vanished job " + jobId + " failed: " + e.Message);
+                }
+
+                reported++;
+            }
+
+            return reported;
+        }
+
+        private async Task<bool> DropLinkAsync(string harborId, HarborConnection connection, CancellationToken token)
+        {
+            if (!_Connections.TryRemove(new KeyValuePair<string, HarborConnection>(harborId, connection))) return false;
+            int failed = FailPendingRequests(harborId);
+            _Logging.Info(_Header + "harbor " + harborId + " link dropped as dead" + (failed > 0 ? "; failed " + failed + " pending request(s)" : ""));
+            try { connection.CloseLink?.Invoke(); }
+            catch (Exception e) { _Logging.Debug(_Header + "closing the dead link of harbor " + harborId + " failed: " + e.Message); }
+            await _Harbors.MarkConnectionAsync(harborId, HarborConnectionStatusEnum.Disconnected, false, token).ConfigureAwait(false);
+            if (Metrics != null) await Metrics.OnLinkClosedAsync(harborId, token).ConfigureAwait(false);
+            return true;
+        }
+
+        private void EnsureSweepLoop()
+        {
+            if (SweepInterval <= TimeSpan.Zero) return;
+            if (Interlocked.CompareExchange(ref _SweepRunning, 1, 0) != 0) return;
+            _ = Task.Run(SweepLoopAsync);
+        }
+
+        private async Task SweepLoopAsync()
+        {
+            while (true)
+            {
+                TimeSpan interval = SweepInterval;
+                if (interval <= TimeSpan.Zero)
+                {
+                    Interlocked.Exchange(ref _SweepRunning, 0);
+                    return;
+                }
+
+                await Task.Delay(interval).ConfigureAwait(false);
+                try
+                {
+                    await SweepAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception e)
+                {
+                    _Logging.Warn(_Header + "harbor link sweep failed: " + e.Message);
+                }
+
+                // The loop runs only while there is something to watch, and starts again with the next link.
+                if (_Connections.IsEmpty && _VanishedSince.IsEmpty)
+                {
+                    Interlocked.Exchange(ref _SweepRunning, 0);
+                    if ((_Connections.IsEmpty && _VanishedSince.IsEmpty) || Interlocked.CompareExchange(ref _SweepRunning, 1, 0) != 0) return;
+                }
+            }
+        }
 
         private static List<Harbor> FilterCandidates(List<Harbor> all, string? tenantId, bool restrictToOwner, string? ownerUserId)
         {

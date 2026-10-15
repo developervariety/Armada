@@ -1,6 +1,8 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
+    using System.Globalization;
     using System.Text.RegularExpressions;
     using Armada.Core.Protocol;
 
@@ -66,7 +68,7 @@ namespace Armada.Core.Services
             switch (runtime)
             {
                 case Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode:
-                    return TryFormatClaudeEvent(json, result);
+                    return TryFormatClaudeEvent(json, result) || TryFormatClaudeRateLimit(json, result);
                 case Armada.Core.Enums.AgentRuntimeEnum.Codex:
                     return TryFormatCodexEvent(json, result) || TryFormatClaudeEvent(json, result);
                 case Armada.Core.Enums.AgentRuntimeEnum.OpenCode:
@@ -177,7 +179,11 @@ namespace Armada.Core.Services
 
         private static bool TryFormatJsonEvent(string json, FormattedLogLine result)
         {
-            if (!MuxProtocolEvent.TryParse(json, out MuxProtocolEvent? evt) || evt == null) return false;
+            if (!MuxProtocolEvent.TryParse(json, out MuxProtocolEvent? evt) || evt == null)
+                return TryFormatMuxHookEvent(json, result);
+
+            MuxProtocolEventDetails? details = null;
+            MuxProtocolEventDetails.TryParse(json, out details);
 
             switch (evt.EventType)
             {
@@ -195,9 +201,124 @@ namespace Armada.Core.Services
                     if (evt.Text == null) return false;
                     result.Text = evt.Text;
                     return true;
+                case MuxProtocolEvent.RunStarted:
+                    {
+                        string text = "(mux) run started";
+                        if (!String.IsNullOrWhiteSpace(evt.Model)) text += ": model " + evt.Model!.Trim();
+                        if (!String.IsNullOrWhiteSpace(details?.EndpointName)) text += (String.IsNullOrWhiteSpace(evt.Model) ? ": " : ", ") + "endpoint " + details!.EndpointName!.Trim();
+                        if (details?.MaxIterations != null) text += ", up to " + details.MaxIterations.Value.ToString(CultureInfo.InvariantCulture) + " iterations";
+                        result.Text = text;
+                        return true;
+                    }
+                case MuxProtocolEvent.ContextStatus:
+                    {
+                        // Only a warning is worth a line; the routine per-iteration status is noise.
+                        string? level = details?.WarningLevel;
+                        if (!String.Equals(level, "approaching", StringComparison.Ordinal) && !String.Equals(level, "critical", StringComparison.Ordinal))
+                        {
+                            result.Dropped = true;
+                            return true;
+                        }
+
+                        string text = "(context " + level + ")";
+                        if (details!.EstimatedTokens.HasValue && details.UsableInputLimit.HasValue)
+                            text += " est. " + details.EstimatedTokens.Value.ToString(CultureInfo.InvariantCulture) + " / " + details.UsableInputLimit.Value.ToString(CultureInfo.InvariantCulture) + " tokens";
+                        if (details.RemainingTokens.HasValue)
+                            text += ", " + details.RemainingTokens.Value.ToString(CultureInfo.InvariantCulture) + " remaining";
+                        result.Text = text;
+                        return true;
+                    }
+                case MuxProtocolEvent.ContextCompacted:
+                    {
+                        string text = "(context) compacted";
+                        if (!String.IsNullOrWhiteSpace(details?.Strategy)) text += " (" + details!.Strategy!.Trim() + ")";
+                        if (details?.EstimatedTokensBefore != null && details.EstimatedTokensAfter != null)
+                            text += ": est. " + details.EstimatedTokensBefore.Value.ToString(CultureInfo.InvariantCulture) + " -> " + details.EstimatedTokensAfter.Value.ToString(CultureInfo.InvariantCulture) + " tokens";
+                        result.Text = text;
+                        return true;
+                    }
+                case MuxProtocolEvent.TaskPlanUpdated:
+                    {
+                        if (details?.TotalCount == null)
+                        {
+                            result.Text = "(plan) updated";
+                            return true;
+                        }
+
+                        result.Text = "(plan) " + (details.CompletedCount ?? 0).ToString(CultureInfo.InvariantCulture) + " of " + details.TotalCount.Value.ToString(CultureInfo.InvariantCulture) + " tasks complete";
+                        return true;
+                    }
+                case MuxProtocolEvent.Error:
+                    result.Text = "(error) " + (String.IsNullOrWhiteSpace(evt.Code) ? "error" : evt.Code!.Trim()) + (String.IsNullOrWhiteSpace(evt.Message) ? String.Empty : ": " + evt.Message!.Trim());
+                    return true;
+                case MuxProtocolEvent.RunCompleted:
+                    result.Text = FormatMuxRunCompleted(evt);
+                    return true;
+                case MuxProtocolEvent.Heartbeat:
+                case MuxProtocolEvent.AssistantThinking:
+                case MuxProtocolEvent.ToolCallApproved:
+                    // Step counters, reasoning fragments, and approvals (the proposal line already names the tool).
+                    result.Dropped = true;
+                    return true;
                 default:
                     return false;
             }
+        }
+
+        private static string FormatMuxRunCompleted(MuxProtocolEvent evt)
+        {
+            string text = "(mux) run " + (String.IsNullOrWhiteSpace(evt.Status) ? "completed" : evt.Status!.Trim());
+            List<string> parts = new List<string>();
+            if (evt.IterationsCompleted.HasValue) parts.Add(evt.IterationsCompleted.Value.ToString(CultureInfo.InvariantCulture) + " iterations");
+            if (evt.ToolCallCount.HasValue) parts.Add(evt.ToolCallCount.Value.ToString(CultureInfo.InvariantCulture) + " tool calls");
+            if (evt.DurationMs.HasValue) parts.Add((evt.DurationMs.Value / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + "s");
+            if (evt.Usage != null && (evt.Usage.InputTokens.HasValue || evt.Usage.OutputTokens.HasValue))
+                parts.Add((evt.Usage.InputTokens ?? 0).ToString(CultureInfo.InvariantCulture) + " in / " + (evt.Usage.OutputTokens ?? 0).ToString(CultureInfo.InvariantCulture) + " out tokens");
+            if (evt.Usage?.CostUsd != null) parts.Add("$" + evt.Usage.CostUsd.Value.ToString("0.####", CultureInfo.InvariantCulture));
+            if (parts.Count > 0) text += ": " + String.Join(", ", parts);
+            return text;
+        }
+
+        private static bool TryFormatMuxHookEvent(string json, FormattedLogLine result)
+        {
+            if (!MuxProtocolEventDetails.TryParse(json, out MuxProtocolEventDetails? details) || details == null) return false;
+            if (!String.Equals(details.EventType, MuxProtocolEventDetails.Hook, StringComparison.Ordinal)) return false;
+            string text = "(hook) " + (details.HookEvent ?? "hook");
+            if (!String.IsNullOrWhiteSpace(details.HookName)) text += " " + details.HookName!.Trim();
+            if (!String.IsNullOrWhiteSpace(details.Outcome)) text += ": " + details.Outcome!.Trim();
+            result.Text = text;
+            return true;
+        }
+
+        private static bool TryFormatClaudeRateLimit(string json, FormattedLogLine result)
+        {
+            if (!ClaudeRateLimitEvent.TryParse(json, out ClaudeRateLimitEvent? evt) || evt == null) return false;
+            string? status = evt.Info?.Status;
+
+            // The routine "allowed" report after every turn is noise; a warning or a rejection is worth a line.
+            if (String.IsNullOrWhiteSpace(status) || String.Equals(status, "allowed", StringComparison.Ordinal))
+            {
+                result.Dropped = true;
+                return true;
+            }
+
+            string text = "(rate limit) " + status!.Trim();
+            if (!String.IsNullOrWhiteSpace(evt.Info!.RateLimitType)) text += " (" + evt.Info.RateLimitType!.Trim() + ")";
+            if (evt.Info.Utilization.HasValue) text += ", " + Math.Round(evt.Info.Utilization.Value * 100).ToString(CultureInfo.InvariantCulture) + "% used";
+            if (evt.Info.ResetsAt.HasValue)
+            {
+                try
+                {
+                    DateTime reset = DateTimeOffset.FromUnixTimeSeconds(evt.Info.ResetsAt.Value).UtcDateTime;
+                    text += ", resets " + reset.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC";
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                }
+            }
+
+            result.Text = text;
+            return true;
         }
 
         private static void SetToolCall(FormattedLogLine result, string? toolName, string text)

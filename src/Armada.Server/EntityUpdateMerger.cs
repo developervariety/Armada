@@ -95,10 +95,39 @@ namespace Armada.Server
         /// <param name="existing">Stored captain.</param>
         /// <param name="incoming">Client-supplied replacement body.</param>
         /// <returns>The record to persist (the incoming instance with server-owned fields restored).</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="existing"/> or <paramref name="incoming"/> is null.</exception>
         public static Captain MergeCaptain(Captain existing, Captain incoming)
+        {
+            return MergeCaptain(existing, incoming, CaptainUpdateFieldPresence.All());
+        }
+
+        /// <summary>
+        /// Apply a partial captain update body: each configuration field (name, runtime, model, inference endpoint,
+        /// system instructions, personas, reasoning effort, tier, runtime options) the body carries replaces the
+        /// stored value, including an explicit null that clears it; each field the body omits keeps the stored value.
+        /// Server-owned fields are preserved as in <see cref="MergeCaptain(Captain, Captain)"/>.
+        /// </summary>
+        /// <param name="existing">Stored captain.</param>
+        /// <param name="incoming">Client-supplied update body.</param>
+        /// <param name="presence">Which fields the body carried.</param>
+        /// <returns>The record to persist (the incoming instance with omitted and server-owned fields restored).</returns>
+        /// <exception cref="ArgumentNullException">Thrown when an argument is null.</exception>
+        public static Captain MergeCaptain(Captain existing, Captain incoming, CaptainUpdateFieldPresence presence)
         {
             if (existing == null) throw new ArgumentNullException(nameof(existing));
             if (incoming == null) throw new ArgumentNullException(nameof(incoming));
+            if (presence == null) throw new ArgumentNullException(nameof(presence));
+
+            if (!presence.Has(nameof(Captain.Name)) || String.IsNullOrEmpty(incoming.Name)) incoming.Name = existing.Name;
+            if (!presence.Has(nameof(Captain.Runtime))) incoming.Runtime = existing.Runtime;
+            if (!presence.Has(nameof(Captain.Model))) incoming.Model = existing.Model;
+            if (!presence.Has(nameof(Captain.ModelEndpointId))) incoming.ModelEndpointId = existing.ModelEndpointId;
+            if (!presence.Has(nameof(Captain.SystemInstructions))) incoming.SystemInstructions = existing.SystemInstructions;
+            if (!presence.Has(nameof(Captain.AllowedPersonas))) incoming.AllowedPersonas = existing.AllowedPersonas;
+            if (!presence.Has(nameof(Captain.PreferredPersona))) incoming.PreferredPersona = existing.PreferredPersona;
+            if (!presence.Has(nameof(Captain.ReasoningEffort))) incoming.ReasoningEffort = existing.ReasoningEffort;
+            if (!presence.Has(nameof(Captain.Tier))) incoming.Tier = existing.Tier;
+            if (!presence.Has(nameof(Captain.RuntimeOptionsJson))) incoming.RuntimeOptionsJson = existing.RuntimeOptionsJson;
 
             incoming.Id = existing.Id;
             incoming.TenantId = existing.TenantId;

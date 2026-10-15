@@ -1,6 +1,6 @@
 import type { Captain, CliPermissionPolicy } from '../types/models';
 import { applyAutoApprove, autoApproveFromCaptain, supportsAutoApproveSwitch } from './captainApproval';
-import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, type MuxCaptainFormFields } from './mux';
+import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFieldErrorMessage, muxFormFieldError, muxFormFromCaptain, type MuxCaptainFormFields, type MuxFieldError } from './mux';
 
 /**
  * Captain create / edit form shared by the dashboard (Captains list modal, captain detail modal) and the mobile app.
@@ -101,34 +101,38 @@ export function captainFormFromCaptain(c: Captain, options: { withEndpoint?: boo
 }
 
 /** Why a captain form cannot be saved (the caller translates the message), or null when it can. */
-export type CaptainFormError = 'muxEndpointRequired' | 'inferenceEndpointRequired';
+export type CaptainFormError = 'muxEndpointRequired' | 'inferenceEndpointRequired' | MuxFieldError;
 
 export function captainFormError(form: CaptainFormState): CaptainFormError | null {
   if (isMuxRuntime(form.runtime) && !form.muxEndpoint.trim()) return 'muxEndpointRequired';
+  const muxError = muxFormFieldError(form.runtime, form);
+  if (muxError) return muxError;
   if ('modelEndpointId' in form && form.runtime === 'ApiEndpoint' && !form.modelEndpointId) return 'inferenceEndpointRequired';
   return null;
 }
 
 /** English message of a form error (pass it through the translator). */
 export function captainFormErrorMessage(error: CaptainFormError): string {
-  return error === 'muxEndpointRequired'
-    ? 'Mux captains require a named Mux endpoint.'
-    : 'API-endpoint captains require an inference endpoint. Select one, or add it under Configuration > Endpoints.';
+  if (error === 'muxEndpointRequired') return 'Mux captains require a named Mux endpoint.';
+  if (error === 'inferenceEndpointRequired') return 'API-endpoint captains require an inference endpoint. Select one, or add it under Configuration > Endpoints.';
+  return muxFieldErrorMessage(error);
 }
 
 /**
- * The create / update request body. The CLI tool permission policy is never part of it (it changes through its own
+ * The update request body. The server changes only the fields the body carries, so a field the form edits is always
+ * sent (blank as null, which clears it) and a field the form does not have (no `modelEndpointId` or persona keys) is
+ * left out and keeps its stored value. The CLI tool permission policy is never part of it (it changes through its own
  * admin endpoint on edit; `buildCaptainCreatePayload` adds it on create).
  */
 export function buildCaptainPayload(form: CaptainFormState): Record<string, unknown> {
   const payload = { ...form } as Record<string, unknown>;
-  if (!payload.systemInstructions) delete payload.systemInstructions;
+  payload.systemInstructions = form.systemInstructions ? form.systemInstructions : null;
   payload.model = form.model.trim() ? form.model.trim() : null;
   if ('modelEndpointId' in form) payload.modelEndpointId = form.runtime === 'ApiEndpoint' ? (form.modelEndpointId || null) : null;
   payload.reasoningEffort = form.reasoningEffort ? form.reasoningEffort : null;
   payload.tier = form.tier ? form.tier : null;
-  if ('allowedPersonas' in form && !payload.allowedPersonas) delete payload.allowedPersonas;
-  if ('preferredPersona' in form && !payload.preferredPersona) delete payload.preferredPersona;
+  if ('allowedPersonas' in form) payload.allowedPersonas = form.allowedPersonas?.trim() ? form.allowedPersonas : null;
+  if ('preferredPersona' in form) payload.preferredPersona = form.preferredPersona?.trim() ? form.preferredPersona.trim() : null;
   payload.runtimeOptionsJson = applyAutoApprove(buildMuxRuntimeOptionsJson(form.runtime, form), form.autoApprove || !supportsAutoApproveSwitch(form.runtime));
   delete payload.autoApprove;
   delete payload.muxConfigDirectory;
@@ -146,6 +150,10 @@ export function buildCaptainPayload(form: CaptainFormState): Record<string, unkn
 /** The create request body: the update body plus the CLI tool permission policy when one is chosen. */
 export function buildCaptainCreatePayload(form: CaptainFormState): Record<string, unknown> {
   const payload = buildCaptainPayload(form);
+  // A new captain has nothing to clear: leave blank optional text out of the create body.
+  if (payload.systemInstructions === null) delete payload.systemInstructions;
+  if (payload.allowedPersonas === null) delete payload.allowedPersonas;
+  if (payload.preferredPersona === null) delete payload.preferredPersona;
   if (form.cliPermissionPolicy) payload.cliPermissionPolicy = form.cliPermissionPolicy;
   return payload;
 }

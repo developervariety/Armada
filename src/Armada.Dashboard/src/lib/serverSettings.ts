@@ -78,6 +78,8 @@ export interface ServerSettings {
   reposDirectory: string;
   selfVesselId?: string | null;
   rebuildSlotRetentionCount?: number;
+  /** True: missions wait for a Harbor instead of running on the Admiral host. Absent on older servers. */
+  requireHarborForLaunch?: boolean;
   remoteControl: RemoteControlSettings;
   import?: VesselImportSettingsData;
   fleetActions?: FleetActionSettingsData;
@@ -86,6 +88,9 @@ export interface ServerSettings {
   /** Absent on servers older than the Ask settings group. */
   ask?: AskSettingsData;
 }
+
+/** English tooltip of the Require Harbor for Launch setting (translate with t()). */
+export const REQUIRE_HARBOR_FOR_LAUNCH_TOOLTIP = 'Off (default): when no Harbor can take a mission (the laptop is disconnected, its Harbor is full, or it does not serve the vessel), the mission runs on the Admiral host instead. In Docker the Admiral has no claude, codex or mux installed, so those missions fail. On: the mission waits as Pending until a Harbor can take it.';
 
 /** The redacted form of a stored secret in GET /api/v1/settings; sending it back keeps the stored value. */
 export const REDACTED_SECRET = '********';

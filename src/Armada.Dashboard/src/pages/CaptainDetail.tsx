@@ -13,8 +13,9 @@ import {
   updateCaptain,
   deleteCaptain,
   setCaptainCliPermissionPolicy,
+  listModelEndpoints,
 } from '../api/client';
-import type { CliPermissionPolicy } from '../types/models';
+import type { CliPermissionPolicy, ModelEndpoint } from '../types/models';
 import type { Captain, Mission, MissionSummary, LogResult, FormattedLogEntry, CaptainToolAccessResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
@@ -31,20 +32,21 @@ import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
 import CliPermissionPolicySelect from '../components/cliPermissions/CliPermissionPolicySelect';
 import { policyLabel } from '../lib/cliPermissions';
-import { EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, parseMuxCaptainOptions, type MuxCaptainFormFields } from '../lib/mux';
+import { EMPTY_MUX_CAPTAIN_FORM, MUX_APPROVAL_ASK_WARNING, isMuxRuntime, isUnsupportedMuxApprovalPolicy, parseMuxCaptainOptions, type MuxCaptainFormFields } from '../lib/mux';
 import { supportsAutoApproveSwitch } from '../lib/captainApproval';
-import { CAPTAIN_AUTO_APPROVE_TOOLTIP, CAPTAIN_CLI_POLICY_TOOLTIP, CAPTAIN_NAME_TOOLTIP, CAPTAIN_REASONING_EFFORT_TOOLTIP, CAPTAIN_RUNTIME_TOOLTIP, CAPTAIN_SYSTEM_INSTRUCTIONS_TOOLTIP, CAPTAIN_TIER_TOOLTIP, buildCaptainPayload, captainDetailActions, captainFormError, captainFormErrorMessage, captainFormFromCaptain, captainModelPlaceholder, captainModelTooltip, cliPolicyChanged } from '../lib/captainForm';
+import { CAPTAIN_AUTO_APPROVE_TOOLTIP, CAPTAIN_CLI_POLICY_TOOLTIP, CAPTAIN_INFERENCE_ENDPOINT_TOOLTIP, CAPTAIN_NAME_TOOLTIP, CAPTAIN_REASONING_EFFORT_TOOLTIP, CAPTAIN_RUNTIME_TOOLTIP, CAPTAIN_SYSTEM_INSTRUCTIONS_TOOLTIP, CAPTAIN_TIER_TOOLTIP, buildCaptainPayload, captainDetailActions, captainFormError, captainFormErrorMessage, captainFormFromCaptain, captainModelPlaceholder, captainModelTooltip, cliPolicyChanged } from '../lib/captainForm';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
 const ALLOWED_PERSONAS_TOOLTIP = 'Personas this captain may take on, as a JSON array of persona names, for example ["Worker", "Judge"]. Blank lets it fill any persona.';
 const PREFERRED_PERSONA_TOOLTIP = 'A persona name, for example Worker. When several captains could take a mission, dispatch prefers this captain for work of this persona. Blank means no preference.';
 const LOG_READABLE_TOOLTIP = 'On: show the log as entries with tool calls named, secrets redacted and noise removed. Off: show the raw log text.';
-const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'Custom'];
+const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'ApiEndpoint', 'Custom'];
 type CaptainDetailFormState = {
   name: string;
   runtime: string;
   systemInstructions: string;
   model: string;
+  modelEndpointId: string;
   reasoningEffort: string;
   tier: string;
   allowedPersonas: string;
@@ -69,7 +71,8 @@ export default function CaptainDetail() {
 
   // Edit
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', reasoningEffort: '', tier: '', allowedPersonas: '', preferredPersona: '', autoApprove: true, cliPermissionPolicy: null, ...EMPTY_MUX_CAPTAIN_FORM });
+  const [inferenceEndpoints, setInferenceEndpoints] = useState<ModelEndpoint[]>([]);
+  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', modelEndpointId: '', reasoningEffort: '', tier: '', allowedPersonas: '', preferredPersona: '', autoApprove: true, cliPermissionPolicy: null, ...EMPTY_MUX_CAPTAIN_FORM });
 
   // Log viewer
   const [logText, setLogText] = useState<string | null>(null);
@@ -124,8 +127,12 @@ export default function CaptainDetail() {
 
   function openEdit() {
     if (!captain) return;
-    setForm(captainFormFromCaptain(captain, { withPersonas: true, defaultRuntime: 'ClaudeCode' }) as CaptainDetailFormState);
+    // withEndpoint keeps an API-endpoint captain's inference endpoint (the form edits it below).
+    setForm(captainFormFromCaptain(captain, { withEndpoint: true, withPersonas: true, defaultRuntime: 'ClaudeCode' }) as CaptainDetailFormState);
     setShowForm(true);
+    listModelEndpoints()
+      .then(result => setInferenceEndpoints((result ?? []).filter(e => e.kind === 'Inference')))
+      .catch(() => setInferenceEndpoints([]));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -326,6 +333,20 @@ export default function CaptainDetail() {
               {t('Model')}
               <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} title={t(captainModelTooltip(form.runtime))} aria-label={t('Model')} placeholder={t(captainModelPlaceholder(form.runtime))} />
             </label>
+            {form.runtime === 'ApiEndpoint' && (
+              <label title={t(CAPTAIN_INFERENCE_ENDPOINT_TOOLTIP)}>
+                {t('Inference Endpoint')}
+                <select value={form.modelEndpointId} onChange={e => setForm({ ...form, modelEndpointId: e.target.value })} title={t(CAPTAIN_INFERENCE_ENDPOINT_TOOLTIP)} required>
+                  <option value="">{t('Select an inference endpoint...')}</option>
+                  {form.modelEndpointId && !inferenceEndpoints.some(ep => ep.id === form.modelEndpointId) && (
+                    <option value={form.modelEndpointId}>{form.modelEndpointId}</option>
+                  )}
+                  {inferenceEndpoints.map(ep => (
+                    <option key={ep.id} value={ep.id}>{ep.name} ({ep.provider}{ep.model ? ' / ' + ep.model : ''})</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label title={t(CAPTAIN_REASONING_EFFORT_TOOLTIP)}>
               {t('Reasoning effort')}
               <select value={form.reasoningEffort} onChange={e => setForm({ ...form, reasoningEffort: e.target.value })} title={t(CAPTAIN_REASONING_EFFORT_TOOLTIP)}>
@@ -438,6 +459,19 @@ export default function CaptainDetail() {
           <div className="detail-field">
             <span className="detail-label" title={t('Server URL override (--base-url). Endpoint default means the saved endpoint\'s URL is used.')}>{t('Mux Base URL')}</span>
             <span className="mono">{muxOptions?.baseUrl || <span className="text-dim">{t('Endpoint default')}</span>}</span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label" title={t('How mux handles tool calls that need approval. auto and autoapprove run with --yolo (no prompts); deny refuses them. Default is auto, or deny when auto-approve is off.')}>{t('Mux Approval Policy')}</span>
+            <span>
+              {muxOptions?.approvalPolicy || <span className="text-dim">{t('Default (auto)')}</span>}
+              {isUnsupportedMuxApprovalPolicy(muxOptions?.approvalPolicy) && (
+                <span className="text-danger" style={{ display: 'block', fontSize: '0.75rem' }}>{t(MUX_APPROVAL_ASK_WARNING)}</span>
+              )}
+            </span>
+          </div>
+          <div className="detail-field">
+            <span className="detail-label" title={t('System prompt file on the machine that runs mux, passed as --system-prompt. Mux default means mux uses its own prompt.')}>{t('Mux System Prompt Path')}</span>
+            <span className="mono">{muxOptions?.systemPromptPath || <span className="text-dim">{t('Mux default')}</span>}</span>
           </div>
         </div>
       )}

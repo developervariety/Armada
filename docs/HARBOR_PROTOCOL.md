@@ -281,10 +281,20 @@ Harbor disconnected and fails any `git`, `dock`, `file`, or `deferredLaunch` req
 reconnects every 3 seconds and re-sends `handshake`; a close from an older, superseded socket does not disconnect the
 newer link.
 
-Messages are not buffered across a drop: `output` and `exited` events produced while the link is down are lost. The
-Admiral keeps its per-job listeners, so output a still-running job produces after the reconnect streams to the same
-`jobId` again. `heartbeat.liveJobIds` is recorded as the Harbor's in-flight count; it is not used to reconcile the
-missions of jobs that ended during the drop. For the Harbor metrics only, the first heartbeat after a reconnect settles
-the Admiral's job records: a job launched over an earlier link that is not in `liveJobIds` is recorded as `Lost` (an
-`exited` that arrives later still wins). A mission whose captain exited, or kept quiet, while the link was down is recovered by
-stall detection; see [Harbor disconnects](HARBOR.md#harbor-disconnects).
+Job messages survive a drop. The Harbor keeps one job outbox for the life of the process: every `started`, `output`,
+`activity`, `exited`, and job-scoped `error` carries a rising `outboxSequence`, and is kept until the Admiral
+acknowledges it (`lastJobSequence` on `handshakeAck` and on heartbeat acks). After the next handshake the Harbor replays,
+in order, everything not yet acknowledged; the Admiral drops duplicates per Harbor by sequence. The handshake carries a
+`jobOutboxEpoch` that changes when the Harbor process restarts, which resets the sequence. The outbox holds at most
+20000 messages or 32 MiB; when full it drops the oldest `output` first and keeps `started` and `exited`. All of these
+fields are optional, so an older Harbor or Admiral keeps the earlier behavior.
+
+Reconciliation: the handshake lists the Harbor's running jobs (`liveJobIds`) and its `heartbeatIntervalMs`. A job the
+Admiral tracks that has started but is missing from a handshake or heartbeat, and whose `exited` does not arrive within
+20 seconds, is reported to its listener as failed; for a mission that is an interrupted exit, which redispatches it. The
+`handshakeAck` carries `ownedJobIds`, and the Harbor stops any job it is running that the Admiral no longer owns (for
+example a mission that was recovered while the laptop slept), so two agents never work in one dock.
+
+Dead links: the Admiral closes a link silent for longer than max(45 seconds, 3x the Harbor's heartbeat interval), and
+the Harbor ends a session on its side after the same gap once a heartbeat has been acknowledged, then reconnects. A
+Harbor with heartbeats disabled is never swept.

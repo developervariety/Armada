@@ -1,9 +1,9 @@
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import MissionDetail from './MissionDetail';
-import { getMission, getMissionLandingPreview, listCaptains, listCheckRuns, listDeployments, listVessels } from '../api/client';
+import { getHarbor, getMission, getMissionLandingPreview, listCaptains, listCheckRuns, listDeployments, listVessels } from '../api/client';
 import { translateTemplate } from '../i18n/runtime';
-import type { LandingPreviewResult, Mission } from '../types/models';
+import type { Captain, Harbor, LandingPreviewResult, Mission } from '../types/models';
 
 vi.mock('../api/client', () => ({
   getMission: vi.fn(),
@@ -24,6 +24,7 @@ vi.mock('../api/client', () => ({
   listVessels: vi.fn(),
   listCaptains: vi.fn(),
   listDeployments: vi.fn(),
+  getHarbor: vi.fn(),
   getVesselBranches: vi.fn(),
   pushVesselBranch: vi.fn(),
   mergeVesselBranch: vi.fn(),
@@ -136,5 +137,37 @@ describe('MissionDetail waiting and landing', () => {
     expect(await screen.findByRole('button', { name: 'Land' })).toBeInTheDocument();
     expect(await screen.findByText('Ready To Land')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Merge in Manage Branches' })).not.toBeInTheDocument();
+  });
+});
+
+describe('MissionDetail Harbor and captain runtime', () => {
+  beforeEach(() => {
+    vi.mocked(listVessels).mockResolvedValue(emptyPage as never);
+    vi.mocked(listCheckRuns).mockResolvedValue(emptyPage as never);
+    vi.mocked(listDeployments).mockResolvedValue(emptyPage as never);
+    vi.mocked(getMissionLandingPreview).mockResolvedValue(preview({ missionStatus: 'InProgress' }));
+  });
+
+  it('shows the Harbor name with a link and the captain runtime', async () => {
+    const captain = { id: 'cpt_9', name: 'mux-1', runtime: 'Mux', tier: null } as unknown as Captain;
+    vi.mocked(listCaptains).mockResolvedValue({ ...emptyPage, totalRecords: 1, objects: [captain] } as never);
+    vi.mocked(getHarbor).mockResolvedValue({ id: 'hbr_1', name: 'Joel Laptop' } as unknown as Harbor);
+    vi.mocked(getMission).mockResolvedValue(mission({ status: 'InProgress', captainId: 'cpt_9', assignedHarborId: 'hbr_1' }));
+
+    renderPage();
+
+    const link = await screen.findByRole('link', { name: 'Joel Laptop' });
+    expect(link).toHaveAttribute('href', '/configuration?tab=harbors');
+    expect(await screen.findByTestId('mission-captain-runtime')).toHaveTextContent('(Mux)');
+  });
+
+  it('says Admiral host when no Harbor took the mission', async () => {
+    vi.mocked(listCaptains).mockResolvedValue(emptyPage as never);
+    vi.mocked(getMission).mockResolvedValue(mission({ status: 'Pending', assignedHarborId: null }));
+
+    renderPage();
+
+    expect(await screen.findByText('Admiral host')).toBeInTheDocument();
+    expect(screen.queryByTestId('mission-harbor')).not.toBeInTheDocument();
   });
 });

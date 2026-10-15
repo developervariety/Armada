@@ -48,6 +48,27 @@ namespace Armada.Core.Harbor
         /// </summary>
         public List<HarborCapability> Capabilities { get; set; } = new List<HarborCapability>();
 
+        /// <summary>
+        /// Jobs the Harbor is running as it opens this link (started over an earlier link), or null from a Harbor that
+        /// predates the field. The Admiral settles jobs it tracks for this Harbor that the list leaves out (they ended
+        /// while the link was down) and answers with <see cref="HarborHandshakeAck.OwnedJobIds"/>.
+        /// </summary>
+        public List<string>? LiveJobIds { get; set; } = null;
+
+        /// <summary>
+        /// The Harbor's heartbeat interval in milliseconds, or null when it does not say (an older Harbor). Zero means the
+        /// Harbor sends no heartbeats. The Admiral treats a link it has not heard from for about three intervals (at least
+        /// 45 seconds) as dead.
+        /// </summary>
+        public int? HeartbeatIntervalMs { get; set; } = null;
+
+        /// <summary>
+        /// Identifies the Harbor's job outbox (one per Harbor process), or null from a Harbor that predates it. The
+        /// <see cref="HarborMessage.OutboxSequence"/> of job messages counts within it; a new epoch (the Harbor restarted)
+        /// starts the count again.
+        /// </summary>
+        public string? JobOutboxEpoch { get; set; } = null;
+
         #endregion
     }
 }

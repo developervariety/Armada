@@ -311,11 +311,15 @@ namespace Armada.Harbor
         }
 
         /// <summary>
-        /// The Harbor settings folder (~/.armada-harbor).
+        /// The Harbor settings folder: ~/.armada-harbor, or the folder named by the ARMADA_HARBOR_HOME environment
+        /// variable (to run a second Harbor on one computer, for example against a test Admiral, without touching the
+        /// first one's settings, docks, and logs).
         /// </summary>
         /// <returns>Full path.</returns>
         public static string SettingsDirectory()
         {
+            string? overrideDir = Environment.GetEnvironmentVariable("ARMADA_HARBOR_HOME");
+            if (!String.IsNullOrWhiteSpace(overrideDir)) return Path.GetFullPath(overrideDir.Trim());
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             return Path.Combine(home, ".armada-harbor");
         }
