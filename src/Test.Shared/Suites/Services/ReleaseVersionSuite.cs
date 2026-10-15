@@ -116,9 +116,9 @@ namespace Test.Shared.Suites.Services
                 AssertContains("ARMADA_TARGET_FRAMEWORK=\"${ARMADA_TARGET_FRAMEWORK:-net10.0}\"", resolveFrameworkShContents, "Shell framework resolver should default to net10.0");
                 AssertContains("export ARMADA_DOTNET_MSBUILD_FRAMEWORK_ARGS=", resolveFrameworkShContents, "Shell framework resolver should expose reusable msbuild framework arguments");
                 AssertContains("source \"${SCRIPT_DIR}/resolve-framework.sh\"", installMcpShContents, "install-mcp.sh should resolve the framework override");
-                AssertContains("-f \"$ARMADA_TARGET_FRAMEWORK\" -- mcp install --yes", installMcpShContents, "install-mcp.sh should honor the resolved framework override");
+                AssertContains("$ARMADA_DOTNET_FRAMEWORK_ARGS -- mcp install --yes", installMcpShContents, "install-mcp.sh should honor the resolved framework override");
                 AssertContains("source \"${SCRIPT_DIR}/resolve-framework.sh\"", removeMcpShContents, "remove-mcp.sh should resolve the framework override");
-                AssertContains("-f \"$ARMADA_TARGET_FRAMEWORK\" -- mcp remove --yes", removeMcpShContents, "remove-mcp.sh should honor the resolved framework override");
+                AssertContains("$ARMADA_DOTNET_FRAMEWORK_ARGS -- mcp remove --yes", removeMcpShContents, "remove-mcp.sh should honor the resolved framework override");
                 AssertContains("set \"FRAMEWORK=net10.0\"", resolveFrameworkBatContents, "Windows framework resolver should default to net10.0");
                 AssertContains("set \"ARMADA_FORWARD_FRAMEWORK_ARGS=%FORWARD_ARGS%\"", resolveFrameworkBatContents, "Windows framework resolver should expose reusable wrapper forwarding arguments");
                 AssertContains("set \"ARMADA_DOTNET_FRAMEWORK_ARGS=%DOTNET_FRAMEWORK_ARGS%\"", resolveFrameworkBatContents, "Windows framework resolver should expose reusable dotnet framework arguments");

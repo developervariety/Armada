@@ -44,7 +44,7 @@ namespace Armada.Tui.Screens.Ask
 
         #region Private-Members
 
-        private readonly Dictionary<string, List<StyledText>> _Markdown = new Dictionary<string, List<StyledText>>(StringComparer.Ordinal);
+        private readonly ArmadaMarkdownCache _Markdown = new ArmadaMarkdownCache();
         private Dictionary<string, AskBlockCacheEntry> _Blocks = new Dictionary<string, AskBlockCacheEntry>(StringComparer.Ordinal);
 
         #endregion
@@ -152,7 +152,6 @@ namespace Armada.Tui.Screens.Ask
                 blocks.Add(err);
             }
 
-            if (_Markdown.Count > 2000) _Markdown.Clear();
             return blocks;
         }
 
@@ -167,12 +166,7 @@ namespace Armada.Tui.Screens.Ask
         public List<StyledText> Markdown(string markdown, int width, ArmadaTheme theme)
         {
             if (theme == null) throw new ArgumentNullException(nameof(theme));
-            string text = markdown ?? "";
-            string key = width + "|" + theme.Name + "|" + theme.AsciiGlyphs + "|" + text.Length + "|" + text.GetHashCode();
-            if (_Markdown.TryGetValue(key, out List<StyledText>? cached)) return cached;
-            List<StyledText> lines = new List<StyledText>(ArmadaMarkdown.Render(text, width, theme));
-            _Markdown[key] = lines;
-            return lines;
+            return new List<StyledText>(_Markdown.GetRows(markdown, width, theme));
         }
 
         /// <summary>

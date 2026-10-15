@@ -66,7 +66,7 @@ namespace Armada.Tui.Screens.Operations
         private int _Height = 1;
         private List<int> _Starts = new List<int>();
         private int _Total = 0;
-        private readonly Dictionary<string, IReadOnlyList<StyledText>> _Markdown = new Dictionary<string, IReadOnlyList<StyledText>>(StringComparer.Ordinal);
+        private readonly ArmadaMarkdownCache _Markdown = new ArmadaMarkdownCache();
 
         #endregion
 
@@ -293,12 +293,7 @@ namespace Armada.Tui.Screens.Operations
         private IReadOnlyList<StyledText> RenderMarkdown(string markdown, int width)
         {
             // Rendered on every frame, so lay each reply out once per text, width, and theme.
-            string key = width + "|" + Theme.Name + "|" + Theme.AsciiGlyphs + "|" + markdown.Length + "|" + markdown.GetHashCode();
-            if (_Markdown.TryGetValue(key, out IReadOnlyList<StyledText>? cached)) return cached;
-            if (_Markdown.Count > 500) _Markdown.Clear();
-            IReadOnlyList<StyledText> lines = ArmadaMarkdown.Render(markdown, width, Theme);
-            _Markdown[key] = lines;
-            return lines;
+            return _Markdown.GetRows(markdown, width, Theme);
         }
 
         private List<StyledText> MessageLines(PlanningSessionMessage m, bool streaming, bool cursor, int width)

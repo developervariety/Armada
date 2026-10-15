@@ -31,19 +31,17 @@ namespace Armada.Tui.Text
         }
 
         /// <summary>
-        /// The part of a reply that is still streaming that is safe to lay out: a trailing table row that has not
-        /// received its newline is held back (as TUIKit's <c>StreamingTranscript</c> does), so a half-received row
-        /// does not show as a short cell and resize the columns on every chunk.
+        /// The part of a reply that is still streaming that is safe to lay out (TUIKit's
+        /// <see cref="MarkdownRenderer.StreamingPrefix"/>): a table row that has not received its newline, and a table
+        /// header that has not received its delimiter row, are held back, so a table never shows short cells or
+        /// flashes as text while it arrives.
         /// </summary>
         /// <param name="markdown">Markdown received so far, or null.</param>
         /// <returns>The text to render.</returns>
         public static string Streaming(string? markdown)
         {
             if (String.IsNullOrEmpty(markdown)) return "";
-            int newline = markdown!.LastIndexOf('\n');
-            string tail = markdown.Substring(newline + 1);
-            if (!tail.TrimStart().StartsWith("|", StringComparison.Ordinal)) return markdown;
-            return newline < 0 ? "" : markdown.Substring(0, newline + 1);
+            return MarkdownRenderer.StreamingPrefix(markdown!);
         }
 
         /// <summary>

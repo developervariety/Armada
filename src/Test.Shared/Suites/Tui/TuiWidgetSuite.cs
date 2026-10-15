@@ -306,9 +306,19 @@ namespace Test.Shared.Suites.Tui
                 IReadOnlyList<StyledText> ascii = ArmadaMarkdown.Render(table, 40, new ArmadaTheme { AsciiGlyphs = true });
                 AssertTrue(ascii.All(l => l.ToPlainString().All(c => c < 128)), "ASCII theme draws ASCII glyphs");
                 AssertEqual(0, ArmadaMarkdown.Render("  ", 40, new ArmadaTheme()).Count, "blank renders nothing");
-                AssertEqual("| A | B |\n|---|---|\n", ArmadaMarkdown.Streaming("| A | B |\n|---|---|\n| 1 | tw"), "half-received table row held back");
+                AssertEqual("| A | B |\n|---|---|", ArmadaMarkdown.Streaming("| A | B |\n|---|---|\n| 1 | tw"), "half-received table row held back");
                 AssertEqual("Some **text", ArmadaMarkdown.Streaming("Some **text"), "other partial lines render as they arrive");
                 AssertEqual("", ArmadaMarkdown.Streaming("| A"), "a lone partial row renders nothing yet");
+                AssertEqual("Intro", ArmadaMarkdown.Streaming("Intro\n| A | B |\n"), "table header held until its delimiter row");
+                AssertEqual("", ArmadaMarkdown.Streaming(null), "null streams nothing");
+
+                ArmadaMarkdownCache cache = new ArmadaMarkdownCache();
+                ArmadaTheme cacheTheme = new ArmadaTheme();
+                IReadOnlyList<StyledText> first = cache.GetRows(table, 40, cacheTheme);
+                AssertTrue(ReferenceEquals(first, cache.GetRows(table, 40, cacheTheme)), "same text, width, and theme come from the cache");
+                AssertEqual(0, cache.GetRows(" ", 40, cacheTheme).Count, "blank renders nothing from the cache");
+                cacheTheme.AsciiGlyphs = true;
+                AssertTrue(cache.GetRows(table, 40, cacheTheme).All(l => l.ToPlainString().All(c => c < 128)), "an ASCII toggle lays the text out again");
 
                 LogViewer log = new LogViewer();
                 log.Markdown = true;

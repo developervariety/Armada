@@ -27,6 +27,15 @@ All notable changes to Armada are documented in this file.
 - While Ask and Planning replies stream, a half-received table row is held back until its line is complete, so table
   columns do not jump on every chunk.
 
+### Terminal UI: TUIKit 1.7.0
+- Upgraded TUIKit to 1.7.0 (from 1.6.0).
+- While Ask and Planning replies stream, a table header is now also held back until its delimiter row arrives, so a
+  table appears in one step instead of flashing as a line of text first. The streaming rule is TUIKit's
+  `MarkdownRenderer.StreamingPrefix` rather than Armada's own copy.
+- Ask and Planning transcripts cache laid-out replies with TUIKit's `MarkdownLayoutCache` (through
+  `ArmadaMarkdownCache`): least-recently-used eviction instead of clearing everything at a size limit, keys compared
+  by full text instead of a hash, and a theme switch or ASCII toggle lays replies out again.
+
 ### Synthetic activity load generator
 - Add a .NET 8/10 CLI with database/API targets and configurable density, entropy, seed and fixed history window.
 - Generate terminal missions, API history, events, read signals, Harbor jobs/link metrics and scoped tokens for all activity charts, with replayable profiles and recent-hour coverage.
