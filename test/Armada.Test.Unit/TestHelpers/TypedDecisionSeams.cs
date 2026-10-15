@@ -154,7 +154,7 @@ namespace Armada.Test.Unit.TestHelpers
                 // Objective-scoped seams: the dispatch preview, the refinement summary, the owner digest, and dispatch.
                 new SeamDriver("preflight", "dispatch_preview", ObjectiveId, async (SeamContext ctx) =>
                 {
-                    PreflightTextAdapter adapter = new PreflightTextAdapter(ctx.Typed, ctx.Client, ctx.Recorder, new FakeOwnerDecisionNotePoster(), Quiet());
+                    PreflightTextAdapter adapter = new PreflightTextAdapter(ctx.Typed, ctx.Client, ctx.Recorder, Quiet());
                     await adapter.EvaluateAsync(LinkObjective(ctx.VesselId), LinkVessel(ctx.VesselId), null, new ObjectiveDispatchPreview { VesselId = ctx.VesselId }, CancellationToken.None).ConfigureAwait(false);
                     return null;
                 }),

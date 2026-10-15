@@ -797,19 +797,18 @@ namespace Armada.Server
 
             // D5 preflight text-half adapter. Always wired; without a key the effective mode is Off, so
             // the preview stays fully deterministic. It runs after the
-            // deterministic preflight block in the preview and posts an owner-addressed board note for
-            // a Q13 owner ruling through the coordination service, targeting the registered AgentWake
-            // session the same way the board wake emitter above does.
+            // deterministic preflight block in the preview. The coordination service also posts
+            // owner notes for the stage-handoff decision below.
             {
                 CoordinationOwnerDecisionNotePoster ownerNotePoster = new CoordinationOwnerDecisionNotePoster(
                     _CoordinationService,
                     () => _RemoteTriggerService.GetAgentWakeSession()?.ParticipantKey,
                     _Logging);
                 _ObjectiveDispatchPreviewService.PreflightAdapter = new PreflightTextAdapter(
-                    _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, ownerNotePoster, _Logging);
+                    _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, _Logging);
 
                 // D19 stage necessity (dispatch preview) and D20 handoff outcome (stage handoff). Each
-                // follows its mode in the decisions map; set Off, the adapter returns the deterministic rule. The D20 owner note reuses the same poster as D5.
+                // follows its mode in the decisions map; set Off, the adapter returns the deterministic rule. The D20 owner note uses this coordination poster.
                 _ObjectiveDispatchPreviewService.StageNecessityAdapter = new TypedStageNecessityAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(

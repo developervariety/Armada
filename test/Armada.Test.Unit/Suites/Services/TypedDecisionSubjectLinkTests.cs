@@ -259,7 +259,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Objective objective = TypedDecisionSeams.LinkObjective(VesselId);
                     objective.Id = id;
-                    return new PreflightTextAdapter(settings, client, recorder, new FakeOwnerDecisionNotePoster(), TypedDecisionSeams.Quiet())
+                    return new PreflightTextAdapter(settings, client, recorder, TypedDecisionSeams.Quiet())
                         .EvaluateAsync(objective, TypedDecisionSeams.LinkVessel(VesselId), null, new ObjectiveDispatchPreview { VesselId = VesselId }, CancellationToken.None);
                 };
                 CallRecord first = await CallOnceAsync("preflight", preflight("obj_subject_one")).ConfigureAwait(false);

@@ -476,16 +476,20 @@ One decision point reads the objective dispatch preview:
   `{none, needs_owner_ruling, needs_repo_fact}`. Its state carries the title,
   description, acceptance criteria, non-goals, refinement summary, Kind, vessel
   name, pipeline stages, and the deterministic `facts`, redacted before egress.
-  In `Gate` a question at or above the threshold adds an Error issue
-  `objective_preflight_model_flag` — the autonomous scheduler already skips on any
-  Error issue and its `objective_scheduler.skipped_dispatch_preflight` event lists
-  the code — and a Q13 `needs_owner_ruling` also posts one owner-addressed board
-  note. The flag is preflight-class: an operator `armada_dispatch` with
+  In `Gate`, high Q4 (dock observability) and Q13 (owner question) readings add
+  visible `preflight_q4_model` and `preflight_q13_model` Warning issues. They do
+  not block dispatch, and Q13 does not post an owner-addressed note. A high
+  reading for another text question adds the Error issue
+  `objective_preflight_model_flag`; the autonomous scheduler skips on any Error
+  issue and its `objective_scheduler.skipped_dispatch_preflight` event lists the
+  code. The flag is preflight-class: an operator `armada_dispatch` with
   `forcePreflight: true` passes it, and the `objective.preflight_overridden`
-  event names the flagged question numbers. The model only ADDS issues; it never dispatches, never lands, and never
-  removes a deterministic issue. Below the threshold, unavailable, or `Off`
-  leaves the deterministic preview unchanged (`Shadow` adds the flags as advisory
-  `preflight_q<n>_model` warnings instead).
+  event names the flagged question numbers. When a Gate result has only Q4/Q13
+  flags, the event records an advisory outcome; any blocking flag records a
+  gated outcome. The model only ADDS issues; it never dispatches, never lands,
+  and never removes a deterministic issue. Below-threshold, unavailable, or
+  `Off` leaves the deterministic preview unchanged (`Shadow` adds high flags as
+  advisory `preflight_q<n>_model` warnings).
 
 - `review_substance` (D4, ships `Gate` at 0.85) — the Judge-PASS structural
   validator (the required-heading regex plus the narrative-length floor) stays

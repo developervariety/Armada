@@ -13,6 +13,8 @@ upstream integrations and excludes changes already present at that baseline.
   preview's execution requirement checks. Missing resources leave a named
   incident without creating rescue work or spending a recovery attempt.
 
+- Objective preflight keeps Jev Q4 dock-observability and Q13 owner-question findings as visible warnings in Gate mode. They do not block dispatch or create an owner note; other high text-question findings remain blocking.
+
 - Successful no-op reconciliation records the completion note `no-op integration: work already at target`, while logs retain the detailed decision reason.
 
 - SQLite coordination room creation ignores only a duplicate room key, so concurrent provisioning keeps the existing room and still reports other constraint failures.

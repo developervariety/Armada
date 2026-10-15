@@ -20,8 +20,9 @@ namespace Armada.Test.Unit.Suites.Services
     /// issue and proves it still stands: the model only ADDS issues. Off makes no call and changes
     /// nothing; an unavailable model records one unavailable event and changes nothing; a below-
     /// threshold answer records one shadow event and changes nothing; a Gate answer at or above the
-    /// threshold adds one Error issue per flagged question and records a gated event; a Q13 owner
-    /// ruling also posts one owner-addressed board note. The adapter never throws into the caller and
+    /// threshold adds blocking questions as Error issues and keeps Q4/Q13 as advisory Warnings. An
+    /// advisory-only result records a shadow event; a blocking result records a gated event. Q13 does
+    /// not post an owner-addressed note. The adapter never throws into the caller and
     /// forwards the caller's token so the client timeout links to it.
     /// </summary>
     public class PreflightTextAdapterTests : TestSuite
@@ -45,8 +46,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ExpectClientCalls = 0,
                     ExpectTypedEvent = null,
                     ExpectModelErrorIssues = 0,
-                    ExpectModelWarningIssues = 0,
-                    ExpectNotes = 0
+                    ExpectModelWarningIssues = 0
                 },
                 new PreflightCase
                 {
@@ -57,8 +57,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ExpectClientCalls = 1,
                     ExpectTypedEvent = TypedDecisionRecorder.EventTypeUnavailable,
                     ExpectModelErrorIssues = 0,
-                    ExpectModelWarningIssues = 0,
-                    ExpectNotes = 0
+                    ExpectModelWarningIssues = 0
                 },
                 new PreflightCase
                 {
@@ -69,44 +68,66 @@ namespace Armada.Test.Unit.Suites.Services
                     ExpectClientCalls = 1,
                     ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
                     ExpectModelErrorIssues = 0,
-                    ExpectModelWarningIssues = 0,
-                    ExpectNotes = 0
+                    ExpectModelWarningIssues = 0
                 },
                 new PreflightCase
                 {
-                    Name = "GateAboveThreshold_AddsErrorIssues_GatedEvent",
+                    Name = "GateAboveThreshold_AddsBlockingErrors_GatedEvent",
                     GlobalMode = TypedDecisionModeEnum.Gate,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = ModelResult(new Dictionary<string, double> { ["q1"] = 0.95, ["q9"] = 0.90, ["q5"] = 0.20 }, "none", 0.05),
                     ExpectClientCalls = 1,
                     ExpectTypedEvent = TypedDecisionRecorder.EventTypeGated,
                     ExpectModelErrorIssues = 2,
-                    ExpectModelWarningIssues = 0,
-                    ExpectNotes = 0
+                    ExpectModelWarningIssues = 0
                 },
                 new PreflightCase
                 {
-                    Name = "GateQ13OwnerRuling_AddsErrorAndPostsNote_GatedEvent",
+                    Name = "GateQ13OwnerRuling_AddsWarning_NoNote_AdvisoryEvent",
                     GlobalMode = TypedDecisionModeEnum.Gate,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = ModelResult(new Dictionary<string, double> { ["q1"] = 0.10 }, "needs_owner_ruling", 0.92),
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeGated,
-                    ExpectModelErrorIssues = 1,
-                    ExpectModelWarningIssues = 0,
-                    ExpectNotes = 1
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectGateOutcome = "advisory_only",
+                    ExpectModelErrorIssues = 0,
+                    ExpectModelWarningIssues = 1
                 },
                 new PreflightCase
                 {
-                    Name = "GateQ13NeedsRepoFact_AddsError_NoNote",
+                    Name = "GateQ13NeedsRepoFact_AddsWarning_NoNote_AdvisoryEvent",
                     GlobalMode = TypedDecisionModeEnum.Gate,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = ModelResult(new Dictionary<string, double> { ["q1"] = 0.10 }, "needs_repo_fact", 0.90),
                     ExpectClientCalls = 1,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectGateOutcome = "advisory_only",
+                    ExpectModelErrorIssues = 0,
+                    ExpectModelWarningIssues = 1
+                },
+                new PreflightCase
+                {
+                    Name = "GateQ4_AddsWarning_NoBlock_AdvisoryEvent",
+                    GlobalMode = TypedDecisionModeEnum.Gate,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = ModelResult(new Dictionary<string, double> { ["q4"] = 0.91 }, "none", 0.10),
+                    ExpectClientCalls = 1,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectGateOutcome = "advisory_only",
+                    ExpectModelErrorIssues = 0,
+                    ExpectModelWarningIssues = 1
+                },
+                new PreflightCase
+                {
+                    Name = "GateBlockingQuestionAndQ13_AddsErrorAndWarning_GatedEvent",
+                    GlobalMode = TypedDecisionModeEnum.Gate,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = ModelResult(new Dictionary<string, double> { ["q1"] = 0.91, ["q4"] = 0.92 }, "needs_owner_ruling", 0.93),
+                    ExpectClientCalls = 1,
                     ExpectTypedEvent = TypedDecisionRecorder.EventTypeGated,
+                    ExpectGateOutcome = "applied",
                     ExpectModelErrorIssues = 1,
-                    ExpectModelWarningIssues = 0,
-                    ExpectNotes = 0
+                    ExpectModelWarningIssues = 2
                 },
                 new PreflightCase
                 {
@@ -117,8 +138,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ExpectClientCalls = 1,
                     ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
                     ExpectModelErrorIssues = 0,
-                    ExpectModelWarningIssues = 2,
-                    ExpectNotes = 0
+                    ExpectModelWarningIssues = 2
                 }
             };
 
@@ -128,8 +148,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient(testCase.Result);
-                    FakeOwnerDecisionNotePoster poster = new FakeOwnerDecisionNotePoster();
-                    PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, poster, testCase.GlobalMode, testCase.DecisionMode);
+                    PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, testCase.GlobalMode, testCase.DecisionMode);
 
                     ObjectiveDispatchPreview preview = SeededPreview();
 
@@ -151,8 +170,6 @@ namespace Armada.Test.Unit.Suites.Services
                         && issue.Severity == ReadinessSeverityEnum.Warning);
                     AssertEqual(testCase.ExpectModelWarningIssues, modelWarnings, "model Warning issue count");
 
-                    AssertEqual(testCase.ExpectNotes, poster.Posts.Count, "owner-addressed note count");
-
                     List<ArmadaEvent> typed = await AllTypedDecisionEventsAsync(testDb.Driver).ConfigureAwait(false);
                     if (testCase.ExpectTypedEvent == null)
                     {
@@ -162,6 +179,8 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         AssertEqual(1, typed.Count, "exactly one typed-decision event per call");
                         AssertEqual(testCase.ExpectTypedEvent, typed[0].EventType, "typed-decision event type");
+                        if (testCase.ExpectGateOutcome != null)
+                            AssertContains("\"gate_outcome\":\"" + testCase.ExpectGateOutcome + "\"", typed[0].Payload ?? "", "typed-decision outcome");
                     }
                 });
             }
@@ -171,8 +190,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(
                     ModelResult(new Dictionary<string, double> { ["q1"] = 0.10 }, "none", 0.10));
-                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, new FakeOwnerDecisionNotePoster(),
-                    TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
 
                 using CancellationTokenSource cts = new CancellationTokenSource();
                 await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), SeededPreview(), cts.Token).ConfigureAwait(false);
@@ -185,8 +203,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 FakeTypedDecisionClient client = FakeTypedDecisionClient.Throwing(new InvalidOperationException("boom"));
-                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, new FakeOwnerDecisionNotePoster(),
-                    TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
 
                 ObjectiveDispatchPreview preview = SeededPreview();
 
@@ -209,8 +226,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(
                     ModelResult(new Dictionary<string, double> { ["q1"] = 0.10 }, "none", 0.10));
-                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, new FakeOwnerDecisionNotePoster(),
-                    TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
 
                 await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
 
@@ -227,7 +243,6 @@ namespace Armada.Test.Unit.Suites.Services
         private static PreflightTextAdapter BuildAdapter(
             DatabaseDriver database,
             FakeTypedDecisionClient client,
-            FakeOwnerDecisionNotePoster poster,
             TypedDecisionModeEnum globalMode,
             TypedDecisionModeEnum decisionMode)
         {
@@ -235,7 +250,7 @@ namespace Armada.Test.Unit.Suites.Services
             settings.Decisions[PreflightTextAdapter.DecisionPoint].Mode = decisionMode;
             settings.Decisions[PreflightTextAdapter.DecisionPoint].GateThreshold = _Threshold;
             TypedDecisionRecorder recorder = new TypedDecisionRecorder(database, new LoggingModule());
-            return new PreflightTextAdapter(settings, client, recorder, poster, new LoggingModule());
+            return new PreflightTextAdapter(settings, client, recorder, new LoggingModule());
         }
 
         private static Objective Objective()
@@ -329,9 +344,9 @@ namespace Armada.Test.Unit.Suites.Services
             public required TypedDecisionResult Result { get; init; }
             public required int ExpectClientCalls { get; init; }
             public required string? ExpectTypedEvent { get; init; }
+            public string? ExpectGateOutcome { get; init; }
             public required int ExpectModelErrorIssues { get; init; }
             public required int ExpectModelWarningIssues { get; init; }
-            public required int ExpectNotes { get; init; }
         }
     }
 }
