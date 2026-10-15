@@ -9,6 +9,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Successful no-op reconciliation records the completion note `no-op integration: work already at target`, while logs retain the detailed decision reason.
+
 - SQLite coordination room creation ignores only a duplicate room key, so concurrent provisioning keeps the existing room and still reports other constraint failures.
 
 - The dashboard exposes Code Index and Notifications history pages, and routes

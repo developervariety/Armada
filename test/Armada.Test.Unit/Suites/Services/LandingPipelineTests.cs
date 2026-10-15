@@ -1520,7 +1520,12 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(expectCompletionEvent, events.Any(item => item.EventType == "mission.completed"),
                         "Completion event must match the verified landing result");
                     if (expectedStatus == MissionStatusEnum.Complete)
+                    {
                         AssertTrue(events.Any(item => item.EventType == "mission.noop_already_integrated"), "Successful reconciliation must emit the no-op event");
+                        AssertEqual("no-op integration: work already at target",
+                            events.Single(item => item.EventType == "mission.noop_already_integrated").Message,
+                            "Successful reconciliation must retain the requested no-op note");
+                    }
                     else
                         AssertFalse(events.Any(item => item.EventType == "mission.noop_already_integrated"), "An unverified no-op must not emit a success event");
 
