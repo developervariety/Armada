@@ -1632,7 +1632,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A recoverable failure with a linked objective still dispatches one rescue.");
                 string rescueDescription = admiral.DispatchedMissions[0].Description ?? String.Empty;
-                AssertContains(ObjectiveBriefRenderer.StartMarker(objective.Id), rescueDescription,
+                AssertContains("<!-- armada-objective-brief:" + objective.Id + " -->", rescueDescription,
                     "The rescue carries a canonical brief for the current linked objective.");
                 AssertContains(objective.AcceptanceCriteria[0], rescueDescription,
                     "The rescue carries the current objective criterion even when the saved mission brief is older.");
@@ -1640,6 +1640,73 @@ namespace Armada.Test.Unit.Suites.Services
                     "The rescue carries the current objective scope.");
                 AssertContains("mission-output:" + failed.Id, rescueDescription,
                     "The rescue keeps the complete failed-mission output pointer.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Rescue resolves the brief-marked child objective over a stale objective frame", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                const string tenantId = "ten_rescue_child_objective";
+                const string userId = "usr_rescue_child_objective";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Voyage parentVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Objective rescue parent", "")
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+
+                Objective stale = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Stale umbrella objective",
+                    Description = "This parent frame is older than the child brief.",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    SuggestedPipelineId = "stale-pipeline-ref",
+                    VoyageIds = new List<string> { parentVoyage.Id },
+                    AcceptanceCriteria = new List<string> { "The stale umbrella criterion is no longer the active contract." }
+                }).ConfigureAwait(false);
+
+                Objective child = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Current child objective",
+                    Description = "Use the specific child scope.",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    ParentObjectiveId = stale.Id,
+                    VoyageIds = new List<string> { parentVoyage.Id },
+                    AcceptanceCriteria = new List<string> { "The child criterion is the active contract." }
+                }).ConfigureAwait(false);
+                parentVoyage.Description = ObjectiveBriefRenderer.Render(child);
+                await testDb.Driver.Voyages.UpdateAsync(parentVoyage).ConfigureAwait(false);
+
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Worker";
+                failed.VoyageId = parentVoyage.Id;
+                failed.Description = ObjectiveBriefRenderer.Render(stale);
+                failed = await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()));
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A recoverable stage failure creates its rescue Worker.");
+                string rescueDescription = admiral.DispatchedMissions[0].Description ?? String.Empty;
+                AssertContains("<!-- armada-objective-brief:" + child.Id + " -->", rescueDescription,
+                    "The rescue uses the objective selected by the existing canonical voyage brief marker.");
+                List<string> activeCriteria = JudgeAcceptanceWalk.ExtractCriteria(rescueDescription);
+                AssertEqual(1, activeCriteria.Count, "Only the current marked objective frame supplies the active criteria.");
+                AssertEqual(child.AcceptanceCriteria[0], activeCriteria[0], "The stale objective frame does not replace the current child criterion.");
+                AssertTrue(JudgeAcceptanceWalk.ExtractCriteria(rescueDescription).All(item =>
+                    !String.Equals(item, stale.AcceptanceCriteria[0], StringComparison.Ordinal)),
+                    "The stale frame is not promoted into the current rescue contract.");
             }).ConfigureAwait(false);
 
             await RunTest("Rescue defers when a required execution resource is unavailable without spending its budget", async () =>
