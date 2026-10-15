@@ -1655,6 +1655,15 @@ namespace Armada.Test.Unit.Suites.Services
                     UserId = userId,
                     Status = VoyageStatusEnum.InProgress
                 }).ConfigureAwait(false);
+                Pipeline stalePipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("Stale umbrella recovery pipeline")
+                {
+                    TenantId = tenantId,
+                    Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    }
+                }).ConfigureAwait(false);
 
                 Objective stale = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
@@ -1663,7 +1672,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Title = "Stale umbrella objective",
                     Description = "This parent frame is older than the child brief.",
                     Status = ObjectiveStatusEnum.InProgress,
-                    SuggestedPipelineId = "stale-pipeline-ref",
+                    SuggestedPipelineId = stalePipeline.Id,
                     VoyageIds = new List<string> { parentVoyage.Id },
                     AcceptanceCriteria = new List<string> { "The stale umbrella criterion is no longer the active contract." }
                 }).ConfigureAwait(false);
@@ -1816,7 +1825,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         ExecutionRequirements = new ObjectiveExecutionRequirements
                         {
-                            OperatingSystem = "armada-test-os-unavailable"
+                            OperatingSystem = Environment.OSVersion.Platform == PlatformID.Win32NT ? "Linux" : "Windows"
                         }
                     }
                 }).ConfigureAwait(false);
