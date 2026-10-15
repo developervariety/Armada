@@ -50,6 +50,14 @@ namespace Armada.Core.Enums
         /// count toward crash-loop quarantine.
         /// </summary>
         [EnumMember(Value = "TaskFailure")]
-        TaskFailure
+        TaskFailure,
+
+        /// <summary>
+        /// The model endpoint failed in a way that usually clears on the next request: a 5xx response (for example a
+        /// local server that could not parse the model's tool call), a dropped connection, or a timeout. The captain
+        /// is relaunched in the same dock instead of failing the mission.
+        /// </summary>
+        [EnumMember(Value = "Transient")]
+        Transient
     }
 }

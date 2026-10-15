@@ -504,6 +504,12 @@ scratch directory when the working directory is not on the captain's host), and 
 and files a workflow profile requires are checked on the Admiral, where secrets are resolved). A Harbor from before
 checkout operations (no `harbor-checkouts` capability) is never asked; update it.
 
+## Running a second Harbor on one computer
+
+Set `ARMADA_HARBOR_HOME` to a folder to give a Harbor its own settings, docks, repositories, and logs instead of
+`~/.armada-harbor`, for example to link a test Harbor to a second Admiral while your main Harbor stays connected. The
+CLIs it runs (claude, codex, mux) still use your normal home directory and logins.
+
 ## Harbor disconnects
 
 When a Harbor's link closes, the Admiral marks the Harbor `Disconnected`, fails any git or deferred-launch request

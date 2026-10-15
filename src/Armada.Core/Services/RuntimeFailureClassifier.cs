@@ -60,6 +60,11 @@ namespace Armada.Core.Services
                         return RuntimeFailureKindEnum.AuthFailure;
                     case 404:
                         return RuntimeFailureKindEnum.ModelUnavailable;
+                    case 500:
+                    case 502:
+                    case 503:
+                    case 504:
+                        return RuntimeFailureKindEnum.Transient;
                 }
             }
 
@@ -108,6 +113,11 @@ namespace Armada.Core.Services
                 case "degenerate_output":
                 case "context_limit_exceeded":
                     return RuntimeFailureKindEnum.TaskFailure;
+                case "llm_connection_error":
+                case "llm_timeout":
+                case "api_error":
+                case "server_error":
+                    return RuntimeFailureKindEnum.Transient;
                 default:
                     return null;
             }

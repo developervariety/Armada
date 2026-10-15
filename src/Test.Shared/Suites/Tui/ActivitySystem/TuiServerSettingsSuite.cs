@@ -101,6 +101,45 @@ namespace Test.Shared.Suites.Tui.ActivitySystem
                 }
             }));
 
+            cases.Add(TuiCase.Sync(Suite, "require_harbor_for_launch_save", "Agent Settings loads Require Harbor for Launch and saves the toggled value", () =>
+            {
+                StubHttpHandler stub = Stub(false);
+                using (TuiTestHost host = Open(stub, out ServerSettingsScreen screen))
+                {
+                    AssertTrue(screen.RequireHarborForLaunch.Visible, "shown when the server reports it");
+                    AssertFalse(screen.RequireHarborForLaunch.Value, "loaded value");
+                    AssertFalse(screen.Groups["agent"].IsDirty, "clean before the change");
+                    screen.Form.Scope.Focus(screen.RequireHarborForLaunch);
+                    AssertTrue(ReferenceEquals(screen.RequireHarborForLaunch, screen.Form.Scope.Focused), "focusable");
+                    string frame = host.Screen();
+                    TuiCase.Contains(frame, "Require Harbor for Launch", "caption");
+                    TuiCase.Contains(frame, "waits for a Harbor", "help text");
+                    host.Press("space");
+                    AssertTrue(screen.RequireHarborForLaunch.Value, "toggled on");
+                    AssertTrue(screen.Groups["agent"].IsDirty, "dirty after the change");
+                    host.Press("ctrl+s");
+                    AssertTrue(host.PumpUntil(() => stub.CountFor("PUT", "/api/v1/settings") == 1), "PUT sent");
+                    StubRequest put = stub.Last("PUT", "/api/v1/settings");
+                    AssertEqual(true, put.BodyAs<ServerSettingsUpdateBody>().RequireHarborForLaunch, "value sent: " + put.Body);
+                    AssertTrue(TuiToasts.WaitForSuccess(host, "Agent settings saved"), "success toast");
+                }
+            }));
+
+            cases.Add(TuiCase.Sync(Suite, "require_harbor_for_launch_absent", "Require Harbor for Launch is hidden and not sent when the server does not report it", () =>
+            {
+                StubHttpHandler stub = Stub();
+                using (TuiTestHost host = Open(stub, out ServerSettingsScreen screen))
+                {
+                    AssertFalse(screen.RequireHarborForLaunch.Visible, "hidden");
+                    TuiCase.NotContains(host.Screen(), "Require Harbor for Launch", "no caption");
+                    screen.Form.Scope.Focus(screen.HeartbeatInterval);
+                    host.Press("ctrl+u").Type("45").Press("ctrl+s");
+                    AssertTrue(host.PumpUntil(() => stub.CountFor("PUT", "/api/v1/settings") == 1), "PUT sent");
+                    StubRequest put = stub.Last("PUT", "/api/v1/settings");
+                    AssertFalse(JsonShape.HasPropertyAnywhere(put.Body, "RequireHarborForLaunch"), "not sent: " + put.Body);
+                }
+            }));
+
             cases.Add(TuiCase.Sync(Suite, "validation_blocks_save", "Out-of-range values and fail below warn block saving with the dashboard messages", () =>
             {
                 StubHttpHandler stub = Stub();
@@ -378,12 +417,18 @@ namespace Test.Shared.Suites.Tui.ActivitySystem
 
         internal static StubHttpHandler Stub()
         {
+            return Stub(null);
+        }
+
+        internal static StubHttpHandler Stub(bool? requireHarborForLaunch)
+        {
             StubHttpHandler stub = TuiFixtures.SignedInServer();
             stub.Json("GET", "/api/v1/status/health", "{\"Status\":\"healthy\",\"Version\":\"0.9.0\",\"Uptime\":\"1.02:03:04\",\"Timestamp\":\"2026-10-04T10:00:00Z\",\"StartUtc\":\"2026-10-03T08:00:00Z\",\"Ports\":{\"Admiral\":7890,\"Mcp\":7891},\"RemoteTunnel\":{\"Enabled\":false,\"State\":\"Disabled\"}}");
             string settings = "{\"AdmiralPort\":7890,\"McpPort\":7891,\"MaxCaptains\":12,\"HeartbeatIntervalSeconds\":30,\"StallThresholdMinutes\":10,\"IdleCaptainTimeoutSeconds\":0,"
                 + "\"PlanningSessionInactivityTimeoutMinutes\":30,\"PlanningSessionAbandonmentTimeoutMinutes\":240,\"PlanningSessionRetentionDays\":14,\"LandingMode\":\"PullRequest\","
                 + "\"DataDirectory\":\"/data/armada\",\"DatabasePath\":\"/data/armada/armada.db\",\"LogDirectory\":\"/data/armada/logs\",\"DocksDirectory\":\"/data/armada/docks\",\"ReposDirectory\":\"/data/armada/repos\","
                 + "\"SelfVesselId\":\"vsl_self\",\"RebuildSlotRetentionCount\":3,"
+                + (requireHarborForLaunch.HasValue ? "\"RequireHarborForLaunch\":" + (requireHarborForLaunch.Value ? "true" : "false") + "," : "")
                 + "\"RemoteControl\":{\"Enabled\":false,\"TunnelUrl\":\"https://proxy.example/tunnel\",\"Password\":\"armadaadmin\",\"ConnectTimeoutSeconds\":15,\"HeartbeatIntervalSeconds\":30,\"ReconnectBaseDelaySeconds\":5,\"ReconnectMaxDelaySeconds\":60,\"AllowInvalidCertificates\":false},"
                 + "\"Import\":{\"AllowedRoots\":[\"/src\",\"/work\"],\"MaxDepth\":6,\"ExcludedDirectoryNames\":[\"bin\",\"obj\"],\"InlineBatchLimit\":25,\"CategorizationTimeoutMinutes\":20},"
                 + "\"FleetActions\":{\"MaxConcurrency\":8,\"DefaultTimeoutSeconds\":300,\"MaxOutputBytes\":65536,\"RunRetentionDays\":30},"

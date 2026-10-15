@@ -400,6 +400,88 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("handle_process_exit_async_resumes_in_place_on_transient_model_error", "A model endpoint 5xx relaunches the captain in the same dock with a note, and fails only after MaxRecoveryAttempts", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxRecoveryAttempts = 2;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    LoggingModule logging = CreateLogging();
+                    IDockService dockService = new DockService(logging, db, settings, git);
+                    CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
+                    int relaunches = 0;
+                    captainService.OnLaunchAgent = (_, _, _) => { relaunches++; return Task.FromResult(7000 + relaunches); };
+                    IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
+                    AdmiralService service = new AdmiralService(logging, db, settings, captainService, missionService, new VoyageService(logging, db), dockService);
+
+                    Vessel vessel = await db.Vessels.CreateAsync(new Vessel("resume-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Voyage voyage = new Voyage("Resume Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_resume_dock_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(dock.WorktreePath);
+                    dock.Active = true;
+                    dock = await db.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Worker on a local model", "Do the work.");
+                    mission.VoyageId = voyage.Id;
+                    mission.VesselId = vessel.Id;
+                    mission.Persona = "Worker";
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.ProcessId = 4242;
+                    mission.DockId = dock.Id;
+                    await db.Missions.CreateAsync(mission);
+
+                    Captain captain = new Captain("mux", AgentRuntimeEnum.Mux);
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.CurrentDockId = dock.Id;
+                    captain.ProcessId = 4242;
+                    await db.Captains.CreateAsync(captain);
+
+                    RuntimeProviderError endpoint500 = new RuntimeProviderError { HttpStatusCode = 500, ErrorType = "llm_error", Message = "error parsing tool call", Reason = "the model endpoint rejected the request" };
+                    await service.HandleProcessExitAsync(4242, RuntimeFailureClassifier.Decide(1, endpoint500), captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? resumed = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.InProgress, resumed!.Status, "a transient endpoint error resumes instead of failing");
+                    AssertEqual(1, relaunches, "relaunched once in the same dock");
+                    AssertEqual(dock.Id, resumed.DockId, "the same dock, with the work so far");
+                    AssertContains("Earlier attempt 1 stopped", resumed.Description ?? "");
+                    AssertContains("git status", resumed.Description ?? "");
+                    Voyage? stillRunning = await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.InProgress, stillRunning!.Status, "the voyage keeps running");
+
+                    // Second failure: last allowed resume.
+                    await service.HandleProcessExitAsync(resumed.ProcessId!.Value, RuntimeFailureClassifier.Decide(1, endpoint500), captain.Id, mission.Id).ConfigureAwait(false);
+                    Mission? second = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.InProgress, second!.Status);
+                    AssertEqual(2, relaunches);
+
+                    // Third failure: attempts exhausted, the mission fails with the reason.
+                    await service.HandleProcessExitAsync(second.ProcessId!.Value, RuntimeFailureClassifier.Decide(1, endpoint500), captain.Id, mission.Id).ConfigureAwait(false);
+                    Mission? failed = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, failed!.Status, "fails once MaxRecoveryAttempts is used up");
+                    AssertEqual(2, relaunches);
+                    AssertContains("rejected the request", failed.FailureReason ?? "");
+                    try { Directory.Delete(dock.WorktreePath, true); } catch { }
+                }
+            }));
+
+            cases.Add(Case("runtime_failure_classifier_transient_and_task_failures", "Endpoint 5xx and connection errors are Transient; iteration and budget stops are TaskFailure", TestTags.Positive, () =>
+            {
+                AssertEqual(RuntimeFailureKindEnum.Transient, RuntimeFailureClassifier.Classify(1, new RuntimeProviderError { HttpStatusCode = 500, ErrorType = "llm_error" }));
+                AssertEqual(RuntimeFailureKindEnum.Transient, RuntimeFailureClassifier.Classify(1, new RuntimeProviderError { HttpStatusCode = 503 }));
+                AssertEqual(RuntimeFailureKindEnum.Transient, RuntimeFailureClassifier.Classify(1, new RuntimeProviderError { ErrorType = "llm_connection_error" }));
+                AssertEqual(RuntimeFailureKindEnum.TaskFailure, RuntimeFailureClassifier.Classify(1, new RuntimeProviderError { ErrorType = "max_iterations_reached" }));
+                AssertEqual(RuntimeFailureKindEnum.UsageLimit, RuntimeFailureClassifier.Classify(1, new RuntimeProviderError { HttpStatusCode = 429 }));
+                AssertEqual(RuntimeFailureKindEnum.Crash, RuntimeFailureClassifier.Classify(1, null));
+            }));
+
             cases.Add(CaseAsync("handle_process_exit_async_waits_for_launch_to_be_recorded", "HandleProcessExitAsync waits for an Assigned mission's launch to be recorded before handling a fast exit", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

@@ -102,6 +102,18 @@ namespace Armada.Core.Services.Interfaces
         Task<Mission> RestartAsync(Mission mission, string? title = null, string? description = null, CancellationToken token = default);
 
         /// <summary>
+        /// Rewrite a mission's runtime instructions file in its dock (on the dock's Harbor for a Harbor-hosted dock), for
+        /// a relaunch after the mission's description changed (for example a note about an earlier attempt).
+        /// </summary>
+        /// <param name="mission">Mission.</param>
+        /// <param name="captain">Captain that will run it.</param>
+        /// <param name="dock">The mission's dock.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Task.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when an argument is null.</exception>
+        Task RegenerateInstructionsAsync(Mission mission, Captain captain, Dock dock, CancellationToken token = default);
+
+        /// <summary>
         /// Deny a mission that is waiting at a review gate.
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>

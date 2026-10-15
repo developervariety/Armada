@@ -1764,6 +1764,19 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task RegenerateInstructionsAsync(Mission mission, Captain captain, Dock dock, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (dock == null) throw new ArgumentNullException(nameof(dock));
+            if (String.IsNullOrEmpty(dock.WorktreePath) || String.IsNullOrEmpty(mission.VesselId)) return;
+            Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
+            if (vessel == null) return;
+            DockHost? harborHost = HarborHostFor(dock);
+            await GenerateClaudeMdOnHostAsync(harborHost, dock.WorktreePath!, mission, vessel, captain, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
         public Task GenerateClaudeMdAsync(string worktreePath, Mission mission, Vessel vessel, Captain? captain = null, CancellationToken token = default)
         {
             return GenerateClaudeMdOnHostAsync(null, worktreePath, mission, vessel, captain, token);

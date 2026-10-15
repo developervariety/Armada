@@ -4410,7 +4410,7 @@
     {
       "kind": "setting",
       "key": "settings.requireHarborForLaunch",
-      "status": "planned",
+      "status": "implemented",
       "tui": "ServerSettingsScreen",
       "workstream": "W7.7",
       "notes": ""

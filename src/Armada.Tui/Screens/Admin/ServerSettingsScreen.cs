@@ -140,6 +140,9 @@ namespace Armada.Tui.Screens.Admin
         /// <summary>Default landing mode.</summary>
         public SelectField<string> DefaultLandingMode { get; } = new SelectField<string>();
 
+        /// <summary>Require a Harbor for launch; hidden while the server does not report the setting.</summary>
+        public ToggleField RequireHarborForLaunch { get; } = new ToggleField();
+
         /// <summary>Planning idle timeout.</summary>
         public InputField PlanningInactivity { get; } = new InputField();
 
@@ -583,6 +586,9 @@ namespace Armada.Tui.Screens.Admin
             DefaultLandingMode.Options = LandingModeInfo.All.Where(m => m.Value.Length > 0).Select(m => new SelectOption<string>(m.Value, Context.Loc.T(m.Label))).ToList();
             DefaultLandingMode.SetValue(nameof(LandingModeEnum.MergeAndPush));
             AddTracked(agent, "Default Landing Mode", DefaultLandingMode, "How finished missions land when neither the vessel nor the voyage sets a landing mode (default Merge and Push).");
+            RequireHarborForLaunch.Caption = "Require Harbor for Launch";
+            RequireHarborForLaunch.Visible = false;
+            AddTracked(agent, "Harbor", RequireHarborForLaunch, "When on, a mission waits for a Harbor (for example a disconnected laptop) instead of running on the Admiral host. Turn on when the Admiral (for example in Docker) has no claude, codex, or mux installed.");
             AddButtons(agent);
 
             // Planning Session Settings.
@@ -980,6 +986,8 @@ namespace Armada.Tui.Screens.Admin
                 StallThreshold.Value = Num(s.StallThresholdMinutes);
                 IdleCaptainTimeout.Value = Num(s.IdleCaptainTimeoutSeconds);
                 DefaultLandingMode.SetValue((s.LandingMode ?? LandingModeEnum.MergeAndPush).ToString());
+                RequireHarborForLaunch.Visible = s.RequireHarborForLaunch.HasValue;
+                RequireHarborForLaunch.SetValue(s.RequireHarborForLaunch ?? false, false);
             });
             Apply("planning", force, () =>
             {
@@ -1322,6 +1330,7 @@ namespace Armada.Tui.Screens.Admin
                 d.StallThresholdMinutes = IntOf(StallThreshold);
                 d.IdleCaptainTimeoutSeconds = IntOf(IdleCaptainTimeout);
                 d.LandingMode = Enum.TryParse<LandingModeEnum>(DefaultLandingMode.Value ?? "", out LandingModeEnum landingMode) ? landingMode : (LandingModeEnum?)null;
+                d.RequireHarborForLaunch = RequireHarborForLaunch.Visible ? RequireHarborForLaunch.Value : (bool?)null;
                 return d;
             }, "Agent settings saved");
         }

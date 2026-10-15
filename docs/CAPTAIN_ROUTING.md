@@ -43,6 +43,10 @@ A mission dispatched without a persona (a plain dispatch with no pipeline, `crea
 
 If launching the chosen captain fails (for example its CLI is not installed on the host the mission was placed on), the mission returns to Pending and assignment backs off: 30 s, 1 m, 2 m, 4 m, then every 5 minutes. The mission's assignment blocker shows `LaunchFailing` with the reason and the next attempt time. After six failures caused by a missing CLI the mission fails (Infra) with a reason saying to connect the Harbor and turn on Require Harbor for launch. A captain marked Stalled by a provider condition (usage limit, authentication, model unavailable) is returned to Idle after 15 minutes and tried again.
 
+## When a model endpoint hiccups
+
+A captain that exits because its model endpoint failed transiently (HTTP 500, 502, 503, or 504, a dropped connection, a timeout) or because a mux run reached its iteration or token budget is relaunched in the same dock, with its edits so far intact and a note in its instructions to inspect `git status` and `git diff` and continue, up to `maxRecoveryAttempts` times. The voyage keeps running; only when the attempts are used up does the mission fail. Iteration and budget stops do not count toward the captain's crash-loop quarantine.
+
 ## Explicit overrides and legacy defaults
 
 An explicit mission RequestedCaptainId takes precedence, followed by the voyage's exact per-persona captain assignment, then its wildcard (`*`) assignment. Those choices retain legacy behavior: an available requested captain bypasses AllowedPersonas and tier checks; a busy or deleted one falls back through ordinary persona/tier routing. Ownership and quarantine checks still apply. These explicit overrides bypass the hierarchy.

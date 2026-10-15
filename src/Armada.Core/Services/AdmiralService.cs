@@ -913,6 +913,18 @@ namespace Armada.Core.Services
                 }
 
                 string failureReason = exitInfo.Describe();
+
+                // A model endpoint hiccup (Transient) or a run that ran out of iterations or budget (TaskFailure) is not
+                // the end of the mission: relaunch the captain in the same dock, where its edits so far still are, with
+                // a note about the earlier attempt, up to MaxRecoveryAttempts times.
+                if ((exitInfo.FailureKind == RuntimeFailureKindEnum.Transient || exitInfo.FailureKind == RuntimeFailureKindEnum.TaskFailure)
+                    && mission != null
+                    && captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts
+                    && await TryResumeInPlaceAsync(captain, mission, failureReason, token).ConfigureAwait(false))
+                {
+                    return;
+                }
+
                 await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, failureReason, exitInfo.FailureKind, token).ConfigureAwait(false);
 
                 // Provider usage-limit / auth failures will just fail again immediately; quarantine the
@@ -1869,6 +1881,38 @@ namespace Armada.Core.Services
         /// Pending for a fresh assignment, and the voyage is left running. Bounded by the caller against
         /// <see cref="ArmadaSettings.MaxNoOpRedispatchAttempts"/>.
         /// </summary>
+        private async Task<bool> TryResumeInPlaceAsync(Captain captain, Mission mission, string failureReason, CancellationToken token)
+        {
+            Dock? dock = String.IsNullOrEmpty(mission.DockId) ? null : await _Database.Docks.ReadAsync(mission.DockId!, token).ConfigureAwait(false);
+            if (dock == null || String.IsNullOrEmpty(dock.WorktreePath)) return false;
+
+            int attempt = captain.RecoveryAttempts + 1;
+            string note = "\n\n## Earlier attempt " + attempt + " stopped\n" + failureReason.Trim()
+                + "\nYour work so far is still in the working tree. Run git status and git diff to see it, keep what is right, and continue the mission from there. Do not start over.";
+            mission.Description = (mission.Description ?? String.Empty) + note;
+            mission.ProcessId = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+            try
+            {
+                await _Missions.RegenerateInstructionsAsync(mission, captain, dock, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is IOException || ex is TimeoutException)
+            {
+                _Logging.Warn(_Header + "could not rewrite the instructions for mission " + mission.Id + " before resuming: " + ex.Message);
+            }
+
+            _Logging.Warn(_Header + "mission " + mission.Id + " stopped (" + failureReason + "); resuming captain " + captain.Id + " in the same dock (attempt " + attempt + "/" + _Settings.MaxRecoveryAttempts + ")");
+            await EmitEventAsync("mission.resumed", "Mission resumed in place after: " + failureReason,
+                entityType: "mission", entityId: mission.Id, captainId: captain.Id, missionId: mission.Id,
+                vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+
+            await _Captains.TryRecoverAsync(captain, token).ConfigureAwait(false);
+            Mission? after = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            return after != null && after.Status != MissionStatusEnum.Failed;
+        }
+
         private async Task HandleInterruptedProcessExitAsync(
             Captain captain,
             Mission mission,

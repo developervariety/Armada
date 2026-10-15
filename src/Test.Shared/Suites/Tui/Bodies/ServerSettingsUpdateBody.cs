@@ -18,6 +18,11 @@ namespace Test.Shared.Suites.Tui.Bodies
         public string? LandingMode { get; set; } = null;
 
         /// <summary>
+        /// Whether a mission waits for a Harbor instead of running on the Admiral host.
+        /// </summary>
+        public bool? RequireHarborForLaunch { get; set; } = null;
+
+        /// <summary>
         /// Retention group.
         /// </summary>
         public ServerSettingsRetentionBody? Retention { get; set; } = null;
