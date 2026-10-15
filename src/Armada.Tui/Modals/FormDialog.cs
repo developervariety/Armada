@@ -11,6 +11,7 @@ namespace Armada.Tui.Modals
     using Armada.Tui.Widgets;
     using TUIKit;
     using TUIKit.Input;
+    using TUIKit.Widgets;
 
     /// <summary>
     /// A create or edit modal (the dashboard's <c>modal</c> forms): hosts a <see cref="FormView"/>, validates on Save
@@ -230,10 +231,9 @@ namespace Armada.Tui.Modals
         }
 
         /// <inheritdoc />
-        public override bool HandlePaste(string text)
+        protected override IPasteTarget? PasteTarget
         {
-            Form.HandlePaste(text);
-            return true;
+            get { return Form; }
         }
 
         /// <inheritdoc />

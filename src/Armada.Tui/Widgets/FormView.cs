@@ -11,7 +11,9 @@ namespace Armada.Tui.Widgets
     /// <summary>
     /// Create and edit forms: labeled fields in sections, inline validation messages, dirty tracking against a clean
     /// snapshot, Save and Discard buttons, <c>Ctrl+S</c> to save, <c>Esc</c> to discard, Tab and Up/Down between fields,
-    /// and vertical scrolling that keeps the focused field visible. Not thread-safe.
+    /// and vertical scrolling that keeps the focused field visible. Built on Armada's <see cref="FocusScope"/> (nested
+    /// scopes, palette and localizer forwarding, <see cref="IFormField"/> errors), so TUIKit's <c>Form</c> (1.9) does not
+    /// replace it. Not thread-safe.
     /// </summary>
     public class FormView : ContainerWidget, IKeyHintSource
     {

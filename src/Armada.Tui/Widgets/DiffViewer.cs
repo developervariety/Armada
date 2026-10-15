@@ -12,7 +12,9 @@ namespace Armada.Tui.Widgets
     /// <summary>
     /// Unified diff viewer for mission and workspace diffs: additions, removals, hunk headers, and file headers are
     /// styled by role (with the +/- markers kept, so color is never the only signal); <c>]</c>/<c>[</c> jump between
-    /// files and the file count is shown in <see cref="Files"/>. Not thread-safe.
+    /// files and the file count is shown in <see cref="Files"/>. Long lines wrap like every <see cref="ScrollTextView"/>;
+    /// TUIKit's <c>DiffView</c> (1.10) reads unified diffs too but clips long lines (prompt diffs are paragraphs), so this
+    /// viewer stays. Not thread-safe.
     /// </summary>
     public class DiffViewer : ScrollTextView
     {

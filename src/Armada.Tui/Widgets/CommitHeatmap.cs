@@ -13,7 +13,9 @@ namespace Armada.Tui.Widgets
     /// weekday labels, and a footer with the totals, the selected day, and the legend. Commit counts map to five
     /// intensity levels scaled by the largest day; the color palettes shade one glyph through a green ramp, and the
     /// high-contrast (no color) palette uses a different glyph per level instead, so the levels read without color.
-    /// TUIKit's <c>HeatMap</c> has no selection cursor, per-level colors, or month labels, hence this widget. Focusable:
+    /// TUIKit's <c>CalendarHeatMap</c> (1.10) draws the same calendar, but its footer is always muted (a load error here
+    /// is drawn in the error style), its selection shows while unfocused (the token calendar never takes focus), it repeats
+    /// the glyph across a two-column cell instead of leaving a gap, and its legend takes a tenth row. Focusable:
     /// Up/Down move the selected day by one, Left/Right by a week, Home/End to the first and last day, Enter raises
     /// <see cref="DayActivated"/>, and a click selects a day (a double click activates it). Shows as many recent weeks as
     /// fit, scrolling to keep the selected day in view. Dates are calendar days (no time zone). Not thread-safe.

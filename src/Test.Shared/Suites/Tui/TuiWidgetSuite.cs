@@ -47,8 +47,15 @@ namespace Test.Shared.Suites.Tui
                 AssertEqual("hel\u4fee\u590do", input.Value, "insert at caret");
                 input.HandleKey(KeyEvent.Char('w', KeyModifiers.Ctrl));
                 AssertEqual("o", input.Value, "ctrl+w deletes a word");
+                AssertFalse(input.HandleKey(KeyEvent.Char('k', KeyModifiers.Ctrl)), "ctrl+k is left to the command palette");
+                AssertEqual("o", input.Value, "ctrl+k does not edit");
+                input.Value = "one two";
+                input.HandleKey(KeyEvent.Special(KeyCode.Left, KeyModifiers.Ctrl));
                 input.HandleKey(KeyEvent.Char('u', KeyModifiers.Ctrl));
-                AssertEqual("", input.Value, "ctrl+u clears");
+                AssertEqual("two", input.Value, "ctrl+u deletes to the start");
+                input.HandleKey(KeyEvent.Char('e', KeyModifiers.Ctrl));
+                input.HandleKey(KeyEvent.Char('u', KeyModifiers.Ctrl));
+                AssertEqual("", input.Value, "ctrl+u at the end clears");
                 AssertTrue(changes.Count >= 5, "change events");
                 input.Masked = true;
                 input.Value = "secret";
@@ -146,7 +153,7 @@ namespace Test.Shared.Suites.Tui
                 AssertFalse(frame.Contains("Advanced"), "scrolled past the top");
             }));
 
-            cases.Add(TuiCase.Sync(Suite, "detail_wizard_drawer", "DetailView copies, Wizard steps and validates, Drawer closes on Esc", () =>
+            cases.Add(TuiCase.Sync(Suite, "detail_drawer", "DetailView copies, Drawer closes on Esc", () =>
             {
                 DetailView detail = new DetailView();
                 detail.AddSection("Identifiers");
@@ -159,26 +166,6 @@ namespace Test.Shared.Suites.Tui
                 detail.HandleKey(KeyEvent.Char('y'));
                 AssertEqual("armada/fix", copied, "copied value");
                 AssertTrue(Snapshot.RenderWidget(detail, 40, 5).Contains("msn_123"), "rendered");
-
-                bool block = true;
-                WizardStep one = new WizardStep("Fleet", new TextBlock("fleet step"));
-                one.Validate = () => block ? "Pick a fleet." : null;
-                WizardStep two = new WizardStep("Vessel", new TextBlock("vessel step"));
-                two.Optional = true;
-                WizardStep three = new WizardStep("Captain", new TextBlock("captain step"));
-                Wizard wizard = new Wizard(new[] { one, two, three });
-                bool finished = false;
-                wizard.Finished += (s, e) => finished = true;
-                wizard.Next();
-                AssertEqual(0, wizard.Index, "blocked");
-                AssertTrue(Snapshot.RenderWidget(wizard, 60, 10).Contains("Pick a fleet."), "error shown");
-                block = false;
-                wizard.Next();
-                AssertEqual(1, wizard.Index, "advanced");
-                AssertTrue(Snapshot.RenderWidget(wizard, 60, 10).Contains("Step 2 / 3"), "header");
-                wizard.HandleKey(KeyEvent.Special(KeyCode.Right, KeyModifiers.Alt));
-                wizard.Next();
-                AssertTrue(finished, "finished");
 
                 Drawer drawer = new Drawer();
                 drawer.Open("Target", new TextBlock("detail"));

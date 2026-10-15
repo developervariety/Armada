@@ -10,6 +10,7 @@ namespace Armada.Tui.Screens.Build
     using Armada.Tui.Widgets;
     using TUIKit;
     using TUIKit.Input;
+    using TUIKit.Widgets;
 
     /// <summary>
     /// The Workspace terminal (the dashboard's WorkspaceTerminal): runs one non-interactive command at a time in the
@@ -179,10 +180,9 @@ namespace Armada.Tui.Screens.Build
         }
 
         /// <inheritdoc />
-        public override bool HandlePaste(string text)
+        protected override IPasteTarget? PasteTarget
         {
-            if (!Busy) Command.Insert((text ?? "").Replace("\r", " ").Replace("\n", " "));
-            return true;
+            get { return Busy ? null : Command; }
         }
 
         /// <inheritdoc />

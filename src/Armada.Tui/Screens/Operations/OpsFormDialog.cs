@@ -239,10 +239,9 @@ namespace Armada.Tui.Screens.Operations
         }
 
         /// <inheritdoc />
-        public override bool HandlePaste(string text)
+        protected override IPasteTarget? PasteTarget
         {
-            Form.HandlePaste(text);
-            return true;
+            get { return Form; }
         }
 
         /// <inheritdoc />

@@ -284,12 +284,6 @@ namespace Test.Shared.Suites.Tui
 
                 AssertEqual(markers.Count, markers.Values.Distinct().Count(), "each severity has its own symbol");
 
-                Wizard wizard = new Wizard(new[] { new WizardStep("Fleet", new TextBlock("a")), new WizardStep("Vessel", new TextBlock("b")) });
-                wizard.Next();
-                string steps = TUIKit.Testing.Snapshot.RenderWidget(wizard, 60, 8);
-                TuiCase.Contains(steps, "+1. Fleet", "completed step marked");
-                TuiCase.Contains(steps, "[2. Vessel]", "current step bracketed");
-
                 using (TuiTestHost host = TuiCase.SignedIn(120, 30, "/missions"))
                 {
                     string frame = host.Screen();

@@ -11,7 +11,9 @@ namespace Armada.Tui.Widgets
     /// <summary>
     /// A filterable, scrollable option list used by pickers and the command palette: a query (typed directly) narrows
     /// options by fuzzy score; Up/Down/PgUp/PgDn/Home/End move the cursor; optional check marks for multi-select. All
-    /// widths are cell widths (CJK-safe). Not thread-safe.
+    /// widths are cell widths (CJK-safe). TUIKit's <c>FuzzyList</c> (1.8) ranks by gaps between matched characters only;
+    /// the palette needs <see cref="FuzzyMatcher"/>'s prefix, word-start, and run bonuses, pinned options that stay checked,
+    /// and computed entries listed before the matches. Not thread-safe.
     /// </summary>
     /// <typeparam name="T">Value type.</typeparam>
     public class FilterList<T>

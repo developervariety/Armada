@@ -44,6 +44,23 @@ All notable changes to Armada are documented in this file.
   lines are counted as "N new below" instead of moving the view, and `End` or scrolling back to the last line follows
   again (as the Ask transcript already does).
 
+### Terminal UI: TUIKit 1.10.0
+- Upgraded TUIKit to 1.10.0 (from 1.7.0), which adds text entry, paging tables, pickers, forms, a wizard, unified
+  diffs, and calendars.
+- Text fields are TUIKit's `TextField` in the Armada palette. New: `Ctrl+Left` and `Ctrl+Right` move by word, and a
+  masked field lists `Ctrl+R` Show or Hide in the status bar. Changed: `Ctrl+U` deletes to the start of the line, as
+  in a shell, instead of clearing the whole field (at the end of the text it still clears it). `Ctrl+K` stays the
+  command palette. Prefill selection, masking, validation, and Enter to submit behave as before.
+- Dialogs with one text field (confirmations, review feedback, the vessel picker search, health notes, the workspace
+  terminal, and form dialogs) hand pastes to it through TUIKit's `DialogModal.PasteTarget` instead of their own
+  paste handlers. Armada's paste interface is replaced by TUIKit's `IPasteTarget`.
+- Removed Armada's unused `Wizard` widget, now that TUIKit ships one.
+- The lists, pickers, forms, diff viewer, and calendars keep Armada's widgets, because TUIKit's versions do not yet
+  cover what they rely on. Lists need the narrow-terminal column layout, which keeps the main column wide, shortens ids
+  in the middle, and drops columns by priority. Pickers need the palette's ranking. Forms depend on Armada's nested
+  focus. The diff viewer wraps long lines. The calendars need a styled footer and no selection mark while unfocused.
+  Each widget's doc comment says what it is waiting for.
+
 ### Synthetic activity load generator
 - Add a .NET 8/10 CLI with database/API targets and configurable density, entropy, seed and fixed history window.
 - Generate terminal missions, API history, events, read signals, Harbor jobs/link metrics and scoped tokens for all activity charts, with replayable profiles and recent-hour coverage.

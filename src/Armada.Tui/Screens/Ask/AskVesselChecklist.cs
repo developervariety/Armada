@@ -7,6 +7,7 @@ namespace Armada.Tui.Screens.Ask
     using Armada.Tui.Widgets;
     using TUIKit;
     using TUIKit.Input;
+    using TUIKit.Widgets;
 
     /// <summary>
     /// The vessel picker of the Fleet action form: a filterable checklist (case-insensitive name filter like the

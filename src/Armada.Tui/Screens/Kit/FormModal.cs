@@ -9,6 +9,7 @@ namespace Armada.Tui.Screens.Kit
     using Armada.Tui.Widgets;
     using TUIKit;
     using TUIKit.Input;
+    using TUIKit.Widgets;
 
     /// <summary>
     /// A dialog hosting a <see cref="FormView"/>: the create and edit modals of the dashboard (users, credentials,
@@ -155,10 +156,9 @@ namespace Armada.Tui.Screens.Kit
         }
 
         /// <inheritdoc />
-        public override bool HandlePaste(string text)
+        protected override IPasteTarget? PasteTarget
         {
-            Form.HandlePaste(text);
-            return true;
+            get { return Form; }
         }
 
         /// <inheritdoc />

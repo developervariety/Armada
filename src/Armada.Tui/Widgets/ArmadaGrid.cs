@@ -15,8 +15,10 @@ namespace Armada.Tui.Widgets
     using TUIKit.Widgets;
 
     /// <summary>
-    /// The table every Armada list uses (TUIKit's <c>DataTable</c> has weighted widths and multi-select, but no paging,
-    /// async loading states, column chooser, string sort keys, or marks that persist by row id across pages). Features: fixed and proportional columns with minimum widths and CJK-safe text, server-side sort
+    /// The table every Armada list uses. TUIKit's <c>DataTable</c> (1.8) now pages, loads, chooses columns, and keeps marks
+    /// by key, but its column widths are fixed or weighted: it has no content-aware layout that keeps the primary column
+    /// comfortable, elides identifiers in the middle, and drops columns by priority on a narrow terminal, and no
+    /// alternating rows, so the lists keep this grid until it does. Features: fixed and proportional columns with minimum widths and CJK-safe text, server-side sort
     /// with <c>^</c>/<c>v</c> indicators, multi-select with a checkbox column (Space, Shift+Up/Down, Ctrl+A, Esc), per-cell
     /// styles, a column chooser with pinned columns (<c>c</c>), a paging bar ("Showing 1-25 of 248. Page 1 of 10.") with
     /// page sizes 10/25/50/100/250, empty, loading, and error states, and row virtualization (only visible rows are

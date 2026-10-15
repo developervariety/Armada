@@ -412,10 +412,9 @@ namespace Armada.Tui.Screens.Build
         }
 
         /// <inheritdoc />
-        public override bool HandlePaste(string text)
+        protected override IPasteTarget? PasteTarget
         {
-            if (ReferenceEquals(_Scope.Focused, FormNote)) FormNote.Insert(text);
-            return true;
+            get { return ReferenceEquals(_Scope.Focused, FormNote) ? FormNote : null; }
         }
 
         /// <inheritdoc />

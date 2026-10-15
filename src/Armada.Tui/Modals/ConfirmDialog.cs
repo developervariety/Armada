@@ -8,6 +8,7 @@ namespace Armada.Tui.Modals
     using Armada.Tui.Widgets;
     using TUIKit;
     using TUIKit.Input;
+    using TUIKit.Widgets;
 
     /// <summary>
     /// Confirmation dialog matching the dashboard's ConfirmDialog, including the typed variant that requires typing a
@@ -145,10 +146,9 @@ namespace Armada.Tui.Modals
         }
 
         /// <inheritdoc />
-        public override bool HandlePaste(string text)
+        protected override IPasteTarget? PasteTarget
         {
-            if (_InputFocused) Input.Insert(text);
-            return true;
+            get { return _InputFocused ? Input : null; }
         }
 
         #endregion

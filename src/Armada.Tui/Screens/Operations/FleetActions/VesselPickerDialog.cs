@@ -183,10 +183,9 @@ namespace Armada.Tui.Screens.Operations
         }
 
         /// <inheritdoc />
-        public override bool HandlePaste(string text)
+        protected override IPasteTarget? PasteTarget
         {
-            if (ReferenceEquals(_Scope.Focused, Search)) Search.Insert(text);
-            return true;
+            get { return ReferenceEquals(_Scope.Focused, Search) ? Search : null; }
         }
 
         /// <inheritdoc />

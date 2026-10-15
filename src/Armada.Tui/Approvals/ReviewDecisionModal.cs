@@ -9,6 +9,7 @@ namespace Armada.Tui.Approvals
     using Armada.Tui.Widgets;
     using TUIKit;
     using TUIKit.Input;
+    using TUIKit.Widgets;
 
     /// <summary>
     /// The dashboard's Resolve Review dialog: feedback plus Approve, Conditionally Approve, More Work Required, Deny,
@@ -149,10 +150,9 @@ namespace Armada.Tui.Approvals
         }
 
         /// <inheritdoc />
-        public override bool HandlePaste(string text)
+        protected override IPasteTarget? PasteTarget
         {
-            if (_InputFocused) Feedback.Insert(text);
-            return true;
+            get { return _InputFocused ? Feedback : null; }
         }
 
         #endregion
