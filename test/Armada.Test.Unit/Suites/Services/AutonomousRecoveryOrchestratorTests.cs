@@ -1594,6 +1594,154 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(liveAfter!.LastRecoveryActionUtc.HasValue, "Non-terminal failure should be processed by the sweep.");
             }).ConfigureAwait(false);
 
+            await RunTest("Rescue carries the current linked objective contract and full parent output pointer", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                const string tenantId = "ten_rescue_current_objective";
+                const string userId = "usr_rescue_current_objective";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Worker";
+                failed.Description = "Old mission scope and old acceptance criterion.";
+                failed = await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Current objective revision",
+                    Description = "Use the current objective scope during rescue.",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    MissionIds = new List<string> { failed.Id },
+                    AcceptanceCriteria = new List<string>
+                    {
+                        "The rescue uses the current objective revision, not the saved mission scope."
+                    }
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    incidents,
+                    new RunbookService(testDb.Driver, new LoggingModule()));
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A recoverable failure with a linked objective still dispatches one rescue.");
+                string rescueDescription = admiral.DispatchedMissions[0].Description ?? String.Empty;
+                AssertContains(ObjectiveBriefRenderer.StartMarker(objective.Id), rescueDescription,
+                    "The rescue carries a canonical brief for the current linked objective.");
+                AssertContains(objective.AcceptanceCriteria[0], rescueDescription,
+                    "The rescue carries the current objective criterion even when the saved mission brief is older.");
+                AssertContains(objective.Description!, rescueDescription,
+                    "The rescue carries the current objective scope.");
+                AssertContains("mission-output:" + failed.Id, rescueDescription,
+                    "The rescue keeps the complete failed-mission output pointer.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Rescue defers when a required execution resource is unavailable without spending its budget", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                const string tenantId = "ten_rescue_execution_unavailable";
+                const string userId = "usr_rescue_execution_unavailable";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Worker";
+                failed = await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Rescue requires an unavailable execution environment",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    MissionIds = new List<string> { failed.Id },
+                    AcceptanceCriteria = new List<string> { "Use the declared captain execution environment." },
+                    Preparation = new ObjectivePreparation
+                    {
+                        ExecutionRequirements = new ObjectiveExecutionRequirements
+                        {
+                            OperatingSystem = "armada-test-os-unavailable"
+                        }
+                    }
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    incidents,
+                    new RunbookService(testDb.Driver, new LoggingModule()));
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count,
+                    "The rescue must not launch when the required captain execution environment is unavailable.");
+                Mission? after = await testDb.Driver.Missions.ReadAsync(failed.Id).ConfigureAwait(false);
+                AssertEqual(0, after!.RecoveryAttempts, "A resource deferral does not spend a recovery attempt.");
+                AssertNull(after.LastRecoveryActionUtc, "A resource deferral does not mark the original failure as handled.");
+
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failed.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, incidentPage.Objects.Count, "The original failure still has an operator incident.");
+                AssertContains("execution_unavailable", incidentPage.Objects[0].RecoveryNotes ?? String.Empty,
+                    "The incident records the stable execution-resource reason.");
+
+                List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(failed.Id, 100).ConfigureAwait(false);
+                AssertTrue(events.Any(item => item.EventType == "autonomous_recovery.rescue_deferred_execution_unavailable"),
+                    "The resource deferral has a distinct event and is not labeled as a dispatch hold.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Rescue dispatches when its required execution environment is available", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                const string tenantId = "ten_rescue_execution_available";
+                const string userId = "usr_rescue_execution_available";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Worker";
+                failed = await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+                LocalCaptainExecutionEnvironmentProbe environment = new LocalCaptainExecutionEnvironmentProbe(new ArmadaSettings());
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = tenantId,
+                    UserId = userId,
+                    Title = "Rescue uses the available execution environment",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    MissionIds = new List<string> { failed.Id },
+                    AcceptanceCriteria = new List<string> { "Run in the available captain environment." },
+                    Preparation = new ObjectivePreparation
+                    {
+                        ExecutionRequirements = new ObjectiveExecutionRequirements
+                        {
+                            OperatingSystem = environment.OperatingSystem
+                        }
+                    }
+                }).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()));
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count,
+                    "A satisfied execution requirement does not block an otherwise valid rescue.");
+            }).ConfigureAwait(false);
+
             await RunTest("Sweep excludes a Complete-voyage failed candidate while processing a non-terminal failure", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
