@@ -11,6 +11,7 @@ import {
   restartMission,
   enumerateFleetActionRuns,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import { useAuth } from '../context/AuthContext';
 import type { MissionSummary, Vessel, Captain, Signal, Fleet } from '../types/models';
 import { useWebSocket } from '../context/WebSocketContext';
@@ -108,12 +109,11 @@ export default function Dashboard() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [statusRes, missionRes, vesselRes, captainRes, fleetRes, pendingRuns, runningRuns] = await Promise.all([
+      // The Recent Missions filters go to the server, so a vessel or captain filter finds that vessel's or
+      // captain's ten most recent missions instead of filtering only the ten most recent overall.
+      const [statusRes, missionRes, pendingRuns, runningRuns] = await Promise.all([
         getStatus().catch(() => null),
-        listMissionSummaries({ pageSize: 10 }).catch(() => null),
-        listVessels({ pageSize: 9999 }).catch(() => null),
-        listCaptains({ pageSize: 9999 }).catch(() => null),
-        listFleets({ pageSize: 9999 }).catch(() => null),
+        listMissionSummaries({ pageSize: 10, filters: { status: statusFilter, vesselId: vesselFilter, captainId: captainFilter } }).catch(() => null),
         enumerateFleetActionRuns({ status: 'Pending', pageSize: 1 }).catch(() => null),
         enumerateFleetActionRuns({ status: 'Running', pageSize: 1 }).catch(() => null),
       ]);
@@ -122,20 +122,36 @@ export default function Dashboard() {
       if (missionRes) {
         setRecentMissions(missionRes.objects || []);
       }
-      if (vesselRes) setVessels(vesselRes.objects);
-      if (fleetRes) setFleets(fleetRes.objects);
-      if (captainRes) setCaptains(captainRes.objects);
       if (!statusRes && !missionRes) setError(t('Failed to load dashboard data.'));
     } catch {
       setError(t('Failed to load dashboard data.'));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, statusFilter, vesselFilter, captainFilter]);
+
+  // Name maps and filter pickers: every vessel, captain, and fleet (all pages). Loaded on mount and with the
+  // 30 second poll rather than on every WebSocket message, since a large tenant needs several pages.
+  const loadReference = useCallback(async () => {
+    const [vesselRes, captainRes, fleetRes] = await Promise.all([
+      listAll(listVessels).catch(() => null),
+      listAll(listCaptains).catch(() => null),
+      listAll(listFleets).catch(() => null),
+    ]);
+    if (vesselRes) setVessels(vesselRes.objects);
+    if (fleetRes) setFleets(fleetRes.objects);
+    if (captainRes) setCaptains(captainRes.objects);
+  }, []);
 
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    void loadReference();
+    const timer = setInterval(() => { void loadReference(); }, 30000);
+    return () => clearInterval(timer);
+  }, [loadReference]);
 
   // Auto-refresh on WebSocket messages
   useEffect(() => {

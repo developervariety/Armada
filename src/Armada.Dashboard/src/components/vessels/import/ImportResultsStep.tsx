@@ -5,6 +5,7 @@ import { useLocale } from '../../../context/LocaleContext';
 import CodeStatusBadge from '../../shared/CodeStatusBadge';
 import DataTable from '../../shared/DataTable';
 import { OUTCOMES, OUTCOME_META, batchStatusBadge, outcomeBadge, outcomeReasonLabel } from '../../../lib/vesselImportLabels';
+import { usePersistedPageSize } from '../../../lib/usePersistedPageSize';
 
 interface ImportResultsStepProps {
   batch: VesselImportBatch;
@@ -22,7 +23,7 @@ export default function ImportResultsStep({ batch, items, selectedCount, polling
   const { t, formatDateTime } = useLocale();
   const [outcomeFilter, setOutcomeFilter] = useState<VesselImportOutcome | ''>('');
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = usePersistedPageSize('vessel-import-results', 50);
 
   const counts = useMemo(() => {
     const c: Partial<Record<VesselImportOutcome, number>> = {};

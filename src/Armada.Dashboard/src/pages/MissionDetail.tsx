@@ -22,6 +22,7 @@ import {
   listCaptains,
   listDeployments,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Captain, CheckRun, Deployment, GitHubPullRequestDetail, LandingPreviewResult, Mission, Vessel } from '../types/models';
 import ErrorModal from '../components/shared/ErrorModal';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -129,8 +130,8 @@ export default function MissionDetail() {
   useLiveRefresh(['mission.'], loadMission);
 
   useEffect(() => {
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAll(listVessels).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAll(listCaptains).then(r => setCaptains(r.objects || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -142,8 +143,8 @@ export default function MissionDetail() {
 
     let cancelled = false;
     Promise.all([
-      listCheckRuns({ pageSize: 1000, filters: { missionId: id } }).catch(() => null),
-      listDeployments({ pageSize: 1000, missionId: id }).catch(() => null),
+      listAll(listCheckRuns, { filters: { missionId: id } }).catch(() => null),
+      listAll(listDeployments, { missionId: id }).catch(() => null),
     ]).then(([checkResult, deploymentResult]) => {
       if (cancelled) return;
       setLinkedCheckRuns(checkResult?.objects || []);

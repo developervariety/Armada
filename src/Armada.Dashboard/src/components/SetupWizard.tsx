@@ -13,6 +13,7 @@ import {
   listVessels,
   listWorkflowProfiles,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import MuxRuntimeFields from './captains/MuxRuntimeFields';
 import { captainModelPlaceholder, captainModelTooltip } from '../lib/captainForm';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, type MuxCaptainFormFields } from '../lib/mux';
@@ -246,9 +247,9 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
     try {
       setLoading(true);
       const [fleetResult, vesselResult, captainResult] = await Promise.all([
-        listFleets({ pageSize: 9999 }),
-        listVessels({ pageSize: 9999 }),
-        listCaptains({ pageSize: 9999 }),
+        listAll(listFleets),
+        listAll(listVessels),
+        listAll(listCaptains),
       ]);
 
       setFleets(fleetResult.objects);
@@ -324,8 +325,8 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
         setNextSetupLoading(true);
         const [loadedReadiness, profileResult, environmentResult] = await Promise.all([
           getVesselReadiness(activeVesselId),
-          listWorkflowProfiles({ pageSize: 9999 }),
-          listEnvironments({ pageSize: 9999, vesselId: activeVesselId }),
+          listAll(listWorkflowProfiles),
+          listAll(listEnvironments, { vesselId: activeVesselId }),
         ]);
 
         if (!mounted) return;

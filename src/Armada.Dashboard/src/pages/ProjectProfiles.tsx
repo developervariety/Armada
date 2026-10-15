@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createProjectProfile, deleteProjectProfile, listFleets, listProjectProfiles, listVessels, updateProjectProfile } from '../api/client';
+import { listAll } from '../api/paging';
 import { splitList } from '../lib/configuration';
 import type { Fleet, ProjectProfile, Vessel, ScopeEnum } from '../types/models';
 import { useAuth } from '../context/AuthContext';
@@ -68,7 +69,7 @@ export default function ProjectProfiles() {
   async function load() {
     try {
       setLoading(true);
-      const result = await listProjectProfiles({ pageSize: 9999 });
+      const result = await listAll(listProjectProfiles);
       setProfiles(result.objects || []);
       setError('');
     } catch (err: unknown) {
@@ -85,8 +86,8 @@ export default function ProjectProfiles() {
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('projectprofiles', load);
 
   useEffect(() => {
-    void listFleets().then((r) => setFleets(r.objects || [])).catch(() => {});
-    void listVessels().then((r) => setVessels(r.objects || [])).catch(() => {});
+    void listAll(listFleets).then((r) => setFleets(r.objects || [])).catch(() => {});
+    void listAll(listVessels).then((r) => setVessels(r.objects || [])).catch(() => {});
   }, []);
 
   function openCreate() {

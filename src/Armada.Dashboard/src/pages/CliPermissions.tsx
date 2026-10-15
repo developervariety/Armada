@@ -9,6 +9,7 @@ import {
   listCliPermissionRules,
   listVessels,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   Captain,
   CliPermissionRequest,
@@ -31,7 +32,8 @@ import CliPermissionCard from '../components/cliPermissions/CliPermissionCard';
 import { useLiveRefresh } from '../lib/useLiveRefresh';
 import { CLI_PERMISSION_EVENT_PREFIX, mergeCliRequest, requestStatusLabel } from '../lib/cliPermissions';
 
-const REQUEST_LIMIT = 200;
+/** The route's maximum; the list has no total, so a full page means there may be more (said visibly below). */
+const REQUEST_LIMIT = 1000;
 const STATUSES: CliPermissionRequestStatus[] = ['Pending', 'Allowed', 'Denied', 'Expired', 'Cancelled'];
 
 function errorText(err: unknown, fallback: string): string {
@@ -45,6 +47,7 @@ function RequestsPanel() {
   const highlightId = searchParams.get('request');
   const [status, setStatus] = useState<CliPermissionRequestStatus | ''>('Pending');
   const [requests, setRequests] = useState<CliPermissionRequest[]>([]);
+  const [atLimit, setAtLimit] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -52,6 +55,7 @@ function RequestsPanel() {
     setLoading(true);
     try {
       const list = (await listCliPermissionRequests({ status: status || null, limit: REQUEST_LIMIT })) ?? [];
+      setAtLimit(list.length >= REQUEST_LIMIT);
       let merged = list;
       // The deep-linked request is shown even when the status filter would hide it (for example it was decided).
       if (highlightId && !list.some((r) => r.id === highlightId)) {
@@ -95,6 +99,11 @@ function RequestsPanel() {
         <RefreshButton onRefresh={load} title={t('Refresh requests')} />
       </div>
       <ErrorModal error={error} onClose={() => setError('')} />
+      {atLimit && (
+        <div className="alert alert-warning" role="status">
+          {t('Showing the first {{count}} requests. Narrow the filter to see the rest.', { count: REQUEST_LIMIT.toLocaleString() })}
+        </div>
+      )}
       {loading && requests.length === 0 ? (
         <p className="text-dim">{t('Loading...')}</p>
       ) : requests.length === 0 ? (
@@ -155,8 +164,8 @@ function RulesPanel() {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    listVessels({ pageSize: 1000 }).then((r) => setVessels(r?.objects ?? [])).catch(() => setVessels([]));
-    listCaptains({ pageSize: 1000 }).then((r) => setCaptains(r?.objects ?? [])).catch(() => setCaptains([]));
+    listAll(listVessels).then((r) => setVessels(r?.objects ?? [])).catch(() => setVessels([]));
+    listAll(listCaptains).then((r) => setCaptains(r?.objects ?? [])).catch(() => setCaptains([]));
   }, []);
 
   const vesselNames = useMemo(() => new Map(vessels.map((v) => [v.id, v.name])), [vessels]);

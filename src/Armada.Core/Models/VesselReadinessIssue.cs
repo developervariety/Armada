@@ -37,5 +37,15 @@ namespace Armada.Core.Models
         /// variable or file), or null. Use this instead of parsing the provider prefix of <see cref="RelatedValue"/>.
         /// </summary>
         public WorkflowInputReferenceProviderEnum? InputProvider { get; set; } = null;
+
+        /// <summary>
+        /// Label of the action that resolves the issue (English), or null when there is none.
+        /// </summary>
+        public string? ActionLabel { get; set; } = null;
+
+        /// <summary>
+        /// Dashboard route of that action, or null.
+        /// </summary>
+        public string? ActionHref { get; set; } = null;
     }
 }

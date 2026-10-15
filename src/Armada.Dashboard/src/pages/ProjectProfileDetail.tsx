@@ -9,6 +9,7 @@ import {
   previewPersonaPrompt,
   updateProjectProfile,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import { blankPersonaOverride, KNOWN_PERSONAS, splitList } from '../lib/configuration';
 import type { Fleet, PersonaOverride, PersonaPromptPreview, ProjectProfile, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
@@ -61,8 +62,8 @@ export default function ProjectProfileDetail() {
   const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
-    void listFleets().then((r) => setFleets(r.objects || [])).catch(() => {});
-    void listVessels().then((r) => setVessels(r.objects || [])).catch(() => {});
+    void listAll(listFleets).then((r) => setFleets(r.objects || [])).catch(() => {});
+    void listAll(listVessels).then((r) => setVessels(r.objects || [])).catch(() => {});
     if (createMode) return;
     setLoading(true);
     getProjectProfile(id!)

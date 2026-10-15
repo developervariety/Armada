@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { listVessels, listFleets, listPipelines, createVessel, deleteVessel, getVesselGitStatus, getVesselBranches } from '../api/client';
+import { listAll } from '../api/paging';
 import BranchesModal from '../components/vessels/BranchesModal';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
@@ -110,7 +111,7 @@ export default function Vessels() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [vResult, fResult, pResult] = await Promise.all([listVessels({ pageSize: 9999, filters: userScope ? { userId: userScope } : undefined }), listFleets({ pageSize: 9999 }), listPipelines({ pageSize: 9999 })]);
+      const [vResult, fResult, pResult] = await Promise.all([listAll(listVessels, { filters: userScope ? { userId: userScope } : undefined }), listAll(listFleets), listAll(listPipelines)]);
       setVessels(vResult.objects);
       setFleets(fResult.objects);
       setPipelines(pResult.objects);

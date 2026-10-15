@@ -10,6 +10,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import ScopeBadge from '../components/shared/ScopeBadge';
 import CopyButton from '../components/shared/CopyButton';
 import { MEMORY_TYPES } from '../lib/configuration';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 const TYPES = MEMORY_TYPES;
 
@@ -25,7 +26,7 @@ export default function Memories() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(false);
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('memories', 25);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
   const [typeFilter, setTypeFilter] = useState<'' | MemoryType>('');

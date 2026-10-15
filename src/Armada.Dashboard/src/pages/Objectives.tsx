@@ -10,6 +10,7 @@ import {
   listVessels,
   reorderBacklog,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   Fleet,
   GitHubObjectiveSourceType,
@@ -96,9 +97,9 @@ export default function Objectives() {
     try {
       setLoading(true);
       const [objectiveResult, fleetResult, vesselResult] = await Promise.all([
-        listBacklog({ pageSize: 9999, userId: userScope || undefined }),
-        listFleets({ pageSize: 9999 }),
-        listVessels({ pageSize: 9999 }),
+        listAll(listBacklog, { userId: userScope || undefined }),
+        listAll(listFleets),
+        listAll(listVessels),
       ]);
 
       const loadedObjectives = objectiveResult.objects || [];

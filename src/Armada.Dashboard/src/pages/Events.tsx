@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listEvents, deleteEventsBatch, listCaptains, listVessels } from '../api/client';
+import { listAll } from '../api/paging';
 import type { ArmadaEvent, Captain, Vessel } from '../types/models';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -15,6 +16,7 @@ import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { entityRoute } from '../lib/routing';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'eventType' | 'entityType' | 'createdUtc';
@@ -33,7 +35,7 @@ export default function Events() {
   // Pagination (server-side)
   const [pageNumber, setPageNumber] = useState(1);
   const [userScope, setUserScope] = useState('');
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = usePersistedPageSize('events', 50);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
 
@@ -84,8 +86,8 @@ export default function Events() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAll(listCaptains).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAll(listVessels).then(r => setVessels(r.objects || [])).catch(() => {});
   }, []);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('events', load);

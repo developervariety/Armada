@@ -6,6 +6,7 @@ import CodeStatusBadge from '../../shared/CodeStatusBadge';
 import DataTable, { type DataTableColumn } from '../../shared/DataTable';
 import { EmptyState, ErrorState, LoadingState } from '../../shared/StateBlocks';
 import { BATCH_STATUSES, BATCH_STATUS_META, batchStatusBadge, categorizationBadge } from '../../../lib/vesselImportLabels';
+import { usePersistedPageSize } from '../../../lib/usePersistedPageSize';
 
 interface ImportHistoryProps {
   onOpen: (batch: VesselImportBatch) => void;
@@ -17,7 +18,7 @@ export default function ImportHistory({ onOpen }: ImportHistoryProps) {
   const [rows, setRows] = useState<VesselImportBatch[]>([]);
   const [status, setStatus] = useState<VesselImportBatchStatus | ''>('');
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = usePersistedPageSize('vessel-import-history', 10);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
   const [loading, setLoading] = useState(true);

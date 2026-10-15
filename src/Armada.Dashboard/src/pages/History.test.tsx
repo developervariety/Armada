@@ -155,12 +155,12 @@ describe('History', () => {
       expect(enumerateHistoryTimeline).toHaveBeenCalledTimes(2);
     });
 
-    // The export is the query with the export page size; select it by that, not by call position.
-    const exportCalls = callsMatching(vi.mocked(enumerateHistoryTimeline), ([query]) => query?.pageSize === 5000);
+    // The export pages through the whole view at the route maximum (500); select it by that, not by call position.
+    const exportCalls = callsMatching(vi.mocked(enumerateHistoryTimeline), ([query]) => query?.pageSize === 500);
     expect(exportCalls).toHaveLength(1);
     expect(exportCalls[0][0]).toMatchObject({
       pageNumber: 1,
-      pageSize: 5000,
+      pageSize: 500,
       text: 'deploy',
     });
     expect(createObjectUrlMock).toHaveBeenCalled();
@@ -194,7 +194,7 @@ describe('History', () => {
     expect(postmortemCalls).toHaveLength(1);
     expect(postmortemCalls[0][0]).toMatchObject({
       pageNumber: 1,
-      pageSize: 250,
+      pageSize: 100,
       postmortemOnly: true,
     });
   });
@@ -219,5 +219,35 @@ describe('History', () => {
       expect(enumerateHistoryTimeline).toHaveBeenCalledTimes(2);
     });
     expect(vi.mocked(enumerateHistoryTimeline).mock.calls[1][0]).toMatchObject({ excludeReadRequests: false });
+  });
+  it('shows the true total and pages on the server instead of stopping at one page', async () => {
+    const entry = (n: number) => ({
+      id: `his_${n}`, sourceType: 'Mission', sourceId: `msn_${n}`, entityType: 'Mission', entityId: `msn_${n}`,
+      objectiveId: null, vesselId: null, environmentId: null, deploymentId: null, incidentId: null, missionId: null,
+      voyageId: null, actorId: null, actorDisplay: null, title: `Entry ${n}`, description: null, status: null,
+      severity: null, route: null, occurredUtc: '2026-05-03T12:00:00Z', metadataJson: null,
+    });
+    vi.mocked(enumerateHistoryTimeline).mockImplementation(async (query) => ({
+      success: true, pageNumber: query?.pageNumber ?? 1, pageSize: 100, totalPages: 13, totalRecords: 1234, totalMs: 1,
+      objects: [entry(query?.pageNumber ?? 1)],
+    }) as never);
+
+    render(
+      <MemoryRouter initialEntries={['/history']}>
+        <Routes>
+          <Route path="/history" element={<History />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('Entry 1')).toBeInTheDocument();
+    expect(screen.getByText('Total Entries')).toBeInTheDocument();
+    expect(screen.getAllByText('1,234').length).toBeGreaterThan(0);
+    expect(screen.getByText('Showing 1 of 1,234')).toBeInTheDocument();
+    expect(screen.getByText(/1,234 records/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    expect(await screen.findByText('Entry 2')).toBeInTheDocument();
+    expect(callsMatching(vi.mocked(enumerateHistoryTimeline), ([query]) => query?.pageNumber === 2)).toHaveLength(1);
   });
 });

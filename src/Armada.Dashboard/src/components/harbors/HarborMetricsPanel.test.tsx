@@ -159,7 +159,10 @@ describe('HarborMetricsPanel', () => {
     renderPanel();
     expect(await screen.findByText('No activity on this Harbor in this time range.')).toBeInTheDocument();
     expect(screen.getByText('No jobs ended on this Harbor in this time range.')).toBeInTheDocument();
-    expect(screen.getByText('No token usage for this time range')).toBeInTheDocument();
+    // The embedded token heatmap says the same thing once its own (separate) load finishes, so check the panel's own
+    // empty state rather than expecting a single match; otherwise the result depends on which request resolves first.
+    const panelEmpty = screen.getAllByText('No token usage for this time range').filter((el) => el.classList.contains('mission-history-empty'));
+    expect(panelEmpty).toHaveLength(1);
   });
 
   it('shows the error when the metrics cannot load', async () => {

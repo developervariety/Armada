@@ -1,26 +1,32 @@
 import { useCallback, useState } from 'react';
+import { PAGE_SIZE_OPTIONS, readPageSize, rememberLastPageSize } from './pageSizePrefs';
 
-const ALLOWED = [10, 25, 50, 100, 250];
-
-/** Page size persisted per table in localStorage (falls back to `initial` when storage is unavailable). */
+/**
+ * Page size for one table, persisted in localStorage and reused on every later visit. A table the user has not
+ * sized yet starts with the size they last chose anywhere, then `initial`. Falls back to `initial` when storage is
+ * unavailable.
+ */
 export function usePersistedPageSize(key: string, initial = 25): [number, (size: number) => void] {
   const storageKey = `armada_pagesize_${key}`;
   const [size, setSize] = useState<number>(() => {
+    let stored: number | null = null;
     try {
-      const raw = Number(localStorage.getItem(storageKey));
-      if (ALLOWED.includes(raw)) return raw;
+      const raw = localStorage.getItem(storageKey);
+      stored = raw === null ? null : Number(raw);
     } catch {
       // ignore storage errors
     }
-    return initial;
+    return readPageSize(stored, initial);
   });
   const update = useCallback((next: number) => {
-    setSize(next);
+    const value = PAGE_SIZE_OPTIONS.includes(next) ? next : initial;
+    setSize(value);
     try {
-      localStorage.setItem(storageKey, String(next));
+      localStorage.setItem(storageKey, String(value));
     } catch {
       // ignore storage errors
     }
-  }, [storageKey]);
+    rememberLastPageSize(value);
+  }, [storageKey, initial]);
   return [size, update];
 }

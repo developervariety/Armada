@@ -10,7 +10,9 @@ import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import PageHeader from '../components/shared/PageHeader';
+import { fetchAllPages, listAll } from '../api/paging';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 import { canDeleteHistoryEntry } from '../lib/history';
 import { buildHistoryCsv, buildHistoryJson, buildHistoryMarkdown, buildHistoryTimelineQuery } from '../lib/historyExport';
 
@@ -79,6 +81,10 @@ export default function History() {
   const location = useLocation();
   const initialQuery = new URLSearchParams(location.search);
   const [entries, setEntries] = useState<HistoricalTimelineEntry[]>([]);
+  // Paged on the server (the route returns at most 500 per page); totals come from the route, not the page.
+  const [pageNumber, setPageNumber] = useState(1);
+  const [pageSize, setPageSize] = usePersistedPageSize('history', 100);
+  const [totals, setTotals] = useState({ totalRecords: 0, totalPages: 1, totalMs: 0 });
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,7 +108,7 @@ export default function History() {
     data: null,
   });
 
-  function buildQuery(pageSize = 250): HistoricalTimelineQuery {
+  function buildQuery(size = pageSize, page = 1): HistoricalTimelineQuery {
     return buildHistoryTimelineQuery({
       objectiveId: objectiveFilter,
       text: textFilter,
@@ -111,23 +117,20 @@ export default function History() {
       sourceType: sourceTypeFilter,
       postmortemOnly,
       showReadRequests,
-    }, pageSize);
+    }, size, page);
   }
 
-  async function load() {
+  async function load(page = pageNumber, size = pageSize) {
     try {
       setLoading(true);
-      const query = buildQuery();
-
-      const [historyResult, vesselResult, objectiveResult] = await Promise.all([
-        enumerateHistoryTimeline(query),
-        listVessels({ pageSize: 9999 }),
-        listObjectives({ pageSize: 9999 }),
-      ]);
-
-      setEntries(historyResult.objects || []);
-      setVessels(vesselResult.objects || []);
-      setObjectives(objectiveResult.objects || []);
+      const historyResult = await enumerateHistoryTimeline(buildQuery(size, page));
+      const objects = historyResult.objects || [];
+      setEntries(objects);
+      setTotals({
+        totalRecords: typeof historyResult.totalRecords === 'number' ? historyResult.totalRecords : objects.length,
+        totalPages: Math.max(1, historyResult.totalPages || 1),
+        totalMs: historyResult.totalMs ?? 0,
+      });
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load history.'));
@@ -157,15 +160,43 @@ export default function History() {
     void load();
   }, []);
 
+  // Filter pickers need every vessel and backlog item, not the first page.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([listAll(listVessels), listAll(listObjectives)]).then(([vesselResult, objectiveResult]) => {
+      if (cancelled) return;
+      setVessels(vesselResult.objects || []);
+      setObjectives(objectiveResult.objects || []);
+    }).catch(() => { /* non-fatal: the filters fall back to "All" */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  function applyFilters() {
+    setPageNumber(1);
+    void load(1, pageSize);
+  }
+
+  function changePage(page: number) {
+    setPageNumber(page);
+    void load(page, pageSize);
+  }
+
+  function changePageSize(size: number) {
+    setPageSize(size);
+    setPageNumber(1);
+    void load(1, size);
+  }
+
   useEffect(() => {
     if (!showReadRequestsInitialized.current) {
       showReadRequestsInitialized.current = true;
       return;
     }
-    void load();
+    setPageNumber(1);
+    void load(1, pageSize);
   }, [showReadRequests]);
 
-  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('history', load);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('history', () => load());
 
   const groupedEntries = useMemo(() => {
     const groups = new Map<string, HistoricalTimelineEntry[]>();
@@ -265,8 +296,9 @@ export default function History() {
   async function exportCurrentView(format: 'json' | 'csv' | 'md') {
     try {
       setExporting(format);
-      const query = buildQuery(5000);
-      const result = await enumerateHistoryTimeline(query);
+      // Export the whole filtered view, every page (one request is capped at 500 by the route).
+      const query = buildQuery(500, 1);
+      const result = await fetchAllPages((page, size) => enumerateHistoryTimeline({ ...query, pageNumber: page, pageSize: size }), { pageSize: 500 });
       const allEntries = result.objects || [];
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 
@@ -376,19 +408,22 @@ export default function History() {
 
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">
-          <span>{t('Visible Entries')}</span>
-          <strong>{entries.length}</strong>
+          <span>{t('Total Entries')}</span>
+          <strong>{totals.totalRecords.toLocaleString()}</strong>
+          {totals.totalRecords > entries.length && (
+            <span className="text-dim">{t('Showing {{shown}} of {{total}}', { shown: entries.length.toLocaleString(), total: totals.totalRecords.toLocaleString() })}</span>
+          )}
         </div>
         <div className="card playbook-overview-card">
-          <span>{t('Errors')}</span>
+          <span>{t('Errors on this page')}</span>
           <strong>{errorCount}</strong>
         </div>
         <div className="card playbook-overview-card">
-          <span>{t('Warnings')}</span>
+          <span>{t('Warnings on this page')}</span>
           <strong>{warningCount}</strong>
         </div>
         <div className="card playbook-overview-card">
-          <span>{t('Source Types')}</span>
+          <span>{t('Source types on this page')}</span>
           <strong>{sourceTypeCounts.size}</strong>
         </div>
       </div>
@@ -441,7 +476,7 @@ export default function History() {
             />
             {t('Show GET requests')}
           </label>
-          <button className="btn btn-primary" onClick={load}>{t('Apply')}</button>
+          <button className="btn btn-primary" onClick={applyFilters}>{t('Apply')}</button>
         </div>
 
         {savedViews.length > 0 && (
@@ -476,10 +511,19 @@ export default function History() {
         columns={columns}
         rows={entries}
         rowKey={(entry) => entry.id}
+        pagination={{
+          pageNumber,
+          pageSize,
+          totalPages: totals.totalPages,
+          totalRecords: totals.totalRecords,
+          totalMs: totals.totalMs,
+          onPageChange: changePage,
+          onPageSizeChange: changePageSize,
+        }}
         onRowClick={(entry) => { if (entry.route) navigate(entry.route); }}
         isRowClickable={(entry) => Boolean(entry.route)}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
-        onRefresh={load}
+        onRefresh={() => load()}
         refreshTitle={t('Refresh history')}
         placeholder={loading ? <p className="text-dim">{t('Loading...')}</p> : entries.length === 0 ? (
           <div className="playbook-empty-state">

@@ -11,6 +11,7 @@ import {
   updateRunbook,
   updateRunbookExecution,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   CheckRunType,
   DeploymentEnvironment,
@@ -96,8 +97,8 @@ export default function RunbookDetail() {
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      listWorkflowProfiles({ pageSize: 9999 }),
-      listEnvironments({ pageSize: 9999 }),
+      listAll(listWorkflowProfiles),
+      listAll(listEnvironments),
     ]).then(([profileResult, environmentResult]) => {
       if (cancelled) return;
       setProfiles(profileResult.objects || []);
@@ -130,7 +131,7 @@ export default function RunbookDetail() {
         setLoading(true);
         const [runbookResult, executionResult] = await Promise.all([
           getRunbook(runbookId),
-          listRunbookExecutions({ runbookId, pageSize: 9999 }),
+          listAll(listRunbookExecutions, { runbookId }),
         ]);
         if (!mounted) return;
         setRunbook(runbookResult);
@@ -302,7 +303,7 @@ export default function RunbookDetail() {
         notes: executionNotes.trim() || null,
       };
       const execution = await startRunbookExecution(runbook.id, payload);
-      const refreshed = await listRunbookExecutions({ runbookId: runbook.id, pageSize: 9999 });
+      const refreshed = await listAll(listRunbookExecutions, { runbookId: runbook.id });
       setExecutions(refreshed.objects || []);
       setSelectedExecutionId(execution.id);
       setShowStartPanel(false);

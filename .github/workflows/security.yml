@@ -3,13 +3,10 @@ name: security
 # Dependency vulnerability scanning for NuGet and npm (V1_READINESS W1.7).
 # Fails when any NuGet package (direct or transitive) has a known vulnerability, when the dashboard has an
 # npm advisory of severity high or critical, or when the mobile app has one that is not in its reviewed allowlist
-# (src/Armada.Mobile/audit-allowlist.json: build-time tooling advisories with no fixed release). Runs on every push and pull request, and weekly so new advisories
-# against unchanged dependencies are caught.
+# (src/Armada.Mobile/audit-allowlist.json: build-time tooling advisories with no fixed release). Manual only
+# (Actions > security > Run workflow): a newly published advisory is not a defect in the change being pushed, so it
+# does not gate pushes or pull requests, and nothing runs on a schedule. Run it before a release.
 on:
-  push:
-  pull_request:
-  schedule:
-    - cron: "17 6 * * 1"
   workflow_dispatch:
 
 permissions:

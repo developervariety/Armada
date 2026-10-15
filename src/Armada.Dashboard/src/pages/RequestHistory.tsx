@@ -39,6 +39,7 @@ import {
   type ActivityRangeId,
   type RequestHistoryFilters,
 } from '../lib/requestHistory';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 interface HistoryChartTooltipState {
   bucket: RequestHistorySummaryBucket;
@@ -249,7 +250,7 @@ export default function RequestHistory() {
   const [entries, setEntries] = useState<RequestHistoryEntry[]>([]);
   const [summary, setSummary] = useState<RequestHistorySummaryResult | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('request-history', 25);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
   const [totalMs, setTotalMs] = useState(0);

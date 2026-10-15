@@ -21,6 +21,7 @@ import {
   summarizeAskThread,
   updateAskThread,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   AskActionProposal,
   AskMessage,
@@ -148,7 +149,7 @@ export default function AskArmada() {
   // ---------------------------------------------------------------- loading
 
   useEffect(() => {
-    listCaptains({ pageSize: 200 })
+    listAll(listCaptains)
       .then((result) => {
         const list = result.objects || [];
         setCaptains(list);

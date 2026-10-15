@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { enumerateFleetActions, listVessels } from '../../api/client';
+import { listAll } from '../../api/paging';
 import type { FleetAction, Vessel } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 import { buildFleetActionArguments, validateFleetAction, type FleetActionDraft } from '../../lib/askQuickActions';
@@ -26,7 +27,7 @@ export default function AskFleetActionForm({ busy, onSubmit, onCancel }: AskFlee
 
   useEffect(() => {
     let active = true;
-    Promise.all([enumerateFleetActions({ pageSize: 500 }), listVessels({ pageSize: 9999 })])
+    Promise.all([listAll(enumerateFleetActions), listAll(listVessels)])
       .then(([a, v]) => {
         if (!active) return;
         setActions(a.objects || []);

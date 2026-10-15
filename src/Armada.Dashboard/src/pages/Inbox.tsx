@@ -24,6 +24,9 @@ function severityColor(severity: InboxSeverity): string {
   return 'var(--text-dim)';
 }
 
+/** Unread alerts previewed under Recent alerts; the rest are in the notification panel. */
+const RECENT_ALERT_LIMIT = 8;
+
 export default function Inbox() {
   const navigate = useNavigate();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
@@ -32,7 +35,9 @@ export default function Inbox() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const unreadAlerts = useMemo(() => notifications.filter((n) => !n.read).slice(0, 8), [notifications]);
+  // A short preview of the newest unread alerts; the heading always says how many there are in total.
+  const allUnreadAlerts = useMemo(() => notifications.filter((n) => !n.read), [notifications]);
+  const unreadAlerts = useMemo(() => allUnreadAlerts.slice(0, RECENT_ALERT_LIMIT), [allUnreadAlerts]);
 
   async function load() {
     try {
@@ -170,7 +175,11 @@ export default function Inbox() {
       {unreadAlerts.length > 0 && (
         <div style={{ marginTop: '1.5rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <h2 style={{ fontSize: '1rem', margin: 0 }}>{t('Recent alerts')}</h2>
+            <h2 style={{ fontSize: '1rem', margin: 0 }}>
+              {allUnreadAlerts.length > unreadAlerts.length
+                ? t('Recent alerts ({{shown}} of {{total}})', { shown: unreadAlerts.length.toLocaleString(), total: allUnreadAlerts.length.toLocaleString() })
+                : t('Recent alerts ({{count}})', { count: unreadAlerts.length.toLocaleString() })}
+            </h2>
             <button className="btn-sm" onClick={markAllRead} title={t('Mark all notifications as read')}>
               {t('Mark all read')}
             </button>

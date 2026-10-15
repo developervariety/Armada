@@ -199,6 +199,11 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
                       <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`}>{issue.severity}</span>
                     </div>
                     <div className="text-dim">{issue.message}</div>
+                    {issue.actionHref && issue.actionLabel && (
+                      <Link className="readiness-issue-action" to={issue.actionHref} title={t(issue.actionLabel)}>
+                        {t(issue.actionLabel)}
+                      </Link>
+                    )}
                     {relatedValue && (
                       <div className="readiness-related-value mono">
                         {relatedValue}
@@ -211,7 +216,7 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
             </div>
           ) : (
             <div className="readiness-success-copy">
-              This vessel looks ready for the currently selected workflow surface.
+              {t('This vessel looks ready for the currently selected workflow surface.')}
             </div>
           )}
         </>

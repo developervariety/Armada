@@ -52,6 +52,19 @@ describe('BackgroundActivityIndicator', () => {
     expect(listJobs).toHaveBeenCalledTimes(2);
   });
 
+  it('counts every active job across pages instead of stopping at one page', async () => {
+    const first = Array.from({ length: ACTIVITY_PAGE_SIZE }, (_, i) => job(`job_a${i}`, 'Generic', `Job ${i}`));
+    const second = Array.from({ length: 5 }, (_, i) => job(`job_b${i}`, 'Generic', `Late job ${i}`));
+    const total = first.length + second.length;
+    vi.mocked(listJobs).mockImplementation(async (params) => {
+      const objects = (params?.pageNumber ?? 1) === 1 ? first : second;
+      return { success: true, pageNumber: params?.pageNumber ?? 1, pageSize: ACTIVITY_PAGE_SIZE, totalPages: 2, totalRecords: total, totalMs: 1, objects };
+    });
+    renderIndicator();
+    expect(await screen.findByText(/^1,?005 running$/)).toBeInTheDocument();
+    expect(listJobs).toHaveBeenCalledWith({ status: ['Queued', 'Running'], pageNumber: 2, pageSize: ACTIVITY_PAGE_SIZE });
+  });
+
   it('shows a count with text and lists running jobs with friendly names and links', async () => {
     vi.mocked(listJobs).mockResolvedValue(page([
       job('job_1', 'FleetCategorization', 'Fleet categorization for import vib_abc (3 vessels)'),

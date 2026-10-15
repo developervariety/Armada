@@ -1906,6 +1906,10 @@ export interface VesselReadinessIssue {
   relatedValue: string | null;
   /** Provider of the workflow input the issue is about; null (or absent from older servers) otherwise. */
   inputProvider?: WorkflowInputReferenceProvider | null;
+  /** Label of the action that resolves the issue, or null/absent when there is none. */
+  actionLabel?: string | null;
+  /** Dashboard route of that action, or null/absent. */
+  actionHref?: string | null;
 }
 
 export interface VesselToolchainProbe {

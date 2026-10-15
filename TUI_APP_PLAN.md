@@ -636,7 +636,7 @@ REST_API.md.
 
 - [x] **W8.1** Parity enforcement (below). Manifest generated (`scripts/tui/generate-parity-manifest.py`) and the
   coverage checks run in Tui.Parity. Release gate: `generate-parity-manifest.py --check` (the `tui-parity` job in
-  `.github/workflows/ci.yml`) fails when `parity.json` differs from what the generator would write, when any entry is
+  `.github/workflows/full.yml`, run on demand) fails when `parity.json` differs from what the generator would write, when any entry is
   `planned`, or when a `not-applicable` or `extension` entry has no notes; Tui.Parity enforces the same rules on every
   OS (`no_planned_entries`, `release_gate_rejects`), fails on entries for surfaces the dashboard no longer has
   (`no_stale_entries`), and checks that the generator and the suite skip the same non-server `client.ts` exports

@@ -9,6 +9,7 @@ import {
   updateWorkflowProfile,
   validateWorkflowProfile,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import { blankInputReference, blankWorkflowEnvironment, inputReferencePlaceholder, joinList, splitList } from '../lib/configuration';
 import type { Fleet, Vessel, WorkflowEnvironmentProfile, WorkflowInputReference, WorkflowProfile, WorkflowProfileValidationResult } from '../types/models';
 import { useAuth } from '../context/AuthContext';
@@ -84,7 +85,7 @@ export default function WorkflowProfileDetail() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([listFleets({ pageSize: 9999 }), listVessels({ pageSize: 9999 })])
+    Promise.all([listAll(listFleets), listAll(listVessels)])
       .then(([fleetResult, vesselResult]) => {
         if (cancelled) return;
         setFleets(fleetResult.objects || []);

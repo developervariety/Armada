@@ -79,7 +79,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "list_cli_permission_requests",
-                "List CLI permission requests (a CLI captain asking to run one of its own tools, for example a shell command) visible to the caller, newest first. Admins see their tenant (global admins every tenant); other users see requests from their own missions and Ask conversations. Each request has the tool name, a redacted input summary, captain, vessel, mission or thread, status, expiry, and canDecide.",
+                "List CLI permission requests (a CLI captain asking to run one of its own tools, for example a shell command) visible to the caller, newest first. Admins see their tenant (global admins every tenant); other users see requests from their own missions and Ask conversations. Each request has the tool name, a redacted input summary, captain, vessel, mission or thread, status, expiry, and canDecide. The result has count (rows returned), limit (the cap applied, default 100, at most 1000), and truncated (true when the limit was reached, so more requests exist).",
                 new
                 {
                     type = "object",
@@ -116,7 +116,8 @@ namespace Armada.Server.Mcp.Tools
                     }
 
                     List<CliPermissionRequest> rows = await service.ListAsync(caller, query).ConfigureAwait(false);
-                    return (object)new { count = rows.Count, requests = rows };
+                    // count is what was returned, not a total: the query stops at limit, so truncated says more exist.
+                    return (object)new { count = rows.Count, limit = query.Limit, truncated = rows.Count >= query.Limit, requests = rows };
                 });
 
             register(

@@ -16,6 +16,7 @@ import {
   updateDeployment,
   verifyDeployment,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   Deployment,
   DeploymentEnvironment,
@@ -90,10 +91,10 @@ export default function DeploymentDetail() {
     let cancelled = false;
 
     Promise.all([
-      listVessels({ pageSize: 9999 }),
-      listWorkflowProfiles({ pageSize: 9999 }),
-      listEnvironments({ pageSize: 9999 }),
-      listReleases({ pageSize: 9999 }),
+      listAll(listVessels),
+      listAll(listWorkflowProfiles),
+      listAll(listEnvironments),
+      listAll(listReleases),
     ]).then(([vesselResult, profileResult, environmentResult, releaseResult]) => {
       if (cancelled) return;
       setVessels(vesselResult.objects || []);
@@ -167,7 +168,7 @@ export default function DeploymentDetail() {
     }
 
     let cancelled = false;
-    listRunbookExecutions({ deploymentId: id, pageSize: 9999 }).then((result) => {
+    listAll(listRunbookExecutions, { deploymentId: id }).then((result) => {
       if (!cancelled) setRunbookExecutions(result.objects || []);
     }).catch(() => {
       if (!cancelled) setRunbookExecutions([]);

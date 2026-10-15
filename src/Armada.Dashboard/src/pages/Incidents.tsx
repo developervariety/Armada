@@ -10,6 +10,7 @@ import {
   listReleases,
   listVessels,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   Deployment,
   DeploymentEnvironment,
@@ -142,11 +143,11 @@ export default function Incidents() {
     try {
       setLoading(true);
       const [incidentResult, vesselResult, environmentResult, deploymentResult, releaseResult] = await Promise.all([
-        listIncidents({ pageSize: 9999 }),
-        listVessels({ pageSize: 9999 }),
-        listEnvironments({ pageSize: 9999 }),
-        listDeployments({ pageSize: 9999 }),
-        listReleases({ pageSize: 9999 }),
+        listAll(listIncidents),
+        listAll(listVessels),
+        listAll(listEnvironments),
+        listAll(listDeployments),
+        listAll(listReleases),
       ]);
       setIncidents(incidentResult.objects || []);
       setVessels(vesselResult.objects || []);

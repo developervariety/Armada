@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { enumerateVesselHealth, getVesselHealthSummary, listFleets, listVessels } from '../api/client';
+import { listAll } from '../api/paging';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -181,8 +182,8 @@ export default function VesselHealth({ onRunAction }: VesselHealthProps) {
   useEffect(() => { setSelected([]); }, [queryKey, prefs.pageSize]);
 
   useEffect(() => {
-    listFleets({ pageSize: 9999 }).then((r) => setFleets(r.objects ?? [])).catch(() => setFleets([]));
-    listVessels({ pageSize: 9999 }).then((r) => {
+    listAll(listFleets).then((r) => setFleets(r.objects ?? [])).catch(() => setFleets([]));
+    listAll(listVessels).then((r) => {
       const map: Record<string, string> = {};
       for (const v of r.objects ?? []) if (v.defaultBranch) map[v.id] = v.defaultBranch;
       setDefaultBranches(map);

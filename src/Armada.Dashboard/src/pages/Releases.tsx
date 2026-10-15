@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createRelease, deleteRelease, listReleases, listVessels, listWorkflowProfiles, updateRelease } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Release, ReleaseStatus, ReleaseUpsertRequest, Vessel, WorkflowProfile } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -124,9 +125,9 @@ export default function Releases() {
     try {
       setLoading(true);
       const [releaseResult, vesselResult, profileResult] = await Promise.all([
-        listReleases({ pageSize: 9999 }),
-        listVessels({ pageSize: 9999 }),
-        listWorkflowProfiles({ pageSize: 9999 }),
+        listAll(listReleases),
+        listAll(listVessels),
+        listAll(listWorkflowProfiles),
       ]);
       setReleases(releaseResult.objects || []);
       setVessels(vesselResult.objects || []);

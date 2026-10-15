@@ -20,6 +20,7 @@ import {
   summarizeObjectiveRefinementSession,
   updateBacklogItem,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   Captain,
   Fleet,
@@ -390,11 +391,11 @@ export default function ObjectiveDetail() {
     let cancelled = false;
 
     Promise.all([
-      listFleets({ pageSize: 9999 }),
-      listVessels({ pageSize: 9999 }),
-      listCaptains({ pageSize: 9999 }),
-      listPipelines({ pageSize: 9999 }),
-      listBacklog({ pageSize: 9999 }),
+      listAll(listFleets),
+      listAll(listVessels),
+      listAll(listCaptains),
+      listAll(listPipelines),
+      listAll(listBacklog),
     ]).then(([fleetResult, vesselResult, captainResult, pipelineResult, objectiveResult]) => {
       if (cancelled) return;
       setFleets(fleetResult.objects || []);

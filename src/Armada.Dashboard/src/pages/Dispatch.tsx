@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { listVessels, listPipelines, listCaptains, listPersonas, createVoyage, getVesselReadiness } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Vessel, Pipeline, SelectedPlaybook, VesselReadinessResult, Captain, Persona } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -50,10 +51,10 @@ export default function Dispatch() {
 
   useEffect(() => {
     Promise.all([
-      listVessels({ pageSize: 9999 }).catch(() => null),
-      listPipelines({ pageSize: 9999 }).catch(() => null),
-      listCaptains({ pageSize: 9999 }).catch(() => null),
-      listPersonas({ pageSize: 9999 }).catch(() => null),
+      listAll(listVessels).catch(() => null),
+      listAll(listPipelines).catch(() => null),
+      listAll(listCaptains).catch(() => null),
+      listAll(listPersonas).catch(() => null),
     ]).then(([vRes, pRes, cRes, prRes]) => {
       if (vRes) setVessels(sortByName(vRes.objects));
       if (pRes) setPipelines(pRes.objects);

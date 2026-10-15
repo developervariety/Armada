@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { listUsers, createUser, updateUser, deleteUser, listTenants, isApiStatus } from '../../api/client';
+import { listAll } from '../../api/paging';
 import type { UserMaster, TenantMetadata, UserUpsertRequest } from '../../types/models';
 import DataTable, { type DataTableColumn } from '../../components/shared/DataTable';
 import ActionMenu from '../../components/shared/ActionMenu';
@@ -12,6 +13,7 @@ import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useProxySessionContext } from '../../lib/useProxySessionContext';
+import { usePersistedPageSize } from '../../lib/usePersistedPageSize';
 
 type SortField = 'email' | 'firstName' | 'isAdmin' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
@@ -44,7 +46,7 @@ export default function Users() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [colFilters, setColFilters] = useState({ email: '', firstName: '', tenantId: '' });
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('admin-users', 25);
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; resourceName?: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
   const remoteProxyMode = Boolean(proxyContext?.selectedInstanceId);
@@ -54,9 +56,9 @@ export default function Users() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const userPromise = listUsers();
+      const userPromise = listAll(listUsers);
       const tenantPromise = isAdmin
-        ? listTenants()
+        ? listAll(listTenants)
         : Promise.resolve({
             objects: user?.tenant ? [user.tenant] : [],
           } as { objects: TenantMetadata[] });

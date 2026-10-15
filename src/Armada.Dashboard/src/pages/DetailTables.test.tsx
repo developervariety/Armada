@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import CaptainDetail from './CaptainDetail';
@@ -11,6 +11,7 @@ import {
   getCaptain,
   getCheckRun,
   getDoctor,
+  getFleet,
   getPipeline,
   getStatus,
   listCaptains,
@@ -32,7 +33,7 @@ vi.mock('../api/client', () => ({
   updateCaptain: vi.fn(), deleteCaptain: vi.fn(), setCaptainCliPermissionPolicy: vi.fn(),
   deleteCheckRun: vi.fn(), getCheckRun: vi.fn(), getVessel: vi.fn(), getWorkflowProfile: vi.fn(), listCheckRuns: vi.fn(), retryCheckRun: vi.fn(),
   getDoctor: vi.fn(),
-  listFleets: vi.fn(), listVessels: vi.fn(), listPipelines: vi.fn(), createFleet: vi.fn(), updateFleet: vi.fn(), deleteFleet: vi.fn(),
+  getFleet: vi.fn(), listFleets: vi.fn(), listVessels: vi.fn(), listPipelines: vi.fn(), createFleet: vi.fn(), updateFleet: vi.fn(), deleteFleet: vi.fn(),
   createPipeline: vi.fn(), getPipeline: vi.fn(), updatePipeline: vi.fn(), deletePipeline: vi.fn(), listPersonas: vi.fn(), createVoyage: vi.fn(),
   getStatus: vi.fn(), listCaptains: vi.fn(), listSignals: vi.fn(), deleteMission: vi.fn(), restartMission: vi.fn(), enumerateFleetActionRuns: vi.fn(),
 }));
@@ -103,7 +104,7 @@ describe('Doctor checks table', () => {
 
 describe('FleetDetail vessels table', () => {
   it('shows the vessel ID in its own locked column, not under the name', async () => {
-    vi.mocked(listFleets).mockResolvedValue(page([{ id: 'flt_1', name: 'Main', description: null, defaultPipelineId: null, active: true, createdUtc: '', lastUpdateUtc: '' }]) as never);
+    vi.mocked(getFleet).mockResolvedValue({ id: 'flt_1', name: 'Main', description: null, defaultPipelineId: null, active: true, createdUtc: '', lastUpdateUtc: '' } as never);
     vi.mocked(listVessels).mockResolvedValue(page([{ id: 'vsl_1', fleetId: 'flt_1', name: 'gateway', repoUrl: 'https://example.com/gateway.git', defaultBranch: 'main' }]) as never);
     renderAt('/fleets/flt_1', '/fleets/:id', <FleetDetail />);
     await screen.findByText('gateway');
@@ -113,6 +114,23 @@ describe('FleetDetail vessels table', () => {
     const menu = await openChooser('fleet-detail-vessels');
     expect(within(menu).getByRole('menuitemcheckbox', { name: /Name/ })).toHaveAttribute('aria-disabled', 'true');
     expect(within(menu).getByRole('menuitemcheckbox', { name: /^ID/ })).toHaveAttribute('aria-disabled', 'true');
+  });
+});
+
+describe('FleetDetail completeness', () => {
+  it('reads the fleet by id and lists every page of its vessels from a fleet-filtered listing', async () => {
+    vi.mocked(getFleet).mockResolvedValue({ id: 'flt_9', name: 'Late fleet', description: null, defaultPipelineId: null, active: true, createdUtc: '', lastUpdateUtc: '' } as never);
+    const vessel = (n: number) => ({ id: `vsl_${n}`, fleetId: 'flt_9', name: `repo-${n}`, repoUrl: 'https://example.com/r.git', defaultBranch: 'main' });
+    vi.mocked(listVessels).mockReset();
+    vi.mocked(listVessels)
+      .mockResolvedValueOnce({ success: true, pageNumber: 1, pageSize: 2, totalPages: 2, totalRecords: 3, totalMs: 1, objects: [vessel(1), vessel(2)] } as never)
+      .mockResolvedValueOnce({ success: true, pageNumber: 2, pageSize: 2, totalPages: 2, totalRecords: 3, totalMs: 1, objects: [vessel(3)] } as never);
+    renderAt('/fleets/flt_9', '/fleets/:id', <FleetDetail />);
+    await screen.findByText('repo-3');
+    expect(getFleet).toHaveBeenCalledWith('flt_9');
+    expect(listVessels).toHaveBeenCalledWith(expect.objectContaining({ pageNumber: 1, filters: { fleetId: 'flt_9' } }));
+    expect(listVessels).toHaveBeenCalledWith(expect.objectContaining({ pageNumber: 2, filters: { fleetId: 'flt_9' } }));
+    expect(screen.getByText('repo-1')).toBeInTheDocument();
   });
 });
 
@@ -193,3 +211,18 @@ describe('Dashboard (home) tables', () => {
     expect(within(missionMenu).getByRole('menuitemcheckbox', { name: /^ID/ })).toHaveAttribute('aria-disabled', 'true');
   });
 });
+
+describe('Dashboard (home) recent missions filters', () => {
+  it('sends the vessel filter to the server so older missions of that vessel are found', async () => {
+    vi.mocked(getStatus).mockResolvedValue({ voyages: [], recentSignals: [] } as never);
+    vi.mocked(enumerateFleetActionRuns).mockResolvedValue(page([]) as never);
+    vi.mocked(listVessels).mockResolvedValue(page([{ id: 'vsl_9', name: 'old-repo' }]) as never);
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
+    await screen.findByText('Add request logging');
+    const select = await screen.findByRole('combobox', { name: 'All Vessels' });
+    await within(select).findByRole('option', { name: 'old-repo' });
+    fireEvent.change(select, { target: { value: 'vsl_9' } });
+    await waitFor(() => expect(listMissionSummaries).toHaveBeenCalledWith({ pageSize: 10, filters: { status: '', vesselId: 'vsl_9', captainId: '' } }));
+  });
+});
+

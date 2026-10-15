@@ -5364,7 +5364,7 @@ Skip reasons: `DirtyTree`, `NoWorkingDirectory`, `NoBuildCommand`, `DispatchReje
 
 The inbox is a consolidated, most-urgent-first list of items awaiting a human decision or intervention. Purely
 informational changes (completions, normal progress) are not included. Items are ordered by `Severity` (`Critical`,
-then `Warning`), then by `Title`; each category is capped at 100 items.
+then `Warning`), then by `Title`. Every item is returned (no category is capped); only pending CLI permission requests stop at 1000, since they expire within minutes.
 
 | `Kind` | `Severity` | `EntityType` | Source |
 |---|---|---|---|

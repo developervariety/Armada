@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createWorkflowProfile, deleteWorkflowProfile, listFleets, listVessels, listWorkflowProfiles, updateWorkflowProfile } from '../api/client';
+import { listAll } from '../api/paging';
 import { countProfileCapabilities, splitList } from '../lib/configuration';
 import type { Fleet, Vessel, WorkflowProfile, ScopeEnum } from '../types/models';
 import { useAuth } from '../context/AuthContext';
@@ -75,7 +76,7 @@ export default function WorkflowProfiles() {
   async function load() {
     try {
       setLoading(true);
-      const result = await listWorkflowProfiles({ pageSize: 9999 });
+      const result = await listAll(listWorkflowProfiles);
       setProfiles(result.objects || []);
       setError('');
     } catch (err: unknown) {
@@ -90,8 +91,8 @@ export default function WorkflowProfiles() {
   }, []);
 
   useEffect(() => {
-    void listFleets({ pageSize: 9999 }).then((r) => setFleets(r.objects || [])).catch(() => {});
-    void listVessels({ pageSize: 9999 }).then((r) => setVessels(r.objects || [])).catch(() => {});
+    void listAll(listFleets).then((r) => setFleets(r.objects || [])).catch(() => {});
+    void listAll(listVessels).then((r) => setVessels(r.objects || [])).catch(() => {});
   }, []);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('workflowprofiles', load);
@@ -104,6 +105,27 @@ export default function WorkflowProfiles() {
     setCreateForm(EMPTY_CREATE_FORM);
     setShowCreate(true);
   }
+
+  // A link such as a readiness issue's "Create a workflow profile" (?createProfile=vessel&vesselId=...) opens the
+  // create form scoped to that vessel (or fleet); the parameters are cleared so a refresh does not reopen it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const requested = searchParams.get('createProfile');
+    if (!requested) return;
+    const vesselId = searchParams.get('vesselId') || '';
+    const fleetId = searchParams.get('fleetId') || '';
+    const scope: 'Global' | 'Fleet' | 'Vessel' = requested === 'vessel' && vesselId ? 'Vessel' : requested === 'fleet' && fleetId ? 'Fleet' : 'Global';
+    setEditing(null);
+    setCreateForm({ ...EMPTY_CREATE_FORM, scope, vesselId: scope === 'Vessel' ? vesselId : '', fleetId: scope === 'Fleet' ? fleetId : '' });
+    setShowCreate(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('createProfile');
+    next.delete('vesselId');
+    next.delete('fleetId');
+    setSearchParams(next, { replace: true });
+    // EMPTY_CREATE_FORM is rebuilt each render from the viewer; only the link parameters should trigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, setSearchParams]);
 
   function openEdit(profile: WorkflowProfile) {
     setEditing(profile);

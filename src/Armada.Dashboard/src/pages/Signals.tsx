@@ -7,6 +7,7 @@ import {
   deleteSignalsBatch,
   listCaptains,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Signal, Captain, SendSignalRequest } from '../types/models';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -20,6 +21,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { SIGNAL_TYPES, buildSendSignalRequest, signalListFilters } from '../lib/signals';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 type SortDir = 'asc' | 'desc';
 
@@ -36,7 +38,7 @@ export default function Signals() {
 
   // Pagination
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('signals', 25);
   const [totalPages, setTotalPages] = useState(0);
   const [totalRecords, setTotalRecords] = useState(0);
   const [totalMs, setTotalMs] = useState(0);
@@ -93,7 +95,7 @@ export default function Signals() {
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('signals', load);
 
   useEffect(() => {
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAll(listCaptains).then(r => setCaptains(r.objects || [])).catch(() => {});
   }, []);
 
   // Column filtering

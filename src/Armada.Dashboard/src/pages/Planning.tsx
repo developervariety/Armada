@@ -18,6 +18,7 @@ import {
   summarizePlanningSession,
   TimeoutError,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   Captain,
   Fleet,
@@ -138,10 +139,10 @@ export default function Planning() {
       setError('');
       const [sessionItems, captainResult, fleetResult, vesselResult, pipelineResult] = await Promise.all([
         listPlanningSessions().catch(() => []),
-        listCaptains({ pageSize: 9999 }).catch(() => null),
-        listFleets({ pageSize: 9999 }).catch(() => null),
-        listVessels({ pageSize: 9999 }).catch(() => null),
-        listPipelines({ pageSize: 9999 }).catch(() => null),
+        listAll(listCaptains).catch(() => null),
+        listAll(listFleets).catch(() => null),
+        listAll(listVessels).catch(() => null),
+        listAll(listPipelines).catch(() => null),
       ]);
 
       setSessions(sessionItems);

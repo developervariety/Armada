@@ -144,8 +144,13 @@ namespace Test.Shared.Suites.Tui
                     TokenUsageScreen tokens = Current<TokenUsageScreen>(host)!;
                     AssertEqual("hbr_1", tokens.HarborId, "filtered to the Harbor");
                     AssertEqual("day", tokens.RangeField.Value, "the panel's 24h range");
-                    StubRequest filtered = TuiEntityFixtures.WaitForQuery(host, stub, "GET", "/api/v1/token-usage/summary", "harborId", "hbr_1");
+                    // The screen also loads its year-long heatmap (daily buckets) for the same Harbor, in either order, so
+                    // wait for the range summary itself rather than the first Harbor-filtered request.
+                    StubRequest filtered = TuiEntityFixtures.WaitForRequest(host, stub, "GET", "/api/v1/token-usage/summary",
+                        r => r.QueryValue("harborId") == "hbr_1" && r.QueryValue("bucketMinutes") == "15", "harborId=hbr_1 with day buckets");
                     AssertEqual("15", filtered.QueryValue("bucketMinutes"), "day buckets");
+                    TuiEntityFixtures.WaitForRequest(host, stub, "GET", "/api/v1/token-usage/summary",
+                        r => r.QueryValue("harborId") == "hbr_1" && r.QueryValue("bucketMinutes") == "1440", "the heatmap is filtered too");
                     AssertEqual("hbr_1", tokens.BuildQuery().HarborId, "query carries the Harbor");
                     string frame = host.Screen();
                     TuiScreenDump.Write("token-usage-harbor-filter", frame);

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useLocale } from '../../context/LocaleContext';
+import { PAGE_SIZE_OPTIONS } from '../../lib/pageSizePrefs';
 
 interface PaginationProps {
   pageNumber: number;
@@ -13,7 +14,7 @@ interface PaginationProps {
   tools?: ReactNode;
 }
 
-const PAGE_SIZES = [10, 25, 50, 100, 250];
+const PAGE_SIZES = PAGE_SIZE_OPTIONS;
 
 /**
  * The table header bar: record count (and timing) on the left; table tools, Prev / page / Next and the page size

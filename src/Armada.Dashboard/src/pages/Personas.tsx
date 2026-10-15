@@ -4,6 +4,7 @@ import { personaRoutingForm, validatePersonaPriorities } from '../lib/personaPri
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listPersonas, listPromptTemplates, createPersona, updatePersona, deletePersona, apiErrorMessage } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Persona, ScopeEnum } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { canEdit as canEditScoped, resolveCreateScope, type ScopeViewer } from '../lib/scoping';
@@ -70,9 +71,9 @@ export default function Personas() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listPersonas({ pageSize: 9999 });
+      const result = await listAll(listPersonas);
       setPersonas(result.objects);
-      const templateResult = await listPromptTemplates({ pageSize: 9999 });
+      const templateResult = await listAll(listPromptTemplates);
       setTemplateNames(templateResult.objects.map(t => t.name));
       setError('');
     } catch {

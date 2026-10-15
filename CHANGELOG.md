@@ -10,6 +10,33 @@ All notable changes to Armada are documented in this file.
 
 ## v1.1.0 (2026-10-15)
 
+### Page size is remembered
+- The "n / page" choice is saved for each table and reused on every later visit. A table you have not sized yet starts with the size you last chose anywhere.
+- Before, Missions, Voyages, Captains, Docks, Signals, Events, Merge Queue, Request History, Prompt Templates, Memories, Tenants, Users, Credentials, the vessel import screens, and every list built on the shared table hook went back to the default on each visit.
+
+### Complete lists and true counts everywhere
+- The Needs You inbox listed at most 100 items per category, and its badge and totals counted only those. With 181 failed missions it showed 100. Every item is now listed. The REST `GET /api/v1/inbox` and the MCP `inbox` tool return everything, and `count` is the real number. Only pending CLI permission requests stop at 1000, since they expire within minutes.
+- The dashboard no longer treats one capped page as the whole list. A shared helper reads every page wherever a page needs the complete set. Fixed:
+  - Tenants, Users, and Credentials showed at most 10, and so did the user scope picker and several fleet and vessel pickers.
+  - Vessel and Fleet detail said "not found" past the first 1000. A fleet's vessel list missed members.
+  - Jobs stopped at 100 with no pager. The header job badge stopped at 100 and could announce jobs past it as finished.
+  - Headline totals and status counts were computed from a capped page on Vessels, Fleets, Captains, Pipelines, Personas, Prompt Templates, Playbooks, Deployments, Incidents, Backlog, Check Runs, Releases, Skills, Workflow Profiles, Environments, Project Profiles, and Runbooks.
+  - History, a release's deployments, a runbook's executions, and the dashboard's Recent Missions filters (now sent to the server) were capped.
+  - Every picker and name map that stopped at 200, 500, or 1000 entries.
+- Where a list is still deliberately limited, it says so: History shows "Showing X of N", CLI Permissions says when it stopped at 1000, and Recent alerts reads "8 of 23". The MCP `list_cli_permission_requests` tool now returns `limit` and `truncated` with its `count`.
+- Backlog snapshot history for regular users came from their newest events of every kind, so busy users lost older snapshots. It now reads the snapshot events themselves.
+
+### "No workflow profile" says what it means and how to fix it
+- The vessel readiness item that read "Workflow profile not resolved: No active workflow profile is currently resolved for this vessel" (shown on Dispatch for a new vessel) is now an informational "No workflow profile". It says that missions dispatch without one, and that a profile holds the vessel's lint, build, test, package, and deploy commands, which checks and deployments need.
+- Its "Create a workflow profile" link opens the create form already scoped to the vessel.
+- A check that needs a profile still fails with an error that explains the same.
+- Readiness issues can carry an action link (`ActionLabel`, `ActionHref`).
+
+### CI is a quick smoke test; nothing is scheduled
+- Pushes and pull requests run only `ci.yml`: a warning-free build on Linux, the fast suites (about a minute), and the dashboard `dist/` check.
+- The full matrix (`full.yml`), database parity (`db-parity.yml`, formerly nightly), install verification, and security scanning are manual and no longer run on a schedule. See docs/RELEASING.md.
+- Fixed the flaky Token Usage test, which took whichever of two Harbor-filtered requests arrived first, and a dashboard Harbor metrics test with the same kind of race.
+
 ### Mux contract version 2 and its token usage
 - Saving a Mux captain against a mux that speaks structured output contract version 2 no longer fails with "Mux returned structured output contract version 2, but Armada currently supports version 1". Armada reads versions 1 and 2; version 2 only adds fields.
 - The fields version 2 adds are now used. The `usage` block on `run_completed` (input, output, cached, and reasoning tokens, plus cost) becomes the reported usage:

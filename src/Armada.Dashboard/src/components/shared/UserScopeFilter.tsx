@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { listUsers } from '../../api/client';
+import { listAll } from '../../api/paging';
 import type { UserMaster } from '../../types/models';
 import { useAuth } from '../../context/AuthContext';
 import { useLocale } from '../../context/LocaleContext';
@@ -27,7 +28,7 @@ export default function UserScopeFilter({ value, onChange }: UserScopeFilterProp
   useEffect(() => {
     if (!canScope) return;
     let mounted = true;
-    listUsers()
+    listAll(listUsers)
       .then((result) => { if (mounted) setUsers(result.objects || []); })
       .catch(() => { /* non-fatal: dropdown just stays minimal */ });
     return () => { mounted = false; };

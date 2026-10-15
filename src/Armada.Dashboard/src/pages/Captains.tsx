@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain, getCaptainTools, listModelEndpoints, setCaptainCliPermissionPolicy } from '../api/client';
+import { listAll } from '../api/paging';
 import type { ModelEndpoint } from '../types/models';
 import type { Captain, CaptainToolAccessResult } from '../types/models';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
@@ -25,6 +26,7 @@ import { isMuxRuntime } from '../lib/mux';
 import { supportsAutoApproveSwitch } from '../lib/captainApproval';
 import { buildCaptainCreatePayload, buildCaptainPayload, captainFormError, captainFormErrorMessage, captainFormFromCaptain, captainModelPlaceholder, captainModelTooltip, cliPolicyChanged, emptyCaptainForm, type CaptainFormState } from '../lib/captainForm';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'runtime' | 'state' | 'createdUtc';
@@ -72,12 +74,12 @@ export default function Captains() {
   // Pagination
   const [pageNumber, setPageNumber] = useState(1);
   const [userScope, setUserScope] = useState('');
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('captains', 25);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listCaptains({ pageSize: 9999, filters: userScope ? { userId: userScope } : undefined });
+      const result = await listAll(listCaptains, { filters: userScope ? { userId: userScope } : undefined });
       setCaptains(result.objects);
       setError('');
     } catch {

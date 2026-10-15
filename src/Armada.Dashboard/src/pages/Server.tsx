@@ -18,6 +18,7 @@ import {
   type RebuildStatus,
   type BranchInfo,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Vessel } from '../types/models';
 import ImportFleetActionSettings from '../components/settings/ImportFleetActionSettings';
 import RetentionSettings from '../components/settings/RetentionSettings';
@@ -116,7 +117,7 @@ export default function Server() {
   // Load vessels so the Armada source vessel can be picked from a dropdown.
   useEffect(() => {
     let cancelled = false;
-    listVessels({ pageSize: 9999 })
+    listAll(listVessels)
       .then((r) => { if (!cancelled) setVessels(r.objects || []); })
       .catch(() => { if (!cancelled) setVessels([]); });
     return () => { cancelled = true; };

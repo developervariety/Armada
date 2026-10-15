@@ -12,29 +12,10 @@ name: install-verify
 #   windows         the NuGet global tool and Armada.Server.exe --install-service --dry-run
 #   onboarding      W6.7: the first-run path (tool install, fresh data dir, server start, login, fleet, vessel from
 #                   a local checkout, one mission landed with LocalMerge), timed against the ten-minute goal
+# Manual only (Actions > install-verify > Run workflow): it installs every package on clean runners and takes a while,
+# so it does not run on pushes, pull requests, or a schedule. Run it before a release (see docs/RELEASING.md).
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "30 6 * * 1"
-  push:
-    branches: [main]
-    paths:
-      - "src/**"
-      - "docker/**"
-      - "scripts/common/install-verify/**"
-      - "publisher.json"
-      - ".github/workflows/install-verify.yml"
-  pull_request:
-    paths:
-      - "src/Armada.Server/**"
-      - "src/Armada.Helm/**"
-      - "src/Armada.Publisher/**"
-      - "src/Armada.Dashboard/Dockerfile"
-      - "src/Armada.Dashboard/nginx.conf"
-      - "docker/**"
-      - "scripts/common/install-verify/**"
-      - "publisher.json"
-      - ".github/workflows/install-verify.yml"
 
 permissions:
   contents: read

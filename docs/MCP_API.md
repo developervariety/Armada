@@ -523,7 +523,7 @@ Return the operator's inbox: everything across the fleet that requires a human's
 - **Awaiting your decision (human-in-the-loop):** a mission in `Review` (approve or reject), a deployment in `PendingApproval`, a pending Ask Armada action proposal in one of your own conversations, or a pending CLI permission request (a captain waiting to run one of its own tools, such as a shell command).
 - **Failed and needs intervention (human-out-of-the-loop):** a failed mission, a mission whose work could not be merged (landing failed), a failed merge, a failed or verification-failed deployment, or a stalled captain.
 
-Purely informational events (completions, normal progress) are deliberately excluded -- the inbox answers *"what needs me?"*, not *"what happened?"* (use `enumerate` or the Activity log for history). An empty `items` list means nothing currently needs the operator. Operational items are scoped like other reads (global admin: everything; tenant admin: the tenant; regular user: own items); Ask proposals are always limited to the caller's own threads, and proposals older than `Ask.ProposalExpiryMinutes` are left out (the same rule as `GET /api/v1/inbox`). Each category is capped at 100 items, and items are ordered by severity (`Critical` first), then title.
+Purely informational events (completions, normal progress) are deliberately excluded -- the inbox answers *"what needs me?"*, not *"what happened?"* (use `enumerate` or the Activity log for history). An empty `items` list means nothing currently needs the operator. Operational items are scoped like other reads (global admin: everything; tenant admin: the tenant; regular user: own items); Ask proposals are always limited to the caller's own threads, and proposals older than `Ask.ProposalExpiryMinutes` are left out (the same rule as `GET /api/v1/inbox`). Every item is returned (no category is capped), so `count` is the true number of items needing attention; only pending CLI permission requests stop at 1000, since they expire within minutes. Items are ordered by severity (`Critical` first), then title.
 
 **Item kinds and severity:**
 
@@ -1021,7 +1021,7 @@ A session whose mission or thread no longer exists gets `NotFound`.
 | `vesselId` | string | No | Vessel filter (`vsl_`) |
 | `limit` | int | No | 1-1000, default 100 |
 
-**Response:** `{ "count": 1, "requests": [CliPermissionRequest, ...] }`, newest first. Each request carries the tool
+**Response:** `{ "count": 1, "limit": 100, "truncated": false, "requests": [CliPermissionRequest, ...] }`, newest first. `count` is the number returned; `truncated` is true when `limit` was reached, so more requests exist (raise `limit` or narrow the filters). Each request carries the tool
 name, redacted `InputText`, `SummaryText`, `SuggestedRule`, captain, vessel, mission or thread, `Status`, `ExpiresUtc`,
 and the caller's `CanDecide` and `CanRemember`.
 

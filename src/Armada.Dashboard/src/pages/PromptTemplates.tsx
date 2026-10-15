@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPromptTemplate, listPromptTemplates, resetPromptTemplate } from '../api/client';
+import { listAll } from '../api/paging';
 import { PROMPT_TEMPLATE_CATEGORIES } from '../lib/configuration';
 import type { PromptTemplate } from '../types/models';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +19,7 @@ import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildPromptTemplateDuplicatePayload } from '../lib/duplicates';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'description' | 'category' | 'isBuiltIn' | 'contentLength' | 'active' | 'lastUpdateUtc';
@@ -55,12 +57,12 @@ export default function PromptTemplates() {
 
   // Pagination
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('prompt-templates', 25);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listPromptTemplates({ pageSize: 9999 });
+      const result = await listAll(listPromptTemplates);
       setTemplates(result.objects);
       setError('');
     } catch {

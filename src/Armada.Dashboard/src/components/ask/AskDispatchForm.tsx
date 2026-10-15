@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { listPipelines, listVessels } from '../../api/client';
+import { listAll } from '../../api/paging';
 import type { Pipeline, Vessel } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 import { buildDispatchArguments, validateDispatch, type DispatchDraft } from '../../lib/askQuickActions';
@@ -27,7 +28,7 @@ export default function AskDispatchForm({ busy, onSubmit, onCancel }: AskDispatc
 
   useEffect(() => {
     let active = true;
-    Promise.all([listVessels({ pageSize: 9999 }), listPipelines({ pageSize: 500 }).catch(() => null)])
+    Promise.all([listAll(listVessels), listAll(listPipelines).catch(() => null)])
       .then(([v, p]) => {
         if (!active) return;
         const list = (v.objects || []).slice().sort((a, b) => a.name.localeCompare(b.name));

@@ -6,6 +6,7 @@ import {
   deleteSignalsBatch,
   listCaptains,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Signal, Captain } from '../types/models';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -41,7 +42,7 @@ export default function SignalDetail() {
   useEffect(() => {
     if (!id) return;
     getSignal(id).then(setSignal).catch(() => setError(t('Failed to load signal.')));
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAll(listCaptains).then(r => setCaptains(r.objects || [])).catch(() => {});
   }, [id, t]);
 
   async function handleMarkRead() {

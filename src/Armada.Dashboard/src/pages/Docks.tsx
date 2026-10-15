@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listDocks, deleteDock, listCaptains, listVessels } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Dock, Captain, Vessel } from '../types/models';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -15,6 +16,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useResourceTable } from '../lib/useResourceTable';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 export default function Docks() {
   const navigate = useNavigate();
@@ -29,7 +31,7 @@ export default function Docks() {
   // Pagination (server-side)
   const [pageNumber, setPageNumber] = useState(1);
   const [userScope, setUserScope] = useState('');
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('docks', 25);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
 
@@ -88,8 +90,8 @@ export default function Docks() {
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('docks', load);
 
   useEffect(() => {
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAll(listCaptains).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAll(listVessels).then(r => setVessels(r.objects || [])).catch(() => {});
   }, []);
 
   // Delete

@@ -21,8 +21,9 @@ vi.mock('../context/LocaleContext', () => ({
     formatRelativeTime: (v: string) => v, formatDateTime: (v: string) => v,
   }),
 }));
+const notificationState: { notifications: Array<Record<string, unknown>>; unreadCount: number } = { notifications: [], unreadCount: 0 };
 vi.mock('../context/NotificationContext', () => ({
-  useNotifications: () => ({ notifications: [], unreadCount: 0, markRead: vi.fn(), markAllRead: vi.fn() }),
+  useNotifications: () => ({ ...notificationState, markRead: vi.fn(), markAllRead: vi.fn() }),
 }));
 
 function item(kind: string, title: string, href: string, severity: 'Critical' | 'Warning' = 'Warning'): InboxItem {
@@ -128,5 +129,31 @@ describe('Needs You CLI tool permission requests', () => {
     await waitFor(() => expect(handlers.size).toBeGreaterThan(0));
     act(() => { handlers.forEach((h) => h({ type: 'cli_permission.requested', data: { requestId: 'cpr_1', status: 'Pending', request: { id: 'cpr_1' } } })); });
     expect(await screen.findByText('CLI permission: Bash rm -rf build')).toBeInTheDocument();
+  });
+});
+
+describe('Recent alerts preview', () => {
+  afterEach(() => { notificationState.notifications = []; notificationState.unreadCount = 0; });
+
+  function alert(i: number, read = false) {
+    return { id: `n_${i}`, title: `Alert ${i}`, message: 'msg', severity: 'info', read, timestampUtc: '2026-10-01T00:00:00Z' };
+  }
+
+  it('shows how many unread alerts there are when the preview holds only the newest 8', async () => {
+    vi.mocked(getInbox).mockResolvedValue([]);
+    notificationState.notifications = [...Array.from({ length: 23 }, (_, i) => alert(i)), alert(99, true)];
+    notificationState.unreadCount = 23;
+    render(<MemoryRouter><Inbox /></MemoryRouter>);
+    expect(await screen.findByRole('heading', { name: 'Recent alerts (8 of 23)' })).toBeInTheDocument();
+    expect(screen.getByText('Alert 7')).toBeInTheDocument();
+    expect(screen.queryByText('Alert 8')).not.toBeInTheDocument();
+  });
+
+  it('shows the plain count when every unread alert fits', async () => {
+    vi.mocked(getInbox).mockResolvedValue([]);
+    notificationState.notifications = [alert(1), alert(2)];
+    notificationState.unreadCount = 2;
+    render(<MemoryRouter><Inbox /></MemoryRouter>);
+    expect(await screen.findByRole('heading', { name: 'Recent alerts (2)' })).toBeInTheDocument();
   });
 });

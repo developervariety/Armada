@@ -6,6 +6,7 @@ import {
   listCaptains,
   listVessels,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { ArmadaEvent, Captain, Vessel } from '../types/models';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -44,8 +45,8 @@ export default function EventDetail() {
   useEffect(() => {
     if (!id) return;
     getEvent(id).then(setEvent).catch(() => setError(t('Failed to load event.')));
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAll(listCaptains).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAll(listVessels).then(r => setVessels(r.objects || [])).catch(() => {});
   }, [id, t]);
 
   function handleDelete() {

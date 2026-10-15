@@ -511,7 +511,8 @@ async function proxyRequest<T>(method: string, path: string, body?: unknown): Pr
   return camelizeKeys(json) as T;
 }
 
-// Build query string from pagination/filter params
+// Build query string from pagination/filter params. Routes clamp pageSize (1000 at most, 500 on many), so to load a
+// complete set use listAll / fetchAllPages from ./paging instead of a large fixed pageSize.
 function buildQuery(params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }): string {
   if (!params) return '';
   const parts: string[] = [];
@@ -751,19 +752,19 @@ export const lookupTenants = (email: string) =>
   post<TenantLookupResult>('/api/v1/tenants/lookup', { Email: email });
 
 // ==================== Tenants (admin) ====================
-export const listTenants = () => get<EnumerationResult<TenantMetadata>>('/api/v1/tenants');
+export const listTenants = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) => get<EnumerationResult<TenantMetadata>>(`/api/v1/tenants${buildQuery(params)}`);
 export const createTenant = (data: TenantCreateRequest) => post<TenantCreateResult>('/api/v1/tenants', data);
 export const updateTenant = (id: string, data: Partial<TenantMetadata>) => put<TenantMetadata>(`/api/v1/tenants/${id}`, data);
 export const deleteTenant = (id: string) => del<void>(`/api/v1/tenants/${id}`);
 
 // ==================== Users (admin) ====================
-export const listUsers = () => get<EnumerationResult<UserMaster>>('/api/v1/users');
+export const listUsers = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) => get<EnumerationResult<UserMaster>>(`/api/v1/users${buildQuery(params)}`);
 export const createUser = (data: UserUpsertRequest) => post<UserMaster>('/api/v1/users', data);
 export const updateUser = (id: string, data: UserUpsertRequest) => put<UserMaster>(`/api/v1/users/${id}`, data);
 export const deleteUser = (id: string) => del<void>(`/api/v1/users/${id}`);
 
 // ==================== Credentials (admin) ====================
-export const listCredentials = () => get<EnumerationResult<Credential>>('/api/v1/credentials');
+export const listCredentials = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) => get<EnumerationResult<Credential>>(`/api/v1/credentials${buildQuery(params)}`);
 export const createCredential = (data: Partial<Credential>) => post<Credential>('/api/v1/credentials', data);
 export const updateCredential = (id: string, data: Partial<Credential>) => put<Credential>(`/api/v1/credentials/${id}`, data);
 export const deleteCredential = (id: string) => del<void>(`/api/v1/credentials/${id}`);

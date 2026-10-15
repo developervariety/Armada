@@ -1,12 +1,12 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import VesselDetail from './VesselDetail';
-import { listFleets, listMissionSummaries, listPipelines, listVessels, getVesselReadiness, getVesselLandingPreview, updateVessel } from '../api/client';
+import { getVessel, listFleets, listMissionSummaries, listPipelines, getVesselReadiness, getVesselLandingPreview, updateVessel } from '../api/client';
 import { translateTemplate } from '../i18n/runtime';
 import type { Vessel } from '../types/models';
 
 vi.mock('../api/client', () => ({
-  listVessels: vi.fn(),
+  getVessel: vi.fn(),
   listFleets: vi.fn(),
   listMissionSummaries: vi.fn(),
   listPipelines: vi.fn(),
@@ -46,7 +46,7 @@ const vessel = {
 
 describe('VesselDetail Edit (F13)', () => {
   beforeEach(() => {
-    vi.mocked(listVessels).mockResolvedValue(page([vessel]) as never);
+    vi.mocked(getVessel).mockResolvedValue(vessel);
     vi.mocked(listFleets).mockResolvedValue(page([{ id: 'flt_1', name: 'Main' }]) as never);
     vi.mocked(listMissionSummaries).mockResolvedValue(page([]) as never);
     vi.mocked(listPipelines).mockResolvedValue(page([]) as never);
@@ -101,7 +101,7 @@ describe('VesselDetail Edit (F13)', () => {
 
 describe('VesselDetail Dispatch', () => {
   beforeEach(() => {
-    vi.mocked(listVessels).mockResolvedValue(page([vessel]) as never);
+    vi.mocked(getVessel).mockResolvedValue(vessel);
     vi.mocked(listFleets).mockResolvedValue(page([{ id: 'flt_1', name: 'Main' }]) as never);
     vi.mocked(listMissionSummaries).mockResolvedValue(page([]) as never);
     vi.mocked(listPipelines).mockResolvedValue(page([]) as never);
@@ -130,7 +130,7 @@ describe('VesselDetail Dispatch', () => {
 
 describe('VesselDetail View History', () => {
   beforeEach(() => {
-    vi.mocked(listVessels).mockResolvedValue(page([vessel]) as never);
+    vi.mocked(getVessel).mockResolvedValue(vessel);
     vi.mocked(listFleets).mockResolvedValue(page([{ id: 'flt_1', name: 'Main' }]) as never);
     vi.mocked(listMissionSummaries).mockResolvedValue(page([]) as never);
     vi.mocked(listPipelines).mockResolvedValue(page([]) as never);
@@ -169,7 +169,7 @@ describe('VesselDetail View History', () => {
 describe('VesselDetail missions table', () => {
   beforeEach(() => {
     localStorage.clear();
-    vi.mocked(listVessels).mockResolvedValue(page([vessel]) as never);
+    vi.mocked(getVessel).mockResolvedValue(vessel);
     vi.mocked(listFleets).mockResolvedValue(page([{ id: 'flt_1', name: 'Main' }]) as never);
     vi.mocked(listMissionSummaries).mockResolvedValue(page([{
       id: 'msn_1', title: 'Add request logging', status: 'InProgress', captainId: 'cpt_1',
@@ -210,5 +210,46 @@ describe('VesselDetail missions table', () => {
     const branch = within(row.querySelector('td[data-col="branch"]') as HTMLElement).getByText('armada/captain-1/msn_1-a-very-long-branch-name');
     expect(branch).toHaveClass('cell-one-line');
     expect(branch).toHaveAttribute('title', 'armada/captain-1/msn_1-a-very-long-branch-name');
+  });
+});
+
+describe('VesselDetail completeness (lists are never silently capped)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(getVessel).mockReset();
+    vi.mocked(listFleets).mockResolvedValue(page([{ id: 'flt_1', name: 'Main' }]) as never);
+    vi.mocked(listPipelines).mockResolvedValue(page([]) as never);
+    vi.mocked(getVesselReadiness).mockResolvedValue(null as never);
+    vi.mocked(getVesselLandingPreview).mockResolvedValue(null as never);
+  });
+
+  it('reads the vessel by id, so a vessel beyond the first page of the vessel list still opens', async () => {
+    vi.mocked(getVessel).mockResolvedValue({ ...vessel, id: 'vsl_1500', name: 'vessel-1500' } as Vessel);
+    vi.mocked(listMissionSummaries).mockResolvedValue(page([]) as never);
+    render(
+      <MemoryRouter initialEntries={['/vessels/vsl_1500']}>
+        <Routes><Route path="/vessels/:id" element={<VesselDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findAllByText('vessel-1500')).not.toHaveLength(0);
+    expect(getVessel).toHaveBeenCalledWith('vsl_1500');
+    expect(screen.queryByText('Vessel not found.')).toBeNull();
+  });
+
+  it('pages the missions table on the server and shows the true total', async () => {
+    vi.mocked(getVessel).mockResolvedValue(vessel);
+    vi.mocked(listMissionSummaries).mockResolvedValue({
+      success: true, pageNumber: 1, pageSize: 25, totalPages: 60, totalRecords: 1500, totalMs: 1,
+      objects: [{ id: 'msn_1', title: 'Newest mission', status: 'Complete', captainId: null, branchName: null, vesselId: 'vsl_1', createdUtc: '2026-10-01T00:00:00Z' }],
+    } as never);
+    render(
+      <MemoryRouter initialEntries={['/vessels/vsl_1']}>
+        <Routes><Route path="/vessels/:id" element={<VesselDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText('Newest mission');
+    expect(listMissionSummaries).toHaveBeenCalledWith({ pageNumber: 1, pageSize: 25, filters: { vesselId: 'vsl_1' } });
+    const wrap = document.querySelector('[data-table="vessel-detail-missions"]') as HTMLElement;
+    expect(within(wrap).getByText(/1,500 records/)).toBeInTheDocument();
   });
 });

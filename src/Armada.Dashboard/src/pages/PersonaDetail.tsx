@@ -4,6 +4,7 @@ import { personaRoutingForm, validatePersonaPriorities, prioritySummary } from '
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { createPersona, deletePersona, getPersona, getPromptTemplate, listCaptains, listPromptTemplates, resetPromptTemplate, updatePersona, updatePromptTemplate, apiErrorMessage } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Captain, Persona, PromptTemplate } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import CaptainPicker from '../components/shared/CaptainPicker';
@@ -83,9 +84,9 @@ export default function PersonaDetail() {
       setLoading(true);
       const found = await getPersona(name);
       setPersona(found);
-      const templateResult = await listPromptTemplates({ pageSize: 9999 });
+      const templateResult = await listAll(listPromptTemplates);
       setTemplateNames(templateResult.objects.map(t => t.name));
-      const captainResult = await listCaptains({ pageSize: 9999 });
+      const captainResult = await listAll(listCaptains);
       setCaptains(captainResult.objects);
       if (found.promptTemplateName) {
         await loadPromptForPersona(found.promptTemplateName);

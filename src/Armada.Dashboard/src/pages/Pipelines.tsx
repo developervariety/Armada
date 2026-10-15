@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listPipelines, listPersonas, createPipeline, updatePipeline, deletePipeline, apiErrorMessage } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Pipeline, PipelineStage, ScopeEnum } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { canEdit as canEditScoped, resolveCreateScope, type ScopeViewer } from '../lib/scoping';
@@ -74,9 +75,9 @@ export default function Pipelines() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listPipelines({ pageSize: 9999 });
+      const result = await listAll(listPipelines);
       setPipelines(result.objects);
-      const personaResult = await listPersonas({ pageSize: 9999 });
+      const personaResult = await listAll(listPersonas);
       setPersonaNames(personaResult.objects.map(p => p.name));
       setError('');
     } catch {

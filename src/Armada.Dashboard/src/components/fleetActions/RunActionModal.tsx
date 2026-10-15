@@ -7,6 +7,7 @@ import {
   runAdHocFleetAction,
   runFleetAction,
 } from '../../api/client';
+import { listAll } from '../../api/paging';
 import type {
   FleetAction,
   FleetActionKind,
@@ -104,7 +105,7 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
     let cancelled = false;
     setActionsLoading(true);
     setActionsError('');
-    enumerateFleetActions({ pageNumber: 1, pageSize: 500 })
+    listAll(enumerateFleetActions)
       .then((result) => {
         if (cancelled) return;
         const list = result.objects || [];
@@ -119,7 +120,7 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
         if (!cancelled) setActionsError(err instanceof Error ? err.message : t('Failed to load fleet actions.'));
       })
       .finally(() => { if (!cancelled) setActionsLoading(false); });
-    listPipelines({ pageSize: 9999 }).then((r) => { if (!cancelled) setPipelines(r.objects || []); }).catch(() => undefined);
+    listAll(listPipelines).then((r) => { if (!cancelled) setPipelines(r.objects || []); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [open, initialKind, t]);
 

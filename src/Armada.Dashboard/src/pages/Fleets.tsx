@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listFleets, listVessels, listPipelines, createFleet, updateFleet, deleteFleet, apiErrorMessage } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -63,7 +64,7 @@ export default function Fleets() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [fResult, vResult, pResult] = await Promise.all([listFleets({ pageSize: 9999 }), listVessels({ pageSize: 9999 }), listPipelines({ pageSize: 9999 })]);
+      const [fResult, vResult, pResult] = await Promise.all([listAll(listFleets), listAll(listVessels), listAll(listPipelines)]);
       setPipelines(pResult.objects);
       const vesselsByFleet = new Map<string, Vessel[]>();
       for (const v of vResult.objects) {

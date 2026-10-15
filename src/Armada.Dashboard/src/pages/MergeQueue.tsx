@@ -5,6 +5,7 @@ import {
   processAllMergeQueue, cancelMergeEntry, listVessels,
   getMissionDiff, getMissionLog,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { MergeEntry, Vessel } from '../types/models';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -22,6 +23,7 @@ import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildEnqueueMergeRequest, emptyEnqueueMergeForm, type EnqueueMergeForm } from '../lib/mergeQueueForm';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'branchName' | 'targetBranch' | 'status' | 'priority' | 'createdUtc';
@@ -38,7 +40,7 @@ export default function MergeQueue() {
   // Pagination (server-side)
   const [pageNumber, setPageNumber] = useState(1);
   const [userScope, setUserScope] = useState('');
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('merge-queue', 25);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
 
@@ -96,7 +98,7 @@ export default function MergeQueue() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAll(listVessels).then(r => setVessels(r.objects || [])).catch(() => {});
   }, []);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('mergequeue', load);

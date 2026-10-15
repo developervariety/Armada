@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getMergeEntry, deleteMergeEntry, processMergeEntry, cancelMergeEntry, listVessels, getMissionDiff, getMissionLog, getVesselLandingPreview } from '../api/client';
+import { listAll } from '../api/paging';
 import type { MergeEntry, Vessel, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -48,7 +49,7 @@ export default function MergeQueueDetail() {
     try {
       setLoading(true);
       const isInitialLoad = !entry;
-      const [e, vResult] = await Promise.all([getMergeEntry(id), listVessels({ pageSize: 1000 })]);
+      const [e, vResult] = await Promise.all([getMergeEntry(id), listAll(listVessels)]);
       setEntry(e);
       setVessels(vResult.objects);
       if (e.vesselId) {

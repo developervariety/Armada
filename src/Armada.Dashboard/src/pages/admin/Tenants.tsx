@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { listTenants, createTenant, updateTenant, deleteTenant, apiErrorMessage } from '../../api/client';
+import { listAll } from '../../api/paging';
 import type { TenantMetadata, TenantCreateRequest } from '../../types/models';
 import DataTable, { type DataTableColumn } from '../../components/shared/DataTable';
 import ActionMenu from '../../components/shared/ActionMenu';
@@ -13,6 +14,7 @@ import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useProxySessionContext } from '../../lib/useProxySessionContext';
+import { usePersistedPageSize } from '../../lib/usePersistedPageSize';
 
 type SortField = 'name' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
@@ -44,7 +46,7 @@ export default function Tenants() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [colFilters, setColFilters] = useState({ name: '' });
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('admin-tenants', 25);
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; resourceName?: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
   const remoteProxyMode = Boolean(proxyContext?.selectedInstanceId);
@@ -53,7 +55,7 @@ export default function Tenants() {
     try {
       setLoading(true);
       if (isAdmin) {
-        const result = await listTenants();
+        const result = await listAll(listTenants);
         setItems(result.objects);
       } else {
         setItems(user?.tenant ? [user.tenant] : []);

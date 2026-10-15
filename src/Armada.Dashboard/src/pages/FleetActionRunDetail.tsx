@@ -12,6 +12,7 @@ import type {
   FleetActionTargetStatus,
   FleetActionUpsertRequest,
 } from '../types/models';
+import { fetchAllPages } from '../api/paging';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
@@ -149,8 +150,8 @@ export default function FleetActionRunDetail() {
     setRerunLoading(true);
     try {
       const [failed, timedOut] = await Promise.all([
-        enumerateFleetActionRunTargets(run.id, { pageNumber: 1, pageSize: 500, status: 'Failed' }),
-        enumerateFleetActionRunTargets(run.id, { pageNumber: 1, pageSize: 500, status: 'TimedOut' }),
+        fetchAllPages((pageNumber, pageSize) => enumerateFleetActionRunTargets(run.id, { pageNumber, pageSize, status: 'Failed' })),
+        fetchAllPages((pageNumber, pageSize) => enumerateFleetActionRunTargets(run.id, { pageNumber, pageSize, status: 'TimedOut' })),
       ]);
       const vesselIds = Array.from(new Set([...(failed.objects || []), ...(timedOut.objects || [])].map((x) => x.vesselId)));
       if (vesselIds.length === 0) {

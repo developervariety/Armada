@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { listFleets, listVessels } from '../../api/client';
+import { listAll } from '../../api/paging';
 import type { Fleet, Vessel } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 import DialogShell from '../shared/DialogShell';
@@ -34,7 +35,7 @@ export default function VesselPickerModal({ open, onClose, onPicked, title }: Ve
     setLoading(true);
     setError('');
     try {
-      const [v, f] = await Promise.all([listVessels({ pageSize: 9999 }), listFleets({ pageSize: 9999 })]);
+      const [v, f] = await Promise.all([listAll(listVessels), listAll(listFleets)]);
       setVessels(v.objects || []);
       setFleets(f.objects || []);
     } catch (err: unknown) {

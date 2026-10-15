@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-
-/** Page sizes offered by the shared Pagination component. */
-const ALLOWED_PAGE_SIZES = [10, 25, 50, 100, 250];
+import { PAGE_SIZE_OPTIONS as ALLOWED_PAGE_SIZES, readPageSize, rememberLastPageSize } from './pageSizePrefs';
 
 interface StoredTablePrefs {
   pageSize?: number;
@@ -31,8 +29,7 @@ function readStored(key: string): StoredTablePrefs {
 export function useTablePrefs(key: string, options: { defaultPageSize?: number } = {}) {
   const { defaultPageSize = 25 } = options;
   const [pageSize, setPageSizeState] = useState<number>(() => {
-    const stored = readStored(key).pageSize;
-    return typeof stored === 'number' && ALLOWED_PAGE_SIZES.includes(stored) ? stored : defaultPageSize;
+    return readPageSize(readStored(key).pageSize, defaultPageSize);
   });
 
   useEffect(() => {
@@ -46,7 +43,9 @@ export function useTablePrefs(key: string, options: { defaultPageSize?: number }
   }, [key, pageSize]);
 
   const setPageSize = useCallback((size: number) => {
-    setPageSizeState(ALLOWED_PAGE_SIZES.includes(size) ? size : defaultPageSize);
+    const value = ALLOWED_PAGE_SIZES.includes(size) ? size : defaultPageSize;
+    setPageSizeState(value);
+    rememberLastPageSize(value);
   }, [defaultPageSize]);
 
   return { pageSize, setPageSize };

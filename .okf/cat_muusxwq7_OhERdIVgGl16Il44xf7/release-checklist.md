@@ -1,7 +1,7 @@
 ---
 type: "Reference"
 title: "Release checklist (docs/RELEASING.md)"
-description: "Version only on owner approval; CHANGELOG Unreleased complete; CI, nightly parity, upgrade test, install-verify green; simulated user testing; build/sign/checksum; tag v<version> triggers release.yml."
+description: "Version only on owner approval; CHANGELOG Unreleased complete; full.yml, db-parity, upgrade test, install-verify green (all manual); simulated user testing; build/sign/checksum; tag v<version> triggers release.yml."
 timestamp: "2026-10-05T05:30:31.7782190Z"
 created: "2026-10-05T05:30:31.1690700Z"
 slug: "release-checklist"
@@ -13,8 +13,8 @@ salience: "0.5"
 Steps, top to bottom, no skipping:
 0. Version numbers change only on the maintainer's explicit instruction (Directory.Build.props, Helm csproj, Constants.ProductVersion, dashboard package.json/lock, build scripts, Postman collection, CHANGELOG heading). Propose and wait.
 1. Pick the commit; CHANGELOG ## Unreleased must list every user-visible change, setting, migration, breaking change. Schema changes registered for all four providers, operator steps in UPGRADING.md.
-2. ci.yml fully green (3 OS x 2 frameworks, dashboard, dist drift). A red-then-green rerun is not a pass until explained.
-3. nightly-parity green on the commit (RESULT: PARITY OK).
+2. full.yml (manual) fully green (3 OS x 2 frameworks, dashboard, mobile, dist drift); ci.yml is only the push smoke test. A red-then-green rerun is not a pass until explained.
+3. db-parity (manual) green on the commit (RESULT: PARITY OK).
 4. Upgrade test from the previous release on every provider (run-upgrade-test.sh).
 5. Simulated user testing per SIMULATED_USER_TESTING.md on an isolated armada-usertest stack; S1/S2 findings block; RCs get a week of real use.
 6. Build packages (CI via tag, or Publisher doctor + build-installers locally); install-verify green; hand smoke one artifact per platform.

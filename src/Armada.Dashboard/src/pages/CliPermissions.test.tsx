@@ -73,7 +73,7 @@ describe('CLI Tool Permissions page', () => {
   it('lists pending requests by default and highlights the deep-linked request even when it is decided', async () => {
     vi.mocked(getCliPermissionRequest).mockResolvedValue(decided);
     renderAt('/cli-permissions?request=cpr_2');
-    await waitFor(() => expect(listCliPermissionRequests).toHaveBeenCalledWith({ status: 'Pending', limit: 200 }));
+    await waitFor(() => expect(listCliPermissionRequests).toHaveBeenCalledWith({ status: 'Pending', limit: 1000 }));
     const linked = await screen.findByRole('group', { name: 'CLI permission: WebFetch' });
     expect(linked.className).toContain('is-highlighted');
     expect(within(linked).getByText('Denied by a saved rule.')).toBeInTheDocument();
@@ -82,7 +82,20 @@ describe('CLI Tool Permissions page', () => {
     expect(within(other).getByRole('button', { name: 'Allow once' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Status' }), { target: { value: '' } });
-    await waitFor(() => expect(listCliPermissionRequests).toHaveBeenLastCalledWith({ status: null, limit: 200 }));
+    await waitFor(() => expect(listCliPermissionRequests).toHaveBeenLastCalledWith({ status: null, limit: 1000 }));
+  });
+
+  it('says visibly when the request list stops at the route limit', async () => {
+    const many = Array.from({ length: 1000 }, (_, i) => ({ ...pending, id: `cpr_many_${i}` }));
+    vi.mocked(listCliPermissionRequests).mockResolvedValue(many);
+    renderAt('/cli-permissions');
+    expect(await screen.findByText('Showing the first 1,000 requests. Narrow the filter to see the rest.')).toBeInTheDocument();
+  });
+
+  it('shows no limit notice when fewer requests than the limit come back', async () => {
+    renderAt('/cli-permissions');
+    await screen.findByRole('group', { name: 'CLI permission: Bash' });
+    expect(screen.queryByText(/Narrow the filter to see the rest/)).not.toBeInTheDocument();
   });
 
   it('lists rules, creates a vessel rule, and deletes a rule after confirming', async () => {

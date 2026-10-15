@@ -17,6 +17,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useResourceTable } from '../lib/useResourceTable';
 import { findLandingMode, getVoyageLandingModes } from '../lib/vesselForm';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 export default function Voyages() {
   const navigate = useNavigate();
@@ -30,7 +31,7 @@ export default function Voyages() {
   // Pagination (server-side)
   const [pageNumber, setPageNumber] = useState(1);
   const [userScope, setUserScope] = useState('');
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('voyages', 25);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
 

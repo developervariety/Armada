@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Vessel, Captain } from '../../types/models';
 import { buildVesselContext, listCaptains } from '../../api/client';
+import { listAll } from '../../api/paging';
 import { useLocale } from '../../context/LocaleContext';
 
 interface BuildContextModalProps {
@@ -26,7 +27,7 @@ export default function BuildContextModal({ vessel, onClose, onBuilt }: BuildCon
   const [error, setError] = useState('');
 
   useEffect(() => {
-    listCaptains({ pageSize: 200 })
+    listAll(listCaptains)
       .then((result) => {
         setCaptains(result.objects);
         if (result.objects.length > 0) setCaptainId((current) => current || result.objects[0].id);

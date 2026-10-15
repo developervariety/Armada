@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { listVessels, listFleets, listMissionSummaries, listPipelines, createVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
+import { getVessel, listFleets, listMissionSummaries, listPipelines, createVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -13,6 +14,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import ReadinessPanel from '../components/shared/ReadinessPanel';
 import VesselHealthButton from '../components/vessels/health/VesselHealthButton';
 import { useLocale } from '../context/LocaleContext';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 import { useNotifications } from '../context/NotificationContext';
 import { buildVesselDuplicatePayload } from '../lib/duplicates';
 import VesselFormModal from '../components/vessels/VesselFormModal';
@@ -26,6 +28,10 @@ export default function VesselDetail() {
   const [vessel, setVessel] = useState<Vessel | null>(null);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [missions, setMissions] = useState<MissionSummary[]>([]);
+  // Missions are paged on the server: a vessel can have far more missions than one page holds.
+  const [missionPage, setMissionPage] = useState(1);
+  const [missionPageSize, setMissionPageSize] = usePersistedPageSize('vessel-detail-missions', 25);
+  const [missionTotals, setMissionTotals] = useState({ totalRecords: 0, totalPages: 1, totalMs: 0 });
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
   const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
@@ -54,17 +60,19 @@ export default function VesselDetail() {
     try {
       setLoading(true);
       const isInitialLoad = !vessel;
-      const [vResult, fResult, mResult, pResult] = await Promise.all([
-        listVessels({ pageSize: 9999 }),
-        listFleets({ pageSize: 9999 }),
-        listMissionSummaries({ pageSize: 1000, filters: { vesselId: id } }),
-        listPipelines({ pageSize: 9999 }),
-      ]);
-      const found = vResult.objects.find(v => v.id === id);
+      let found: Vessel | null = null;
+      try {
+        found = await getVessel(id);
+      } catch {
+        found = null;
+      }
       if (!found) { setError(t('Vessel not found.')); setLoading(false); return; }
+      const [fResult, pResult] = await Promise.all([
+        listAll(listFleets),
+        listAll(listPipelines),
+      ]);
       setVessel(found);
       setFleets(fResult.objects);
-      setMissions(mResult.objects || []);
       setPipelines(pResult.objects);
       setLoadingReadiness(true);
       getVesselReadiness(id)
@@ -85,6 +93,23 @@ export default function VesselDetail() {
   }, [id, t]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    listMissionSummaries({ pageNumber: missionPage, pageSize: missionPageSize, filters: { vesselId: id } })
+      .then((result) => {
+        if (cancelled) return;
+        setMissions(result.objects || []);
+        setMissionTotals({
+          totalRecords: result.totalRecords ?? (result.objects || []).length,
+          totalPages: Math.max(1, result.totalPages || 1),
+          totalMs: result.totalMs ?? 0,
+        });
+      })
+      .catch(() => { if (!cancelled) setMissions([]); });
+    return () => { cancelled = true; };
+  }, [id, missionPage, missionPageSize]);
 
   function openEdit() {
     if (!vessel) return;
@@ -411,12 +436,20 @@ export default function VesselDetail() {
       {/* Recent Missions */}
       <div style={{ marginTop: '1rem' }}>
         <h3>{t('Missions')}</h3>
-        {missions.length > 0 ? (
+        {missions.length > 0 || missionTotals.totalRecords > 0 ? (
           <DataTable
             tableKey="vessel-detail-missions"
             rows={missions}
             rowKey={(m) => m.id}
-            recordCount={null}
+            pagination={{
+              pageNumber: missionPage,
+              pageSize: missionPageSize,
+              totalPages: missionTotals.totalPages,
+              totalRecords: missionTotals.totalRecords,
+              totalMs: missionTotals.totalMs,
+              onPageChange: setMissionPage,
+              onPageSizeChange: (size) => { setMissionPageSize(size); setMissionPage(1); },
+            }}
             onRowClick={(m) => navigate(`/missions/${m.id}`)}
             columns={[
               {

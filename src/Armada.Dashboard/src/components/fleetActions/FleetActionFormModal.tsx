@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createFleetAction, listPersonas, listPipelines, updateFleetAction } from '../../api/client';
+import { listAll } from '../../api/paging';
 import type { FleetAction, FleetActionKind, FleetActionUpsertRequest, Persona, Pipeline } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 import DialogShell from '../shared/DialogShell';
@@ -41,8 +42,8 @@ export default function FleetActionFormModal({ open, mode, source, defaultTimeou
     setSubmitted(false);
     setServerError('');
     let cancelled = false;
-    listPipelines({ pageSize: 9999 }).then((r) => { if (!cancelled) setPipelines(r.objects || []); }).catch(() => undefined);
-    listPersonas({ pageSize: 9999 }).then((r) => { if (!cancelled) setPersonas(r.objects || []); }).catch(() => undefined);
+    listAll(listPipelines).then((r) => { if (!cancelled) setPipelines(r.objects || []); }).catch(() => undefined);
+    listAll(listPersonas).then((r) => { if (!cancelled) setPersonas(r.objects || []); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [open, source, mode, defaultTimeoutSeconds, t]);
 

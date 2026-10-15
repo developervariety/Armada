@@ -11,6 +11,7 @@ import {
   listVessels,
   listCaptains,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Voyage, Mission, Vessel, Captain, MissionPlaybookSnapshot, SelectedPlaybook, CaptainAssignmentOverride } from '../types/models';
 import CaptainRef from '../components/shared/CaptainRef';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -79,7 +80,7 @@ export default function VoyageDetail() {
         setVoyage(parts.voyage);
         // Load missions separately
         try {
-          const mResult = await listMissions({ pageSize: 1000, filters: { voyageId: id } });
+          const mResult = await listAll(listMissions, { filters: { voyageId: id } });
           setMissions(mResult.objects || []);
         } catch {
           setMissions([]);
@@ -98,8 +99,8 @@ export default function VoyageDetail() {
 
   useEffect(() => {
     loadVoyage();
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAll(listVessels).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAll(listCaptains).then(r => setCaptains(r.objects || [])).catch(() => {});
   }, [loadVoyage]);
 
   // Progress

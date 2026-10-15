@@ -6,6 +6,7 @@ import {
   restartMission, retryMissionLanding, transitionMission, getMissionDiff, getMissionLog,
   listVessels, listCaptains, listVoyages, apiErrorMessage,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { MissionSummary, Vessel, Captain, Voyage, MissionMode } from '../types/models';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import LoadingIndicator from '../components/shared/LoadingIndicator';
@@ -22,6 +23,7 @@ import UserScopeFilter from '../components/shared/UserScopeFilter';
 import CopyButton from '../components/shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
 import { MISSION_LIST_STATUSES, canRetryLanding, matchesMissionColumnFilters } from '../lib/missionActions';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'title' | 'status' | 'priority' | 'createdUtc';
@@ -41,7 +43,7 @@ export default function Missions() {
 
   // Pagination (server-side)
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('missions', 25);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
 
@@ -112,9 +114,9 @@ export default function Missions() {
   }, [pageNumber, pageSize, statusFilter, userScope, t]);
 
   useEffect(() => {
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
-    listVoyages({ pageSize: 1000 }).then(r => setVoyages(r.objects || [])).catch(() => {});
+    listAll(listVessels).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAll(listCaptains).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAll(listVoyages).then(r => setVoyages(r.objects || [])).catch(() => {});
   }, []);
 
   useEffect(() => { load(); }, [load]);

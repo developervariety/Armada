@@ -13,6 +13,7 @@ import {
   updateVessel,
   isApiStatus,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   Vessel,
   WorkspaceFileResponse,
@@ -156,7 +157,7 @@ export default function Workspace() {
 
   useEffect(() => {
     let cancelled = false;
-    listVessels({ pageSize: 9999 })
+    listAll(listVessels)
       .then((result) => {
         if (cancelled) return;
         setVessels(result.objects);

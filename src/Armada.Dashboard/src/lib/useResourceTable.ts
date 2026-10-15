@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { usePersistedPageSize } from './usePersistedPageSize';
 
 export type SortDir = 'asc' | 'desc';
 
@@ -12,6 +13,8 @@ interface UseResourceTableOptions<T> {
   initialSortField?: string;
   initialSortDir?: SortDir;
   initialPageSize?: number;
+  /** Key the chosen page size is remembered under; defaults to the page's route, so each list keeps its own size. */
+  pageSizeKey?: string;
 }
 
 /**
@@ -29,6 +32,7 @@ export function useResourceTable<T>(options: UseResourceTableOptions<T>) {
     initialSortField = '',
     initialSortDir = 'asc',
     initialPageSize = 25,
+    pageSizeKey,
   } = options;
 
   const [search, setSearch] = useState('');
@@ -36,7 +40,7 @@ export function useResourceTable<T>(options: UseResourceTableOptions<T>) {
   const [sortField, setSortField] = useState<string>(initialSortField);
   const [sortDir, setSortDir] = useState<SortDir>(initialSortDir);
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(initialPageSize);
+  const [pageSize, setPageSize] = usePersistedPageSize(pageSizeKey ?? ('route' + (typeof window === 'undefined' ? '' : window.location.pathname)), initialPageSize);
   const [selected, setSelected] = useState<string[]>([]);
 
   function setColFilter(key: string, value: string) {

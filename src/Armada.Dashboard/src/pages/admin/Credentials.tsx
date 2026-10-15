@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { listCredentials, createCredential, updateCredential, deleteCredential, listUsers, listTenants, apiErrorMessage } from '../../api/client';
+import { listAll } from '../../api/paging';
 import type { Credential, UserMaster, TenantMetadata } from '../../types/models';
 import DataTable, { type DataTableColumn } from '../../components/shared/DataTable';
 import ActionMenu from '../../components/shared/ActionMenu';
@@ -12,6 +13,7 @@ import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useProxySessionContext } from '../../lib/useProxySessionContext';
+import { usePersistedPageSize } from '../../lib/usePersistedPageSize';
 
 type SortField = 'name' | 'userId' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
@@ -35,7 +37,7 @@ export default function Credentials() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [colFilters, setColFilters] = useState({ name: '', userId: '', tenantId: '' });
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = usePersistedPageSize('admin-credentials', 25);
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; resourceName?: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
   const remoteProxyMode = Boolean(proxyContext?.selectedInstanceId);
@@ -51,11 +53,11 @@ export default function Credentials() {
     try {
       setLoading(true);
       const tenantPromise = isAdmin
-        ? listTenants()
+        ? listAll(listTenants)
         : Promise.resolve({
             objects: user?.tenant ? [user.tenant] : [],
           } as { objects: TenantMetadata[] });
-      const [cResult, uResult, tResult] = await Promise.all([listCredentials(), listUsers(), tenantPromise]);
+      const [cResult, uResult, tResult] = await Promise.all([listAll(listCredentials), listAll(listUsers), tenantPromise]);
       setItems(cResult.objects);
       setUsers(uResult.objects);
       setTenants(tResult.objects);

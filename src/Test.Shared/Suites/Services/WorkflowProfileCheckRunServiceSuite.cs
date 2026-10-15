@@ -776,6 +776,37 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("missing_profile_is_actionable", "With no workflow profile, readiness says dispatch still works and links to creating one for the vessel", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                await EnsureTenantAndUserAsync(testDb, "ten_noprof", "usr_noprof").ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-noprofile-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_noprof", "usr_noprof", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated("ten_noprof", "usr_noprof", false, false, "UnitTest");
+
+                    VesselReadinessResult result = await readiness.EvaluateAsync(auth, vessel).ConfigureAwait(false);
+                    VesselReadinessIssue issue = result.Issues.Single(i => i.Code == "workflow_profile_missing");
+                    AssertEqual(ReadinessSeverityEnum.Info, issue.Severity, "informational for dispatch, not a warning");
+                    AssertTrue(issue.Message.Contains("Missions can be dispatched", StringComparison.Ordinal), "says dispatch is unaffected");
+                    AssertEqual("Create a workflow profile", issue.ActionLabel);
+                    AssertEqual("/configuration?tab=workflow-profiles&createProfile=vessel&vesselId=" + vessel.Id, issue.ActionHref);
+
+                    VesselReadinessResult check = await readiness.EvaluateAsync(auth, vessel, null, CheckRunTypeEnum.Build).ConfigureAwait(false);
+                    AssertEqual(ReadinessSeverityEnum.Error, check.Issues.Single(i => i.Code == "workflow_profile_missing").Severity, "a check still requires one");
+                }
+                finally
+                {
+                    try { Directory.Delete(workingDirectory, true); } catch { }
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Workflow Profile and Check Run Services",

@@ -10,6 +10,7 @@ import {
   listFleets,
   listPipelines,
 } from '../../../api/client';
+import { listAll } from '../../../api/paging';
 import type {
   Captain,
   Fleet,
@@ -236,8 +237,8 @@ export default function ImportWizard({ open, onClose, onImported, initialView = 
     if (initialBatchId) void openBatchRef.current(initialBatchId);
     else setStep(initialView === 'history' ? 'history' : 'source');
     let cancelled = false;
-    listFleets({ pageSize: 9999 }).then((r) => { if (!cancelled) setFleets(r.objects || []); }).catch(() => undefined);
-    listPipelines({ pageSize: 9999 }).then((r) => { if (!cancelled) setPipelines(r.objects || []); }).catch(() => undefined);
+    listAll(listFleets).then((r) => { if (!cancelled) setFleets(r.objects || []); }).catch(() => undefined);
+    listAll(listPipelines).then((r) => { if (!cancelled) setPipelines(r.objects || []); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [open, initialView, initialBatchId]);
 
@@ -246,7 +247,7 @@ export default function ImportWizard({ open, onClose, onImported, initialView = 
     if (!open || !categorization.enabled || captains.length > 0 || captainsLoading) return;
     let cancelled = false;
     setCaptainsLoading(true);
-    listCaptains({ pageSize: 9999 })
+    listAll(listCaptains)
       .then((r) => { if (!cancelled) setCaptains((r.objects || []).filter((c) => !tenantId || c.tenantId === tenantId)); })
       .catch(() => undefined)
       .finally(() => { if (!cancelled) setCaptainsLoading(false); });

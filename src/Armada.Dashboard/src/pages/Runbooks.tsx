@@ -9,6 +9,7 @@ import {
   listRunbooks,
   listWorkflowProfiles,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   CheckRunType,
   DeploymentEnvironment,
@@ -141,10 +142,10 @@ export default function Runbooks() {
     try {
       setLoading(true);
       const [runbookResult, executionResult, profileResult, environmentResult] = await Promise.all([
-        listRunbooks({ pageSize: 9999 }),
-        listRunbookExecutions({ pageSize: 9999 }),
-        listWorkflowProfiles({ pageSize: 9999 }),
-        listEnvironments({ pageSize: 9999 }),
+        listAll(listRunbooks),
+        listAll(listRunbookExecutions),
+        listAll(listWorkflowProfiles),
+        listAll(listEnvironments),
       ]);
       setRunbooks(runbookResult.objects || []);
       setExecutions(executionResult.objects || []);

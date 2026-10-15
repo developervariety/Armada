@@ -7,6 +7,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { isJobTerminal } from '../lib/jobs';
+import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 export default function Jobs() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
@@ -14,19 +15,29 @@ export default function Jobs() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Paged on the server: the route returns one page plus the true total, so the pager and count are never capped.
+  const [pageNumber, setPageNumber] = useState(1);
+  const [pageSize, setPageSize] = usePersistedPageSize('jobs', 25);
+  const [totals, setTotals] = useState({ totalRecords: 0, totalPages: 1, totalMs: 0 });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await listJobs();
-      setJobs(result.objects || []);
+      const result = await listJobs({ pageNumber, pageSize });
+      const objects = result.objects || [];
+      setJobs(objects);
+      setTotals({
+        totalRecords: typeof result.totalRecords === 'number' ? result.totalRecords : objects.length,
+        totalPages: Math.max(1, result.totalPages || 1),
+        totalMs: result.totalMs ?? 0,
+      });
       setError('');
     } catch {
       setError(t('Failed to load jobs.'));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, pageNumber, pageSize]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -90,6 +101,15 @@ export default function Jobs() {
         columns={columns}
         rows={jobs}
         rowKey={(job) => job.id}
+        pagination={{
+          pageNumber,
+          pageSize,
+          totalPages: totals.totalPages,
+          totalRecords: totals.totalRecords,
+          totalMs: totals.totalMs,
+          onPageChange: setPageNumber,
+          onPageSizeChange: (size) => { setPageSize(size); setPageNumber(1); },
+        }}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
         onRefresh={load}
         refreshTitle={t('Refresh jobs')}

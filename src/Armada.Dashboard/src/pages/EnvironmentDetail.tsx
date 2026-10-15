@@ -7,6 +7,7 @@ import {
   listVessels,
   updateEnvironment,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   DeploymentEnvironment,
   DeploymentEnvironmentUpsertRequest,
@@ -68,7 +69,7 @@ export default function EnvironmentDetail() {
   useEffect(() => {
     let cancelled = false;
 
-    listVessels({ pageSize: 9999 }).then((result) => {
+    listAll(listVessels).then((result) => {
       if (!cancelled) setVessels(result.objects || []);
     }).catch(() => {
       if (!cancelled) setError(t('Failed to load vessels.'));

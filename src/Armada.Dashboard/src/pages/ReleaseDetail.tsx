@@ -14,6 +14,7 @@ import {
   refreshRelease,
   updateRelease,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { CheckRun, Deployment, GitHubPullRequestDetail, Objective, Release, ReleaseStatus, ReleaseUpsertRequest, Vessel, Voyage, WorkflowProfile } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -81,18 +82,16 @@ export default function ReleaseDetail() {
     let cancelled = false;
 
     Promise.all([
-      listVessels({ pageSize: 9999 }),
-      listWorkflowProfiles({ pageSize: 9999 }),
-      listVoyages({ pageSize: 9999 }),
-      listCheckRuns({ pageSize: 9999 }),
-      listDeployments({ pageSize: 9999 }),
-    ]).then(([vesselResult, profileResult, voyageResult, checkRunResult, deploymentResult]) => {
+      listAll(listVessels),
+      listAll(listWorkflowProfiles),
+      listAll(listVoyages),
+      listAll(listCheckRuns),
+    ]).then(([vesselResult, profileResult, voyageResult, checkRunResult]) => {
       if (cancelled) return;
       setVessels(vesselResult.objects || []);
       setProfiles(profileResult.objects || []);
       setVoyages(voyageResult.objects || []);
       setCheckRuns(checkRunResult.objects || []);
-      setDeployments(deploymentResult.objects || []);
     }).catch(() => {
       if (!cancelled) setError(t('Failed to load release reference data.'));
     });
@@ -162,13 +161,31 @@ export default function ReleaseDetail() {
 
   useEffect(() => {
     if (createMode || !id) {
+      setDeployments([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    // Ask the server for this release's deployments (every page) instead of filtering one capped page.
+    void listAll(listDeployments, { releaseId: id }).then((result) => {
+      if (!cancelled) setDeployments(result.objects || []);
+    }).catch(() => {
+      if (!cancelled) setError(t('Failed to load release reference data.'));
+    });
+
+    return () => { cancelled = true; };
+  }, [createMode, id, t]);
+
+  useEffect(() => {
+    if (createMode || !id) {
       setObjectives([]);
       return;
     }
 
     let cancelled = false;
 
-    void listObjectives({ pageSize: 9999, releaseId: id }).then((result) => {
+    void listAll(listObjectives, { releaseId: id }).then((result) => {
       if (!cancelled) setObjectives(result.objects || []);
     }).catch(() => {
       if (!cancelled) setError(t('Failed to load linked objectives.'));

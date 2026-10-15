@@ -8,6 +8,7 @@ import {
   previewWorkflowProfileForVessel,
   runCheck,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { CheckRun, CheckRunRequest, CheckRunType, Vessel, VesselReadinessResult, WorkflowProfile, WorkflowProfileResolutionPreviewResult } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -74,9 +75,9 @@ export default function CheckRuns() {
     try {
       setLoading(true);
       const [runResult, vesselResult, profileResult] = await Promise.all([
-        listCheckRuns({ pageSize: 9999 }),
-        listVessels({ pageSize: 9999 }),
-        listWorkflowProfiles({ pageSize: 9999 }),
+        listAll(listCheckRuns),
+        listAll(listVessels),
+        listAll(listWorkflowProfiles),
       ]);
       setRuns(runResult.objects || []);
       setVessels(vesselResult.objects || []);

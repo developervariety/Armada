@@ -51,7 +51,9 @@ namespace Armada.Core.Services
         private readonly string _Header = "[InboxService] ";
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
-        private const int _MaxPerCategory = 100;
+        // Pending CLI permission requests come from a query capped at 1000 (CliPermissionRequestQuery.Limit). They expire
+        // within minutes, so that many waiting at once means something else is wrong; every other category is complete.
+        private const int _MaxPendingCliPermissions = 1000;
         private int _AskProposalExpiryMinutes = 0;
         private ArmadaSettings? _Settings = null;
 
@@ -102,7 +104,7 @@ namespace Armada.Core.Services
             try
             {
                 List<Mission> reviews = await MissionsByStatusAsync(auth, MissionStatusEnum.Review, token).ConfigureAwait(false);
-                foreach (Mission mission in reviews.Take(_MaxPerCategory))
+                foreach (Mission mission in reviews)
                 {
                     bool overdue = mission.ReviewDeadlineUtc.HasValue && mission.ReviewDeadlineUtc.Value < DateTime.UtcNow;
                     items.Add(new InboxItem
@@ -119,7 +121,7 @@ namespace Armada.Core.Services
                 }
 
                 List<Mission> landingFailed = await MissionsByStatusAsync(auth, MissionStatusEnum.LandingFailed, token).ConfigureAwait(false);
-                foreach (Mission mission in landingFailed.Take(_MaxPerCategory))
+                foreach (Mission mission in landingFailed)
                 {
                     items.Add(new InboxItem
                     {
@@ -135,7 +137,7 @@ namespace Armada.Core.Services
                 }
 
                 List<Mission> failed = await MissionsByStatusAsync(auth, MissionStatusEnum.Failed, token).ConfigureAwait(false);
-                foreach (Mission mission in failed.Take(_MaxPerCategory))
+                foreach (Mission mission in failed)
                 {
                     items.Add(new InboxItem
                     {
@@ -151,7 +153,7 @@ namespace Armada.Core.Services
                 }
 
                 List<Captain> stalled = await CaptainsByStateAsync(auth, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
-                foreach (Captain captain in stalled.Take(_MaxPerCategory))
+                foreach (Captain captain in stalled)
                 {
                     items.Add(new InboxItem
                     {
@@ -167,7 +169,7 @@ namespace Armada.Core.Services
                 }
 
                 List<MergeEntry> mergeFailed = await MergeEntriesByStatusAsync(auth, MergeStatusEnum.Failed, token).ConfigureAwait(false);
-                foreach (MergeEntry entry in mergeFailed.Take(_MaxPerCategory))
+                foreach (MergeEntry entry in mergeFailed)
                 {
                     items.Add(new InboxItem
                     {
@@ -186,7 +188,7 @@ namespace Armada.Core.Services
                     await _Database.Deployments.EnumerateAllAsync(new DeploymentQuery(), token).ConfigureAwait(false),
                     d => d.TenantId, d => d.UserId);
 
-                foreach (Deployment deployment in deployments.Where(d => d.Status == DeploymentStatusEnum.PendingApproval).Take(_MaxPerCategory))
+                foreach (Deployment deployment in deployments.Where(d => d.Status == DeploymentStatusEnum.PendingApproval))
                 {
                     items.Add(new InboxItem
                     {
@@ -203,7 +205,7 @@ namespace Armada.Core.Services
                     });
                 }
 
-                foreach (Deployment deployment in deployments.Where(d => d.Status == DeploymentStatusEnum.Failed || d.Status == DeploymentStatusEnum.VerificationFailed).Take(_MaxPerCategory))
+                foreach (Deployment deployment in deployments.Where(d => d.Status == DeploymentStatusEnum.Failed || d.Status == DeploymentStatusEnum.VerificationFailed))
                 {
                     items.Add(new InboxItem
                     {
@@ -222,7 +224,7 @@ namespace Armada.Core.Services
                     });
                 }
 
-                foreach (AskActionProposal proposal in (await PendingAskProposalsAsync(auth, token).ConfigureAwait(false)).Take(_MaxPerCategory))
+                foreach (AskActionProposal proposal in await PendingAskProposalsAsync(auth, token).ConfigureAwait(false))
                 {
                     string summary = String.IsNullOrWhiteSpace(proposal.SummaryText) ? proposal.ToolName : proposal.SummaryText;
                     items.Add(new InboxItem
@@ -238,7 +240,7 @@ namespace Armada.Core.Services
                     });
                 }
 
-                foreach (CliPermissionRequest request in (await PendingCliPermissionsAsync(auth, token).ConfigureAwait(false)).Take(_MaxPerCategory))
+                foreach (CliPermissionRequest request in await PendingCliPermissionsAsync(auth, token).ConfigureAwait(false))
                 {
                     string where = !String.IsNullOrEmpty(request.MissionTitle) ? "mission " + request.MissionTitle
                         : (!String.IsNullOrEmpty(request.ThreadId) ? "an Ask conversation" : "a captain session");
@@ -323,7 +325,7 @@ namespace Armada.Core.Services
         private async Task<List<CliPermissionRequest>> PendingCliPermissionsAsync(AuthContext auth, CancellationToken token)
         {
             if (CliPermissionAccess.IsCaptainSession(auth)) return new List<CliPermissionRequest>();
-            CliPermissionRequestQuery query = new CliPermissionRequestQuery { Status = CliPermissionRequestStatusEnum.Pending, Limit = _MaxPerCategory };
+            CliPermissionRequestQuery query = new CliPermissionRequestQuery { Status = CliPermissionRequestStatusEnum.Pending, Limit = _MaxPendingCliPermissions };
             if (!auth.IsAdmin)
             {
                 query.TenantId = auth.TenantId;

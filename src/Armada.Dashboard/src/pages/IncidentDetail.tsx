@@ -12,6 +12,7 @@ import {
   rollbackDeployment,
   updateIncident,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   Deployment,
   DeploymentEnvironment,
@@ -90,10 +91,10 @@ export default function IncidentDetail() {
     let cancelled = false;
 
     Promise.all([
-      listVessels({ pageSize: 9999 }),
-      listEnvironments({ pageSize: 9999 }),
-      listDeployments({ pageSize: 9999 }),
-      listReleases({ pageSize: 9999 }),
+      listAll(listVessels),
+      listAll(listEnvironments),
+      listAll(listDeployments),
+      listAll(listReleases),
     ]).then(([vesselResult, environmentResult, deploymentResult, releaseResult]) => {
       if (cancelled) return;
       setVessels(vesselResult.objects || []);
@@ -182,7 +183,7 @@ export default function IncidentDetail() {
     }
 
     let cancelled = false;
-    listRunbookExecutions({ incidentId: id, pageSize: 9999 }).then((result) => {
+    listAll(listRunbookExecutions, { incidentId: id }).then((result) => {
       if (!cancelled) setExecutions(result.objects || []);
     }).catch(() => {
       if (!cancelled) setExecutions([]);

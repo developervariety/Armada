@@ -241,15 +241,19 @@ namespace Armada.Core.Services
             WorkflowProfile? profile = await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, explicitWorkflowProfileId, token).ConfigureAwait(false);
             if (profile == null)
             {
+                // Dispatch does not need a profile; build, test, and deploy checks do. Say what is affected and how to fix it.
                 AddIssue(
                     result,
                     "workflow_profile_missing",
-                    checkSpecific ? ReadinessSeverityEnum.Error : ReadinessSeverityEnum.Warning,
-                    "Workflow profile not resolved",
+                    checkSpecific ? ReadinessSeverityEnum.Error : ReadinessSeverityEnum.Info,
+                    "No workflow profile",
                     checkSpecific
-                        ? "No active workflow profile could be resolved for the requested vessel and check."
-                        : "No active workflow profile is currently resolved for this vessel.",
+                        ? "This check needs a workflow profile with its command, and no active profile applies to this vessel. Create one in Configuration > Workflow Profiles, scoped to this vessel, its fleet, or every vessel (Global), and give it the command for this check."
+                        : "Missions can be dispatched without one. A workflow profile holds this vessel's lint, build, test, package, and deploy commands; without one, Armada cannot run checks or deployments for it. Create one in Configuration > Workflow Profiles, scoped to this vessel, its fleet, or every vessel (Global).",
                     explicitWorkflowProfileId);
+                VesselReadinessIssue added = result.Issues[result.Issues.Count - 1];
+                added.ActionLabel = "Create a workflow profile";
+                added.ActionHref = "/configuration?tab=workflow-profiles&createProfile=vessel&vesselId=" + Uri.EscapeDataString(vessel.Id);
 
                 FinalizeResult(result);
                 return result;

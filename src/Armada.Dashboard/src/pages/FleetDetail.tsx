@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { listFleets, listVessels, listPipelines, createFleet, updateFleet, deleteFleet, apiErrorMessage } from '../api/client';
+import { getFleet, listVessels, listPipelines, createFleet, updateFleet, deleteFleet, apiErrorMessage } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -39,10 +40,16 @@ export default function FleetDetail() {
     try {
       setLoading(true);
       const isInitialLoad = !fleet;
-      const [fResult, vResult, pResult] = await Promise.all([listFleets({ pageSize: 9999 }), listVessels({ pageSize: 9999 }), listPipelines({ pageSize: 9999 })]);
-      const found = fResult.objects.find((fleetItem) => fleetItem.id === id);
+      let found: Fleet | null = null;
+      try {
+        found = await getFleet(id);
+      } catch {
+        found = null;
+      }
       if (!found) { setError(t('Fleet not found.')); setLoading(false); return; }
+      const [vResult, pResult] = await Promise.all([listAll(listVessels, { filters: { fleetId: id } }), listAll(listPipelines)]);
       setFleet(found);
+      // The server filters by fleet; keep the client check so a route that ignores the filter cannot leak others.
       setVessels(vResult.objects.filter(v => v.fleetId === id));
       setPipelines(pResult.objects);
       if (isInitialLoad) setError('');

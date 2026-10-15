@@ -55,6 +55,20 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("no_category_cap", "Every failed mission is in the inbox: 181 failed missions list as 181, not a capped 100", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    for (int i = 0; i < 181; i++)
+                        await db.Missions.CreateAsync(new Mission("Failed " + i) { Status = MissionStatusEnum.Failed });
+
+                    InboxService inbox = new InboxService(db, CreateLogging());
+                    List<InboxItem> items = await inbox.GetInboxAsync(AuthContext.Authenticated("ten_inbox", "usr_inbox", true, false, "Test"));
+                    AssertEqual(181, items.Count(i => i.Kind == InboxItemKinds.Failed), "all failed missions are listed");
+                }
+            }));
+
             cases.Add(CaseAsync("deployment_approval_environment_first", "A deployment approval is titled environment first, then deployment title, and carries both as typed fields", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

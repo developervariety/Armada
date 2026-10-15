@@ -11,6 +11,7 @@ import {
   listWorkflowProfiles,
   updateDeployment,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type {
   Deployment,
   DeploymentEnvironment,
@@ -88,11 +89,11 @@ export default function Deployments() {
     try {
       setLoading(true);
       const [deploymentResult, vesselResult, environmentResult, releaseResult, profileResult] = await Promise.all([
-        listDeployments({ pageSize: 9999 }),
-        listVessels({ pageSize: 9999 }),
-        listEnvironments({ pageSize: 9999 }),
-        listReleases({ pageSize: 9999 }),
-        listWorkflowProfiles({ pageSize: 9999 }),
+        listAll(listDeployments),
+        listAll(listVessels),
+        listAll(listEnvironments),
+        listAll(listReleases),
+        listAll(listWorkflowProfiles),
       ]);
       setDeployments(deploymentResult.objects || []);
       setVessels(sortByName(vesselResult.objects));

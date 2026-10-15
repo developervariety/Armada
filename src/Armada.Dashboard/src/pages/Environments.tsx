@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createEnvironment, deleteEnvironment, listEnvironments, listVessels, updateEnvironment } from '../api/client';
+import { listAll } from '../api/paging';
 import type { DeploymentEnvironment, DeploymentEnvironmentUpsertRequest, EnvironmentKind, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
@@ -155,8 +156,8 @@ export default function Environments() {
     try {
       setLoading(true);
       const [environmentResult, vesselResult] = await Promise.all([
-        listEnvironments({ pageSize: 9999 }),
-        listVessels({ pageSize: 9999 }),
+        listAll(listEnvironments),
+        listAll(listVessels),
       ]);
       setEnvironments(environmentResult.objects || []);
       setVessels(vesselResult.objects || []);

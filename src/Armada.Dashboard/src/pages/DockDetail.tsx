@@ -6,6 +6,7 @@ import {
   listCaptains,
   listVessels,
 } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Dock, Captain, Vessel } from '../types/models';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -43,8 +44,8 @@ export default function DockDetail() {
   useEffect(() => {
     if (!id) return;
     getDock(id).then(setDock).catch(() => setError(t('Failed to load dock.')));
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
+    listAll(listCaptains).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listAll(listVessels).then(r => setVessels(r.objects || [])).catch(() => {});
   }, [id, t]);
 
   function handleDelete() {

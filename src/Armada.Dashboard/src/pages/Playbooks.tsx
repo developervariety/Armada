@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPlaybook, deletePlaybook, listPlaybooks, updatePlaybook } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Playbook, ScopeEnum } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { canEdit as canEditScoped, resolveCreateScope, type ScopeViewer } from '../lib/scoping';
@@ -110,7 +111,7 @@ export default function Playbooks() {
   async function load() {
     try {
       setLoading(true);
-      const result = await listPlaybooks({ pageSize: 9999 });
+      const result = await listAll(listPlaybooks);
       setPlaybooks(result.objects || []);
       setError('');
     } catch (err: unknown) {

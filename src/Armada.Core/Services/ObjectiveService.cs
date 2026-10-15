@@ -738,14 +738,11 @@ namespace Armada.Core.Services
                     return await _Database.Events.EnumerateByEntityAsync("objective", objectiveId, 500, token).ConfigureAwait(false);
                 if (auth.IsTenantAdmin)
                     return await _Database.Events.EnumerateByEntityAsync(auth.TenantId!, "objective", objectiveId, 500, token).ConfigureAwait(false);
-                return (await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, new EnumerationQuery
-                {
-                    PageNumber = 1,
-                    PageSize = 500
-                }, token).ConfigureAwait(false)).Objects
+                // Query this objective's events and keep the caller's, rather than filtering the caller's newest events
+                // of every kind (which missed snapshots once other events crowded them out).
+                return (await _Database.Events.EnumerateByEntityAsync(auth.TenantId!, "objective", objectiveId, 500, token).ConfigureAwait(false))
                     .Where(item =>
-                        String.Equals(item.EntityType, "objective", StringComparison.OrdinalIgnoreCase)
-                        && String.Equals(item.EntityId, objectiveId, StringComparison.OrdinalIgnoreCase)
+                        String.Equals(item.UserId, auth.UserId, StringComparison.Ordinal)
                         && String.Equals(item.EventType, "objective.snapshot", StringComparison.OrdinalIgnoreCase))
                     .ToList();
             }
@@ -756,12 +753,8 @@ namespace Armada.Core.Services
             else if (auth.IsTenantAdmin)
                 events = await _Database.Events.EnumerateByTypeAsync(auth.TenantId!, "objective.snapshot", 5000, token).ConfigureAwait(false);
             else
-                events = (await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, new EnumerationQuery
-                {
-                    PageNumber = 1,
-                    PageSize = 5000
-                }, token).ConfigureAwait(false)).Objects
-                    .Where(item => String.Equals(item.EventType, "objective.snapshot", StringComparison.OrdinalIgnoreCase))
+                events = (await _Database.Events.EnumerateByTypeAsync(auth.TenantId!, "objective.snapshot", 5000, token).ConfigureAwait(false))
+                    .Where(item => String.Equals(item.UserId, auth.UserId, StringComparison.Ordinal))
                     .ToList();
 
             return events

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { listVessels, listPipelines, createVoyage } from '../api/client';
+import { listAll } from '../api/paging';
 import type { Vessel, Pipeline, SelectedPlaybook } from '../types/models';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
@@ -33,8 +34,8 @@ export default function VoyageCreate() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    listVessels({ pageSize: 1000 }).then(r => setVessels(sortByName(r.objects))).catch(() => {});
-    listPipelines({ pageSize: 1000 }).then(r => setPipelines(r.objects || [])).catch(() => {});
+    listAll(listVessels).then(r => setVessels(sortByName(r.objects))).catch(() => {});
+    listAll(listPipelines).then(r => setPipelines(r.objects || [])).catch(() => {});
   }, []);
 
   function addMission() {

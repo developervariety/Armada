@@ -12,6 +12,7 @@ import {
   hintLabel,
 } from '../../../lib/vesselImportLabels';
 import { IMPORT_LANDING_MODES } from '../../../lib/vesselImport';
+import { usePersistedPageSize } from '../../../lib/usePersistedPageSize';
 
 export interface ImportDefaults {
   fleetId: string;
@@ -47,7 +48,7 @@ export default function ImportReviewStep({
   const [statusFilter, setStatusFilter] = useState<VesselImportCandidateStatus | ''>('');
   const [search, setSearch] = useState('');
   const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = usePersistedPageSize('vessel-import-review', 50);
 
   const counts = useMemo(() => {
     const c: Partial<Record<VesselImportCandidateStatus, number>> = {};

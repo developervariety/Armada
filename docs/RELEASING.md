@@ -23,7 +23,10 @@ If the release changes the database schema, confirm that the migration is regist
 
 ## 2. Continuous integration is green
 
-`.github/workflows/ci.yml` runs on every push and pull request. For the release commit, every job must be green:
+Every push and pull request runs only the quick smoke test, `.github/workflows/ci.yml`: a warning-free Release build
+on Linux, the fast suites (`Models`, `Client`, `Metrics`, `Database` on SQLite, `Runtimes`; about a minute), and the
+dashboard `dist/` drift check. Nothing in the repository runs on a schedule. The full verification is manual: run
+`.github/workflows/full.yml` (Actions > full > Run workflow) on the release commit. Every job must be green:
 
 - `dotnet build src/Armada.sln -c Release -warnaserror` on Windows, macOS, and Linux (NuGet vulnerability-audit
   warnings `NU1900`-`NU1904` are left as warnings). A new compiler warning fails the build.
@@ -32,19 +35,23 @@ If the release changes the database schema, confirm that the migration is regist
 - The dashboard: `npm ci`, `npm run build`, and `npm run test:run` in `src/Armada.Dashboard`.
 - The dist drift check, which fails when `src/Armada.Dashboard/dist` does not match a fresh build. The `dist/`
   folder is committed on purpose, so a forgotten rebuild ships a stale dashboard to anyone installing without Node.
+- The mobile app: typecheck, lint, Jest, route screens, and the parity manifest.
 - The TUI parity gate: `python3 scripts/tui/generate-parity-manifest.py --check` (the manifest matches the dashboard
   source and has no planned entries).
 - The compose check: every file in `docker/` renders with `docker compose config`, and each still refuses to render
   without its required secret (`ARMADA_INITIAL_ADMIN_PASSWORD`, `ARMADA_PROXY_PASSWORD`).
+
+Run `.github/workflows/security.yml` too: it fails on a NuGet package with a known vulnerability, a high or critical
+dashboard npm advisory, or a mobile advisory outside its reviewed allowlist.
 
 A rerun that turns a red job green is not a pass until you know why it was red. Intermittent end-to-end failures are
 tracked under W4.2 in [V1_READINESS.md](../V1_READINESS.md); note any you saw in the release notes.
 
 ## 3. Provider parity is green
 
-`.github/workflows/nightly-parity.yml` runs `scripts/common/run-db-parity-tests.sh` every night against SQLite,
-PostgreSQL, MySQL, and SQL Server on an Ubuntu runner. The most recent nightly run against the release commit (or a
-manual dispatch of the workflow on it) must report `RESULT: PARITY OK`. To run it locally:
+`.github/workflows/db-parity.yml` runs `scripts/common/run-db-parity-tests.sh` against SQLite, PostgreSQL, MySQL, and
+SQL Server on an Ubuntu runner. It is manual (Actions > db-parity > Run workflow); a run against the release commit
+must report `RESULT: PARITY OK`. To run it locally:
 
 ```bash
 scripts/common/run-db-parity-tests.sh                                # all four providers
@@ -127,9 +134,8 @@ logs in through `POST /api/v1/authenticate` and the session works on `GET /api/v
 created from a temporary bare git repository, and one voyage with one mission is dispatched. The mission runs on an
 API-endpoint captain whose model endpoint is `scripts/common/install-verify/stub_inference.py`, a stub
 OpenAI-compatible server that asks the captain to write `INSTALL_SMOKE.md` and commit it, so no model or API key is
-involved. The mission must reach `WorkProduced` (or later) and its diff must contain the file. The workflow runs on
-pushes to `main` and pull requests that touch packaging, weekly, and on demand; the most recent run against the release
-commit must be green.
+involved. The mission must reach `WorkProduced` (or later) and its diff must contain the file. The workflow is manual
+(Actions > install-verify > Run workflow); a run against the release commit must be green.
 
 | Path | Script | What it installs | Where |
 |------|--------|------------------|-------|

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getJob, listJobs } from '../../api/client';
+import { fetchAllPages } from '../../api/paging';
 import type { Job } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
@@ -10,8 +11,11 @@ import { jobFriendlyName, jobRoute } from '../../lib/vesselImportLabels';
 export const ACTIVITY_FAST_POLL_MS = 5000;
 /** Poll interval while nothing is running, in milliseconds. */
 export const ACTIVITY_IDLE_POLL_MS = 30000;
-/** Most active jobs fetched per poll; more than this running at once is not expected. */
-export const ACTIVITY_PAGE_SIZE = 100;
+/**
+ * Page size for the active-jobs poll (the route maximum). Every page is read, so the count and the "finished"
+ * announcements stay correct even when more jobs than one page are active at once.
+ */
+export const ACTIVITY_PAGE_SIZE = 1000;
 /** Window event other components dispatch right after they start background work, to refresh immediately. */
 export const BACKGROUND_ACTIVITY_EVENT = 'armada:background-activity';
 
@@ -74,7 +78,10 @@ export default function BackgroundActivityIndicator() {
     let active: Job[] = [];
     try {
       // Ask the server for active jobs only: the full job history grows without bound and this runs every 5-30 s.
-      const result = await listJobs({ status: ['Queued', 'Running'], pageSize: ACTIVITY_PAGE_SIZE });
+      const result = await fetchAllPages(
+        (pageNumber, pageSize) => listJobs(pageNumber > 1 ? { status: ['Queued', 'Running'], pageNumber, pageSize } : { status: ['Queued', 'Running'], pageSize }),
+        { pageSize: ACTIVITY_PAGE_SIZE },
+      );
       active = (result.objects || []).filter(isActive);
       if (!mounted.current) return;
       const before = previous.current;
