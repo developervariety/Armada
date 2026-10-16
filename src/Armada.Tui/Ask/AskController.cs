@@ -895,7 +895,7 @@ namespace Armada.Tui.Ask
         /// outcome as soon as the call returns.
         /// </summary>
         /// <param name="request">Pending request.</param>
-        /// <param name="decision">AllowOnce, AllowAndRemember, or Deny.</param>
+        /// <param name="decision">AllowOnce, AllowAndRemember, AllowForConversation, or Deny.</param>
         /// <returns>True when the decision (or its dialog) started.</returns>
         public bool DecideCliPermission(CliPermissionRequest request, CliPermissionDecisionEnum decision)
         {
@@ -919,6 +919,7 @@ namespace Armada.Tui.Ask
             }
 
             if (decision == CliPermissionDecisionEnum.AllowAndRemember) return actions.RememberCliPermission(item, finished) != null;
+            if (decision == CliPermissionDecisionEnum.AllowForConversation) return actions.AllowCliPermissionForConversation(item, finished) != null;
             return actions.DenyCliPermission(item, finished) != null;
         }
 

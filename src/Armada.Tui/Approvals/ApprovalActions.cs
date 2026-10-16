@@ -380,6 +380,42 @@ namespace Armada.Tui.Approvals
         }
 
         /// <summary>
+        /// Allow a CLI permission request and every later CLI tool call in its Ask conversation, after the Bypass
+        /// warning: the conversation switches to Bypass (the admin owner of the conversation only).
+        /// </summary>
+        /// <param name="item">CLI permission item.</param>
+        /// <param name="finished">Runs on the UI loop when the call ends, or null.</param>
+        /// <returns>The confirmation, or null when the request does not allow it.</returns>
+        public ConfirmDialog? AllowCliPermissionForConversation(ApprovalItem item, Action<CliPermissionRequest?>? finished)
+        {
+            if (!CanDecideCliPermission(item)) return null;
+            if (!item.CliPermission!.CanAllowForConversation)
+            {
+                _Context.Notifications.Toast(NotificationSeverityEnum.Info, _Context.Loc.T("Only the conversation's owner, when an admin, can allow every call in the conversation."));
+                return null;
+            }
+
+            ConfirmDialog dialog = new ConfirmDialog(
+                "Allow for this conversation",
+                _Context.Loc.T("Allows this call now and switches this conversation to Bypass, so later CLI tool calls run without asking.") + "\n\n" + CliPermissionText.BypassWarning(_Context.Loc),
+                "Allow everything",
+                "Cancel",
+                null,
+                _Context.Loc,
+                _Context.Theme.Current);
+            _Context.Modals.Show(dialog, result =>
+            {
+                if (result is bool ok && ok)
+                {
+                    CliPermissionDecisionRequest decision = new CliPermissionDecisionRequest();
+                    decision.Decision = CliPermissionDecisionEnum.AllowForConversation;
+                    SubmitCliPermission(item, decision, finished);
+                }
+            });
+            return dialog;
+        }
+
+        /// <summary>
         /// Open the deny dialog for a CLI permission request, then submit and run <paramref name="finished"/>.
         /// </summary>
         /// <param name="item">CLI permission item.</param>
@@ -414,7 +450,10 @@ namespace Armada.Tui.Approvals
         {
             if (item == null) throw new ArgumentNullException(nameof(item));
             if (decision == null) throw new ArgumentNullException(nameof(decision));
-            Record(item, decision.Decision == CliPermissionDecisionEnum.AllowOnce ? "allow_once" : decision.Decision == CliPermissionDecisionEnum.AllowAndRemember ? "allow_remember" : "deny");
+            Record(item, decision.Decision == CliPermissionDecisionEnum.AllowOnce ? "allow_once"
+                : decision.Decision == CliPermissionDecisionEnum.AllowAndRemember ? "allow_remember"
+                : decision.Decision == CliPermissionDecisionEnum.AllowForConversation ? "allow_conversation"
+                : "deny");
             string tool = String.IsNullOrEmpty(item.ToolName) ? (item.EntityName ?? item.Title) : item.ToolName!;
             ArmadaClient client = _Context.Client;
             _ = Task.Run(async () =>
@@ -432,6 +471,11 @@ namespace Armada.Tui.Approvals
                     else if (decision.Decision == CliPermissionDecisionEnum.AllowAndRemember)
                     {
                         toast = "Allowed {{tool}} and saved the rule {{pattern}}.";
+                        severity = NotificationSeverityEnum.Success;
+                    }
+                    else if (decision.Decision == CliPermissionDecisionEnum.AllowForConversation)
+                    {
+                        toast = "Allowed {{tool}}. This conversation now runs CLI tools without asking.";
                         severity = NotificationSeverityEnum.Success;
                     }
 

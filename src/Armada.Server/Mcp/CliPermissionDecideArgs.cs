@@ -11,7 +11,7 @@ namespace Armada.Server.Mcp
         public string RequestId { get; set; } = "";
 
         /// <summary>
-        /// AllowOnce, AllowAndRemember, or Deny.
+        /// AllowOnce, AllowAndRemember, AllowForConversation, or Deny.
         /// </summary>
         public string Decision { get; set; } = "";
 

@@ -410,7 +410,7 @@ namespace Armada.Tui.Screens.Ask
             return rows;
         }
 
-        private static StyledText Fit(StyledText text, int width)
+        internal static StyledText Fit(StyledText text, int width)
         {
             if (text.Width <= width) return text;
             List<StyledSpan> spans = new List<StyledSpan>();

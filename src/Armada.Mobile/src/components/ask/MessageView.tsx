@@ -86,7 +86,7 @@ export const MessageView = memo(function MessageView({ message, proposal, captai
     return (
       <View style={styles.block} testID={testID}>
         {cliRequest
-          ? <CliPermissionCard request={cliRequest} onDecided={onCliDecided} />
+          ? <CliPermissionCard request={cliRequest} onDecided={onCliDecided} collapsible />
           : <View style={[styles.unknownCard, { borderColor: colors.border }]}><AppText>{text || t('A CLI permission request is loading...')}</AppText></View>}
         <AppText variant="caption" muted>{when}</AppText>
       </View>

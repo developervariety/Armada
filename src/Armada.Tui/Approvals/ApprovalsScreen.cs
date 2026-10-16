@@ -150,6 +150,7 @@ namespace Armada.Tui.Approvals
                 case ApprovalKindEnum.CliPermission:
                     keys.Add(new KeyValuePair<string, string>("a", "Allow once"));
                     keys.Add(new KeyValuePair<string, string>("A", "Allow and remember"));
+                    keys.Add(new KeyValuePair<string, string>("b", "Allow for this conversation"));
                     keys.Add(new KeyValuePair<string, string>("d", "Deny"));
                     break;
             }
@@ -169,7 +170,8 @@ namespace Armada.Tui.Approvals
 
         /// <summary>
         /// Decision keys of an item (key, English label): the kind's keys, except that a CLI permission request the
-        /// user cannot decide has none and one the user cannot remember has no <c>A</c>.
+        /// user cannot decide has none, one the user cannot remember has no <c>A</c>, and one the user cannot allow for its
+        /// conversation has no <c>b</c>.
         /// </summary>
         /// <param name="item">Item.</param>
         /// <returns>Keys.</returns>
@@ -180,6 +182,7 @@ namespace Armada.Tui.Approvals
             if (item.Kind != ApprovalKindEnum.CliPermission) return keys;
             if (item.CliPermission == null || !item.CliPermission.CanDecide) return new List<KeyValuePair<string, string>>();
             if (!item.CliPermission.CanRemember) keys.RemoveAll(k => k.Key == "A");
+            if (!item.CliPermission.CanAllowForConversation) keys.RemoveAll(k => k.Key == "b");
             return keys;
         }
 
@@ -229,6 +232,7 @@ namespace Armada.Tui.Approvals
                 case ApprovalKindEnum.CliPermission:
                     if (key == 'a') return Actions.AllowCliPermissionOnce(item);
                     if (key == 'A') return Actions.RememberCliPermission(item) != null;
+                    if (key == 'b') return Actions.AllowCliPermissionForConversation(item, null) != null;
                     if (key == 'd') return Actions.DenyCliPermission(item) != null;
                     return false;
                 default:

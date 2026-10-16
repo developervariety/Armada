@@ -33,6 +33,11 @@ namespace Armada.Tui.Screens.Ask
         public HashSet<string> ExpandedArguments { get; } = new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
+        /// CLI permission request ids whose decided card is expanded (decided cards start collapsed).
+        /// </summary>
+        public HashSet<string> ExpandedCliPermissions { get; } = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
         /// Work id highlighted after a jump from the work strip, or null.
         /// </summary>
         public string? HighlightedWorkId { get; private set; } = null;

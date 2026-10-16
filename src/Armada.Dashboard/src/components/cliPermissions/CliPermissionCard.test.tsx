@@ -87,6 +87,48 @@ describe('CliPermissionCard', () => {
     expect(screen.queryByRole('button', { name: 'Allow and remember' })).not.toBeInTheDocument();
   });
 
+  it('offers Allow for this conversation only when the user may set the conversation to Bypass', () => {
+    renderCard(request());
+    expect(screen.queryByRole('button', { name: 'Allow for this conversation' })).not.toBeInTheDocument();
+  });
+
+  it('allows for the conversation after confirming the Bypass warning', async () => {
+    const updated = request({ status: 'Allowed', canDecide: false, decisionSource: 'Approver' });
+    vi.mocked(decideCliPermissionRequest).mockResolvedValue(updated);
+    const onDecided = renderCard(request({ canAllowForConversation: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Allow for this conversation' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText(/Bypass lets the captain run any command/)).toBeInTheDocument();
+    expect(decideCliPermissionRequest).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Allow everything' }));
+    await act(async () => { await Promise.resolve(); });
+    expect(decideCliPermissionRequest).toHaveBeenCalledWith('cpr_1', { decision: 'AllowForConversation' });
+    expect(onDecided).toHaveBeenCalledWith(updated);
+  });
+
+  it('says a call was allowed for the conversation', () => {
+    renderCard(request({ status: 'Allowed', decisionSource: 'ConversationBypass', canDecide: false }));
+    expect(screen.getByText('Allowed for this conversation.')).toBeInTheDocument();
+  });
+
+  it('collapses a decided card only when collapsible, and toggles from the header', () => {
+    render(<MemoryRouter><CliPermissionCard request={request({ status: 'Allowed', decisionSource: 'Approver', canDecide: false })} collapsible /></MemoryRouter>);
+    const header = screen.getByRole('button', { expanded: false });
+    expect(screen.getByText('git push origin main')).toBeInTheDocument();
+    expect(screen.queryByText('Ada')).not.toBeInTheDocument();
+    fireEvent.click(header);
+    expect(screen.getByText('Ada')).toBeInTheDocument();
+    fireEvent.keyDown(header, { key: ' ' });
+    expect(screen.queryByText('Ada')).not.toBeInTheDocument();
+  });
+
+  it('keeps a pending collapsible card expanded with no toggle', () => {
+    render(<MemoryRouter><CliPermissionCard request={request()} collapsible /></MemoryRouter>);
+    expect(screen.queryByRole('button', { expanded: false })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { expanded: true })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Allow once' })).toBeInTheDocument();
+  });
+
   it('says it waits for an admin when the user cannot decide', () => {
     renderCard(request({ canDecide: false, canRemember: false }));
     expect(screen.getByText('Waiting for an admin to decide.')).toBeInTheDocument();

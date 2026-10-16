@@ -488,7 +488,13 @@ describe('Ask Armada', () => {
     expect(screen.getByText('git status')).toBeTruthy();
     await act(async () => { await fireEvent.press(screen.getByTestId('cli-allow-cpr_1')); });
     expect(api.decideCliPermissionRequest).toHaveBeenCalledWith('cpr_1', { decision: 'AllowOnce' });
-    await waitFor(() => expect(screen.getByText(/Allowed. The captain ran the tool./)).toBeTruthy());
+    // A decided card collapses to its header and command; tapping the header expands it.
+    await waitFor(() => expect(screen.getByTestId('cli-permission-summary-line-cpr_1')).toBeTruthy());
+    expect(screen.queryByText(/Allowed. The captain ran the tool./)).toBeNull();
+    await act(async () => { await fireEvent.press(screen.getByTestId('cli-permission-header-cpr_1')); });
+    expect(screen.getByText(/Allowed. The captain ran the tool./)).toBeTruthy();
+    await act(async () => { await fireEvent.press(screen.getByTestId('cli-permission-header-cpr_1')); });
+    expect(screen.queryByText(/Allowed. The captain ran the tool./)).toBeNull();
   });
 
   it('a CLI permission request can be denied with a message for the captain', async () => {

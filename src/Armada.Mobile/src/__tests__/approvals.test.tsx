@@ -81,6 +81,8 @@ describe('approval actions (shared with push actions)', () => {
     expect(api.decideCliPermissionRequest).toHaveBeenLastCalledWith('cpr_1', { decision: 'AllowOnce' });
     await decideApproval({ kind: 'cli_permission', requestId: 'cpr_1' }, 'approve', { remember: { pattern: ' Bash(git push:*) ', scope: 'Vessel' } });
     expect(api.decideCliPermissionRequest).toHaveBeenLastCalledWith('cpr_1', { decision: 'AllowAndRemember', rulePattern: 'Bash(git push:*)', ruleScope: 'Vessel' });
+    await decideApproval({ kind: 'cli_permission', requestId: 'cpr_1' }, 'approve', { forConversation: true });
+    expect(api.decideCliPermissionRequest).toHaveBeenLastCalledWith('cpr_1', { decision: 'AllowForConversation' });
     await decideApproval({ kind: 'cli_permission', requestId: 'cpr_1' }, 'deny', { comment: '  no  ' });
     expect(api.decideCliPermissionRequest).toHaveBeenLastCalledWith('cpr_1', { decision: 'Deny', message: 'no' });
     await decideApproval({ kind: 'cli_permission', requestId: 'cpr_1' }, 'deny');

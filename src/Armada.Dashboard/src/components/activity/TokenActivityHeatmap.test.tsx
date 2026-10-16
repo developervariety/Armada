@@ -26,6 +26,24 @@ describe('Token activity calendar', () => {
     fireEvent.change(screen.getByLabelText('Heatmap range'), { target: { value: '31' } });
     await waitFor(() => expect(screen.getAllByRole('gridcell')).toHaveLength(31));
   });
+  it('follows the page window and filters instead of its own range', async () => {
+    render(<TokenActivityHeatmap captainId="cpt_1" model="opus" spec={{ kind: 'calendar', days: 30 }} />);
+    await waitFor(() => expect(screen.getByRole('grid')).toBeInTheDocument());
+    expect(screen.queryByLabelText('Heatmap range')).not.toBeInTheDocument();
+    expect(getTokenUsage).toHaveBeenCalledWith(expect.objectContaining({ bucketMinutes: 1440, captainId: 'cpt_1', model: 'opus' }));
+    expect(screen.getAllByRole('gridcell')).toHaveLength(30);
+  });
+  it('shows hours for a week window and minutes for an hour window', async () => {
+    const { rerender } = render(<TokenActivityHeatmap spec={{ kind: 'hours', hours: 168 }} />);
+    await waitFor(() => expect(screen.getByRole('grid')).toBeInTheDocument());
+    expect(getTokenUsage).toHaveBeenLastCalledWith(expect.objectContaining({ bucketMinutes: 60 }));
+    expect(screen.getAllByRole('gridcell').length).toBeGreaterThanOrEqual(168);
+    expect(screen.getByText('Hourly token totals (UTC)')).toBeInTheDocument();
+    rerender(<TokenActivityHeatmap spec={{ kind: 'minutes', minutes: 60 }} />);
+    await waitFor(() => expect(getTokenUsage).toHaveBeenLastCalledWith(expect.objectContaining({ bucketMinutes: 1 })));
+    await waitFor(() => expect(screen.getByText('Token totals per minute (UTC)')).toBeInTheDocument());
+    expect(screen.getAllByRole('gridcell').length).toBeGreaterThanOrEqual(60);
+  });
   it('reports fetch failure without presenting it as zero activity and allows retry', async () => {
     vi.mocked(getTokenUsage).mockRejectedValueOnce(new Error('offline'));
     render(<TokenActivityHeatmap />);

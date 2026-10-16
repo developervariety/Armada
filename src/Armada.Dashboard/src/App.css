@@ -896,6 +896,8 @@ h3 { font-size: 1.1rem; margin-bottom: 0.5rem; font-weight: 600; margin-top: 1re
 /* Token Usage Charts */
 .token-usage-page { display: flex; flex-direction: column; gap: 1rem; }
 .token-usage-controls { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; }
+.token-usage-filter { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--text-dim); white-space: nowrap; max-width: 100%; }
+.token-usage-filter select { min-width: 12rem; max-width: 100%; }
 .token-usage-stats { margin: 0; }
 .token-usage-estimated-note { color: var(--text-dim); font-size: 0.8rem; font-style: italic; }
 .token-usage-chart-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); padding: 0.75rem 1rem 1rem; }
@@ -9026,6 +9028,15 @@ tr.row-muted td { opacity: 0.72; }
 .cli-perm-countdown { font-size: 0.76rem; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cli-perm-countdown.is-urgent { color: var(--red); font-weight: 600; }
 .cli-perm-summary .ask-confirm-pre { white-space: pre-wrap; word-break: break-word; }
+.cli-perm-body { display: contents; }
+.cli-perm-card.is-collapsible > .ask-confirm-header { cursor: pointer; border-radius: 4px; }
+.cli-perm-card.is-collapsible > .ask-confirm-header:hover .ask-confirm-label { color: var(--text); }
+.cli-perm-card.is-collapsible > .ask-confirm-header:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cli-perm-chevron { display: inline-flex; width: 0.9rem; height: 0.9rem; color: var(--text-dim); transition: transform 0.18s ease; }
+.cli-perm-chevron svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.cli-perm-card.is-collapsible:not(.is-collapsed) .cli-perm-chevron { transform: rotate(90deg); }
+.cli-perm-summary-line { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 0.8rem; color: var(--text-dim); }
+.cli-perm-bypass-warning { margin: 0 0 0.6rem; padding: 0.55rem 0.7rem; border-left: 3px solid var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); font-size: 0.88rem; }
 .cli-perm-meta { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin: 0; font-size: 0.8rem; }
 .cli-perm-meta > div { display: flex; gap: 0.3rem; min-width: 0; }
 .cli-perm-meta dt { color: var(--text-dim); }
@@ -9200,6 +9211,23 @@ thead tr.column-filter-row td input.col-filter { width: 0; min-width: 100%; }
 .token-activity-footer { display:flex; gap:1rem; justify-content:space-between; flex-wrap:wrap; font-size:0.8rem; margin-top:0.5rem; }
 .token-activity-legend { display:flex; align-items:center; gap:0.3rem; }
 .token-activity-card button.vhist-heat-cell { padding:0; min-width:0; }
+/* Token heatmap grid: columns share the card's width; the cell height follows the column width (set inline). */
+.tok-heat-columns,
+.tok-heat-grid {
+    display: grid;
+    grid-template-columns: var(--tok-heat-label) repeat(var(--tok-heat-cols), minmax(12px, 1fr));
+    column-gap: var(--tok-heat-gap);
+    min-width: 100%;
+}
+.tok-heat-grid.is-minutes { grid-template-columns: var(--tok-heat-label) repeat(var(--tok-heat-cols), minmax(9px, 1fr)); }
+.tok-heat-grid { row-gap: var(--tok-heat-gap); }
+.tok-heat-columns { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 0.25rem; }
+.tok-heat-column-label { grid-row: 1; white-space: nowrap; overflow: visible; }
+.tok-heat-corner { grid-column: 1; grid-row: 1; }
+.tok-heat-row-label { font-size: 0.72rem; line-height: var(--tok-heat-h); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tok-heat-grid .tok-heat-cell { width: 100%; height: var(--tok-heat-h); border-radius: 3px; border: 0; position: relative; }
+.tok-heat-day { position: absolute; top: 3px; left: 5px; font-size: 0.68rem; line-height: 1; color: var(--text-dim); pointer-events: none; }
+.tok-heat-cell.level-3 .tok-heat-day, .tok-heat-cell.level-4 .tok-heat-day { color: var(--bg-card); }
 
 /* Endpoints: authentication section and extra headers editor */
 .endpoint-auth-section { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.6rem 0.85rem 0.85rem; margin: 0 0 0.85rem; min-width: 0; }

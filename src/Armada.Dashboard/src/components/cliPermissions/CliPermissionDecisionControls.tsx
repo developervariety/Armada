@@ -3,6 +3,7 @@ import { decideCliPermissionRequest } from '../../api/client';
 import type { CliPermissionDecision, CliPermissionRequest, CliPermissionRuleScope } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 import DialogShell from '../shared/DialogShell';
+import { bypassWarning } from '../../lib/cliPermissions';
 
 interface CliPermissionDecisionControlsProps {
   request: CliPermissionRequest;
@@ -13,9 +14,11 @@ interface CliPermissionDecisionControlsProps {
 }
 
 /**
- * Allow once / Allow and remember / Deny for a pending CLI permission request. Allow and remember (offered only when
- * the caller may create rules) opens a dialog to edit the allow-rule pattern, prefilled with the suggested rule, and
- * pick its scope; Deny takes an optional message the captain sees. Decides through the REST API.
+ * Allow once / Allow and remember / Allow for this conversation / Deny for a pending CLI permission request. Allow and
+ * remember (offered only when the caller may create rules) opens a dialog to edit the allow-rule pattern, prefilled
+ * with the suggested rule, and pick its scope; Allow for this conversation (offered to the admin owner of the Ask
+ * conversation) confirms switching the conversation to Bypass; Deny takes an optional message the captain sees.
+ * Decides through the REST API.
  */
 export default function CliPermissionDecisionControls({ request, onDecided, describedBy }: CliPermissionDecisionControlsProps) {
   const { t } = useLocale();
@@ -23,6 +26,7 @@ export default function CliPermissionDecisionControls({ request, onDecided, desc
   const [error, setError] = useState('');
   const [rememberOpen, setRememberOpen] = useState(false);
   const [denyOpen, setDenyOpen] = useState(false);
+  const [conversationOpen, setConversationOpen] = useState(false);
   const [pattern, setPattern] = useState('');
   const [scope, setScope] = useState<CliPermissionRuleScope>('Captain');
   const [message, setMessage] = useState('');
@@ -62,6 +66,10 @@ export default function CliPermissionDecisionControls({ request, onDecided, desc
     if (await decide('AllowAndRemember', { rulePattern: trimmed, ruleScope: scope })) setRememberOpen(false);
   }
 
+  async function confirmConversation() {
+    if (await decide('AllowForConversation')) setConversationOpen(false);
+  }
+
   async function confirmDeny() {
     const trimmed = message.trim();
     if (await decide('Deny', trimmed ? { message: trimmed } : undefined)) setDenyOpen(false);
@@ -70,17 +78,22 @@ export default function CliPermissionDecisionControls({ request, onDecided, desc
   return (
     <div className="cli-perm-actions" onClick={(e) => e.stopPropagation()}>
       <button type="button" className="btn btn-sm btn-primary" aria-describedby={describedBy} onClick={() => void decide('AllowOnce')} disabled={busy} title={t('Let the captain run this one call now. No rule is saved, so the next matching call asks again.')}>
-        {busy && !rememberOpen && !denyOpen ? t('Working...') : t('Allow once')}
+        {busy && !rememberOpen && !denyOpen && !conversationOpen ? t('Working...') : t('Allow once')}
       </button>
       {request.canRemember && (
         <button type="button" className="btn btn-sm" aria-describedby={describedBy} onClick={openRemember} disabled={busy} title={t('Allow this call now and save an allow rule so matching calls run without asking. You choose the pattern and scope next.')}>
           {t('Allow and remember')}
         </button>
       )}
+      {request.canAllowForConversation && (
+        <button type="button" className="btn btn-sm" aria-describedby={describedBy} onClick={() => setConversationOpen(true)} disabled={busy} title={t('Allow this call and every later CLI tool call in this conversation without asking. The conversation switches to Bypass; change it back in the conversation header (CLI tools).')}>
+          {t('Allow for this conversation')}
+        </button>
+      )}
       <button type="button" className="btn btn-sm btn-danger" aria-describedby={describedBy} onClick={openDeny} disabled={busy} title={t('Refuse this call. The tool does not run and the captain is told it was denied; you can add a message explaining why.')}>
         {t('Deny')}
       </button>
-      {error && !rememberOpen && !denyOpen && <span className="cli-perm-error" role="alert">{error}</span>}
+      {error && !rememberOpen && !denyOpen && !conversationOpen && <span className="cli-perm-error" role="alert">{error}</span>}
 
       <DialogShell
         open={rememberOpen}
@@ -113,6 +126,26 @@ export default function CliPermissionDecisionControls({ request, onDecided, desc
             <option value="Global">{t('Everywhere (global)')}</option>
           </select>
         </div>
+      </DialogShell>
+
+      <DialogShell
+        open={conversationOpen}
+        title={t('Allow for this conversation')}
+        subtitle={t('Allows this call now and switches this conversation to Bypass, so later CLI tool calls run without asking.')}
+        onClose={() => { if (!busy) setConversationOpen(false); }}
+        dismissible={!busy}
+        footer={(
+          <>
+            <button type="button" className="btn" onClick={() => setConversationOpen(false)} disabled={busy}>{t('Cancel')}</button>
+            <button type="button" className="btn btn-danger" onClick={() => void confirmConversation()} disabled={busy} title={t('Allow this call, allow any other waiting calls from this conversation, and set the conversation to Bypass.')}>
+              {busy ? t('Working...') : t('Allow everything')}
+            </button>
+          </>
+        )}
+      >
+        {error && <div className="alert alert-error" role="alert">{error}</div>}
+        <p className="cli-perm-bypass-warning">{bypassWarning(t)}</p>
+        <p className="text-dim">{t('This applies only to this conversation. Change it back any time in the conversation header (CLI tools).')}</p>
       </DialogShell>
 
       <DialogShell

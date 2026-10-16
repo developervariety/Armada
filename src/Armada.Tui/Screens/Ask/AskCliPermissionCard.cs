@@ -15,8 +15,10 @@ namespace Armada.Tui.Screens.Ask
     /// Renders a CLI permission card in the Ask transcript (an <see cref="AskMessage"/> of kind
     /// <see cref="AskMessageKindEnum.CliPermission"/>): tool, command or input summary, captain (and vessel and mission
     /// for mission prompts), status, the expiry countdown while pending, and, for a request the user may decide, the
-    /// clickable [Allow once] (a), [Allow and remember] (A, admins), and [Deny] (d) buttons (the keys spelled out under
-    /// them while the card is selected), or that an admin must decide. Also builds the line under a tool chip the CLI refused for lack of permission. Thread-safe
+    /// clickable [Allow once] (a), [Allow and remember] (A, admins), [Allow for this conversation] (b, the admin owner),
+    /// and [Deny] (d) buttons (the keys spelled out under them while the card is selected), or that an admin must decide.
+    /// A decided card is collapsed to its title row and command unless expanded; its title row toggles it (as Enter
+    /// does). Also builds the line under a tool chip the CLI refused for lack of permission. Thread-safe
     /// (stateless).
     /// </summary>
     public static class AskCliPermissionCard
@@ -35,7 +37,7 @@ namespace Armada.Tui.Screens.Ask
         /// <returns>Lines.</returns>
         public static List<StyledText> Lines(CliPermissionRequest? request, string? fallbackText, ArmadaTheme theme, LocalizationService loc, DateTime nowUtc, int width)
         {
-            return Lines(request, fallbackText, false, false, theme, loc, nowUtc, width, null);
+            return Lines(request, fallbackText, false, false, true, theme, loc, nowUtc, width, null);
         }
 
         /// <summary>
@@ -45,13 +47,14 @@ namespace Armada.Tui.Screens.Ask
         /// <param name="fallbackText">Message text ("Tool: summary").</param>
         /// <param name="busy">A decision call is in flight.</param>
         /// <param name="focused">The card is selected in the focused transcript (its keys are spelled out).</param>
+        /// <param name="expanded">A decided card shows its details (ignored while pending, which always shows them).</param>
         /// <param name="theme">Theme.</param>
         /// <param name="loc">Localization.</param>
         /// <param name="nowUtc">Now.</param>
         /// <param name="width">Width in cells.</param>
         /// <param name="buttons">Receives the buttons (line within the returned lines, cell range, action), or null.</param>
         /// <returns>Lines.</returns>
-        public static List<StyledText> Lines(CliPermissionRequest? request, string? fallbackText, bool busy, bool focused, ArmadaTheme theme, LocalizationService loc, DateTime nowUtc, int width, List<AskCardButton>? buttons)
+        public static List<StyledText> Lines(CliPermissionRequest? request, string? fallbackText, bool busy, bool focused, bool expanded, ArmadaTheme theme, LocalizationService loc, DateTime nowUtc, int width, List<AskCardButton>? buttons)
         {
             if (theme == null) throw new ArgumentNullException(nameof(theme));
             if (loc == null) throw new ArgumentNullException(nameof(loc));
@@ -65,11 +68,22 @@ namespace Armada.Tui.Screens.Ask
 
             bool pending = request.Status == CliPermissionRequestStatusEnum.Pending;
             bool expired = pending && request.ExpiresUtc <= nowUtc;
-            StyledText title = StyledText.From(pending ? loc.T("Permission needed") : loc.T("CLI permission"), pending ? theme.Warning.WithAttribute(CellAttributes.Bold, true) : theme.Accent)
+            string chevron = pending ? "" : (expanded ? "v " : "> ");
+            StyledText title = StyledText.From(chevron + (pending ? loc.T("Permission needed") : loc.T("CLI permission")), pending ? theme.Warning.WithAttribute(CellAttributes.Bold, true) : theme.Accent)
                 .Append(StyledText.From("  " + (String.IsNullOrEmpty(request.ToolName) ? "tool" : request.ToolName) + "  ", theme.Code));
             CellStyle statusStyle = StatusStyle(request.Status, theme);
             StyledText right = StyledText.From(Marker(request.Status) + " " + CliPermissionText.Status(loc, request.Status), statusStyle);
             string summary = !String.IsNullOrWhiteSpace(request.SummaryText) ? request.SummaryText : (fallbackText ?? "");
+            if (!pending && buttons != null)
+                buttons.Add(new AskCardButton { Line = 0, X = -2, Width = Math.Max(14, width), Action = AskCardActionEnum.ToggleDetails, RequestId = request.Id });
+            if (!pending && !expanded)
+            {
+                // Collapsed: the command on one line, cut to the box.
+                string oneLine = summary.Trim().Replace("\r", " ").Replace("\n", " ");
+                if (oneLine.Length > 0) body.Add(AskCardRenderer.Fit(StyledText.From(oneLine, theme.Muted), inner));
+                return AskCardRenderer.Box(title, right, body, theme.Border, width);
+            }
+
             if (summary.Trim().Length > 0) body.AddRange(AskCardRenderer.Para(summary.Trim(), theme.Code, inner));
             string where = CliPermissionText.Where(loc, request);
             if (where.Length > 0) body.AddRange(AskCardRenderer.Para(where, theme.Muted, inner));
@@ -107,19 +121,23 @@ namespace Armada.Tui.Screens.Ask
                     };
                     add(loc.T("Allow once"), "a", theme.Success.WithAttribute(CellAttributes.Bold, true), AskCardActionEnum.AllowOnce);
                     if (request.CanRemember) add(loc.T("Allow and remember"), "A", theme.Success, AskCardActionEnum.AllowAndRemember);
+                    if (request.CanAllowForConversation) add(loc.T("Allow for this conversation"), "b", theme.Warning, AskCardActionEnum.AllowForConversation);
                     add(loc.T("Deny"), "d", theme.Error.WithAttribute(CellAttributes.Bold, true), AskCardActionEnum.Deny);
                     decisionIndex = body.Count;
                     body.Add(line);
                     if (focused)
                     {
-                        string keys = "> a " + loc.T("Allow once") + (request.CanRemember ? "   A " + loc.T("Allow and remember") : "") + "   d " + loc.T("Deny");
+                        string keys = "> a " + loc.T("Allow once") + (request.CanRemember ? "   A " + loc.T("Allow and remember") : "")
+                            + (request.CanAllowForConversation ? "   b " + loc.T("Allow for this conversation") : "") + "   d " + loc.T("Deny");
                         body.Add(StyledText.From(keys, theme.Accent.WithAttribute(CellAttributes.Bold, true)));
                     }
                 }
             }
             else if (request.Status == CliPermissionRequestStatusEnum.Allowed)
             {
-                string allowed = request.DecisionSource == CliPermissionDecisionSourceEnum.AllowRule ? loc.T("Allowed by a saved rule.") : loc.T("Allowed. The captain ran the tool.");
+                string allowed = request.DecisionSource == CliPermissionDecisionSourceEnum.AllowRule ? loc.T("Allowed by a saved rule.")
+                    : request.DecisionSource == CliPermissionDecisionSourceEnum.ConversationBypass ? loc.T("Allowed for this conversation.")
+                    : loc.T("Allowed. The captain ran the tool.");
                 body.Add(StyledText.From(allowed, theme.Success));
             }
             else if (request.Status == CliPermissionRequestStatusEnum.Denied)

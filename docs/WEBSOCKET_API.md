@@ -2352,7 +2352,7 @@ Decide a pending request; the waiting captain continues with the answer.
 |---|---|---|---|
 | `action` | string | Yes | `"decide_cli_permission_request"` |
 | `id` | string | Yes | Request ID (`cpr_`) |
-| `data.decision` | string | Yes | `AllowOnce`, `AllowAndRemember`, or `Deny` |
+| `data.decision` | string | Yes | `AllowOnce`, `AllowAndRemember`, `AllowForConversation` (the admin owner of the Ask thread; also sets the thread to `Bypass`), or `Deny` |
 | `data.message` | string | No | Returned to the captain with a denial |
 | `data.rulePattern` | string | No | Rule stored by `AllowAndRemember` (defaults to the suggested rule) |
 | `data.ruleScope` | string | No | `Global`, `Vessel`, or `Captain` (default `Captain`) |

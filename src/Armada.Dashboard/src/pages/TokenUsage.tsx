@@ -2,21 +2,25 @@ import TokenActivityHeatmap from '../components/activity/TokenActivityHeatmap';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
-import { getTokenUsage } from '../api/client';
-import type { TokenUsageSummaryResult } from '../types/models';
+import { getTokenUsage, listCaptains } from '../api/client';
+import type { Captain, TokenUsageSummaryResult } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
-import { copySvgToClipboard } from '../lib/chartImage';
-import { computeYTicks, formatTokens, TOKEN_USAGE_TIME_RANGES } from '../lib/tokenUsage';
+import { copyOrDownloadSvgImage } from '../lib/chartImage';
+import { tokenHeatmapSpecForHours } from '../lib/tokenHeatmap';
+import { computeYTicks, formatTokens, splitTokenTypes, TOKEN_USAGE_TIME_RANGES } from '../lib/tokenUsage';
 
 const TIME_RANGES = TOKEN_USAGE_TIME_RANGES;
 
 type TimeRangeValue = typeof TIME_RANGES[number]['value'];
 type Metric = 'total' | 'byType';
 type Shape = 'bars' | 'lines';
-type CopyState = 'idle' | 'ok' | 'fail';
+type CopyState = 'idle' | 'ok' | 'saved' | 'fail';
 
 const MODEL_COLORS = ['var(--accent)', 'var(--green)', 'var(--red)', '#a855f7', '#06b6d4', '#ec4899', 'var(--text-dim)', '#14b8a6'];
 const TYPE_COLORS = { input: 'var(--accent)', output: 'var(--green)', cached: 'var(--orange)' } as const;
+/** Stacked token-type parts, in drawing order; they add up to the total. */
+const TYPE_PARTS = ['uncached', 'cached', 'output'] as const;
+const PART_COLORS = { uncached: TYPE_COLORS.input, cached: TYPE_COLORS.cached, output: TYPE_COLORS.output } as const;
 
 interface SeriesDef { key: string; label: string; color: string }
 interface TooltipRow { label: string; color: string; value: number }
@@ -24,6 +28,7 @@ interface TooltipData { x: number; y: number; title: string; rows: TooltipRow[];
 
 function formatBucketLabel(ts: number, stepMinutes: number, hours: number): string {
   const d = new Date(ts);
+  if (stepMinutes >= 1440) return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   if (stepMinutes <= 15) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   if (hours > 48) return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -43,6 +48,11 @@ export default function TokenUsage() {
   // ?harborId= (from a Harbor's charts) limits the page to captains run on that Harbor.
   const [searchParams, setSearchParams] = useSearchParams();
   const harborId = searchParams.get('harborId') || '';
+  // ?captainId= or ?model= (the page's captain/model picker) filters the totals, the heatmap, and both charts.
+  const captainId = searchParams.get('captainId') || '';
+  const modelFilter = searchParams.get('model') || '';
+  const [captains, setCaptains] = useState<Captain[]>([]);
+  const [knownModels, setKnownModels] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState<TimeRangeValue>('day');
   const [metric, setMetric] = useState<Metric>('total');
   const [shape, setShape] = useState<Shape>('bars');
@@ -58,6 +68,15 @@ export default function TokenUsage() {
   const [tipPos, setTipPos] = useState<{ left: number; top: number }>({ left: -9999, top: -9999 });
 
   const range = TIME_RANGES.find(r => r.value === timeRange)!;
+  const heatmapSpec = useMemo(() => tokenHeatmapSpecForHours(range.hours), [range.hours]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listCaptains({ pageSize: 1000 })
+      .then((result) => { if (!cancelled) setCaptains([...(result?.objects ?? [])].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))); })
+      .catch(() => { if (!cancelled) setCaptains([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   useLayoutEffect(() => {
     if (!tooltip || !tipRef.current) return;
@@ -77,32 +96,38 @@ export default function TokenUsage() {
     const end = new Date();
     const start = new Date(end.getTime() - range.hours * 3600000);
     setLoading(true);
-    getTokenUsage({ fromUtc: start.toISOString(), toUtc: end.toISOString(), bucketMinutes: range.stepMinutes, harborId: harborId || undefined })
-      .then((result) => { if (!cancelled) setData(result); })
+    getTokenUsage({ fromUtc: start.toISOString(), toUtc: end.toISOString(), bucketMinutes: range.stepMinutes, harborId: harborId || undefined, captainId: captainId || undefined, model: modelFilter || undefined })
+      .then((result) => {
+        if (cancelled) return;
+        setData(result);
+        // Remember every model seen, so the picker still lists the others while one model is selected.
+        const seen = (result?.byModel ?? []).map(m => m.model).filter(Boolean);
+        setKnownModels(prev => (seen.every(m => prev.includes(m)) ? prev : [...new Set([...prev, ...seen])].sort()));
+      })
       .catch(() => { if (!cancelled) setData(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [range.hours, range.stepMinutes, timeRange, harborId]);
+  }, [range.hours, range.stepMinutes, timeRange, harborId, captainId, modelFilter]);
 
   const bucketTimestamps = useMemo<number[]>(
     () => (data?.buckets || []).map(b => new Date(b.bucketStartUtc).getTime()),
     [data],
   );
 
+  const typeSeries = useMemo<SeriesDef[]>(() => [
+    { key: 'uncached', label: t('Uncached input'), color: PART_COLORS.uncached },
+    { key: 'cached', label: t('Cached input'), color: PART_COLORS.cached },
+    { key: 'output', label: t('Output'), color: PART_COLORS.output },
+  ], [t]);
+
   const series = useMemo<SeriesDef[]>(() => {
-    if (metric === 'byType') {
-      return [
-        { key: 'input', label: t('Input'), color: TYPE_COLORS.input },
-        { key: 'output', label: t('Output'), color: TYPE_COLORS.output },
-        { key: 'cached', label: t('Cached'), color: TYPE_COLORS.cached },
-      ];
-    }
+    if (metric === 'byType') return typeSeries;
     return (data?.byModel || []).map((m, i) => ({ key: m.model, label: m.model, color: MODEL_COLORS[i % MODEL_COLORS.length] }));
-  }, [data, metric, t]);
+  }, [data, metric, typeSeries]);
 
   const bucketValues = useMemo<number[][]>(() => {
     const buckets = data?.buckets || [];
-    if (metric === 'byType') return buckets.map(b => [b.inputTokens, b.outputTokens, b.cachedTokens]);
+    if (metric === 'byType') return buckets.map(b => { const s = splitTokenTypes(b.inputTokens, b.outputTokens, b.cachedTokens); return TYPE_PARTS.map(p => s[p]); });
     return buckets.map(b => series.map(s => {
       const entry = b.models.find(m => m.model === s.key);
       return entry ? entry.totalTokens : 0;
@@ -141,12 +166,27 @@ export default function TokenUsage() {
   };
   const hideTip = () => setTooltip(null);
 
-  const copyChart = async (ref: React.RefObject<SVGSVGElement | null>, set: (s: CopyState) => void) => {
-    const ok = await copySvgToClipboard(ref.current, { background: 'var(--bg-card)' });
-    set(ok ? 'ok' : 'fail');
-    window.setTimeout(() => set('idle'), 1600);
+  const copyChart = async (ref: React.RefObject<SVGSVGElement | null>, set: (s: CopyState) => void, fileName: string) => {
+    // Called straight from the click so the clipboard write keeps the click's user activation (Safari needs it).
+    const result = await copyOrDownloadSvgImage(ref.current, { background: 'var(--bg-card)', fileName });
+    set(result === 'copied' ? 'ok' : result === 'downloaded' ? 'saved' : 'fail');
+    window.setTimeout(() => set('idle'), result === 'downloaded' ? 4000 : 1600);
   };
-  const copyLabel = (state: CopyState) => state === 'ok' ? t('Copied!') : state === 'fail' ? t('Copy failed') : t('Copy image');
+  const copyLabel = (state: CopyState) => state === 'ok' ? t('Copied!') : state === 'saved' ? t('Saved as PNG') : state === 'fail' ? t('Copy failed') : t('Copy image');
+  const copyTitle = (state: CopyState, title: string) => state === 'saved'
+    ? t('This browser cannot put images on the clipboard here (it needs HTTPS or localhost), so the chart was saved as a PNG file instead.')
+    : title;
+  const filterValue = captainId ? `captain:${captainId}` : modelFilter ? `model:${modelFilter}` : '';
+  const setFilter = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('captainId');
+    next.delete('model');
+    if (value.startsWith('captain:')) next.set('captainId', value.slice(8));
+    if (value.startsWith('model:')) next.set('model', value.slice(6));
+    setSearchParams(next);
+  };
+  const modelOptions = [...new Set([...knownModels, ...(modelFilter ? [modelFilter] : [])])].sort();
+  const captainOptions = captainId && !captains.some(c => c.id === captainId) ? [...captains, { id: captainId, name: captainId } as Captain] : captains;
 
   // Model chart geometry (title band on top).
   const titleBand = 24;
@@ -172,12 +212,28 @@ export default function TokenUsage() {
       <div className="token-usage-controls">
         <div className="mission-history-time-tabs">
           {TIME_RANGES.map(r => (
-            <button key={r.value} className={'mission-history-time-tab' + (timeRange === r.value ? ' active' : '')} onClick={() => setTimeRange(r.value)} title={t('Time window for the totals and both charts. Shorter windows use smaller time buckets.')}>{t(r.label)}</button>
+            <button key={r.value} className={'mission-history-time-tab' + (timeRange === r.value ? ' active' : '')} onClick={() => setTimeRange(r.value)} title={t('Time window for the totals, the heatmap, and both charts. Shorter windows use smaller time buckets.')}>{t(r.label)}</button>
           ))}
         </div>
+        <label className="token-usage-filter" title={t('Show token usage for every captain and model, one captain, or one model. Applies to the totals, the heatmap, and both charts.')}>
+          <span>{t('Captain or model')}</span>
+          <select value={filterValue} onChange={(e) => setFilter(e.target.value)} title={t('Show token usage for every captain and model, one captain, or one model. Applies to the totals, the heatmap, and both charts.')}>
+            <option value="">{t('All captains and models')}</option>
+            {captainOptions.length > 0 && (
+              <optgroup label={t('Captains')}>
+                {captainOptions.map(c => <option key={c.id} value={`captain:${c.id}`}>{c.name || c.id}</option>)}
+              </optgroup>
+            )}
+            {modelOptions.length > 0 && (
+              <optgroup label={t('Models')}>
+                {modelOptions.map(m => <option key={m} value={`model:${m}`}>{m}</option>)}
+              </optgroup>
+            )}
+          </select>
+        </label>
         <div className="mission-history-time-tabs">
-          <button className={'mission-history-time-tab' + (metric === 'total' ? ' active' : '')} onClick={() => setMetric('total')} title={t('Color the charts by model, showing each model\'s total tokens.')}>{t('Total')}</button>
-          <button className={'mission-history-time-tab' + (metric === 'byType' ? ' active' : '')} onClick={() => setMetric('byType')} title={t('Split the charts into input, output, and cached tokens instead of by model.')}>{t('By token type')}</button>
+          <button className={'mission-history-time-tab' + (metric === 'total' ? ' active' : '')} onClick={() => setMetric('total')} title={t('Color the usage-over-time chart by model, showing each model\'s total tokens. The usage-by-model chart is always split by token type.')}>{t('Total')}</button>
+          <button className={'mission-history-time-tab' + (metric === 'byType' ? ' active' : '')} onClick={() => setMetric('byType')} title={t('Split the usage-over-time chart into uncached input, cached input, and output tokens instead of by model. The parts add up to the total.')}>{t('By token type')}</button>
         </div>
         <div className="mission-history-time-tabs">
           <button className={'mission-history-time-tab' + (shape === 'bars' ? ' active' : '')} onClick={() => setShape('bars')} title={t('Draw usage over time as stacked bars, so each bar\'s height is the bucket total.')}>{t('Stacked bars')}</button>
@@ -195,12 +251,12 @@ export default function TokenUsage() {
         )}
       </div>
 
-      <TokenActivityHeatmap harborId={harborId} />
+      <TokenActivityHeatmap harborId={harborId} captainId={captainId} model={modelFilter} spec={heatmapSpec} />
 
       {/* Chart 1 -- Usage over time. Title + axis labels live inside the SVG so the copied image includes them. */}
       <div className="token-usage-chart-card">
         <div className="token-usage-chart-header">
-          <button className={'token-usage-copy-btn' + (copiedTime === 'fail' ? ' failed' : '')} onClick={() => copyChart(timeChartRef, setCopiedTime)} disabled={!hasTimeData} title={t('Copy the usage-over-time chart to the clipboard as an image.')}>{copyLabel(copiedTime)}</button>
+          <button className={'token-usage-copy-btn' + (copiedTime === 'fail' ? ' failed' : '')} onClick={() => copyChart(timeChartRef, setCopiedTime, 'token-usage-over-time.png')} disabled={!hasTimeData} title={copyTitle(copiedTime, t('Copy the usage-over-time chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.'))}>{copyLabel(copiedTime)}</button>
         </div>
         {loading ? (
           <div className="mission-history-empty">{t('Loading token usage...')}</div>
@@ -271,7 +327,7 @@ export default function TokenUsage() {
       {/* Chart 2 -- Usage by model. Title inside the SVG so the copied image includes it. */}
       <div className="token-usage-chart-card">
         <div className="token-usage-chart-header">
-          <button className={'token-usage-copy-btn' + (copiedModel === 'fail' ? ' failed' : '')} onClick={() => copyChart(modelChartRef, setCopiedModel)} disabled={!hasModelData} title={t('Copy the usage-by-model chart to the clipboard as an image.')}>{copyLabel(copiedModel)}</button>
+          <button className={'token-usage-copy-btn' + (copiedModel === 'fail' ? ' failed' : '')} onClick={() => copyChart(modelChartRef, setCopiedModel, 'token-usage-by-model.png')} disabled={!hasModelData} title={copyTitle(copiedModel, t('Copy the usage-by-model chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.'))}>{copyLabel(copiedModel)}</button>
         </div>
         {loading ? (
           <div className="mission-history-empty">{t('Loading token usage...')}</div>
@@ -281,20 +337,31 @@ export default function TokenUsage() {
           <>
             <svg ref={modelChartRef} width="100%" viewBox={`0 0 800 ${modelChartHeight}`} preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
               <text x={12} y={16} fontSize="11" fontWeight="600" fill="var(--text)">{t('Usage by model')}</text>
+              {/* Legend inside the SVG so a copied image keeps it. */}
+              {(() => {
+                let x = 800 - 4;
+                const items = [...typeSeries].reverse().map(s => {
+                  const width = 14 + s.label.length * 4.4;
+                  x -= width + 10;
+                  return { s, x };
+                });
+                return items.map(({ s, x: lx }) => (
+                  <g key={s.key}>
+                    <rect x={lx} y={9} width={8} height={8} rx={1.5} fill={s.color} />
+                    <text x={lx + 11} y={16} fontSize="7.5" fill="var(--text-dim)">{s.label}</text>
+                  </g>
+                ));
+              })()}
               {byModel.map((m, i) => {
                 const y = titleBand + i * rowH;
                 const cy = y + rowH / 2;
-                const segs = metric === 'byType'
-                  ? [{ v: m.inputTokens, c: TYPE_COLORS.input }, { v: m.outputTokens, c: TYPE_COLORS.output }, { v: m.cachedTokens, c: TYPE_COLORS.cached }]
-                  : [{ v: m.totalTokens, c: 'var(--accent)' }];
+                // Always broken down by token type; the parts add up to the model's total.
+                const split = splitTokenTypes(m.inputTokens, m.outputTokens, m.cachedTokens);
+                const segs = typeSeries.map(s => ({ v: split[s.key as keyof typeof split], c: s.color }));
                 let cursor = modelBarX;
                 return (
                   <g key={m.model}
-                    onMouseMove={(e) => showTip(e.clientX, e.clientY, m.model, [
-                      { label: t('Input'), color: TYPE_COLORS.input, value: m.inputTokens },
-                      { label: t('Output'), color: TYPE_COLORS.output, value: m.outputTokens },
-                      { label: t('Cached'), color: TYPE_COLORS.cached, value: m.cachedTokens },
-                    ], m.totalTokens)}
+                    onMouseMove={(e) => showTip(e.clientX, e.clientY, m.model, typeSeries.map(s => ({ label: s.label, color: s.color, value: split[s.key as keyof typeof split] })), m.totalTokens)}
                     onMouseLeave={hideTip}>
                     <rect x={0} y={y} width={800} height={rowH} fill="transparent" />
                     <text x={labelW - 4} y={cy + 2.5} textAnchor="end" fontSize="7.5" fill="var(--text)">{truncate(m.model, 28)}</text>
@@ -310,13 +377,6 @@ export default function TokenUsage() {
                 );
               })}
             </svg>
-            {metric === 'byType' && (
-              <div className="mission-history-legend">
-                <span><span className="mission-history-legend-color" style={{ backgroundColor: TYPE_COLORS.input }} /> {t('Input')}</span>
-                <span><span className="mission-history-legend-color" style={{ backgroundColor: TYPE_COLORS.output }} /> {t('Output')}</span>
-                <span><span className="mission-history-legend-color" style={{ backgroundColor: TYPE_COLORS.cached }} /> {t('Cached')}</span>
-              </div>
-            )}
           </>
         )}
       </div>

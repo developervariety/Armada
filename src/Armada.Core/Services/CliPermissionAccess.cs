@@ -11,6 +11,8 @@ namespace Armada.Core.Services
     /// <item>Decide (allow once or deny): a global admin; the tenant's tenant admins; the owner only when
     /// Permissions.AllowOwnerApproval is on.</item>
     /// <item>Remember (store an allow rule with the decision): a global admin; the tenant's tenant admins.</item>
+    /// <item>Allow for the conversation (set the Ask thread to Bypass with the decision): the thread owner, when a global
+    /// admin or a tenant admin of the tenant.</item>
     /// </list>
     /// A caller using a mission- or thread-scoped session token (a captain) can never decide or remember.
     /// </summary>
@@ -68,6 +70,20 @@ namespace Armada.Core.Services
         public static bool CanRemember(AuthContext caller, CliPermissionRequest request)
         {
             if (!CanView(caller, request)) return false;
+            return IsAdminFor(caller, request.TenantId);
+        }
+
+        /// <summary>
+        /// Whether the caller may allow a request and set its Ask thread to Bypass: the request comes from an Ask thread
+        /// the caller owns, and the caller is an admin of its tenant (the same people who may set Bypass on the thread).
+        /// </summary>
+        /// <param name="caller">Caller.</param>
+        /// <param name="request">Request.</param>
+        /// <returns>True for the admin thread owner.</returns>
+        public static bool CanAllowForConversation(AuthContext caller, CliPermissionRequest request)
+        {
+            if (!CanView(caller, request) || String.IsNullOrEmpty(request.ThreadId)) return false;
+            if (String.IsNullOrEmpty(caller.UserId) || !String.Equals(caller.UserId, request.UserId, StringComparison.Ordinal)) return false;
             return IsAdminFor(caller, request.TenantId);
         }
 

@@ -3410,9 +3410,9 @@ export type CliPermissionFallbackReason = 'RuntimeUnsupported' | 'NoSessionToken
 /** Wire values of CliPermissionRequestStatusEnum. */
 export type CliPermissionRequestStatus = 'Pending' | 'Allowed' | 'Denied' | 'Expired' | 'Cancelled';
 /** Wire values of CliPermissionDecisionSourceEnum. */
-export type CliPermissionDecisionSource = 'Approver' | 'AllowRule' | 'DenyRule' | 'Timeout' | 'Cancelled' | 'DeliveryFailed';
+export type CliPermissionDecisionSource = 'Approver' | 'AllowRule' | 'DenyRule' | 'ConversationBypass' | 'Timeout' | 'Cancelled' | 'DeliveryFailed';
 /** Wire values of CliPermissionDecisionEnum. */
-export type CliPermissionDecision = 'AllowOnce' | 'AllowAndRemember' | 'Deny';
+export type CliPermissionDecision = 'AllowOnce' | 'AllowAndRemember' | 'AllowForConversation' | 'Deny';
 /** Wire values of CliPermissionRuleScopeEnum. */
 export type CliPermissionRuleScope = 'Global' | 'Vessel' | 'Captain';
 /** Wire values of CliPermissionRuleActionEnum. */
@@ -3464,6 +3464,8 @@ export interface CliPermissionRequest {
   canDecide?: boolean;
   /** True when the caller may also create an allow rule from it (Allow and remember). */
   canRemember?: boolean;
+  /** True when the caller may allow every later call in the request's Ask conversation (Allow for this conversation). */
+  canAllowForConversation?: boolean;
 }
 
 /** Body of POST /api/v1/cli-permissions/requests/{id}/decide. */

@@ -53,6 +53,8 @@ export interface ApprovalOptions {
   reviewVariant?: 'conditional' | 'RetryStage' | 'FailPipeline';
   /** CLI permission requests only: allow and create an allow rule (pattern and scope) instead of allowing once. */
   remember?: { pattern: string; scope: CliPermissionRuleScope };
+  /** CLI permission requests only: allow this call and switch its Ask conversation to Bypass (Allow for this conversation). */
+  forConversation?: boolean;
 }
 
 /** What a decision changed: the target and the status the server reported back (when it returned one). */
@@ -133,7 +135,7 @@ function statusOf(value: unknown): string | null {
 /**
  * Approve or deny a target through the same endpoints the dashboard uses:
  *   ask_proposal         POST /ask/threads/{t}/proposals/{p}/approve | reject
- *   cli_permission       POST /cli-permissions/requests/{id}/decide  (AllowOnce | AllowAndRemember | Deny)
+ *   cli_permission       POST /cli-permissions/requests/{id}/decide  (AllowOnce | AllowAndRemember | AllowForConversation | Deny)
  *   review               POST /missions/{id}/review/approve | deny
  *   deployment_approval  POST /deployments/{id}/approve | deny
  */
@@ -148,7 +150,9 @@ export async function decideApproval(target: ApprovalTarget, decision: ApprovalD
         : await rejectAskProposal(target.threadId, target.proposalId);
       break;
     case 'cli_permission':
-      if (approve && options.remember) {
+      if (approve && options.forConversation) {
+        result = await decideCliPermissionRequest(target.requestId, { decision: 'AllowForConversation' });
+      } else if (approve && options.remember) {
         result = await decideCliPermissionRequest(target.requestId, {
           decision: 'AllowAndRemember',
           rulePattern: options.remember.pattern.trim(),

@@ -1,92 +1,166 @@
 import '../vessels/history/vesselHistory.css';
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { getTokenUsage } from '../../api/client';
 import type { TokenUsageSummaryResult } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
-import { addDays, buildWeeks, heatLevel, tokenHeatmapDays, tokenHeatmapStats, tokenHeatmapWindow, TOKEN_HEATMAP_METRICS, type TokenHeatmapMetric } from '../../lib/tokenHeatmap';
+import { buildTokenHeatGrid, heatLevel, tokenHeatGridStats, tokenHeatmapQuery, TOKEN_HEATMAP_METRICS, type TokenHeatCell, type TokenHeatmapMetric, type TokenHeatmapSpec } from '../../lib/tokenHeatmap';
 import { buildMonthLabels, formatIsoDay } from '../../lib/vesselHistory';
 import { formatTokens } from '../../lib/tokenUsage';
 
-/** Daily UTC token activity, alongside the existing monitoring charts. */
-export default function TokenActivityHeatmap({ harborId = '' }: { harborId?: string }) {
+interface TokenActivityHeatmapProps {
+  harborId?: string;
+  captainId?: string;
+  model?: string;
+  /** The window to show, from the page's time range. Without it the heatmap offers its own 1/3/12 month range. */
+  spec?: TokenHeatmapSpec;
+}
+
+const LABEL_WIDTH = 56;
+const GAP = 3;
+
+/** Token activity heatmap: UTC days, hours, or minutes, colored by the chosen token metric relative to the peak. */
+export default function TokenActivityHeatmap({ harborId = '', captainId = '', model = '', spec }: TokenActivityHeatmapProps) {
   const { t, locale } = useLocale();
-  const [range, setRange] = useState(365);
+  const [ownDays, setOwnDays] = useState(365);
   const [metric, setMetric] = useState<TokenHeatmapMetric>('total');
   const [data, setData] = useState<TokenUsageSummaryResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [selected, setSelected] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const [cellHeight, setCellHeight] = useState(14);
   const grid = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
-  const window = useMemo(() => tokenHeatmapWindow(range), [range, refresh]);
+  const specKind = spec?.kind ?? 'calendar';
+  const specSize = !spec ? ownDays : spec.kind === 'calendar' ? spec.days : spec.kind === 'hours' ? spec.hours : spec.minutes;
+  const active = useMemo<TokenHeatmapSpec>(
+    () => (specKind === 'calendar' ? { kind: 'calendar', days: specSize } : specKind === 'hours' ? { kind: 'hours', hours: specSize } : { kind: 'minutes', minutes: specSize }),
+    [specKind, specSize],
+  );
+  // The window ends "now" as of the last change of range, filter, or refresh.
+  const now = useMemo(() => new Date(), [active, refresh, harborId, captainId, model]);
+  const query = useMemo(() => tokenHeatmapQuery(active, now), [active, now]);
+
   useEffect(() => {
-    let active = true;
+    let alive = true;
     setLoading(true); setError(false); setData(null);
-    getTokenUsage({ fromUtc: window.fromUtc, toUtc: window.toUtc, bucketMinutes: 1440, harborId: harborId || undefined })
-      .then(value => { if (active) setData(value); })
-      .catch(() => { if (active) setError(true); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [window, harborId]);
-  const days = useMemo(() => tokenHeatmapDays(data, window.from, window.to, metric), [data, window, metric]);
-  const weeks = buildWeeks(days);
-  const months = buildMonthLabels(weeks);
-  const stats = tokenHeatmapStats(days);
-  const activeDate = selected >= window.from && selected <= window.to ? selected : window.to;
-  const day = days.find(d => d.date === activeDate)!;
+    getTokenUsage({ fromUtc: query.fromUtc, toUtc: query.toUtc, bucketMinutes: query.bucketMinutes, harborId: harborId || undefined, captainId: captainId || undefined, model: model || undefined })
+      .then(value => { if (alive) setData(value); })
+      .catch(() => { if (alive) setError(true); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [query, harborId, captainId, model]);
+
+  const heat = useMemo(() => buildTokenHeatGrid(data, active, metric, now), [data, active, metric, now]);
+  const stats = tokenHeatGridStats(heat);
+  const cells = useMemo(() => heat.rows.flatMap(r => r.cells).filter((c): c is TokenHeatCell => c !== null), [heat]);
+  const lastCell = cells.length ? cells.reduce((a, b) => (a.startUtc > b.startUtc ? a : b)) : null;
+  const selectedCell = cells.find(c => c.key === selected) ?? lastCell;
+  const calendar = active.kind === 'calendar';
+  const showDayNumbers = calendar && active.days <= 31;
+
+  // Cells fill the card's width: the column width sets the cell height, between a legible minimum and a cap.
+  useLayoutEffect(() => {
+    const host = scroll.current;
+    if (!host) return undefined;
+    const measure = () => {
+      const columnWidth = (host.clientWidth - LABEL_WIDTH - GAP * heat.columns) / Math.max(1, heat.columns);
+      const cap = calendar ? (heat.columns <= 6 ? 44 : 30) : 26;
+      setCellHeight(Math.round(Math.max(12, Math.min(cap, columnWidth))));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [heat.columns, calendar, loading]);
+
   useEffect(() => {
     const host = scroll.current;
-    const cell = grid.current?.querySelector<HTMLElement>(`[data-date="${activeDate}"]`);
+    const cell = selectedCell ? grid.current?.querySelector<HTMLElement>(`[data-key="${selectedCell.key}"]`) : null;
     if (!loading && host && cell) {
       const x = cell.getBoundingClientRect().left - host.getBoundingClientRect().left + host.scrollLeft;
       if (x < host.scrollLeft) host.scrollLeft = x;
       if (x + 20 > host.scrollLeft + host.clientWidth) host.scrollLeft = x + 20 - host.clientWidth;
     }
-  }, [activeDate, loading, window]);
-  const describe = (date: string, count: number) => `${formatIsoDay(locale, date, { dateStyle: 'full' })} (UTC): ${count.toLocaleString(locale)} ${t('Tokens')}`;
-  function focusDate(date: string) {
-    if (date < window.from || date > window.to) return;
-    setSelected(date);
-    grid.current?.querySelector<HTMLElement>(`[data-date="${date}"]`)?.focus();
+  }, [selectedCell, loading]);
+
+  const timeOf = (iso: string, withMinutes: boolean) => `${iso.slice(11, 13)}:${withMinutes ? iso.slice(14, 16) : '00'}`;
+  const cellWhen = (cell: TokenHeatCell) => {
+    const date = cell.startUtc.slice(0, 10);
+    if (active.kind === 'calendar') return `${formatIsoDay(locale, date, { dateStyle: 'full' })} (UTC)`;
+    return `${formatIsoDay(locale, date, { dateStyle: 'medium' })} ${timeOf(cell.startUtc, active.kind === 'minutes')} UTC`;
+  };
+  const describe = (cell: TokenHeatCell) => `${cellWhen(cell)}: ${cell.count.toLocaleString(locale)} ${t('Tokens')}`;
+  const rowLabel = (rowKey: string, index: number) => {
+    if (active.kind === 'calendar') return formatIsoDay(locale, `2023-01-0${index + 1}`, { weekday: 'short' });
+    if (active.kind === 'hours') return formatIsoDay(locale, rowKey.slice(0, 10), { month: 'short', day: 'numeric' });
+    return timeOf(rowKey, false);
+  };
+
+  function focusAt(row: number, column: number) {
+    const cell = heat.rows[row]?.cells[column];
+    if (!cell) return;
+    setSelected(cell.key);
+    grid.current?.querySelector<HTMLElement>(`[data-key="${cell.key}"]`)?.focus();
   }
   function keyDown(e: KeyboardEvent<HTMLDivElement>) {
-    const date = (e.target as HTMLElement).dataset.date;
-    if (!date) return;
-    const offsets: Record<string, number> = { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 };
-    if (e.key in offsets) { e.preventDefault(); focusDate(addDays(date, offsets[e.key])); }
-    if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); focusDate(e.key === 'Home' ? window.from : window.to); }
+    const target = e.target as HTMLElement;
+    const row = Number(target.dataset.row);
+    const column = Number(target.dataset.column);
+    if (Number.isNaN(row) || Number.isNaN(column)) return;
+    const moves: Record<string, [number, number]> = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] };
+    if (e.key in moves) { e.preventDefault(); focusAt(row + moves[e.key][0], column + moves[e.key][1]); }
+    if ((e.key === 'Home' || e.key === 'End') && cells.length) {
+      e.preventDefault();
+      const target2 = e.key === 'Home' ? cells.reduce((a, b) => (a.startUtc < b.startUtc ? a : b)) : lastCell!;
+      setSelected(target2.key);
+      grid.current?.querySelector<HTMLElement>(`[data-key="${target2.key}"]`)?.focus();
+    }
   }
+
+  const subtitle = active.kind === 'calendar' ? t('Daily token totals (UTC)') : active.kind === 'hours' ? t('Hourly token totals (UTC)') : t('Token totals per minute (UTC)');
+  const peakLabel = active.kind === 'calendar' ? t('Peak day') : active.kind === 'hours' ? t('Peak hour') : t('Peak minute');
+  const activeLabel = active.kind === 'calendar' ? t('Active days') : active.kind === 'hours' ? t('Active hours') : t('Active minutes');
+  const gridStyle = { '--tok-heat-cols': heat.columns, '--tok-heat-h': `${cellHeight}px`, '--tok-heat-label': `${LABEL_WIDTH}px`, '--tok-heat-gap': `${GAP}px` } as CSSProperties;
+  const columnLabels: Array<{ column: number; label: string; span: number }> = calendar
+    ? buildMonthLabels(heat.weeks).map(m => ({ column: m.column, span: 3, label: formatIsoDay(locale, `${m.year}-${String(m.month).padStart(2, '0')}-01`, { month: 'short' }) }))
+    : Array.from({ length: heat.columns }, (_, c) => c).filter(c => c % (active.kind === 'hours' ? 3 : 10) === 0)
+      .map(c => ({ column: c, span: active.kind === 'hours' ? 3 : 10, label: active.kind === 'hours' ? String(c).padStart(2, '0') : `:${String(c).padStart(2, '0')}` }));
+
   return <section className="token-usage-chart-card token-activity-card vhist-heatmap" aria-label={t('Token activity')}>
-    <div className="token-activity-header"><div><h3 title={t('One square per UTC day; darker squares mean more tokens that day. Click or use arrow keys to read a day\'s total.')}>{t('Token activity')}</h3><p className="text-dim">{t('Daily token totals (UTC)')}</p></div>
+    <div className="token-activity-header"><div><h3 title={t('Each square is one UTC day, hour, or minute; darker squares mean more tokens. Click or use arrow keys to read a square\'s total.')}>{t('Token activity')}</h3><p className="text-dim">{subtitle}</p></div>
       <div className="token-activity-controls">
-        <label title={t('How many days of history the heatmap covers, ending today (UTC). Independent of the time window above.')}>{t('Heatmap range')}<select title={t('How many days of history the heatmap covers, ending today (UTC). Independent of the time window above.')} value={range} onChange={e => setRange(Number(e.target.value))}>
+        {!spec && <label title={t('How many days of history the heatmap covers, ending today (UTC).')}>{t('Heatmap range')}<select title={t('How many days of history the heatmap covers, ending today (UTC).')} value={ownDays} onChange={e => setOwnDays(Number(e.target.value))}>
           <option value={31}>{t('Last Month')}</option><option value={90}>{t('Last 3 months')}</option><option value={365}>{t('Last 12 months')}</option>
-        </select></label>
-        <label title={t('Which tokens each day\'s color counts: total, input (prompt), output (completion), or cached (served from the prompt cache).')}>{t('Heatmap metric')}<select title={t('Which tokens each day\'s color counts: total, input (prompt), output (completion), or cached (served from the prompt cache).')} value={metric} onChange={e => setMetric(e.target.value as TokenHeatmapMetric)}>
+        </select></label>}
+        <label title={t('Which tokens each square\'s color counts: total, input (prompt), output (completion), or cached (served from the prompt cache).')}>{t('Heatmap metric')}<select title={t('Which tokens each square\'s color counts: total, input (prompt), output (completion), or cached (served from the prompt cache).')} value={metric} onChange={e => setMetric(e.target.value as TokenHeatmapMetric)}>
           {TOKEN_HEATMAP_METRICS.map(m => <option key={m} value={m}>{t(m[0].toUpperCase() + m.slice(1))}</option>)}
         </select></label>
-        <button className="btn btn-sm" type="button" onClick={() => setRefresh(r => r + 1)} title={t('Reload the daily token totals now.')}>{t('Refresh token activity')}</button>
+        <button className="btn btn-sm" type="button" onClick={() => setRefresh(r => r + 1)} title={t('Reload the token activity now.')}>{t('Refresh token activity')}</button>
       </div>
     </div>
     {loading ? <p role="status">{t('Loading token usage...')}</p> : error ? <p role="alert">{t('Unable to load token activity.')}</p> : <>
-      <div className="token-activity-stats"><span title={t('Sum of the chosen metric over the heatmap range.')}>{t('Total')}: <strong>{formatTokens(stats.total)}</strong></span><span title={t('Highest single-day count in the range. It sets the darkest color.')}>{t('Peak day')}: <strong>{formatTokens(stats.peak)}</strong></span><span title={t('Days in the range with any token usage.')}>{t('Active days')}: <strong>{stats.active}</strong></span></div>
+      <div className="token-activity-stats"><span title={t('Sum of the chosen metric over the heatmap window.')}>{t('Total')}: <strong>{formatTokens(stats.total)}</strong></span><span title={t('Highest single-square count in the window. It sets the darkest color.')}>{peakLabel}: <strong>{formatTokens(stats.peak)}</strong></span><span title={t('Squares in the window with any token usage.')}>{activeLabel}: <strong>{stats.active}</strong></span></div>
       <div ref={scroll} className="vhist-heatmap-scroll token-activity-scroll">
-        <div className="vhist-heatmap-months" style={{ '--heat-weeks': weeks.length } as React.CSSProperties} aria-hidden="true">
-          <span className="vhist-heatmap-corner" />{months.map(m => <span className="vhist-heatmap-month" key={`${m.year}-${m.month}`} style={{ gridColumn: `${m.column + 2} / span 3` }}>{formatIsoDay(locale, `${m.year}-${String(m.month).padStart(2, '0')}-01`, { month: 'short' })}</span>)}
+        <div className="tok-heat-columns" style={gridStyle} aria-hidden="true">
+          <span className="tok-heat-corner" />{columnLabels.map(l => <span className="tok-heat-column-label" key={l.column} style={{ gridColumn: `${l.column + 2} / span ${Math.min(l.span, heat.columns - l.column)}` }}>{l.label}</span>)}
         </div>
-        <div ref={grid} className="vhist-heatmap-grid" style={{ '--heat-weeks': weeks.length } as React.CSSProperties} role="grid" aria-label={t('Token activity')} onKeyDown={keyDown}>
-          {Array.from({ length: 7 }, (_, weekday) => <div role="row" className="vhist-heatmap-row" key={weekday}>
-            <span role="rowheader" className="vhist-heatmap-weekday">{formatIsoDay(locale, `2023-01-0${weekday + 1}`, { weekday: 'short' })}</span>
-            {weeks.map((week, column) => {
-              const cell = week[weekday];
-              if (!cell) return <span aria-hidden="true" className="vhist-heat-cell vhist-heat-pad" key={column} />;
-              return <button type="button" role="gridcell" key={cell.date} data-date={cell.date} data-level={heatLevel(cell.count, stats.peak)} title={describe(cell.date, cell.count)} aria-label={describe(cell.date, cell.count)} aria-selected={cell.date === activeDate} tabIndex={cell.date === activeDate ? 0 : -1} className={`vhist-heat-cell level-${heatLevel(cell.count, stats.peak)}${cell.date === activeDate ? ' selected' : ''}`} onFocus={() => setSelected(cell.date)} onClick={() => setSelected(cell.date)} />;
+        <div ref={grid} className={`tok-heat-grid is-${active.kind}`} style={gridStyle} role="grid" aria-label={t('Token activity')} onKeyDown={keyDown}>
+          {heat.rows.map((row, r) => <div role="row" className="vhist-heatmap-row" key={row.key}>
+            <span role="rowheader" className="tok-heat-row-label">{rowLabel(row.key, r)}</span>
+            {row.cells.map((cell, c) => {
+              if (!cell) return <span aria-hidden="true" className="vhist-heat-cell tok-heat-cell vhist-heat-pad" key={c} />;
+              const level = heatLevel(cell.count, stats.peak);
+              const isSelected = cell.key === selectedCell?.key;
+              return <button type="button" role="gridcell" key={cell.key} data-key={cell.key} data-date={calendar ? cell.key : undefined} data-row={r} data-column={c} data-level={level} title={describe(cell)} aria-label={describe(cell)} aria-selected={isSelected} tabIndex={isSelected ? 0 : -1} className={`vhist-heat-cell tok-heat-cell level-${level}${isSelected ? ' selected' : ''}`} onFocus={() => setSelected(cell.key)} onClick={() => setSelected(cell.key)}>
+                {showDayNumbers && <span className="tok-heat-day" aria-hidden="true">{Number(cell.key.slice(8, 10))}</span>}
+              </button>;
             })}
           </div>)}
         </div>
       </div>
-      <div className="token-activity-footer"><span aria-live="polite">{describe(day.date, day.count)}</span><span className="token-activity-legend" title={t('Color scale: lighter squares had fewer tokens, darker squares had more, relative to the peak day.')}>{t('Less')}{[0, 1, 2, 3, 4].map(level => <span key={level} className={`vhist-heat-cell level-${level}`} />)}{t('More')}</span></div>
+      <div className="token-activity-footer"><span aria-live="polite">{selectedCell ? describe(selectedCell) : ''}</span><span className="token-activity-legend" title={t('Color scale: lighter squares had fewer tokens, darker squares had more, relative to the peak.')}>{t('Less')}{[0, 1, 2, 3, 4].map(level => <span key={level} className={`vhist-heat-cell level-${level}`} />)}{t('More')}</span></div>
       {stats.active === 0 && <p className="text-dim">{t('No token usage for this time range')}</p>}
       {(data?.syntheticCount ?? 0) > 0 && <p className="text-dim" title={t('Simulated usage an administrator imported, for example for screenshots. It is counted in these totals but is not real model usage.')}>{t('{{count}} synthetic usage records included', { count: data!.syntheticCount })}</p>}
     </>}

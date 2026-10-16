@@ -443,6 +443,65 @@ namespace Test.Shared.Suites.Tui
                 }
             }));
 
+            cases.Add(TuiCase.Sync(Suite, "ask_card_allow_for_conversation", "b on a card the admin owner may allow for the conversation shows the Bypass warning, then sends AllowForConversation", () =>
+            {
+                AskFixtures fx = CliThread(out CliPermissionRequest request, true);
+                fx.Stub.Json("POST", DecidePath, ArmadaJson.Serialize(Decided(request, CliPermissionRequestStatusEnum.Allowed)));
+                using (TuiTestHost host = TuiCase.SignedIn(200, 50, "/ask/ath_1", fx.Stub))
+                {
+                    LoadedCli(host);
+                    host.Press("esc");
+                    string flat = Flat(host.Screen());
+                    TuiCase.Contains(flat, "[Allow for this conversation] (b)", "button");
+                    AssertTrue(Status(host).Contains("b Allow for this conversation", StringComparison.Ordinal), "hint: " + Status(host));
+                    host.Press("b");
+                    AssertTrue(host.PumpUntil(() => host.App.Modals.Top is ConfirmDialog), "Bypass warning");
+                    TuiCase.Contains(host.Screen(), "Allow everything", "confirm label");
+                    host.Press("n");
+                    AssertTrue(host.PumpUntil(() => !host.App.Modals.IsActive), "cancelled");
+                    AssertEqual(0, fx.Stub.CountFor("POST", DecidePath), "cancel sends nothing");
+                    host.Press("b");
+                    AssertTrue(host.PumpUntil(() => host.App.Modals.Top is ConfirmDialog), "Bypass warning again");
+                    host.Press("y");
+                    AssertTrue(host.PumpUntil(() => fx.Stub.CountFor("POST", DecidePath) == 1), "decide call");
+                    AssertEqual(CliPermissionDecisionEnum.AllowForConversation, fx.Stub.LastBody<CliPermissionDecisionRequest>("POST", DecidePath).Decision, "allow for conversation");
+                }
+
+                AskFixtures fx2 = CliThread(out CliPermissionRequest _);
+                using (TuiTestHost host = TuiCase.SignedIn(200, 50, "/ask/ath_1", fx2.Stub))
+                {
+                    LoadedCli(host);
+                    host.Press("esc");
+                    AssertFalse(Flat(host.Screen()).Contains("Allow for this conversation", StringComparison.Ordinal), "not offered without the flag");
+                }
+            }));
+
+            cases.Add(TuiCase.Sync(Suite, "ask_card_decided_collapses", "A decided card collapses to its title and command; Enter or a click on its title row expands and collapses it", () =>
+            {
+                AskFixtures fx = CliThread(out CliPermissionRequest request);
+                fx.Stub.Json("POST", DecidePath, ArmadaJson.Serialize(Decided(request, CliPermissionRequestStatusEnum.Allowed)));
+                using (TuiTestHost host = TuiCase.SignedIn(160, 50, "/ask/ath_1", fx.Stub))
+                {
+                    AskScreen screen = LoadedCli(host);
+                    host.Press("esc").Press("a");
+                    AssertTrue(host.PumpUntil(() => Flat(host.Screen()).Contains("+ Allowed", StringComparison.Ordinal)), "decided\n" + host.Screen());
+                    string flat = Flat(host.Screen());
+                    TuiCase.Contains(flat, "> CLI permission", "collapsed chevron");
+                    TuiCase.Contains(flat, "git push origin main", "command kept");
+                    AssertFalse(flat.Contains("Allowed. The captain ran the tool.", StringComparison.Ordinal), "outcome hidden while collapsed");
+                    for (int i = 0; i < 6 && screen.Transcript.SelectedKey != "amg_c1"; i++) host.Press("up");
+                    AssertEqual("amg_c1", screen.Transcript.SelectedKey, "card selected");
+                    host.Press("enter");
+                    AssertTrue(host.PumpUntil(() => Flat(host.Screen()).Contains("Allowed. The captain ran the tool.", StringComparison.Ordinal)), "expanded\n" + host.Screen());
+                    TuiCase.Contains(Flat(host.Screen()), "v CLI permission", "expanded chevron");
+                    string[] lines = host.Screen().Split('\n');
+                    int y = Array.FindIndex(lines, l => l.Contains("v CLI permission", StringComparison.Ordinal));
+                    AssertTrue(y >= 0, "title row on screen");
+                    host.Click(lines[y].IndexOf("v CLI permission", StringComparison.Ordinal) + 3, y);
+                    AssertTrue(host.PumpUntil(() => !Flat(host.Screen()).Contains("Allowed. The captain ran the tool.", StringComparison.Ordinal)), "collapsed by the click\n" + host.Screen());
+                }
+            }));
+
             cases.Add(TuiCase.Sync(Suite, "ask_card_buttons_click", "Clicking [Deny] on a CLI permission card opens the deny dialog whatever has focus", () =>
             {
                 AskFixtures fx = CliThread(out CliPermissionRequest request);
@@ -471,7 +530,9 @@ namespace Test.Shared.Suites.Tui
                     resolved.DecisionSource = CliPermissionDecisionSourceEnum.Approver;
                     host.Tui.Context.Events.Inject(AskFixtures.Event("cli_permission.resolved", new CliPermissionEvent { RequestId = "cpr_1", Status = CliPermissionRequestStatusEnum.Denied, Request = resolved }));
                     AssertTrue(host.PumpUntil(() => Flat(host.Screen()).Contains("x Denied", StringComparison.Ordinal)), "denied on the card\n" + host.Screen());
-                    TuiCase.Contains(Flat(host.Screen()), "Captain claude-1", "names kept from the earlier copy");
+                    AskScreen screen = (AskScreen)host.Tui.Shell.Screen!;
+                    screen.Transcript.ViewState.Toggle(screen.Transcript.ViewState.ExpandedCliPermissions, "cpr_1");
+                    AssertTrue(host.PumpUntil(() => Flat(host.Screen()).Contains("Captain claude-1", StringComparison.Ordinal)), "names kept from the earlier copy\n" + host.Screen());
                     AssertEqual(0, host.Tui.Ask.Conversation.PendingCliPermissions().Count, "no longer pending");
                 }
             }));
@@ -767,11 +828,17 @@ namespace Test.Shared.Suites.Tui
 
         private static AskFixtures CliThread(out CliPermissionRequest request)
         {
+            return CliThread(out request, false);
+        }
+
+        private static AskFixtures CliThread(out CliPermissionRequest request, bool canAllowForConversation)
+        {
             AskFixtures fx = new AskFixtures();
             AskThread thread = AskFixtures.Thread("ath_1", "Release prep");
             thread.UserId = "usr_admin";
             thread.CliPermission = new CliPermissionResolution { Requested = CliPermissionPolicyEnum.ApproveInArmada, Effective = CliPermissionPolicyEnum.ApproveInArmada, Source = CliPermissionPolicySourceEnum.ServerDefault };
             request = Request("cpr_1", "ath_1", true, true);
+            request.CanAllowForConversation = canAllowForConversation;
             fx.AddThread(thread,
                 AskFixtures.Message("amg_1", "ath_1", 1, AskMessageRoleEnum.User, AskMessageKindEnum.Text, "push it"),
                 CliCard("amg_c1", request, 2));

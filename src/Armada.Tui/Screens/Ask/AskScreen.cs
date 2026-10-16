@@ -361,9 +361,11 @@ namespace Armada.Tui.Screens.Ask
                     bool onlyCli = decisions.All(d => d.Kind == AskPendingDecisionKindEnum.CliPermission);
                     bool anyCli = decisions.Any(d => d.Kind == AskPendingDecisionKindEnum.CliPermission);
                     bool remember = decisions.Any(d => d.CliRequest != null && d.CliRequest.CanRemember);
+                    bool conversation = decisions.Any(d => d.CliRequest != null && d.CliRequest.CanAllowForConversation);
                     if (onlyCli) hints.Add("a", "Allow once");
                     else hints.Add("a", "Approve").Add("r", "Reject");
                     if (anyCli && remember) hints.Add("A", "Allow and remember");
+                    if (anyCli && conversation) hints.Add("b", "Allow for this conversation");
                     if (anyCli) hints.Add("d", "Deny");
                     if (proposal != null) hints.Add("x", "Arguments").Add("y", "Copy");
                 }

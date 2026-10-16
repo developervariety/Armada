@@ -4123,6 +4123,7 @@ Who may act (`CliPermissionAccess`, the same on REST, MCP, WebSocket, and the in
 | See a request | Global admins; tenant admins of the request's tenant; the owner of the Ask thread or mission. Other requests return `404` |
 | Decide (`AllowOnce`, `Deny`) | Global admins; tenant admins of the request's tenant; the owner only when `Permissions.AllowOwnerApproval` is true |
 | `AllowAndRemember` (also stores an allow rule) | Global admins; tenant admins of the request's tenant |
+| `AllowForConversation` (also sets the request's Ask thread to `Bypass`) | The Ask thread's owner, when a global admin or a tenant admin of the request's tenant (the same people who may set `Bypass` on the thread). Requests without a thread return `403` |
 | List and read rules | Every authenticated user (the caller's tenant plus rules for every tenant; global admins see all) |
 | Create, update, delete rules | Global admins (any tenant, or no tenant for every tenant); tenant admins (their own tenant) |
 
@@ -8958,6 +8959,7 @@ A permission prompt a CLI captain raised for one of its own tools (see [CLI Perm
 | `CaptainName`, `VesselName`, `MissionTitle` | string? | Filled on read |
 | `ThreadTitle` | string? | Filled on read for the thread owner only |
 | `CanDecide`, `CanRemember` | bool | Whether the caller may decide this pending request, and also remember it as a rule (filled per caller) |
+| `CanAllowForConversation` | bool | Whether the caller may also allow every later call in the request's Ask thread (`AllowForConversation`; filled per caller) |
 
 ---
 
@@ -9263,13 +9265,16 @@ Ownership scope for Category B configuration entities (see [Data Scoping](#data-
 
 #### CliPermissionDecisionSourceEnum
 
-`Approver`, `AllowRule`, `DenyRule`, `Timeout`, `Cancelled`.
+`Approver`, `AllowRule`, `DenyRule`, `ConversationBypass` (allowed without asking because the Ask thread was set to
+`Bypass` by `AllowForConversation`), `Timeout`, `Cancelled`, `DeliveryFailed`.
 
 ---
 
 #### CliPermissionDecisionEnum
 
-`AllowOnce`, `AllowAndRemember` (admins only; also stores an allow rule), `Deny`.
+`AllowOnce`, `AllowAndRemember` (admins only; also stores an allow rule), `AllowForConversation` (the admin owner of the
+Ask thread only: allows the call, sets the thread's CLI permission policy to `Bypass`, allows the thread's other pending
+requests, and allows later prompts from the turn already running), `Deny`.
 
 ---
 
@@ -9395,7 +9400,7 @@ Body of `POST /api/v1/cli-permissions/requests/{id}/decide` (and the WebSocket `
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `Decision` | [CliPermissionDecisionEnum](#clipermissiondecisionenum) | yes | `AllowOnce`, `AllowAndRemember`, or `Deny` (default `Deny`) |
+| `Decision` | [CliPermissionDecisionEnum](#clipermissiondecisionenum) | yes | `AllowOnce`, `AllowAndRemember`, `AllowForConversation`, or `Deny` (default `Deny`) |
 | `Message` | string? | no | Returned to the captain with a denial; recorded with an allow (max 2000 characters) |
 | `RulePattern` | string? | no | Rule stored by `AllowAndRemember`; defaults to the request's `SuggestedRule` |
 | `RuleScope` | [CliPermissionRuleScopeEnum](#clipermissionrulescopeenum) | no | Scope of that rule (default `Captain`); `Vessel` uses the request's vessel (missions only), `Global` the request's tenant |

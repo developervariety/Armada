@@ -139,14 +139,14 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "decide_cli_permission_request",
-                "Allow once, allow and remember (store an allow rule; admins only), or deny a pending CLI permission request. Deciding requires a global admin or a tenant admin of the request's tenant, or the mission or thread owner when Permissions.AllowOwnerApproval is on. Requires a credential (not the unauthenticated loopback identity) and is refused for captain sessions, so a captain can never approve its own prompt.",
+                "Allow once, allow and remember (store an allow rule; admins only), allow for the conversation (set the Ask thread to Bypass; the admin thread owner only), or deny a pending CLI permission request. Deciding requires a global admin or a tenant admin of the request's tenant, or the mission or thread owner when Permissions.AllowOwnerApproval is on. Requires a credential (not the unauthenticated loopback identity) and is refused for captain sessions, so a captain can never approve its own prompt.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
                         requestId = new { type = "string", description = "Request ID (cpr_ prefix)" },
-                        decision = new { type = "string", description = "AllowOnce, AllowAndRemember, or Deny" },
+                        decision = new { type = "string", description = "AllowOnce, AllowAndRemember, AllowForConversation (allow this call and set its Ask conversation to Bypass; the admin thread owner only), or Deny" },
                         message = new { type = "string", description = "Optional message (returned to the captain with a denial)" },
                         rulePattern = new { type = "string", description = "Rule for AllowAndRemember, for example Bash(git status:*); defaults to the request's suggested rule" },
                         ruleScope = new { type = "string", description = "Global, Vessel, or Captain (default Captain)" }

@@ -11,7 +11,7 @@ namespace Armada.Core.Models
         #region Public-Members
 
         /// <summary>
-        /// Allow once, allow and remember, or deny.
+        /// Allow once, allow and remember, allow for the conversation, or deny.
         /// </summary>
         public CliPermissionDecisionEnum Decision { get; set; } = CliPermissionDecisionEnum.Deny;
 

@@ -468,7 +468,9 @@ request (input redacted; the original stays only in memory), posts a permission 
 thread, announces `cli_permission.requested`, and holds the call until an approver decides, the request expires, or the
 turn or mission ends, or the captain cancels the call (`Cancelled`; Claude Code sends `notifications/cancelled` when a tool
 call is interrupted, and the request is resolved at once). An allowed call runs with its original input; a denied one
-returns a message that tells the model not to retry. Requests are listed at `/cli-permissions` in the dashboard and the
+returns a message that tells the model not to retry. On an Ask permission card, the conversation's owner (when an admin)
+can also choose **Allow for this conversation**: the call is allowed, the thread's policy becomes `Bypass` for later turns,
+and the rest of the running turn's prompts are allowed without asking (`DecisionSource` `ConversationBypass`). Requests are listed at `/cli-permissions` in the dashboard and the
 TUI (also in the TUI Approvals center). Decided, expired, and cancelled requests are deleted after
 `Retention.CliPermissionRequestRetentionDays` (default 90; 0 keeps them), and a thread's requests are deleted with the
 thread.

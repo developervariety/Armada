@@ -36,6 +36,16 @@ namespace Armada.Tui.Screens.Ask
         /// <summary>
         /// Deny a CLI permission request (the same as <c>d</c> on its card).
         /// </summary>
-        Deny = 5
+        Deny = 5,
+
+        /// <summary>
+        /// Allow a CLI permission request and every later call in its conversation (the same as <c>b</c> on its card).
+        /// </summary>
+        AllowForConversation = 6,
+
+        /// <summary>
+        /// Expand or collapse a decided CLI permission card (its title row; the same as Enter on the card).
+        /// </summary>
+        ToggleDetails = 7
     }
 }

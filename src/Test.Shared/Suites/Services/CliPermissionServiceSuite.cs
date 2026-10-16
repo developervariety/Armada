@@ -321,6 +321,54 @@ namespace Test.Shared.Suites.Services
                 AssertTrue((await prompt.ConfigureAwait(false)).Allowed, "allowed by the owner");
             }));
 
+            cases.Add(Case("allow_for_conversation_bypasses_the_thread", "Allow for this conversation allows the call and any waiting ones, sets the thread to Bypass, and allows later prompts from the running turn; only the admin owner may choose it", async () =>
+            {
+                using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);
+                h.Settings.Permissions.AllowOwnerApproval = true;
+                CliPermissionService svc = Service(h);
+                AuthContext owner = TenantAdmin("usr_cpo_afc");
+                AskThread thread = await h.Threads.CreateThreadAsync(owner, null).ConfigureAwait(false);
+                CliPermissionPromptContext context = ThreadContext(thread, null);
+                Task<CliPermissionPromptOutcome> first = svc.PromptAsync(context, "Bash", BashInput);
+                CliPermissionRequest pending = await WaitForPendingAsync(h, thread.Id).ConfigureAwait(false);
+                Task<CliPermissionPromptOutcome> second = svc.PromptAsync(context, "Bash", "{\"command\":\"npm test\"}");
+                for (int i = 0; i < 200; i++)
+                {
+                    List<CliPermissionRequest> waiting = await h.Db.Driver.CliPermissionRequests.EnumerateAsync(new CliPermissionRequestQuery { Status = CliPermissionRequestStatusEnum.Pending, ThreadId = thread.Id }).ConfigureAwait(false);
+                    if (waiting.Count >= 2) break;
+                    await Task.Delay(10).ConfigureAwait(false);
+                }
+
+                AssertTrue((await svc.GetAsync(owner, pending.Id).ConfigureAwait(false)).CanAllowForConversation, "the admin owner may allow for the conversation");
+                AuthContext otherAdmin = TenantAdmin("usr_cpx_afc");
+                AssertFalse((await svc.GetAsync(otherAdmin, pending.Id).ConfigureAwait(false)).CanAllowForConversation, "another admin may not");
+                await AssertThrowsAsync<UnauthorizedAccessException>(() => svc.DecideAsync(otherAdmin, pending.Id, new CliPermissionDecisionRequest { Decision = CliPermissionDecisionEnum.AllowForConversation }), "another admin refused").ConfigureAwait(false);
+
+                CliPermissionRequest decided = await svc.DecideAsync(owner, pending.Id, new CliPermissionDecisionRequest { Decision = CliPermissionDecisionEnum.AllowForConversation }).ConfigureAwait(false);
+                AssertEqual(CliPermissionRequestStatusEnum.Allowed, decided.Status, "allowed");
+                AssertTrue((await first.ConfigureAwait(false)).Allowed, "the decided call runs");
+                CliPermissionPromptOutcome waitingOutcome = await second.ConfigureAwait(false);
+                AssertTrue(waitingOutcome.Allowed, "the other waiting call runs");
+                AssertEqual(CliPermissionDecisionSourceEnum.ConversationBypass, waitingOutcome.Request!.DecisionSource, "allowed by the conversation");
+                AssertEqual(CliPermissionPolicyEnum.Bypass, (await h.Db.Driver.AskThreads.ReadByIdAsync(thread.Id).ConfigureAwait(false))!.CliPermissionPolicy, "thread set to Bypass");
+
+                CliPermissionPromptOutcome later = await svc.PromptAsync(context, "Bash", "{\"command\":\"rm -rf build\"}").ConfigureAwait(false);
+                AssertTrue(later.Allowed, "a later prompt from the running turn is allowed without asking");
+                AssertEqual(CliPermissionDecisionSourceEnum.ConversationBypass, later.Request!.DecisionSource, "by the conversation");
+
+                AuthContext user = AskTestHarness.User("usr_cpo_afc2", false);
+                AskThread userThread = await h.Threads.CreateThreadAsync(user, null).ConfigureAwait(false);
+                Task<CliPermissionPromptOutcome> userPrompt = svc.PromptAsync(ThreadContext(userThread, null), "Bash", BashInput);
+                CliPermissionRequest userPending = await WaitForPendingAsync(h, userThread.Id).ConfigureAwait(false);
+                CliPermissionRequest asUser = await svc.GetAsync(user, userPending.Id).ConfigureAwait(false);
+                AssertTrue(asUser.CanDecide, "the owner may decide with AllowOwnerApproval");
+                AssertFalse(asUser.CanAllowForConversation, "but not allow for the conversation without being an admin");
+                await AssertThrowsAsync<UnauthorizedAccessException>(() => svc.DecideAsync(user, userPending.Id, new CliPermissionDecisionRequest { Decision = CliPermissionDecisionEnum.AllowForConversation }), "non-admin owner refused").ConfigureAwait(false);
+                AssertNull((await h.Db.Driver.AskThreads.ReadByIdAsync(userThread.Id).ConfigureAwait(false))!.CliPermissionPolicy, "policy unchanged");
+                await svc.DecideAsync(user, userPending.Id, new CliPermissionDecisionRequest { Decision = CliPermissionDecisionEnum.Deny }).ConfigureAwait(false);
+                AssertFalse((await userPrompt.ConfigureAwait(false)).Allowed, "denied");
+            }));
+
             cases.Add(Case("captain_sessions_never_decide", "A caller with a mission- or thread-scoped session cannot see, decide, or remember a request, even as an admin", async () =>
             {
                 using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);

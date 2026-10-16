@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { CliPermissionRequest, CliPermissionRuleScope } from '@dashboard/types/models';
+import { bypassWarning } from '@dashboard/lib/cliPermissions';
 import { decideApproval } from '../../approvals/actions';
 import { useLocale } from '../../i18n/LocaleContext';
 import { spacing } from '../../theme/typography';
 import { AppText } from '../ui/AppText';
 import { BottomSheet } from '../ui/BottomSheet';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Button } from '../ui/Button';
 import { SelectField, type SelectOption } from '../ui/SelectSheet';
 import { TextField } from '../ui/TextField';
@@ -19,10 +21,11 @@ interface CliPermissionDecisionControlsProps {
 }
 
 /**
- * Allow once / Allow and remember / Deny for a pending CLI permission request (the dashboard's
- * CliPermissionDecisionControls). Allow and remember (only when the caller may create rules) opens a sheet to edit
- * the allow-rule pattern, prefilled with the suggested rule, and pick its scope; Deny takes an optional message the
- * captain sees. Decisions go through approvals/actions (decideApproval), the same path as push actions.
+ * Allow once / Allow and remember / Allow for this conversation / Deny for a pending CLI permission request (the
+ * dashboard's CliPermissionDecisionControls). Allow and remember (only when the caller may create rules) opens a sheet
+ * to edit the allow-rule pattern, prefilled with the suggested rule, and pick its scope; Allow for this conversation
+ * (the admin owner of the conversation) confirms the Bypass warning first; Deny takes an optional message the captain
+ * sees. Decisions go through approvals/actions (decideApproval), the same path as push actions.
  */
 export function CliPermissionDecisionControls({ request, onDecided, describedBy }: CliPermissionDecisionControlsProps) {
   const { t } = useLocale();
@@ -30,11 +33,12 @@ export function CliPermissionDecisionControls({ request, onDecided, describedBy 
   const [error, setError] = useState('');
   const [rememberOpen, setRememberOpen] = useState(false);
   const [denyOpen, setDenyOpen] = useState(false);
+  const [conversationOpen, setConversationOpen] = useState(false);
   const [pattern, setPattern] = useState('');
   const [scope, setScope] = useState<CliPermissionRuleScope>('Captain');
   const [message, setMessage] = useState('');
 
-  async function decide(approve: boolean, options: { comment?: string; remember?: { pattern: string; scope: CliPermissionRuleScope } } = {}): Promise<boolean> {
+  async function decide(approve: boolean, options: { comment?: string; remember?: { pattern: string; scope: CliPermissionRuleScope }; forConversation?: boolean } = {}): Promise<boolean> {
     setBusy(true);
     setError('');
     try {
@@ -86,6 +90,9 @@ export function CliPermissionDecisionControls({ request, onDecided, describedBy 
         {request.canRemember ? (
           <Button label={t('Allow and remember')} variant="secondary" onPress={openRemember} disabled={busy} accessibilityHint={describedBy} testID={`cli-remember-${request.id}`} style={styles.button} />
         ) : null}
+        {request.canAllowForConversation ? (
+          <Button label={t('Allow for this conversation')} variant="secondary" onPress={() => { setError(''); setConversationOpen(true); }} disabled={busy} accessibilityHint={describedBy} testID={`cli-conversation-${request.id}`} style={styles.button} />
+        ) : null}
         <Button label={t('Deny')} variant="danger" onPress={() => { setMessage(''); setError(''); setDenyOpen(true); }} disabled={busy} accessibilityHint={describedBy} testID={`cli-deny-${request.id}`} style={styles.button} />
       </View>
       {error && !rememberOpen && !denyOpen ? <AppText variant="caption" color="danger" accessibilityRole="alert">{error}</AppText> : null}
@@ -106,6 +113,18 @@ export function CliPermissionDecisionControls({ request, onDecided, describedBy 
         <Button label={busy ? t('Working...') : t('Allow and create rule')} onPress={() => void confirmRemember()} disabled={busy || !pattern.trim()} busy={busy} testID="cli-remember-confirm" />
         <Button label={t('Cancel')} variant="ghost" onPress={() => setRememberOpen(false)} disabled={busy} />
       </BottomSheet>
+
+      <ConfirmDialog
+        open={conversationOpen}
+        title={t('Allow for this conversation')}
+        message={`${t('Allows this call now and switches this conversation to Bypass, so later CLI tool calls run without asking.')}\n\n${bypassWarning(t)}`}
+        confirmLabel={t('Allow everything')}
+        cancelLabel={t('Cancel')}
+        danger
+        onConfirm={() => { setConversationOpen(false); void decide(true, { forConversation: true }); }}
+        onCancel={() => setConversationOpen(false)}
+        testID="cli-conversation-confirm"
+      />
 
       <BottomSheet open={denyOpen} title={t('Deny')} onClose={() => { if (!busy) setDenyOpen(false); }} closeLabel={t('Cancel')} testID="cli-deny-sheet">
         <AppText muted style={styles.subtitle}>{t('The captain is told the tool call was denied.')}</AppText>

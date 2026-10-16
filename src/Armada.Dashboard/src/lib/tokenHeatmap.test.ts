@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { heatLevel, tokenHeatmapDays, tokenHeatmapStats, tokenHeatmapWindow } from './tokenHeatmap';
+import { buildTokenHeatGrid, heatLevel, tokenHeatGridStats, tokenHeatmapDays, tokenHeatmapQuery, tokenHeatmapSpecForHours, tokenHeatmapStats, tokenHeatmapWindow } from './tokenHeatmap';
 import type { TokenUsageSummaryResult } from '../types/models';
 
 describe('Token calendar', () => {
@@ -21,5 +21,38 @@ describe('Token calendar', () => {
     expect(tokenHeatmapStats(days)).toEqual({ total: 4e9 + 85, peak: 4e9 + 85, active: 1 });
     expect(heatLevel(0, 4e9)).toBe(0);
     expect(heatLevel(4e9, 4e9)).toBe(4);
+  });
+
+  it('picks minutes, hours, or calendar days from the page window', () => {
+    expect(tokenHeatmapSpecForHours(1)).toEqual({ kind: 'minutes', minutes: 60 });
+    expect(tokenHeatmapSpecForHours(24)).toEqual({ kind: 'hours', hours: 24 });
+    expect(tokenHeatmapSpecForHours(168)).toEqual({ kind: 'hours', hours: 168 });
+    expect(tokenHeatmapSpecForHours(720)).toEqual({ kind: 'calendar', days: 30 });
+    expect(tokenHeatmapSpecForHours(8760)).toEqual({ kind: 'calendar', days: 365 });
+  });
+  it('lays out hours as UTC day rows of 24 columns, padding outside the window and summing buckets', () => {
+    const now = new Date('2026-01-02T05:30:00Z');
+    const spec = { kind: 'hours', hours: 24 } as const;
+    expect(tokenHeatmapQuery(spec, now)).toEqual({ fromUtc: '2026-01-01T05:00:00.000Z', toUtc: '2026-01-02T05:30:00.000Z', bucketMinutes: 60 });
+    const data = { buckets: [
+      { bucketStartUtc: '2026-01-01T06:00:00Z', inputTokens: 10, outputTokens: 2, cachedTokens: 4, totalTokens: 12 },
+      { bucketStartUtc: '2026-01-01T06:00:00.000Z', inputTokens: 1, outputTokens: 1, cachedTokens: 0, totalTokens: 2 },
+    ] } as TokenUsageSummaryResult;
+    const grid = buildTokenHeatGrid(data, spec, 'total', now);
+    expect(grid.columns).toBe(24);
+    expect(grid.rows.map(r => r.key)).toEqual(['2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z']);
+    expect(grid.rows[0].cells[4]).toBeNull();
+    expect(grid.rows[0].cells[6]?.count).toBe(14);
+    expect(grid.rows[1].cells[5]?.count).toBe(0);
+    expect(grid.rows[1].cells[6]).toBeNull();
+    expect(buildTokenHeatGrid(data, spec, 'cached', now).rows[0].cells[6]?.count).toBe(4);
+    expect(tokenHeatGridStats(grid)).toEqual({ total: 14, peak: 14, active: 1 });
+  });
+  it('lays out minutes as UTC hour rows of 60 columns', () => {
+    const grid = buildTokenHeatGrid(null, { kind: 'minutes', minutes: 60 }, 'total', new Date('2026-01-02T05:30:20Z'));
+    expect(grid.bucketMinutes).toBe(1);
+    expect(grid.columns).toBe(60);
+    expect(grid.rows).toHaveLength(2);
+    expect(grid.rows.flatMap(r => r.cells).filter(Boolean)).toHaveLength(61);
   });
 });

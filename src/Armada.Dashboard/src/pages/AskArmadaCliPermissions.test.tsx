@@ -130,8 +130,17 @@ describe('Ask CLI permission card', () => {
     expect(within(card).getByText(/^Expires in \d+:\d\d$/)).toBeInTheDocument();
     fireEvent.click(within(card).getByRole('button', { name: 'Allow once' }));
     await waitFor(() => expect(decideCliPermissionRequest).toHaveBeenCalledWith('cpr_1', { decision: 'AllowOnce' }));
-    expect(await within(card).findByText('Allowed. The captain ran the tool.')).toBeInTheDocument();
+    // A decided card collapses to its header and command; clicking the header expands and collapses it.
+    const header = await within(card).findByRole('button', { expanded: false });
     expect(within(card).queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument();
+    expect(within(card).getByText('npm publish')).toBeInTheDocument();
+    expect(within(card).queryByText('Allowed. The captain ran the tool.')).not.toBeInTheDocument();
+    fireEvent.click(header);
+    expect(header).toHaveAttribute('aria-expanded', 'true');
+    expect(within(card).getByText('Allowed. The captain ran the tool.')).toBeInTheDocument();
+    fireEvent.keyDown(header, { key: 'Enter' });
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+    expect(within(card).queryByText('Allowed. The captain ran the tool.')).not.toBeInTheDocument();
   });
 
   it('shows the wait note to a user who cannot decide, and updates from cli_permission and ask.message events', async () => {
@@ -145,14 +154,16 @@ describe('Ask CLI permission card', () => {
     expect(within(card).getByText('Waiting for an admin to decide.')).toBeInTheDocument();
 
     emit('cli_permission.resolved', { requestId: 'cpr_1', status: 'Denied', request: { ...pending, status: 'Denied', decisionSource: 'Approver', canDecide: false, lastUpdateUtc: new Date().toISOString() } });
-    expect(await within(card).findByText('Denied. The tool did not run.')).toBeInTheDocument();
+    fireEvent.click(await within(card).findByRole('button', { expanded: false }));
+    expect(within(card).getByText('Denied. The tool did not run.')).toBeInTheDocument();
   });
 
   it('refreshes the card from ask.message', async () => {
     renderAt('/ask/ath_1');
     const card = await screen.findByRole('group', { name: 'CLI permission: Bash' });
     emit('ask.message', { threadId: 'ath_1', message: { ...messages()[1], cliPermissionRequest: { ...pending, status: 'Expired', decisionSource: 'Timeout', canDecide: false } } });
-    expect(await within(card).findByText('Expired without a decision. The tool did not run.')).toBeInTheDocument();
+    fireEvent.click(await within(card).findByRole('button', { expanded: false }));
+    expect(within(card).getByText('Expired without a decision. The tool did not run.')).toBeInTheDocument();
   });
 });
 

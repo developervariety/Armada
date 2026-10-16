@@ -6,6 +6,17 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Ask Armada: CLI permission cards
+- **Allow for this conversation.** A permission card now offers a fourth choice next to Allow once, Allow and remember, and Deny: allow this call and every later CLI tool call in the conversation without asking. After the Bypass warning, the call runs, the conversation's CLI tool policy becomes Bypass (change it back in the conversation header), other waiting requests from the conversation are allowed, and later prompts from the turn already running are allowed at once (`DecisionSource` `ConversationBypass`). Only the conversation's owner, when an admin, can choose it, the same rule as setting Bypass on a conversation. Available in the dashboard, the TUI (`b` on the card, in the Approvals center, and on CLI Tool Permissions > Requests), the mobile app, REST, WebSocket, and MCP (`decision: AllowForConversation`).
+- **Decided cards collapse.** Once allowed, denied, expired, or cancelled, a permission card in an Ask conversation collapses to its title row and command; click the title (Enter in the TUI, tap on mobile) to expand or collapse it.
+
+### Activity > Token Usage
+- **One timeframe.** The token heatmap follows the page's timeframe tabs instead of its own selector (minute grid for the last hour, hour grid for a day or week, calendar for a month and longer); the tabs gain Last 3 months and Last 12 months.
+- **Captain or model filter.** A "Captain or model" picker next to the tabs (or All) filters the totals, the heatmap, and both charts, and is kept in the URL.
+- **Bigger heatmap.** The heatmap fills the card's width, so a month is a full-width calendar comparable to the charts below it.
+- **Copy image works.** The copy starts straight from the click (Safari requires it), and where the browser has no image clipboard (plain HTTP on a LAN address) the chart downloads as a PNG and the button says "Saved as PNG". It used to say "Copy failed".
+- **Usage by model by token type.** Each model's bar is split into uncached input, cached input, and output, with a legend. The "By token type" view of the usage-over-time chart no longer counts cached tokens twice.
+
 ### Approve in Armada works for Mux captains
 - A Mux captain (Mux 1.5.0 or later) under the Approve in Armada policy now sends its tool calls to Armada's approvers the way Claude Code does, instead of falling back to Refuse. Mux runs with `--approval-policy ask --permission-prompt-tool armada.cli_permission_prompt` on the scoped `armada` MCP server. Read-only tools run; Armada's own MCP tools and file edits run without asking, with `--sandbox workspace-write` refusing edits outside the worktree; shell commands (`run_process`, matched by the existing `run_process(...)` rules), background processes, deletes, and other mutating tools wait for a decision. A prompt error, timeout, or unreadable answer denies the call, and Mux waits two minutes longer than `Permissions.PromptTimeoutSeconds`, so Armada expires a request first.
 - Armada reads the installed Mux version (`mux --version`, cached for five minutes). An older or missing Mux still runs Approve in Armada as Refuse, and the policy note says Mux 1.5.0 is needed.

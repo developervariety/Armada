@@ -77,6 +77,7 @@ export function decisionSourceText(t: Translate, request: Pick<CliPermissionRequ
     case 'Approver': return t('Decided by an approver.');
     case 'AllowRule': return t('Allowed by a saved rule.');
     case 'DenyRule': return t('Denied by a saved rule.');
+    case 'ConversationBypass': return t('Allowed for this conversation.');
     default: return null;
   }
 }

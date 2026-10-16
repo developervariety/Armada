@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { CliPermissionRequest } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
@@ -15,14 +15,17 @@ interface CliPermissionCardProps {
   highlighted?: boolean;
   /** Show the conversation title (on the permissions page, where the request is out of context). */
   showThread?: boolean;
+  /** Let a decided card collapse to its header and command line (Ask Armada); click the header to toggle. */
+  collapsible?: boolean;
 }
 
 /**
  * Approval card for a CLI tool call a captain wants to make (shell command, file edit, web fetch): the tool, the
  * command or input, who asked, a live expiry countdown while pending, and the decision afterwards. Approvers get
- * Allow once / Allow and remember / Deny; everyone else sees that it waits on an admin.
+ * Allow once / Allow and remember / Allow for this conversation / Deny; everyone else sees that it waits on an admin.
+ * When collapsible, a decided card starts collapsed to its header and command line, and clicking the header toggles it.
  */
-export default function CliPermissionCard({ request, onDecided, highlighted, showThread }: CliPermissionCardProps) {
+export default function CliPermissionCard({ request, onDecided, highlighted, showThread, collapsible }: CliPermissionCardProps) {
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const status = String(request.status || '');
   const normalized = status.toLowerCase();
@@ -31,16 +34,44 @@ export default function CliPermissionCard({ request, onDecided, highlighted, sho
   const summary = (request.summaryText ?? '').trim();
   const summaryId = useId();
   const decidedHow = pending ? null : decisionSourceText(t, request);
+  const canCollapse = !!collapsible && !pending;
+  // Expanded while pending, collapsed once decided, unless the user toggled it (only possible after the decision).
+  const [toggled, setToggled] = useState<boolean | null>(null);
+  const expanded = toggled ?? pending;
+  const bodyId = useId();
+  const collapsed = canCollapse && !expanded;
+  const toggle = () => setToggled(!expanded);
 
   return (
     <div
       id={`cli-permission-${request.id}`}
-      className={`ask-confirm-card cli-perm-card is-${normalized || 'unknown'}${highlighted ? ' is-highlighted' : ''}`}
+      className={`ask-confirm-card cli-perm-card is-${normalized || 'unknown'}${highlighted ? ' is-highlighted' : ''}${canCollapse ? ' is-collapsible' : ''}${collapsed ? ' is-collapsed' : ''}`}
       role="group"
       aria-label={t('CLI permission: {{tool}}', { tool: request.toolName })}
       data-request-id={request.id}
     >
-      <div className="ask-confirm-header">
+      <div
+        className="ask-confirm-header"
+        {...(canCollapse ? {
+          role: 'button',
+          tabIndex: 0,
+          'aria-expanded': expanded,
+          'aria-controls': bodyId,
+          title: expanded ? t('Collapse this permission card.') : t('Expand this permission card to see who asked, the input, and the decision.'),
+          onClick: toggle,
+          onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggle();
+            }
+          },
+        } : {})}
+      >
+        {canCollapse && (
+          <span className="cli-perm-chevron" aria-hidden="true">
+            <svg viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" /></svg>
+          </span>
+        )}
         <span className="ask-confirm-label">{pending ? t('Permission needed') : t('CLI permission')}</span>
         <code className="ask-confirm-tool" title={t('The CLI tool the captain wants to use, such as Bash for a shell command, Edit for a file change, or WebFetch for a URL.')}>{request.toolName || t('tool')}</code>
         <span className="ask-confirm-status">
@@ -56,6 +87,10 @@ export default function CliPermissionCard({ request, onDecided, highlighted, sho
         <CliPermissionCountdown expiresUtc={request.expiresUtc} active={pending} />
       </div>
 
+      {collapsed && summary && <code className="cli-perm-summary-line" title={summary}>{summary}</code>}
+
+      {!collapsed && (
+      <div id={bodyId} className="cli-perm-body">
       {summary && (
         <div className="ask-confirm-pre-wrap cli-perm-summary">
           <pre id={summaryId} className="ask-confirm-pre">{summary}</pre>
@@ -127,6 +162,8 @@ export default function CliPermissionCard({ request, onDecided, highlighted, sho
           )}
           {request.decisionMessage && <p className="cli-perm-decision-message">{t('Message: {{text}}', { text: request.decisionMessage })}</p>}
         </div>
+      )}
+      </div>
       )}
     </div>
   );

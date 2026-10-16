@@ -272,7 +272,9 @@ namespace Armada.Tui.Screens.Ask
             if (cliRequest != null)
             {
                 CliPermissionRequest request = cliRequest;
-                sb.Append("|p").Append(request.Status).Append(':').Append(request.DecisionSource?.ToString() ?? "").Append(':').Append(request.DecisionMessage ?? "");
+                sb.Append("|p").Append(request.Status).Append(':').Append(request.DecisionSource?.ToString() ?? "").Append(':').Append(request.DecisionMessage ?? "")
+                    .Append(view.ExpandedCliPermissions.Contains(request.Id) ? 'E' : 'e')
+                    .Append(request.CanAllowForConversation ? 'B' : 'b');
             }
 
             if (message.ToolCalls != null)
@@ -388,7 +390,8 @@ namespace Armada.Tui.Screens.Ask
                 List<AskCardButton> buttons = new List<AskCardButton>();
                 int offset = lines.Count;
                 bool busy = request != null && ask.IsCliPermissionBusy(request.Id);
-                lines.AddRange(AskCliPermissionCard.Lines(request, text, busy, view.FocusedKey == message.Id, theme, loc, nowUtc, w, buttons));
+                bool expanded = request != null && view.ExpandedCliPermissions.Contains(request.Id);
+                lines.AddRange(AskCliPermissionCard.Lines(request, text, busy, view.FocusedKey == message.Id, expanded, theme, loc, nowUtc, w, buttons));
                 foreach (AskCardButton button in buttons)
                 {
                     button.Line += offset;

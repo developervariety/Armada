@@ -28,6 +28,13 @@ namespace Armada.Core.Enums
         DenyRule,
 
         /// <summary>
+        /// The request's Ask conversation was set to Bypass (Allow for this conversation), so the call was allowed
+        /// without asking.
+        /// </summary>
+        [EnumMember(Value = "ConversationBypass")]
+        ConversationBypass,
+
+        /// <summary>
         /// No decision before the timeout.
         /// </summary>
         [EnumMember(Value = "Timeout")]

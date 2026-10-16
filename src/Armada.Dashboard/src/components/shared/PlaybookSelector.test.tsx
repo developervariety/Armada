@@ -34,15 +34,18 @@ vi.mock('../../api/client', () => ({
   }),
 }));
 
-vi.mock('../../context/LocaleContext', () => ({
-  useLocale: () => ({
+// One stable locale object, like the real provider's memoized t: a new t per render would rerun the selector's load
+// effect (it depends on t) on every re-render and race the test's clicks.
+vi.mock('../../context/LocaleContext', () => {
+  const locale = {
     t: (value: string, vars?: Record<string, string | number>) => {
       if (!vars) return value;
       return value.replace(/\{\{(\w+)\}\}/g, (_, key: string) => String(vars[key] ?? ''));
     },
     formatRelativeTime: () => 'just now',
-  }),
-}));
+  };
+  return { useLocale: () => locale };
+});
 
 function Harness() {
   const [value, setValue] = useState<SelectedPlaybook[]>([]);

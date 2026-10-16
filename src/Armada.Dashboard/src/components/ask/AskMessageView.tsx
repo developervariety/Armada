@@ -68,7 +68,7 @@ export default function AskMessageView({ message, proposal, captainName, proposa
     return (
       <article className="ask-msg ask-msg-proposal ask-msg-cli-permission" data-sequence={message.sequence}>
         {cliRequest
-          ? <CliPermissionCard request={cliRequest} onDecided={onCliDecided} />
+          ? <CliPermissionCard request={cliRequest} onDecided={onCliDecided} collapsible />
           : <div className="ask-confirm-card is-unknown"><p>{text || t('A CLI permission request is loading...')}</p></div>}
         <div className="ask-msg-meta">{when}</div>
       </article>

@@ -176,6 +176,12 @@ namespace Armada.Core.Models
         /// </summary>
         public bool CanRemember { get; set; } = false;
 
+        /// <summary>
+        /// Whether the caller may also allow every later call in the request's Ask conversation (the thread owner, when
+        /// an admin; filled on read; not persisted).
+        /// </summary>
+        public bool CanAllowForConversation { get; set; } = false;
+
         #endregion
 
         #region Private-Members

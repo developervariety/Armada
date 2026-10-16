@@ -311,6 +311,15 @@ namespace Test.Shared.Suites.Tui
                     AskScreen screen = (AskScreen)host.Tui.Shell.Screen!;
                     AssertTrue(host.PumpUntil(() => host.Tui.Ask.Conversation.Messages.Count == 5 && host.Tui.Ask.Conversation.Thread?.CliPermission != null), "loaded");
                     screen.Transcript.Layout(150);
+                    string collapsedText = String.Join("\n", screen.Transcript.PlainLines());
+                    AssertFalse(collapsedText.Contains("Allowed by a saved rule.", StringComparison.Ordinal), "decided cards start collapsed");
+                    TuiCase.Contains(collapsedText, "> CLI permission", "collapsed chevron");
+                    foreach (AskMessage message in host.Tui.Ask.Conversation.Messages)
+                    {
+                        if (message.CliPermissionRequest != null) screen.Transcript.ViewState.Toggle(screen.Transcript.ViewState.ExpandedCliPermissions, message.CliPermissionRequest.Id);
+                    }
+
+                    screen.Transcript.Layout(150);
                     string text = String.Join("\n", screen.Transcript.PlainLines());
                     TuiCase.Contains(text, "Permission needed  Bash", "pending card heading");
                     TuiCase.Contains(text, "! Pending", "pending status");

@@ -8,6 +8,7 @@ namespace Armada.Tui.Screens.Admin
     using Armada.Core.Models;
     using Armada.Tui.Approvals;
     using Armada.Tui.Input;
+    using Armada.Tui.Modals;
     using Armada.Tui.Routing;
     using Armada.Tui.Screens.Kit;
     using Armada.Tui.Services;
@@ -62,6 +63,11 @@ namespace Armada.Tui.Screens.Admin
         public Button DenyButton { get; }
 
         /// <summary>
+        /// Allow for this conversation button (b).
+        /// </summary>
+        public Button ConversationButton { get; }
+
+        /// <summary>
         /// Request id from the route's <c>request</c> query parameter, or null.
         /// </summary>
         public string? HighlightId { get; }
@@ -85,6 +91,7 @@ namespace Armada.Tui.Screens.Admin
                 {
                     hints.Add(new KeyValuePair<string, string>("a", "Allow once"));
                     if (row!.CanRemember) hints.Add(new KeyValuePair<string, string>("A", "Allow and remember"));
+                    if (row.CanAllowForConversation) hints.Add(new KeyValuePair<string, string>("b", "Allow for this conversation"));
                     hints.Add(new KeyValuePair<string, string>("d", "Deny"));
                 }
 
@@ -120,6 +127,7 @@ namespace Armada.Tui.Screens.Admin
             HighlightId = String.IsNullOrWhiteSpace(highlight) ? null : highlight;
             AllowOnceButton = Header.AddButton("Allow once", () => AllowOnce(), "a");
             RememberButton = Header.AddButton("Allow and remember", () => Remember(), "A");
+            ConversationButton = Header.AddButton("Allow for this conversation", () => AllowForConversation(), "b");
             DenyButton = Header.AddButton("Deny", () => Deny(), "d");
             Header.AddButton("Refresh", Refresh, "F5");
             AddFixed(Header, w => Header.HeightFor(w));
@@ -242,6 +250,16 @@ namespace Armada.Tui.Screens.Admin
         }
 
         /// <summary>
+        /// Allow the selected request and set its Ask conversation to Bypass (<c>b</c>), after the Bypass warning.
+        /// </summary>
+        /// <returns>The confirmation, or null.</returns>
+        public ConfirmDialog? AllowForConversation()
+        {
+            ApprovalItem? item = ItemFor(Grid.Current);
+            return item == null ? null : Actions.AllowCliPermissionForConversation(item, r => Load());
+        }
+
+        /// <summary>
         /// Deny the selected request (<c>d</c>): the optional message dialog.
         /// </summary>
         /// <returns>The dialog, or null.</returns>
@@ -301,6 +319,7 @@ namespace Armada.Tui.Screens.Admin
             bool decide = CanDecide(row);
             AllowOnceButton.Visible = decide;
             RememberButton.Visible = decide && row!.CanRemember;
+            ConversationButton.Visible = decide && row!.CanAllowForConversation;
             DenyButton.Visible = decide;
         }
 
@@ -318,6 +337,7 @@ namespace Armada.Tui.Screens.Admin
             {
                 items.Add(new ActionMenuItem("Allow once", () => AllowOnce(), "a"));
                 if (row.CanRemember) items.Add(new ActionMenuItem("Allow and remember", () => Remember(), "A"));
+                if (row.CanAllowForConversation) items.Add(new ActionMenuItem("Allow for this conversation", () => AllowForConversation(), "b"));
                 ActionMenuItem deny = new ActionMenuItem("Deny", () => Deny(), "d");
                 deny.Destructive = true;
                 items.Add(deny);
@@ -343,6 +363,7 @@ namespace Armada.Tui.Screens.Admin
             List<ArmadaCommand> commands = new List<ArmadaCommand>();
             commands.Add(Command(prefix + "allow-once", "Allow once", () => AllowOnce(), () => CanDecide(Grid.Current), "a"));
             commands.Add(Command(prefix + "allow-remember", "Allow and remember", () => Remember(), () => CanDecide(Grid.Current) && Grid.Current!.CanRemember, "A"));
+            commands.Add(Command(prefix + "allow-conversation", "Allow for this conversation", () => AllowForConversation(), () => CanDecide(Grid.Current) && Grid.Current!.CanAllowForConversation, "b"));
             commands.Add(Command(prefix + "deny", "Deny", () => Deny(), () => CanDecide(Grid.Current), "d"));
             commands.Add(Command(prefix + "open", "Open mission, conversation, or captain", () => { CliPermissionRequest? row = Grid.Current; string? route = row != null ? RouteOf(row) : null; if (route != null) Context.Navigate(route); }, () => Grid.Current != null && RouteOf(Grid.Current) != null, "o"));
             return commands;

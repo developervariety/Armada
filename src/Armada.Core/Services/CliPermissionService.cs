@@ -198,6 +198,18 @@ namespace Armada.Core.Services
                     return new CliPermissionPromptOutcome { Allowed = allow, Message = request.DecisionMessage ?? String.Empty, Request = request };
                 }
 
+                // A turn launched before its thread was set to Bypass (Allow for this conversation) still asks: allow
+                // the rest of its calls without asking, as the next turn's Bypass launch would.
+                if (await IsThreadBypassedAsync(context.ThreadId, token).ConfigureAwait(false))
+                {
+                    request.Status = CliPermissionRequestStatusEnum.Allowed;
+                    request.DecisionSource = CliPermissionDecisionSourceEnum.ConversationBypass;
+                    request.DecidedUtc = request.CreatedUtc;
+                    request = await _Database.CliPermissionRequests.CreateAsync(request, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + request.ToolName + " for captain " + request.CaptainId + " allowed by thread " + request.ThreadId + " Bypass");
+                    return new CliPermissionPromptOutcome { Allowed = true, Message = String.Empty, Request = request };
+                }
+
                 TaskCompletionSource<bool> waiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 _Waiters[request.Id] = waiter;
                 CliPermissionPromptOutcome? undelivered = null;
@@ -301,7 +313,7 @@ namespace Armada.Core.Services
         /// <param name="token">Cancellation token.</param>
         /// <returns>The decided request, decorated for the caller.</returns>
         /// <exception cref="KeyNotFoundException">Thrown when the request does not exist or is not visible.</exception>
-        /// <exception cref="UnauthorizedAccessException">Thrown when the caller may not decide (or remember).</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown when the caller may not decide (or remember, or allow for the conversation).</exception>
         /// <exception cref="ArgumentException">Thrown for an invalid rule pattern or scope.</exception>
         /// <exception cref="InvalidOperationException">Thrown when the request is no longer pending.</exception>
         public async Task<CliPermissionRequest> DecideAsync(AuthContext caller, string requestId, CliPermissionDecisionRequest decision, CancellationToken token = default)
@@ -316,6 +328,15 @@ namespace Armada.Core.Services
                 throw new UnauthorizedAccessException("Only an admin can decide this CLI permission request" + (_Settings.Permissions.AllowOwnerApproval ? "." : " (Permissions.AllowOwnerApproval is off)."));
             if (request.Status != CliPermissionRequestStatusEnum.Pending)
                 throw new InvalidOperationException("The CLI permission request " + request.Id + " is no longer pending (" + request.Status + ").");
+
+            AskThread? bypassThread = null;
+            if (decision.Decision == CliPermissionDecisionEnum.AllowForConversation)
+            {
+                if (!CliPermissionAccess.CanAllowForConversation(caller, request))
+                    throw new UnauthorizedAccessException("Only the conversation's owner, when an admin, can allow every CLI tool call in the conversation.");
+                bypassThread = await _Database.AskThreads.ReadByIdAsync(request.ThreadId!, token).ConfigureAwait(false);
+                if (bypassThread == null) throw new KeyNotFoundException("Thread not found.");
+            }
 
             string? ruleId = null;
             if (decision.Decision == CliPermissionDecisionEnum.AllowAndRemember)
@@ -356,6 +377,12 @@ namespace Armada.Core.Services
             if (_Waiters.TryGetValue(request.Id, out TaskCompletionSource<bool>? waiter)) waiter.TrySetResult(allow);
             Announce(ResolvedEvent, updated);
             await RefreshCardAsync(updated).ConfigureAwait(false);
+            if (bypassThread != null)
+            {
+                await ApplyThreadPolicyAsync(caller, bypassThread, CliPermissionPolicyEnum.Bypass, token).ConfigureAwait(false);
+                await AllowPendingForThreadAsync(bypassThread.Id, caller.UserId).ConfigureAwait(false);
+            }
+
             await DecorateAsync(caller, updated, token).ConfigureAwait(false);
             return updated;
         }
@@ -427,6 +454,7 @@ namespace Armada.Core.Services
 
             request.CanDecide = caller != null && request.Status == CliPermissionRequestStatusEnum.Pending && CliPermissionAccess.CanDecide(caller, request, _Settings.Permissions);
             request.CanRemember = request.CanDecide && caller != null && CliPermissionAccess.CanRemember(caller, request);
+            request.CanAllowForConversation = request.CanDecide && caller != null && CliPermissionAccess.CanAllowForConversation(caller, request);
         }
 
         /// <summary>
@@ -646,6 +674,15 @@ namespace Armada.Core.Services
             if (thread == null) throw new KeyNotFoundException("Thread not found.");
             if (policy == CliPermissionPolicyEnum.Bypass && !CliPermissionAccess.IsAdminFor(caller, thread.TenantId))
                 throw new UnauthorizedAccessException("Only an admin can set Bypass for CLI tools.");
+            return await ApplyThreadPolicyAsync(caller, thread, policy, token).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task<AskThread> ApplyThreadPolicyAsync(AuthContext caller, AskThread thread, CliPermissionPolicyEnum? policy, CancellationToken token)
+        {
             await _Database.AskThreads.UpdateCliPermissionPolicyAsync(thread.TenantId!, thread.Id, policy, token).ConfigureAwait(false);
             _Logging.Info(_Header + "thread " + thread.Id + " CLI permission policy set to " + (policy?.ToString() ?? "inherit") + " by " + caller.UserId);
             if (AskThreads != null)
@@ -661,9 +698,29 @@ namespace Armada.Core.Services
             return await _Database.AskThreads.ReadByIdAsync(thread.Id, token).ConfigureAwait(false) ?? thread;
         }
 
-        #endregion
+        private async Task<bool> IsThreadBypassedAsync(string? threadId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(threadId)) return false;
+            AskThread? thread = await _Database.AskThreads.ReadByIdAsync(threadId, token).ConfigureAwait(false);
+            return thread != null && thread.CliPermissionPolicy == CliPermissionPolicyEnum.Bypass;
+        }
 
-        #region Private-Methods
+        private async Task AllowPendingForThreadAsync(string threadId, string? userId)
+        {
+            CliPermissionRequestQuery query = new CliPermissionRequestQuery { Status = CliPermissionRequestStatusEnum.Pending, ThreadId = threadId, Limit = 1000 };
+            List<CliPermissionRequest> pending = await _Database.CliPermissionRequests.EnumerateAsync(query, CancellationToken.None).ConfigureAwait(false);
+            foreach (CliPermissionRequest request in pending)
+            {
+                bool done = await _Database.CliPermissionRequests.TryDecideAsync(
+                    request.Id, CliPermissionRequestStatusEnum.Allowed, CliPermissionDecisionSourceEnum.ConversationBypass,
+                    null, userId, null, CancellationToken.None).ConfigureAwait(false);
+                if (!done) continue;
+                if (_Waiters.TryGetValue(request.Id, out TaskCompletionSource<bool>? waiter)) waiter.TrySetResult(true);
+                CliPermissionRequest updated = await _Database.CliPermissionRequests.ReadAsync(request.Id, CancellationToken.None).ConfigureAwait(false) ?? request;
+                Announce(ResolvedEvent, updated);
+                await RefreshCardAsync(updated).ConfigureAwait(false);
+            }
+        }
 
         private async Task<CliPermissionRequest> ReadVisibleAsync(AuthContext caller, string requestId, CancellationToken token)
         {

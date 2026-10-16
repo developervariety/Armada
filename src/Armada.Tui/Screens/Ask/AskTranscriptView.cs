@@ -433,7 +433,7 @@ namespace Armada.Tui.Screens.Ask
         public bool DecideSelected(char key)
         {
             List<AskPendingDecision> all = SelectedDecisions();
-            List<AskPendingDecision> candidates = key == 'A' || key == 'd'
+            List<AskPendingDecision> candidates = key == 'A' || key == 'b' || key == 'd'
                 ? all.Where(d => d.Kind == AskPendingDecisionKindEnum.CliPermission).ToList()
                 : all;
             if (candidates.Count == 0)
@@ -698,9 +698,17 @@ namespace Armada.Tui.Screens.Ask
             if (!String.IsNullOrEmpty(button.RequestId))
             {
                 CliPermissionRequest? request = block.CliRequest;
-                if (request == null || request.Id != button.RequestId || !Decidable(request)) return false;
+                if (request == null || request.Id != button.RequestId) return false;
+                if (button.Action == AskCardActionEnum.ToggleDetails)
+                {
+                    ViewState.Toggle(ViewState.ExpandedCliPermissions, request.Id);
+                    return true;
+                }
+
+                if (!Decidable(request)) return false;
                 if (button.Action == AskCardActionEnum.AllowOnce) return Act(new AskPendingDecision(request), 'a');
                 if (button.Action == AskCardActionEnum.AllowAndRemember) return Act(new AskPendingDecision(request), 'A');
+                if (button.Action == AskCardActionEnum.AllowForConversation) return Act(new AskPendingDecision(request), 'b');
                 return Act(new AskPendingDecision(request), 'd');
             }
 
@@ -834,6 +842,12 @@ namespace Armada.Tui.Screens.Ask
                 return true;
             }
 
+            if (block.CliRequest != null && block.CliRequest.Status != CliPermissionRequestStatusEnum.Pending)
+            {
+                ViewState.Toggle(ViewState.ExpandedCliPermissions, block.CliRequest.Id);
+                return true;
+            }
+
             if (block.Kind == AskBlockKindEnum.Stream || (block.Message != null && block.Message.ToolCalls != null && block.Message.ToolCalls.Count > 0))
             {
                 ViewState.Toggle(ViewState.ExpandedTools, block.Key);
@@ -880,6 +894,7 @@ namespace Armada.Tui.Screens.Ask
                 case 'a':
                 case 'r':
                 case 'A':
+                case 'b':
                     return DecideSelected(c);
                 case 'x':
                     if (block?.Proposal == null) return false;
@@ -943,10 +958,19 @@ namespace Armada.Tui.Screens.Ask
             if (decision.Kind == AskPendingDecisionKindEnum.Proposal) return key == 'a' || key == 'r' ? Decide(decision.Proposal!, positive) : false;
             if (decision.Kind == AskPendingDecisionKindEnum.CliPermission)
             {
-                CliPermissionDecisionEnum kind = key == 'a' ? CliPermissionDecisionEnum.AllowOnce : key == 'A' ? CliPermissionDecisionEnum.AllowAndRemember : CliPermissionDecisionEnum.Deny;
+                CliPermissionDecisionEnum kind = key == 'a' ? CliPermissionDecisionEnum.AllowOnce
+                    : key == 'A' ? CliPermissionDecisionEnum.AllowAndRemember
+                    : key == 'b' ? CliPermissionDecisionEnum.AllowForConversation
+                    : CliPermissionDecisionEnum.Deny;
                 if (kind == CliPermissionDecisionEnum.AllowAndRemember && !decision.CliRequest!.CanRemember)
                 {
                     _Context.Notifications.Toast(Services.NotificationSeverityEnum.Warning, _Context.Loc.T("Only an admin can save a permission rule. Allow once or deny instead."));
+                    return true;
+                }
+
+                if (kind == CliPermissionDecisionEnum.AllowForConversation && !decision.CliRequest!.CanAllowForConversation)
+                {
+                    _Context.Notifications.Toast(Services.NotificationSeverityEnum.Warning, _Context.Loc.T("Only the conversation's owner, when an admin, can allow every call in the conversation."));
                     return true;
                 }
 
@@ -963,7 +987,7 @@ namespace Armada.Tui.Screens.Ask
         private string VerbLabel(AskPendingDecision decision, char key)
         {
             if (decision.Kind == AskPendingDecisionKindEnum.CliPermission)
-                return T(key == 'a' ? "Allow once" : key == 'A' ? "Allow and remember" : "Deny");
+                return T(key == 'a' ? "Allow once" : key == 'A' ? "Allow and remember" : key == 'b' ? "Allow for this conversation" : "Deny");
             return T(key == 'a' ? "Approve" : decision.Kind == AskPendingDecisionKindEnum.MissionReview ? "Deny" : "Reject");
         }
 
@@ -979,7 +1003,7 @@ namespace Armada.Tui.Screens.Ask
         {
             int pending = _Ask.Conversation.PendingProposals().Count(p => !_Ask.IsProposalBusy(p.Id))
                 + _Ask.Conversation.PendingCliPermissions().Count(r => Decidable(r));
-            string text = key == 'A' || key == 'd'
+            string text = key == 'A' || key == 'b' || key == 'd'
                 ? (pending > 0 ? "No CLI permission request here. Pending: Alt+Down jumps to it" : "No CLI permission request here.")
                 : (pending > 0 ? "Nothing to approve here. Pending: Alt+Down jumps to it" : "Nothing to approve here.");
             _Context.Notifications.Toast(Services.NotificationSeverityEnum.Info, _Context.Loc.T(text));

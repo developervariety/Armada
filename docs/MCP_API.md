@@ -1062,7 +1062,7 @@ Allow once, allow and remember, or deny a pending request; the waiting captain c
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `requestId` | string | Yes | Request ID (`cpr_`) |
-| `decision` | string | Yes | `AllowOnce`, `AllowAndRemember` (admins; also stores an allow rule), or `Deny` |
+| `decision` | string | Yes | `AllowOnce`, `AllowAndRemember` (admins; also stores an allow rule), `AllowForConversation` (the admin owner of the Ask thread; also sets the thread to `Bypass`), or `Deny` |
 | `message` | string | No | Returned to the captain with a denial; recorded with an allow |
 | `rulePattern` | string | No | Rule for `AllowAndRemember`, for example `Bash(git status:*)`; defaults to the request's `SuggestedRule` |
 | `ruleScope` | string | No | `Global`, `Vessel`, or `Captain` (default `Captain`) for that rule |
