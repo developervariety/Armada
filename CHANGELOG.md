@@ -14,7 +14,7 @@ All notable changes to Armada are documented in this file.
 - **One timeframe.** The token heatmap follows the page's timeframe tabs instead of its own selector (minute grid for the last hour, hour grid for a day or week, calendar for a month and longer); the tabs gain Last 3 months and Last 12 months.
 - **Captain or model filter.** A "Captain or model" picker next to the tabs (or All) filters the totals, the heatmap, and both charts, and is kept in the URL.
 - **Bigger heatmap.** The heatmap fills the card's width, so a month is a full-width calendar comparable to the charts below it.
-- **Copy image works.** The copy starts straight from the click (Safari requires it), and where the browser has no image clipboard (plain HTTP on a LAN address) the chart downloads as a PNG and the button says "Saved as PNG". It used to say "Copy failed".
+- **Copy image works on HTTP and HTTPS, localhost or not.** On HTTPS or localhost the PNG goes on the clipboard, with the write started straight from the click (Safari requires it). Over plain HTTP on a LAN address, where browsers offer no image clipboard, the chart is copied the way the text copy buttons work (`execCommand`), as an HTML image that pastes into documents, mail, and wikis. Only if the browser refuses that too is the chart saved as a PNG ("Saved as PNG"). It used to say "Copy failed".
 - **Usage by model by token type.** Each model's bar is split into uncached input, cached input, and output, with a legend. The "By token type" view of the usage-over-time chart no longer counts cached tokens twice.
 
 ### Approve in Armada works for Mux captains

@@ -166,15 +166,15 @@ export default function TokenUsage() {
   };
   const hideTip = () => setTooltip(null);
 
-  const copyChart = async (ref: React.RefObject<SVGSVGElement | null>, set: (s: CopyState) => void, fileName: string) => {
+  const copyChart = async (ref: React.RefObject<SVGSVGElement | null>, set: (s: CopyState) => void, fileName: string, altText: string) => {
     // Called straight from the click so the clipboard write keeps the click's user activation (Safari needs it).
-    const result = await copyOrDownloadSvgImage(ref.current, { background: 'var(--bg-card)', fileName });
+    const result = await copyOrDownloadSvgImage(ref.current, { background: 'var(--bg-card)', fileName, altText });
     set(result === 'copied' ? 'ok' : result === 'downloaded' ? 'saved' : 'fail');
     window.setTimeout(() => set('idle'), result === 'downloaded' ? 4000 : 1600);
   };
   const copyLabel = (state: CopyState) => state === 'ok' ? t('Copied!') : state === 'saved' ? t('Saved as PNG') : state === 'fail' ? t('Copy failed') : t('Copy image');
   const copyTitle = (state: CopyState, title: string) => state === 'saved'
-    ? t('This browser cannot put images on the clipboard here (it needs HTTPS or localhost), so the chart was saved as a PNG file instead.')
+    ? t('This browser refused to put the chart on the clipboard, so it was saved as a PNG file instead.')
     : title;
   const filterValue = captainId ? `captain:${captainId}` : modelFilter ? `model:${modelFilter}` : '';
   const setFilter = (value: string) => {
@@ -256,7 +256,7 @@ export default function TokenUsage() {
       {/* Chart 1 -- Usage over time. Title + axis labels live inside the SVG so the copied image includes them. */}
       <div className="token-usage-chart-card">
         <div className="token-usage-chart-header">
-          <button className={'token-usage-copy-btn' + (copiedTime === 'fail' ? ' failed' : '')} onClick={() => copyChart(timeChartRef, setCopiedTime, 'token-usage-over-time.png')} disabled={!hasTimeData} title={copyTitle(copiedTime, t('Copy the usage-over-time chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.'))}>{copyLabel(copiedTime)}</button>
+          <button className={'token-usage-copy-btn' + (copiedTime === 'fail' ? ' failed' : '')} onClick={() => copyChart(timeChartRef, setCopiedTime, 'token-usage-over-time.png', t('Token usage over time'))} disabled={!hasTimeData} title={copyTitle(copiedTime, t('Copy the usage-over-time chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.'))}>{copyLabel(copiedTime)}</button>
         </div>
         {loading ? (
           <div className="mission-history-empty">{t('Loading token usage...')}</div>
@@ -327,7 +327,7 @@ export default function TokenUsage() {
       {/* Chart 2 -- Usage by model. Title inside the SVG so the copied image includes it. */}
       <div className="token-usage-chart-card">
         <div className="token-usage-chart-header">
-          <button className={'token-usage-copy-btn' + (copiedModel === 'fail' ? ' failed' : '')} onClick={() => copyChart(modelChartRef, setCopiedModel, 'token-usage-by-model.png')} disabled={!hasModelData} title={copyTitle(copiedModel, t('Copy the usage-by-model chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.'))}>{copyLabel(copiedModel)}</button>
+          <button className={'token-usage-copy-btn' + (copiedModel === 'fail' ? ' failed' : '')} onClick={() => copyChart(modelChartRef, setCopiedModel, 'token-usage-by-model.png', t('Token usage by model'))} disabled={!hasModelData} title={copyTitle(copiedModel, t('Copy the usage-by-model chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.'))}>{copyLabel(copiedModel)}</button>
         </div>
         {loading ? (
           <div className="mission-history-empty">{t('Loading token usage...')}</div>

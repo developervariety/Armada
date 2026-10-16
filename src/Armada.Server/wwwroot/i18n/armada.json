@@ -5963,11 +5963,13 @@
         "Show token usage for every captain and model, one captain, or one model. Applies to the totals, the heatmap, and both charts.": "Muestra el uso de tokens de todos los capitanes y modelos, de un capitán o de un modelo. Se aplica a los totales, al mapa de calor y a ambos gráficos.",
         "Color the usage-over-time chart by model, showing each model's total tokens. The usage-by-model chart is always split by token type.": "Colorea el gráfico de uso en el tiempo por modelo, con el total de tokens de cada modelo. El gráfico de uso por modelo siempre se divide por tipo de token.",
         "Split the usage-over-time chart into uncached input, cached input, and output tokens instead of by model. The parts add up to the total.": "Divide el gráfico de uso en el tiempo en entrada sin caché, entrada en caché y salida en lugar de por modelo. Las partes suman el total.",
-        "Copy the usage-over-time chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "Copia el gráfico de uso en el tiempo al portapapeles como imagen. Si el navegador no puede (HTTP sin cifrar), se guarda como archivo PNG.",
-        "Copy the usage-by-model chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "Copia el gráfico de uso por modelo al portapapeles como imagen. Si el navegador no puede (HTTP sin cifrar), se guarda como archivo PNG.",
-        "This browser cannot put images on the clipboard here (it needs HTTPS or localhost), so the chart was saved as a PNG file instead.": "Este navegador no puede copiar imágenes al portapapeles aquí (necesita HTTPS o localhost), así que el gráfico se guardó como archivo PNG.",
         "Only the conversation's owner, when an admin, can allow every call in the conversation.": "Solo el propietario de la conversación, si es administrador, puede permitir todas las llamadas de la conversación.",
-        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "Se permitió {{tool}}. Esta conversación ahora ejecuta las herramientas de la CLI sin preguntar."
+        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "Se permitió {{tool}}. Esta conversación ahora ejecuta las herramientas de la CLI sin preguntar.",
+        "This browser refused to put the chart on the clipboard, so it was saved as a PNG file instead.": "El navegador no permitió poner el gráfico en el portapapeles, así que se guardó como archivo PNG.",
+        "Copy the usage-over-time chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "Copia el gráfico de uso a lo largo del tiempo al portapapeles como imagen. Con HTTP sin cifrar se copia como imagen para editores de texto enriquecido, como documentos y correo.",
+        "Copy the usage-by-model chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "Copia el gráfico de uso por modelo al portapapeles como imagen. Con HTTP sin cifrar se copia como imagen para editores de texto enriquecido, como documentos y correo.",
+        "Token usage over time": "Uso de tokens a lo largo del tiempo",
+        "Token usage by model": "Uso de tokens por modelo"
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -10867,11 +10869,13 @@
         "Show token usage for every captain and model, one captain, or one model. Applies to the totals, the heatmap, and both charts.": "显示所有舰长和模型、单个舰长或单个模型的令牌用量。适用于总量、热力图和两个图表。",
         "Color the usage-over-time chart by model, showing each model's total tokens. The usage-by-model chart is always split by token type.": "按模型为用量趋势图着色，显示每个模型的令牌总量。按模型用量图始终按令牌类型拆分。",
         "Split the usage-over-time chart into uncached input, cached input, and output tokens instead of by model. The parts add up to the total.": "将用量趋势图拆分为未缓存输入、缓存输入和输出，而不是按模型。各部分之和等于总量。",
-        "Copy the usage-over-time chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "将用量趋势图作为图片复制到剪贴板。浏览器无法复制时 (普通 HTTP)，将保存为 PNG 文件。",
-        "Copy the usage-by-model chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "将按模型用量图作为图片复制到剪贴板。浏览器无法复制时 (普通 HTTP)，将保存为 PNG 文件。",
-        "This browser cannot put images on the clipboard here (it needs HTTPS or localhost), so the chart was saved as a PNG file instead.": "此浏览器无法在这里将图片放入剪贴板 (需要 HTTPS 或 localhost)，因此图表已保存为 PNG 文件。",
         "Only the conversation's owner, when an admin, can allow every call in the conversation.": "只有对话的所有者（且为管理员）才能允许此对话中的所有调用。",
-        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "已允许 {{tool}}。此对话现在运行 CLI 工具时不再询问。"
+        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "已允许 {{tool}}。此对话现在运行 CLI 工具时不再询问。",
+        "This browser refused to put the chart on the clipboard, so it was saved as a PNG file instead.": "浏览器拒绝将图表放入剪贴板，因此已将其保存为 PNG 文件。",
+        "Copy the usage-over-time chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "将随时间变化的用量图表作为图片复制到剪贴板。在未加密的 HTTP 下，会以适用于文档、邮件等富文本编辑器的图片形式复制。",
+        "Copy the usage-by-model chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "将按模型的用量图表作为图片复制到剪贴板。在未加密的 HTTP 下，会以适用于文档、邮件等富文本编辑器的图片形式复制。",
+        "Token usage over time": "令牌用量随时间变化",
+        "Token usage by model": "按模型的令牌用量"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -15734,11 +15738,13 @@
         "Show token usage for every captain and model, one captain, or one model. Applies to the totals, the heatmap, and both charts.": "顯示所有艦長和模型、單一艦長或單一模型的權杖用量。適用於總量、熱度圖和兩個圖表。",
         "Color the usage-over-time chart by model, showing each model's total tokens. The usage-by-model chart is always split by token type.": "依模型為用量趨勢圖著色，顯示每個模型的權杖總量。依模型用量圖一律依權杖類型拆分。",
         "Split the usage-over-time chart into uncached input, cached input, and output tokens instead of by model. The parts add up to the total.": "將用量趨勢圖拆分為未快取輸入、快取輸入和輸出，而非依模型。各部分加總等於總量。",
-        "Copy the usage-over-time chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "將用量趨勢圖以圖片複製到剪貼簿。瀏覽器無法複製時 (一般 HTTP)，會儲存為 PNG 檔案。",
-        "Copy the usage-by-model chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "將依模型用量圖以圖片複製到剪貼簿。瀏覽器無法複製時 (一般 HTTP)，會儲存為 PNG 檔案。",
-        "This browser cannot put images on the clipboard here (it needs HTTPS or localhost), so the chart was saved as a PNG file instead.": "此瀏覽器無法在這裡將圖片放入剪貼簿 (需要 HTTPS 或 localhost)，因此圖表已儲存為 PNG 檔案。",
         "Only the conversation's owner, when an admin, can allow every call in the conversation.": "只有對話的擁有者（且為管理員）才能允許此對話中的所有呼叫。",
-        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "已允許 {{tool}}。此對話現在執行 CLI 工具時不再詢問。"
+        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "已允許 {{tool}}。此對話現在執行 CLI 工具時不再詢問。",
+        "This browser refused to put the chart on the clipboard, so it was saved as a PNG file instead.": "瀏覽器拒絕將圖表放入剪貼簿，因此已將其儲存為 PNG 檔案。",
+        "Copy the usage-over-time chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "將隨時間變化的用量圖表作為圖片複製到剪貼簿。在未加密的 HTTP 下，會以適用於文件、郵件等豐富文字編輯器的圖片形式複製。",
+        "Copy the usage-by-model chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "將依模型的用量圖表作為圖片複製到剪貼簿。在未加密的 HTTP 下，會以適用於文件、郵件等豐富文字編輯器的圖片形式複製。",
+        "Token usage over time": "權杖用量隨時間變化",
+        "Token usage by model": "依模型的權杖用量"
       },
       "sections": {}
     },
@@ -20561,11 +20567,13 @@
         "Show token usage for every captain and model, one captain, or one model. Applies to the totals, the heatmap, and both charts.": "顯示所有艦長同模型、一個艦長或者一個模型嘅權杖用量。適用於總數、熱度圖同兩個圖表。",
         "Color the usage-over-time chart by model, showing each model's total tokens. The usage-by-model chart is always split by token type.": "按模型幫用量趨勢圖上色，顯示每個模型嘅權杖總數。按模型用量圖一定按權杖類型拆開。",
         "Split the usage-over-time chart into uncached input, cached input, and output tokens instead of by model. The parts add up to the total.": "將用量趨勢圖拆做未快取輸入、快取輸入同輸出，唔係按模型。各部分加埋等於總數。",
-        "Copy the usage-over-time chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "將用量趨勢圖以圖片複製去剪貼簿。瀏覽器做唔到嘅時候 (普通 HTTP)，會儲存做 PNG 檔案。",
-        "Copy the usage-by-model chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "將按模型用量圖以圖片複製去剪貼簿。瀏覽器做唔到嘅時候 (普通 HTTP)，會儲存做 PNG 檔案。",
-        "This browser cannot put images on the clipboard here (it needs HTTPS or localhost), so the chart was saved as a PNG file instead.": "呢個瀏覽器喺度唔可以將圖片放入剪貼簿 (要 HTTPS 或者 localhost)，所以圖表已經儲存做 PNG 檔案。",
         "Only the conversation's owner, when an admin, can allow every call in the conversation.": "只有對話嘅擁有者（而且係管理員）先可以允許呢個對話入面所有呼叫。",
-        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "已允許 {{tool}}。呢個對話而家執行 CLI 工具唔會再問。"
+        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "已允許 {{tool}}。呢個對話而家執行 CLI 工具唔會再問。",
+        "This browser refused to put the chart on the clipboard, so it was saved as a PNG file instead.": "瀏覽器唔俾將圖表放入剪貼簿，所以已經儲存做 PNG 檔案。",
+        "Copy the usage-over-time chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "將隨時間變化嘅用量圖表當圖片複製到剪貼簿。喺未加密嘅 HTTP 下，會以適合文件、郵件等豐富文字編輯器嘅圖片形式複製。",
+        "Copy the usage-by-model chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "將按模型嘅用量圖表當圖片複製到剪貼簿。喺未加密嘅 HTTP 下，會以適合文件、郵件等豐富文字編輯器嘅圖片形式複製。",
+        "Token usage over time": "權杖用量隨時間變化",
+        "Token usage by model": "按模型嘅權杖用量"
       },
       "sections": {}
     },
@@ -25404,11 +25412,13 @@
         "Show token usage for every captain and model, one captain, or one model. Applies to the totals, the heatmap, and both charts.": "すべてのキャプテンとモデル、1 人のキャプテン、または 1 つのモデルのトークン使用量を表示します。合計、ヒートマップ、両方のグラフに適用されます。",
         "Color the usage-over-time chart by model, showing each model's total tokens. The usage-by-model chart is always split by token type.": "使用量の推移グラフをモデル別に色分けし、各モデルのトークン合計を表示します。モデル別使用量グラフは常にトークン種別で分割されます。",
         "Split the usage-over-time chart into uncached input, cached input, and output tokens instead of by model. The parts add up to the total.": "使用量の推移グラフをモデル別ではなく、非キャッシュ入力、キャッシュ入力、出力に分割します。各部分の合計が総量になります。",
-        "Copy the usage-over-time chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "使用量の推移グラフを画像としてクリップボードにコピーします。ブラウザーがコピーできない場合 (通常の HTTP) は PNG ファイルとして保存します。",
-        "Copy the usage-by-model chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "モデル別使用量グラフを画像としてクリップボードにコピーします。ブラウザーがコピーできない場合 (通常の HTTP) は PNG ファイルとして保存します。",
-        "This browser cannot put images on the clipboard here (it needs HTTPS or localhost), so the chart was saved as a PNG file instead.": "このブラウザーはここで画像をクリップボードに入れられない (HTTPS または localhost が必要) ため、グラフを PNG ファイルとして保存しました。",
         "Only the conversation's owner, when an admin, can allow every call in the conversation.": "会話の所有者（管理者の場合）だけが、この会話のすべての呼び出しを許可できます。",
-        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "{{tool}} を許可しました。この会話では今後、CLI ツールを確認なしで実行します。"
+        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "{{tool}} を許可しました。この会話では今後、CLI ツールを確認なしで実行します。",
+        "This browser refused to put the chart on the clipboard, so it was saved as a PNG file instead.": "ブラウザーがグラフのクリップボードへのコピーを拒否したため、PNG ファイルとして保存しました。",
+        "Copy the usage-over-time chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "時間ごとの使用量グラフを画像としてクリップボードにコピーします。暗号化されていない HTTP では、文書やメールなどのリッチテキストエディター向けの画像としてコピーされます。",
+        "Copy the usage-by-model chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "モデル別の使用量グラフを画像としてクリップボードにコピーします。暗号化されていない HTTP では、文書やメールなどのリッチテキストエディター向けの画像としてコピーされます。",
+        "Token usage over time": "トークン使用量の推移",
+        "Token usage by model": "モデル別のトークン使用量"
       },
       "sections": {}
     },
@@ -30238,11 +30248,13 @@
         "Show token usage for every captain and model, one captain, or one model. Applies to the totals, the heatmap, and both charts.": "Token-Nutzung aller Captains und Modelle, eines Captains oder eines Modells anzeigen. Gilt für die Summen, die Heatmap und beide Diagramme.",
         "Color the usage-over-time chart by model, showing each model's total tokens. The usage-by-model chart is always split by token type.": "Das Diagramm der Nutzung im Zeitverlauf nach Modell färben, mit den Token-Summen jedes Modells. Das Diagramm der Nutzung nach Modell ist immer nach Token-Art aufgeteilt.",
         "Split the usage-over-time chart into uncached input, cached input, and output tokens instead of by model. The parts add up to the total.": "Das Diagramm der Nutzung im Zeitverlauf statt nach Modell in nicht gecachte Eingabe, gecachte Eingabe und Ausgabe aufteilen. Die Teile ergeben die Summe.",
-        "Copy the usage-over-time chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "Das Diagramm der Nutzung im Zeitverlauf als Bild in die Zwischenablage kopieren. Wo der Browser das nicht kann (einfaches HTTP), wird es als PNG-Datei gespeichert.",
-        "Copy the usage-by-model chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "Das Diagramm der Nutzung nach Modell als Bild in die Zwischenablage kopieren. Wo der Browser das nicht kann (einfaches HTTP), wird es als PNG-Datei gespeichert.",
-        "This browser cannot put images on the clipboard here (it needs HTTPS or localhost), so the chart was saved as a PNG file instead.": "Dieser Browser kann hier keine Bilder in die Zwischenablage legen (dafür sind HTTPS oder localhost nötig), daher wurde das Diagramm als PNG-Datei gespeichert.",
         "Only the conversation's owner, when an admin, can allow every call in the conversation.": "Nur der Besitzer der Unterhaltung kann, sofern Admin, alle Aufrufe der Unterhaltung erlauben.",
-        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "{{tool}} erlaubt. Diese Unterhaltung führt CLI-Tools jetzt ohne Nachfrage aus."
+        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "{{tool}} erlaubt. Diese Unterhaltung führt CLI-Tools jetzt ohne Nachfrage aus.",
+        "This browser refused to put the chart on the clipboard, so it was saved as a PNG file instead.": "Der Browser hat das Diagramm nicht in die Zwischenablage gelassen, daher wurde es als PNG-Datei gespeichert.",
+        "Copy the usage-over-time chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "Kopiert das Diagramm der Nutzung im Zeitverlauf als Bild in die Zwischenablage. Über unverschlüsseltes HTTP wird es als Bild für Rich-Text-Editoren wie Dokumente und E-Mail kopiert.",
+        "Copy the usage-by-model chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "Kopiert das Diagramm der Nutzung nach Modell als Bild in die Zwischenablage. Über unverschlüsseltes HTTP wird es als Bild für Rich-Text-Editoren wie Dokumente und E-Mail kopiert.",
+        "Token usage over time": "Token-Nutzung im Zeitverlauf",
+        "Token usage by model": "Token-Nutzung nach Modell"
       },
       "sections": {}
     },
@@ -35072,11 +35084,13 @@
         "Show token usage for every captain and model, one captain, or one model. Applies to the totals, the heatmap, and both charts.": "Afficher l'utilisation des tokens de tous les capitaines et modèles, d'un capitaine ou d'un modèle. S'applique aux totaux, à la carte de chaleur et aux deux graphiques.",
         "Color the usage-over-time chart by model, showing each model's total tokens. The usage-by-model chart is always split by token type.": "Colorer le graphique d'utilisation dans le temps par modèle, avec le total de tokens de chaque modèle. Le graphique d'utilisation par modèle est toujours réparti par type de token.",
         "Split the usage-over-time chart into uncached input, cached input, and output tokens instead of by model. The parts add up to the total.": "Répartir le graphique d'utilisation dans le temps en entrée hors cache, entrée en cache et sortie plutôt que par modèle. Les parties forment le total.",
-        "Copy the usage-over-time chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "Copier le graphique d'utilisation dans le temps dans le presse-papiers en image. Si le navigateur ne le peut pas (HTTP simple), il est enregistré en fichier PNG.",
-        "Copy the usage-by-model chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "Copier le graphique d'utilisation par modèle dans le presse-papiers en image. Si le navigateur ne le peut pas (HTTP simple), il est enregistré en fichier PNG.",
-        "This browser cannot put images on the clipboard here (it needs HTTPS or localhost), so the chart was saved as a PNG file instead.": "Ce navigateur ne peut pas placer d'images dans le presse-papiers ici (il faut HTTPS ou localhost), le graphique a donc été enregistré en fichier PNG.",
         "Only the conversation's owner, when an admin, can allow every call in the conversation.": "Seul le propriétaire de la conversation, s'il est administrateur, peut autoriser tous les appels de la conversation.",
-        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "{{tool}} autorisé. Cette conversation exécute désormais les outils CLI sans demander."
+        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "{{tool}} autorisé. Cette conversation exécute désormais les outils CLI sans demander.",
+        "This browser refused to put the chart on the clipboard, so it was saved as a PNG file instead.": "Le navigateur a refusé de placer le graphique dans le presse-papiers ; il a donc été enregistré en fichier PNG.",
+        "Copy the usage-over-time chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "Copie le graphique d'utilisation dans le temps dans le presse-papiers sous forme d'image. En HTTP non chiffré, il est copié comme image pour les éditeurs de texte enrichi, comme les documents et les e-mails.",
+        "Copy the usage-by-model chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "Copie le graphique d'utilisation par modèle dans le presse-papiers sous forme d'image. En HTTP non chiffré, il est copié comme image pour les éditeurs de texte enrichi, comme les documents et les e-mails.",
+        "Token usage over time": "Utilisation des jetons dans le temps",
+        "Token usage by model": "Utilisation des jetons par modèle"
       },
       "sections": {}
     },
@@ -39906,11 +39920,13 @@
         "Show token usage for every captain and model, one captain, or one model. Applies to the totals, the heatmap, and both charts.": "Mostra l'utilizzo dei token di tutti i capitani e modelli, di un capitano o di un modello. Si applica ai totali, alla heatmap e a entrambi i grafici.",
         "Color the usage-over-time chart by model, showing each model's total tokens. The usage-by-model chart is always split by token type.": "Colora il grafico dell'utilizzo nel tempo per modello, con i token totali di ogni modello. Il grafico dell'utilizzo per modello è sempre suddiviso per tipo di token.",
         "Split the usage-over-time chart into uncached input, cached input, and output tokens instead of by model. The parts add up to the total.": "Suddivide il grafico dell'utilizzo nel tempo in input non in cache, input in cache e output invece che per modello. Le parti sommano il totale.",
-        "Copy the usage-over-time chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "Copia il grafico dell'utilizzo nel tempo negli appunti come immagine. Se il browser non può (HTTP semplice), viene salvato come file PNG.",
-        "Copy the usage-by-model chart to the clipboard as an image. Where the browser cannot (plain HTTP), it is saved as a PNG file.": "Copia il grafico dell'utilizzo per modello negli appunti come immagine. Se il browser non può (HTTP semplice), viene salvato come file PNG.",
-        "This browser cannot put images on the clipboard here (it needs HTTPS or localhost), so the chart was saved as a PNG file instead.": "Questo browser non può inserire immagini negli appunti qui (servono HTTPS o localhost), quindi il grafico è stato salvato come file PNG.",
         "Only the conversation's owner, when an admin, can allow every call in the conversation.": "Solo il proprietario della conversazione, se amministratore, può consentire tutte le chiamate della conversazione.",
-        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "{{tool}} consentito. Questa conversazione ora esegue gli strumenti CLI senza chiedere."
+        "Allowed {{tool}}. This conversation now runs CLI tools without asking.": "{{tool}} consentito. Questa conversazione ora esegue gli strumenti CLI senza chiedere.",
+        "This browser refused to put the chart on the clipboard, so it was saved as a PNG file instead.": "Il browser non ha consentito di mettere il grafico negli appunti, quindi è stato salvato come file PNG.",
+        "Copy the usage-over-time chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "Copia il grafico dell'utilizzo nel tempo negli appunti come immagine. Su HTTP non cifrato viene copiato come immagine per editor di testo formattato, come documenti ed email.",
+        "Copy the usage-by-model chart to the clipboard as an image. Over plain HTTP it is copied as an image for rich-text editors such as documents and mail.": "Copia il grafico dell'utilizzo per modello negli appunti come immagine. Su HTTP non cifrato viene copiato come immagine per editor di testo formattato, come documenti ed email.",
+        "Token usage over time": "Utilizzo dei token nel tempo",
+        "Token usage by model": "Utilizzo dei token per modello"
       },
       "sections": {}
     }

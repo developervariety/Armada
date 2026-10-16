@@ -1,5 +1,5 @@
 // Utilities for copying an inline SVG chart to the clipboard as a PNG image, or saving it as a PNG file when the
-// browser cannot put images on the clipboard.
+// browser cannot put an image on the clipboard at all.
 //
 // The on-page charts colour their shapes with CSS custom properties (e.g. var(--accent)) so they stay
 // theme-reactive. A serialized SVG loaded as a standalone image has no access to the page's CSS, so the
@@ -11,6 +11,10 @@
 // - Safari (and Chrome, more leniently) require clipboard.write to be called within the click's user activation.
 //   Rasterizing first and writing afterwards loses it, so the ClipboardItem is built at once around a Promise of
 //   the PNG and the browser waits for the image itself.
+// Without the async clipboard (plain HTTP), the legacy document.execCommand('copy') still works, as it does for
+// CopyButton's text. It can only write strings, so the chart goes on the clipboard as HTML: an <img> whose source
+// is the PNG as a data URL. Rich-text targets (documents, mail, wikis) paste it as a picture; targets that accept
+// only raw image data may not. When even that is refused, the PNG is downloaded.
 
 /** What happened to the chart image. */
 export type ChartImageResult = 'copied' | 'downloaded' | 'failed';
@@ -99,6 +103,58 @@ export async function renderSvgToPng(svg: SVGSVGElement, options?: { background?
   }
 }
 
+/** Read a blob as a data URL. */
+export function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('The image could not be read.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Put an image on the clipboard as HTML (an <img> with a data URL source, plus alt text as plain text) through the
+ * legacy document.execCommand('copy'), which works without a secure context. Returns false when the browser
+ * refuses the copy.
+ */
+export function copyImageAsHtml(dataUrl: string, altText: string): boolean {
+  if (typeof document.execCommand !== 'function') return false;
+  const alt = altText.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const html = `<img src="${dataUrl}" alt="${alt}">`;
+  let written = false;
+  const onCopy = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    event.clipboardData.setData('text/html', html);
+    event.clipboardData.setData('text/plain', altText);
+    event.preventDefault();
+    written = true;
+  };
+  document.addEventListener('copy', onCopy);
+  try {
+    // execCommand fires the copy event only when something is selected or editable in some browsers (Safari), so
+    // select a throwaway element for the duration.
+    const holder = document.createElement('textarea');
+    holder.value = altText || ' ';
+    holder.setAttribute('readonly', '');
+    holder.style.position = 'fixed';
+    holder.style.left = '-9999px';
+    holder.style.top = '-9999px';
+    holder.style.opacity = '0';
+    document.body.appendChild(holder);
+    holder.select();
+    try {
+      return document.execCommand('copy') && written;
+    } finally {
+      holder.remove();
+    }
+  } catch {
+    return false;
+  } finally {
+    document.removeEventListener('copy', onCopy);
+  }
+}
+
 /** Save a blob as a file through a temporary download link. */
 export function downloadBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
@@ -113,13 +169,14 @@ export function downloadBlob(blob: Blob, fileName: string): void {
 }
 
 /**
- * Copy an inline SVG chart to the clipboard as a PNG image; when the browser cannot (no secure context, no image
- * clipboard support, or the write is refused), save it as a PNG file instead. Call it directly from the click
- * handler, before any other await, so the clipboard write keeps the click's user activation.
+ * Copy an inline SVG chart to the clipboard as a PNG image. Without the async clipboard (plain HTTP on a LAN
+ * address) or when it refuses the write, copy it as an HTML image through execCommand instead; only when that is
+ * refused too, save it as a PNG file. Call it directly from the click handler, before any other await, so the
+ * clipboard write keeps the click's user activation.
  */
 export async function copyOrDownloadSvgImage(
   svg: SVGSVGElement | null,
-  options?: { background?: string; scale?: number; fileName?: string; render?: (svg: SVGSVGElement) => Promise<Blob> },
+  options?: { background?: string; scale?: number; fileName?: string; altText?: string; render?: (svg: SVGSVGElement) => Promise<Blob> },
 ): Promise<ChartImageResult> {
   if (!svg) return 'failed';
   const render = options?.render ?? ((el: SVGSVGElement) => renderSvgToPng(el, options));
@@ -139,13 +196,26 @@ export async function copyOrDownloadSvgImage(
         await clipboard.write([new ClipboardItemCtor({ 'image/png': await png })]);
         return 'copied';
       } catch {
-        // Fall through to the download.
+        // Fall through to the HTML copy.
       }
     }
   }
 
+  let blob: Blob;
   try {
-    downloadBlob(await png, options?.fileName ?? 'chart.png');
+    blob = await png;
+  } catch {
+    return 'failed';
+  }
+
+  try {
+    if (copyImageAsHtml(await blobToDataUrl(blob), options?.altText ?? options?.fileName ?? 'Chart')) return 'copied';
+  } catch {
+    // Fall through to the download.
+  }
+
+  try {
+    downloadBlob(blob, options?.fileName ?? 'chart.png');
     return 'downloaded';
   } catch {
     return 'failed';
