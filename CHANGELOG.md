@@ -14,6 +14,11 @@ upstream integrations and excludes changes already present at that baseline.
   agent caches, redundant Docker tags and old test databases, and can remove
   idle scratch folders and unused disposable image tags. Every host path and
   pattern comes from `/etc/armada/storage-cleanup.json`.
+- The four-week typed-decision observation review
+  (`docs/TYPED_DECISION_OBSERVATION_REVIEW.md`) replaces the interim one: per
+  decision calls, actions, unavailable calls, latency, tokens and reversals for
+  16 September to 14 October, reversal causes, one recommendation per
+  decision, and the rescue and papercut baselines. No setting changes.
 
 ### Removed
 
