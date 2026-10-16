@@ -318,6 +318,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, harness.Vessel, "Worker", "PortingReferenceAnalyst", "TestEngineer", "Judge").ConfigureAwait(false);
                     Pipeline referencePipeline = new Pipeline("ReferencePortingTested");
                     referencePipeline.Stages = new List<PipelineStage>
                     {
@@ -383,6 +384,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, harness.Vessel, "Worker", "PortingReferenceAnalyst", "TestEngineer", "Judge").ConfigureAwait(false);
                     Pipeline tested = await CreateTestedPipelineAsync(testDb).ConfigureAwait(false);
 
                     VoyageDispatchResult result = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
@@ -412,6 +414,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, harness.Vessel, "Worker", "PortingReferenceAnalyst", "TestEngineer", "Judge").ConfigureAwait(false);
                     Pipeline tested = await CreateTestedPipelineAsync(testDb).ConfigureAwait(false);
 
                     VoyageDispatchResult result = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
@@ -480,6 +483,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, harness.Vessel, "Worker", "PortingReferenceAnalyst", "TestEngineer", "Judge").ConfigureAwait(false);
                     Pipeline tested = await CreateTestedPipelineAsync(testDb).ConfigureAwait(false);
 
                     VoyageDispatchResult result = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
@@ -530,6 +534,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, harness.Vessel, "Worker", "PortingReferenceAnalyst", "TestEngineer", "Judge").ConfigureAwait(false);
                     Pipeline reference = new Pipeline("ReferencePortingTested");
                     reference.Stages = new List<PipelineStage>
                     {
@@ -568,6 +573,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, harness.Vessel, "Worker", "PortingReferenceAnalyst", "TestEngineer", "Judge").ConfigureAwait(false);
                     Pipeline tested = await CreateTestedPipelineAsync(testDb).ConfigureAwait(false);
                     harness.Vessel.DefaultPipelineId = tested.Id;
                     await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);

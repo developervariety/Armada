@@ -180,6 +180,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A compile failure is the work's own defect; a rescue can fix it.");
@@ -214,6 +216,8 @@ namespace Armada.Test.Unit.Suites.Services
                     RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                     AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
 
+                    await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                     await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                     AssertEqual(1, admiral.DispatchedMissions.Count, "A test failure keeps its rescue whatever its test output names. Output: " + outputs[i]);
@@ -241,6 +245,14 @@ namespace Armada.Test.Unit.Suites.Services
                 await EnsureTenantAndUserAsync(testDb, "ten_auto_loop", "usr_auto_loop").ConfigureAwait(false);
 
                 Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_loop", "usr_auto_loop").ConfigureAwait(false);
+                await testDb.Driver.Captains.CreateAsync(new Captain("standard-recovery-worker")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Tier = CaptainTierEnum.Standard,
+                    AllowedPersonas = "[\"Worker\"]"
+                }).ConfigureAwait(false);
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "Judge").ConfigureAwait(false);
                 Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
                 failed.Persona = "Judge";
                 failed.PreferredModel = "high";
@@ -270,6 +282,13 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_tier_recovery", "usr_tier_recovery").ConfigureAwait(false);
                 Vessel vessel = await CreateVesselAsync(testDb, "ten_tier_recovery", "usr_tier_recovery").ConfigureAwait(false);
+                await testDb.Driver.Captains.CreateAsync(new Captain("standard-tier-recovery-worker")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Tier = CaptainTierEnum.Standard,
+                    AllowedPersonas = "[\"Worker\"]"
+                }).ConfigureAwait(false);
                 Pipeline pipeline = new Pipeline("RecoveryTierRouting")
                 {
                     TenantId = vessel.TenantId,
@@ -281,6 +300,7 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 };
                 pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "TestEngineer", "Judge").ConfigureAwait(false);
                 Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
                 failed.Persona = "Judge";
                 failed.PreferredModel = "high";
@@ -316,6 +336,191 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("mid", worker.PreferredModel ?? "", "The Worker must use its eligible Standard tier.");
                 AssertTrue(recovery.Where(item => item.Persona == "TestEngineer" || item.Persona == "Judge")
                     .All(item => item.PreferredModel == "mid"), "Downstream stages must use their own persona tier floors.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Impossible high Worker rescue refuses before any rescue record and retries after configuration", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_rescue_root_floor", "usr_rescue_root_floor").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_rescue_root_floor", "usr_rescue_root_floor").ConfigureAwait(false);
+                Captain standardWorker = await testDb.Driver.Captains.CreateAsync(new Captain("standard-rescue-worker")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Model = "gpt-5.6-luna",
+                    Tier = CaptainTierEnum.Standard,
+                    State = CaptainStateEnum.Idle,
+                    AllowedPersonas = "[\"Worker\"]"
+                }).ConfigureAwait(false);
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "TestEngineer", "Judge").ConfigureAwait(false);
+                Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("HighWorkerRecovery")
+                {
+                    TenantId = vessel.TenantId,
+                    Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker") { PreferredModel = "high" },
+                        new PipelineStage(2, "TestEngineer"),
+                        new PipelineStage(3, "Judge")
+                    }
+                }).ConfigureAwait(false);
+                Voyage parentVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent root rescue")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.VoyageId = parentVoyage.Id;
+                failed.PreferredModel = "high";
+                failed.CommitHash = new string('6', 40);
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "Root-role recovery owner",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { parentVoyage.Id },
+                    SuggestedPipelineId = pipeline.Id
+                }).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    StandardRecoveryTierSettings());
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+                AssertEqual(0, admiral.DispatchedMissions.Count,
+                    "A Standard-only Worker must not dispatch a high-floor rescue.");
+                AssertEqual(1, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                    "The root-role refusal must happen before a rescue voyage is created.");
+                AssertEqual(0, (await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false))
+                    .Count(item => item.ParentMissionId == failed.Id),
+                    "The root-role refusal must happen before a rescue mission is created.");
+                AssertEqual(0, (await testDb.Driver.Missions.ReadAsync(failed.Id).ConfigureAwait(false))!.RecoveryAttempts,
+                    "A root-role refusal must not spend a recovery attempt.");
+
+                standardWorker.Tier = CaptainTierEnum.Premium;
+                await testDb.Driver.Captains.UpdateAsync(standardWorker).ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+                AssertEqual(1, admiral.DispatchedMissions.Count,
+                    "The same rescue must proceed after its Worker becomes eligible.");
+                AssertEqual("high", admiral.DispatchedMissions.Single().PreferredModel ?? "",
+                    "The rescue keeps its high Worker floor.");
+                List<Mission> recoveryStages = await testDb.Driver.Missions
+                    .EnumerateByVoyageAsync(admiral.DispatchedMissions.Single().VoyageId!).ConfigureAwait(false);
+                AssertTrue(recoveryStages.Any(item => item.Persona == "TestEngineer"),
+                    "The configured TestEngineer remains in the rescue graph.");
+                AssertTrue(recoveryStages.Any(item => item.Persona == "Judge"),
+                    "The configured Judge remains in the rescue graph.");
+                AssertEqual(1, (await testDb.Driver.Missions.ReadAsync(failed.Id).ConfigureAwait(false))!.RecoveryAttempts,
+                    "A feasible rescue spends one recovery attempt.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Rescue refuses an impossible downstream TestEngineer before creating any rescue records", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_rescue_floor", "usr_rescue_floor").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_rescue_floor", "usr_rescue_floor").ConfigureAwait(false);
+                Captain premiumWorker = await testDb.Driver.Captains.CreateAsync(new Captain("premium-rescue-worker")
+                {
+                    TenantId = vessel.TenantId,
+                    Model = "gpt-5.6-luna",
+                    Tier = CaptainTierEnum.Standard,
+                    State = CaptainStateEnum.Idle,
+                    AllowedPersonas = "[\"Worker\"]"
+                }).ConfigureAwait(false);
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "Judge").ConfigureAwait(false);
+                Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("HighWorkerRecovery")
+                {
+                    TenantId = vessel.TenantId,
+                    Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker") { PreferredModel = "high" },
+                        new PipelineStage(2, "TestEngineer"),
+                        new PipelineStage(3, "Judge")
+                    }
+                }).ConfigureAwait(false);
+                Voyage parentVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent rescue")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.VoyageId = parentVoyage.Id;
+                failed.PreferredModel = "high";
+                failed.CommitHash = new string('4', 40);
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "High Worker recovery owner",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { parentVoyage.Id },
+                    SuggestedPipelineId = pipeline.Id
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    incidents,
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    StandardRecoveryTierSettings());
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                AssertEqual(0, vesselMissions.Count(item => item.ParentMissionId == failed.Id),
+                    "An impossible downstream stage must not create a rescue mission.");
+                AssertEqual(1, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                    "An impossible downstream stage must be rejected before the rescue voyage is created.");
+                Mission? refreshedFailure = await testDb.Driver.Missions.ReadAsync(failed.Id).ConfigureAwait(false);
+                AssertEqual(failed.RecoveryAttempts, refreshedFailure!.RecoveryAttempts,
+                    "A configuration refusal must not spend a recovery attempt.");
+
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                List<Incident> active = await incidents.EnumerateActiveAsync(auth, new IncidentQuery
+                {
+                    MissionId = failed.Id
+                }).ConfigureAwait(false);
+                AssertTrue(active.Any(item => (item.RecoveryNotes ?? String.Empty).Contains("rescue_unassignable_by_construction", StringComparison.Ordinal)),
+                    "The existing incident must record why rescue was refused.");
+
+                // Make the Worker eligible, then prove the missing downstream TestEngineer still blocks all writes.
+                premiumWorker.Tier = CaptainTierEnum.Premium;
+                await testDb.Driver.Captains.UpdateAsync(premiumWorker).ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+                AssertEqual(0, (await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false))
+                    .Count(item => item.ParentMissionId == failed.Id),
+                    "The missing TestEngineer must still prevent a rescue mission after Worker becomes eligible.");
+                AssertEqual(1, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                    "The missing TestEngineer must still prevent a rescue voyage after Worker becomes eligible.");
+                AssertEqual(0, (await testDb.Driver.Missions.ReadAsync(failed.Id).ConfigureAwait(false))!.RecoveryAttempts,
+                    "The downstream refusal must leave the recovery budget unchanged.");
+
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "TestEngineer").ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+                AssertEqual(1, admiral.DispatchedMissions.Count,
+                    "An eligible downstream TestEngineer must allow the rescue after the roster changes.");
+                AssertEqual("high", admiral.DispatchedMissions[0].PreferredModel ?? "",
+                    "A matched rescue keeps its Premium Worker floor.");
+                List<Mission> recoveryStages = await testDb.Driver.Missions
+                    .EnumerateByVoyageAsync(admiral.DispatchedMissions[0].VoyageId!).ConfigureAwait(false);
+                AssertTrue(recoveryStages.Any(item => item.Persona == "TestEngineer"),
+                    "The newly eligible TestEngineer must be created as part of the rescue graph.");
+                AssertTrue(recoveryStages.Any(item => item.Persona == "Judge"),
+                    "The already eligible Judge must remain in the rescue graph.");
+                AssertEqual(1, (await testDb.Driver.Missions.ReadAsync(failed.Id).ConfigureAwait(false))!.RecoveryAttempts,
+                    "A dispatched matched rescue spends one recovery attempt.");
             }).ConfigureAwait(false);
 
             await RunTest("AreComparableIdenticalTestSets: only complete, non-empty, identical sets compare equal", () =>
@@ -502,6 +707,7 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
 
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "Worker", "Judge").ConfigureAwait(false);
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 Mission? original = await testDb.Driver.Missions.ReadAsync(failed.Id).ConfigureAwait(false);
@@ -894,6 +1100,7 @@ namespace Armada.Test.Unit.Suites.Services
                 producedFailure.StartFromRef = "4444444444444444444444444444444444444444";
                 producedFailure.DependsOnMissionId = reviewed.Id;
                 await testDb.Driver.Missions.UpdateAsync(producedFailure).ConfigureAwait(false);
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
                 await orchestrator.HandleMissionOutcomeAsync(producedFailure, false).ConfigureAwait(false);
                 AssertEqual(producedFailure.CommitHash,
                     admiral.DispatchedMissions.Single(item => item.ParentMissionId == producedFailure.Id).StartFromRef,
@@ -989,6 +1196,7 @@ namespace Armada.Test.Unit.Suites.Services
                     testDb.Driver, admiral, incidents, runbooks, new ArmadaSettings(), logging,
                     null, null, null, null, null, null, checkRuns);
 
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "Worker", "Judge").ConfigureAwait(false);
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 // The rescue Judge's real-signal gate needs independent green Checks; the
@@ -1205,6 +1413,7 @@ namespace Armada.Test.Unit.Suites.Services
                     testDb.Driver, new RecordingAdmiralService(testDb.Driver), new IncidentService(testDb.Driver),
                     new RunbookService(testDb.Driver, logging), new ArmadaSettings(), logging);
 
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "Worker", "Judge").ConfigureAwait(false);
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
@@ -1582,6 +1791,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "Only the non-terminal failure should be processed by the sweep.");
@@ -1627,6 +1838,8 @@ namespace Armada.Test.Unit.Suites.Services
                     admiral,
                     incidents,
                     new RunbookService(testDb.Driver, new LoggingModule()));
+
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
 
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
@@ -1704,6 +1917,8 @@ namespace Armada.Test.Unit.Suites.Services
                     new IncidentService(testDb.Driver),
                     new RunbookService(testDb.Driver, new LoggingModule()));
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A recoverable stage failure creates its rescue Worker.");
@@ -1777,6 +1992,8 @@ namespace Armada.Test.Unit.Suites.Services
                     admiral,
                     new IncidentService(testDb.Driver),
                     new RunbookService(testDb.Driver, new LoggingModule()));
+
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
 
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
@@ -1905,6 +2122,8 @@ namespace Armada.Test.Unit.Suites.Services
                     new IncidentService(testDb.Driver),
                     new RunbookService(testDb.Driver, new LoggingModule()));
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count,
@@ -1945,6 +2164,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
 
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
@@ -2026,6 +2247,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
 
                 await orchestrator.SweepAsync().ConfigureAwait(false);
                 await orchestrator.HandleMissionOutcomeAsync(reconciled, false).ConfigureAwait(false);
@@ -2133,6 +2356,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
 
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
@@ -2304,6 +2529,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "Reviewer-stage failure should dispatch one rescue.");
@@ -2392,6 +2619,7 @@ namespace Armada.Test.Unit.Suites.Services
                     admiral,
                     new IncidentService(testDb.Driver),
                     new RunbookService(testDb.Driver, new LoggingModule()));
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 Mission rescue = admiral.DispatchedMissions.Single();
@@ -2596,6 +2824,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "Exactly one Worker rescue should be dispatched as the loop root.");
@@ -2634,6 +2864,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "Exactly one rescue should be dispatched.");
@@ -2668,6 +2900,9 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "Linter").ConfigureAwait(false);
+
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "Exactly one rescue should be dispatched as the loop root.");
@@ -2695,6 +2930,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
 
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
@@ -2767,6 +3004,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 ArmadaSettings settings = StandardRecoveryTierSettings();
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, settings);
+
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
 
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
@@ -3027,6 +3266,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A recoverable reviewer-stage failure should dispatch one rescue.");
@@ -3185,6 +3426,7 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
 
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "Worker").ConfigureAwait(false);
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 // The auto-rescue must be excluded from sweep processing.
@@ -3399,6 +3641,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A recoverable failure in a Failed voyage must dispatch one rescue.");
@@ -3507,6 +3751,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, settings);
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A recent voyage-less non-rescue failure must still be processed by the sweep.");
@@ -3574,6 +3820,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, settings);
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A disabled age gate must not exclude an aged voyage-less failure.");
@@ -3620,6 +3868,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, settings);
 
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A null-CompletedUtc candidate must coalesce to a fresh LastUpdateUtc and still be processed.");
@@ -3658,6 +3908,8 @@ namespace Armada.Test.Unit.Suites.Services
                 RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
 
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
@@ -4030,6 +4282,7 @@ namespace Armada.Test.Unit.Suites.Services
             string userId = "usr_" + tenantId;
             await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
             Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+            await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
 
             Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("ReferencePortingSkipRecovery")
             {
@@ -4151,6 +4404,40 @@ namespace Armada.Test.Unit.Suites.Services
             };
 
             return await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+        }
+
+        private static async Task SeedEligibleRecoveryCaptainsAsync(TestDatabase testDb, Vessel vessel, params string[] personas)
+        {
+            foreach (string persona in personas)
+            {
+                await testDb.Driver.Captains.CreateAsync(new Captain("recovery-" + persona + "-" + Guid.NewGuid().ToString("N"))
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Model = "gpt-5.6-luna",
+                    Tier = CaptainTierEnum.Premium,
+                    State = CaptainStateEnum.Idle,
+                    AllowedPersonas = System.Text.Json.JsonSerializer.Serialize(new[] { persona })
+                }).ConfigureAwait(false);
+            }
+        }
+
+        private static async Task SeedEligibleRecoveryRosterAsync(TestDatabase testDb, Vessel vessel)
+        {
+            // These are the only downstream personas used by the positive recovery pipelines in this suite.
+            // Each captain is tenant-owned and persona-specific; negative capability cases seed their own rosters.
+            foreach (string persona in new[] { "Worker", "PortingReferenceAnalyst", "TestEngineer", "Judge" })
+            {
+                await testDb.Driver.Captains.CreateAsync(new Captain("recovery-" + persona + "-" + Guid.NewGuid().ToString("N"))
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Model = "gpt-5.6-luna",
+                    Tier = CaptainTierEnum.Premium,
+                    State = CaptainStateEnum.Idle,
+                    AllowedPersonas = System.Text.Json.JsonSerializer.Serialize(new[] { persona })
+                }).ConfigureAwait(false);
+            }
         }
 
         private static string ThinkingBlockFailure(string blockName)

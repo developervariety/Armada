@@ -48,7 +48,12 @@ requirements leave an `execution_unavailable` incident without launching work or
 spending the recovery attempt. Reconsideration uses the original failure's
 lookback window; after that window, the operator dispatches new work from the
 objective and preserved branch. This checks declared environment facts, not
-service reachability.
+service reachability. Before non-objective dispatch, Armada checks that every
+required pipeline persona and requested tier has configured captain coverage.
+Rescue planning checks the rescue Worker and each required re-review stage before
+it creates rescue work. An unserviceable requirement records a refusal or
+deferral; it does not treat temporary capacity pressure as missing configuration
+or spend a rescue attempt.
 Later stages can read the failed mission through the same-owner rescue chain.
 The marked rescue root names the additional failed-parent grant. Existing
 direct-parent and dependency reads remain available within each caller's

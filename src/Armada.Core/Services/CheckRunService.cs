@@ -48,6 +48,68 @@ namespace Armada.Core.Services
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _PendingRunLocks =
             new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
 
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _RunStateLocks =
+            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
+
+        internal static SemaphoreSlim GetRunStateLock(string id)
+        {
+            if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
+            return _RunStateLocks.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+        }
+
+        /// <summary>
+        /// Stamp an armed source only while the durable check is still eligible and before source
+        /// preparation starts. Callers may pass a row from an earlier enumeration; this method
+        /// re-reads and rechecks the caller's eligibility predicate under the shared state lock.
+        /// </summary>
+        public static Task<CheckRun?> StampPendingSourceAsync(
+            DatabaseDriver database,
+            string id,
+            string branchName,
+            string commitHash,
+            CancellationToken token = default)
+        {
+            return StampPendingSourceAsync(database, id, branchName, commitHash, _ => true, token);
+        }
+
+        /// <summary>
+        /// Stamp an armed source after rechecking the caller's eligibility predicate against the fresh row.
+        /// </summary>
+        public static async Task<CheckRun?> StampPendingSourceAsync(
+            DatabaseDriver database,
+            string id,
+            string branchName,
+            string commitHash,
+            Func<CheckRun, bool> eligibility,
+            CancellationToken token = default)
+        {
+            if (database == null) throw new ArgumentNullException(nameof(database));
+            if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
+            if (String.IsNullOrWhiteSpace(branchName)) throw new ArgumentNullException(nameof(branchName));
+            if (String.IsNullOrWhiteSpace(commitHash)) throw new ArgumentNullException(nameof(commitHash));
+            if (eligibility == null) throw new ArgumentNullException(nameof(eligibility));
+
+            SemaphoreSlim stateLock = GetRunStateLock(id);
+            await stateLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                CheckRun? current = await database.CheckRuns.ReadAsync(id, token: token).ConfigureAwait(false);
+                if (current == null || current.Status != CheckRunStatusEnum.Pending
+                    || current.SlotRequestedUtc.HasValue
+                    || !String.IsNullOrWhiteSpace(current.BranchName)
+                    || !eligibility(current)) return current;
+
+                current.BranchName = branchName;
+                current.CommitHash = commitHash;
+                current.LastUpdateUtc = DateTime.UtcNow;
+                return await database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                stateLock.Release();
+            }
+        }
+
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _CheckoutRepoLocks =
             new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
 
@@ -104,18 +166,34 @@ namespace Armada.Core.Services
             }
 
             int cancelled = 0;
-            foreach (CheckRun run in interrupted)
+            foreach (CheckRun observed in interrupted)
             {
-                DateTime now = DateTime.UtcNow;
-                run.Status = CheckRunStatusEnum.Canceled;
-                run.Summary = "admiral restart: this Check was Running when the admiral process stopped, so its "
-                    + "command never finished and the record carries no verdict.";
-                run.Output = String.IsNullOrWhiteSpace(run.Output) ? run.Summary : run.Output;
-                run.CompletedUtc = now;
-                run.LastUpdateUtc = now;
-                CheckRun updated = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
-                OnCheckRunChanged?.Invoke(updated);
-                cancelled++;
+                SemaphoreSlim stateLock = GetRunStateLock(observed.Id);
+                await stateLock.WaitAsync(token).ConfigureAwait(false);
+                CheckRun? updated = null;
+                try
+                {
+                    CheckRun? current = await _Database.CheckRuns.ReadAsync(observed.Id, token: token).ConfigureAwait(false);
+                    if (current == null || current.Status != CheckRunStatusEnum.Running
+                        || (current.StartedUtc.HasValue && current.StartedUtc.Value >= processStartUtc))
+                        continue;
+
+                    DateTime now = DateTime.UtcNow;
+                    current.Status = CheckRunStatusEnum.Canceled;
+                    current.Summary = "admiral restart: this Check was Running when the admiral process stopped, so its "
+                        + "command never finished and the record carries no verdict.";
+                    current.Output = String.IsNullOrWhiteSpace(current.Output) ? current.Summary : current.Output;
+                    current.CompletedUtc = now;
+                    current.LastUpdateUtc = now;
+                    updated = await _Database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
+                    cancelled++;
+                }
+                finally
+                {
+                    stateLock.Release();
+                }
+
+                if (updated != null) OnCheckRunChanged?.Invoke(updated);
             }
 
             if (cancelled > 0)
@@ -287,6 +365,13 @@ namespace Armada.Core.Services
 
                 try
                 {
+                    // Freeze the source before creating a checkout. A later source stamp must
+                    // not retag a checkout after it has been prepared.
+                    CheckRun? slotRequested = await MarkSlotRequestedAsync(run, token).ConfigureAwait(false);
+                    if (slotRequested == null) throw new InvalidOperationException("The check run no longer exists.");
+                    if (slotRequested.Status != CheckRunStatusEnum.Pending) return slotRequested;
+                    run = slotRequested;
+
                     string executionDirectory = run.WorkingDirectory!;
                     string executionCommand = run.Command;
 
@@ -313,15 +398,16 @@ namespace Armada.Core.Services
 
                     // Share the host-wide slot with DoD gates and merge-queue test runs so two full
                     // build+test suites never run on one host at once. See HostWideCommandLock.
-                    run.SlotRequestedUtc = DateTime.UtcNow;
-                    run.LastUpdateUtc = run.SlotRequestedUtc.Value;
-                    run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
                     using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), token).ConfigureAwait(false))
                     {
-                        run.Status = CheckRunStatusEnum.Running;
-                        run.StartedUtc = DateTime.UtcNow;
-                        run.LastUpdateUtc = run.StartedUtc.Value;
-                        run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+                        RunningClaim claim = await TryMarkRunningAsync(run, token).ConfigureAwait(false);
+                        if (claim.Run == null) throw new InvalidOperationException("The check run no longer exists.");
+                        if (!claim.Started)
+                        {
+                            await CleanupIsolatedCheckoutAsync(isolatedCheckout, CancellationToken.None).ConfigureAwait(false);
+                            return claim.Run;
+                        }
+                        run = claim.Run;
                         OnCheckRunChanged?.Invoke(run);
                         Stopwatch sw = Stopwatch.StartNew();
                         execution = await ExecuteCommandAsync(
@@ -333,11 +419,7 @@ namespace Armada.Core.Services
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
                     await CleanupIsolatedCheckoutAsync(isolatedCheckout, CancellationToken.None).ConfigureAwait(false);
-                    run.Status = CheckRunStatusEnum.Pending;
-                    run.StartedUtc = null;
-                    run.SlotRequestedUtc = null;
-                    run.LastUpdateUtc = DateTime.UtcNow;
-                    run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
+                    run = await RestorePendingAfterCancellationAsync(run.Id, clearSlotRequest: true).ConfigureAwait(false) ?? run;
                     OnCheckRunChanged?.Invoke(run);
                     throw;
                 }
@@ -365,7 +447,7 @@ namespace Armada.Core.Services
 
                 await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
 
-                run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+                run = await CompleteExecutionAsync(run, token).ConfigureAwait(false);
                 OnCheckRunChanged?.Invoke(run);
                 return run;
             }
@@ -574,17 +656,76 @@ namespace Armada.Core.Services
             CheckRun? pending = await FindMatchingPendingRunForCompletedAsync(run, token).ConfigureAwait(false);
             if (pending != null)
             {
-                run.Id = pending.Id;
-                run.CreatedUtc = pending.CreatedUtc;
-                run.LastUpdateUtc = DateTime.UtcNow;
-                CheckRun updated = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
-                OnCheckRunChanged?.Invoke(updated);
-                return updated;
+                SemaphoreSlim stateLock = GetRunStateLock(pending.Id);
+                await stateLock.WaitAsync(token).ConfigureAwait(false);
+                CheckRun? updated = null;
+                try
+                {
+                    CheckRun? current = await _Database.CheckRuns.ReadAsync(pending.Id, token: token).ConfigureAwait(false);
+                    if (current != null && current.Status == CheckRunStatusEnum.Pending)
+                    {
+                        CopyCompletedRecord(run, current);
+                        current.LastUpdateUtc = DateTime.UtcNow;
+                        updated = await _Database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    stateLock.Release();
+                }
+
+                if (updated != null)
+                {
+                    OnCheckRunChanged?.Invoke(updated);
+                    return updated;
+                }
             }
 
+            // The matching record changed after lookup (for example, discard won). Preserve that
+            // terminal record and save this independently completed result as its own record.
             CheckRun created = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(created);
             return created;
+        }
+
+        /// <summary>
+        /// Apply the explicit operator/MCP status resolution to the current row without replacing
+        /// unrelated fields from a stale pre-resolution snapshot.
+        /// </summary>
+        public async Task<CheckRun?> ResolveStatusManuallyAsync(
+            string id,
+            CheckRunStatusEnum status,
+            string? output,
+            string? summary,
+            int? exitCode,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
+            SemaphoreSlim stateLock = GetRunStateLock(id);
+            await stateLock.WaitAsync(token).ConfigureAwait(false);
+            CheckRun? current;
+            try
+            {
+                current = await _Database.CheckRuns.ReadAsync(id, token: token).ConfigureAwait(false);
+                if (current == null) return null;
+
+                current.Status = status;
+                if (output != null) current.Output = output;
+                if (summary != null) current.Summary = summary;
+                if (exitCode.HasValue) current.ExitCode = exitCode.Value;
+                if (status == CheckRunStatusEnum.Running && current.StartedUtc == null) current.StartedUtc = DateTime.UtcNow;
+                if (status == CheckRunStatusEnum.Passed || status == CheckRunStatusEnum.Failed || status == CheckRunStatusEnum.Canceled)
+                    current.CompletedUtc ??= DateTime.UtcNow;
+                current.LastUpdateUtc = DateTime.UtcNow;
+                current = await _Database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                stateLock.Release();
+            }
+
+            OnCheckRunChanged?.Invoke(current);
+            return current;
         }
 
         /// <summary>
@@ -769,10 +910,10 @@ namespace Armada.Core.Services
                 : vessel.WorkingDirectory;
             run.WorkingDirectory = repoPath;
 
-            run.Status = CheckRunStatusEnum.Running;
-            run.StartedUtc = DateTime.UtcNow;
-            run.LastUpdateUtc = run.StartedUtc.Value;
-            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            RunningClaim claim = await TryMarkRunningAsync(run, token).ConfigureAwait(false);
+            if (claim.Run == null) throw new InvalidOperationException("The check run no longer exists.");
+            if (!claim.Started) return claim.Run;
+            run = claim.Run;
             OnCheckRunChanged?.Invoke(run);
 
             Stopwatch sw = Stopwatch.StartNew();
@@ -785,10 +926,7 @@ namespace Armada.Core.Services
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                run.Status = CheckRunStatusEnum.Pending;
-                run.StartedUtc = null;
-                run.LastUpdateUtc = DateTime.UtcNow;
-                run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
+                run = await RestorePendingAfterCancellationAsync(run.Id).ConfigureAwait(false) ?? run;
                 OnCheckRunChanged?.Invoke(run);
                 throw;
             }
@@ -808,7 +946,7 @@ namespace Armada.Core.Services
             run.LastUpdateUtc = now;
             if (!String.IsNullOrWhiteSpace(outcome.HeadCommit)) run.CommitHash = outcome.HeadCommit;
 
-            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            run = await CompleteExecutionAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
             return run;
         }
@@ -816,6 +954,44 @@ namespace Armada.Core.Services
         private static bool IsDeploymentExecutionType(CheckRunTypeEnum type)
         {
             return type == CheckRunTypeEnum.Deploy || type == CheckRunTypeEnum.Rollback;
+        }
+
+        private static void CopyCompletedRecord(CheckRun source, CheckRun target)
+        {
+            // Keep the matched Pending record's id and creation time, but preserve the complete
+            // finished record's source and execution provenance.
+            target.TenantId = source.TenantId;
+            target.UserId = source.UserId;
+            target.WorkflowProfileId = source.WorkflowProfileId;
+            target.VesselId = source.VesselId;
+            target.MissionId = source.MissionId;
+            target.VoyageId = source.VoyageId;
+            target.DeploymentId = source.DeploymentId;
+            target.Label = source.Label;
+            target.Type = source.Type;
+            target.Source = source.Source;
+            target.ProviderName = source.ProviderName;
+            target.ExternalId = source.ExternalId;
+            target.ExternalUrl = source.ExternalUrl;
+            target.EnvironmentName = source.EnvironmentName;
+            target.Command = source.Command;
+            target.WorkingDirectory = source.WorkingDirectory;
+            target.BranchName = source.BranchName;
+            target.CommitHash = source.CommitHash;
+            target.RegressionPurpose = source.RegressionPurpose;
+            target.RegressionObjectiveId = source.RegressionObjectiveId;
+            target.RegressionLandedCommit = source.RegressionLandedCommit;
+            target.Status = source.Status;
+            target.ExitCode = source.ExitCode;
+            target.Output = source.Output;
+            target.Summary = source.Summary;
+            target.TestSummary = source.TestSummary;
+            target.CoverageSummary = source.CoverageSummary;
+            target.Artifacts = source.Artifacts;
+            target.DurationMs = source.DurationMs;
+            target.SlotRequestedUtc = source.SlotRequestedUtc;
+            target.StartedUtc = source.StartedUtc;
+            target.CompletedUtc = source.CompletedUtc;
         }
 
         private async Task<CheckRun?> FindMatchingPendingRunForCompletedAsync(CheckRun run, CancellationToken token)
@@ -870,41 +1046,50 @@ namespace Armada.Core.Services
             string executionDirectory = run.WorkingDirectory!;
             string executionCommand = run.Command;
 
-            if (IsIsolatedCheckoutType(run.Type))
-            {
-                string? repoSource = ResolveRepoSource(vessel);
-                if (repoSource != null)
-                {
-                    isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
-                    if (isolatedCheckout != null)
-                    {
-                        executionDirectory = isolatedCheckout.Path;
-                        executionCommand = StripNoRestore(run.Command);
-                    }
-                    else
-                    {
-                        return await CompleteExistingRunAsFailureAsync(
-                            run,
-                            "Isolated checkout could not be created for the configured repo source. The check will not execute in the live working directory.",
-                            token).ConfigureAwait(false);
-                    }
-                }
-            }
-
             long executionDurationMs = 0;
             CommandExecutionResult execution;
 
             try
             {
-                run.SlotRequestedUtc = DateTime.UtcNow;
-                run.LastUpdateUtc = run.SlotRequestedUtc.Value;
-                run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+                // Freeze the pending row's source before preparing its isolated checkout.
+                CheckRun? slotRequested = await MarkSlotRequestedAsync(run, token).ConfigureAwait(false);
+                if (slotRequested == null) throw new InvalidOperationException("The check run no longer exists.");
+                if (slotRequested.Status != CheckRunStatusEnum.Pending) return slotRequested;
+                run = slotRequested;
+                executionDirectory = run.WorkingDirectory!;
+                executionCommand = run.Command;
+
+                if (IsIsolatedCheckoutType(run.Type))
+                {
+                    string? repoSource = ResolveRepoSource(vessel);
+                    if (repoSource != null)
+                    {
+                        isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                        if (isolatedCheckout != null)
+                        {
+                            executionDirectory = isolatedCheckout.Path;
+                            executionCommand = StripNoRestore(run.Command);
+                        }
+                        else
+                        {
+                            return await CompleteExistingRunAsFailureAsync(
+                                run,
+                                "Isolated checkout could not be created for the configured repo source. The check will not execute in the live working directory.",
+                                token).ConfigureAwait(false);
+                        }
+                    }
+                }
+
                 using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), token).ConfigureAwait(false))
                 {
-                    run.Status = CheckRunStatusEnum.Running;
-                    run.StartedUtc = DateTime.UtcNow;
-                    run.LastUpdateUtc = run.StartedUtc.Value;
-                    run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+                    RunningClaim claim = await TryMarkRunningAsync(run, token).ConfigureAwait(false);
+                    if (claim.Run == null) throw new InvalidOperationException("The check run no longer exists.");
+                    if (!claim.Started)
+                    {
+                        await CleanupIsolatedCheckoutAsync(isolatedCheckout, CancellationToken.None).ConfigureAwait(false);
+                        return claim.Run;
+                    }
+                    run = claim.Run;
                     OnCheckRunChanged?.Invoke(run);
                     Stopwatch sw = Stopwatch.StartNew();
                     execution = await ExecuteCommandAsync(
@@ -916,11 +1101,7 @@ namespace Armada.Core.Services
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 await CleanupIsolatedCheckoutAsync(isolatedCheckout, CancellationToken.None).ConfigureAwait(false);
-                run.Status = CheckRunStatusEnum.Pending;
-                run.StartedUtc = null;
-                run.SlotRequestedUtc = null;
-                run.LastUpdateUtc = DateTime.UtcNow;
-                run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
+                run = await RestorePendingAfterCancellationAsync(run.Id, clearSlotRequest: true).ConfigureAwait(false) ?? run;
                 OnCheckRunChanged?.Invoke(run);
                 throw;
             }
@@ -948,26 +1129,168 @@ namespace Armada.Core.Services
 
             await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
 
-            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            run = await CompleteExecutionAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
             return run;
         }
 
+        private async Task<CheckRun?> MarkSlotRequestedAsync(CheckRun run, CancellationToken token)
+        {
+            SemaphoreSlim stateLock = GetRunStateLock(run.Id);
+            await stateLock.WaitAsync(token).ConfigureAwait(false);
+            CheckRun? current;
+            try
+            {
+                current = await _Database.CheckRuns.ReadAsync(run.Id, token: token).ConfigureAwait(false);
+                if (current == null || current.Status != CheckRunStatusEnum.Pending) return current;
+                current.Source = run.Source;
+                current.Command = run.Command;
+                current.WorkingDirectory = run.WorkingDirectory;
+                current.SlotRequestedUtc = DateTime.UtcNow;
+                current.LastUpdateUtc = current.SlotRequestedUtc.Value;
+                current = await _Database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                stateLock.Release();
+            }
+
+            return current;
+        }
+
+        private sealed class RunningClaim
+        {
+            public CheckRun? Run { get; }
+            public bool Started { get; }
+
+            public RunningClaim(CheckRun? run, bool started)
+            {
+                Run = run;
+                Started = started;
+            }
+        }
+
+        private async Task<RunningClaim> TryMarkRunningAsync(CheckRun run, CancellationToken token)
+        {
+            SemaphoreSlim stateLock = GetRunStateLock(run.Id);
+            await stateLock.WaitAsync(token).ConfigureAwait(false);
+            CheckRun? current;
+            try
+            {
+                current = await _Database.CheckRuns.ReadAsync(run.Id, token: token).ConfigureAwait(false);
+                if (current == null || current.Status != CheckRunStatusEnum.Pending) return new RunningClaim(current, false);
+                current.Source = run.Source;
+                current.Command = run.Command;
+                current.WorkingDirectory = run.WorkingDirectory;
+                current.BranchName = run.BranchName;
+                current.CommitHash = run.CommitHash;
+                current.Status = CheckRunStatusEnum.Running;
+                current.StartedUtc = DateTime.UtcNow;
+                current.LastUpdateUtc = current.StartedUtc.Value;
+                current = await _Database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                stateLock.Release();
+            }
+
+            return new RunningClaim(current, true);
+        }
+
+        private async Task<CheckRun?> RestorePendingAfterCancellationAsync(string id, bool clearSlotRequest = false)
+        {
+            SemaphoreSlim stateLock = GetRunStateLock(id);
+            await stateLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            CheckRun? current;
+            try
+            {
+                current = await _Database.CheckRuns.ReadAsync(id, token: CancellationToken.None).ConfigureAwait(false);
+                if (current == null || (current.Status != CheckRunStatusEnum.Pending && current.Status != CheckRunStatusEnum.Running)) return current;
+                current.Status = CheckRunStatusEnum.Pending;
+                current.StartedUtc = null;
+                if (clearSlotRequest) current.SlotRequestedUtc = null;
+                current.LastUpdateUtc = DateTime.UtcNow;
+                current = await _Database.CheckRuns.UpdateAsync(current, CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                stateLock.Release();
+            }
+
+            return current;
+        }
+
+        private async Task<CheckRun> CompleteExecutionAsync(CheckRun run, CancellationToken token)
+        {
+            SemaphoreSlim stateLock = GetRunStateLock(run.Id);
+            await stateLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                CheckRun? current = await _Database.CheckRuns.ReadAsync(run.Id, token: token).ConfigureAwait(false);
+                if (current == null) throw new InvalidOperationException("The check run no longer exists.");
+                // Preserve the existing failure result when a host-slot request fails before
+                // Running is claimed. A canceled row is terminal and must not be overwritten.
+                if (current.Status != CheckRunStatusEnum.Pending && current.Status != CheckRunStatusEnum.Running) return current;
+                // The execution snapshot owns source identity. In particular, Slop resolves its
+                // measured HEAD after Running; do not lose that commit by writing only to the stale
+                // local object or by taking a later unrelated row value.
+                current.Source = run.Source;
+                current.Command = run.Command;
+                current.WorkingDirectory = run.WorkingDirectory;
+                current.BranchName = run.BranchName;
+                current.CommitHash = run.CommitHash;
+                current.EnvironmentName = run.EnvironmentName;
+                current.RegressionPurpose = run.RegressionPurpose;
+                current.RegressionObjectiveId = run.RegressionObjectiveId;
+                current.RegressionLandedCommit = run.RegressionLandedCommit;
+                current.Status = run.Status;
+                current.ExitCode = run.ExitCode;
+                current.Output = run.Output;
+                current.Summary = run.Summary;
+                current.TestSummary = run.TestSummary;
+                current.CoverageSummary = run.CoverageSummary;
+                current.Artifacts = run.Artifacts;
+                current.DurationMs = run.DurationMs;
+                current.StartedUtc = run.StartedUtc;
+                current.CompletedUtc = run.CompletedUtc;
+                current.LastUpdateUtc = run.LastUpdateUtc;
+                return await _Database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                stateLock.Release();
+            }
+        }
+
         private async Task<CheckRun> CompleteExistingRunAsFailureAsync(CheckRun run, string output, CancellationToken token)
         {
-            DateTime now = DateTime.UtcNow;
-            run.Status = CheckRunStatusEnum.Failed;
-            run.ExitCode = -1;
-            run.Output = output;
-            run.StartedUtc ??= now;
-            run.CompletedUtc = now;
-            run.DurationMs ??= 0;
-            run.LastUpdateUtc = now;
-            run.Summary = BuildSummary(run, null);
+            SemaphoreSlim stateLock = GetRunStateLock(run.Id);
+            await stateLock.WaitAsync(token).ConfigureAwait(false);
+            CheckRun? current;
+            try
+            {
+                current = await _Database.CheckRuns.ReadAsync(run.Id, token: token).ConfigureAwait(false);
+                if (current == null) throw new InvalidOperationException("The check run no longer exists.");
+                if (current.Status != CheckRunStatusEnum.Pending) return current;
 
-            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
-            OnCheckRunChanged?.Invoke(run);
-            return run;
+                DateTime now = DateTime.UtcNow;
+                current.Status = CheckRunStatusEnum.Failed;
+                current.ExitCode = -1;
+                current.Output = output;
+                current.StartedUtc ??= now;
+                current.CompletedUtc = now;
+                current.DurationMs ??= 0;
+                current.LastUpdateUtc = now;
+                current.Summary = BuildSummary(current, null);
+                current = await _Database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                stateLock.Release();
+            }
+
+            OnCheckRunChanged?.Invoke(current);
+            return current;
         }
 
         private async Task<WorkflowProfile?> ResolveImportProfileAsync(
@@ -1361,15 +1684,28 @@ namespace Armada.Core.Services
                 return run;
             }
 
-            DateTime now = DateTime.UtcNow;
-            run.Status = CheckRunStatusEnum.Canceled;
-            run.Summary = "unstamped_voyage_check (" + endedReason + "): this Check carries no branch or commit, "
-                + "and its voyage ended before a stage stamped one. Running it would measure the default branch, "
-                + "not the work under review.";
-            run.Output = run.Summary;
-            run.CompletedUtc = now;
-            run.LastUpdateUtc = now;
-            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            SemaphoreSlim stateLock = GetRunStateLock(run.Id);
+            await stateLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                CheckRun? current = await _Database.CheckRuns.ReadAsync(run.Id, token: token).ConfigureAwait(false);
+                if (current == null) throw new InvalidOperationException("The check run no longer exists.");
+                if (current.Status != CheckRunStatusEnum.Pending) return current;
+
+                DateTime now = DateTime.UtcNow;
+                current.Status = CheckRunStatusEnum.Canceled;
+                current.Summary = "unstamped_voyage_check (" + endedReason + "): this Check carries no branch or commit, "
+                    + "and its voyage ended before a stage stamped one. Running it would measure the default branch, "
+                    + "not the work under review.";
+                current.Output = current.Summary;
+                current.CompletedUtc = now;
+                current.LastUpdateUtc = now;
+                run = await _Database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                stateLock.Release();
+            }
             OnCheckRunChanged?.Invoke(run);
             _Logging.Warn(_Header + "cancelled unstamped check " + run.Id + " (" + endedReason + ")");
             return run;

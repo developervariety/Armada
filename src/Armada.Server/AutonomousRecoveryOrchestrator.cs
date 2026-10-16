@@ -1148,6 +1148,11 @@ namespace Armada.Server
                 {
                     rescue = await DispatchRescueMissionAsync(latest, incident, rescueStartFromRef, owningObjective, token).ConfigureAwait(false);
                 }
+                catch (UnassignableRescueException refused)
+                {
+                    await DeferRescueForUnassignableConfigurationAsync(auth, latest, incident, refused.Reason, token).ConfigureAwait(false);
+                    return true;
+                }
                 catch (DispatchHoldActiveException held)
                 {
                     // The hold was engaged between the admission check above and the dispatch.
@@ -1657,6 +1662,32 @@ namespace Armada.Server
             return created;
         }
 
+        private async Task DeferRescueForUnassignableConfigurationAsync(
+            AuthContext auth,
+            Mission mission,
+            Incident incident,
+            string reason,
+            CancellationToken token)
+        {
+            const string reasonCode = "rescue_unassignable_by_construction";
+            if (!(incident.RecoveryNotes ?? String.Empty).Contains(reasonCode, StringComparison.Ordinal))
+            {
+                await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+                {
+                    RecoveryNotes = AppendNote(incident.RecoveryNotes,
+                        reasonCode + ": no rescue mission was created and no recovery attempt was spent because " + reason + ". "
+                        + "The recovery sweep may retry after captain configuration changes.")
+                }, token).ConfigureAwait(false);
+            }
+
+            await EmitEventAsync(
+                "autonomous_recovery.rescue_deferred_unassignable",
+                "Autonomous rescue for failed mission " + mission.Id + " was deferred: " + reasonCode + ". No rescue was created and no recovery attempt was spent.",
+                mission,
+                incident.Id,
+                token).ConfigureAwait(false);
+        }
+
         private async Task DeferRescueForExecutionRequirementsAsync(
             AuthContext auth,
             Mission mission,
@@ -1920,6 +1951,12 @@ namespace Armada.Server
             bool chainReReview = !MissionService.IsPlannerPersona(rescuePersona)
                 && (IsReviewerPersona(failedMission.Persona) || !String.IsNullOrEmpty(failedMission.VoyageId));
 
+            RescueStagePlan stagePlan = await PrepareRescueStagePlanAsync(
+                failedMission, rescue, attemptNumber, recoveryPipeline, rescuePlaybooks, owningObjective, chainReReview, token)
+                .ConfigureAwait(false);
+            if (stagePlan.UnassignableReason != null)
+                throw new UnassignableRescueException(stagePlan.UnassignableReason);
+
             if (!chainReReview)
                 return await _Admiral.DispatchMissionAsync(rescue, token).ConfigureAwait(false);
 
@@ -1930,7 +1967,48 @@ namespace Armada.Server
                 recoveryPipeline,
                 rescuePlaybooks,
                 owningObjective,
+                stagePlan,
                 token).ConfigureAwait(false);
+        }
+
+        private async Task<RescueStagePlan> PrepareRescueStagePlanAsync(
+            Mission failedMission,
+            Mission rescue,
+            int attemptNumber,
+            Pipeline? recoveryPipeline,
+            List<SelectedPlaybook> rescuePlaybooks,
+            Objective? owningObjective,
+            bool chainReReview,
+            CancellationToken token)
+        {
+            string? reason = await MissionService.DescribeUnassignableByConstructionAsync(
+                _Database, _Settings, rescue, token).ConfigureAwait(false);
+            if (reason != null)
+                return new RescueStagePlan(reason, new List<PipelineStage>(), new List<CarriedStageSkip>());
+
+            if (!chainReReview)
+                return new RescueStagePlan(null, new List<PipelineStage>(), new List<CarriedStageSkip>());
+
+            List<PipelineStage> stages = await ResolveRecoveryStagesAsync(
+                failedMission, recoveryPipeline, rescue.Persona, token).ConfigureAwait(false);
+            List<CarriedStageSkip> carriedSkips = await ApplyCarriedStageSkipsAsync(
+                failedMission, rescue.Persona, stages, token).ConfigureAwait(false);
+            if (carriedSkips.Count > 0)
+                stages = carriedSkips[carriedSkips.Count - 1].RemainingStages;
+
+            foreach (PipelineStage stage in stages)
+            {
+                // Use the exact mission constructor used after the rescue voyage is created so
+                // persona minima, explicit stage tiers, ownership, and future routing fields cannot drift.
+                Mission probe = BuildChainedRescueStage(
+                    failedMission, String.Empty, String.Empty, stage, attemptNumber, rescuePlaybooks, owningObjective);
+                reason = await MissionService.DescribeUnassignableByConstructionAsync(
+                    _Database, _Settings, probe, token).ConfigureAwait(false);
+                if (reason != null)
+                    return new RescueStagePlan(reason, stages, carriedSkips);
+            }
+
+            return new RescueStagePlan(null, stages, carriedSkips);
         }
 
         private async Task<Objective?> ResolveOwningObjectiveAsync(Mission failedMission, CancellationToken token)
@@ -2176,6 +2254,7 @@ namespace Armada.Server
             Pipeline? recoveryPipeline,
             List<SelectedPlaybook> rescuePlaybooks,
             Objective? owningObjective,
+            RescueStagePlan stagePlan,
             CancellationToken token)
         {
             // The rescue voyage is written before the admiral admits the Worker, so the hold is
@@ -2210,18 +2289,8 @@ namespace Armada.Server
 
                 string upstreamMissionId = dispatchedWorker.Id;
                 int missionCount = 1;
-                List<PipelineStage> downstreamStages = await ResolveRecoveryStagesAsync(
-                    failedMission,
-                    recoveryPipeline,
-                    workerRescue.Persona,
-                    token).ConfigureAwait(false);
-                List<CarriedStageSkip> carriedSkips = await ApplyCarriedStageSkipsAsync(
-                    failedMission,
-                    workerRescue.Persona,
-                    downstreamStages,
-                    token).ConfigureAwait(false);
-                if (carriedSkips.Count > 0)
-                    downstreamStages = carriedSkips[carriedSkips.Count - 1].RemainingStages;
+                List<PipelineStage> downstreamStages = stagePlan.DownstreamStages;
+                List<CarriedStageSkip> carriedSkips = stagePlan.CarriedSkips;
                 foreach (IGrouping<int, PipelineStage> stageGroup in downstreamStages.GroupBy(item => item.Order).OrderBy(item => item.Key))
                 {
                     string groupDependencyId = upstreamMissionId;
@@ -3617,6 +3686,31 @@ namespace Armada.Server
 
             return note + " Cancelled active autonomous rescue mission(s): " +
                 String.Join(", ", cancelledRescues.Select(item => item.Id)) + ".";
+        }
+
+        private sealed class RescueStagePlan
+        {
+            public string? UnassignableReason { get; }
+            public List<PipelineStage> DownstreamStages { get; }
+            public List<CarriedStageSkip> CarriedSkips { get; }
+
+            public RescueStagePlan(string? unassignableReason, List<PipelineStage> downstreamStages, List<CarriedStageSkip> carriedSkips)
+            {
+                UnassignableReason = unassignableReason;
+                DownstreamStages = downstreamStages;
+                CarriedSkips = carriedSkips;
+            }
+        }
+
+        private sealed class UnassignableRescueException : Exception
+        {
+            public string Reason { get; }
+
+            public UnassignableRescueException(string reason)
+                : base(reason)
+            {
+                Reason = reason;
+            }
         }
 
         private readonly struct RecoveryDecision

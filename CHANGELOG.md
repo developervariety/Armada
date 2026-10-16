@@ -9,6 +9,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Non-objective dispatch and autonomous rescue planning verify configured captain
+  coverage for each required persona and tier before creating work. Missing
+  configuration refuses or defers the work without treating busy compatible
+  captains as absent or spending a rescue attempt.
+
+- Check cancellation, execution and source stamping re-read and update the
+  current record under one state lock. Terminal-voyage discard cancels only
+  Pending Checks, and a stale stamp cannot retag a Check after it starts.
+
 - Explicit MCP code-search debug requests return independent embedding vector
   copies within normal result limits. Default search and context-pack results
   remain vector-free.

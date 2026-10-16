@@ -2,6 +2,7 @@ namespace Test.Shared.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.IO;
     using System.Linq;
     using System.Threading;
@@ -543,6 +544,302 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("discard_pending_races_with_queued_and_started_checks", "A terminal-voyage discard cancels queued checks and leaves a started check intact", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_check_race", "usr_check_race").ConfigureAwait(false);
+
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-race-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_check_race", "usr_check_race", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_check_race",
+                        UserId = "usr_check_race",
+                        Name = "Check Race Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        LintCommand = "dotnet --version"
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated("ten_check_race", "usr_check_race", false, false, "UnitTest");
+
+                    async Task<CheckRun> CreatePendingAsync(string label)
+                    {
+                        return await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                        {
+                            TenantId = "ten_check_race",
+                            UserId = "usr_check_race",
+                            WorkflowProfileId = profile.Id,
+                            VesselId = vessel.Id,
+                            Label = label,
+                            Type = CheckRunTypeEnum.Lint,
+                            Source = CheckRunSourceEnum.Armada,
+                            Status = CheckRunStatusEnum.Pending,
+                            Command = "dotnet --version",
+                            WorkingDirectory = workingDirectory,
+                            CreatedUtc = DateTime.UtcNow,
+                            LastUpdateUtc = DateTime.UtcNow
+                        }).ConfigureAwait(false);
+                    }
+
+                    CheckRun queued = await CreatePendingAsync("queued-cancel").ConfigureAwait(false);
+                    IDisposable slotHolder = await HostWideCommandLock.AcquireAsync("check-race-holder-" + Guid.NewGuid().ToString("N"), "check race test holder").ConfigureAwait(false);
+                    Task<CheckRun> queuedExecution = Task.Run(() => checkRuns.RunPendingAsync(auth, queued.Id));
+                    try
+                    {
+                        await WaitForHostSlotWaiterAsync(queued.Id).ConfigureAwait(false);
+                        AssertTrue(await VoyageCheckDiscard.DiscardAsync(testDb.Driver, queued, VoyageCheckDiscard.VoyageFailedReason).ConfigureAwait(false));
+                    }
+                    catch
+                    {
+                        slotHolder.Dispose();
+                        await queuedExecution.ConfigureAwait(false);
+                        throw;
+                    }
+                    slotHolder.Dispose();
+
+                    CheckRun canceledResult = await queuedExecution.ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Canceled, canceledResult.Status, "A canceled host-slot waiter must not be restarted.");
+                    AssertFalse(canceledResult.StartedUtc.HasValue, "A canceled host-slot waiter must not acquire a start time.");
+
+                    CheckRun lateCompletion = new CheckRun
+                    {
+                        TenantId = queued.TenantId,
+                        UserId = queued.UserId,
+                        WorkflowProfileId = queued.WorkflowProfileId,
+                        VesselId = queued.VesselId,
+                        Label = queued.Label,
+                        Type = queued.Type,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Passed,
+                        Command = queued.Command,
+                        WorkingDirectory = queued.WorkingDirectory,
+                        StartedUtc = DateTime.UtcNow.AddSeconds(-1),
+                        CompletedUtc = DateTime.UtcNow,
+                        ExitCode = 0,
+                        Summary = "late completed result"
+                    };
+                    CheckRun recordedLateCompletion = await checkRuns.RecordCompletedAsync(lateCompletion).ConfigureAwait(false);
+                    CheckRun canceledAfterLateCompletion = await testDb.Driver.CheckRuns.ReadAsync(queued.Id).ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("The canceled row disappeared after a late completion.");
+                    AssertEqual(CheckRunStatusEnum.Canceled, canceledAfterLateCompletion.Status, "A late completed record must not replace a canceled pending row.");
+                    AssertTrue(!String.Equals(queued.Id, recordedLateCompletion.Id, StringComparison.Ordinal), "A late completion after cancellation must use its own record.");
+
+                    CheckRun completionTarget = await CreatePendingAsync("completed-record-reuse").ConfigureAwait(false);
+                    CheckRun completedInput = new CheckRun
+                    {
+                        TenantId = completionTarget.TenantId,
+                        UserId = completionTarget.UserId,
+                        WorkflowProfileId = completionTarget.WorkflowProfileId,
+                        VesselId = completionTarget.VesselId,
+                        Label = completionTarget.Label,
+                        Type = completionTarget.Type,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Passed,
+                        Command = "measured-command",
+                        WorkingDirectory = "/measured/source",
+                        BranchName = "measured-branch",
+                        CommitHash = "measured-commit",
+                        StartedUtc = DateTime.UtcNow.AddSeconds(-1),
+                        CompletedUtc = DateTime.UtcNow,
+                        ExitCode = 0,
+                        Summary = "completed source provenance"
+                    };
+                    CheckRun reusedCompletion = await checkRuns.RecordCompletedAsync(completedInput).ConfigureAwait(false);
+                    AssertEqual(completionTarget.Id, reusedCompletion.Id, "A matching pending row keeps its identity.");
+                    AssertEqual("measured-command", reusedCompletion.Command, "Completed-record reuse must preserve the completed command.");
+                    AssertEqual("/measured/source", reusedCompletion.WorkingDirectory, "Completed-record reuse must preserve the completed source path.");
+                    AssertEqual("measured-branch", reusedCompletion.BranchName, "Completed-record reuse must preserve the completed branch.");
+                    AssertEqual("measured-commit", reusedCompletion.CommitHash, "Completed-record reuse must preserve the completed commit.");
+
+                    CheckRun started = await CreatePendingAsync("start-wins").ConfigureAwait(false);
+                    started.BranchName = "execution-branch";
+                    started.CommitHash = "execution-commit";
+                    await testDb.Driver.CheckRuns.UpdateAsync(started).ConfigureAwait(false);
+                    TaskCompletionSource<bool> runningSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    using ManualResetEventSlim continueExecution = new ManualResetEventSlim(false);
+                    checkRuns.OnCheckRunChanged = changed =>
+                    {
+                        if (changed.Id == started.Id && changed.Status == CheckRunStatusEnum.Running)
+                        {
+                            runningSignal.TrySetResult(true);
+                            continueExecution.Wait();
+                        }
+                    };
+
+                    Task<CheckRun> startedExecution = Task.Run(() => checkRuns.RunPendingAsync(auth, started.Id));
+                    Task first = await Task.WhenAny(runningSignal.Task, startedExecution, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
+                    if (first != runningSignal.Task)
+                    {
+                        continueExecution.Set();
+                        await startedExecution.ConfigureAwait(false);
+                        throw new InvalidOperationException("The pending check did not reach its Running claim.");
+                    }
+
+                    bool discardedStarted = false;
+                    Exception? discardError = null;
+                    try
+                    {
+                        discardedStarted = await VoyageCheckDiscard.DiscardAsync(testDb.Driver, started, VoyageCheckDiscard.VoyageFailedReason).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        discardError = ex;
+                    }
+                    finally
+                    {
+                        continueExecution.Set();
+                    }
+
+                    CheckRun? passedResult = null;
+                    Exception? executionError = null;
+                    try
+                    {
+                        passedResult = await startedExecution.ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        executionError = ex;
+                    }
+                    if (discardError != null && executionError != null)
+                        throw new AggregateException("Discard and the owned execution task both failed.", discardError, executionError);
+                    if (discardError != null)
+                        throw new InvalidOperationException("Discard failed after the execution callback was released.", discardError);
+                    if (executionError != null)
+                        throw new InvalidOperationException("The owned execution task failed after the callback was released.", executionError);
+                    if (passedResult == null) throw new InvalidOperationException("The owned execution task returned no result.");
+
+                    AssertFalse(discardedStarted, "A check that already claimed Running must not be discarded.");
+                    AssertEqual(CheckRunStatusEnum.Passed, passedResult.Status, "A winning execution claim must complete normally.");
+                    AssertTrue(passedResult.StartedUtc.HasValue, "The started check must retain its start time.");
+                    AssertEqual("execution-branch", passedResult.BranchName, "Execution completion must preserve the claimed branch.");
+                    AssertEqual("execution-commit", passedResult.CommitHash, "Execution completion must preserve the claimed commit.");
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }));
+
+            cases.Add(CaseAsync("queued_source_stamp_matches_actual_isolated_checkout", "A queued source stamp cannot retag an already prepared checkout", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_source_freeze", "usr_source_freeze").ConfigureAwait(false);
+
+                string repositoryPath = Path.Combine(Path.GetTempPath(), "armada-source-freeze-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(repositoryPath);
+                IDisposable? slotHolder = null;
+                Task<CheckRun>? queuedExecution = null;
+                string baseCommit = String.Empty;
+                string reviewedCommit = String.Empty;
+                CheckRun? measuredDefault = null;
+
+                try
+                {
+                    RunGitForTest(repositoryPath, "init");
+                    RunGitForTest(repositoryPath, "checkout", "-b", "main");
+                    RunGitForTest(repositoryPath, "config", "user.name", "Armada test");
+                    RunGitForTest(repositoryPath, "config", "user.email", "armada-test@example.invalid");
+                    File.WriteAllText(Path.Combine(repositoryPath, "source.txt"), "base\n");
+                    RunGitForTest(repositoryPath, "add", "source.txt");
+                    RunGitForTest(repositoryPath, "commit", "-m", "base");
+                    baseCommit = RunGitForTest(repositoryPath, "rev-parse", "HEAD").Trim();
+
+                    RunGitForTest(repositoryPath, "checkout", "-b", "reviewed");
+                    File.WriteAllText(Path.Combine(repositoryPath, "source.txt"), "reviewed\n");
+                    RunGitForTest(repositoryPath, "commit", "-am", "reviewed");
+                    reviewedCommit = RunGitForTest(repositoryPath, "rev-parse", "HEAD").Trim();
+                    RunGitForTest(repositoryPath, "checkout", "main");
+
+                    Vessel vessel = CreateVessel("ten_source_freeze", "usr_source_freeze", repositoryPath);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_source_freeze",
+                        UserId = "usr_source_freeze",
+                        Name = "Source Freeze Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        UnitTestCommand = "git rev-parse HEAD"
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated("ten_source_freeze", "usr_source_freeze", false, false, "UnitTest");
+
+                    Voyage voyage = new Voyage("Completed source-freeze voyage")
+                    {
+                        TenantId = "ten_source_freeze",
+                        UserId = "usr_source_freeze",
+                        Status = VoyageStatusEnum.Complete,
+                        CompletedUtc = DateTime.UtcNow
+                    };
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    CheckRun preStamped = await CreateArmedUnitCheckAsync(testDb, profile, vessel, voyage, "source-before-claim").ConfigureAwait(false);
+                    CheckRun? stampedBeforeClaim = await CheckRunService.StampPendingSourceAsync(
+                        testDb.Driver,
+                        preStamped.Id,
+                        "reviewed",
+                        reviewedCommit).ConfigureAwait(false);
+                    AssertEqual(reviewedCommit, stampedBeforeClaim?.CommitHash, "A valid source stamp before the slot claim must be retained.");
+                    CheckRun measuredReviewed = await checkRuns.RunPendingAsync(auth, preStamped.Id).ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Passed, measuredReviewed.Status, "The stamped check must complete.");
+                    AssertContains(reviewedCommit, measuredReviewed.Output, "The command must report the exact reviewed checkout HEAD.");
+
+                    CheckRun lateStamp = await CreateArmedUnitCheckAsync(testDb, profile, vessel, voyage, "source-during-queue").ConfigureAwait(false);
+                    slotHolder = await HostWideCommandLock.AcquireAsync(
+                        "source-freeze-holder-" + Guid.NewGuid().ToString("N"), "source freeze regression holder").ConfigureAwait(false);
+                    Task<CheckRun> ownedExecution = Task.Run(() => checkRuns.RunPendingAsync(auth, lateStamp.Id));
+                    queuedExecution = ownedExecution;
+                    await WaitForHostSlotWaiterAsync(lateStamp.Id).ConfigureAwait(false);
+
+                    CheckRun? stampedAfterClaim = await CheckRunService.StampPendingSourceAsync(
+                        testDb.Driver,
+                        lateStamp.Id,
+                        "reviewed",
+                        reviewedCommit).ConfigureAwait(false);
+                    AssertTrue(stampedAfterClaim != null, "The queued check must still exist after the stamp attempt.");
+                    AssertTrue(!String.Equals(reviewedCommit, stampedAfterClaim!.CommitHash, StringComparison.OrdinalIgnoreCase),
+                        "A source stamp must be refused after slot/source preparation begins.");
+
+                    slotHolder.Dispose();
+                    slotHolder = null;
+                    measuredDefault = await ownedExecution.ConfigureAwait(false);
+                    queuedExecution = null;
+
+                    AssertEqual(CheckRunStatusEnum.Passed, measuredDefault.Status, "The queued check must complete after the host slot is released.");
+                    AssertContains(baseCommit, measuredDefault.Output, "The checkout must report the default-branch commit it actually executed.");
+                    AssertTrue(!String.Equals(reviewedCommit, measuredDefault.CommitHash, StringComparison.OrdinalIgnoreCase),
+                        "The result must not claim the later reviewed commit when its checkout ran the default branch.");
+                }
+                finally
+                {
+                    slotHolder?.Dispose();
+                    try
+                    {
+                        if (queuedExecution != null) await queuedExecution.ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        TryDeleteDirectory(repositoryPath);
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("run_async_fails_fast_when_required_workflow_input_is_missing", "RunAsync fails fast when required workflow input is missing", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -606,6 +903,65 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private static async Task WaitForHostSlotWaiterAsync(string checkRunId)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (HostWideCommandLock.Snapshot().FindWaiter(checkRunId) != null) return;
+                await Task.Delay(10).ConfigureAwait(false);
+            }
+
+            throw new InvalidOperationException("The check run did not enter the host-slot queue.");
+        }
+
+        private static async Task<CheckRun> CreateArmedUnitCheckAsync(
+            TestDatabase testDb,
+            WorkflowProfile profile,
+            Vessel vessel,
+            Voyage voyage,
+            string label)
+        {
+            return await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                WorkflowProfileId = profile.Id,
+                VesselId = vessel.Id,
+                VoyageId = voyage.Id,
+                Label = label,
+                Type = CheckRunTypeEnum.UnitTest,
+                Source = CheckRunSourceEnum.Armada,
+                Status = CheckRunStatusEnum.Pending,
+                Command = CheckRunGateRules.PlaceholderCommand,
+                WorkingDirectory = vessel.WorkingDirectory,
+                CreatedUtc = DateTime.UtcNow,
+                LastUpdateUtc = DateTime.UtcNow
+            }).ConfigureAwait(false);
+        }
+
+        private static string RunGitForTest(string workingDirectory, params string[] arguments)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo("git")
+            {
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
+
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("The local Git test command did not start.");
+            string output = process.StandardOutput.ReadToEnd();
+            string error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException("The local Git test command failed: " + error);
+            return output;
+        }
 
         private static LoggingModule CreateLogging()
         {

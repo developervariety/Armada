@@ -40,6 +40,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("alias-pipeline-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "TestEngineer", "Judge", "Architect").ConfigureAwait(false);
 
                     Pipeline reviewed = new Pipeline("Reviewed");
                     reviewed.Stages = new List<PipelineStage>
@@ -131,6 +132,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("alias-pipeline-context-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "TestEngineer", "Judge", "Architect").ConfigureAwait(false);
 
                     Pipeline reviewed = new Pipeline("ContextReviewed");
                     reviewed.Stages = new List<PipelineStage>
@@ -200,6 +202,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("alias-no-pipeline-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "TestEngineer", "Judge", "Architect").ConfigureAwait(false);
 
                     PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, null);
 
@@ -256,6 +259,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Vessel vessel = new Vessel("alias-pb-snap-vessel", "https://github.com/test/repo.git");
                     vessel.TenantId = Constants.DefaultTenantId;
                     vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "TestEngineer", "Judge", "Architect").ConfigureAwait(false);
 
                     // Two playbooks for the default tenant.
                     Playbook pb1 = new Playbook("guide-a.md", "# guide a");
@@ -373,6 +377,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("alias-dual-judge-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "Analyst", "TestEngineer", "Judge", "Architect").ConfigureAwait(false);
 
                     // Pipeline with two Judge stages at the same Order.
                     Pipeline dualJudge = new Pipeline("AliasDualJudge");
@@ -457,6 +462,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("alias-dual-judge-dependent-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "Analyst", "TestEngineer", "Judge", "Architect").ConfigureAwait(false);
 
                     Pipeline dualJudge = new Pipeline("AliasDualJudgeDependent");
                     dualJudge.Stages = new List<PipelineStage>
@@ -532,6 +538,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Vessel vessel = new Vessel("alias-fallback-logging-vessel", "https://github.com/test/repo.git");
                     vessel.TenantId = Constants.DefaultTenantId;
                     vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "TestEngineer", "Judge", "Architect").ConfigureAwait(false);
 
                     Playbook pb1 = new Playbook("fallback-guide.md", "# fallback guide");
                     pb1.TenantId = Constants.DefaultTenantId;
@@ -600,6 +607,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("context-persona-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "TestEngineer", "Judge", "Architect").ConfigureAwait(false);
 
                     Pipeline reviewed = new Pipeline("ContextPersonaReviewed");
                     reviewed.Stages = new List<PipelineStage>
@@ -693,6 +701,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("downstream-worker-context-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "TestEngineer", "Judge", "Architect").ConfigureAwait(false);
 
                     // Two Worker stages in order 1 and 2 (no Judge).
                     Pipeline twoWorkers = new Pipeline("TwoWorkers");
@@ -774,6 +783,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("downstream-architect-context-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "TestEngineer", "Judge", "Architect").ConfigureAwait(false);
 
                     // Worker -> Architect. Architect is an implementing persona, so the downstream
                     // stage must also receive the context-pack entry (proves the set is not Worker-only).

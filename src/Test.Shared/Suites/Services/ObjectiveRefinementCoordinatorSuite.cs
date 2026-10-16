@@ -75,7 +75,7 @@ namespace Test.Shared.Suites.Services
                         {
                             ObjectiveRefinementSession? current = await testDb.Driver.ObjectiveRefinementSessions.ReadAsync(session.Id).ConfigureAwait(false);
                             List<ObjectiveRefinementMessage> rows = await testDb.Driver.ObjectiveRefinementMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
-                            return current?.ProcessId == null && rows.Exists(item => item.Role == "Assistant" && (item.Content ?? String.Empty).Contains("opencode error", StringComparison.Ordinal));
+                            return current != null && current.ProcessId == null && current.Status == ObjectiveRefinementSessionStatusEnum.Active && (current.FailureReason ?? String.Empty).Contains("opencode error", StringComparison.Ordinal) && rows.Exists(item => item.Role == "Assistant" && (item.Content ?? String.Empty).Contains("opencode error", StringComparison.Ordinal));
                         }).ConfigureAwait(false);
                         ObjectiveRefinementSession saved = await testDb.Driver.ObjectiveRefinementSessions.ReadAsync(session.Id) ?? throw new Exception("refinement session disappeared");
                         List<ObjectiveRefinementMessage> messages = await testDb.Driver.ObjectiveRefinementMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);

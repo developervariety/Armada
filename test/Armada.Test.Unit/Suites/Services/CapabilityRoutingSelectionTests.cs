@@ -354,6 +354,7 @@ namespace Armada.Test.Unit.Suites.Services
                             TenantId = Constants.DefaultTenantId,
                             UserId = Constants.DefaultUserId
                         }).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     PersistingAdmiralService admiral = new PersistingAdmiralService(testDb.Driver);
                     VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, null, null, null, null);
@@ -396,6 +397,7 @@ namespace Armada.Test.Unit.Suites.Services
                             TenantId = Constants.DefaultTenantId,
                             UserId = Constants.DefaultUserId
                         }).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     PersistingAdmiralService admiral = new PersistingAdmiralService(testDb.Driver);
                     VoyageDispatchService service = new VoyageDispatchService(testDb.Driver, admiral, null, null, null, null);

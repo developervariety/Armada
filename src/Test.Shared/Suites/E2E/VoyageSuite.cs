@@ -1730,8 +1730,10 @@ namespace Test.Shared.Suites.E2E
         /// <summary>
         /// Creates prerequisite fleet and vessel and returns their IDs.
         /// </summary>
-        private static async Task<PrerequisiteResult> CreatePrerequisitesAsync(HttpClient client, List<string> createdFleetIds, List<string> createdVesselIds)
+        private async Task<PrerequisiteResult> CreatePrerequisitesAsync(HttpClient client, List<string> createdFleetIds, List<string> createdVesselIds)
         {
+            E2EServerFixture fixture = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+            await fixture.EnsurePositiveWorkerDispatchCaptainAsync().ConfigureAwait(false);
             string fleetId = await CreateFleetAsync(client, createdFleetIds);
             string vesselId = await CreateVesselAsync(client, createdVesselIds, fleetId);
             return new PrerequisiteResult(fleetId, vesselId);
@@ -1762,7 +1764,7 @@ namespace Test.Shared.Suites.E2E
         /// </summary>
         /// <param name="authClient">Authenticated client for the shared e2e server.</param>
         /// <returns>A task that completes once all 25 voyages have been created.</returns>
-        private static async Task SeedSharedVoyagesAsync(HttpClient authClient)
+        private async Task SeedSharedVoyagesAsync(HttpClient authClient)
         {
             List<string> createdFleetIds = new List<string>();
             List<string> createdVesselIds = new List<string>();

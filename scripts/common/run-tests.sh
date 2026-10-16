@@ -117,6 +117,7 @@ run_project() {
   local logfile="$2"
   shift 2
   env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_API_KEY \
+    -u ARMADA_TYPESAFE_KEY \
     dotnet run --project "$project" --framework "$FRAMEWORK" --no-build --no-restore -- "$@" > "$logfile" 2>&1
 }
 

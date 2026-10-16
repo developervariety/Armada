@@ -155,7 +155,7 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new GitHubIntegrationTests(authClient, unauthClient, baseUrl));
                 runner.AddSuite(new IncidentTests(authClient, unauthClient, baseUrl));
                 runner.AddSuite(new ObjectiveTests(authClient, unauthClient, server));
-                runner.AddSuite(new ReleaseTests(authClient, unauthClient));
+                runner.AddSuite(new ReleaseTests(authClient, unauthClient, server));
                 runner.AddSuite(new RequestHistoryTests(authClient, unauthClient, baseUrl));
                 runner.AddSuite(new WorkflowProfileCheckRunTests(authClient, unauthClient));
 
@@ -163,7 +163,7 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new VesselTests(authClient, unauthClient));
                 runner.AddSuite(new CaptainTests(authClient, unauthClient));
                 runner.AddSuite(new MissionTests(authClient, unauthClient));
-                runner.AddSuite(new VoyageTests(authClient, unauthClient));
+                runner.AddSuite(new VoyageTests(authClient, unauthClient, server));
                 runner.AddSuite(new SignalTests(authClient, unauthClient));
                 runner.AddSuite(new EventTests(authClient, unauthClient));
                 runner.AddSuite(new DockTests(authClient, unauthClient));

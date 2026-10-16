@@ -8,6 +8,7 @@ namespace Armada.Test.Automated.Suites
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Server;
     using Armada.Test.Common;
 
     /// <summary>
@@ -17,6 +18,7 @@ namespace Armada.Test.Automated.Suites
     {
         private readonly HttpClient _AuthClient;
         private readonly HttpClient _UnauthClient;
+        private readonly ArmadaServer _Server;
 
         /// <inheritdoc />
         public override string Name => "Releases";
@@ -24,10 +26,11 @@ namespace Armada.Test.Automated.Suites
         /// <summary>
         /// Instantiate the suite.
         /// </summary>
-        public ReleaseTests(HttpClient authClient, HttpClient unauthClient)
+        public ReleaseTests(HttpClient authClient, HttpClient unauthClient, ArmadaServer server)
         {
             _AuthClient = authClient ?? throw new ArgumentNullException(nameof(authClient));
             _UnauthClient = unauthClient ?? throw new ArgumentNullException(nameof(unauthClient));
+            _Server = server ?? throw new ArgumentNullException(nameof(server));
         }
 
         /// <inheritdoc />
@@ -45,6 +48,7 @@ namespace Armada.Test.Automated.Suites
             string voyageId = String.Empty;
             string checkRunId = String.Empty;
             string releaseId = String.Empty;
+            string dispatchCaptainId = String.Empty;
 
             try
             {
@@ -63,6 +67,9 @@ namespace Armada.Test.Automated.Suites
 
                     Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(vesselResponse).ConfigureAwait(false);
                     vesselId = vessel.Id;
+                    Captain dispatchCaptain = await ServerCaptainFixtures.CreateEligibleIdleCaptainAsync(
+                        _Server, vessel.TenantId, vessel.UserId, "Worker").ConfigureAwait(false);
+                    dispatchCaptainId = dispatchCaptain.Id;
 
                     HttpResponseMessage workflowProfileResponse = await _AuthClient.PostAsync("/api/v1/workflow-profiles",
                         JsonHelper.ToJsonContent(new
@@ -187,6 +194,10 @@ namespace Armada.Test.Automated.Suites
                 {
                     try { await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId).ConfigureAwait(false); } catch { }
                     try { await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId + "/purge").ConfigureAwait(false); } catch { }
+                }
+                if (!String.IsNullOrWhiteSpace(dispatchCaptainId))
+                {
+                    await ServerCaptainFixtures.DeleteFixtureCaptainAsync(_AuthClient, dispatchCaptainId).ConfigureAwait(false);
                 }
                 if (!String.IsNullOrWhiteSpace(workflowProfileId))
                 {

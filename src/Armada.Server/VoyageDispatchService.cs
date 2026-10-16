@@ -220,6 +220,91 @@ namespace Armada.Server
             return null;
         }
 
+        private async Task<VoyageDispatchResult?> ValidateConfiguredAssignmentEligibilityAsync(
+            SharedVoyageDispatchRequest request,
+            Vessel vessel,
+            string? pipelineId,
+            IReadOnlyList<MissionDescription> effectiveMissions,
+            CancellationToken token)
+        {
+            Pipeline? resolvedPipeline = await _Admiral.ResolvePipelineAsync(pipelineId, vessel, token).ConfigureAwait(false);
+            PipelineStageSkipResult skipped;
+            try
+            {
+                skipped = PipelineStageSkip.Apply(
+                    resolvedPipeline,
+                    PipelineStageSkip.FromOperator(request.SkipStages, request.SkipStagesReason, request.ObjectiveAuthContext));
+            }
+            catch (StageSkipRefusedException refused)
+            {
+                return StageSkipRefusedResult(refused);
+            }
+            Pipeline? pipeline = skipped.Pipeline;
+            bool isMultiStage = pipeline != null
+                && !(pipeline.Stages.Count == 1 && String.Equals(pipeline.Stages[0].PersonaName, "Worker", StringComparison.Ordinal));
+            ArmadaSettings settings = request.Settings ?? _Settings ?? new ArmadaSettings();
+            IReadOnlyList<MissionDescription> missions;
+            try
+            {
+                missions = MissionAliasResolver.ResolveAndOrder(effectiveMissions.ToList());
+            }
+            catch (InvalidDataException ex)
+            {
+                return VoyageDispatchResult.BadRequest(new { Error = ex.Message });
+            }
+
+            foreach (MissionDescription description in missions)
+            {
+                List<PipelineStage> stages = isMultiStage
+                    ? pipeline!.Stages.OrderBy(stage => stage.Order).ToList()
+                    : new List<PipelineStage> { new PipelineStage(1, AdmiralService.SingleStagePersona(pipeline)) };
+                foreach (PipelineStage stage in stages)
+                {
+                    string persona = stage.PersonaName;
+                    string? preferredModel = isMultiStage
+                        ? PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                            stage.PreferredModel,
+                            description.PreferredModel,
+                            settings.ModelTier.MinimumTierForPersona(persona))
+                        : description.PreferredModel;
+                    CaptainAssignmentOverride? assignment = MissionService.SelectCaptainOverride(request.CaptainAssignments, persona);
+                    OwnedRecordLookup<Persona> personaLookup = await MissionService.ReadUsablePersonaAsync(
+                        _Database,
+                        vessel.TenantId,
+                        vessel.UserId,
+                        persona,
+                        token).ConfigureAwait(false);
+                    RequestedCaptainResolution requested = RequestedCaptainAssignmentRule.ResolveRequest(
+                        assignment,
+                        personaLookup.Record?.DefaultCaptainId);
+                    Mission probe = new Mission(description.Title, description.Description)
+                    {
+                        TenantId = vessel.TenantId,
+                        UserId = vessel.UserId,
+                        VesselId = vessel.Id,
+                        Persona = persona,
+                        PreferredModel = preferredModel,
+                        RequestedCaptainId = requested.CaptainId,
+                        Tier = requested.FallbackTier
+                    };
+
+                    string? reason = await MissionService.DescribeUnassignableByConstructionAsync(
+                        _Database, settings, probe, token).ConfigureAwait(false);
+                    if (reason == null) continue;
+
+                    return VoyageDispatchResult.BadRequest(new
+                    {
+                        Error = "Mission cannot be dispatched: no configured captain can serve persona " + persona + " at its requested tier.",
+                        Code = "mission_unassignable_by_construction",
+                        Reason = reason,
+                        Action = "Add or configure a captain that can serve this persona and tier, or change the requested tier."
+                    });
+                }
+            }
+
+            return null;
+        }
+
         public async Task<VoyageDispatchResult> DispatchAsync(SharedVoyageDispatchRequest request, CancellationToken token = default)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
@@ -305,6 +390,15 @@ namespace Armada.Server
             LogDispatchInfo("dispatch step code_context_prepared elapsedMs=" + dispatchWatch.ElapsedMilliseconds
                 + " deterministic=true");
             if (codeContextError != null) return VoyageDispatchResult.BadRequest(new { Error = codeContextError });
+
+            // Keep roster readiness out of synchronous job preflight. Evaluate the effective, prepared
+            // mission descriptions here, after request and code-context errors but before dispatch records.
+            if (objectiveId == null)
+            {
+                VoyageDispatchResult? assignmentFeasibility = await ValidateConfiguredAssignmentEligibilityAsync(
+                    request, dispatchVessel, pipelineId, missions, token).ConfigureAwait(false);
+                if (assignmentFeasibility != null) return assignmentFeasibility;
+            }
 
             bool hasAliases = missions.Any(m =>
                 !String.IsNullOrEmpty(m.Alias) || !String.IsNullOrEmpty(m.DependsOnMissionAlias));

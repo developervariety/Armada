@@ -36,6 +36,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("alias-chain-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -98,6 +99,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("literal-ids-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -201,6 +203,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("code-context-force-attach-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
@@ -354,6 +357,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("index-stale-proceed-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
@@ -392,6 +396,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("code-context-off-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
@@ -434,6 +439,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("code-context-auto-unavailable-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -471,6 +477,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("code-context-auto-defer-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
                     string packSource = Path.Combine(Path.GetTempPath(), "auto-sync-pack-" + Guid.NewGuid().ToString("N") + ".md");
@@ -696,6 +703,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("code-context-override-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
@@ -878,6 +886,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("mixed-dep-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -933,6 +942,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("cache-hit-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -993,6 +1003,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("cache-miss-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -1042,6 +1053,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("lazy-warm-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -1102,6 +1114,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("warm-never-called-auto-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -1152,6 +1165,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("auto-empty-cache-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -1255,6 +1269,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("force-warm-hit-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -1333,6 +1348,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("cache-empty-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 
@@ -1394,6 +1410,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("cache-null-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
 

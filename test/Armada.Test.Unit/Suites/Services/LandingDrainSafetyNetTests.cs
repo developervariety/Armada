@@ -192,6 +192,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
 
                 Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "Judge").ConfigureAwait(false);
                 Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
                 Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-4", "Worker").ConfigureAwait(false);
                 worker.CommitHash = "4444444444444444444444444444444444444444";

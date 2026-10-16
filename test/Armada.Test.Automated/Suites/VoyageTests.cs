@@ -9,6 +9,7 @@ namespace Armada.Test.Automated.Suites
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Server;
     using Armada.Test.Automated;
     using Armada.Test.Common;
 
@@ -24,7 +25,9 @@ namespace Armada.Test.Automated.Suites
 
         private HttpClient _AuthClient;
         private HttpClient _UnauthClient;
+        private readonly ArmadaServer _Server;
         private List<string> _CreatedVoyageIds = new List<string>();
+        private List<string> _CreatedCaptainIds = new List<string>();
         private List<string> _CreatedMissionIds = new List<string>();
         private List<string> _CreatedVesselIds = new List<string>();
         private List<string> _CreatedFleetIds = new List<string>();
@@ -33,10 +36,11 @@ namespace Armada.Test.Automated.Suites
 
         #region Constructors-and-Factories
 
-        public VoyageTests(HttpClient authClient, HttpClient unauthClient)
+        public VoyageTests(HttpClient authClient, HttpClient unauthClient, ArmadaServer server)
         {
             _AuthClient = authClient ?? throw new ArgumentNullException(nameof(authClient));
             _UnauthClient = unauthClient ?? throw new ArgumentNullException(nameof(unauthClient));
+            _Server = server ?? throw new ArgumentNullException(nameof(server));
         }
 
         #endregion
@@ -1440,6 +1444,9 @@ namespace Armada.Test.Automated.Suites
             await CleanupAsync();
             string fleetId = await CreateFleetAsync();
             string vesselId = await CreateVesselAsync(fleetId);
+            Captain dispatchCaptain = await ServerCaptainFixtures.CreateEligibleIdleCaptainAsync(
+                _Server, Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, "Worker").ConfigureAwait(false);
+            _CreatedCaptainIds.Add(dispatchCaptain.Id);
             return new PrerequisiteResult(fleetId, vesselId);
         }
 
@@ -1449,6 +1456,11 @@ namespace Armada.Test.Automated.Suites
             {
                 await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId);
                 try { await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId + "/purge"); } catch { }
+            }
+
+            foreach (string captainId in _CreatedCaptainIds)
+            {
+                await ServerCaptainFixtures.DeleteFixtureCaptainAsync(_AuthClient, captainId).ConfigureAwait(false);
             }
 
             foreach (string vesselId in _CreatedVesselIds)
@@ -1461,6 +1473,7 @@ namespace Armada.Test.Automated.Suites
                 try { await _AuthClient.DeleteAsync("/api/v1/fleets/" + fleetId); } catch { }
             }
             _CreatedVoyageIds.Clear();
+            _CreatedCaptainIds.Clear();
             _CreatedVesselIds.Clear();
             _CreatedFleetIds.Clear();
         }

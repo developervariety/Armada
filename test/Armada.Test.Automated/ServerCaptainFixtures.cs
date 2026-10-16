@@ -1,7 +1,9 @@
 namespace Armada.Test.Automated
 {
     using System;
+    using System.Net.Http;
     using System.Reflection;
+    using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -50,6 +52,56 @@ namespace Armada.Test.Automated
                 .GetField("_Database", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .GetValue(server)!;
             return await database.Captains.CreateAsync(captain).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Store an idle Premium captain for a positive dispatch fixture in the mission tenant.
+        /// </summary>
+        public static async Task<Captain> CreateEligibleIdleCaptainAsync(
+            ArmadaServer server,
+            string tenantId,
+            string userId,
+            params string[] allowedPersonas)
+        {
+            if (server == null) throw new ArgumentNullException(nameof(server));
+            Captain captain = new Captain("eligible-test-captain-" + Guid.NewGuid().ToString("N"))
+            {
+                TenantId = tenantId,
+                UserId = userId,
+                Tier = CaptainTierEnum.Premium,
+                State = CaptainStateEnum.Idle,
+                AllowedPersonas = JsonSerializer.Serialize(allowedPersonas)
+            };
+            DatabaseDriver database = (DatabaseDriver)typeof(ArmadaServer)
+                .GetField("_Database", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(server)!;
+            return await database.Captains.CreateAsync(captain).ConfigureAwait(false);
+        }
+
+        /// <summary>Delete one fixture captain through the server route after its owned work is closed.</summary>
+        public static async Task DeleteFixtureCaptainAsync(HttpClient authClient, string captainId)
+        {
+            if (authClient == null) throw new ArgumentNullException(nameof(authClient));
+            if (String.IsNullOrWhiteSpace(captainId)) throw new ArgumentException("A captain ID is required.", nameof(captainId));
+            using (HttpResponseMessage stopResponse = await authClient.PostAsync(
+                "/api/v1/captains/" + captainId + "/stop", null).ConfigureAwait(false))
+            {
+                if (stopResponse.StatusCode != System.Net.HttpStatusCode.OK
+                    && stopResponse.StatusCode != System.Net.HttpStatusCode.NotFound)
+                {
+                    string detail = await stopResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    throw new InvalidOperationException("Could not stop the fixture captain after voyage cleanup: " + detail);
+                }
+            }
+            using (HttpResponseMessage response = await authClient.DeleteAsync("/api/v1/captains/" + captainId).ConfigureAwait(false))
+            {
+                if (response.StatusCode != System.Net.HttpStatusCode.NoContent
+                    && response.StatusCode != System.Net.HttpStatusCode.NotFound)
+                {
+                    string detail = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    throw new InvalidOperationException("Could not remove the fixture captain after voyage cleanup: " + detail);
+                }
+            }
         }
 
         #endregion

@@ -273,8 +273,13 @@ sweep: a voyage-armed Check once a stage commits work to a branch, a
 mission-linked Check after its mission completes, a release-linked Check when
 the release is ready, and an unlinked Check when its vessel is idle. A Pending
 Check of a voyage that ended without completing is cancelled with its reason.
-No setting turns this off. Deployment deploy, verify, and rollback Checks stay
-under the deployment action so the deployment record remains authoritative.
+Cancellation, execution and source stamping re-read the current Check under a
+shared state lock. A discard cancels a Check only while it remains Pending; a
+started Check is left intact. A source stamp applies only before the Check claims
+the host slot or begins source preparation, so a stale heartbeat cannot retag
+work already in progress. No setting turns this off. Deployment deploy, verify,
+and rollback Checks stay under the deployment action so the deployment record
+remains authoritative.
 
 While the dispatch hold is engaged, the heartbeat runs eligible Checks for
 work on active voyages. These Checks let existing voyages pass their Check gate

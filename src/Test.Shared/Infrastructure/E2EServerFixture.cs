@@ -6,8 +6,10 @@ namespace Test.Shared.Infrastructure
     using System.Net;
     using System.Net.Http;
     using System.Net.Sockets;
+    using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Settings;
@@ -117,6 +119,8 @@ namespace Test.Shared.Infrastructure
         };
 
         private ArmadaServer _Server = null!;
+        private readonly object _DispatchCaptainSeedLock = new object();
+        private Task? _DispatchCaptainSeed;
 
         #endregion
 
@@ -221,6 +225,36 @@ namespace Test.Shared.Infrastructure
         public void Stop()
         {
             Shutdown();
+        }
+
+        /// <summary>
+        /// Ensure this fixture has one configured Worker for positive dispatch tests. Suites that test
+        /// dispatch refusal keep their own explicit empty-roster setup.
+        /// </summary>
+        public Task EnsurePositiveWorkerDispatchCaptainAsync()
+        {
+            lock (_DispatchCaptainSeedLock)
+            {
+                if (_DispatchCaptainSeed == null)
+                    _DispatchCaptainSeed = SeedPositiveWorkerDispatchCaptainAsync();
+                return _DispatchCaptainSeed;
+            }
+        }
+
+        private async Task SeedPositiveWorkerDispatchCaptainAsync()
+        {
+            DatabaseDriver database = (DatabaseDriver)typeof(ArmadaServer)
+                .GetField("_Database", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(_Server)!;
+            Captain captain = new Captain("e2e-positive-worker-dispatch")
+            {
+                TenantId = Armada.Core.Constants.DefaultTenantId,
+                UserId = Armada.Core.Constants.DefaultUserId,
+                Tier = CaptainTierEnum.Premium,
+                State = CaptainStateEnum.Idle,
+                AllowedPersonas = "[\"Worker\"]"
+            };
+            await database.Captains.CreateAsync(captain).ConfigureAwait(false);
         }
 
         /// <summary>

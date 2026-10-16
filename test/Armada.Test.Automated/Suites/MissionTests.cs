@@ -1525,7 +1525,7 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(result.Objects.Count >= 1);
                 foreach (Mission obj in result.Objects)
                 {
-                    AssertEqual(MissionStatusEnum.Assigned, obj.Status);
+                    AssertEqual(MissionStatusEnum.Assigned, obj.Status, "Enumeration returned mission " + obj.Id + " (" + obj.Title + ") for vessel " + obj.VesselId + " with status " + obj.Status + "; expected Assigned for combined filters.");
                 }
             });
 
@@ -1786,7 +1786,7 @@ namespace Armada.Test.Automated.Suites
             string body = await resp.Content.ReadAsStringAsync();
             AssertEqual(HttpStatusCode.OK, resp.StatusCode, "transition to " + status + " response: " + body);
             Mission transitioned = JsonHelper.Deserialize<Mission>(body);
-            AssertEqual(status, transitioned.Status.ToString());
+            AssertEqual(status, transitioned.Status.ToString(), "Mission " + missionId + " transition expected " + status + " but returned " + transitioned.Status + ".");
         }
 
         private async Task<string> SetupVesselAsync()

@@ -151,6 +151,7 @@ namespace Armada.Test.Unit.Suites.Services
                         RepoUrl = "https://git.example.com/held.git",
                         DefaultBranch = "main"
                     });
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "TestEngineer", "Judge", "Linter").ConfigureAwait(false);
                     Vessel operatorVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel
                     {
                         TenantId = Constants.DefaultTenantId,
@@ -316,6 +317,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     // One vessel per entry point, so a per-vessel ceiling can never be the refusal.
                     Vessel mcpVessel = await VesselAsync("ep-mcp");
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, mcpVessel, "Worker", "TestEngineer", "Judge", "Linter").ConfigureAwait(false);
                     Vessel aliasVessel = await VesselAsync("ep-alias");
                     Vessel restVessel = await VesselAsync("ep-rest");
                     Vessel wsVessel = await VesselAsync("ep-ws");

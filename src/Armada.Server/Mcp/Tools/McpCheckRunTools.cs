@@ -194,7 +194,8 @@ namespace Armada.Server.Mcp.Tools
                         validStatusValues: McpEnumArgument.ValidValues<CheckRunStatusEnum>());
                 }
 
-                CheckRun? run = await database.CheckRuns.ReadAsync(request.CheckRunId).ConfigureAwait(false);
+                CheckRun? run = await checkRunService.ResolveStatusManuallyAsync(
+                    request.CheckRunId, status, request.Output, request.Summary, request.ExitCode).ConfigureAwait(false);
                 if (run == null)
                 {
                     return BuildFailure("resolve_check", "check_run_not_found", "Check run not found.",
@@ -202,18 +203,6 @@ namespace Armada.Server.Mcp.Tools
                         checkRunId: request.CheckRunId);
                 }
 
-                run.Status = status;
-                if (request.Output != null) run.Output = request.Output;
-                if (request.Summary != null) run.Summary = request.Summary;
-                if (request.ExitCode.HasValue) run.ExitCode = request.ExitCode.Value;
-                if (status == CheckRunStatusEnum.Running && run.StartedUtc == null) run.StartedUtc = DateTime.UtcNow;
-                if (status == CheckRunStatusEnum.Passed || status == CheckRunStatusEnum.Failed || status == CheckRunStatusEnum.Canceled)
-                {
-                    run.CompletedUtc ??= DateTime.UtcNow;
-                }
-                run.LastUpdateUtc = DateTime.UtcNow;
-                run = await database.CheckRuns.UpdateAsync(run).ConfigureAwait(false);
-                checkRunService.OnCheckRunChanged?.Invoke(run);
                 return (object)run;
             };
 

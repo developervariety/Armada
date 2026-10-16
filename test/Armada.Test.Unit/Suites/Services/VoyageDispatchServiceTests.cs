@@ -490,6 +490,8 @@ namespace Armada.Test.Unit.Suites.Services
                         codeIndex,
                         null,
                         settings);
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
+
                     SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
                     {
                         Title = "disabled index dispatch",
@@ -528,6 +530,8 @@ namespace Armada.Test.Unit.Suites.Services
                     string cachedPackPath = Path.Combine(Path.GetTempPath(), "rest-context-pack.md");
                     codeIndex.CachedResponse = new ContextPackResponse();
                     codeIndex.CachedResponse.PrestagedFiles.Add(new PrestagedFile(cachedPackPath, "_briefing/context-pack.md"));
+
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     VoyageRequest restRequest = new VoyageRequest
                     {
@@ -622,6 +626,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("start-ref-schema", "https://github.com/test/repo.git")).ConfigureAwait(false);
                     RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
                     Func<JsonElement?, Task<object>>? handler = null;
                     string schema = String.Empty;
                     McpVoyageTools.Register((name, _, input, action) =>
@@ -649,6 +654,8 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("mcp-dispatch-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
+
                     RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
@@ -702,6 +709,9 @@ namespace Armada.Test.Unit.Suites.Services
                             TenantId = Constants.DefaultTenantId,
                             UserId = Constants.DefaultUserId
                         }).ConfigureAwait(false);
+                    await SeedEligibleDispatchCaptainAsync(restDb, restVessel, "Worker").ConfigureAwait(false);
+                    await SeedEligibleDispatchCaptainAsync(mcpDb, mcpVessel, "Worker").ConfigureAwait(false);
+
                     // The MCP caller's dependency is read in its scope, so the named dependency must exist there.
                     await mcpDb.Driver.Missions.CreateAsync(new Mission("existing dependency", "dependency")
                     {
@@ -930,6 +940,7 @@ namespace Armada.Test.Unit.Suites.Services
                         OverrideDispatchHarness harness = await OverrideDispatchHarness.CreateAsync(testDb).ConfigureAwait(false);
                         Captain named = await harness.CreateNamedCaptainAsync("[\"Worker\", \"Recorder\", \"Linter\"]").ConfigureAwait(false);
                         Pipeline pipeline = await harness.CreatePipelineAsync("OverrideWorkerJudge", "Worker", "Judge").ConfigureAwait(false);
+                        await SeedEligibleDispatchCaptainAsync(testDb, harness.Vessel, "Judge").ConfigureAwait(false);
                         List<CaptainAssignmentOverride> assignments = new List<CaptainAssignmentOverride>
                         {
                             new CaptainAssignmentOverride("Worker", named.Id, null)
@@ -1302,7 +1313,7 @@ namespace Armada.Test.Unit.Suites.Services
                     };
                     foreach (string tagged in taggedTitles)
                     {
-                        SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
                         {
                             Title = "persona-prefix voyage",
                             VesselId = vessel.Id,
@@ -1319,6 +1330,8 @@ namespace Armada.Test.Unit.Suites.Services
                     }
 
                     // A normal task title dispatches.
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
+
                     SharedVoyageDispatchRequest ok = new SharedVoyageDispatchRequest
                     {
                         Title = "normal voyage",
@@ -1359,6 +1372,8 @@ namespace Armada.Test.Unit.Suites.Services
                             UserId = Constants.DefaultUserId
                         }).ConfigureAwait(false);
 
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
+
                     SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
                     {
                         Title = "vanilla prefix voyage",
@@ -1387,6 +1402,8 @@ namespace Armada.Test.Unit.Suites.Services
                             UserId = Constants.DefaultUserId
                         }).ConfigureAwait(false);
 
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
+
                     RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                     SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
                     {
@@ -1410,6 +1427,36 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(dependency.DependsOnMissionId, "the dependency mission has no upstream dependency");
                     AssertEqual(dependency.Id, dependent.DependsOnMissionId,
                         "dependsOnMissionAlias must resolve to the concrete dependency mission id");
+                }
+            });
+
+            await RunTest("AliasDependency_InvalidReference_ReturnsStructuredBadRequestBeforeCreatingRecords", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("invalid-alias-vessel", "https://github.com/test/repo.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "invalid alias voyage",
+                        VesselId = vessel.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("dependent", "unknown dependency") { DependsOnMissionAlias = "missing" }
+                        }
+                    };
+                    VoyageDispatchResult result = await NewService(testDb).DispatchAsync(request).ConfigureAwait(false);
+                    AssertEqual(400, result.StatusCode, "An invalid alias must remain a structured bad request.");
+                    AssertContains("unknown alias", JsonSerializer.Serialize(result.Value));
+                    AssertEqual(0, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                        "Alias validation must happen before a voyage is created.");
+                    AssertEqual(0, (await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false)).Count,
+                        "Alias validation must happen before any mission is created.");
                 }
             });
 
@@ -1502,6 +1549,8 @@ namespace Armada.Test.Unit.Suites.Services
                             UserId = Constants.DefaultUserId
                         }).ConfigureAwait(false);
 
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
+
                     string packSource = Path.Combine(Path.GetTempPath(), "auto-ctx-pack-" + Guid.NewGuid().ToString("N") + ".md");
                     File.WriteAllText(packSource, "# context pack");
 
@@ -1546,6 +1595,8 @@ namespace Armada.Test.Unit.Suites.Services
                             TenantId = Constants.DefaultTenantId,
                             UserId = Constants.DefaultUserId
                         }).ConfigureAwait(false);
+
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     string logPath = Path.Combine(Path.GetTempPath(), "auto-ctx-warn-" + Guid.NewGuid().ToString("N") + ".log");
                     using (LoggingModule logging = new LoggingModule(logPath, FileLoggingMode.SingleLogFile, false))
@@ -1603,6 +1654,8 @@ namespace Armada.Test.Unit.Suites.Services
                                 WorkingDirectory = repo,
                                 DefaultBranch = "main"
                             }).ConfigureAwait(false);
+
+                        await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                         // Default settings require a context pack whenever indexing is enabled.
                         ArmadaSettings settings = new ArmadaSettings
@@ -1687,6 +1740,8 @@ namespace Armada.Test.Unit.Suites.Services
                     };
                     pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
 
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "Judge").ConfigureAwait(false);
+
                     string packSource = Path.Combine(Path.GetTempPath(), "auto-pipeline-pack-" + Guid.NewGuid().ToString("N") + ".md");
                     File.WriteAllText(packSource, "# context pack");
 
@@ -1739,6 +1794,8 @@ namespace Armada.Test.Unit.Suites.Services
                             TenantId = Constants.DefaultTenantId,
                             UserId = Constants.DefaultUserId
                         }).ConfigureAwait(false);
+
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     SlowCodeIndexService codeIndex = new SlowCodeIndexService();
                     RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
@@ -1824,6 +1881,8 @@ namespace Armada.Test.Unit.Suites.Services
                     };
                     pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
 
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker", "Judge").ConfigureAwait(false);
+
                     PipelinePersistingAdmiralService admiral = new PipelinePersistingAdmiralService(testDb.Driver, pipeline);
                     ArmadaSettings settings = FleetRoutingSettings.CreateArmadaSettings();
                     VoyageDispatchService service = new VoyageDispatchService(
@@ -1856,6 +1915,165 @@ namespace Armada.Test.Unit.Suites.Services
                         "a mission-level high request inherited by a Worker stage is kept: nothing caps it below the request");
                     AssertEqual("high", judge.PreferredModel,
                         "a Judge stage must still persist high when the mission requests high");
+                }
+            });
+
+            await RunTest("Generic dispatch refuses an impossible high Worker before creating records", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = FleetRoutingSettings.CreateArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    StubGitService git = new StubGitService();
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("impossible-high-worker-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Captain standard = new Captain("standard-only-worker")
+                    {
+                        TenantId = vessel.TenantId,
+                        Model = "gpt-5.6-luna",
+                        Tier = CaptainTierEnum.Standard,
+                        State = CaptainStateEnum.Idle,
+                        AllowedPersonas = "[\"Worker\"]"
+                    };
+                    await testDb.Driver.Captains.CreateAsync(standard).ConfigureAwait(false);
+                    Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("ImpossibleHighWorker")
+                    {
+                        TenantId = vessel.TenantId,
+                        Stages = new List<PipelineStage>
+                        {
+                            new PipelineStage(1, "Worker"),
+                            new PipelineStage(2, "Judge")
+                        }
+                    }).ConfigureAwait(false);
+                    LoggingModule logging = new LoggingModule();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    IMissionService missionService = new MissionService(
+                        logging, testDb.Driver, settings, dockService, captainService,
+                        resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    AdmiralService admiral = new AdmiralService(
+                        logging, testDb.Driver, settings, captainService, missionService,
+                        new VoyageService(logging, testDb.Driver), dockService);
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, logging, null, null, settings);
+
+                    VoyageDispatchResult result = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "Reject impossible Worker tier",
+                        VesselId = vessel.Id,
+                        PipelineId = pipeline.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("High Worker", "Must keep its Premium floor") { PreferredModel = "high" }
+                        }
+                    }).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "A generic dispatch with no Premium Worker must be refused.");
+                    AssertTrue(JsonSerializer.Serialize(result.Value).Contains("mission_unassignable_by_construction", StringComparison.Ordinal),
+                        "The refusal must expose a stable reason code.");
+                    AssertEqual(0, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                        "The refusal must happen before a voyage is created.");
+                    AssertEqual(0, (await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false)).Count,
+                        "The refusal must happen before a mission is created.");
+
+                    Captain busyPremium = await testDb.Driver.Captains.CreateAsync(new Captain("busy-premium-worker")
+                    {
+                        TenantId = vessel.TenantId,
+                        Model = "gpt-5.6-luna",
+                        Tier = CaptainTierEnum.Premium,
+                        State = CaptainStateEnum.Working,
+                        AllowedPersonas = "[\"Worker\",\"Judge\"]"
+                    }).ConfigureAwait(false);
+                    VoyageDispatchResult capacityWait = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "Wait for busy Premium capacity",
+                        VesselId = vessel.Id,
+                        PipelineId = pipeline.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("High Worker capacity", "Wait for the eligible captain") { PreferredModel = "high" }
+                        }
+                    }).ConfigureAwait(false);
+                    AssertTrue(capacityWait.Succeeded,
+                        "An eligible but busy Premium captain is temporary capacity, not a configuration refusal.");
+                    AssertTrue(busyPremium.State == CaptainStateEnum.Working,
+                        "The capacity case keeps the captain busy and does not change its configuration.");
+
+                }
+            });
+
+            await RunTest("Generic dispatch keeps a quarantined Premium Worker eligible when capacity is free", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = FleetRoutingSettings.CreateArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    StubGitService git = new StubGitService();
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("quarantined-high-worker-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Captain quarantined = await testDb.Driver.Captains.CreateAsync(new Captain("quarantined-premium-worker")
+                    {
+                        TenantId = vessel.TenantId,
+                        UserId = vessel.UserId,
+                        Model = "gpt-5.6-luna",
+                        Tier = CaptainTierEnum.Premium,
+                        State = CaptainStateEnum.Quarantined,
+                        AllowedPersonas = "[\"Worker\"]"
+                    }).ConfigureAwait(false);
+                    Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("QuarantinedHighWorker")
+                    {
+                        TenantId = vessel.TenantId,
+                        Stages = new List<PipelineStage>
+                        {
+                            new PipelineStage(1, "Worker"),
+                            new PipelineStage(2, "Judge")
+                        }
+                    }).ConfigureAwait(false);
+                    await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Judge").ConfigureAwait(false);
+
+                    LoggingModule logging = new LoggingModule();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    IMissionService missionService = new MissionService(
+                        logging, testDb.Driver, settings, dockService, captainService,
+                        resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    AdmiralService admiral = new AdmiralService(
+                        logging, testDb.Driver, settings, captainService, missionService,
+                        new VoyageService(logging, testDb.Driver), dockService);
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, logging, null, null, settings);
+
+                    AssertEqual(0, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                        "The independent quarantine case starts with no active voyage consuming capacity.");
+                    VoyageDispatchResult result = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "Keep quarantined Worker eligible by configuration",
+                        VesselId = vessel.Id,
+                        PipelineId = pipeline.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("High Worker", "Quarantine is temporary capacity, not a permanent tier refusal")
+                            {
+                                PreferredModel = "high"
+                            }
+                        }
+                    }).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded,
+                        "With no prior active units, quarantine must not become a permanent configuration refusal. Result: "
+                        + result.StatusCode + " " + JsonSerializer.Serialize(result.Value));
+                    AssertEqual(CaptainStateEnum.Quarantined, quarantined.State,
+                        "The positive capacity case must preserve the captain's quarantine state.");
+                    AssertEqual(1, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                        "The independently admitted case must create its voyage without another active unit blocking it.");
+                    AssertTrue((await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false))
+                        .Any(item => item.VoyageId == result.Voyage!.Id && item.Persona == "Worker" && item.PreferredModel == "high"),
+                        "The accepted quarantined-capacity request must retain its Premium Worker floor in the created mission.");
                 }
             });
 
@@ -2525,6 +2743,19 @@ namespace Armada.Test.Unit.Suites.Services
             settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_override_repos_" + id);
             settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_override_logs_" + id);
             return settings;
+        }
+
+        private static async Task SeedEligibleDispatchCaptainAsync(TestDatabase testDb, Vessel vessel, params string[] personas)
+        {
+            await testDb.Driver.Captains.CreateAsync(new Captain("dispatch-capable-" + Guid.NewGuid().ToString("N"))
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                Model = "gpt-5.6-luna",
+                Tier = CaptainTierEnum.Premium,
+                State = CaptainStateEnum.Idle,
+                AllowedPersonas = JsonSerializer.Serialize(personas)
+            }).ConfigureAwait(false);
         }
 
         private static async Task<Vessel> CreateRoutingVesselAsync(TestDatabase testDb, ArmadaSettings settings, string name)

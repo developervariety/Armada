@@ -98,15 +98,25 @@ namespace Armada.Core.Services
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
             if (run == null) throw new ArgumentNullException(nameof(run));
-            if (run.Status != CheckRunStatusEnum.Pending) return false;
+            SemaphoreSlim stateLock = CheckRunService.GetRunStateLock(run.Id);
+            await stateLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                CheckRun? current = await database.CheckRuns.ReadAsync(run.Id, token: token).ConfigureAwait(false);
+                if (current == null || current.Status != CheckRunStatusEnum.Pending) return false;
 
-            DateTime now = DateTime.UtcNow;
-            run.Status = CheckRunStatusEnum.Canceled;
-            run.Summary = reason + ": the voyage ended before this Check ran.";
-            run.CompletedUtc = now;
-            run.LastUpdateUtc = now;
-            await database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
-            return true;
+                DateTime now = DateTime.UtcNow;
+                current.Status = CheckRunStatusEnum.Canceled;
+                current.Summary = reason + ": the voyage ended before this Check ran.";
+                current.CompletedUtc = now;
+                current.LastUpdateUtc = now;
+                await database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
+                return true;
+            }
+            finally
+            {
+                stateLock.Release();
+            }
         }
 
         #endregion

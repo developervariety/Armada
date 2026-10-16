@@ -1,5 +1,9 @@
 namespace Armada.Test.Unit.TestHelpers
 {
+    using System;
+    using System.Text.Json;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Microsoft.Data.Sqlite;
     using Armada.Core.Database.Sqlite;
     using SyslogLogging;
@@ -33,6 +37,18 @@ namespace Armada.Test.Unit.TestHelpers
         /// unit run creates -- the dominant cost of the run. A copy carries the identical
         /// schema, migration rows, and seed data, so callers see no behavioral difference.
         /// </remarks>
+        public static async Task SeedEligibleDispatchCaptainAsync(TestDatabase testDb, Vessel vessel, params string[] personas)
+        {
+            await testDb.Driver.Captains.CreateAsync(new Captain("eligible-test-captain-" + Guid.NewGuid().ToString("N"))
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                Tier = CaptainTierEnum.Premium,
+                State = CaptainStateEnum.Idle,
+                AllowedPersonas = JsonSerializer.Serialize(personas)
+            }).ConfigureAwait(false);
+        }
+
         public static async Task<TestDatabase> CreateDatabaseAsync()
         {
             LoggingModule logging = new LoggingModule();

@@ -9132,14 +9132,21 @@ namespace Armada.Core.Services
                 if (!CheckRunGateRules.IsQueuedArmedCheck(run, judgeMission.CommitHash)) continue;
                 if (!String.IsNullOrWhiteSpace(run.BranchName)) continue;
 
-                run.BranchName = judgeMission.BranchName;
-                run.CommitHash = judgeMission.CommitHash;
-                run.LastUpdateUtc = DateTime.UtcNow;
                 try
                 {
-                    await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "armed check " + run.Id + " stamped at reviewed commit " + judgeMission.CommitHash
-                        + " on " + judgeMission.BranchName + " for judge mission " + judgeMission.Id);
+                    CheckRun? stamped = await CheckRunService.StampPendingSourceAsync(
+                        _Database,
+                        run.Id,
+                        judgeMission.BranchName,
+                        judgeMission.CommitHash,
+                        current => CheckRunGateRules.IsQueuedArmedCheck(current, judgeMission.CommitHash),
+                        token).ConfigureAwait(false);
+                    if (stamped != null && stamped.Status == CheckRunStatusEnum.Pending
+                        && String.Equals(stamped.CommitHash, judgeMission.CommitHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _Logging.Info(_Header + "armed check " + run.Id + " stamped at reviewed commit " + judgeMission.CommitHash
+                            + " on " + judgeMission.BranchName + " for judge mission " + judgeMission.Id);
+                    }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
@@ -11342,7 +11349,29 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<string?> DescribeUnassignableByConstructionAsync(Mission mission, CancellationToken token)
         {
-            List<Captain> all = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+            return await DescribeUnassignableByConstructionAsync(_Database, _Settings, mission, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Returns why no captain of the mission's tenant, in any state, can ever serve the mission, or null
+        /// when at least one could. Temporary capacity and provider filters do not make work impossible.
+        /// </summary>
+        /// <param name="database">Database that owns the captain roster.</param>
+        /// <param name="settings">Current routing settings.</param>
+        /// <param name="mission">Mission to evaluate using its effective persona, preference and assignment request.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The stable configuration reason, or null when assignment can become possible.</returns>
+        public static async Task<string?> DescribeUnassignableByConstructionAsync(
+            DatabaseDriver database,
+            ArmadaSettings settings,
+            Mission mission,
+            CancellationToken token = default)
+        {
+            if (database == null) throw new System.ArgumentNullException(nameof(database));
+            if (settings == null) throw new System.ArgumentNullException(nameof(settings));
+            if (mission == null) throw new System.ArgumentNullException(nameof(mission));
+
+            List<Captain> all = await database.Captains.EnumerateAsync(token).ConfigureAwait(false);
             List<Captain> tenantCaptains = all
                 .Where(item => CaptainServesTenant(item, mission.TenantId))
                 .ToList();
@@ -11353,7 +11382,7 @@ namespace Armada.Core.Services
             if (personaCaptains.Count == 0)
                 return "no captain of the tenant allows persona " + (mission.Persona ?? "(none)");
 
-            UsageRoutingSettings usagePolicy = _Settings.ModelTier.UsageRouting;
+            UsageRoutingSettings usagePolicy = settings.ModelTier.UsageRouting;
             if (usagePolicy.Enabled)
             {
                 personaCaptains = personaCaptains
@@ -11370,7 +11399,7 @@ namespace Armada.Core.Services
             {
                 string? requestedId = String.IsNullOrWhiteSpace(mission.RequestedCaptainId) ? null : mission.RequestedCaptainId.Trim();
                 Captain? requested = requestedId == null ? null : all.FirstOrDefault(item => String.Equals(item.Id, requestedId, StringComparison.Ordinal));
-                string? ineligible = requested == null ? null : RequestedCaptainAssignmentRule.DescribeIneligibility(requested, mission.Persona, _Settings.ModelTier);
+                string? ineligible = requested == null ? null : RequestedCaptainAssignmentRule.DescribeIneligibility(requested, mission.Persona, settings.ModelTier);
                 if (requested != null && ineligible == null && CaptainServesTenant(requested, mission.TenantId))
                     return null;
 
@@ -11391,10 +11420,10 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (personaCaptains.Any(item => LegacyCaptainSelector.CouldSelect(_Settings.ModelTier, mission, item)))
+            if (personaCaptains.Any(item => LegacyCaptainSelector.CouldSelect(settings.ModelTier, mission, item)))
                 return null;
 
-            List<CaptainTierEnum> tiers = LegacyCaptainSelector.TierOrderFor(_Settings.ModelTier, mission);
+            List<CaptainTierEnum> tiers = LegacyCaptainSelector.TierOrderFor(settings.ModelTier, mission);
             return "no captain of the tenant that allows persona " + (mission.Persona ?? "(none)") + " has tier " + String.Join(" or ", tiers);
         }
 

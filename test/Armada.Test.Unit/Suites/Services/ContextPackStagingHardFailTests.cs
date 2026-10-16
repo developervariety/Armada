@@ -104,6 +104,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("hf-vessel-3", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
                     SuccessPackCodeIndexService codeIndex = new SuccessPackCodeIndexService();
@@ -151,6 +152,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("hf-vessel-4", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
                     EmptyBuildCodeIndexService codeIndex = new EmptyBuildCodeIndexService();
@@ -186,6 +188,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("hf-vessel-5", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
                     EmptyBuildCodeIndexService codeIndex = new EmptyBuildCodeIndexService();
@@ -297,6 +300,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("hf-vessel-8", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
                     SuccessPackCodeIndexService codeIndex = new SuccessPackCodeIndexService();
@@ -506,6 +510,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("hf-vessel-13", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
 
@@ -579,6 +584,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("hf-vessel-17", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
                     RecordingAdmiral admiral = new RecordingAdmiral(testDb.Driver);
 

@@ -81,7 +81,7 @@ namespace Test.Shared.Suites.Services
                         {
                             PlanningSession? current = await testDb.Driver.PlanningSessions.ReadAsync(session.Id).ConfigureAwait(false);
                             List<PlanningSessionMessage> rows = await testDb.Driver.PlanningSessionMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
-                            return current?.ProcessId == null && rows.Exists(item => item.Role == "Assistant" && (item.Content ?? String.Empty).Contains("opencode error", StringComparison.Ordinal));
+                            return current != null && current.ProcessId == null && current.Status == PlanningSessionStatusEnum.Active && (current.FailureReason ?? String.Empty).Contains("opencode error", StringComparison.Ordinal) && rows.Exists(item => item.Role == "Assistant" && (item.Content ?? String.Empty).Contains("opencode error", StringComparison.Ordinal));
                         }).ConfigureAwait(false);
                         List<PlanningSessionMessage> messages = await testDb.Driver.PlanningSessionMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
                         PlanningSession refreshed = await testDb.Driver.PlanningSessions.ReadAsync(session.Id) ?? throw new Exception("session disappeared");

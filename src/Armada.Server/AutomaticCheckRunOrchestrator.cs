@@ -372,14 +372,21 @@ namespace Armada.Server
             Mission? work = await ResolveWorkUnderReviewAsync(run.VoyageId!, token).ConfigureAwait(false);
             if (work == null) return run;
 
-            run.BranchName = work.BranchName;
-            run.CommitHash = work.CommitHash;
-            run.LastUpdateUtc = DateTime.UtcNow;
+            CheckRun? stamped = await CheckRunService.StampPendingSourceAsync(
+                _Database,
+                run.Id,
+                work.BranchName,
+                work.CommitHash,
+                token).ConfigureAwait(false);
+            if (stamped == null) throw new InvalidOperationException("The check run no longer exists.");
+            if (stamped.Status == CheckRunStatusEnum.Pending
+                && String.Equals(stamped.CommitHash, work.CommitHash, StringComparison.OrdinalIgnoreCase))
+            {
+                _Logging.Info(_Header + "armed check " + run.Id + " pointed at " + work.BranchName
+                    + " (" + work.CommitHash + ") from mission " + work.Id);
+            }
 
-            _Logging.Info(_Header + "armed check " + run.Id + " pointed at " + work.BranchName
-                + " (" + work.CommitHash + ") from mission " + work.Id);
-
-            return await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            return stamped;
         }
 
         internal async Task<CheckRun> ExecutePendingAsync(AuthContext auth, CheckRun pending, CancellationToken token)
