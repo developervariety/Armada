@@ -220,31 +220,32 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// The folder of a vessel's checkout on one Harbor (a folder named for the vessel in its settings, or one
-        /// discovered under its root folders), or null when that Harbor is not connected, predates checkout operations,
-        /// has only its own clone of the vessel, or does not answer. Answers are remembered like
-        /// <see cref="TryResolveAsync"/>'s. Never throws except for cancellation.
+        /// Ask one Harbor where it has a vessel checked out (a folder named for the vessel in its settings, or one
+        /// discovered under its root folders; its own clone does not count). A checkout found is remembered like
+        /// <see cref="TryResolveAsync"/>'s answers. Never throws except for cancellation.
         /// </summary>
         /// <param name="harborId">Harbor identifier.</param>
         /// <param name="vessel">Vessel.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The checkout path on the Harbor's machine, or null.</returns>
+        /// <returns>The answer; <see cref="HarborCheckoutLookup.Answered"/> is false when the Harbor is not connected,
+        /// predates checkout operations, or did not answer.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="vessel"/> is null.</exception>
-        public async Task<string?> FindHarborCheckoutAsync(string harborId, Vessel vessel, CancellationToken token = default)
+        public async Task<HarborCheckoutLookup> FindHarborCheckoutAsync(string harborId, Vessel vessel, CancellationToken token = default)
         {
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             HarborConnectionManager? harbors = Harbors;
-            if (String.IsNullOrWhiteSpace(harborId) || harbors == null || !harbors.IsConnected(harborId) || !harbors.HostsCheckouts(harborId)) return null;
+            if (String.IsNullOrWhiteSpace(harborId) || harbors == null || !harbors.IsConnected(harborId) || !harbors.HostsCheckouts(harborId)) return new HarborCheckoutLookup();
 
             string? cached = ReadCache(harborId, vessel);
-            if (cached != null) return cached;
+            if (cached != null) return new HarborCheckoutLookup { Answered = true, Path = cached };
 
             try
             {
                 HarborDockResult? resolved = await new HarborDockClient(harbors).ResolveAsync(harborId, vessel, token).ConfigureAwait(false);
-                if (resolved == null || !resolved.Success || String.IsNullOrWhiteSpace(resolved.CheckoutPath)) return null;
+                if (resolved == null) return new HarborCheckoutLookup();
+                if (!resolved.Success || String.IsNullOrWhiteSpace(resolved.CheckoutPath)) return new HarborCheckoutLookup { Answered = true };
                 WriteCache(harborId, vessel, resolved.CheckoutPath!, resolved.Source);
-                return resolved.CheckoutPath;
+                return new HarborCheckoutLookup { Answered = true, Path = resolved.CheckoutPath };
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -253,7 +254,7 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Debug(_Header + "could not find a checkout of vessel " + vessel.Name + " on Harbor " + harborId + ": " + ex.Message);
-                return null;
+                return new HarborCheckoutLookup();
             }
         }
 

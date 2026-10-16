@@ -155,11 +155,12 @@ pinned dock's Harbor only), the CLI runs on that Harbor and its output streams b
 Harbor, the turn runs on the Admiral host as before. On a Harbor:
 
 - A chat or Ask turn runs in a scratch directory the Harbor creates for the job and removes when it ends. An Ask turn's
-  prompt then gets a "Repository checkouts on this machine" section: the conversation owner's active vessels (up to 25,
-  most recently updated first) that the Harbor has a checkout of (mapped in its settings or found under its root folders,
-  not its own clones), with each checkout's path, because a vessel's `LocalPath` and `WorkingDirectory` describe the
-  Admiral's machine. The Harbor is asked with the same lookup checkout operations use (answers are remembered for 30
-  seconds), for at most 15 seconds per turn. Planning and
+  prompt then gets a "Repository checkouts on this machine" section: the conversation owner's active vessels that the
+  Harbor has a checkout of (mapped in its settings or found under its root folders, not its own clones), with each
+  checkout's path, because a vessel's `LocalPath` and `WorkingDirectory` describe the Admiral's machine. The Admiral
+  learns a Harbor's checkouts when it links (four lookups at a time, in the background) and keeps the answers for 10
+  minutes, refreshing them after that while still serving the old answer. A turn waits at most 10 seconds for vessels
+  not looked up yet; lookups still running then finish in the background for the next turn. Planning and
   refinement turns run in the dock's or vessel's path when it exists on the Harbor host, otherwise in such a scratch
   directory; their Admiral-side context file is inlined into the prompt. A Model Context build needs the repository, so
   it runs in the dock's path and fails when that path does not exist on the Harbor host.

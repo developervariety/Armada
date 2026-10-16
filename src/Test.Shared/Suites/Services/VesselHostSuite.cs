@@ -108,21 +108,46 @@ namespace Test.Shared.Suites.Services
                 Vessel mapped = await s.CreateVesselAsync("app", null, null).ConfigureAwait(false);
                 Vessel cloned = await s.CreateVesselAsync("cloned-only", "https://example.invalid/cloned-only.git", null).ConfigureAwait(false);
 
-                AssertTrue(PathCanonicalizer.AreEquivalent(git.Checkout, (await s.Resolver.FindHarborCheckoutAsync("hbr_vh_ask", mapped).ConfigureAwait(false))!), "the mapped checkout");
-                AssertNull(await s.Resolver.FindHarborCheckoutAsync("hbr_vh_ask", cloned).ConfigureAwait(false), "a vessel the Harbor only clones has no checkout");
-                AssertNull(await s.Resolver.FindHarborCheckoutAsync("hbr_vh_missing", mapped).ConfigureAwait(false), "a Harbor that is not connected");
+                HarborCheckoutLookup found = await s.Resolver.FindHarborCheckoutAsync("hbr_vh_ask", mapped).ConfigureAwait(false);
+                AssertTrue(found.Answered && PathCanonicalizer.AreEquivalent(git.Checkout, found.Path!), "the mapped checkout");
+                HarborCheckoutLookup cloneOnly = await s.Resolver.FindHarborCheckoutAsync("hbr_vh_ask", cloned).ConfigureAwait(false);
+                AssertTrue(cloneOnly.Answered, "the Harbor answered for the clone-only vessel");
+                AssertNull(cloneOnly.Path, "a vessel the Harbor only clones has no checkout");
+                AssertFalse((await s.Resolver.FindHarborCheckoutAsync("hbr_vh_missing", mapped).ConfigureAwait(false)).Answered, "a Harbor that is not connected does not answer");
 
                 Armada.Core.Services.Ask.AskThreadService threads = new Armada.Core.Services.Ask.AskThreadService(s.Db.Driver, s.Settings, s.Logging);
+                HarborCheckoutDirectory directory = new HarborCheckoutDirectory(s.Db.Driver, s.Resolver, s.Logging);
                 AskThread thread = new AskThread { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId };
-                string? context = await Armada.Server.Ask.AskHarborCheckoutContext.BuildAsync(s.Db.Driver, s.Resolver, threads, thread, "hbr_vh_ask", CancellationToken.None).ConfigureAwait(false);
+                string? context = await Armada.Server.Ask.AskHarborCheckoutContext.BuildAsync(s.Db.Driver, directory, threads, thread, "hbr_vh_ask", CancellationToken.None).ConfigureAwait(false);
                 AssertNotNull(context, "a section for the Harbor's checkouts");
                 AssertContains("## Repository checkouts on this machine", context!);
                 AssertContains("- app (" + mapped.Id + "): ", context!);
                 AssertContains("LocalPath and WorkingDirectory describe the Armada server", context!);
                 AssertFalse(context!.Contains("cloned-only", StringComparison.Ordinal), "clone-only vessels are left out");
                 AssertFalse(context.Contains("\u2014", StringComparison.Ordinal), "no em-dashes");
-                AssertNull(await Armada.Server.Ask.AskHarborCheckoutContext.BuildAsync(s.Db.Driver, s.Resolver, threads, thread, "hbr_vh_missing", CancellationToken.None).ConfigureAwait(false), "nothing for a Harbor that is not connected");
+                AssertNull(await Armada.Server.Ask.AskHarborCheckoutContext.BuildAsync(s.Db.Driver, directory, threads, thread, "hbr_vh_missing", CancellationToken.None).ConfigureAwait(false), "nothing for a Harbor that is not connected");
                 AssertNull(Armada.Server.Ask.AskHarborCheckoutContext.Format("rig", new List<HarborVesselCheckout>()), "nothing to say without checkouts");
+            }));
+
+            cases.Add(CaseAsync("checkout_directory_answers_without_waiting", "The Harbor checkout directory returns at once when told not to wait, keeps the lookup running, and serves the answer to the next caller; warming on link fills it ahead of any turn", TestTags.Positive, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_vh_dir").ConfigureAwait(false);
+                Vessel mapped = await s.CreateVesselAsync("app", null, null).ConfigureAwait(false);
+                List<Vessel> vessels = new List<Vessel> { mapped };
+
+                HarborCheckoutDirectory directory = new HarborCheckoutDirectory(s.Db.Driver, s.Resolver, s.Logging);
+                await directory.GetAsync("hbr_vh_dir", vessels, TimeSpan.Zero).ConfigureAwait(false);
+                List<HarborVesselCheckout> later = await PollCheckoutsAsync(directory, "hbr_vh_dir", vessels).ConfigureAwait(false);
+                AssertEqual(1, later.Count, "the background lookup filled the directory");
+                AssertTrue(PathCanonicalizer.AreEquivalent(git.Checkout, later[0].Path), "the mapped checkout");
+
+                HarborCheckoutDirectory warmed = new HarborCheckoutDirectory(s.Db.Driver, s.Resolver, s.Logging);
+                warmed.Warm("hbr_vh_dir");
+                AssertEqual(1, (await PollCheckoutsAsync(warmed, "hbr_vh_dir", vessels).ConfigureAwait(false)).Count, "warming learned the checkout");
+
+                AssertEqual(0, (await directory.GetAsync("hbr_vh_gone", vessels, TimeSpan.FromSeconds(2)).ConfigureAwait(false)).Count, "nothing for a Harbor that is not connected");
             }));
 
             cases.Add(CaseAsync("resolver_finds_discovered_checkout", "A Harbor finds the vessel's checkout under its root folders by the repository URL", TestTags.Positive, async () =>
@@ -557,6 +582,17 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private static async Task<List<HarborVesselCheckout>> PollCheckoutsAsync(HarborCheckoutDirectory directory, string harborId, List<Vessel> vessels)
+        {
+            MonotonicDeadline deadline = MonotonicDeadline.After(TimeSpan.FromSeconds(20));
+            while (true)
+            {
+                List<HarborVesselCheckout> found = await directory.GetAsync(harborId, vessels, TimeSpan.Zero).ConfigureAwait(false);
+                if (found.Count > 0 || deadline.Passed) return found;
+                await Task.Delay(100).ConfigureAwait(false);
+            }
+        }
 
         private static async Task<T> CatchAsync<T>(Func<Task> action) where T : Exception
         {

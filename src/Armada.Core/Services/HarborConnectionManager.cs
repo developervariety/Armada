@@ -216,6 +216,7 @@ namespace Armada.Core.Services
                 + (handshake.LiveJobIds != null ? "; running " + handshake.LiveJobIds.Count + " job(s), " + owned.Count + " owned by this Admiral" : ""));
             if (Metrics != null) await Metrics.OnLinkConnectedAsync(handshake.HarborId, token).ConfigureAwait(false);
             EnsureSweepLoop();
+            NotifyLinked(handshake.HarborId);
             return new HarborHandshakeAck
             {
                 CorrelationId = handshake.CorrelationId,
@@ -530,6 +531,12 @@ namespace Armada.Core.Services
         {
             return !String.IsNullOrWhiteSpace(harborId) && _Connections.TryGetValue(harborId, out HarborConnection? connection) && connection!.HostsCheckouts;
         }
+
+        /// <summary>
+        /// Called (on a background task, after the handshake is acknowledged) each time a Harbor links, with its id. An
+        /// exception it throws is logged and ignored.
+        /// </summary>
+        public Action<string>? OnLinked { get; set; } = null;
 
         /// <summary>
         /// Whether a connected Harbor can send a captain's permission prompts to Armada for a runtime (it advertised
@@ -1039,6 +1046,25 @@ namespace Armada.Core.Services
             }
 
             return candidates;
+        }
+
+        private void NotifyLinked(string harborId)
+        {
+            Action<string>? linked = OnLinked;
+            if (linked == null) return;
+            _ = Task.Run(async () =>
+            {
+                // Let the acknowledgement reach the Harbor before anything is asked of it.
+                await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                try
+                {
+                    linked(harborId);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "the link handler for harbor " + harborId + " failed: " + ex.Message);
+                }
+            });
         }
 
         private static HashSet<AgentRuntimeEnum> ReadPromptRuntimes(List<HarborCapability>? capabilities)

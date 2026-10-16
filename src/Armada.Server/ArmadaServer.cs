@@ -659,7 +659,12 @@ namespace Armada.Server
             _CliPermissions.AskThreads = _AskThreads;
             _CliPermissions.OnRequestEvent = (eventType, request) => _WebSocketHub.BroadcastCliPermission(eventType, request);
             _AskTurns.CliPermissions = _CliPermissions;
-            _AskTurns.VesselHosts = _VesselHosts;
+            if (_VesselHosts != null)
+            {
+                HarborCheckoutDirectory harborCheckouts = new HarborCheckoutDirectory(_Database, _VesselHosts, _Logging);
+                _AskTurns.HarborCheckouts = harborCheckouts;
+                _HarborConnectionManager.OnLinked = harborCheckouts.Warm;
+            }
             _AgentLifecycle.SetCliPermissionService(_CliPermissions);
             _WebSocketHub.SetCliPermissionService(_CliPermissions);
             _WebSocketHub.SetMissionService(_MissionService);

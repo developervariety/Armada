@@ -53,10 +53,10 @@ namespace Armada.Server.Ask
         public CliPermissionService? CliPermissions { get; set; } = null;
 
         /// <summary>
-        /// Finds where vessels are checked out on a Harbor, so a turn that runs on one is told (see
+        /// Where Harbors have vessels checked out, so a turn that runs on one is told (see
         /// <see cref="AskHarborCheckoutContext"/>). Null leaves the prompt as it is.
         /// </summary>
-        public VesselHostResolver? VesselHosts { get; set; } = null;
+        public HarborCheckoutDirectory? HarborCheckouts { get; set; } = null;
 
         #endregion
 
@@ -562,9 +562,9 @@ namespace Armada.Server.Ask
                 options.McpSessionToken = MintToken(thread);
                 options.TimeoutMs = _Settings.Ask.TurnTimeoutMinutes * 60000;
                 options.Display = HarborLaunchDisplayBuilder.ForAskTurn(thread.Id, QuestionOf(history, userSequence), captain);
-                VesselHostResolver? vesselHosts = VesselHosts;
-                if (vesselHosts != null)
-                    options.HarborContext = (harborId, cancel) => AskHarborCheckoutContext.BuildAsync(_Database, vesselHosts, _Threads, current, harborId, cancel);
+                HarborCheckoutDirectory? harborCheckouts = HarborCheckouts;
+                if (harborCheckouts != null)
+                    options.HarborContext = (harborId, cancel) => AskHarborCheckoutContext.BuildAsync(_Database, harborCheckouts, _Threads, current, harborId, cancel);
                 string turnId = handle.TurnId;
                 options.OnChunk = delta => Emit(thread, "ask.chunk", new { threadId = thread.Id, turnId, delta });
                 options.OnThinking = delta => Emit(thread, "ask.thinking", new { threadId = thread.Id, turnId, delta });

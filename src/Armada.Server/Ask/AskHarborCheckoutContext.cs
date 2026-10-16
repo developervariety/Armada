@@ -21,14 +21,15 @@ namespace Armada.Server.Ask
         #region Public-Members
 
         /// <summary>
-        /// Most vessels looked up for one turn (the most recently updated active ones).
+        /// Most vessels listed for one turn.
         /// </summary>
-        public const int MaxVessels = 25;
+        public const int MaxVessels = 200;
 
         /// <summary>
-        /// How long the lookups for one turn may take before the turn starts without the ones still pending.
+        /// How long a turn waits for vessels the Harbor was not asked about yet; lookups still running then continue in
+        /// the background for the next turn.
         /// </summary>
-        public static readonly TimeSpan LookupTimeout = TimeSpan.FromSeconds(15);
+        public static readonly TimeSpan LookupWait = TimeSpan.FromSeconds(10);
 
         #endregion
 
@@ -38,17 +39,17 @@ namespace Armada.Server.Ask
         /// Build the prompt section for a turn on a Harbor: the owner's active vessels that the Harbor has a checkout of.
         /// </summary>
         /// <param name="database">Database.</param>
-        /// <param name="hosts">Vessel host resolver (asks the Harbor and remembers its answers).</param>
+        /// <param name="checkouts">Where Harbors have vessels checked out (asks the Harbor and remembers its answers).</param>
         /// <param name="threads">Ask thread service (for the owner's role).</param>
         /// <param name="thread">The conversation.</param>
         /// <param name="harborId">The Harbor the turn runs on.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The section, or null when the Harbor has no checkout of any of the owner's vessels.</returns>
         /// <exception cref="ArgumentNullException">Thrown when a required argument is null.</exception>
-        public static async Task<string?> BuildAsync(DatabaseDriver database, VesselHostResolver hosts, AskThreadService threads, AskThread thread, string harborId, CancellationToken token)
+        public static async Task<string?> BuildAsync(DatabaseDriver database, HarborCheckoutDirectory checkouts, AskThreadService threads, AskThread thread, string harborId, CancellationToken token)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
-            if (hosts == null) throw new ArgumentNullException(nameof(hosts));
+            if (checkouts == null) throw new ArgumentNullException(nameof(checkouts));
             if (threads == null) throw new ArgumentNullException(nameof(threads));
             if (thread == null) throw new ArgumentNullException(nameof(thread));
             if (String.IsNullOrWhiteSpace(harborId) || String.IsNullOrEmpty(thread.TenantId)) return null;
@@ -67,22 +68,9 @@ namespace Armada.Server.Ask
                 .ToList();
             if (candidates.Count == 0) return null;
 
-            using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(token);
-            limit.CancelAfter(LookupTimeout);
-            Task<string?>[] lookups = candidates.Select(v => LookupAsync(hosts, harborId, v, limit.Token)).ToArray();
-            await Task.WhenAll(lookups).ConfigureAwait(false);
-            token.ThrowIfCancellationRequested();
-
-            List<HarborVesselCheckout> checkouts = new List<HarborVesselCheckout>();
-            for (int i = 0; i < candidates.Count; i++)
-            {
-                string? path = lookups[i].Result;
-                if (String.IsNullOrWhiteSpace(path)) continue;
-                checkouts.Add(new HarborVesselCheckout { VesselId = candidates[i].Id, VesselName = candidates[i].Name, Path = path! });
-            }
-
-            string harborName = hosts.Harbors?.Describe(harborId) ?? harborId;
-            return Format(harborName, checkouts);
+            List<HarborVesselCheckout> found = await checkouts.GetAsync(harborId, candidates, LookupWait, token).ConfigureAwait(false);
+            string harborName = checkouts.HarborName(harborId);
+            return Format(harborName, found);
         }
 
         /// <summary>
@@ -102,22 +90,6 @@ namespace Armada.Server.Ask
             foreach (HarborVesselCheckout checkout in checkouts.OrderBy(c => c.VesselName, StringComparer.OrdinalIgnoreCase))
                 text.AppendLine("- " + checkout.VesselName + " (" + checkout.VesselId + "): " + checkout.Path);
             return text.ToString().TrimEnd();
-        }
-
-        #endregion
-
-        #region Private-Methods
-
-        private static async Task<string?> LookupAsync(VesselHostResolver hosts, string harborId, Vessel vessel, CancellationToken token)
-        {
-            try
-            {
-                return await hosts.FindHarborCheckoutAsync(harborId, vessel, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                return null;
-            }
         }
 
         #endregion
