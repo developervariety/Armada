@@ -48,7 +48,7 @@ captain hosts and upgrade them on purpose.
 | Planning sessions | Yes | Yes | Yes | Yes | Yes | Yes | No |
 | Ask Armada threads | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | Ask approval gating | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| CLI tool approval in Armada (`ApproveInArmada`) | Yes | Runs as `Refuse` | Runs as `Refuse` | Runs as `Refuse` | Runs as `Refuse` | Runs as `Refuse` | `run_process` only |
+| CLI tool approval in Armada (`ApproveInArmada`) | Yes | Runs as `Refuse` | Runs as `Refuse` | Runs as `Refuse` | Mux 1.5.0 or later | Runs as `Refuse` | `run_process` only |
 | Streaming replies (chat and planning) | Token deltas | Line by line | Line by line | Line by line | Token deltas | JSON events | Per model response |
 | Thinking display | Prompted block | Prompted block | Prompted block | Prompted block | Native | Native | Prompted block |
 | Tool-call cards in chat | Yes | No | No | No | Yes | Yes | Yes |
@@ -154,15 +154,21 @@ pinned dock's Harbor only), the CLI runs on that Harbor and its output streams b
 "No Harbor is connected to run this captain" instead of running on the Admiral host. With the policy off and no eligible
 Harbor, the turn runs on the Admiral host as before. On a Harbor:
 
-- A chat or Ask turn runs in a scratch directory the Harbor creates for the job and removes when it ends. Planning and
+- A chat or Ask turn runs in a scratch directory the Harbor creates for the job and removes when it ends. An Ask turn's
+  prompt then gets a "Repository checkouts on this machine" section: the conversation owner's active vessels (up to 25,
+  most recently updated first) that the Harbor has a checkout of (mapped in its settings or found under its root folders,
+  not its own clones), with each checkout's path, because a vessel's `LocalPath` and `WorkingDirectory` describe the
+  Admiral's machine. The Harbor is asked with the same lookup checkout operations use (answers are remembered for 30
+  seconds), for at most 15 seconds per turn. Planning and
   refinement turns run in the dock's or vessel's path when it exists on the Harbor host, otherwise in such a scratch
   directory; their Admiral-side context file is inlined into the prompt. A Model Context build needs the repository, so
   it runs in the dock's path and fails when that path does not exist on the Harbor host.
 - The turn's thread-scoped MCP token is bound on the Harbor against `harbor.advertisedMcpBaseUrl`, as for missions, so
   that URL must be reachable from the Harbor host. Only a plain `http://host:port/mcp` URL can be bound per launch; with
   any other form (for example `https://`) the CLI gets the token in `ARMADA_MCP_TOKEN` but no Armada MCP server.
-- `ApproveInArmada` runs as `Refuse`, as for missions (see [CLI tool permissions](#cli-tool-permissions)); `Bypass` and
-  `Refuse` apply unchanged.
+- `ApproveInArmada` works for Claude Code and Mux when the Harbor advertises the `cli-permission-prompt` capability for
+  the runtime, and otherwise runs as `Refuse`, as for missions (see [CLI tool permissions](#cli-tool-permissions));
+  `Bypass` and `Refuse` apply unchanged.
 - Stopping the turn kills the process on the Harbor.
 - The CLI's final-message file (Codex `--output-last-message`, Mux) is returned over the link.
 
@@ -395,9 +401,11 @@ for the captain's caller, and Ask threads turn state changes into proposals.
 
 A vessel `AutoApprove` of `false` turns a mission's `Bypass` into `Refuse`. Milestone narrations and conversation
 summaries resolve like Ask turns but never prompt (nobody is waiting for them), so `ApproveInArmada` runs them as
-`Refuse`. Finally, `ApproveInArmada` falls back to `Refuse` when the captain runs on a Harbor (`RemoteHarbor`), when its
-runtime has no permission prompt hook Armada can answer (`RuntimeUnsupported`), or when a Claude Code launch has no
-mission- or thread-scoped MCP token (`NoSessionToken`, for example with `Mcp.MissionScopedTokens` off). The result
+`Refuse`. Finally, `ApproveInArmada` falls back to `Refuse` when the captain runs on a Harbor that cannot send its
+permission prompts to Armada (`RemoteHarbor`, see below), when its
+runtime has no permission prompt hook Armada can answer (`RuntimeUnsupported`; for Mux, when the `mux` on the Admiral
+host is missing or older than 1.5.0), or when a Claude Code or Mux launch has no mission- or thread-scoped MCP token
+(`NoSessionToken`, for example with `Mcp.MissionScopedTokens` off). The result
 (`Requested`, `Effective`, `Source`, `FallbackReason`, and a one-line `Note` that says where to change it) is shown in
 the Ask conversation header (`AskThread.CliPermission`) and written as the first Armada line of every mission log.
 
@@ -415,13 +423,20 @@ conversation, so they ask instead.
 | Gemini | `--approval-mode auto_edit` | Runs as `Refuse` | `--approval-mode yolo` |
 | Cursor | Without `--force` | Runs as `Refuse` | `--force` |
 | OpenCode | Without `--auto` | Runs as `Refuse` | `--auto` |
-| Mux | `--approval-policy deny` | Runs as `Refuse` | `--yolo` |
+| Mux | `--approval-policy deny` | Mux 1.5.0 or later: `--approval-policy ask --permission-prompt-tool armada.cli_permission_prompt --permission-prompt-timeout <prompt timeout + 120> --auto-approve-tools armada.*,write_file,edit_file,multi_edit,process_stop --sandbox workspace-write`; older Mux runs as `Refuse` | `--yolo` |
 | ApiEndpoint | No CLI flags; the built-in `run_process` tool refuses every call | Each `run_process` call becomes a CLI permission request, answered in-process (no MCP token needed) | `run_process` runs without asking |
 
 `Refuse` and `Bypass` are carried by the launched captain's auto-approve option, so a Mux captain with an explicit
-`muxApprovalPolicy` keeps that policy in both. Harbor launches (missions, and Ask turns that run on a Harbor) apply `Refuse` and `Bypass` the same way (through the
-captain's auto-approve option) and run `ApproveInArmada` as `Refuse`, because the Harbor launch protocol does not carry
-the permission prompt tool yet.
+`muxApprovalPolicy` keeps that policy in both. Under `ApproveInArmada` the prompt tool replaces an explicit `ask` or
+`auto`, and an explicit `deny` stays (it is stricter). Harbor launches (missions, and Ask turns that run on a Harbor) apply `Refuse` and `Bypass` the same way (through the
+captain's auto-approve option). `ApproveInArmada` works on a Harbor that advertises the `cli-permission-prompt`
+capability for the captain's runtime (its detail lists the runtimes: Claude Code always, Mux when the Harbor's `mux` is
+1.5.0 or later): the launch request carries `CliPermissionPolicy` and the prompt timeout, and the Harbor sets up the
+same prompt tool flags as the Admiral host against the scoped MCP server it binds the token to. On an older Harbor, a
+Harbor without that runtime in the list, or a launch without a scoped token, `ApproveInArmada` runs as `Refuse`
+(`RemoteHarbor`). An Ask turn's policy is resolved before the turn is routed, so it counts any connected Harbor of the
+tenant that can prompt for the runtime; if the turn then lands somewhere that cannot, it runs as `Refuse` and the Admiral
+logs why.
 
 ApiEndpoint captains have no CLI: the policy applies only to their built-in shell tool, `run_process`. Their other
 built-in tools (read, write, edit, multi-edit, delete, directory and task-plan tools) run without asking under every
@@ -434,6 +449,16 @@ which "Allow and remember" uses by default, names the command (`run_process(git 
 program is not a plain word) and never the bare `run_process`, which would allow every command the captain runs. A bare
 `run_process` (or `run_process(*)`) rule still allows everything, and the TUI rule dialog warns before remembering one.
 `Bash` rules do not cover `run_process` and `run_process` rules do not cover `Bash`.
+
+Mux captains (Mux 1.5.0 or later) send permission prompts the way Claude Code does: `mux print --permission-prompt-tool`
+calls `cli_permission_prompt` on the scoped `armada` MCP server with Claude Code's arguments. Mux runs the `ask` policy
+as auto-safe: read-only tools (read, list, glob, grep, web retrieval and search, task planning) run without asking.
+Armada's own MCP tools and file edits (`write_file`, `edit_file`, `multi_edit`) are auto-approved like Claude Code's
+`acceptEdits`, and `--sandbox workspace-write` refuses an edit outside the worktree. Everything else becomes a CLI
+permission request with Mux's tool name: `run_process` (matched with the `run_process(...)` rules above), `process_start`,
+`delete_file`, `manage_directory`, memory writes, and skills that run commands. Mux waits two minutes longer than
+`Permissions.PromptTimeoutSeconds`, so Armada expires and denies a request first, and any error, timeout, or answer it
+cannot read denies the call. A denial's message is returned to the model as the tool result.
 
 **How a request flows (Claude Code).** Claude Code calls `cli_permission_prompt` on the scoped `armada` MCP server with
 the tool name and input. Armada checks the applicable rules: a matching deny rule denies, a matching allow rule allows,

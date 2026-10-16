@@ -98,6 +98,13 @@ namespace Armada.Core.Models
         /// </summary>
         public Armada.Core.Harbor.HarborLaunchDisplay? Display { get; set; } = null;
 
+        /// <summary>
+        /// Text to add to the prompt when the turn runs on a Harbor (Harbor id, cancellation), for example where the
+        /// tenant's repositories are checked out on that machine, since the turn itself runs in a scratch folder there.
+        /// Null or an empty answer adds nothing; an error is ignored.
+        /// </summary>
+        public Func<string, System.Threading.CancellationToken, System.Threading.Tasks.Task<string?>>? HarborContext { get; set; } = null;
+
         #endregion
 
         #region Private-Members

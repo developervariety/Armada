@@ -12,9 +12,9 @@ namespace Armada.Server
     /// <summary>
     /// Applies an effective CLI permission policy to a runtime instance before launch. Refuse and Bypass are carried by
     /// the launched captain's auto-approve option (see <see cref="CaptainRuntimeOptions.WithEffectiveAutoApprove"/>);
-    /// ApproveInArmada additionally points Claude Code's --permission-prompt-tool at Armada's cli_permission_prompt
-    /// tool on the scoped "armada" MCP server, and gates an API-endpoint captain's built-in shell tool (run_process)
-    /// in-process.
+    /// ApproveInArmada additionally points Claude Code's and Mux's --permission-prompt-tool at Armada's
+    /// cli_permission_prompt tool on the scoped "armada" MCP server, and gates an API-endpoint captain's built-in shell
+    /// tool (run_process) in-process.
     /// </summary>
     public static class CliPermissionLaunch
     {
@@ -51,11 +51,7 @@ namespace Armada.Server
                 return effective == CliPermissionPolicyEnum.ApproveInArmada && inProcessPrompt != null;
             }
 
-            if (effective != CliPermissionPolicyEnum.ApproveInArmada) return false;
-            if (!(runtime is ClaudeCodeRuntime claude)) return false;
-            claude.PermissionPromptTool = CliPermissionPolicyResolver.ClaudePromptToolName;
-            claude.PermissionPromptTimeoutSeconds = promptTimeoutSeconds;
-            return true;
+            return CliPermissionPromptSetup.Configure(runtime, effective, promptTimeoutSeconds);
         }
 
         #endregion

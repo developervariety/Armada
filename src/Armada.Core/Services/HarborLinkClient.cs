@@ -151,7 +151,9 @@ namespace Armada.Core.Services
         /// <param name="logging">Logging module.</param>
         /// <param name="heartbeatIntervalMs">Heartbeat interval in milliseconds; 0 disables heartbeats.</param>
         /// <param name="onLog">Optional sink for link log entries (work in, status out) for a UI log view.</param>
-        /// <param name="jobRunner">Optional captain launcher; when null, launch requests are refused.</param>
+        /// <param name="jobRunner">Optional captain launcher; when null, launch requests are refused. When set the Harbor
+        /// advertises <see cref="HarborProtocol.CliPermissionPromptCapability"/> for Claude Code, and for Mux when the
+        /// installed mux is 1.5.0 or later.</param>
         /// <param name="dockManager">Optional Harbor-side dock manager; when set the Harbor advertises
         /// <see cref="HarborProtocol.DockCapability"/> and <see cref="HarborProtocol.CheckoutCapability"/>, creates mission docks
         /// on this host, and serves file operations in vessel checkouts. When null, dock and file requests are refused.</param>
@@ -177,6 +179,15 @@ namespace Armada.Core.Services
                 _Capabilities.Add(new HarborCapability { Name = HarborProtocol.DockCapability, Available = true });
             if (_Docks != null && !_Capabilities.Exists(c => String.Equals(c.Name, HarborProtocol.CheckoutCapability, StringComparison.OrdinalIgnoreCase)))
                 _Capabilities.Add(new HarborCapability { Name = HarborProtocol.CheckoutCapability, Available = true });
+            if (jobRunner != null && !_Capabilities.Exists(c => String.Equals(c.Name, HarborProtocol.CliPermissionPromptCapability, StringComparison.OrdinalIgnoreCase)))
+            {
+                // Claude Code always can; Mux only from 1.5.0 (mux print --permission-prompt-tool).
+                string runtimes = MuxCapabilities.SupportsPermissionPromptTool()
+                    ? Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode + "," + Armada.Core.Enums.AgentRuntimeEnum.Mux
+                    : Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode.ToString();
+                _Capabilities.Add(new HarborCapability { Name = HarborProtocol.CliPermissionPromptCapability, Available = true, Detail = runtimes });
+            }
+
             _MaxConcurrentJobs = maxConcurrentJobs < 1 ? 1 : maxConcurrentJobs;
             _CommandExecutor = commandExecutor ?? throw new ArgumentNullException(nameof(commandExecutor));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));

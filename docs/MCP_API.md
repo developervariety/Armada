@@ -972,7 +972,7 @@ Delete a memory that has become stale or is no longer relevant. Args: `memoryId`
 ## CLI Permissions
 
 CLI tool permissions govern a CLI captain's own tools (shell commands, web fetches, file tools outside the accepted
-edits), not Armada's MCP tools. Under the `ApproveInArmada` policy a Claude Code captain sends each permission prompt to
+edits), not Armada's MCP tools. Under the `ApproveInArmada` policy a Claude Code or Mux (1.5.0 or later) captain sends each permission prompt to
 `cli_permission_prompt`, which creates a CLI permission request (`cpr_`) that an approver allows or denies; a matching
 rule (`cpl_`) decides without asking. The REST equivalents, the request and rule shapes, the rule syntax, and the
 access rules are in [REST_API.md](REST_API.md#cli-permissions); the policy resolution and per-runtime flags are in

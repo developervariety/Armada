@@ -62,6 +62,52 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("ten_cm", stored.TenantId);
             }));
 
+            cases.Add(CaseAsync("prompt_capability_is_read_per_runtime", "A Harbor's cli-permission-prompt capability says which runtimes it can prompt for, scoped by tenant", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                HarborService harbors = new HarborService(testDb.Driver, CreateLogging());
+                HarborConnectionManager manager = new HarborConnectionManager(harbors, CreateLogging(), null);
+
+                HarborHandshake prompting = new HarborHandshake
+                {
+                    HarborId = "hbr_prompt",
+                    Name = "Rig",
+                    ProtocolVersion = HarborProtocol.Version,
+                    MaxConcurrentJobs = 4,
+                    Capabilities = new List<HarborCapability>
+                    {
+                        new HarborCapability { Name = "Mux", Available = true },
+                        new HarborCapability { Name = HarborProtocol.CliPermissionPromptCapability, Available = true, Detail = "ClaudeCode, mux, ApiEndpoint, Bogus" }
+                    }
+                };
+                await manager.OnHandshakeAsync(prompting, "ten_p", "usr_p", NoopSend).ConfigureAwait(false);
+
+                HarborHandshake older = new HarborHandshake
+                {
+                    HarborId = "hbr_older",
+                    Name = "Old",
+                    ProtocolVersion = HarborProtocol.Version,
+                    MaxConcurrentJobs = 4,
+                    Capabilities = new List<HarborCapability> { new HarborCapability { Name = "Codex", Available = true } }
+                };
+                await manager.OnHandshakeAsync(older, "ten_o", "usr_o", NoopSend).ConfigureAwait(false);
+
+                AssertTrue(manager.CanPrompt("hbr_prompt", AgentRuntimeEnum.ClaudeCode), "Claude Code listed");
+                AssertTrue(manager.CanPrompt("hbr_prompt", AgentRuntimeEnum.Mux), "names are case-insensitive");
+                AssertFalse(manager.CanPrompt("hbr_prompt", AgentRuntimeEnum.Codex), "unlisted runtime");
+                AssertFalse(manager.CanPrompt("hbr_prompt", AgentRuntimeEnum.ApiEndpoint), "API endpoints never prompt from a Harbor");
+                AssertFalse(manager.CanPrompt("hbr_older", AgentRuntimeEnum.ClaudeCode), "a Harbor without the capability cannot prompt");
+                AssertFalse(manager.CanPrompt("hbr_missing", AgentRuntimeEnum.ClaudeCode), "an unknown Harbor cannot prompt");
+
+                AssertTrue(manager.AnyHarborCanPrompt("ten_p", AgentRuntimeEnum.Mux), "the tenant's Harbor can prompt");
+                AssertFalse(manager.AnyHarborCanPrompt("ten_o", AgentRuntimeEnum.Mux), "another tenant's Harbor does not count");
+                AssertTrue(manager.AnyHarborCanPrompt(null, AgentRuntimeEnum.ClaudeCode), "no tenant filter");
+                AssertFalse(manager.AnyHarborCanPrompt(null, AgentRuntimeEnum.Codex), "nobody prompts for Codex");
+
+                await manager.OnDisconnectedAsync("hbr_prompt").ConfigureAwait(false);
+                AssertFalse(manager.CanPrompt("hbr_prompt", AgentRuntimeEnum.ClaudeCode), "a disconnected Harbor cannot prompt");
+            }));
+
             cases.Add(CaseAsync("eligible_harbor_is_scoped_to_the_owning_user", "HasEligibleHarborForUserAsync matches only the owning user's connected Harbor", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -61,6 +61,33 @@ namespace Armada.Core.Services.Ask
         public bool SessionTokensAvailable { get; set; } = true;
 
         /// <summary>
+        /// Whether a connected Harbor a tenant's Ask turn may run on can send a runtime's permission prompts to Armada
+        /// (tenant id, runtime). Null means no Harbor can. Used to resolve Approve in Armada before the turn is routed.
+        /// </summary>
+        public Func<string?, AgentRuntimeEnum, bool>? HarborPromptSupport { get; set; } = null;
+
+        /// <summary>
+        /// Whether a connected Harbor the thread's turn may run on can send a runtime's permission prompts to Armada.
+        /// </summary>
+        /// <param name="thread">Thread.</param>
+        /// <param name="runtime">Captain runtime.</param>
+        /// <returns>True when such a Harbor is connected.</returns>
+        public bool HarborCanPrompt(AskThread thread, AgentRuntimeEnum runtime)
+        {
+            Func<string?, AgentRuntimeEnum, bool>? support = HarborPromptSupport;
+            if (support == null || thread == null) return false;
+            try
+            {
+                return support(thread.TenantId, runtime);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not check Harbor permission prompt support: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Snapshot builder used to embed the latest work snapshot in thread details and messages.
         /// </summary>
         public AskWorkSnapshotBuilder Snapshots => _Snapshots;
@@ -450,7 +477,8 @@ namespace Armada.Core.Services.Ask
             card = existing ?? await _Database.AskMessages.CreateAsync(card, true, token).ConfigureAwait(false);
             await _Database.CliPermissionRequests.UpdateMessageAsync(request.Id, card.Id, token).ConfigureAwait(false);
             request.MessageId = card.Id;
-            await PopulateAsync(thread, new List<AskMessage> { card }, token).ConfigureAwait(false);
+            // ask.message goes only to the thread owner's sessions, so the card says whether the owner can decide it.
+            await PopulateAsync(thread, new List<AskMessage> { card }, token, await OwnerContextAsync(thread, token).ConfigureAwait(false)).ConfigureAwait(false);
             Emit(thread, "ask.message", new { threadId = thread.Id, message = card });
             await EmitThreadAsync(thread.Id, token).ConfigureAwait(false);
             return card;
@@ -470,7 +498,7 @@ namespace Armada.Core.Services.Ask
             if (thread == null || String.IsNullOrEmpty(thread.TenantId)) return null;
             AskMessage? message = await _Database.AskMessages.ReadAsync(thread.TenantId!, messageId, token).ConfigureAwait(false);
             if (message == null) return null;
-            await PopulateAsync(thread, new List<AskMessage> { message }, token).ConfigureAwait(false);
+            await PopulateAsync(thread, new List<AskMessage> { message }, token, await OwnerContextAsync(thread, token).ConfigureAwait(false)).ConfigureAwait(false);
             Emit(thread, "ask.message", new { threadId = thread.Id, message });
             return message;
         }
@@ -714,7 +742,7 @@ namespace Armada.Core.Services.Ask
             {
                 Captain? captain = await _Database.Captains.ReadAsync(thread.CaptainId!, token).ConfigureAwait(false);
                 if (captain == null) return null;
-                return CliPermissionPolicyResolver.ResolveForAsk(_Settings, thread, captain, SessionTokensAvailable);
+                return CliPermissionPolicyResolver.ResolveForAsk(_Settings, thread, captain, SessionTokensAvailable, HarborCanPrompt(thread, captain.Runtime));
             }
             catch (Exception ex) when (!(ex is OperationCanceledException))
             {
@@ -732,6 +760,36 @@ namespace Armada.Core.Services.Ask
             request.CanDecide = caller != null && request.Status == CliPermissionRequestStatusEnum.Pending
                 && CliPermissionAccess.CanDecide(caller, request, _Settings.Permissions);
             request.CanRemember = request.CanDecide && caller != null && CliPermissionAccess.CanRemember(caller, request);
+        }
+
+        /// <summary>
+        /// The thread owner's identity (tenant, user, and admin flags from the user record), or null when the owner
+        /// cannot be read.
+        /// </summary>
+        /// <param name="thread">Thread.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The owner's context, or null.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="thread"/> is null.</exception>
+        public Task<AuthContext?> ReadOwnerContextAsync(AskThread thread, CancellationToken token = default)
+        {
+            if (thread == null) throw new ArgumentNullException(nameof(thread));
+            return OwnerContextAsync(thread, token);
+        }
+
+        private async Task<AuthContext?> OwnerContextAsync(AskThread thread, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(thread.TenantId) || String.IsNullOrEmpty(thread.UserId)) return null;
+            try
+            {
+                UserMaster? owner = await _Database.Users.ReadAsync(thread.TenantId!, thread.UserId!, token).ConfigureAwait(false);
+                if (owner == null) return null;
+                return AuthContext.Authenticated(thread.TenantId!, thread.UserId!, owner.IsAdmin, owner.IsTenantAdmin, "AskThreadOwner");
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                _Logging.Debug(_Header + "could not read the owner of thread " + thread.Id + ": " + ex.Message);
+                return null;
+            }
         }
 
         private async Task PopulateAsync(AskThread thread, List<AskMessage> messages, CancellationToken token, AuthContext? caller = null)

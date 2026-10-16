@@ -256,7 +256,7 @@ export function CliPermissionSettingsSection({ settings, locked, onSaved }: Sect
   const v = draft.value;
   const timeoutValid = validPromptTimeout(v.promptTimeoutSeconds);
   return (
-    <SettingsSection title={t('CLI Tool Permissions')} description={t('How CLI captains handle shell commands, file edits, and fetches that need permission when neither the conversation nor the captain sets a policy. Refuse lets the CLI refuse them; Approve in Armada asks an approver here (Claude Code only; other runtimes fall back to Refuse); Bypass runs them without asking.')}>
+    <SettingsSection title={t('CLI Tool Permissions')} description={t('How CLI captains handle shell commands, file edits, and fetches that need permission when neither the conversation nor the captain sets a policy. Refuse lets the CLI refuse them; Approve in Armada asks an approver here (Claude Code, Mux 1.5 or later, and API endpoints; other runtimes fall back to Refuse); Bypass runs them without asking.')}>
       <PolicyField label={t('Ask conversation default')} hint={t('Used by Ask conversation turns (default Approve in Armada). Narrations and summaries never ask; they refuse instead.')} value={v.askDefaultPolicy} onChange={(x) => draft.set({ askDefaultPolicy: x })} disabled={locked} testID="settings-cli-ask-default" />
       <PolicyField label={t('Mission default')} hint={t('Used by missions (default Bypass, the previous behavior). A vessel with auto-approve off caps missions at Refuse.')} value={v.missionDefaultPolicy} onChange={(x) => draft.set({ missionDefaultPolicy: x })} disabled={locked} />
       <NumberField

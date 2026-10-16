@@ -11,7 +11,9 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Build arguments for `mux print`.
+        /// Build arguments for `mux print`. With a <see cref="MuxPermissionPrompt"/> (Approve in Armada), tool calls that
+        /// need approval are sent to Armada's prompt tool instead of following the captain's approval options, unless the
+        /// captain's approval policy is deny.
         /// </summary>
         public static List<string> BuildPrintArguments(
             string workingDirectory,
@@ -20,7 +22,8 @@ namespace Armada.Core.Services
             string? finalMessageFilePath,
             MuxCaptainOptions? options,
             string? effort = null,
-            bool showThinking = false)
+            bool showThinking = false,
+            MuxPermissionPrompt? permissionPrompt = null)
         {
             if (String.IsNullOrWhiteSpace(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrWhiteSpace(prompt)) throw new ArgumentNullException(nameof(prompt));
@@ -55,8 +58,17 @@ namespace Armada.Core.Services
             }
 
             string? approvalPolicy = options?.ApprovalPolicy;
-            if (String.IsNullOrWhiteSpace(approvalPolicy) && options?.AutoApprove == false) approvalPolicy = "deny";
-            AppendApprovalArguments(args, approvalPolicy);
+            if (permissionPrompt != null && !IsDenyPolicy(approvalPolicy))
+            {
+                // Approve in Armada outranks a captain's own ask/auto override; only an explicit deny stays stricter.
+                AppendPermissionPromptArguments(args, permissionPrompt);
+            }
+            else
+            {
+                if (String.IsNullOrWhiteSpace(approvalPolicy) && options?.AutoApprove == false) approvalPolicy = "deny";
+                AppendApprovalArguments(args, approvalPolicy);
+            }
+
             AppendCommonOverrides(args, options, model);
 
             args.Add("--working-directory");
@@ -211,6 +223,29 @@ namespace Armada.Core.Services
                 args.Add("--system-prompt");
                 args.Add(options.SystemPromptPath!);
             }
+        }
+
+        private static bool IsDenyPolicy(string? approvalPolicy)
+        {
+            return String.Equals(approvalPolicy?.Trim(), "deny", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void AppendPermissionPromptArguments(List<string> args, MuxPermissionPrompt prompt)
+        {
+            args.Add("--approval-policy");
+            args.Add("ask");
+            args.Add("--permission-prompt-tool");
+            args.Add(prompt.ToolName);
+            args.Add("--permission-prompt-timeout");
+            args.Add(prompt.TimeoutSeconds.ToString(CultureInfo.InvariantCulture));
+            if (!String.IsNullOrWhiteSpace(prompt.AutoApproveTools))
+            {
+                args.Add("--auto-approve-tools");
+                args.Add(prompt.AutoApproveTools.Trim());
+            }
+
+            args.Add("--sandbox");
+            args.Add("workspace-write");
         }
 
         private static void AppendApprovalArguments(List<string> args, string? approvalPolicy)

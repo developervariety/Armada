@@ -68,6 +68,13 @@ namespace Armada.Core.Services
         public bool HostsCheckouts { get; set; } = false;
 
         /// <summary>
+        /// Runtimes whose permission prompts the Harbor can send to Armada (the detail of
+        /// <see cref="Armada.Core.Harbor.HarborProtocol.CliPermissionPromptCapability"/> in its handshake); empty for a
+        /// Harbor that predates it.
+        /// </summary>
+        public HashSet<Armada.Core.Enums.AgentRuntimeEnum> PromptRuntimes { get; set; } = new HashSet<Armada.Core.Enums.AgentRuntimeEnum>();
+
+        /// <summary>
         /// The Harbor's name from its handshake on this link.
         /// </summary>
         public string Name { get; set; } = string.Empty;

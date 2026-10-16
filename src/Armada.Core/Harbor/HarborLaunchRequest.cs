@@ -126,6 +126,20 @@ namespace Armada.Core.Harbor
         public string? McpSessionToken { get; set; } = null;
 
         /// <summary>
+        /// The CLI tool permission policy the Admiral resolved, sent only for Approve in Armada: a Harbor that advertises
+        /// <see cref="HarborProtocol.CliPermissionPromptCapability"/> for the runtime points the CLI's permission prompts at
+        /// Armada's prompt tool on the scoped MCP server (it needs <see cref="McpSessionToken"/>). Null, any other value,
+        /// or an older Harbor leaves the launch as <see cref="AutoApprove"/> says (Refuse).
+        /// </summary>
+        public Armada.Core.Enums.CliPermissionPolicyEnum? CliPermissionPolicy { get; set; } = null;
+
+        /// <summary>
+        /// Seconds Armada waits for a decision on a permission prompt (Permissions.PromptTimeoutSeconds), so the CLI's
+        /// own wait can be set above it. Null uses 600.
+        /// </summary>
+        public int? PermissionPromptTimeoutSeconds { get; set; } = null;
+
+        /// <summary>
         /// Whether the job may run in a Harbor-owned scratch directory. When true and <see cref="WorkingDirectory"/> is
         /// empty or does not exist on the Harbor host, the Harbor creates a per-job scratch directory, runs the job
         /// there, and removes it when the job ends. Interactive launches (chat turns, planning, refinement) set it,

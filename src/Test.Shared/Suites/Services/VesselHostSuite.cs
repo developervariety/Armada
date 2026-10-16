@@ -100,6 +100,31 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(HarborDockSettings.IsSameOrUnder(host.WorkingDirectory, git.AdmiralData), "not in the Admiral's data folder");
             }));
 
+            cases.Add(CaseAsync("ask_turn_on_harbor_learns_checkouts", "An Ask turn on a Harbor is told where that Harbor has the owner's vessels checked out; vessels it only clones, and other Harbors, are left out", TestTags.Positive, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_vh_ask").ConfigureAwait(false);
+                Vessel mapped = await s.CreateVesselAsync("app", null, null).ConfigureAwait(false);
+                Vessel cloned = await s.CreateVesselAsync("cloned-only", "https://example.invalid/cloned-only.git", null).ConfigureAwait(false);
+
+                AssertTrue(PathCanonicalizer.AreEquivalent(git.Checkout, (await s.Resolver.FindHarborCheckoutAsync("hbr_vh_ask", mapped).ConfigureAwait(false))!), "the mapped checkout");
+                AssertNull(await s.Resolver.FindHarborCheckoutAsync("hbr_vh_ask", cloned).ConfigureAwait(false), "a vessel the Harbor only clones has no checkout");
+                AssertNull(await s.Resolver.FindHarborCheckoutAsync("hbr_vh_missing", mapped).ConfigureAwait(false), "a Harbor that is not connected");
+
+                Armada.Core.Services.Ask.AskThreadService threads = new Armada.Core.Services.Ask.AskThreadService(s.Db.Driver, s.Settings, s.Logging);
+                AskThread thread = new AskThread { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId };
+                string? context = await Armada.Server.Ask.AskHarborCheckoutContext.BuildAsync(s.Db.Driver, s.Resolver, threads, thread, "hbr_vh_ask", CancellationToken.None).ConfigureAwait(false);
+                AssertNotNull(context, "a section for the Harbor's checkouts");
+                AssertContains("## Repository checkouts on this machine", context!);
+                AssertContains("- app (" + mapped.Id + "): ", context!);
+                AssertContains("LocalPath and WorkingDirectory describe the Armada server", context!);
+                AssertFalse(context!.Contains("cloned-only", StringComparison.Ordinal), "clone-only vessels are left out");
+                AssertFalse(context.Contains("\u2014", StringComparison.Ordinal), "no em-dashes");
+                AssertNull(await Armada.Server.Ask.AskHarborCheckoutContext.BuildAsync(s.Db.Driver, s.Resolver, threads, thread, "hbr_vh_missing", CancellationToken.None).ConfigureAwait(false), "nothing for a Harbor that is not connected");
+                AssertNull(Armada.Server.Ask.AskHarborCheckoutContext.Format("rig", new List<HarborVesselCheckout>()), "nothing to say without checkouts");
+            }));
+
             cases.Add(CaseAsync("resolver_finds_discovered_checkout", "A Harbor finds the vessel's checkout under its root folders by the repository URL", TestTags.Positive, async () =>
             {
                 using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);

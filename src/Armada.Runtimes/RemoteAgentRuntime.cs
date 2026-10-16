@@ -63,6 +63,17 @@ namespace Armada.Runtimes
         public string? McpSessionToken { get; set; } = null;
 
         /// <summary>
+        /// The resolved CLI tool permission policy, set only for Approve in Armada on a Harbor that can send the
+        /// runtime's prompts to Armada (see <see cref="Armada.Core.Harbor.HarborLaunchRequest.CliPermissionPolicy"/>).
+        /// </summary>
+        public Armada.Core.Enums.CliPermissionPolicyEnum? CliPermissionPolicy { get; set; } = null;
+
+        /// <summary>
+        /// Seconds Armada waits for a permission decision, sent with <see cref="CliPermissionPolicy"/>.
+        /// </summary>
+        public int? PermissionPromptTimeoutSeconds { get; set; } = null;
+
+        /// <summary>
         /// Whether the launch may run in a Harbor-owned scratch directory when its working directory is empty or does
         /// not exist on the Harbor host (see <see cref="HarborLaunchRequest.ScratchWorkingDirectory"/>). Interactive
         /// launches (chat, planning, refinement) set it; missions leave it false.
@@ -207,6 +218,8 @@ namespace Armada.Runtimes
                 RuntimeOptionsJson = captain != null && !String.IsNullOrWhiteSpace(captain.RuntimeOptionsJson) ? captain.RuntimeOptionsJson : null,
                 ReasoningEffort = captain?.ReasoningEffort,
                 McpSessionToken = String.IsNullOrEmpty(McpSessionToken) ? null : McpSessionToken,
+                CliPermissionPolicy = CliPermissionPolicy,
+                PermissionPromptTimeoutSeconds = CliPermissionPolicy.HasValue ? PermissionPromptTimeoutSeconds : null,
                 ScratchWorkingDirectory = UseScratchWorkingDirectory,
                 StreamJsonOutput = streamsJson || decodeHere,
                 ShowThinking = showThinking,

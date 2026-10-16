@@ -81,7 +81,7 @@ export default function CliPermissionSettings({ permissions, locked, onSaved, no
     <div className="settings-section" style={{ marginTop: '1.5rem' }}>
       <h3>{t('CLI Tool Permissions')}</h3>
       <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
-        {t('How CLI captains handle shell commands, file edits, and fetches that need permission when neither the conversation nor the captain sets a policy. Refuse lets the CLI refuse them; Approve in Armada asks an approver here (Claude Code only; other runtimes fall back to Refuse); Bypass runs them without asking.')}
+        {t('How CLI captains handle shell commands, file edits, and fetches that need permission when neither the conversation nor the captain sets a policy. Refuse lets the CLI refuse them; Approve in Armada asks an approver here (Claude Code, Mux 1.5 or later, and API endpoints; other runtimes fall back to Refuse); Bypass runs them without asking.')}
       </p>
       <fieldset disabled={locked} className="settings-fieldset">
         <div className="settings-grid">

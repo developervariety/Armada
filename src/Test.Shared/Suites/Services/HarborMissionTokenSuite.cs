@@ -7,6 +7,7 @@ namespace Test.Shared.Suites.Services
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Harbor;
+    using Armada.Core.Services;
     using Armada.Runtimes;
     using SyslogLogging;
     using Test.Shared.Infrastructure;
@@ -61,6 +62,44 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(record.Contains("ARG=--strict-mcp-config", StringComparison.Ordinal), "no per-launch binding for an https URL");
             }));
 
+            cases.Add(CaseAsync("harbor_approve_in_armada_sends_claude_prompts_to_armada", "Approve in Armada on a Harbor points Claude Code's --permission-prompt-tool at Armada's prompt tool on the bound server", TestTags.Positive, async () =>
+            {
+                string record = await RunShimLaunchAsync("tok-prompt", "http://127.0.0.1:7891/mcp", AgentRuntimeEnum.ClaudeCode, CliPermissionPolicyEnum.ApproveInArmada).ConfigureAwait(false);
+                AssertContains("ARG=--permission-prompt-tool\nARG=mcp__armada__cli_permission_prompt", record.Replace("\r\n", "\n"), "prompt tool flag");
+                AssertContains("ARG=acceptEdits", record, "edits still accepted, nothing bypassed");
+                AssertFalse(record.Contains("ARG=--dangerously-skip-permissions", StringComparison.Ordinal), "no bypass");
+            }));
+
+            cases.Add(CaseAsync("harbor_approve_in_armada_without_token_refuses", "Approve in Armada on a Harbor without a scoped token adds no prompt tool (Refuse)", TestTags.Negative, async () =>
+            {
+                string record = await RunShimLaunchAsync(null, "http://127.0.0.1:7891/mcp", AgentRuntimeEnum.ClaudeCode, CliPermissionPolicyEnum.ApproveInArmada).ConfigureAwait(false);
+                AssertFalse(record.Contains("ARG=--permission-prompt-tool", StringComparison.Ordinal), "no prompt tool without the binding");
+                AssertContains("ARG=acceptEdits", record, "Refuse launch");
+            }));
+
+            cases.Add(CaseAsync("harbor_approve_in_armada_sends_mux_prompts_to_armada", "Approve in Armada on a Harbor with Mux 1.5.0 runs mux print with Armada's prompt tool; an older Mux runs deny", TestTags.Positive, async () =>
+            {
+                try
+                {
+                    MuxCapabilities.VersionProbe = () => "mux v1.5.0";
+                    string record = (await RunShimLaunchAsync("tok-mux", "http://127.0.0.1:7891/mcp", AgentRuntimeEnum.Mux, CliPermissionPolicyEnum.ApproveInArmada).ConfigureAwait(false)).Replace("\r\n", "\n");
+                    AssertContains("ARG=--approval-policy\nARG=ask", record, "ask policy");
+                    AssertContains("ARG=--permission-prompt-tool\nARG=armada.cli_permission_prompt", record, "prompt tool flag");
+                    AssertContains("ARG=--permission-prompt-timeout\nARG=420", record, "timeout above Armada's");
+                    AssertContains("ARG=--sandbox\nARG=workspace-write", record, "edits confined to the dock");
+                    AssertContains("\"X-Token\"", record, "the scoped server carries the token");
+
+                    MuxCapabilities.VersionProbe = () => "mux v1.4.1";
+                    string old = (await RunShimLaunchAsync("tok-mux-old", "http://127.0.0.1:7891/mcp", AgentRuntimeEnum.Mux, CliPermissionPolicyEnum.ApproveInArmada).ConfigureAwait(false)).Replace("\r\n", "\n");
+                    AssertFalse(old.Contains("ARG=--permission-prompt-tool", StringComparison.Ordinal), "no prompt tool for an old Mux");
+                    AssertContains("ARG=--approval-policy\nARG=deny", old, "an old Mux refuses");
+                }
+                finally
+                {
+                    MuxCapabilities.VersionProbe = null;
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Harbor Mission Tokens (O-04)",
@@ -71,7 +110,12 @@ namespace Test.Shared.Suites.Services
 
         #region Private-Methods
 
-        private static async Task<string> RunShimLaunchAsync(string? token, string mcpUrl)
+        private static Task<string> RunShimLaunchAsync(string? token, string mcpUrl)
+        {
+            return RunShimLaunchAsync(token, mcpUrl, AgentRuntimeEnum.ClaudeCode, null);
+        }
+
+        private static async Task<string> RunShimLaunchAsync(string? token, string mcpUrl, AgentRuntimeEnum runtime, CliPermissionPolicyEnum? policy)
         {
             string root = TestTemp.NewDirectory("harbor_mission_token");
             string recordFile = Path.Combine(root, "record.txt");
@@ -85,16 +129,20 @@ namespace Test.Shared.Suites.Services
                 logging.Settings.EnableConsole = false;
                 AgentRuntimeFactory factory = new AgentRuntimeFactory(logging);
                 factory.Override(AgentRuntimeEnum.ClaudeCode, () => new ClaudeCodeRuntime(logging) { ExecutablePath = shim });
+                factory.Override(AgentRuntimeEnum.Mux, () => new MuxRuntime(logging) { ExecutablePath = shim });
                 LocalHarborJobRunner runner = new LocalHarborJobRunner(logging, factory);
 
                 TaskCompletionSource<int> exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
                 HarborLaunchRequest request = new HarborLaunchRequest
                 {
                     JobId = Guid.NewGuid().ToString("N"),
-                    Runtime = AgentRuntimeEnum.ClaudeCode.ToString(),
+                    Runtime = runtime.ToString(),
                     WorkingDirectory = workDir,
                     Prompt = "Respond with OK.",
-                    McpSessionToken = token
+                    McpSessionToken = token,
+                    AutoApprove = policy.HasValue ? false : null,
+                    CliPermissionPolicy = policy,
+                    PermissionPromptTimeoutSeconds = policy.HasValue ? 300 : null
                 };
 
                 await runner.StartAsync(request, mcpUrl, _ => { }, (_, _) => { }, code => exited.TrySetResult(code), CancellationToken.None).ConfigureAwait(false);

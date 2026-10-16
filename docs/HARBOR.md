@@ -504,6 +504,11 @@ scratch directory when the working directory is not on the captain's host), and 
 and files a workflow profile requires are checked on the Admiral, where secrets are resolved). A Harbor from before
 checkout operations (no `harbor-checkouts` capability) is never asked; update it.
 
+Approve in Armada (CLI tool permission prompts) works on a Harbor that advertises the `cli-permission-prompt`
+capability, which lists the runtimes it can prompt for: Claude Code, and Mux when the Harbor's `mux` is 1.5.0 or later
+(checked when the Harbor connects, so restart it after upgrading `mux`). An older Harbor runs Approve in Armada as
+Refuse.
+
 ## Running a second Harbor on one computer
 
 Set `ARMADA_HARBOR_HOME` to a folder to give a Harbor its own settings, docks, repositories, and logs instead of

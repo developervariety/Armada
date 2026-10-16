@@ -220,6 +220,44 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// The folder of a vessel's checkout on one Harbor (a folder named for the vessel in its settings, or one
+        /// discovered under its root folders), or null when that Harbor is not connected, predates checkout operations,
+        /// has only its own clone of the vessel, or does not answer. Answers are remembered like
+        /// <see cref="TryResolveAsync"/>'s. Never throws except for cancellation.
+        /// </summary>
+        /// <param name="harborId">Harbor identifier.</param>
+        /// <param name="vessel">Vessel.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The checkout path on the Harbor's machine, or null.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="vessel"/> is null.</exception>
+        public async Task<string?> FindHarborCheckoutAsync(string harborId, Vessel vessel, CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            HarborConnectionManager? harbors = Harbors;
+            if (String.IsNullOrWhiteSpace(harborId) || harbors == null || !harbors.IsConnected(harborId) || !harbors.HostsCheckouts(harborId)) return null;
+
+            string? cached = ReadCache(harborId, vessel);
+            if (cached != null) return cached;
+
+            try
+            {
+                HarborDockResult? resolved = await new HarborDockClient(harbors).ResolveAsync(harborId, vessel, token).ConfigureAwait(false);
+                if (resolved == null || !resolved.Success || String.IsNullOrWhiteSpace(resolved.CheckoutPath)) return null;
+                WriteCache(harborId, vessel, resolved.CheckoutPath!, resolved.Source);
+                return resolved.CheckoutPath;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not find a checkout of vessel " + vessel.Name + " on Harbor " + harborId + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Find the host for a vessel's checkout.
         /// </summary>
         /// <param name="vessel">Vessel.</param>

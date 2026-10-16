@@ -129,29 +129,107 @@ namespace Test.Shared.Suites.Services
             {
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.Permissions.MissionDefaultPolicy = CliPermissionPolicyEnum.ApproveInArmada;
-                foreach (AgentRuntimeEnum runtime in Enum.GetValues<AgentRuntimeEnum>())
+                MuxCapabilities.VersionProbe = () => "mux v1.4.1";
+                try
                 {
-                    Captain captain = new Captain("c") { Runtime = runtime };
-                    CliPermissionResolution r = CliPermissionPolicyResolver.ResolveForMission(settings, captain, null, true, false);
-                    bool hook = runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.ApiEndpoint;
-                    AssertEqual(hook, CliPermissionPolicyResolver.SupportsPromptHook(runtime), "hook support: " + runtime);
-                    AssertEqual(hook ? CliPermissionPolicyEnum.ApproveInArmada : CliPermissionPolicyEnum.Refuse, r.Effective, "effective: " + runtime);
-                    AssertEqual(CliPermissionPolicyEnum.ApproveInArmada, r.Requested, "requested: " + runtime);
-                    if (!hook)
+                    foreach (AgentRuntimeEnum runtime in Enum.GetValues<AgentRuntimeEnum>())
                     {
-                        AssertEqual(CliPermissionFallbackReasonEnum.RuntimeUnsupported, r.FallbackReason, "reason: " + runtime);
-                        AssertContains("running as Refuse", r.Note);
+                        Captain captain = new Captain("c") { Runtime = runtime };
+                        CliPermissionResolution r = CliPermissionPolicyResolver.ResolveForMission(settings, captain, null, true, false);
+                        bool hook = runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.ApiEndpoint;
+                        AssertEqual(hook, CliPermissionPolicyResolver.SupportsPromptHook(runtime), "hook support: " + runtime);
+                        AssertEqual(hook ? CliPermissionPolicyEnum.ApproveInArmada : CliPermissionPolicyEnum.Refuse, r.Effective, "effective: " + runtime);
+                        AssertEqual(CliPermissionPolicyEnum.ApproveInArmada, r.Requested, "requested: " + runtime);
+                        if (!hook)
+                        {
+                            AssertEqual(CliPermissionFallbackReasonEnum.RuntimeUnsupported, r.FallbackReason, "reason: " + runtime);
+                            AssertContains("running as Refuse", r.Note);
+                        }
                     }
+
+                    Captain claude = new Captain("cc") { Runtime = AgentRuntimeEnum.ClaudeCode };
+                    AssertEqual(CliPermissionFallbackReasonEnum.NoSessionToken, CliPermissionPolicyResolver.ResolveForMission(settings, claude, null, false, false).FallbackReason);
+                    AssertEqual(CliPermissionFallbackReasonEnum.RemoteHarbor, CliPermissionPolicyResolver.ResolveForMission(settings, claude, null, true, true).FallbackReason);
+                    AssertEqual(CliPermissionFallbackReasonEnum.NoSessionToken, CliPermissionPolicyResolver.ResolveForAsk(settings, new AskThread(), claude, false).FallbackReason);
+                    AssertNull(CliPermissionPolicyResolver.ResolveForMission(settings, new Captain("api") { Runtime = AgentRuntimeEnum.ApiEndpoint }, null, false, false).FallbackReason, "the in-process gate needs no token");
+                    AssertEqual(CliPermissionFallbackReasonEnum.RemoteHarbor, CliPermissionPolicyResolver.ResolveForMission(settings, new Captain("api2") { Runtime = AgentRuntimeEnum.ApiEndpoint }, null, true, true).FallbackReason, "Harbor launches fall back");
+                    settings.Permissions.MissionDefaultPolicy = CliPermissionPolicyEnum.Bypass;
+                    AssertNull(CliPermissionPolicyResolver.ResolveForMission(settings, claude, null, false, true).FallbackReason, "only ApproveInArmada falls back");
+                }
+                finally
+                {
+                    MuxCapabilities.VersionProbe = null;
+                }
+            }));
+
+            cases.Add(Case("mux_prompt_hook_follows_version", "Mux honors ApproveInArmada from 1.5.0 (with a scoped token, not on a Harbor); older or missing Mux falls back with a Mux-specific note", () =>
+            {
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.Permissions.MissionDefaultPolicy = CliPermissionPolicyEnum.ApproveInArmada;
+                Captain mux = new Captain("mx") { Runtime = AgentRuntimeEnum.Mux };
+                try
+                {
+                    MuxCapabilities.VersionProbe = () => "mux v1.5.0\n";
+                    AssertTrue(CliPermissionPolicyResolver.SupportsPromptHook(AgentRuntimeEnum.Mux), "1.5.0 has the hook");
+                    CliPermissionResolution ok = CliPermissionPolicyResolver.ResolveForMission(settings, mux, null, true, false);
+                    AssertEqual(CliPermissionPolicyEnum.ApproveInArmada, ok.Effective, "Mux 1.5.0 runs ApproveInArmada");
+                    AssertNull(ok.FallbackReason, "no fallback");
+                    AssertEqual(CliPermissionFallbackReasonEnum.NoSessionToken, CliPermissionPolicyResolver.ResolveForMission(settings, mux, null, false, false).FallbackReason, "Mux needs the scoped token");
+                    AssertEqual(CliPermissionFallbackReasonEnum.NoSessionToken, CliPermissionPolicyResolver.ResolveForAsk(settings, new AskThread(), mux, false).FallbackReason, "Ask turns need it too");
+                    AssertEqual(CliPermissionFallbackReasonEnum.RemoteHarbor, CliPermissionPolicyResolver.ResolveForMission(settings, mux, null, true, true).FallbackReason, "Harbor launches fall back");
+
+                    MuxCapabilities.VersionProbe = () => "mux v2.0.3";
+                    AssertTrue(CliPermissionPolicyResolver.SupportsPromptHook(AgentRuntimeEnum.Mux), "later versions have the hook");
+
+                    MuxCapabilities.VersionProbe = () => "mux v1.4.9";
+                    CliPermissionResolution old = CliPermissionPolicyResolver.ResolveForMission(settings, mux, null, true, false);
+                    AssertEqual(CliPermissionPolicyEnum.Refuse, old.Effective, "older Mux refuses");
+                    AssertEqual(CliPermissionFallbackReasonEnum.RuntimeUnsupported, old.FallbackReason);
+                    AssertContains("Mux 1.5.0 or later", old.Note);
+
+                    MuxCapabilities.VersionProbe = () => null;
+                    AssertFalse(CliPermissionPolicyResolver.SupportsPromptHook(AgentRuntimeEnum.Mux), "missing Mux has no hook");
+                }
+                finally
+                {
+                    MuxCapabilities.VersionProbe = null;
                 }
 
+                AssertEqual(new Version(1, 5, 0), MuxCapabilities.ParseVersion("mux v1.5.0"));
+                AssertEqual(new Version(12, 0, 7), MuxCapabilities.ParseVersion("Mux CLI 12.0.7 (build abc)"));
+                AssertNull(MuxCapabilities.ParseVersion("mux"), "no version");
+                AssertNull(MuxCapabilities.ParseVersion(null), "null output");
+            }));
+
+            cases.Add(Case("harbor_prompt_support", "On a Harbor that can prompt, Claude Code and Mux keep ApproveInArmada (with a token); API endpoints and Harbors that cannot fall back; an Ask turn counts a Harbor it may run on", () =>
+            {
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.Permissions.MissionDefaultPolicy = CliPermissionPolicyEnum.ApproveInArmada;
                 Captain claude = new Captain("cc") { Runtime = AgentRuntimeEnum.ClaudeCode };
-                AssertEqual(CliPermissionFallbackReasonEnum.NoSessionToken, CliPermissionPolicyResolver.ResolveForMission(settings, claude, null, false, false).FallbackReason);
-                AssertEqual(CliPermissionFallbackReasonEnum.RemoteHarbor, CliPermissionPolicyResolver.ResolveForMission(settings, claude, null, true, true).FallbackReason);
-                AssertEqual(CliPermissionFallbackReasonEnum.NoSessionToken, CliPermissionPolicyResolver.ResolveForAsk(settings, new AskThread(), claude, false).FallbackReason);
-                AssertNull(CliPermissionPolicyResolver.ResolveForMission(settings, new Captain("api") { Runtime = AgentRuntimeEnum.ApiEndpoint }, null, false, false).FallbackReason, "the in-process gate needs no token");
-                AssertEqual(CliPermissionFallbackReasonEnum.RemoteHarbor, CliPermissionPolicyResolver.ResolveForMission(settings, new Captain("api2") { Runtime = AgentRuntimeEnum.ApiEndpoint }, null, true, true).FallbackReason, "Harbor launches fall back");
-                settings.Permissions.MissionDefaultPolicy = CliPermissionPolicyEnum.Bypass;
-                AssertNull(CliPermissionPolicyResolver.ResolveForMission(settings, claude, null, false, true).FallbackReason, "only ApproveInArmada falls back");
+                Captain mux = new Captain("mx") { Runtime = AgentRuntimeEnum.Mux };
+                Captain api = new Captain("api") { Runtime = AgentRuntimeEnum.ApiEndpoint };
+                MuxCapabilities.VersionProbe = () => null;
+                try
+                {
+                    AssertNull(CliPermissionPolicyResolver.ResolveForMission(settings, claude, null, true, true, true).FallbackReason, "Claude Code on a prompting Harbor");
+                    CliPermissionResolution muxOnHarbor = CliPermissionPolicyResolver.ResolveForMission(settings, mux, null, true, true, true);
+                    AssertEqual(CliPermissionPolicyEnum.ApproveInArmada, muxOnHarbor.Effective, "Mux on a prompting Harbor, whatever the Admiral host has");
+                    AssertEqual(CliPermissionFallbackReasonEnum.NoSessionToken, CliPermissionPolicyResolver.ResolveForMission(settings, mux, null, false, true, true).FallbackReason, "still needs the token");
+                    AssertEqual(CliPermissionFallbackReasonEnum.RemoteHarbor, CliPermissionPolicyResolver.ResolveForMission(settings, api, null, true, true, true).FallbackReason, "API endpoints cannot prompt from a Harbor");
+                    CliPermissionResolution cannot = CliPermissionPolicyResolver.ResolveForMission(settings, mux, null, true, true, false);
+                    AssertEqual(CliPermissionFallbackReasonEnum.RemoteHarbor, cannot.FallbackReason, "a Harbor that cannot prompt");
+                    AssertContains("install Mux 1.5.0", cannot.Note);
+
+                    settings.Permissions.AskDefaultPolicy = CliPermissionPolicyEnum.ApproveInArmada;
+                    AssertEqual(CliPermissionPolicyEnum.ApproveInArmada, CliPermissionPolicyResolver.ResolveForAsk(settings, new AskThread(), mux, true, true).Effective, "an Ask turn that may run on a prompting Harbor");
+                    CliPermissionResolution nowhere = CliPermissionPolicyResolver.ResolveForAsk(settings, new AskThread(), mux, true, false);
+                    AssertEqual(CliPermissionFallbackReasonEnum.RuntimeUnsupported, nowhere.FallbackReason, "no Mux 1.5.0 anywhere");
+                    AssertContains("neither the Admiral host nor a connected Harbor", nowhere.Note);
+                }
+                finally
+                {
+                    MuxCapabilities.VersionProbe = null;
+                }
             }));
 
             cases.Add(Case("prompt_timeout_is_clamped", "Permissions.PromptTimeoutSeconds is clamped to 10..3600", () =>
@@ -194,7 +272,7 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(approveRuntime.Env(bypass).ContainsKey("MCP_TOOL_TIMEOUT"), "no timeout override with the bypass flag");
             }));
 
-            cases.Add(Case("other_runtime_flags_per_policy", "Codex, Gemini, Cursor, OpenCode, and Mux map Refuse and Bypass onto their existing flags and never get a prompt tool", () =>
+            cases.Add(Case("other_runtime_flags_per_policy", "Codex, Gemini, Cursor, OpenCode, and Mux map Refuse and Bypass onto their existing flags, with no prompt tool under either", () =>
             {
                 Captain refuse = CaptainRuntimeOptions.WithEffectiveAutoApprove(new Captain("c"), false);
                 Captain bypass = new Captain("b");
@@ -226,6 +304,46 @@ namespace Test.Shared.Suites.Services
                 int policy = muxRefuseArgs.IndexOf("--approval-policy");
                 AssertTrue(policy >= 0 && muxRefuseArgs[policy + 1] == "deny", "Mux Refuse is --approval-policy deny: " + String.Join(" ", muxRefuseArgs));
                 AssertTrue(mux.Args(new Captain("m2") { Runtime = AgentRuntimeEnum.Mux }).Contains("--yolo"), "Mux Bypass is --yolo");
+                AssertFalse(CliPermissionLaunch.Apply(mux, CliPermissionPolicyEnum.Refuse, 600), "Mux Refuse configures no prompt tool");
+                AssertFalse(mux.Args(muxRefuse).Contains("--permission-prompt-tool"), "no prompt tool under Refuse");
+            }));
+
+            cases.Add(Case("mux_flags_for_approve_in_armada", "Mux: ApproveInArmada runs ask with Armada's prompt tool, a timeout above Armada's, the auto-approved tools, and the workspace-write sandbox", () =>
+            {
+                Captain approve = CaptainRuntimeOptions.WithEffectiveAutoApprove(new Captain("m") { Runtime = AgentRuntimeEnum.Mux }, false);
+                InspectableMux mux = new InspectableMux(Logging());
+                MuxCapabilities.VersionProbe = () => "mux v1.4.1";
+                try
+                {
+                    AssertFalse(CliPermissionLaunch.Apply(mux, CliPermissionPolicyEnum.ApproveInArmada, 300), "Mux before 1.5.0 gets no prompt tool");
+                    AssertFalse(mux.Args(approve).Contains("--permission-prompt-tool"), "no prompt tool flag for an old Mux");
+                    MuxCapabilities.VersionProbe = () => "mux v1.5.0";
+                    AssertTrue(CliPermissionLaunch.Apply(mux, CliPermissionPolicyEnum.ApproveInArmada, 300), "ApproveInArmada configures the prompt tool");
+                }
+                finally
+                {
+                    MuxCapabilities.VersionProbe = null;
+                }
+
+                List<string> args = mux.Args(approve);
+                string joined = String.Join(" ", args);
+                AssertEqual("ask", ValueAfter(args, "--approval-policy"), "ask policy: " + joined);
+                AssertEqual("armada.cli_permission_prompt", ValueAfter(args, "--permission-prompt-tool"), "prompt tool");
+                AssertEqual("420", ValueAfter(args, "--permission-prompt-timeout"), "two minutes above the prompt timeout");
+                AssertEqual(MuxPermissionPrompt.DefaultAutoApproveTools, ValueAfter(args, "--auto-approve-tools"), "auto-approved tools");
+                AssertEqual("workspace-write", ValueAfter(args, "--sandbox"), "edits confined to the worktree");
+                AssertFalse(args.Contains("--yolo"), "no --yolo");
+                AssertEqual("p", args[args.Count - 1], "the prompt stays last");
+
+                Captain captainAuto = CaptainRuntimeOptions.WithEffectiveAutoApprove(new Captain("m2") { Runtime = AgentRuntimeEnum.Mux, RuntimeOptionsJson = "{\"approvalPolicy\":\"auto\"}" }, false);
+                AssertEqual("armada.cli_permission_prompt", ValueAfter(mux.Args(captainAuto), "--permission-prompt-tool"), "ApproveInArmada outranks a captain's auto override");
+                Captain captainDeny = new Captain("m3") { Runtime = AgentRuntimeEnum.Mux, RuntimeOptionsJson = "{\"approvalPolicy\":\"deny\"}" };
+                List<string> denyArgs = mux.Args(captainDeny);
+                AssertEqual("deny", ValueAfter(denyArgs, "--approval-policy"), "a captain's deny stays stricter");
+                AssertFalse(denyArgs.Contains("--permission-prompt-tool"), "no prompt tool under deny");
+
+                AssertFalse(CliPermissionLaunch.Apply(mux, CliPermissionPolicyEnum.Bypass, 300), "Bypass clears the prompt tool");
+                AssertFalse(mux.Args(new Captain("m4") { Runtime = AgentRuntimeEnum.Mux }).Contains("--permission-prompt-tool"), "a reused runtime drops the prompt tool");
             }));
 
             cases.Add(Case("stream_json_permission_denials_are_typed", "The result event's permission_denials parse into typed entries and mark the matching tool calls", () =>
@@ -282,6 +400,12 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Nested-Types
+
+        private static string? ValueAfter(List<string> args, string flag)
+        {
+            int at = args.IndexOf(flag);
+            return at >= 0 && at + 1 < args.Count ? args[at + 1] : null;
+        }
 
         private sealed class InspectableClaude : ClaudeCodeRuntime
         {

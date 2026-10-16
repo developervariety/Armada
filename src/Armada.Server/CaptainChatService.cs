@@ -204,6 +204,24 @@ namespace Armada.Server
 
         #region Private-Methods
 
+        private async Task<string> AppendHarborContextAsync(string prompt, Func<string, CancellationToken, Task<string?>> context, string harborId, string captainId, CancellationToken token)
+        {
+            try
+            {
+                string? extra = await context(harborId, token).ConfigureAwait(false);
+                return String.IsNullOrWhiteSpace(extra) ? prompt : prompt + "\n\n" + extra!.Trim() + "\n";
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not build the Harbor context of a chat turn for captain " + captainId + ": " + ex.Message);
+                return prompt;
+            }
+        }
+
         /// <summary>
         /// Run one headless turn. When <paramref name="scopedMcp"/> is true and a session token is supplied, the captain's
         /// Armada MCP connection is bound to that token: ApiEndpoint captains through ARMADA_MCP_URL/ARMADA_MCP_TOKEN, and
@@ -249,6 +267,8 @@ namespace Armada.Server
                         CaptainLaunchTarget target = await LaunchRouter.SelectAsync(launch, token).ConfigureAwait(false);
                         runtime = target.Runtime;
                         remoteRuntime = runtime as RemoteAgentRuntime;
+                        if (remoteRuntime != null && options.HarborContext != null)
+                            prompt = await AppendHarborContextAsync(prompt, options.HarborContext, remoteRuntime.HarborId, captainId, token).ConfigureAwait(false);
                     }
                     else
                     {
@@ -538,10 +558,21 @@ namespace Armada.Server
                         remoteRuntime.McpSessionToken = options.McpSessionToken;
                     }
 
-                    // A Harbor cannot route permission prompts to Armada yet (as for missions), so ApproveInArmada runs as
-                    // Refuse there: the launched captain's auto-approve is already off for anything but Bypass.
+                    // ApproveInArmada on a Harbor: a Harbor that advertises the prompt capability for the runtime points the
+                    // CLI's permission prompts at Armada over the turn's scoped token. Otherwise it runs as Refuse there (the
+                    // launched captain's auto-approve is already off for anything but Bypass).
                     if (options.CliPermissionPolicy == CliPermissionPolicyEnum.ApproveInArmada)
-                        _Logging.Info(_Header + "chat turn for captain " + captainId + " runs on Harbor " + remoteRuntime.HarborId + ": ApproveInArmada runs as Refuse there");
+                    {
+                        if (!String.IsNullOrEmpty(remoteRuntime.McpSessionToken) && LaunchRouter != null && LaunchRouter.HarborCanPrompt(remoteRuntime.HarborId, captain.Runtime))
+                        {
+                            remoteRuntime.CliPermissionPolicy = CliPermissionPolicyEnum.ApproveInArmada;
+                            remoteRuntime.PermissionPromptTimeoutSeconds = options.PermissionPromptTimeoutSeconds ?? 600;
+                        }
+                        else
+                        {
+                            _Logging.Info(_Header + "chat turn for captain " + captainId + " runs on Harbor " + remoteRuntime.HarborId + ": ApproveInArmada runs as Refuse there (the Harbor cannot send " + captain.Runtime + " permission prompts, or the turn has no scoped token)");
+                        }
+                    }
                 }
                 else if (!String.IsNullOrEmpty(options.McpSessionToken) && _McpPort > 0)
                 {

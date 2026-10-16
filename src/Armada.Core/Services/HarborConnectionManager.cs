@@ -179,6 +179,7 @@ namespace Armada.Core.Services
             connection.SetLiveJobs(handshake.LiveJobIds);
             connection.HostsDocks = HasAvailableCapability(handshake.Capabilities, HarborProtocol.DockCapability);
             connection.HostsCheckouts = connection.HostsDocks && HasAvailableCapability(handshake.Capabilities, HarborProtocol.CheckoutCapability);
+            connection.PromptRuntimes = ReadPromptRuntimes(handshake.Capabilities);
             connection.Name = handshake.Name;
             connection.HeartbeatIntervalMs = handshake.HeartbeatIntervalMs;
             connection.LastSeenUtc = now;
@@ -528,6 +529,36 @@ namespace Armada.Core.Services
         public bool HostsCheckouts(string harborId)
         {
             return !String.IsNullOrWhiteSpace(harborId) && _Connections.TryGetValue(harborId, out HarborConnection? connection) && connection!.HostsCheckouts;
+        }
+
+        /// <summary>
+        /// Whether a connected Harbor can send a captain's permission prompts to Armada for a runtime (it advertised
+        /// <see cref="HarborProtocol.CliPermissionPromptCapability"/> listing the runtime).
+        /// </summary>
+        /// <param name="harborId">Harbor identifier.</param>
+        /// <param name="runtime">Captain runtime.</param>
+        /// <returns>True when connected and able to prompt for the runtime.</returns>
+        public bool CanPrompt(string harborId, AgentRuntimeEnum runtime)
+        {
+            return !String.IsNullOrWhiteSpace(harborId) && _Connections.TryGetValue(harborId, out HarborConnection? connection) && connection!.PromptRuntimes.Contains(runtime);
+        }
+
+        /// <summary>
+        /// Whether any connected Harbor a tenant may use (one owned by the tenant, or a shared Harbor) can send permission
+        /// prompts to Armada for a runtime. Used where the launch host is not chosen yet, such as an Ask turn's policy.
+        /// </summary>
+        /// <param name="tenantId">Tenant identifier, or null/empty for every Harbor.</param>
+        /// <param name="runtime">Captain runtime.</param>
+        /// <returns>True when such a Harbor is connected.</returns>
+        public bool AnyHarborCanPrompt(string? tenantId, AgentRuntimeEnum runtime)
+        {
+            foreach (HarborConnection connection in _Connections.Values)
+            {
+                if (!connection.PromptRuntimes.Contains(runtime)) continue;
+                if (String.IsNullOrEmpty(tenantId) || String.IsNullOrEmpty(connection.TenantId) || String.Equals(connection.TenantId, tenantId, StringComparison.Ordinal)) return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -1008,6 +1039,23 @@ namespace Armada.Core.Services
             }
 
             return candidates;
+        }
+
+        private static HashSet<AgentRuntimeEnum> ReadPromptRuntimes(List<HarborCapability>? capabilities)
+        {
+            HashSet<AgentRuntimeEnum> runtimes = new HashSet<AgentRuntimeEnum>();
+            if (capabilities == null) return runtimes;
+            foreach (HarborCapability capability in capabilities)
+            {
+                if (capability == null || !capability.Available || !String.Equals(capability.Name, HarborProtocol.CliPermissionPromptCapability, StringComparison.OrdinalIgnoreCase)) continue;
+                if (String.IsNullOrWhiteSpace(capability.Detail)) continue;
+                foreach (string name in capability.Detail!.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (Enum.TryParse<AgentRuntimeEnum>(name, true, out AgentRuntimeEnum runtime) && runtime != AgentRuntimeEnum.ApiEndpoint) runtimes.Add(runtime);
+                }
+            }
+
+            return runtimes;
         }
 
         private static bool HasAvailableCapability(List<HarborCapability>? capabilities, string name)

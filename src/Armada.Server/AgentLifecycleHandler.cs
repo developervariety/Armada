@@ -783,8 +783,11 @@ namespace Armada.Server
                 string? missionToken = MintMissionToken(captain, mission);
                 // CLI tool permissions: vessel auto-approve override, then the captain's policy (or legacy autoApprove),
                 // then Permissions.MissionDefaultPolicy. Bypass maps to the runtime's bypass flag; ApproveInArmada routes
-                // Claude Code's permission prompts to Armada (it needs the mission token; Harbor launches fall back).
-                CliPermissionResolution permission = CliPermissionPolicyResolver.ResolveForMission(_Settings, captain, vessel, missionToken != null, runtime is RemoteAgentRuntime);
+                // Claude Code's and Mux's permission prompts to Armada (it needs the mission token; a Harbor launch falls back
+                // unless that Harbor advertises the prompt capability for the runtime).
+                RemoteAgentRuntime? remoteLaunch = runtime as RemoteAgentRuntime;
+                bool harborCanPrompt = remoteLaunch != null && _HarborConnections != null && _HarborConnections.CanPrompt(remoteLaunch.HarborId, captain.Runtime);
+                CliPermissionResolution permission = CliPermissionPolicyResolver.ResolveForMission(_Settings, captain, vessel, missionToken != null, remoteLaunch != null, harborCanPrompt);
                 Captain launchCaptain = CaptainRuntimeOptions.WithEffectiveAutoApprove(captain, permission.Effective == CliPermissionPolicyEnum.Bypass);
                 CliPermissionService? permissions = _CliPermissions;
                 Func<string, string, CancellationToken, Task<CliPermissionPromptOutcome>>? inProcessPrompt = null;
@@ -850,6 +853,11 @@ namespace Armada.Server
                         remoteRuntime.McpSessionToken = missionToken;
                         environment = null;
                     }
+
+                    // Approve in Armada on a Harbor that can prompt: the Harbor points the CLI's prompts at Armada.
+                    bool remotePrompts = permission.Effective == CliPermissionPolicyEnum.ApproveInArmada;
+                    remoteRuntime.CliPermissionPolicy = remotePrompts ? CliPermissionPolicyEnum.ApproveInArmada : null;
+                    remoteRuntime.PermissionPromptTimeoutSeconds = remotePrompts ? _Settings.Permissions.PromptTimeoutSeconds : null;
                 }
 
                 processId = await runtime.StartAsync(

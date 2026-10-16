@@ -52,6 +52,12 @@ namespace Armada.Server.Ask
         /// </summary>
         public CliPermissionService? CliPermissions { get; set; } = null;
 
+        /// <summary>
+        /// Finds where vessels are checked out on a Harbor, so a turn that runs on one is told (see
+        /// <see cref="AskHarborCheckoutContext"/>). Null leaves the prompt as it is.
+        /// </summary>
+        public VesselHostResolver? VesselHosts { get; set; } = null;
+
         #endregion
 
         #region Private-Members
@@ -556,6 +562,9 @@ namespace Armada.Server.Ask
                 options.McpSessionToken = MintToken(thread);
                 options.TimeoutMs = _Settings.Ask.TurnTimeoutMinutes * 60000;
                 options.Display = HarborLaunchDisplayBuilder.ForAskTurn(thread.Id, QuestionOf(history, userSequence), captain);
+                VesselHostResolver? vesselHosts = VesselHosts;
+                if (vesselHosts != null)
+                    options.HarborContext = (harborId, cancel) => AskHarborCheckoutContext.BuildAsync(_Database, vesselHosts, _Threads, current, harborId, cancel);
                 string turnId = handle.TurnId;
                 options.OnChunk = delta => Emit(thread, "ask.chunk", new { threadId = thread.Id, turnId, delta });
                 options.OnThinking = delta => Emit(thread, "ask.thinking", new { threadId = thread.Id, turnId, delta });
@@ -837,15 +846,16 @@ namespace Armada.Server.Ask
         }
 
         /// <summary>
-        /// Apply the CLI tool permission policy of an Ask turn (see <see cref="CliPermissionPolicyResolver.ResolveForAsk"/>):
+        /// Apply the CLI tool permission policy of an Ask turn (see <see cref="CliPermissionPolicyResolver.ResolveForAsk(ArmadaSettings, AskThread?, Captain, bool, bool)"/>):
         /// the launched captain is a copy whose auto-approve option is on only for Bypass (so the CLI's own shell and
         /// file tools are never pre-approved for whoever can post to a thread unless an admin chose Bypass, O-02), and
-        /// ApproveInArmada sends Claude Code's permission prompts to Armada. Narrations and summaries never prompt
+        /// ApproveInArmada sends Claude Code's and Mux's permission prompts to Armada (on the Admiral host, or on a Harbor
+        /// that can). Narrations and summaries never prompt
         /// (nobody is waiting for them), so ApproveInArmada runs them as Refuse.
         /// </summary>
         private void ApplyCliPermissions(CaptainChatTurnOptions options, AskThread thread, Captain captain, bool interactive)
         {
-            CliPermissionResolution permission = CliPermissionPolicyResolver.ResolveForAsk(_Settings, thread, captain, _Tokens != null);
+            CliPermissionResolution permission = CliPermissionPolicyResolver.ResolveForAsk(_Settings, thread, captain, _Tokens != null, _Threads.HarborCanPrompt(thread, captain.Runtime));
             CliPermissionPolicyEnum effective = permission.Effective;
             if (!interactive && effective == CliPermissionPolicyEnum.ApproveInArmada) effective = CliPermissionPolicyEnum.Refuse;
             options.Captain = CaptainRuntimeOptions.WithEffectiveAutoApprove(captain, effective == CliPermissionPolicyEnum.Bypass);

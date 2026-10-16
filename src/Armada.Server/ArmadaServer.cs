@@ -659,10 +659,12 @@ namespace Armada.Server
             _CliPermissions.AskThreads = _AskThreads;
             _CliPermissions.OnRequestEvent = (eventType, request) => _WebSocketHub.BroadcastCliPermission(eventType, request);
             _AskTurns.CliPermissions = _CliPermissions;
+            _AskTurns.VesselHosts = _VesselHosts;
             _AgentLifecycle.SetCliPermissionService(_CliPermissions);
             _WebSocketHub.SetCliPermissionService(_CliPermissions);
             _WebSocketHub.SetMissionService(_MissionService);
             _AskThreads.SessionTokensAvailable = _SessionTokenService != null;
+            _AskThreads.HarborPromptSupport = (tenantId, runtime) => _HarborConnectionManager != null && _HarborConnectionManager.AnyHarborCanPrompt(tenantId, runtime);
 
             // Push notifications to the mobile apps: fed from the hub's broadcast points and new Ask proposals; delivery
             // runs on a background worker and never blocks or fails the operation that raised it.

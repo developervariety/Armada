@@ -163,12 +163,13 @@ syntax).
   `Ask.CaptainAutoApprove` is true, the captain's legacy `autoApprove` option (absent or true is `Bypass`, false is
   `Refuse`), which reproduces the behavior before CLI tool permissions; `Permissions.AskDefaultPolicy` (default
   `ApproveInArmada`). `ApproveInArmada` runs as `Refuse` when the captain's runtime has no permission prompt hook
-  (`RuntimeUnsupported`; only Claude Code and ApiEndpoint captains have one, the latter for its `run_process` tool) or a Claude Code turn has no thread-scoped token (`NoSessionToken`). Milestone narrations and
+  (`RuntimeUnsupported`; only Claude Code, Mux 1.5.0 or later, and ApiEndpoint captains have one, the latter for its `run_process` tool) or a Claude Code or Mux turn has no thread-scoped token (`NoSessionToken`). Milestone narrations and
   summaries resolve the same way but never prompt (nobody is waiting for them): `ApproveInArmada` runs them as
   `Refuse`. With `Ask.CaptainAutoApprove` false (the default), an Ask turn bypasses only when the thread itself is set
   to `Bypass`, which only an admin can do.
 - **Approve in Armada.** A Claude Code turn is launched with `--permission-prompt-tool
-  mcp__armada__cli_permission_prompt` on its thread-scoped `armada` server. A tool that needs permission calls
+  mcp__armada__cli_permission_prompt` on its thread-scoped `armada` server, and a Mux turn (Mux 1.5.0 or later) with
+  `--permission-prompt-tool armada.cli_permission_prompt` (see `docs/CAPTAINS.md` for the Mux flags). A tool that needs permission calls
   `cli_permission_prompt`, which bypasses the proposal gate: a matching deny or allow rule decides at once; otherwise a
   `Pending` CLI permission request is stored (input redacted), a **permission card** is posted (`AskMessage` with
   `Kind` `CliPermission`, `Role` `System`, `ContentText` `<Tool>: <summary>`, and `CliPermissionRequest` attached), the

@@ -437,6 +437,31 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(request.Id, shown.CliPermissionRequest!.Id, "the card is readable once the wait returns");
             }));
 
+            cases.Add(Case("live_card_says_whether_the_owner_can_decide", "The ask.message that announces a permission card carries CanDecide for the thread owner (an admin owner gets the buttons without reloading)", async () =>
+            {
+                using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);
+                List<object> announced = new List<object>();
+                h.Threads.OnUserEvent = (tenantId, userId, eventType, payload) => { if (eventType == "ask.message") lock (announced) announced.Add(payload); };
+
+                foreach (bool admin in new[] { true, false })
+                {
+                    string userId = admin ? "usr_cpo_admin" : "usr_cpo_plain";
+                    UserMaster user = new UserMaster(Constants.DefaultTenantId, userId + "@example.com", "pw") { Id = userId, IsAdmin = admin };
+                    await h.Db.Driver.Users.CreateAsync(user).ConfigureAwait(false);
+                    AskThread thread = await h.Threads.CreateThreadAsync(AskTestHarness.User(userId, admin), null).ConfigureAwait(false);
+                    CliPermissionRequest request = new CliPermissionRequest { TenantId = thread.TenantId, UserId = thread.UserId, ThreadId = thread.Id, ToolName = "run_process", SummaryText = "ls", ExpiresUtc = DateTime.UtcNow.AddMinutes(5) };
+                    request = await h.Db.Driver.CliPermissionRequests.CreateAsync(request).ConfigureAwait(false);
+
+                    lock (announced) announced.Clear();
+                    AskMessage card = new AskMessage { Role = AskMessageRoleEnum.System, Kind = AskMessageKindEnum.CliPermission, ContentText = "run_process: ls" };
+                    card = await h.Threads.AppendCliPermissionCardAsync(thread, card, request).ConfigureAwait(false);
+
+                    AssertEqual(admin, card.CliPermissionRequest!.CanDecide, "announced card CanDecide for " + (admin ? "an admin" : "a non-admin") + " owner");
+                    AssertEqual(admin, card.CliPermissionRequest.CanRemember, "announced card CanRemember");
+                    AssertEqual(1, announced.Count, "one ask.message");
+                }
+            }));
+
             cases.Add(Case("sweep_resolves_orphaned_requests", "A pending request no call is waiting for (after a restart) is cancelled by the sweep", async () =>
             {
                 using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);

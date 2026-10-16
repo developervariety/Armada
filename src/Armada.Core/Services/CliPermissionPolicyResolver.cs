@@ -24,8 +24,10 @@ namespace Armada.Core.Services
     /// <item>Permissions.MissionDefaultPolicy (default Bypass, the behavior of a captain without autoApprove before).</item>
     /// </list>
     /// A vessel AutoApprove of false caps a mission's result below Bypass (Bypass becomes Refuse). Finally,
-    /// ApproveInArmada falls back to Refuse when the runtime has no prompt hook, the launch has no scoped MCP token, or
-    /// the launch runs on a Harbor.
+    /// ApproveInArmada falls back to Refuse when the runtime has no prompt hook (see <see cref="SupportsPromptHook"/>), a
+    /// Claude Code or Mux launch has no scoped MCP token, or the launch runs on a Harbor that cannot send the runtime's
+    /// prompts to Armada (it advertises <see cref="Armada.Core.Harbor.HarborProtocol.CliPermissionPromptCapability"/>
+    /// when it can).
     /// </summary>
     public static class CliPermissionPolicyResolver
     {
@@ -58,15 +60,27 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Whether a runtime has a permission prompt hook Armada drives (ApproveInArmada is honored): Claude Code through
-        /// --permission-prompt-tool, and API-endpoint captains, whose built-in shell tool runs in-process behind Armada's
-        /// own gate.
+        /// Whether a runtime has a permission prompt hook Armada drives (ApproveInArmada is honored): Claude Code and Mux
+        /// (1.5.0 or later, see <see cref="MuxCapabilities"/>) through --permission-prompt-tool, and API-endpoint
+        /// captains, whose built-in shell tool runs in-process behind Armada's own gate.
         /// </summary>
         /// <param name="runtime">Runtime.</param>
-        /// <returns>True for Claude Code and ApiEndpoint.</returns>
+        /// <returns>True for Claude Code, ApiEndpoint, and a Mux CLI that supports --permission-prompt-tool.</returns>
         public static bool SupportsPromptHook(AgentRuntimeEnum runtime)
         {
-            return runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.ApiEndpoint;
+            if (runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.ApiEndpoint) return true;
+            return runtime == AgentRuntimeEnum.Mux && MuxCapabilities.SupportsPermissionPromptTool();
+        }
+
+        /// <summary>
+        /// Whether a runtime reaches Armada's permission prompt tool over its scoped MCP connection, so ApproveInArmada
+        /// needs a scoped session token.
+        /// </summary>
+        /// <param name="runtime">Runtime.</param>
+        /// <returns>True for Claude Code and Mux.</returns>
+        public static bool PromptsOverMcp(AgentRuntimeEnum runtime)
+        {
+            return runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.Mux;
         }
 
         /// <summary>
@@ -78,6 +92,22 @@ namespace Armada.Core.Services
         /// <param name="hasSessionToken">Whether the turn's captain gets a thread-scoped MCP token.</param>
         /// <returns>The resolution; never null.</returns>
         public static CliPermissionResolution ResolveForAsk(ArmadaSettings settings, AskThread? thread, Captain captain, bool hasSessionToken)
+        {
+            return ResolveForAsk(settings, thread, captain, hasSessionToken, false);
+        }
+
+        /// <summary>
+        /// Resolve the policy of an Ask turn, where the turn may run on a Harbor (chosen when it launches).
+        /// </summary>
+        /// <param name="settings">Admiral settings.</param>
+        /// <param name="thread">Thread, or null.</param>
+        /// <param name="captain">Captain.</param>
+        /// <param name="hasSessionToken">Whether the turn's captain gets a thread-scoped MCP token.</param>
+        /// <param name="harborCanPrompt">Whether a connected Harbor the turn may run on can send the runtime's permission
+        /// prompts to Armada (see <see cref="Armada.Core.Harbor.HarborProtocol.CliPermissionPromptCapability"/>).</param>
+        /// <returns>The resolution; never null.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="settings"/> or <paramref name="captain"/> is null.</exception>
+        public static CliPermissionResolution ResolveForAsk(ArmadaSettings settings, AskThread? thread, Captain captain, bool hasSessionToken, bool harborCanPrompt)
         {
             if (settings == null) throw new ArgumentNullException(nameof(settings));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
@@ -105,8 +135,8 @@ namespace Armada.Core.Services
                 resolution.Source = CliPermissionPolicySourceEnum.ServerDefault;
             }
 
-            ApplyFallback(resolution, captain.Runtime, hasSessionToken, false);
-            resolution.Note = BuildNote(resolution, true);
+            ApplyFallback(resolution, captain.Runtime, hasSessionToken, false, harborCanPrompt);
+            resolution.Note = BuildNote(resolution, captain.Runtime, true);
             return resolution;
         }
 
@@ -120,6 +150,23 @@ namespace Armada.Core.Services
         /// <param name="remoteHarbor">Whether the launch runs on a Harbor.</param>
         /// <returns>The resolution; never null.</returns>
         public static CliPermissionResolution ResolveForMission(ArmadaSettings settings, Captain captain, Vessel? vessel, bool hasSessionToken, bool remoteHarbor)
+        {
+            return ResolveForMission(settings, captain, vessel, hasSessionToken, remoteHarbor, false);
+        }
+
+        /// <summary>
+        /// Resolve the policy of a mission launch, knowing whether its Harbor can send permission prompts to Armada.
+        /// </summary>
+        /// <param name="settings">Admiral settings.</param>
+        /// <param name="captain">Captain.</param>
+        /// <param name="vessel">Mission vessel, or null.</param>
+        /// <param name="hasSessionToken">Whether the launch carries a mission-scoped MCP token.</param>
+        /// <param name="remoteHarbor">Whether the launch runs on a Harbor.</param>
+        /// <param name="harborCanPrompt">With <paramref name="remoteHarbor"/>, whether that Harbor can send the runtime's
+        /// permission prompts to Armada.</param>
+        /// <returns>The resolution; never null.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="settings"/> or <paramref name="captain"/> is null.</exception>
+        public static CliPermissionResolution ResolveForMission(ArmadaSettings settings, Captain captain, Vessel? vessel, bool hasSessionToken, bool remoteHarbor, bool harborCanPrompt)
         {
             if (settings == null) throw new ArgumentNullException(nameof(settings));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
@@ -153,8 +200,8 @@ namespace Armada.Core.Services
                 resolution.Source = CliPermissionPolicySourceEnum.VesselAutoApprove;
             }
 
-            ApplyFallback(resolution, captain.Runtime, hasSessionToken, remoteHarbor);
-            resolution.Note = BuildNote(resolution, false);
+            ApplyFallback(resolution, captain.Runtime, hasSessionToken, remoteHarbor, harborCanPrompt);
+            resolution.Note = BuildNote(resolution, captain.Runtime, false);
             return resolution;
         }
 
@@ -185,20 +232,23 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private static void ApplyFallback(CliPermissionResolution resolution, AgentRuntimeEnum runtime, bool hasSessionToken, bool remoteHarbor)
+        private static void ApplyFallback(CliPermissionResolution resolution, AgentRuntimeEnum runtime, bool hasSessionToken, bool remoteHarbor, bool harborCanPrompt)
         {
             resolution.Effective = resolution.Requested;
             resolution.FallbackReason = null;
             if (resolution.Requested != CliPermissionPolicyEnum.ApproveInArmada) return;
 
-            if (remoteHarbor) resolution.FallbackReason = CliPermissionFallbackReasonEnum.RemoteHarbor;
-            else if (!SupportsPromptHook(runtime)) resolution.FallbackReason = CliPermissionFallbackReasonEnum.RuntimeUnsupported;
-            else if (runtime == AgentRuntimeEnum.ClaudeCode && !hasSessionToken) resolution.FallbackReason = CliPermissionFallbackReasonEnum.NoSessionToken;
+            // A Harbor prompts only over the scoped MCP connection (Claude Code, Mux); an API-endpoint captain's in-process
+            // gate exists only on the Admiral.
+            bool harborPrompts = harborCanPrompt && PromptsOverMcp(runtime);
+            if (remoteHarbor && !harborPrompts) resolution.FallbackReason = CliPermissionFallbackReasonEnum.RemoteHarbor;
+            else if (!remoteHarbor && !harborPrompts && !SupportsPromptHook(runtime)) resolution.FallbackReason = CliPermissionFallbackReasonEnum.RuntimeUnsupported;
+            else if (PromptsOverMcp(runtime) && !hasSessionToken) resolution.FallbackReason = CliPermissionFallbackReasonEnum.NoSessionToken;
 
             if (resolution.FallbackReason.HasValue) resolution.Effective = CliPermissionPolicyEnum.Refuse;
         }
 
-        private static string BuildNote(CliPermissionResolution resolution, bool ask)
+        private static string BuildNote(CliPermissionResolution resolution, AgentRuntimeEnum runtime, bool ask)
         {
             string from;
             switch (resolution.Source)
@@ -220,9 +270,17 @@ namespace Armada.Core.Services
                 string why;
                 switch (resolution.FallbackReason.Value)
                 {
-                    case CliPermissionFallbackReasonEnum.RuntimeUnsupported: why = "this captain's runtime has no permission prompt hook Armada can answer"; break;
+                    case CliPermissionFallbackReasonEnum.RuntimeUnsupported:
+                        why = runtime == AgentRuntimeEnum.Mux
+                            ? "neither the Admiral host nor a connected Harbor has Mux " + MuxCapabilities.PermissionPromptToolVersion.ToString(3) + " or later, which added --permission-prompt-tool"
+                            : "this captain's runtime has no permission prompt hook Armada can answer";
+                        break;
                     case CliPermissionFallbackReasonEnum.NoSessionToken: why = "the launch has no scoped Armada MCP token (Mcp.MissionScopedTokens is off or the owner is unknown)"; break;
-                    default: why = "the captain runs on a Harbor, which cannot route permission prompts to Armada yet"; break;
+                    default:
+                        why = runtime == AgentRuntimeEnum.Mux
+                            ? "the captain runs on a Harbor that cannot send Mux permission prompts to Armada (update the Harbor, and install Mux " + MuxCapabilities.PermissionPromptToolVersion.ToString(3) + " or later there)"
+                            : "the captain runs on a Harbor that cannot send its permission prompts to Armada (update the Harbor)";
+                        break;
                 }
 
                 text = NotePrefix + "ApproveInArmada requested (from " + from + "), running as Refuse because " + why + ".";

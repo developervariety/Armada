@@ -298,6 +298,18 @@ namespace Armada.Runtimes
                 }
             }
 
+            // Approve in Armada: the CLI's permission prompts go to Armada's prompt tool on the scoped MCP server bound above.
+            // Without that binding the tool is unreachable, so the launch stays as the auto-approve option says (Refuse).
+            if (request.CliPermissionPolicy == Armada.Core.Enums.CliPermissionPolicyEnum.ApproveInArmada)
+            {
+                bool prompts = bindMcp && CliPermissionPromptSetup.Configure(runtime, Armada.Core.Enums.CliPermissionPolicyEnum.ApproveInArmada, request.PermissionPromptTimeoutSeconds ?? 600);
+                string note = prompts
+                    ? "permission prompts go to Armada (Approve in Armada)"
+                    : "Approve in Armada runs as Refuse here (" + (bindMcp ? "this host's " + runtimeType + " cannot send permission prompts" : "no scoped MCP binding") + ")";
+                _Logging.Info("[LocalHarborJobRunner] job " + jobId + ": " + note);
+                jobLog?.WriteNote(note);
+            }
+
             try
             {
                 await runtime.StartAsync(

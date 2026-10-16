@@ -276,8 +276,13 @@ and the server defaults ([CAPTAINS.md](CAPTAINS.md#cli-tool-permissions)):
 
 `ApproveInArmada` is the `Refuse` launch plus a way to ask: Claude Code gets `--permission-prompt-tool
 mcp__armada__cli_permission_prompt`, so a tool that would be refused waits for a person's decision instead.
+Mux 1.5.0 or later gets `--approval-policy ask --permission-prompt-tool armada.cli_permission_prompt` with
+`--sandbox workspace-write`: file edits inside the worktree run (like Claude Code's `acceptEdits`), edits outside it are
+refused, and other mutating tools wait for a decision; a prompt error, timeout, or unreadable answer denies the call.
 ApiEndpoint captains ask the same way for each `run_process` call, in-process.
-Every other runtime, and every Harbor launch, runs `ApproveInArmada` as `Refuse`.
+A Harbor that advertises the `cli-permission-prompt` capability sets up the same flags for Claude Code and Mux on its
+host, against the scoped MCP server bound to the launch's token. Every other runtime (and Mux before 1.5.0), and every
+launch on a Harbor without that capability, runs `ApproveInArmada` as `Refuse`.
 
 With auto-approve on, a captain can run any command the Armada account can run: read files outside the dock,
 use credentials in the environment, and reach the network. Treat every mission prompt, repository, and Ask

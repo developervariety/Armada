@@ -4032,10 +4032,10 @@ events, CLI permission policy, telemetry). Captain and Armada messages increment
 directory) follow the turn's CLI tool permission policy, resolved in this order: the thread's `CliPermissionPolicy`; the
 captain's `CliPermissionPolicy` (a captain-level `Bypass` only when `Ask.CaptainAutoApprove` is true); when
 `Ask.CaptainAutoApprove` is true, the captain's legacy `autoApprove` option (absent or true is `Bypass`, false is
-`Refuse`); `Permissions.AskDefaultPolicy` (default `ApproveInArmada`). Under `ApproveInArmada` a Claude Code captain's
+`Refuse`); `Permissions.AskDefaultPolicy` (default `ApproveInArmada`). Under `ApproveInArmada` a Claude Code or Mux (1.5.0 or later) captain's
 permission prompt (or an ApiEndpoint captain's `run_process` call) becomes a [CLI permission request](#cli-permissions)
 and a `CliPermission` card in the thread; the tool waits until an approver decides or the request expires
-(`Permissions.PromptTimeoutSeconds`). Other runtimes, and Claude Code turns without a thread-scoped token, run
+(`Permissions.PromptTimeoutSeconds`). Other runtimes, and Claude Code or Mux turns without a thread-scoped token, run
 `ApproveInArmada` as `Refuse`. Narrations and
 summaries never prompt (`ApproveInArmada` runs them as `Refuse`). Armada's own MCP tools stay available to the captain in
 every policy (state changes become proposals). `PUT .../cli-permission-policy` is owner-only (another user's thread
@@ -4112,7 +4112,7 @@ ShowThinking? }`; `AskActionRequest { ToolName, Arguments }`.
 
 CLI tool permissions govern a CLI captain's own tools (shell commands, web fetches, file tools outside the accepted
 edits; not Armada's MCP tools, which are governed by Ask proposals and per-tool authorization). When a launch runs with
-the `ApproveInArmada` policy, Claude Code sends each permission prompt to Armada's `cli_permission_prompt` MCP tool and a
+the `ApproveInArmada` policy, Claude Code (and Mux 1.5.0 or later) sends each permission prompt to Armada's `cli_permission_prompt` MCP tool and a
 **CLI permission request** (`cpr_`) waits for an approver; a matching **rule** (`cpl_`) decides it without asking. See
 [CAPTAINS.md](CAPTAINS.md#cli-tool-permissions) for the policy resolution and the per-runtime flags.
 
@@ -9051,7 +9051,7 @@ The policy a captain launch runs with (`AskThread.CliPermission` for the thread'
 | `Requested` | [CliPermissionPolicyEnum](#clipermissionpolicyenum) | The policy the resolution order selected |
 | `Effective` | [CliPermissionPolicyEnum](#clipermissionpolicyenum) | The policy the launch uses (`Requested`, or `Refuse` after a fallback) |
 | `Source` | string | `AskThread`, `VesselAutoApprove`, `Captain`, `CaptainAutoApprove` (the legacy `autoApprove` option), or `ServerDefault` |
-| `FallbackReason` | string? | Why `ApproveInArmada` runs as `Refuse`: `RuntimeUnsupported` (no permission prompt hook; only Claude Code and ApiEndpoint have one), `NoSessionToken` (a Claude Code launch without a scoped MCP token), or `RemoteHarbor`; null otherwise |
+| `FallbackReason` | string? | Why `ApproveInArmada` runs as `Refuse`: `RuntimeUnsupported` (no permission prompt hook; only Claude Code, Mux 1.5.0 or later, and ApiEndpoint have one), `NoSessionToken` (a Claude Code or Mux launch without a scoped MCP token), or `RemoteHarbor` (the launch runs on a Harbor that does not advertise the `cli-permission-prompt` capability for the runtime); null otherwise |
 | `Note` | string | One-line English explanation, including where to change the policy |
 
 ---
@@ -9219,7 +9219,7 @@ Ownership scope for Category B configuration entities (see [Data Scoping](#data-
 | Value | Description |
 |---|---|
 | `Refuse` | Tools that need approval are refused; the turn or mission continues without them |
-| `ApproveInArmada` | The CLI's permission prompts become CLI permission requests that an approver decides (Claude Code, and the built-in `run_process` tool of ApiEndpoint captains; other runtimes run it as `Refuse`) |
+| `ApproveInArmada` | The CLI's permission prompts become CLI permission requests that an approver decides (Claude Code, Mux 1.5.0 or later, and the built-in `run_process` tool of ApiEndpoint captains; other runtimes run it as `Refuse`) |
 | `Bypass` | The runtime's own permission-bypass flag (for example `--dangerously-skip-permissions`) |
 
 ---

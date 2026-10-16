@@ -298,7 +298,9 @@ as described in [DOCKER.md](DOCKER.md#vessels-from-repositories-mounted-into-the
 **A captain says a shell command was refused, or a mission waits on approvals.** That is the CLI tool permission
 policy. The first `Armada:` line of `missions/<missionId>.log`, and the CLI tools note in an Ask conversation header,
 say which policy the launch used, where it came from, and where to change it (`ApproveInArmada` runs as `Refuse` on
-runtimes other than Claude Code and ApiEndpoint, on Harbors, and for Claude Code without a scoped MCP token). Pending requests are listed at
+runtimes other than Claude Code, Mux 1.5.0 or later, and ApiEndpoint, on Harbors that do not advertise the
+`cli-permission-prompt` capability for the runtime (update the Harbor, and its `mux`), and for Claude Code or Mux
+without a scoped MCP token). Pending requests are listed at
 `/cli-permissions` in the dashboard and in the TUI Approvals center; an undecided request is denied after
 `permissions.promptTimeoutSeconds` (default 600, 10 to 3600). The server defaults are `permissions.askDefaultPolicy`
 (`ApproveInArmada`) and `permissions.missionDefaultPolicy` (`Bypass`), and `permissions.allowOwnerApproval` (default

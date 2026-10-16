@@ -25,6 +25,13 @@ namespace Armada.Runtimes
         public override bool SupportsResume => false;
 
         /// <summary>
+        /// When set (Approve in Armada), tool calls that need approval are sent to Armada's permission prompt tool on the
+        /// scoped "armada" MCP server (<c>mux print --permission-prompt-tool</c>). Null (the default) leaves approval to
+        /// the captain's options.
+        /// </summary>
+        public MuxPermissionPrompt? PermissionPrompt { get; set; } = null;
+
+        /// <summary>
         /// Path to the mux CLI executable.
         /// </summary>
         public string ExecutablePath
@@ -88,7 +95,7 @@ namespace Armada.Runtimes
         {
             MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
             string? effort = ReasoningEffortTranslator.ToMuxEffort(captain?.ReasoningEffort);
-            return MuxCommandBuilder.BuildPrintArguments(workingDirectory, prompt, model, finalMessageFilePath, options, effort, ShowThinking);
+            return MuxCommandBuilder.BuildPrintArguments(workingDirectory, prompt, model, finalMessageFilePath, options, effort, ShowThinking, PermissionPrompt);
         }
 
         /// <summary>

@@ -172,6 +172,17 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Whether a connected Harbor can send a runtime's permission prompts to Armada (Approve in Armada).
+        /// </summary>
+        /// <param name="harborId">Harbor identifier.</param>
+        /// <param name="runtime">Captain runtime.</param>
+        /// <returns>True when the Harbor advertised it for the runtime.</returns>
+        public bool HarborCanPrompt(string? harborId, AgentRuntimeEnum runtime)
+        {
+            return _Harbors != null && !String.IsNullOrWhiteSpace(harborId) && _Harbors.CanPrompt(harborId!, runtime);
+        }
+
+        /// <summary>
         /// Whether a process id belongs to a captain this Admiral is running on a Harbor.
         /// </summary>
         /// <param name="processId">Process id.</param>
