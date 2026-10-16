@@ -1514,15 +1514,34 @@ namespace Armada.Test.Automated.Suites
 
                 Mission m1 = await CreateMissionAsync(vessel1, "Combined Assigned");
                 string m1Id = m1.Id;
-                await TransitionAndAssertAsync(m1Id, "Assigned");
+                Mission transitionResult = await TransitionAndAssertAsync(m1Id, "Assigned");
+                WriteCombinedFilterObservation("transition-response", transitionResult);
+                _ = await ReadCombinedFilterMissionAsync(m1Id, "first-after-transition");
 
-                await CreateMissionAsync(vessel1, "Combined Pending");
+                Mission m2 = await CreateMissionAsync(vessel1, "Combined Pending");
+                WriteCombinedFilterObservation("second-create-response", m2);
+                Mission firstBeforeEnumeration = await ReadCombinedFilterMissionAsync(m1Id, "first-before-enumeration");
+                Mission secondBeforeEnumeration = await ReadCombinedFilterMissionAsync(m2.Id, "second-before-enumeration");
 
                 StringContent content = JsonHelper.ToJsonContent(new { Status = "Assigned", VesselId = vessel1 });
                 HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/missions/enumerate", content);
                 EnumerationResult<Mission> result = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(response);
 
+                Console.WriteLine("[COMBINED-FILTER] response=" + (int)response.StatusCode
+                    + " totalRecords=" + result.TotalRecords + " objectCount=" + result.Objects.Count
+                    + " requestedStatus=Assigned requestedVesselId=" + vessel1
+                    + " firstId=" + m1Id + " secondId=" + m2.Id
+                    + " firstBefore=" + firstBeforeEnumeration.Status + " secondBefore=" + secondBeforeEnumeration.Status);
+                foreach (Mission obj in result.Objects)
+                    WriteCombinedFilterObservation("enumeration-row", obj);
+                Mission firstAfterEnumeration = await ReadCombinedFilterMissionAsync(m1Id, "first-after-enumeration");
+                Mission secondAfterEnumeration = await ReadCombinedFilterMissionAsync(m2.Id, "second-after-enumeration");
+                Console.WriteLine("[COMBINED-FILTER] afterEnumeration first=" + firstAfterEnumeration.Status
+                    + " second=" + secondAfterEnumeration.Status);
+
                 AssertTrue(result.Objects.Count >= 1);
+                AssertTrue(result.Objects.Any(obj => obj.Id == m1Id),
+                    "Combined filter did not return the manually assigned mission " + m1Id + ".");
                 foreach (Mission obj in result.Objects)
                 {
                     AssertEqual(MissionStatusEnum.Assigned, obj.Status, "Enumeration returned mission " + obj.Id + " (" + obj.Title + ") for vessel " + obj.VesselId + " with status " + obj.Status + "; expected Assigned for combined filters.");
@@ -1780,13 +1799,34 @@ namespace Armada.Test.Automated.Suites
             return await _AuthClient.PutAsync("/api/v1/missions/" + missionId + "/status", content);
         }
 
-        private async Task TransitionAndAssertAsync(string missionId, string status)
+        private async Task<Mission> TransitionAndAssertAsync(string missionId, string status)
         {
             HttpResponseMessage resp = await TransitionAsync(missionId, status);
             string body = await resp.Content.ReadAsStringAsync();
             AssertEqual(HttpStatusCode.OK, resp.StatusCode, "transition to " + status + " response: " + body);
             Mission transitioned = JsonHelper.Deserialize<Mission>(body);
             AssertEqual(status, transitioned.Status.ToString(), "Mission " + missionId + " transition expected " + status + " but returned " + transitioned.Status + ".");
+            return transitioned;
+        }
+
+        private async Task<Mission> ReadCombinedFilterMissionAsync(string missionId, string phase)
+        {
+            using HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/missions/" + missionId);
+            string body = await response.Content.ReadAsStringAsync();
+            AssertEqual(HttpStatusCode.OK, response.StatusCode, "mission read " + phase + " for " + missionId + ".");
+            Mission mission = JsonHelper.Deserialize<Mission>(body);
+            WriteCombinedFilterObservation(phase, mission);
+            return mission;
+        }
+
+        private static void WriteCombinedFilterObservation(string phase, Mission mission)
+        {
+            Console.WriteLine("[COMBINED-FILTER] phase=" + phase + " id=" + mission.Id
+                + " title=" + mission.Title + " vesselId=" + mission.VesselId
+                + " status=" + mission.Status + " assignmentState=" + mission.AssignmentState
+                + " captainId=" + (mission.CaptainId ?? "null") + " dockId=" + (mission.DockId ?? "null")
+                + " processId=" + (mission.ProcessId?.ToString() ?? "null")
+                + " lastUpdateUtc=" + mission.LastUpdateUtc.ToString("O"));
         }
 
         private async Task<string> SetupVesselAsync()
