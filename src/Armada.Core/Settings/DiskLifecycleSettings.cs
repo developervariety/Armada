@@ -148,12 +148,13 @@ namespace Armada.Core.Settings
 
         /// <summary>
         /// Days without any write anywhere inside an operator-evidence folder after which the
-        /// whole folder is reclaimable. Defaults to 14.
+        /// whole folder is reclaimable. Zero keeps every folder, because objectives and incidents cite
+        /// files inside them as evidence. Defaults to 0.
         /// </summary>
         public int OperatorEvidenceRetentionDays
         {
             get => _OperatorEvidenceRetentionDays;
-            set => _OperatorEvidenceRetentionDays = Math.Max(1, Math.Min(3650, value));
+            set => _OperatorEvidenceRetentionDays = Math.Max(0, Math.Min(3650, value));
         }
 
         /// <summary>
@@ -201,7 +202,7 @@ namespace Armada.Core.Settings
         private int _BackupRetentionDays = 7;
         private int _MinBackupCount = 2;
         private int _OperatorEvidencePayloadRetentionHours = 24;
-        private int _OperatorEvidenceRetentionDays = 14;
+        private int _OperatorEvidenceRetentionDays = 0;
         private int _LowSpaceThresholdGb = 20;
         private int _LowSpacePayloadRetentionHours = 6;
 

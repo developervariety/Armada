@@ -704,7 +704,7 @@ namespace Armada.Core.Services
 
         // Operator proof runs keep their receipts, logs and full clones here. A folder with no write
         // anywhere inside it for the payload retention loses its clones and build outputs; one idle for
-        // the folder retention is removed whole. A folder holding the keep marker is never touched.
+        // the folder retention, when one is set, is removed whole. A folder holding the keep marker is never touched.
         private async Task ScanOperatorEvidence(DiskLifecycleSettings section, bool delete, DiskLifecycleReport report, CancellationToken token)
         {
             DiskLifecycleCategory category = NewCategory(_CategoryOperatorEvidence);
@@ -719,6 +719,7 @@ namespace Armada.Core.Services
                 ? Math.Min(section.LowSpacePayloadRetentionHours, section.OperatorEvidencePayloadRetentionHours)
                 : section.OperatorEvidencePayloadRetentionHours;
             DateTime payloadCutoff = DateTime.UtcNow.AddHours(-payloadHours);
+            bool removeWholeFolders = section.OperatorEvidenceRetentionDays > 0;
             DateTime folderCutoff = DateTime.UtcNow.AddDays(-section.OperatorEvidenceRetentionDays);
             if (report.LowSpace) category.Note = "low-space mode: payload retention " + payloadHours + "h";
 
@@ -745,7 +746,7 @@ namespace Armada.Core.Services
                     continue;
                 }
 
-                if (newest <= folderCutoff)
+                if (removeWholeFolders && newest <= folderCutoff)
                 {
                     category.ReclaimableBytes += bytes;
                     category.ReclaimableItems++;
@@ -1278,17 +1279,17 @@ namespace Armada.Core.Services
             return total;
         }
 
-        // The newest write time of the directory or anything inside it. It stops at the first entry
-        // newer than the stop bound, because the caller only needs to know the tree is recent.
+        // The newest write time of any file inside the directory. Directory times are not used, because
+        // removing payload rewrites them; a directory with no files falls back to its own time. It stops at
+        // the first file newer than the stop bound, because the caller only needs to know the tree is recent.
         private DateTime NewestWriteTimeUtc(string path, DateTime stopAfter)
         {
-            DateTime newest = SafeGetLastWriteTimeUtc(path);
-            if (newest > stopAfter) return newest;
+            DateTime newest = DateTime.MinValue;
             try
             {
-                foreach (FileSystemInfo entry in new DirectoryInfo(path).EnumerateFileSystemInfos("*", RecursiveEnumeration()))
+                foreach (FileInfo file in new DirectoryInfo(path).EnumerateFiles("*", RecursiveEnumeration()))
                 {
-                    DateTime written = entry.LastWriteTimeUtc;
+                    DateTime written = file.LastWriteTimeUtc;
                     if (written > newest) newest = written;
                     if (newest > stopAfter) return newest;
                 }
@@ -1302,7 +1303,7 @@ namespace Armada.Core.Services
                 RecordError("cannot read write times under " + path + ": " + ex.GetType().Name + ": " + ex.Message);
                 return DateTime.UtcNow;
             }
-            return newest;
+            return newest == DateTime.MinValue ? SafeGetLastWriteTimeUtc(path) : newest;
         }
 
         // Outermost payload directories under an evidence folder; a payload directory's own contents are

@@ -418,6 +418,14 @@ namespace Armada.Test.Unit.Suites.Services
 
                     layout.Settings.DiskLifecycle.Enabled = true;
                     layout.Settings.DiskLifecycle.DryRun = false;
+                    DiskLifecycleReport keepFolders = await service.ReconcileAsync().ConfigureAwait(false);
+                    AssertTrue(File.Exists(Path.Combine(expired, "receipt.json")), "With no folder retention set, an old folder keeps its files");
+                    AssertFalse(Directory.Exists(Path.Combine(expired, "checkout", ".git")), "With no folder retention set, an old folder still loses its payload");
+                    AssertEqual(4, keepFolders.Categories.First(c => c.Category == "operatorEvidence").ReclaimableItems, "The .git and bin of the idle and the old folder are reclaimable");
+                    AssertTrue(keepFolders.Actions.Any(a => a.Category == "operatorEvidence" && a.Disposition == "reclaimed" && a.Reason.Contains("receipts and logs kept", StringComparison.Ordinal)),
+                        "A payload reclaim records its reason");
+
+                    layout.Settings.DiskLifecycle.OperatorEvidenceRetentionDays = 14;
                     DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
 
                     AssertFalse(Directory.Exists(Path.Combine(idle, "checkout", ".git")), "An idle clone's .git is reclaimed");
@@ -430,10 +438,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(live.LowSpace, "Ample free space is not low-space mode");
 
                     DiskLifecycleCategory category = live.Categories.First(c => c.Category == "operatorEvidence");
-                    AssertEqual(3, category.ReclaimableItems, "Two payload directories and one whole folder are reclaimable");
-                    AssertEqual(2, category.ProtectedItems, "The recent and the kept folders are protected");
-                    AssertTrue(live.Actions.Any(a => a.Category == "operatorEvidence" && a.Disposition == "reclaimed" && a.Reason.Contains("receipts and logs kept", StringComparison.Ordinal)),
-                        "A payload reclaim records its reason");
+                    AssertEqual(1, category.ReclaimableItems, "With a folder retention set, the old folder is reclaimable whole");
+                    AssertEqual(3, category.ProtectedItems, "The recent, the kept and the already stripped folders are protected");
                 }
                 finally
                 {

@@ -648,11 +648,12 @@ counted nor followed.
 
 Operator evidence is the `operator-evidence` folder under the log directory,
 where operator proof runs keep receipts, logs and full clones. A folder's age is
-its newest write anywhere inside it. After
+the newest write of any file inside it. After
 `diskLifecycle.operatorEvidencePayloadRetentionHours` (default 24) a folder
 loses its nested `.git`, `bin`, `obj` and `node_modules` directories and keeps
-every other file. After `diskLifecycle.operatorEvidenceRetentionDays` (default
-14) the whole folder is removed. A folder holding an `.armada-keep` file is
+every other file. When `diskLifecycle.operatorEvidenceRetentionDays` is set
+above `0` (default `0`, which keeps every folder because objectives and incidents
+cite files inside them), a folder idle that many days is removed whole. A folder holding an `.armada-keep` file is
 never touched. When free space on the log volume is below
 `diskLifecycle.lowSpaceThresholdGb` (default 20; `0` turns it off), the pass
 runs in low-space mode and uses `diskLifecycle.lowSpacePayloadRetentionHours`
