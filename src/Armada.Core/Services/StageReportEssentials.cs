@@ -52,6 +52,16 @@ namespace Armada.Core.Services
             "tests written"
         };
 
+        private static readonly Regex _ParagraphDefect = new Regex(
+            @"\brequired\s+(?:revision|change|correction)s?\b|\bincorrect(?:ly)?\b|\bcontradicts?\b|\bunsupported\b|\bunproven\b|\bnot\s+proven\b"
+            + @"|\b(?:does|do)\s+not\s+(?:meet|establish|prove|satisfy)\b|\bstill\s+(?!pass)[a-z]+s\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // Case-sensitive on purpose: a directive opens a sentence with a capitalised verb.
+        private static readonly Regex _ParagraphDirective = new Regex(
+            @"(?:^|[.;!?]\s+)(?:Add|Replace|Correct|Fix|Resolve|Apply|Validate|Repair|Remove|Restore|Obtain|Prove|Preserve|Rerun|Re-run)\s",
+            RegexOptions.Compiled);
+
         private const int _VerdictSectionChars = 600;
         private const int _KeptSectionChars = 900;
 
@@ -124,7 +134,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Required items in Judge sections plus existing explicit NOT MET and Blocking items.
-        /// Correctness, Failure Modes and Tests list items and labeled findings are considered defects;
+        /// Correctness, Failure Modes and Tests list items, labeled findings, and paragraphs that name a
+        /// defect or ask for a fix are considered defects;
         /// Verdict carries required changes. Passing test summaries, MET criteria and explicitly
         /// non-blocking items are excluded. When the bound cannot hold every item, the result names the
         /// omission instead of claiming completeness.
@@ -180,7 +191,8 @@ namespace Armada.Core.Services
                     || section == "Evidence"
                     || section == "Residual Risks";
                 bool labeledFinding = findingSectionItem && IsFindingLabel(item);
-                bool sectionFinding = findingSectionItem && (listItem || labeledFinding || IsUnmarkedTestGap(item, section))
+                bool paragraphFinding = !listItem && IsParagraphFinding(item, section);
+                bool sectionFinding = findingSectionItem && (listItem || labeledFinding || paragraphFinding || IsUnmarkedTestGap(item, section))
                     || section == "Verdict"
                         && (ContainsAny(raw, "NEEDS_REVISION", "REQUIRED CHANGE", "MUST ") || (listItem && !ContainsAny(raw, "PASS")));
                 if (!notMetCriterion && !explicitBlocking && !sectionFinding) continue;
@@ -415,6 +427,17 @@ namespace Armada.Core.Services
                     || Regex.IsMatch(item, @"\bno\s+tests?\s+(?:cover|covers|assert|asserts|for|exists?\s+for)\b", RegexOptions.IgnoreCase)
                     || Regex.IsMatch(item, @"\bno\s+assertions?\s+(?:for|covers?|exists?\s+for)\b", RegexOptions.IgnoreCase)
                     || HasDoesNotCoverFinding(item));
+        }
+
+        // A Judge often writes a defect as prose rather than a list item. A paragraph in Correctness,
+        // Failure Modes or Tests is a finding when it names a defect or asks for a fix; narration of what
+        // was reviewed, passing results and bare lead-in lines ending in a colon are not.
+        private static bool IsParagraphFinding(string item, string section)
+        {
+            if (section != "Correctness" && section != "Failure Modes" && section != "Tests") return false;
+            string text = item.Trim();
+            if (text.Length == 0 || text.EndsWith(":", StringComparison.Ordinal)) return false;
+            return _ParagraphDefect.IsMatch(text) || _ParagraphDirective.IsMatch(text);
         }
 
         private static bool HasDoesNotCoverFinding(string item)

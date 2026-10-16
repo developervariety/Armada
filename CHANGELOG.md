@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The rescue findings list carries a Judge defect written as a paragraph under
+  Correctness, Failure Modes or Tests, not only list items, so a rescue sees a
+  required revision or a missing proof that the review states in prose.
+
 - API-endpoint conversation compaction records a `mission.context_compacted`
   event for each pass that replaces a tool result, with the removed bytes in
   total and per tool, so its cost is visible on the mission.

@@ -125,7 +125,10 @@ Correctness, Failure Modes, Tests, Evidence, Residual Risks and Verdict, plus
 existing `NOT DELIVERED`,
 `NOT MET`, `NOT RESOLVED` and `Blocking` items. It keeps file and line anchors,
 includes unbulleted `R<number>` and `P0`–`P3` findings with their explanation,
-excludes passing test summaries, places NOT MET criteria after defects, removes
+includes a Correctness, Failure Modes or Tests paragraph that names a defect
+(a required revision, an incorrect or unsupported claim, a proof or boundary the
+change does not establish) or asks for a fix, excludes narration of what was
+reviewed, bare lead-in lines and passing test summaries, places NOT MET criteria after defects, removes
 MET criteria and narration before shortening, and uses one list marker per item.
 The embedded full-review
 cap is 12,000 characters. When the report fits, the brief carries it whole.

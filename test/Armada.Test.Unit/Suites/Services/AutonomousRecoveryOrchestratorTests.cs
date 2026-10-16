@@ -4091,6 +4091,10 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildRescueDescription_LongDescription_KeepsTheNewestReportEssentials).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief keeps every finding's opening inside its bound when the findings are long",
                 BuildBlockingFindingsForBrief_ManyLongFindings_KeepsEveryOpeningInsideTheBound).ConfigureAwait(false);
+            await RunTest("BuildBlockingFindingsForBrief carries a required revision written as a paragraph",
+                BuildBlockingFindingsForBrief_RequiredRevisionInAParagraph_IsCarried).ConfigureAwait(false);
+            await RunTest("BuildBlockingFindingsForBrief carries test and failure-mode gaps written as paragraphs",
+                BuildBlockingFindingsForBrief_TestAndFailureModeGapsInParagraphs_AreCarried).ConfigureAwait(false);
             await RunTest("TruncateReviewerFeedbackForBrief drops an over-budget narration preamble so the findings survive",
                 TruncateReviewerFeedbackForBrief_NarrationPreambleOverBudget_KeepsTheFindingsNotTheChatter).ConfigureAwait(false);
         }
@@ -4945,6 +4949,98 @@ namespace Armada.Test.Unit.Suites.Services
             AssertContains("[detail omitted]", block, "A cut finding says its details were omitted.");
             AssertContains(StageReportEssentials.IncompleteFindingsMarker, block, "The shortened list says it is incomplete.");
             AssertEqual(String.Empty, AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief("## Verdict\nPASS", 4000), "A review with no blocking item yields nothing");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildBlockingFindingsForBrief_RequiredRevisionInAParagraph_IsCarried()
+        {
+            string review = String.Join("\n", new[]
+            {
+                "## Completeness",
+                "",
+                "The diff adds only the proof document.",
+                "",
+                "## Correctness",
+                "",
+                "One required revision: `docs/proof.md:49-50` incorrectly states that both inventories used the same top-level directory.",
+                "",
+                "The retained runner inventories the root, while the canonical command defaults to the tests directory.",
+                "",
+                "This affects the proof itself. Preserve the passing run evidence, correct the description, and obtain discovery-only inventories for each configuration.",
+                "",
+                "## Tests",
+                "",
+                "All primary files match their receipt digests. Current Build and Unit checks passed.",
+                "",
+                "## Failure Modes",
+                "",
+                "The document correctly preserves the unnamed skips and the scheduling overlap.",
+                "",
+                "No executable behavior changed. The remaining risk is an unsupported discovery-equivalence claim.",
+                "",
+                "## Verdict",
+                "",
+                "Correct the discovery evidence and its description.",
+                "",
+                "[ARMADA:VERDICT] NEEDS_REVISION"
+            });
+
+            string block = AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief(review, 12000);
+
+            AssertContains("One required revision: `docs/proof.md:49-50` incorrectly states", block, "A required revision written as a paragraph is carried with its anchor");
+            AssertContains("Preserve the passing run evidence, correct the description", block, "The paragraph that states the fix is carried");
+            AssertContains("unsupported discovery-equivalence claim", block, "An unsupported claim named under Failure Modes is carried");
+            AssertFalse(block.Contains("correctly preserves", StringComparison.Ordinal), "A Failure Modes paragraph that reports correct behaviour is not a finding");
+            AssertFalse(block.Contains("match their receipt digests", StringComparison.Ordinal), "A passing Tests paragraph is not a finding");
+            AssertFalse(block.Contains("The diff adds only", StringComparison.Ordinal), "Completeness narration is not a finding");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildBlockingFindingsForBrief_TestAndFailureModeGapsInParagraphs_AreCarried()
+        {
+            string review = String.Join("\n", new[]
+            {
+                "## Correctness",
+                "",
+                "Required revisions:",
+                "",
+                "1. **Unknown eligibility can produce a false pass.** `Scorecard.cs:754-758` excludes missing fields as a mismatch.",
+                "",
+                "2. **Late evidence counts.** `Scorecard.cs:1082-1098` checks clocks against the deadline only.",
+                "",
+                "## Tests",
+                "",
+                "Foreground `sh scripts/check.sh` completed at the reviewed tip with exit 0 and zero failures. `git diff --check` also passed.",
+                "",
+                "The new tests exercise both consumers and verify literal counts. They do not prove the missing behavior above. The bound test changes the read bound to 1. Add production-bound, in-flight cancellation, reopened-store, and deferred-answer proof.",
+                "",
+                "The retained gate metadata identifies its run as precommit. It does not establish the required after-commit retained gate evidence.",
+                "",
+                "## Failure Modes",
+                "",
+                "Reviewed missing fields, conflicting duplicates, late clocks, scan limits, and cancellation.",
+                "",
+                "`Scorecard.cs:550` still materializes raw rows through `Read`; the complete path does not meet the required retained-data boundary. Replace this loading path with bounded summaries.",
+                "",
+                "The direct risks are misleading coverage and excessive allocation. The diff does not change order execution.",
+                "",
+                "## Verdict",
+                "",
+                "NEEDS_REVISION. Complete the required corrections above.",
+                "",
+                "[ARMADA:VERDICT] NEEDS_REVISION"
+            });
+
+            string block = AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief(review, 12000);
+
+            AssertContains("Unknown eligibility can produce a false pass.", block, "Numbered Correctness items stay carried");
+            AssertContains("Add production-bound, in-flight cancellation, reopened-store, and deferred-answer proof.", block, "A missing-proof request in a Tests paragraph is carried");
+            AssertContains("does not establish the required after-commit retained gate evidence", block, "A missing gate obligation in a Tests paragraph is carried");
+            AssertContains("`Scorecard.cs:550` still materializes raw rows", block, "A Failure Modes defect paragraph is carried with its anchor");
+            AssertFalse(block.Contains("- Required revisions:", StringComparison.Ordinal), "A bare lead-in line is not a finding");
+            AssertFalse(block.Contains("Reviewed missing fields", StringComparison.Ordinal), "A list of what was reviewed is not a finding");
+            AssertFalse(block.Contains("does not change order execution", StringComparison.Ordinal), "A no-change scope statement is not a finding");
+            AssertFalse(block.Contains("zero failures", StringComparison.Ordinal), "A passing check summary is not a finding");
             await Task.CompletedTask;
         }
 
