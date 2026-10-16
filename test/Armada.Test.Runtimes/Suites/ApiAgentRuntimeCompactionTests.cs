@@ -27,9 +27,56 @@ namespace Armada.Test.Runtimes.Suites
             {
                 List<ChatMessage> messages = BuildConversation(6, 64);
                 ApiAgentRuntime runtime = BuildRuntime();
+                List<RuntimeContextCompaction> records = new List<RuntimeContextCompaction>();
+                runtime.OnContextCompacted += (processId, record) => records.Add(record);
                 await runtime.EnsureConversationBoundsAsync(1, messages, "launch prompt", CancellationToken.None).ConfigureAwait(false);
                 foreach (ChatMessage message in messages)
                     AssertFalse(IsCompacted(message), "and nothing is compacted");
+                AssertEqual(0, records.Count, "and no compaction record is raised");
+            });
+
+            await RunTest("A compaction pass reports what it removed and keeps the system and launch prompts", async () =>
+            {
+                List<ChatMessage> messages = BuildConversation(60, 64 * 1024);
+                messages[5].ToolName = "grep";
+                int bytesBefore = MeasureBytes(messages);
+                ApiAgentRuntime runtime = BuildRuntime();
+                List<RuntimeContextCompaction> records = new List<RuntimeContextCompaction>();
+                List<int> processIds = new List<int>();
+                runtime.OnContextCompacted += (processId, record) =>
+                {
+                    processIds.Add(processId);
+                    records.Add(record);
+                };
+
+                await runtime.EnsureConversationBoundsAsync(7, messages, "launch prompt", CancellationToken.None).ConfigureAwait(false);
+
+                int compactedMessages = 0;
+                foreach (ChatMessage message in messages)
+                    if (IsCompacted(message)) compactedMessages++;
+
+                AssertEqual(1, records.Count, "one ordinary pass raises one record");
+                RuntimeContextCompaction ordinary = records[0];
+                AssertEqual(7, processIds[0], "the record names the process that compacted");
+                AssertFalse(ordinary.Forced, "the ordinary pass is not the ceiling pass");
+                AssertEqual(compactedMessages, ordinary.CompactedResults, "the record counts every replaced result");
+                AssertEqual(bytesBefore, (int)ordinary.BytesBefore, "the record carries the size before the pass");
+                AssertEqual(MeasureBytes(messages), (int)ordinary.BytesAfter, "the record carries the size after the pass");
+                AssertTrue(ordinary.DroppedBytes > (long)compactedMessages * 60 * 1024, "the record carries the removed bytes");
+                AssertTrue(ordinary.DroppedBytesByTool.ContainsKey("grep"), "the removed bytes are split by tool");
+                AssertEqual(ordinary.DroppedBytes, ordinary.DroppedBytesByTool["read"] + ordinary.DroppedBytesByTool["grep"],
+                    "the per-tool split adds up to the total");
+                AssertEqual("system prompt", messages[0].Content, "the system prompt survives whole");
+                AssertEqual("launch prompt", messages[1].Content, "the launch prompt survives whole");
+            });
+
+            await RunTest("A failing compaction subscriber does not stop the run", async () =>
+            {
+                List<ChatMessage> messages = BuildConversation(60, 64 * 1024);
+                ApiAgentRuntime runtime = BuildRuntime();
+                runtime.OnContextCompacted += (processId, record) => throw new InvalidOperationException("subscriber failed");
+                await runtime.EnsureConversationBoundsAsync(1, messages, "launch prompt", CancellationToken.None).ConfigureAwait(false);
+                AssertTrue(IsCompacted(messages[3]), "the conversation is still compacted");
             });
 
             await RunTest("An unspared listing truncates to a bounded head", async () =>
@@ -67,12 +114,24 @@ namespace Armada.Test.Runtimes.Suites
             await RunTest("The ceiling override truncates diagnostic lines when the conversation is still over the limit", async () =>
             {
                 List<ChatMessage> messages = BuildConversation(80, 200 * 1024);
+                // Failure lines make the ordinary pass keep every result, so only the ceiling pass can cut them.
+                string failureBody = new string('x', 200 * 1024 - 80) + "\nFAILED: Assert.Equal expected 4 actual 5\nFailed: 1\n";
+                foreach (ChatMessage message in messages)
+                {
+                    if (message.ToolName == "read") message.Content = failureBody;
+                }
                 AssertTrue(MeasureBytes(messages) > ApiAgentRuntime.MaximumConversationBytes,
                     "the conversation starts above the hard ceiling");
                 ApiAgentRuntime runtime = BuildRuntime();
+                List<RuntimeContextCompaction> records = new List<RuntimeContextCompaction>();
+                runtime.OnContextCompacted += (processId, record) => records.Add(record);
                 await runtime.EnsureConversationBoundsAsync(1, messages, "launch prompt", CancellationToken.None).ConfigureAwait(false);
                 AssertTrue(MeasureBytes(messages) <= ApiAgentRuntime.MaximumConversationBytes,
                     "the ceiling override brought it back under the limit instead of throwing");
+                RuntimeContextCompaction? ceiling = records.Find(record => record.Forced);
+                AssertNotNull(ceiling, "the ceiling pass raises its own record");
+                AssertTrue(ceiling!.CompactedResults > 0 && ceiling.DroppedBytes > 0, "the ceiling record carries what it removed");
+                AssertEqual(MeasureBytes(messages), (int)ceiling.BytesAfter, "the ceiling record carries the final size");
             });
 
             await RunTest("A conversation still over the ceiling with nothing left to compact stops the run", async () =>

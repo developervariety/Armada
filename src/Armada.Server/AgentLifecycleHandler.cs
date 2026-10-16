@@ -777,6 +777,8 @@ namespace Armada.Server
             runtime.OnTokenUsageReceived += HandleTokenUsage;
             runtime.OnProviderProgressReceived += HandleProviderProgress;
             runtime.OnProcessExited += HandleAgentProcessExited;
+            if (runtime is ApiAgentRuntime compactingRuntime)
+                compactingRuntime.OnContextCompacted += HandleContextCompacted;
 
             Vessel? vessel = null;
             if (!String.IsNullOrEmpty(mission.VesselId))
@@ -1611,6 +1613,64 @@ namespace Armada.Server
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "error persisting token usage: " + ex.Message);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Record one conversation compaction pass of an in-process runtime as a <c>mission.context_compacted</c>
+        /// event, so what the pass removed is visible on the mission instead of only in the admiral log.
+        /// </summary>
+        /// <param name="processId">Agent process identifier.</param>
+        /// <param name="compaction">What the pass replaced and removed.</param>
+        public void HandleContextCompacted(int processId, RuntimeContextCompaction compaction)
+        {
+            if (compaction == null) return;
+
+            string? captainId = null;
+            string? missionId = null;
+            lock (_ProcessToCaptain)
+            {
+                _ProcessToCaptain.TryGetValue(processId, out captainId);
+                _ProcessToMission.TryGetValue(processId, out missionId);
+            }
+
+            if (String.IsNullOrEmpty(captainId) || String.IsNullOrEmpty(missionId))
+            {
+                _Logging.Warn(_Header + "discarding context compaction record for unmapped process " + processId);
+                return;
+            }
+
+            string capturedCaptainId = captainId;
+            string capturedMissionId = missionId;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    Mission? mission = await _Database.Missions.ReadAsync(capturedMissionId).ConfigureAwait(false);
+                    if (mission == null)
+                    {
+                        _Logging.Warn(_Header + "discarding context compaction record for missing mission " + capturedMissionId);
+                        return;
+                    }
+
+                    ArmadaEvent evt = new ArmadaEvent(
+                        "mission.context_compacted",
+                        (compaction.Forced ? "Hard-ceiling compaction" : "Context compaction") + " replaced "
+                        + compaction.CompactedResults + " tool result(s) and removed " + compaction.DroppedBytes + " bytes");
+                    EventOwnerScope.ApplyFromMission(evt, mission);
+                    evt.EntityType = "mission";
+                    evt.EntityId = mission.Id;
+                    evt.CaptainId = capturedCaptainId;
+                    evt.MissionId = mission.Id;
+                    evt.VesselId = mission.VesselId;
+                    evt.VoyageId = mission.VoyageId;
+                    evt.Payload = JsonSerializer.Serialize(compaction);
+                    await _Database.Events.CreateAsync(evt).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error persisting context compaction record: " + ex.Message);
                 }
             });
         }

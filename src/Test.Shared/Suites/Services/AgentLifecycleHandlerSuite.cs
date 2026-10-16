@@ -381,6 +381,87 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("api_endpoint_compaction_is_recorded_as_mission_event", "A real API captain run that crosses the compaction threshold records what it removed as a mission event", TestTags.Positive, async () =>
+            {
+                // The runtime raises the record; only the launch path's subscription turns it into a stored
+                // event. The scripted model reads a large file until the conversation crosses the threshold, so
+                // the record travels the production loop, not a direct call.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string worktreePath = Path.Combine(Path.GetTempPath(), "armada_api_compaction_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktreePath);
+                    try
+                    {
+                        System.Text.StringBuilder large = new System.Text.StringBuilder();
+                        for (int line = 0; line < 2000; line++) large.Append(new string('y', 100)).Append('\n');
+                        File.WriteAllText(Path.Combine(worktreePath, "large.txt"), large.ToString());
+
+                        TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("ApiCompactionTenant")).ConfigureAwait(false);
+                        UserMaster user = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "api-compaction@lifecycle.test", "pass")).ConfigureAwait(false);
+                        ModelEndpoint endpoint = new ModelEndpoint
+                        {
+                            TenantId = tenant.Id,
+                            UserId = user.Id,
+                            Name = "Compaction endpoint",
+                            Kind = ModelEndpointKindEnum.Inference,
+                            Provider = ModelProviderEnum.OpenAICompatible,
+                            BaseUrl = "http://127.0.0.1:9",
+                            Model = "compaction-model",
+                            Enabled = true
+                        };
+                        await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+
+                        CompactionScriptRuntimeFactory factory = new CompactionScriptRuntimeFactory(CreateLogging());
+                        AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, null, factory);
+                        Captain captain = new Captain("api-compaction-captain", AgentRuntimeEnum.ApiEndpoint)
+                        {
+                            TenantId = endpoint.TenantId,
+                            UserId = endpoint.UserId,
+                            ModelEndpointId = endpoint.Id,
+                            Model = "compaction-model",
+                            State = CaptainStateEnum.Working
+                        };
+                        Mission mission = new Mission("API compaction mission")
+                        {
+                            TenantId = endpoint.TenantId,
+                            UserId = endpoint.UserId,
+                            CaptainId = captain.Id,
+                            Status = MissionStatusEnum.InProgress,
+                            Persona = "Worker",
+                            BranchName = "feature/api-compaction"
+                        };
+                        captain.CurrentMissionId = mission.Id;
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                        Dock dock = new Dock { BranchName = "feature/api-compaction", WorktreePath = worktreePath };
+
+                        int processId = await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
+                        AssertTrue(processId > 0, "The API captain launch must return its synthetic process id.");
+
+                        ArmadaEvent? compactionEvent = null;
+                        await WaitForConditionAsync(async () =>
+                        {
+                            List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 50).ConfigureAwait(false);
+                            compactionEvent = events.Find(item => item.EventType == "mission.context_compacted");
+                            return compactionEvent != null;
+                        }, TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+
+                        AssertNotNull(compactionEvent, "A compaction during a mission run must be stored on the mission.");
+                        AssertEqual(captain.Id, compactionEvent!.CaptainId);
+                        RuntimeContextCompaction? record = System.Text.Json.JsonSerializer.Deserialize<RuntimeContextCompaction>(compactionEvent.Payload ?? "null");
+                        AssertNotNull(record, "The event payload must be the compaction record.");
+                        AssertTrue(record!.CompactedResults > 0, "The record must count the replaced results.");
+                        AssertTrue(record.DroppedBytes > 100 * 1024, "The record must carry the removed bytes.");
+                        AssertTrue(record.DroppedBytesByTool.ContainsKey("read_file"), "The record must name the tool whose results were removed.");
+                        AssertTrue(record.BytesAfter < record.BytesBefore, "The record must carry the sizes around the pass.");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktreePath, true); } catch { }
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("mission_launch_offers_api_endpoint_captain_the_command_tool", "A mission launch offers an API-endpoint captain the run_command tool", TestTags.Positive, async () =>
             {
                 // The launch path is the ONE place the command tool is switched on. Without this case, deleting
@@ -1096,6 +1177,62 @@ namespace Test.Shared.Suites.Services
                     return client;
                 });
             }
+        }
+
+        /// <summary>
+        /// Factory that builds a real API runtime whose scripted model reads <c>large.txt</c> eight times and then
+        /// finishes, so the conversation crosses the compaction threshold inside the production loop.
+        /// </summary>
+        private sealed class CompactionScriptRuntimeFactory : AgentRuntimeFactory
+        {
+            public CompactionScriptRuntimeFactory(LoggingModule logging) : base(logging)
+            {
+            }
+
+            public override Armada.Runtimes.Interfaces.IAgentRuntime Create(ModelEndpoint endpoint)
+            {
+                return new ApiAgentRuntime(endpoint, CreateLogging(), 12, (ep, log) => new CompactionScriptClient(log));
+            }
+        }
+
+        private sealed class CompactionScriptClient : PolyPrompt.Clients.CompletionClientBase
+        {
+            private int _Calls = 0;
+
+            public CompactionScriptClient(LoggingModule logging) : base("http://127.0.0.1:9", null, logging) { }
+
+            public override Task<PolyPrompt.Models.ToolChatStreamingResponse> ToolChatStreamingAsync(PolyPrompt.Models.ToolChatRequest request, CancellationToken token = default)
+            {
+                int call = Interlocked.Increment(ref _Calls);
+                List<PolyPrompt.Models.ToolCall> toolCalls = new List<PolyPrompt.Models.ToolCall>();
+                if (call <= 8)
+                {
+                    toolCalls.Add(new PolyPrompt.Models.ToolCall
+                    {
+                        Id = "read_" + call,
+                        Name = "read_file",
+                        ArgumentsJson = "{\"file_path\":\"large.txt\"}"
+                    });
+                }
+
+                return Task.FromResult(new PolyPrompt.Models.ToolChatStreamingResponse
+                {
+                    Success = true,
+                    Text = call <= 8 ? "Reading the file again." : "Done.",
+                    ToolCalls = toolCalls,
+                    Usage = new PolyPrompt.Models.ChatStreamingUsage { PromptTokens = 12, CompletionTokens = 7, TotalTokens = 19 }
+                });
+            }
+
+            public override Task<PolyPrompt.Models.ToolChatResponse> ToolChatAsync(PolyPrompt.Models.ToolChatRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.ChatResponse> ChatAsync(string prompt, PolyPrompt.Models.ChatCompletionOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.ChatStreamingResponse> ChatStreamingAsync(string prompt, PolyPrompt.Models.ChatCompletionOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.EmbeddingResponse> EmbedAsync(string input, PolyPrompt.Models.EmbeddingOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.EmbeddingResponse> EmbedAsync(List<string> inputs, PolyPrompt.Models.EmbeddingOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.GenerationResponse> GenerateAsync(string prompt, PolyPrompt.Models.GenerationOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.GenerationStreamingResponse> GenerateStreamingAsync(string prompt, PolyPrompt.Models.GenerationOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override IAsyncEnumerable<PolyPrompt.Models.ModelInformation> ListModelsAsync(CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.ModelInformation?> GetModelInformationAsync(string model, CancellationToken token = default) => throw new NotSupportedException();
         }
 
         internal sealed class UsageScriptClient : PolyPrompt.Clients.CompletionClientBase

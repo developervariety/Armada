@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- API-endpoint conversation compaction records a `mission.context_compacted`
+  event for each pass that replaces a tool result, with the removed bytes in
+  total and per tool, so its cost is visible on the mission.
+
 - Non-objective dispatch and autonomous rescue planning verify configured captain
   coverage for each required persona and tier before creating work. Missing
   configuration refuses or defers the work without treating busy compatible

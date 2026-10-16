@@ -294,6 +294,11 @@ ships no harness plugin. These are shape rules, not typed decisions.
 - Past a hard ceiling of 8 MiB the same pass truncates remaining large results,
   including diagnostics. A conversation that still exceeds the ceiling fails the
   run.
+- Each pass that replaces a result records a `mission.context_compacted` event
+  on the mission. Its payload gives the replaced count, the conversation size
+  before and after, the removed bytes in total and per tool, and whether it was
+  the hard-ceiling pass. The record travels outside the output stream that
+  terminal markers and verdicts are parsed from.
 
 Anthropic API endpoints request a five-minute cache breakpoint on the fixed
 launch message. This caches the tools, system prompt, and launch prefix when

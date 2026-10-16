@@ -56,6 +56,14 @@ namespace Armada.Runtimes
         /// <inheritdoc />
         public event Action<int, RuntimeTokenUsage>? OnProviderProgressReceived;
 
+        /// <summary>
+        /// Raised after each conversation compaction pass that replaced at least one tool result. The int parameter
+        /// is the process ID; the record says how many results were replaced, how many bytes were removed per tool,
+        /// and whether the pass was the hard-ceiling pass. It is a separate channel from the emitted output stream,
+        /// which carries only the records a terminal marker and a Judge verdict are parsed from.
+        /// </summary>
+        public event Action<int, RuntimeContextCompaction>? OnContextCompacted;
+
         /// <inheritdoc />
         public event Action<int>? OnProcessStarted;
 
@@ -720,6 +728,18 @@ namespace Armada.Runtimes
         /// <returns>Number of tool results whose content was replaced, or zero when nothing was compacted.</returns>
         internal static int CompactConversation(List<ChatMessage> messages, IReadOnlyCollection<int>? sparedIndices)
         {
+            return CompactConversation(messages, sparedIndices, null);
+        }
+
+        /// <summary>
+        /// Compact the conversation and, when a record is supplied, add what each replaced result removed to it.
+        /// </summary>
+        /// <param name="messages">Conversation so far; mutated in place when it is compacted.</param>
+        /// <param name="sparedIndices">Null for the ceiling override; otherwise the ordinary pass.</param>
+        /// <param name="record">Record that receives the replaced count and the removed bytes per tool, or null.</param>
+        /// <returns>Number of tool results whose content was replaced, or zero when nothing was compacted.</returns>
+        private static int CompactConversation(List<ChatMessage> messages, IReadOnlyCollection<int>? sparedIndices, RuntimeContextCompaction? record)
+        {
             if (messages == null || messages.Count <= RecentMessagesKeptWhole) return 0;
             if (MeasureConversationBytes(messages) <= CompactionThresholdBytes) return 0;
 
@@ -737,10 +757,20 @@ namespace Armada.Runtimes
 
                 int droppedBytes = Encoding.UTF8.GetByteCount(content);
                 string head = content.Length <= TruncatedHeadChars ? content : content.Substring(0, TruncatedHeadChars);
-                message.Content = CompactedToolResultMarker + " " + (message.ToolName ?? "tool")
+                string toolName = String.IsNullOrWhiteSpace(message.ToolName) ? "tool" : message.ToolName!;
+                message.Content = CompactedToolResultMarker + " " + toolName
                     + " returned " + droppedBytes.ToString(System.Globalization.CultureInfo.InvariantCulture)
                     + " bytes earlier in this run. Head kept:\n" + head;
                 compacted++;
+
+                if (record != null)
+                {
+                    long removed = Math.Max(0, droppedBytes - Encoding.UTF8.GetByteCount(message.Content));
+                    record.CompactedResults++;
+                    record.DroppedBytes += removed;
+                    record.DroppedBytesByTool.TryGetValue(toolName, out long priorRemoved);
+                    record.DroppedBytesByTool[toolName] = priorRemoved + removed;
+                }
             }
 
             return compacted;
@@ -753,26 +783,32 @@ namespace Armada.Runtimes
 
         internal Task EnsureConversationBoundsAsync(int processId, List<ChatMessage> messages, string goal, CancellationToken token)
         {
-            if (MeasureConversationBytes(messages) <= CompactionThresholdBytes) return Task.CompletedTask;
+            int conversationBytes = MeasureConversationBytes(messages);
+            if (conversationBytes <= CompactionThresholdBytes) return Task.CompletedTask;
 
-            int compacted = CompactConversation(messages, Array.Empty<int>());
+            RuntimeContextCompaction ordinary = NewCompactionRecord(false, conversationBytes);
+            int compacted = CompactConversation(messages, Array.Empty<int>(), ordinary);
             if (compacted > 0)
             {
-                // Reported through the log, never through Emit: the emitted stream is the stream a terminal
-                // marker and a Judge verdict are parsed from, and it holds only canonical activity records.
+                // Reported through the log and the compaction event, never through Emit: the emitted stream is
+                // the stream a terminal marker and a Judge verdict are parsed from, and it holds only canonical
+                // activity records.
+                conversationBytes = MeasureConversationBytes(messages);
                 _Logging.Warn(_Header + "process " + processId + ": compacted " + compacted
                     + " earlier tool result(s) to stay inside the context limit; the mission instructions and the recent turns are unchanged.");
+                PublishContextCompaction(processId, ordinary, conversationBytes);
             }
 
-            int conversationBytes = MeasureConversationBytes(messages);
             if (conversationBytes > MaximumConversationBytes)
             {
-                int forced = CompactConversation(messages, null);
+                RuntimeContextCompaction ceiling = NewCompactionRecord(true, conversationBytes);
+                int forced = CompactConversation(messages, null, ceiling);
                 if (forced > 0)
                 {
+                    conversationBytes = MeasureConversationBytes(messages);
                     _Logging.Warn(_Header + "process " + processId + ": the conversation was still over the hard ceiling, so "
                         + forced + " remaining result(s) were truncated including diagnostic lines.");
-                    conversationBytes = MeasureConversationBytes(messages);
+                    PublishContextCompaction(processId, ceiling, conversationBytes);
                 }
             }
 
@@ -870,6 +906,31 @@ namespace Armada.Runtimes
             usage.ReasoningTokens = Math.Max(0, reported.ReasoningTokens ?? 0);
             usage.ProviderTotalTokens = reported.TotalTokens;
             return usage;
+        }
+
+        private RuntimeContextCompaction NewCompactionRecord(bool forced, int bytesBefore)
+        {
+            return new RuntimeContextCompaction
+            {
+                Runtime = Name,
+                Model = _Endpoint.Model ?? String.Empty,
+                Forced = forced,
+                BytesBefore = bytesBefore
+            };
+        }
+
+        private void PublishContextCompaction(int processId, RuntimeContextCompaction record, int bytesAfter)
+        {
+            record.BytesAfter = bytesAfter;
+            try
+            {
+                OnContextCompacted?.Invoke(processId, record);
+            }
+            catch (Exception ex)
+            {
+                // A failing subscriber must not stop the run, but the lost record is named, not swallowed.
+                _Logging.Warn(_Header + "process " + processId + ": compaction record not delivered: " + ex.Message);
+            }
         }
 
         private void PublishTokenUsage(int processId, RuntimeTokenUsage usage)
