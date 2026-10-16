@@ -383,6 +383,52 @@ it as the Dockerfile's `CLI_REFRESH` argument: the agent CLI layer is then rebui
 and every CLI is installed at its latest version. Any other value is refused
 before the retention step.
 
+### Host storage cleanup
+
+`scripts/linux/storage-cleanup/` holds a daily, root-run cleanup for the Docker
+host. It reclaims space outside the admiral's own disk lifecycle (see
+`MCP_TOOL_CATALOG.md` section 8.20). Every host-specific value — roots,
+exclusions, the agent home directory, lock and receipt paths, database name
+patterns, container names, image tag patterns and retention — comes from one
+JSON file, `/etc/armada/storage-cleanup.json`. Each script takes
+`--config <path>`, plans by default, and deletes only with `--apply`.
+`storage-cleanup.example.json` documents every key.
+
+`daily-storage-cleanup.py` runs the four stages in order under one lock and
+writes a `daily-<stamp>.json` receipt plus each stage's output to
+`receiptDirectory`:
+
+| Stage | Removes |
+| --- | --- |
+| `prune-build-outputs.py` | `bin`, `obj` and `node_modules` folders that git ignores and does not track, and isolated `dotnet-cli-home` NuGet caches, under `roots`. With `scratchRoots` set, also a whole top-level scratch folder whose newest file is older than `wholeFolderRetentionDays`. |
+| `prune-agent-caches.py` | Expired agent CLI session logs and outputs, orphan OpenCode snapshots, expired OpenCode sessions (native delete after a verified gzip backup, then `VACUUM` when worthwhile), and the old NuGet HTTP cache under `home`. |
+| `prune-docker-storage.py` | `rollback-before-*` tags once three dated retention sets exist, tags matching `unusedImageTagPatterns` that no container uses and that are older than `unusedImageMinAgeDays`, the reviewed `disposableVolumes`, and dangling layers. |
+| `prune-test-databases.py` | Generated test databases older than `minimumAgeHours` in each target Postgres container, only when no test runner is running. |
+
+Every stage fails closed. It skips a path that a running process references, a
+path behind a symlink, and a candidate that changed between plan and delete.
+A scratch folder's age is the newest modification time of any file inside it;
+directory times do not count and symlinks are not followed. A scratch folder
+that holds an `.armada-keep` file anywhere inside it, or that holds an excluded
+path, is never removed. An unused image tag is removed with `docker rmi` (never
+`-f`); a tag whose image is also named by a `protectedImageTags` entry, or that
+matches `protectedTagPatterns`, is never removed.
+
+Install as root:
+
+```bash
+sudo scripts/linux/storage-cleanup/install-storage-cleanup.sh --dry-run
+sudo scripts/linux/storage-cleanup/install-storage-cleanup.sh
+```
+
+The installer copies the scripts to `/usr/local/lib/armada-storage-cleanup` and
+the `armada-storage-cleanup` service and timer to `/etc/systemd/system`. It
+never overwrites an existing config. Edit the config, run a dry run
+(`python3 /usr/local/lib/armada-storage-cleanup/daily-storage-cleanup.py`), read
+the receipts, then `systemctl enable --now armada-storage-cleanup.timer`. The
+timer runs daily at 05:00 UTC. Test the scripts with
+`python3 scripts/linux/storage-cleanup/test-storage-cleanup.py`.
+
 ---
 
 ## Mux Runtime

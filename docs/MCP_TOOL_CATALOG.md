@@ -675,6 +675,8 @@ build-cache pruning stays an explicit host-side operator action
 a container-triggered deletion. Before rebuilding a mutable local image tag, use
 `scripts/common/rebuild-local-image.sh`; it retains the running image and the
 current tag first and prints the rollback references for the deployment record.
+Host-side cleanup of build outputs, agent caches, Docker tags and test
+databases is described in `DOCKER.md`, "Host storage cleanup".
 
 | Risk | Tools |
 | --- | --- |

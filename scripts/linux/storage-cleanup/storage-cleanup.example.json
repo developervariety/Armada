@@ -1,0 +1,74 @@
+{
+  "_about": "Host storage cleanup configuration. Install as /etc/armada/storage-cleanup.json. Keys that start with '_' are comments. Paths below are placeholders; replace every /path/to value with a real host path.",
+  "receiptDirectory": "/var/log/armada-storage-cleanup",
+
+  "orchestrator": {
+    "_about": "daily-storage-cleanup.py: runs the stages in order under one lock and writes daily-<stamp>.json plus each stage's stdout and stderr to receiptDirectory.",
+    "lockPath": "/run/lock/armada-daily-storage-cleanup.lock",
+    "receiptRetentionDays": 90,
+    "stageTimeoutSeconds": 1800,
+    "diskUsagePath": "/",
+    "python": "/usr/bin/python3",
+    "scriptDirectory": null,
+    "stages": ["build", "agents", "docker", "test-databases"]
+  },
+
+  "buildOutputs": {
+    "_about": "prune-build-outputs.py: removes git-ignored, untracked bin/obj/node_modules and isolated dotnet-cli-home NuGet caches under roots, then (optional) whole idle scratch folders under scratchRoots. roots and receiptDirectory are required.",
+    "roots": [
+      "/path/to/scratch",
+      "/path/to/gates",
+      "/path/to/agent-home/gate-scratch"
+    ],
+    "exclusions": [
+      "/path/to/gates/pinned-evidence-folder"
+    ],
+    "buildRetentionHours": 24,
+    "cacheRetentionHours": 48,
+    "lockPath": "/run/lock/armada-storage-cleanup.lock",
+    "receiptRetentionDays": 90,
+    "diskUsagePath": "/",
+    "scratchRoots": [
+      "/path/to/scratch",
+      "/path/to/agent-home/gate-scratch"
+    ],
+    "wholeFolderRetentionDays": 3
+  },
+
+  "agentCaches": {
+    "_about": "prune-agent-caches.py: removes expired agent CLI session logs and outputs, orphan OpenCode snapshots, expired OpenCode sessions (native delete after a gzip backup, then VACUUM when worthwhile) and the old NuGet HTTP cache under home. home is required.",
+    "home": "/path/to/agent-home",
+    "lockPath": "/path/to/agent-home/.armada/storage-agent-cleanup.lock",
+    "opencodeCli": "/usr/local/bin/opencode",
+    "opencodeBackupDirectory": null,
+    "outputRetentionDays": 30,
+    "nugetHttpCacheRetentionDays": 7,
+    "opencodeBackupRetentionDays": 7,
+    "maintenanceRetentionHours": 48
+  },
+
+  "docker": {
+    "_about": "prune-docker-storage.py: retires rollback-before-* tags of imageRepository once retainedSetsRequired dated retention sets exist, removes unused tags that match unusedImageTagPatterns, removes the reviewed disposableVolumes, and prunes dangling layers older than danglingPruneUntil. imageRepository is required.",
+    "imageRepository": "local/armada-server",
+    "lockPath": "/run/lock/armada-prune-docker-storage.lock",
+    "retainedSetsRequired": 3,
+    "danglingPruneUntil": "48h",
+    "disposableVolumes": [],
+    "unusedImageTagPatterns": ["example-proof*", "candidate-*"],
+    "unusedImageMinAgeDays": 7,
+    "protectedImageTags": ["local/armada-server:latest"],
+    "protectedTagPatterns": ["armada-retained-*", "rollback-before-*"]
+  },
+
+  "testDatabases": {
+    "_about": "prune-test-databases.py: drops generated test databases older than minimumAgeHours in each target Postgres container, only when no test runner is visible on the host or in runnerContainers. targets, runnerCommandPattern and runnerArgumentPatterns are required.",
+    "lockPath": "/run/lock/armada-prune-test-databases.lock",
+    "minimumAgeHours": 48,
+    "targets": [
+      { "container": "example-test-postgres", "databasePattern": "exampletest_[0-9a-f]{32}" }
+    ],
+    "runnerContainers": { "admiral": "armada-admiral" },
+    "runnerCommandPattern": "dotnet|testhost|vstest|\\.Tests",
+    "runnerArgumentPatterns": ["Armada\\.Test|exampletest", "test"]
+  }
+}

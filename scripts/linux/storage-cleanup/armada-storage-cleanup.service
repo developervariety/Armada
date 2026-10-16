@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Armada storage cleanup with active-work guards
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/armada-storage-cleanup/daily-storage-cleanup.py --apply --config /etc/armada/storage-cleanup.json
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=2h
+UMask=0027

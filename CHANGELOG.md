@@ -7,6 +7,22 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Added
+
+- A configuration-driven host storage cleanup (`scripts/linux/storage-cleanup/`)
+  with a daily systemd timer and installer. It prunes ignored build outputs,
+  agent caches, redundant Docker tags and old test databases, and can remove
+  idle scratch folders and unused disposable image tags. Every host path and
+  pattern comes from `/etc/armada/storage-cleanup.json`.
+
+### Removed
+
+- Eleven scripts that nothing referenced: the server bootstrap and
+  self-deploy cutover rehearsal scripts, the Windows proxy build, landing
+  audit and Markdown backlog import scripts, and the hand-run tests for the
+  image rebuild, framework resolution, fork migration check, SSH bridge,
+  cycle-log renderer and watcher scripts.
+
 ### Fixed
 
 - The disk lifecycle reclaims operator evidence: clones and build outputs in a
