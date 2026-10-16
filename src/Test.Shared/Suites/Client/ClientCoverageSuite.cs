@@ -32,6 +32,7 @@ namespace Test.Shared.Suites.Client
         private static readonly Dictionary<string, string> _CoveredElsewhere = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["GenerateSyntheticActivityAsync"] = "Live generated activity replay covered by E2E.SyntheticActivity",
+            ["OpenWorkspaceTerminalAsync"] = "Opens a real terminal window on the machine that holds the checkout, so the live contract suites do not call it; the route is checked by Client.RouteSurface and its answers (Harbor, older Harbor, owner, refused roots, Admiral host) by Services.WorkspaceTerminal",
             ["ImportSyntheticTokenUsageAsync"] = "Live SDK import, replay, scope, summary, and conflict coverage in E2E.TokenUsageSyntheticApi",
             ["StopServerAsync"] = Destructive,
             ["RestartServerAsync"] = Destructive,

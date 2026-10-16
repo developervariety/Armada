@@ -400,6 +400,8 @@ namespace Armada.Harbor
                 _JobRunner.JobLogs = new HarborLogPaths(HarborAppSettings.LogDirectory());
                 // Reads the live settings on every request, so repository edits apply without reconnecting.
                 _DockManager = new HarborDockManager(() => _Settings.BuildDockSettings(), _Logging, _Executor);
+                // The Workspace's Open in Terminal opens a terminal on this desktop in a vessel's checkout.
+                _DockManager.TerminalLauncher = (string folder) => Armada.Core.Hosting.DesktopShellLauncher.OpenTerminal(folder, "This Harbor");
             }
 
             LocalHostCommandExecutor executor = _Executor;

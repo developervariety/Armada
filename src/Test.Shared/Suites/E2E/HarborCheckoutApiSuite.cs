@@ -102,6 +102,22 @@ namespace Test.Shared.Suites.E2E
                             HttpResponseMessage escape = await server.Client.GetAsync("/api/v1/workspace/vessels/" + vessel.Id + "/file?path=../../remote/app.git/config", ct).ConfigureAwait(false);
                             AssertStatusCode(HttpStatusCode.BadRequest, escape, "traversal is refused");
 
+                            // Open in Terminal: this Harbor has no terminal launcher (an older or headless Harbor), so the
+                            // answer is opened=false with the checkout path and the update message, with the location as a
+                            // string (PascalCase on the wire like every route; the dashboard camelizes it).
+                            HttpResponseMessage terminal = await server.Client.PostAsync("/api/v1/workspace/vessels/" + vessel.Id + "/open-terminal", null, ct).ConfigureAwait(false);
+                            string terminalText = await terminal.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                            AssertStatusCode(HttpStatusCode.OK, terminal, "open terminal (body: " + terminalText + ")");
+                            AssertContains("\"Opened\":false", terminalText);
+                            AssertContains("\"Location\":\"Harbor\"", terminalText);
+                            WorkspaceOpenTerminalResult opened = JsonHelper.Deserialize<WorkspaceOpenTerminalResult>(terminalText);
+                            AssertFalse(opened.Opened);
+                            AssertEqual(WorkspaceTerminalLocationEnum.Harbor, opened.Location);
+                            AssertEqual("Update the Harbor on E2E Mac to open a terminal from the dashboard.", opened.Message);
+                            AssertFalse(String.IsNullOrWhiteSpace(opened.Path), "the checkout path to open by hand");
+                            HttpResponseMessage unknownTerminal = await server.Client.PostAsync("/api/v1/workspace/vessels/vsl_does_not_exist/open-terminal", null, ct).ConfigureAwait(false);
+                            AssertStatusCode(HttpStatusCode.NotFound, unknownTerminal, "unknown vessel");
+
                             // Readiness names the Harbor.
                             HttpResponseMessage readyResponse = await server.Client.GetAsync("/api/v1/vessels/" + vessel.Id + "/readiness", ct).ConfigureAwait(false);
                             AssertStatusCode(HttpStatusCode.OK, readyResponse, "readiness");
@@ -129,6 +145,12 @@ namespace Test.Shared.Suites.E2E
 
                             HttpResponseMessage orphanTree = await server.Client.GetAsync("/api/v1/workspace/vessels/" + orphan.Id + "/tree", ct).ConfigureAwait(false);
                             AssertStatusCode(HttpStatusCode.Conflict, orphanTree, "workspace without a checkout");
+                            HttpResponseMessage orphanTerminal = await server.Client.PostAsync("/api/v1/workspace/vessels/" + orphan.Id + "/open-terminal", null, ct).ConfigureAwait(false);
+                            AssertStatusCode(HttpStatusCode.OK, orphanTerminal, "open terminal without a checkout is an answer");
+                            WorkspaceOpenTerminalResult nowhere = await JsonHelper.DeserializeAsync<WorkspaceOpenTerminalResult>(orphanTerminal).ConfigureAwait(false);
+                            AssertFalse(nowhere.Opened);
+                            AssertEqual(WorkspaceTerminalLocationEnum.None, nowhere.Location);
+                            AssertFalse(String.IsNullOrWhiteSpace(nowhere.Message), "says why");
 
                             string toolError = await CallToolAsync(mcp, "run_check", new { vesselId = orphan.Id, type = "UnitTest", commandOverride = "echo never" }).ConfigureAwait(false);
                             McpToolResultProbe probe = McpToolResultProbe.FromText(toolError);

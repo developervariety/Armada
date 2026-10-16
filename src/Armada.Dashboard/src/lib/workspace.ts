@@ -60,6 +60,24 @@ export function buildWorkspacePlanningDraft(vessel: Vessel, paths: string[]): { 
   return { title, prompt };
 }
 
+/**
+ * Opening text of an Ask Armada conversation about a vessel from Workspace: the vessel, where it is checked out, and
+ * the selected files (or the active tab), ending on an empty line for the question.
+ */
+export function buildWorkspaceAskDraft(vessel: Vessel, paths: string[], checkoutPath?: string | null, harborName?: string | null): string {
+  const where = checkoutPath
+    ? harborName ? ` (checked out at ${checkoutPath} on Harbor ${harborName})` : ` (checked out at ${checkoutPath})`
+    : '';
+  const lines = [`About vessel "${vessel.name}" (${vessel.id})${where}:`];
+  if (paths.length > 0) {
+    lines.push('', 'Files:');
+    for (const path of paths.slice(0, 20)) lines.push(`- ${path}`);
+    if (paths.length > 20) lines.push(`- and ${paths.length - 20} more`);
+  }
+  lines.push('', '');
+  return lines.join('\n');
+}
+
 export function buildWorkspaceDispatchDraft(vessel: Vessel, paths: string[]): { title: string; prompt: string } {
   const directive = buildScopedFileDirective(paths);
   const primary = getWorkspaceName(paths[0] || vessel.name);

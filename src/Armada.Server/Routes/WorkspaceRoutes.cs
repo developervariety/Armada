@@ -31,6 +31,7 @@ namespace Armada.Server.Routes
         private readonly IWorkspaceService _workspace;
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly VesselHostResolver _hosts;
+        private readonly WorkspaceTerminalService _terminals;
 
         /// <summary>
         /// Instantiate.
@@ -49,6 +50,15 @@ namespace Armada.Server.Routes
             _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
             _jsonOptions = jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions));
             _hosts = hosts ?? new VesselHostResolver(database, new Armada.Core.Settings.ArmadaSettings(), new SyslogLogging.LoggingModule { Settings = { EnableConsole = false } }, null);
+            _terminals = new WorkspaceTerminalService(_hosts);
+        }
+
+        /// <summary>
+        /// Opens terminals for Open in Terminal (exposed so tests can replace the Admiral host's launcher).
+        /// </summary>
+        public WorkspaceTerminalService Terminals
+        {
+            get { return _terminals; }
         }
 
         /// <summary>
@@ -246,6 +256,41 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<WorkspaceExecRequest>("Command to run", true))
                 .WithResponse(200, OpenApiJson.For<WorkspaceExecResult>("Command result"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/workspace/vessels/{vesselId}/open-terminal", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                Vessel? vessel = await ReadVesselForContextAsync(ctx, req.Parameters["vesselId"]).ConfigureAwait(false);
+                if (vessel == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                }
+
+                try
+                {
+                    return await _terminals.OpenAsync(ctx, vessel, IsFromThisComputer(req)).ConfigureAwait(false);
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    req.Http.Response.StatusCode = 403;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = ex.Message };
+                }
+                catch (Exception ex) when (TryMapWorkspaceException(req, ex, out ApiErrorResponse error))
+                {
+                    return error;
+                }
+            },
+            api => api
+                .WithTag("Workspace")
+                .WithSummary("Open a terminal at the vessel checkout")
+                .WithDescription("Opens a terminal window at the vessel's checkout on the computer that holds it: the Harbor's desktop (its owner or an admin of its tenant; the Harbor must advertise open-terminal), or the Admiral's desktop when the request comes from the Admiral's own computer (admins). Returns opened=false with the path and a message when it cannot, for example when the Harbor is offline or older, or the Admiral runs in a container.")
+                .WithParameter(OpenApiParameterMetadata.Path("vesselId", "Vessel ID (vsl_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<WorkspaceOpenTerminalResult>("Whether a terminal opened, where, and why not"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
@@ -467,6 +512,20 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<WorkspaceStatusResult>("Workspace status"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
+        }
+
+        /// <summary>
+        /// Whether the request came from the Admiral's own computer: a loopback source address and no forwarding header
+        /// (a reverse proxy on this computer relays remote browsers from loopback).
+        /// </summary>
+        private static bool IsFromThisComputer(ApiRequest req)
+        {
+            if (!String.IsNullOrEmpty(req.Http.Request.Headers.Get("X-Forwarded-For"))) return false;
+            if (!String.IsNullOrEmpty(req.Http.Request.Headers.Get("Forwarded"))) return false;
+            string? source = req.Http.Request.Source?.IpAddress;
+            return !String.IsNullOrWhiteSpace(source)
+                && System.Net.IPAddress.TryParse(source, out System.Net.IPAddress? address)
+                && System.Net.IPAddress.IsLoopback(address);
         }
 
         private static ApiErrorResponse BuildAuthError(ApiRequest req)

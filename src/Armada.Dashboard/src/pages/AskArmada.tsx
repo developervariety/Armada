@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import type { AskNavigationState } from '../lib/askNavigation';
 import {
   ApiError,
   approveAskProposal,
@@ -250,6 +251,16 @@ export default function AskArmada() {
       fetchSnapshots(id, detail?.trackedWork ?? []);
     } catch { /* reconciliation only */ }
   }, [fetchSnapshots]);
+
+  // Another page (Workspace's Ask Armada) can open a new conversation with a draft in the message box. The state is
+  // cleared once used, so reloading or going back does not put it there again.
+  const location = useLocation();
+  useEffect(() => {
+    const draft = (location.state as AskNavigationState | null)?.draft;
+    if (!draft || routeThreadId) return;
+    composerRef.current?.reset({ text: draft, focus: true });
+    navigate(location.pathname + location.search, { replace: true, state: null });
+  }, [location.state, location.pathname, location.search, routeThreadId, navigate]);
 
   // Route changes open a different conversation (or the new-conversation screen).
   useEffect(() => {

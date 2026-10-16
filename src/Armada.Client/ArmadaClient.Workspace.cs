@@ -148,6 +148,20 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// Dashboard <c>openWorkspaceTerminal</c>: POST /api/v1/workspace/vessels/{vesselId}/open-terminal. Opens a terminal
+        /// window at the vessel's checkout on the computer that holds it (its Harbor, or the Admiral when called from the
+        /// Admiral's own computer); the result says whether it opened, where, and why not.
+        /// </summary>
+        /// <param name="vesselId">vesselId.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The response.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<WorkspaceOpenTerminalResult?> OpenWorkspaceTerminalAsync(string vesselId, CancellationToken token = default)
+        {
+            return PostAsync<WorkspaceOpenTerminalResult>($"/api/v1/workspace/vessels/{E(vesselId)}/open-terminal", null, null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>getWorkspaceDiff</c>: GET /api/v1/workspace/vessels/{vesselId}/diff.
         /// </summary>
         /// <param name="vesselId">Vessel id.</param>

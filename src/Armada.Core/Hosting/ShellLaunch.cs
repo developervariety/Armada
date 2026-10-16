@@ -39,6 +39,17 @@ namespace Armada.Core.Hosting
         /// </summary>
         public bool UseShellExecute { get; set; } = false;
 
+        /// <summary>
+        /// Folder the program starts in, or null for the caller's (a terminal opened in a checkout starts there).
+        /// </summary>
+        public string? WorkingDirectory { get; set; } = null;
+
+        /// <summary>
+        /// Milliseconds to wait for the program to exit, treating a non-zero exit code as a failed launch, or 0 to start
+        /// it and not wait. For launchers that hand off and exit at once (macOS open).
+        /// </summary>
+        public int WaitForExitMs { get; set; } = 0;
+
         #endregion
 
         #region Private-Members

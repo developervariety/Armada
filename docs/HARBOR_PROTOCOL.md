@@ -255,12 +255,14 @@ are ordinary `git` requests with the checkout as the working directory.
 |---|---|
 | `root` | The checkout (or a dock) the request is confined to, as an absolute path on the Harbor host. The Harbor accepts it only when it is inside its docks folder or is the checkout it maps the request's vessel to (it locates the vessel itself from `vesselId`, `vesselName`, and `repoUrl`, as for `Resolve`); any other root is refused. |
 | `path` | Relative to `root`; empty for the root itself. An absolute path, a path that leaves the root, a path through a symbolic link or junction, and `.git` are refused. |
-| `operation` | `Stat` and `Read` (root-relative; build output folders allowed; `Read` returns no content and `truncated: true` past `maxBytes`, default 8 MB), and the Workspace operations `List`, `ReadFile`, `SaveFile` (`content`, `expectedHash`), `CreateDirectory`, `Rename` (`newPath`), `Delete`, and `Search` (`query`, `maxResults`), which also hide `node_modules`, `bin`, `obj`, `dist`, and `coverage` as Workspace does on the Admiral. |
+| `operation` | `Stat` and `Read` (root-relative; build output folders allowed; `Read` returns no content and `truncated: true` past `maxBytes`, default 8 MB), and the Workspace operations `List`, `ReadFile`, `SaveFile` (`content`, `expectedHash`), `CreateDirectory`, `Rename` (`newPath`), `Delete`, and `Search` (`query`, `maxResults`), which also hide `node_modules`, `bin`, `obj`, `dist`, and `coverage` as Workspace does on the Admiral. `OpenTerminal` opens a terminal window on the Harbor's desktop in the root (or the folder `path` inside it); unlike the other operations it is refused for a dock, so the root must be the checkout the Harbor maps the vessel to, and the Admiral sends it only to a Harbor that advertised `open-terminal`. |
 | `tree`, `file`, `saved`, `entry`, `search` | The Workspace result of `List`, `ReadFile`, `SaveFile`, `CreateDirectory`/`Rename`/`Delete`, and `Search`: the same shapes as the REST Workspace routes. |
 | `errorCode` | Why a request failed: `Refused` (a path or root that is not allowed), `NotFound`, `Conflict` (the file changed after it was opened), `Invalid` (for example a directory where a file was expected), or `Failed`; `None` on success. The Admiral raises the same error the failure has on its own disk, so REST and MCP report it the same way. Dock file requests (without `root`) carry it too. |
 
 These fields and operations are additive: the Admiral sends them only to a Harbor that advertised `harbor-checkouts`,
-so the protocol version stays `1.0`.
+so the protocol version stays `1.0`. A desktop Harbor (the tray app) also advertises `open-terminal`, which enables
+`OpenTerminal` for the Workspace's Open in Terminal; an Admiral linked to a Harbor without it tells the user to update
+that Harbor instead of sending the operation.
 
 Delegate a rebuild cutover (health-gated rollback):
 

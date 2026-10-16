@@ -41,6 +41,13 @@ namespace Armada.Core.Harbor
         /// </summary>
         public static readonly string CliPermissionPromptCapability = "cli-permission-prompt";
 
+        /// <summary>
+        /// Capability a Harbor advertises when it can open a terminal window on its desktop in a vessel's checkout
+        /// (<see cref="HarborFileOperationEnum.OpenTerminal"/>, the Workspace's Open in Terminal). An Admiral sends that
+        /// operation only to a Harbor that advertises this, and tells the user to update an older one.
+        /// </summary>
+        public static readonly string OpenTerminalCapability = "open-terminal";
+
         #endregion
 
         #region Private-Members

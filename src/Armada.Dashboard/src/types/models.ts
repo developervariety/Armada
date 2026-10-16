@@ -1304,6 +1304,22 @@ export interface WorkspaceExecRequest {
   timeoutSeconds?: number;
 }
 
+/** Wire values of WorkspaceTerminalLocationEnum: where Open in Terminal opened (or would open) the terminal. */
+export type WorkspaceTerminalLocation = 'Harbor' | 'AdmiralHost' | 'None';
+
+/** Result of POST /api/v1/workspace/vessels/{id}/open-terminal. */
+export interface WorkspaceOpenTerminalResult {
+  /** True when a terminal window was opened at the checkout. */
+  opened: boolean;
+  /** The checkout path, also when nothing was opened (so it can be copied instead). */
+  path?: string | null;
+  location: WorkspaceTerminalLocation | string;
+  /** Harbor display name, or the Admiral machine name. */
+  hostName?: string | null;
+  /** Why no terminal was opened (English), or null. */
+  message?: string | null;
+}
+
 export interface WorkspaceExecResult {
   command: string;
   workingDirectory: string;

@@ -2985,6 +2985,14 @@
     },
     {
       "kind": "api",
+      "key": "openWorkspaceTerminal",
+      "status": "implemented",
+      "tui": "ArmadaClient.OpenWorkspaceTerminalAsync",
+      "workstream": "W0.2",
+      "notes": "Workspace"
+    },
+    {
+      "kind": "api",
       "key": "previewPersonaPrompt",
       "status": "implemented",
       "tui": "ArmadaClient.PreviewPersonaPromptAsync",

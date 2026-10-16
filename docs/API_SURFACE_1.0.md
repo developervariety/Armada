@@ -24,7 +24,7 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 369 | 12 |
+| REST routes | 370 | 12 |
 | MCP tools | 156 | 6 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
@@ -402,6 +402,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/workspace/vessels/{vesselId}/exec` | TenantAdmin | `WorkspaceExecRequest` | 200 `WorkspaceExecResult`, 404 |  |
 | GET | `/api/v1/workspace/vessels/{vesselId}/file` | Authenticated |  | 200 `WorkspaceFileResponse`, 400, 404 |  |
 | PUT | `/api/v1/workspace/vessels/{vesselId}/file` | Authenticated | `WorkspaceSaveRequest` | 200 `WorkspaceSaveResult`, 404 |  |
+| POST | `/api/v1/workspace/vessels/{vesselId}/open-terminal` | Authenticated |  | 200 `WorkspaceOpenTerminalResult`, 404 |  |
 | POST | `/api/v1/workspace/vessels/{vesselId}/rename` | Authenticated | `WorkspaceRenameRequest` | 200 `WorkspaceOperationResult`, 404 |  |
 | GET | `/api/v1/workspace/vessels/{vesselId}/search` | Authenticated |  | 200 `WorkspaceSearchResult`, 400, 404 |  |
 | GET | `/api/v1/workspace/vessels/{vesselId}/status` | Authenticated |  | 200 `WorkspaceStatusResult`, 404 |  |

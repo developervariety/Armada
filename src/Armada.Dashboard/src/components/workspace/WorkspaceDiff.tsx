@@ -15,9 +15,34 @@ function lineColor(kind: UnifiedDiffLineKind): string | undefined {
   }
 }
 
+const EXPANDED_KEY = 'armada.workspace.diffExpanded';
+
+function readExpanded(): boolean {
+  try {
+    return localStorage.getItem(EXPANDED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeExpanded(value: boolean) {
+  try {
+    localStorage.setItem(EXPANDED_KEY, String(value));
+  } catch {
+    // Storage unavailable: the choice lasts for this page only.
+  }
+}
+
+/** Files named in a unified diff's "diff --git a/x b/x" headers. */
+function changedFileCount(diff: string | null): number {
+  if (!diff) return 0;
+  return (diff.match(/^diff --git /gm) ?? []).length;
+}
+
 /**
- * In-app review: shows a unified git diff of the vessel working tree against HEAD, with basic
- * line coloring. Reviewers can eyeball the changes without leaving the dashboard.
+ * In-app review: shows a unified git diff of the vessel working tree against HEAD, with basic line coloring.
+ * Collapsible to one line (its toggle, what the last load found, and Load/Refresh); loading opens it, and the open or
+ * closed choice is remembered.
  */
 export default function WorkspaceDiff({ vesselId }: { vesselId: string }) {
   const { t } = useLocale();
@@ -25,6 +50,12 @@ export default function WorkspaceDiff({ vesselId }: { vesselId: string }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [expanded, setExpanded] = useState(() => readExpanded());
+
+  function toggle() {
+    setExpanded(!expanded);
+    writeExpanded(!expanded);
+  }
 
   async function load() {
     setLoading(true);
@@ -38,29 +69,54 @@ export default function WorkspaceDiff({ vesselId }: { vesselId: string }) {
         setError('');
       }
       setLoaded(true);
+      // Show what was loaded, unless there is nothing to show.
+      if (result.error || (result.diff ?? '').trim().length > 0) {
+        setExpanded(true);
+        writeExpanded(true);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load diff.'));
+      setExpanded(true);
     } finally {
       setLoading(false);
     }
   }
 
   const lines = parseUnifiedDiff(diff).lines;
+  const hasDiff = !!diff && diff.trim().length > 0;
+  const files = changedFileCount(diff);
+  const summary = error
+    ? t('Failed to load diff.')
+    : !loaded
+      ? t('Not loaded')
+      : hasDiff
+        ? t('{{count}} file(s) changed', { count: files })
+        : t('No tracked changes against HEAD.');
 
   return (
-    <div className="card" style={{ padding: '0.75rem', marginTop: '1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-        <strong title={t('Uncommitted changes to tracked files in the vessel working directory, compared with the last commit (HEAD). New untracked files are not shown.')}>{t('Review Diff')}</strong>
+    <div className={`card workspace-diff${expanded ? ' is-expanded' : ''}`} data-testid="workspace-diff">
+      <div className="workspace-diff-header">
+        <button
+          type="button"
+          className="workspace-diff-toggle"
+          onClick={toggle}
+          aria-expanded={expanded}
+          title={t('Uncommitted changes to tracked files in the vessel working directory, compared with the last commit (HEAD). New untracked files are not shown. Click to show or hide.')}
+        >
+          <span className="workspace-readiness-chevron" aria-hidden="true">
+            <svg viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" /></svg>
+          </span>
+          <strong>{t('Review Diff')}</strong>
+        </button>
+        <span className={`workspace-diff-summary${error ? ' is-error' : ''}`}>{summary}</span>
         <button className="btn btn-sm" onClick={load} disabled={loading} title={loaded ? t('Reload the diff to include changes made since it was last loaded.') : t('Run git diff against HEAD in the vessel working directory and show the result here. Read-only.')}>
           {loading ? t('Loading...') : loaded ? t('Refresh') : t('Load diff')}
         </button>
       </div>
-      {error && <p style={{ color: 'var(--danger, #ff6b6b)' }}>{error}</p>}
-      {loaded && !error && (diff ?? '').trim().length === 0 && (
-        <p className="text-dim">{t('No tracked changes against HEAD.')}</p>
-      )}
-      {diff && diff.trim().length > 0 && (
+      {expanded && error && <p className="workspace-diff-error">{error}</p>}
+      {expanded && hasDiff && (
         <div
+          className="workspace-diff-body"
           style={{
             background: 'var(--code-bg, #0b0e14)',
             fontFamily: 'monospace',

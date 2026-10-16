@@ -82,6 +82,14 @@ namespace Armada.Core.Harbor
         /// <see cref="HarborFileRequest.Root"/>; answered with <see cref="HarborFileResult.Search"/>.
         /// </summary>
         [EnumMember(Value = "Search")]
-        Search
+        Search,
+
+        /// <summary>
+        /// Open a terminal window on the Harbor's desktop in the checkout (<see cref="HarborFileRequest.Root"/>, or the
+        /// folder <see cref="HarborFileRequest.Path"/> inside it). Requires the root; sent only to a Harbor that
+        /// advertises <see cref="HarborProtocol.OpenTerminalCapability"/>.
+        /// </summary>
+        [EnumMember(Value = "OpenTerminal")]
+        OpenTerminal
     }
 }

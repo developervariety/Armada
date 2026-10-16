@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkspaceTreeEntry } from '../types/models';
+import type { Vessel, WorkspaceTreeEntry } from '../types/models';
 import {
+  buildWorkspaceAskDraft,
   collapseWorkspacePathMap,
   createDraftFile,
   getExpandedWorkspacePaths,
@@ -45,5 +46,19 @@ describe('workspace path scope helpers', () => {
 
   it('creates an editable draft file', () => {
     expect(createDraftFile('/docs/new.md')).toMatchObject({ path: 'docs/new.md', name: 'new.md', content: '', isEditable: true, language: 'markdown' });
+  });
+});
+
+describe('buildWorkspaceAskDraft', () => {
+  const vessel = { id: 'vsl_1', name: 'Timestamps' } as Vessel;
+
+  it('names the vessel, its checkout, and the selected files, and leaves a line for the question', () => {
+    expect(buildWorkspaceAskDraft(vessel, ['src/a.cs', 'README.md'], '/Users/me/Code/Timestamps', 'laptop')).toBe(
+      'About vessel "Timestamps" (vsl_1) (checked out at /Users/me/Code/Timestamps on Harbor laptop):\n\nFiles:\n- src/a.cs\n- README.md\n\n',
+    );
+  });
+
+  it('works without a checkout or files', () => {
+    expect(buildWorkspaceAskDraft(vessel, [], null, null)).toBe('About vessel "Timestamps" (vsl_1):\n\n');
   });
 });

@@ -241,6 +241,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/check-runs`, `/api/v1/check-runs/import`, `/api/v1/check-runs/sync/github-actions`, `/api/v1/check-runs/{id}/retry` | POST | TenantAdmin | Check runs execute shell commands (`DELETE /api/v1/check-runs/{id}` is also TenantAdmin) |
 | `/api/v1/harbors/{id}/probe` | POST | TenantAdmin | Runs a command on the Harbor host |
 | `/api/v1/workspace/vessels/{vesselId}/exec` | POST | TenantAdmin | Writes an `audit.command` event |
+| `/api/v1/workspace/vessels/{vesselId}/open-terminal` | POST | Authenticated | Opens a terminal window: on a Harbor only for its owner or an admin of its tenant, on the Admiral's computer only for an admin calling from that computer |
 | `/api/v1/*/enumerate` | POST | Authenticated | Scoped exactly like the matching `GET` list |
 | `/api/v1/status/health` | GET | NoAuthRequired | |
 | `/api/v1/authenticate` | POST | NoAuthRequired | |
@@ -6540,6 +6541,36 @@ Execute a shell command in the vessel working tree (the in-browser dock terminal
 - Errors: `403 Forbidden` when the caller is not a tenant administrator; `404 Not Found` when the vessel is not found; `409 Conflict` (`VesselCheckoutErrorDetail`) when the vessel has no checkout on the Admiral host or a connected Harbor
 - The `audit.command` event's `host` names the Harbor when the command ran on one.
 
+#### POST /api/v1/workspace/vessels/{vesselId}/open-terminal
+
+Open a terminal window at the vessel's checkout on the computer that holds it (the Workspace's Open in Terminal). No request body.
+
+**Permission:** Authenticated, then checked by where the checkout is:
+
+- **On a Harbor:** the Harbor's owner, a global admin, or a tenant admin of the Harbor's tenant (`403` otherwise). The Admiral sends the Harbor an `OpenTerminal` file operation (see [HARBOR_PROTOCOL.md](HARBOR_PROTOCOL.md)) only when the Harbor advertised the `open-terminal` capability; the Harbor opens the terminal on its desktop and only in the checkout it maps the vessel to.
+- **On the Admiral host:** a global or tenant admin (`403` otherwise), and only when the request comes from the Admiral's own computer (a loopback address and no `X-Forwarded-For` or `Forwarded` header) and the Admiral can reach a desktop (not in a container, not a Windows service, a Linux display).
+
+- Response: `200 OK` - `WorkspaceOpenTerminalResult`, also when no terminal opened for an expected reason (`Opened: false` with `Path` and `Message`), so a client can offer the path instead
+- Errors: `403 Forbidden` when the caller may not open a terminal on that host; `404 Not Found` when the vessel is not found
+
+```json
+{
+  "Opened": false,
+  "Path": "/Users/alex/Code/Timestamps",
+  "Location": "Harbor",
+  "HostName": "Alex-MacBook-Pro",
+  "Message": "Update the Harbor on Alex-MacBook-Pro to open a terminal from the dashboard."
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `Opened` | bool | True when a terminal window opened |
+| `Path` | string? | The checkout's path on the host that holds it; null when the vessel has none |
+| `Location` | [WorkspaceTerminalLocationEnum](#workspaceterminallocationenum) | `Harbor`, `AdmiralHost`, or `None` (no checkout) |
+| `HostName` | string? | The Harbor's display name, or the Admiral computer's name |
+| `Message` | string? | Why no terminal opened, as one sentence (for example the Harbor is offline or older, the browser is not on the Admiral's computer, or the Admiral runs in a container); null when one opened |
+
 #### POST /api/v1/workspace/vessels/{vesselId}/directory
 
 Create a directory inside the vessel workspace.
@@ -9284,6 +9315,12 @@ requests, and allows later prompts from the turn already running), `Deny`.
 
 ---
 
+#### WorkspaceTerminalLocationEnum
+
+`Harbor` (the Harbor that holds the vessel's checkout), `AdmiralHost` (the vessel's working directory on the Admiral's computer), `None` (no checkout).
+
+---
+
 #### CliPermissionRuleScopeEnum
 
 `Global` (every captain of the rule's tenant, or of every tenant when the rule has no tenant), `Vessel` (missions on one
@@ -9953,12 +9990,13 @@ the matrix and each route's section describe. `/openapi.json` and `/swagger` rem
 | 353 | POST | `/api/v1/workspace/vessels/{vesselId}/exec` | Run a command in the vessel workspace | TenantAdmin |
 | 354 | GET | `/api/v1/workspace/vessels/{vesselId}/file` | Read one workspace file | Authenticated |
 | 355 | PUT | `/api/v1/workspace/vessels/{vesselId}/file` | Save one workspace file | Authenticated |
-| 356 | POST | `/api/v1/workspace/vessels/{vesselId}/rename` | Rename or move one workspace entry | Authenticated |
-| 357 | GET | `/api/v1/workspace/vessels/{vesselId}/search` | Search one workspace | Authenticated |
-| 358 | GET | `/api/v1/workspace/vessels/{vesselId}/status` | Get workspace status | Authenticated |
-| 359 | GET | `/api/v1/workspace/vessels/{vesselId}/tree` | List one workspace directory | Authenticated |
-| 360 | GET | `/openapi.json` |  | NoAuthRequired |
-| 361 | GET | `/swagger` |  | NoAuthRequired |
+| 356 | POST | `/api/v1/workspace/vessels/{vesselId}/open-terminal` | Open a terminal at the vessel checkout | Authenticated |
+| 357 | POST | `/api/v1/workspace/vessels/{vesselId}/rename` | Rename or move one workspace entry | Authenticated |
+| 358 | GET | `/api/v1/workspace/vessels/{vesselId}/search` | Search one workspace | Authenticated |
+| 359 | GET | `/api/v1/workspace/vessels/{vesselId}/status` | Get workspace status | Authenticated |
+| 360 | GET | `/api/v1/workspace/vessels/{vesselId}/tree` | List one workspace directory | Authenticated |
+| 361 | GET | `/openapi.json` |  | NoAuthRequired |
+| 362 | GET | `/swagger` |  | NoAuthRequired |
 
 ---
 

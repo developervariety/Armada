@@ -179,6 +179,7 @@ namespace Armada.Core.Services
             connection.SetLiveJobs(handshake.LiveJobIds);
             connection.HostsDocks = HasAvailableCapability(handshake.Capabilities, HarborProtocol.DockCapability);
             connection.HostsCheckouts = connection.HostsDocks && HasAvailableCapability(handshake.Capabilities, HarborProtocol.CheckoutCapability);
+            connection.OpensTerminals = connection.HostsCheckouts && HasAvailableCapability(handshake.Capabilities, HarborProtocol.OpenTerminalCapability);
             connection.PromptRuntimes = ReadPromptRuntimes(handshake.Capabilities);
             connection.Name = handshake.Name;
             connection.HeartbeatIntervalMs = handshake.HeartbeatIntervalMs;
@@ -530,6 +531,17 @@ namespace Armada.Core.Services
         public bool HostsCheckouts(string harborId)
         {
             return !String.IsNullOrWhiteSpace(harborId) && _Connections.TryGetValue(harborId, out HarborConnection? connection) && connection!.HostsCheckouts;
+        }
+
+        /// <summary>
+        /// Whether a connected Harbor can open a terminal on its desktop in a vessel checkout (it advertised
+        /// <see cref="HarborProtocol.OpenTerminalCapability"/>).
+        /// </summary>
+        /// <param name="harborId">Harbor identifier.</param>
+        /// <returns>True when connected and able to open terminals.</returns>
+        public bool OpensTerminals(string harborId)
+        {
+            return !String.IsNullOrWhiteSpace(harborId) && _Connections.TryGetValue(harborId, out HarborConnection? connection) && connection!.OpensTerminals;
         }
 
         /// <summary>

@@ -20,6 +20,18 @@ namespace Armada.Core.Services
     /// </summary>
     public class HarborDockManager
     {
+        #region Public-Members
+
+        /// <summary>
+        /// Opens a terminal window on this host's desktop in a folder and returns null, or returns why it could not; null
+        /// when this host cannot open terminals (a headless Harbor). When set, the Harbor advertises
+        /// <see cref="HarborProtocol.OpenTerminalCapability"/> and serves <see cref="HarborFileOperationEnum.OpenTerminal"/>
+        /// in the checkout it maps a vessel to.
+        /// </summary>
+        public Func<string, string?>? TerminalLauncher { get; set; } = null;
+
+        #endregion
+
         #region Private-Members
 
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _RepoLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
@@ -296,11 +308,58 @@ namespace Armada.Core.Services
                     result.Search = await WorkspaceFileEngine.SearchAsync(root, request.Query ?? String.Empty, request.MaxResults, token).ConfigureAwait(false);
                     result.Success = true;
                     break;
+                case HarborFileOperationEnum.OpenTerminal:
+                    await OpenTerminalAsync(settings, request, root, path, result, token).ConfigureAwait(false);
+                    break;
                 default:
                     result.ErrorCode = HarborFileErrorCodeEnum.Invalid;
                     result.Message = "file operation " + request.Operation + " is not available in a checkout";
                     break;
             }
+        }
+
+        /// <summary>
+        /// Open a terminal in the checkout this Harbor maps the request's vessel to (never in a dock or any other folder
+        /// the Admiral names), or in a folder inside it.
+        /// </summary>
+        private async Task OpenTerminalAsync(HarborDockSettings settings, HarborFileRequest request, string root, string path, HarborFileResult result, CancellationToken token)
+        {
+            Func<string, string?>? launcher = TerminalLauncher;
+            if (launcher == null)
+            {
+                result.ErrorCode = HarborFileErrorCodeEnum.Invalid;
+                result.Message = "this Harbor cannot open terminal windows";
+                return;
+            }
+
+            if (!await IsVesselCheckoutAsync(settings, request, root, token).ConfigureAwait(false))
+            {
+                string vessel = !String.IsNullOrWhiteSpace(request.VesselName) ? request.VesselName! : (request.VesselId ?? "(none)");
+                result.ErrorCode = HarborFileErrorCodeEnum.Refused;
+                result.Message = "refused: " + root + " is not this Harbor's checkout of vessel " + vessel;
+                return;
+            }
+
+            string folder = String.IsNullOrWhiteSpace(path) ? root : WorkspaceFileEngine.ResolveContainedPath(root, path);
+            if (!Directory.Exists(folder))
+            {
+                result.ErrorCode = HarborFileErrorCodeEnum.NotFound;
+                result.Message = folder + " is not a folder";
+                return;
+            }
+
+            string? error = launcher(folder);
+            if (error != null)
+            {
+                result.ErrorCode = HarborFileErrorCodeEnum.Failed;
+                result.Message = error;
+                return;
+            }
+
+            _Logging.Info(_Header + "opened a terminal in " + folder);
+            result.Exists = true;
+            result.IsDirectory = true;
+            result.Success = true;
         }
 
         private async Task<bool> IsVesselCheckoutAsync(HarborDockSettings settings, HarborFileRequest request, string root, CancellationToken token)

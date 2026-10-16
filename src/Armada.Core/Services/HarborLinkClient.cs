@@ -156,7 +156,9 @@ namespace Armada.Core.Services
         /// installed mux is 1.5.0 or later.</param>
         /// <param name="dockManager">Optional Harbor-side dock manager; when set the Harbor advertises
         /// <see cref="HarborProtocol.DockCapability"/> and <see cref="HarborProtocol.CheckoutCapability"/>, creates mission docks
-        /// on this host, and serves file operations in vessel checkouts. When null, dock and file requests are refused.</param>
+        /// on this host, and serves file operations in vessel checkouts. When null, dock and file requests are refused. When
+        /// its <see cref="HarborDockManager.TerminalLauncher"/> is set, the Harbor also advertises
+        /// <see cref="HarborProtocol.OpenTerminalCapability"/>.</param>
         public HarborLinkClient(
             string harborId,
             string name,
@@ -179,6 +181,8 @@ namespace Armada.Core.Services
                 _Capabilities.Add(new HarborCapability { Name = HarborProtocol.DockCapability, Available = true });
             if (_Docks != null && !_Capabilities.Exists(c => String.Equals(c.Name, HarborProtocol.CheckoutCapability, StringComparison.OrdinalIgnoreCase)))
                 _Capabilities.Add(new HarborCapability { Name = HarborProtocol.CheckoutCapability, Available = true });
+            if (_Docks != null && _Docks.TerminalLauncher != null && !_Capabilities.Exists(c => String.Equals(c.Name, HarborProtocol.OpenTerminalCapability, StringComparison.OrdinalIgnoreCase)))
+                _Capabilities.Add(new HarborCapability { Name = HarborProtocol.OpenTerminalCapability, Available = true });
             if (jobRunner != null && !_Capabilities.Exists(c => String.Equals(c.Name, HarborProtocol.CliPermissionPromptCapability, StringComparison.OrdinalIgnoreCase)))
             {
                 // Claude Code always can; Mux only from 1.5.0 (mux print --permission-prompt-tool).

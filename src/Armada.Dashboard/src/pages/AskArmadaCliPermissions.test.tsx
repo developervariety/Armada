@@ -95,9 +95,9 @@ function detail(th: AskThread = thread): AskThreadDetail {
   return { thread: th, trackedWork: [], pendingProposals: [], pendingCliPermissions: [] };
 }
 
-function renderAt(path: string) {
+function renderAt(path: string, state?: unknown) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[state === undefined ? path : { pathname: path, state }]}>
       <Routes>
         <Route path="/ask/:threadId?" element={<AskArmada />} />
         <Route path="/captains/:id" element={<div>captain page</div>} />
@@ -118,6 +118,14 @@ beforeEach(() => {
   vi.mocked(getAskThread).mockResolvedValue(detail());
   vi.mocked(enumerateAskMessages).mockResolvedValue({ messages: messages(), hasMore: false });
   vi.mocked(markAskThreadRead).mockResolvedValue(undefined);
+});
+
+describe('Ask draft from another page', () => {
+  it('puts a draft passed in the route state in the message box of a new conversation', async () => {
+    renderAt('/ask', { draft: 'About vessel "app" (vsl_1):\n\n' });
+    const box = await screen.findByRole('combobox', { name: 'Message' });
+    await waitFor(() => expect(box).toHaveValue('About vessel "app" (vsl_1):\n\n'));
+  });
 });
 
 describe('Ask CLI permission card', () => {

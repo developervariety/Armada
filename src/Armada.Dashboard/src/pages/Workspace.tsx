@@ -8,6 +8,7 @@ import {
   getWorkspaceStatus,
   getWorkspaceTree,
   listVessels,
+  openWorkspaceTerminal,
   renameWorkspaceEntry,
   saveWorkspaceFile,
   updateVessel,
@@ -24,12 +25,14 @@ import type {
 } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
-import ReadinessPanel from '../components/shared/ReadinessPanel';
+import { copyToClipboard } from '../components/shared/CopyButton';
+import WorkspaceReadinessStrip from '../components/workspace/WorkspaceReadinessStrip';
+import type { AskNavigationState } from '../lib/askNavigation';
 import WorkspaceTree from '../components/workspace/WorkspaceTree';
 import WorkspaceVesselPicker from '../components/workspace/WorkspaceVesselPicker';
-import WorkspaceTerminal from '../components/workspace/WorkspaceTerminal';
 import WorkspaceDiff from '../components/workspace/WorkspaceDiff';
 import {
+  buildWorkspaceAskDraft,
   buildWorkspaceContextSnippet,
   buildWorkspaceDispatchDraft,
   buildWorkspacePlanningDraft,
@@ -107,6 +110,7 @@ export default function Workspace() {
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [loadingWorkspace, setLoadingWorkspace] = useState(false);
   const [loadingReadiness, setLoadingReadiness] = useState(false);
+  const [openingTerminal, setOpeningTerminal] = useState(false);
   const [workspaceError, setWorkspaceError] = useState('');
   const [showContextModal, setShowContextModal] = useState(false);
   const [metadataEntry, setMetadataEntry] = useState<WorkspaceTreeEntry | null>(null);
@@ -705,6 +709,47 @@ export default function Workspace() {
     navigate('/dispatch', { state });
   }
 
+  async function handleOpenTerminal() {
+    if (!currentVessel || openingTerminal) return;
+    setOpeningTerminal(true);
+    let path: string | null = readiness?.checkoutPath ?? null;
+    let reason = '';
+    try {
+      const result = await openWorkspaceTerminal(currentVessel.id);
+      if (result.opened) {
+        pushToast('success', result.hostName
+          ? t('Opened a terminal at {{path}} on {{host}}.', { path: result.path || '', host: result.hostName })
+          : t('Opened a terminal at {{path}}.', { path: result.path || '' }));
+        return;
+      }
+      path = result.path || path;
+      reason = result.message || '';
+    } catch (error: unknown) {
+      reason = error instanceof Error && error.message ? error.message : t('Could not open a terminal.');
+    } finally {
+      setOpeningTerminal(false);
+    }
+
+    // No terminal could be opened from here: hand over the cd command instead.
+    if (!path) {
+      pushToast('warning', reason || t('This vessel has no checkout to open a terminal in.'));
+      return;
+    }
+    try {
+      await copyToClipboard(`cd "${path}"`);
+      pushToast('info', `${reason ? reason + ' ' : ''}${t('Copied a cd command for {{path}} to the clipboard; paste it in a terminal.', { path })}`);
+    } catch {
+      pushToast('warning', `${reason ? reason + ' ' : ''}${t('The checkout is at {{path}}.', { path })}`);
+    }
+  }
+
+  function handleAskArmada() {
+    if (!currentVessel) return;
+    const draft = buildWorkspaceAskDraft(currentVessel, actionablePaths, readiness?.checkoutPath, readiness?.harborName);
+    const state: AskNavigationState = { draft };
+    navigate('/ask', { state });
+  }
+
   function handleRunCheck() {
     if (!currentVessel) return;
     const state: WorkspaceCheckState = {
@@ -783,6 +828,8 @@ export default function Workspace() {
                 <button type="button" className="btn btn-sm" onClick={handleRunCheck} title={t('Go to Checks with this vessel and its current branch filled in, to run a build, test or other check.')}>{t('Run Check')}</button>
                 <button type="button" className="btn btn-sm" onClick={handlePlanSelection} disabled={actionablePaths.length === 0} title={t('Start a planning chat with a captain, pre-filled with the selected files (or the active tab), to work out the change before dispatching.')}>{t('Plan')}</button>
                 <button type="button" className="btn btn-sm" onClick={handleDispatchSelection} disabled={actionablePaths.length === 0} title={t('Go to Dispatch with a mission draft scoped to the selected files (or the active tab). Nothing runs until you submit it there.')}>{t('Dispatch')}</button>
+                <button type="button" className="btn btn-sm" onClick={() => void handleOpenTerminal()} disabled={openingTerminal} title={t('Open a terminal window at this vessel\'s checkout, on the Harbor that holds it or on the Admiral host. Where that is not possible, a cd command for the checkout is copied instead.')}>{openingTerminal ? t('Opening...') : t('Open in Terminal')}</button>
+                <button type="button" className="btn btn-sm" onClick={handleAskArmada} title={t('Start an Ask Armada conversation about this vessel, with its checkout and the selected files (or the active tab) filled in for you to finish and send.')}>{t('Ask Armada')}</button>
                 <button type="button" className="btn btn-sm" onClick={openContextModal} title={t('Edit this vessel Project Context, Style Guide and Model Context, which are added to every captain prompt for it.')}>{t('Context')}</button>
               </div>
 
@@ -813,13 +860,7 @@ export default function Workspace() {
         </div>
       )}
 
-      <ReadinessPanel
-        title={t('Readiness')}
-        readiness={readiness}
-        loading={loadingReadiness}
-        emptyMessage={t('Readiness data is not available for this vessel yet.')}
-        compact
-      />
+      <WorkspaceReadinessStrip readiness={readiness} loading={loadingReadiness} />
 
       <div className={`workspace-shell${showSelectionPane ? ' has-selection-pane' : ''}`}>
         <aside className="workspace-pane workspace-pane-left">
@@ -1100,7 +1141,6 @@ export default function Workspace() {
       )}
 
       {currentVessel && <WorkspaceDiff vesselId={currentVessel.id} />}
-      {currentVessel && <WorkspaceTerminal vesselId={currentVessel.id} />}
     </div>
   );
 }

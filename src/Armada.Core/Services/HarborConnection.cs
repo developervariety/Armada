@@ -68,6 +68,12 @@ namespace Armada.Core.Services
         public bool HostsCheckouts { get; set; } = false;
 
         /// <summary>
+        /// Whether the Harbor can open a terminal on its desktop in a vessel checkout (it advertised
+        /// <see cref="Armada.Core.Harbor.HarborProtocol.OpenTerminalCapability"/>).
+        /// </summary>
+        public bool OpensTerminals { get; set; } = false;
+
+        /// <summary>
         /// Runtimes whose permission prompts the Harbor can send to Armada (the detail of
         /// <see cref="Armada.Core.Harbor.HarborProtocol.CliPermissionPromptCapability"/> in its handshake); empty for a
         /// Harbor that predates it.

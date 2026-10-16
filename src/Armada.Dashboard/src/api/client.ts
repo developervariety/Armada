@@ -119,6 +119,7 @@ import type {
   WorkspaceSearchResult,
   WorkspaceStatusResult,
   WorkspaceExecResult,
+  WorkspaceOpenTerminalResult,
   WorkspaceDiffResult,
   WorkspaceTreeResult,
   RequestHistoryEntry,
@@ -876,6 +877,9 @@ export const searchWorkspace = (vesselId: string, query: string, maxResults = 20
   get<WorkspaceSearchResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/search?q=${encodeURIComponent(query)}&maxResults=${maxResults}`);
 export const getWorkspaceChanges = (vesselId: string) =>
   get<WorkspaceChangesResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/changes`);
+/** Open a terminal window at the vessel's checkout on the machine that holds it (its Harbor, or the Admiral host). */
+export const openWorkspaceTerminal = (vesselId: string) =>
+  post<WorkspaceOpenTerminalResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/open-terminal`, {});
 
 // ==================== Request History ====================
 export const listRequestHistory = (params?: RequestHistoryQuery) =>

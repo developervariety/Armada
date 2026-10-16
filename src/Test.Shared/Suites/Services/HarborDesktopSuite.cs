@@ -3,6 +3,7 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Hosting;
@@ -87,6 +88,52 @@ namespace Test.Shared.Suites.Services
                 AssertNull(DesktopShellCommandBuilder.BuildTextEditorFallback(HostPlatformEnum.MacOS, "/a/settings.json"));
                 AssertNull(DesktopShellCommandBuilder.BuildTextEditorFallback(HostPlatformEnum.Linux, "/a/settings.json"));
                 AssertEqual("xdg-open", DesktopShellCommandBuilder.BuildOpenInTextEditor(HostPlatformEnum.Linux, "/a/settings.json").FileName);
+            }));
+
+            cases.Add(Case("shell_open_terminal_per_platform", "Open in Terminal uses Terminal.app, Windows Terminal then a Command Prompt window, and the installed Linux terminal, each started in the folder", TestTags.Positive, () =>
+            {
+                List<ShellLaunch> mac = DesktopShellCommandBuilder.BuildOpenTerminal(HostPlatformEnum.MacOS, "/Users/a b/Code/app");
+                AssertEqual(1, mac.Count);
+                AssertEqual("open", mac[0].FileName);
+                AssertEqual(3, mac[0].Arguments.Count);
+                AssertEqual("-a", mac[0].Arguments[0]);
+                AssertEqual("Terminal", mac[0].Arguments[1]);
+                AssertEqual("/Users/a b/Code/app", mac[0].Arguments[2]);
+                AssertTrue(mac[0].WaitForExitMs > 0, "open is waited on so a failure is reported");
+                AssertEqual("/Users/a b/Code/app", mac[0].WorkingDirectory);
+
+                List<ShellLaunch> windows = DesktopShellCommandBuilder.BuildOpenTerminal(HostPlatformEnum.Windows, "C:\\Code\\my app");
+                AssertEqual(2, windows.Count);
+                AssertEqual("wt.exe", windows[0].FileName, "Windows Terminal first");
+                AssertEqual("-d", windows[0].Arguments[0]);
+                AssertEqual("C:\\Code\\my app", windows[0].Arguments[1]);
+                AssertEqual("cmd.exe", windows[1].FileName, "then a Command Prompt window");
+                AssertEqual("/c start \"\" /D \"C:\\Code\\my app\" cmd.exe", windows[1].RawArguments, "start with an empty title and the folder");
+                AssertFalse(windows[1].UseShellExecute);
+
+                List<ShellLaunch> linux = DesktopShellCommandBuilder.BuildOpenTerminal(HostPlatformEnum.Linux, "/home/a/code/app");
+                List<string> programs = linux.Select(l => l.FileName).ToList();
+                AssertEqual("x-terminal-emulator,gnome-terminal,konsole,xfce4-terminal,xterm", String.Join(",", programs));
+                AssertEqual("--working-directory=/home/a/code/app", linux[1].Arguments[0]);
+                AssertEqual("--workdir", linux[2].Arguments[0]);
+                AssertEqual("/home/a/code/app", linux[2].Arguments[1]);
+                AssertTrue(linux.All(l => l.WorkingDirectory == "/home/a/code/app"), "every candidate starts in the folder");
+
+                AssertThrows<ArgumentNullException>(() => DesktopShellCommandBuilder.BuildOpenTerminal(HostPlatformEnum.MacOS, " "));
+                AssertThrows<PlatformNotSupportedException>(() => DesktopShellCommandBuilder.BuildOpenTerminal(HostPlatformEnum.Unsupported, "/a"));
+            }));
+
+            cases.Add(Case("terminal_launcher_tries_next", "The terminal launcher moves on when a program is not installed, and reports every failure when none starts", TestTags.Negative, () =>
+            {
+                string? error = DesktopShellLauncher.TryStartFirst(new List<ShellLaunch>
+                {
+                    new ShellLaunch { FileName = "armada-no-such-terminal-1" },
+                    new ShellLaunch { FileName = "armada-no-such-terminal-2" }
+                });
+                AssertNotNull(error);
+                AssertContains("armada-no-such-terminal-1", error!);
+                AssertContains("armada-no-such-terminal-2", error!);
+                AssertNotNull(DesktopShellLauncher.OpenTerminal(Path.Combine(TestTemp.NewDirectory("no-terminal"), "missing"), "The Admiral"), "a missing folder is refused before anything starts");
             }));
 
             cases.Add(Case("shell_rejects_invalid", "Shell commands reject empty targets and unsupported platforms", TestTags.Negative, () =>

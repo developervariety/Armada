@@ -10,10 +10,16 @@ interface ReadinessPanelProps {
   loading?: boolean;
   emptyMessage?: string;
   compact?: boolean;
+  /**
+   * Shown inside another summary (the Workspace readiness strip) that already carries the title, status, profile,
+   * check types and checkout: render only what is missing and the issues, with no card or header of its own.
+   */
+  embedded?: boolean;
 }
 
 export default function ReadinessPanel(props: ReadinessPanelProps) {
-  const { title, readiness, loading = false, emptyMessage = 'No readiness data.', compact = false } = props;
+  const { title, readiness, loading = false, emptyMessage = 'No readiness data.', embedded = false } = props;
+  const compact = props.compact || embedded;
   const tone = readinessTone(readiness);
   const label = readinessLabel(readiness);
   const branchSummary = readinessBranchSummary(readiness);
@@ -23,7 +29,8 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
   const checkoutText = checkout ? readinessCheckoutText(checkout) : null;
 
   return (
-    <div className={`card readiness-panel${compact ? ' compact' : ''}`}>
+    <div className={embedded ? 'readiness-panel embedded' : `card readiness-panel${compact ? ' compact' : ''}`}>
+      {!embedded && (
       <div className="readiness-panel-header">
         <div>
           <h3>{title}</h3>
@@ -41,6 +48,7 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
         </div>
         <span className={`readiness-pill ${tone}`} title={t('Ready: no issues. Needs Attention: warnings only, work can still run. Blocked: at least one error stops missions or checks until fixed. Unknown: not checked yet.')}>{label}</span>
       </div>
+      )}
 
       {loading ? (
         <div className="text-dim">Checking readiness...</div>
@@ -48,15 +56,17 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
         <div className="text-dim">{emptyMessage}</div>
       ) : (
         <>
+          {(!embedded || !readiness.hasWorkingDirectory || !readiness.hasRepositoryContext) && (
           <div className="readiness-summary-row">
-            <span title={t('Whether a checkout of this vessel exists, on the Admiral host or a connected Harbor. Checks, workspace browsing and Local Merge need one.')}>{readiness.hasWorkingDirectory ? 'Working directory available' : 'Working directory unavailable'}</span>
-            <span title={t('Whether the Admiral has its bare clone of the repository, or can recreate it from the repository URL. Missions need it to create worktrees.')}>{readiness.hasRepositoryContext ? 'Repository context available' : 'Repository context unavailable'}</span>
-            {readiness.availableCheckTypes.length > 0 && (
+            {(!embedded || !readiness.hasWorkingDirectory) && <span title={t('Whether a checkout of this vessel exists, on the Admiral host or a connected Harbor. Checks, workspace browsing and Local Merge need one.')}>{readiness.hasWorkingDirectory ? 'Working directory available' : 'Working directory unavailable'}</span>}
+            {(!embedded || !readiness.hasRepositoryContext) && <span title={t('Whether the Admiral has its bare clone of the repository, or can recreate it from the repository URL. Missions need it to create worktrees.')}>{readiness.hasRepositoryContext ? 'Repository context available' : 'Repository context unavailable'}</span>}
+            {!embedded && readiness.availableCheckTypes.length > 0 && (
               <span title={t('Kinds of structured checks (build, test, deploy and so on) the resolved workflow profile defines commands for.')}>{readiness.availableCheckTypes.length} check type(s) available</span>
             )}
           </div>
+          )}
 
-          {checkout && checkoutText && (
+          {!embedded && checkout && checkoutText && (
             <div className={`readiness-checkout${checkout.kind === 'unavailable' ? ' unavailable' : ''}`} data-testid="readiness-checkout">
               <span className="readiness-checkout-label" title={t('Where checks and workspace actions for this vessel run: its working directory on the Admiral host, or a Harbor\'s copy.')}>{t('Checkout')}:</span>
               <span className="readiness-checkout-where">{t(checkoutText.template, checkoutText.params)}</span>
@@ -192,11 +202,31 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
                 const providerLabel = issue.inputProvider ? formatInputProvider(issue.inputProvider) : null;
                 const providerSuffix = providerLabel ? ` (${providerLabel})` : '';
 
+                const severityTag = <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`} title={t('Done: satisfied. Error: blocks work until fixed. Warning: recommended. Info: for your information.')}>{issue.severity}</span>;
+                // Info items are for reference only: collapsed to their title row until opened.
+                if (issue.severity === 'Info') {
+                  return (
+                    <details key={`${issue.code}-${index}`} className="readiness-issue info readiness-issue-collapsible" data-testid={`readiness-issue-${issue.code}`}>
+                      <summary className="readiness-issue-title-row" title={t('Show or hide the details of this note.')}>
+                        <strong>{issue.title}</strong>
+                        {severityTag}
+                      </summary>
+                      <div className="text-dim">{issue.message}</div>
+                      {relatedValue && (
+                        <div className="readiness-related-value mono" title={t('The value this issue is about, such as a path, command or input name.')}>
+                          {relatedValue}
+                          {providerSuffix}
+                        </div>
+                      )}
+                    </details>
+                  );
+                }
+
                 return (
                   <div key={`${issue.code}-${index}`} className={`readiness-issue ${issue.severity.toLowerCase()}`}>
                     <div className="readiness-issue-title-row">
                       <strong>{issue.title}</strong>
-                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`} title={t('Done: satisfied. Error: blocks work until fixed. Warning: recommended. Info: for your information.')}>{issue.severity}</span>
+                      {severityTag}
                     </div>
                     <div className="text-dim">{issue.message}</div>
                     {issue.actionHref && issue.actionLabel && (
@@ -214,6 +244,8 @@ export default function ReadinessPanel(props: ReadinessPanelProps) {
                 );
               })}
             </div>
+          ) : embedded ? (
+            <div className="text-dim">{t('No readiness issues.')}</div>
           ) : (
             <div className="readiness-success-copy">
               {t('This vessel looks ready for the currently selected workflow surface.')}

@@ -484,6 +484,7 @@ namespace Armada.Core.Authorization
             Add("GET", "/api/v1/workspace/vessels/{vesselId}/file", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("PUT", "/api/v1/workspace/vessels/{vesselId}/file", "Workspace", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/workspace/vessels/{vesselId}/exec", "Workspace", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
+            Add("POST", "/api/v1/workspace/vessels/{vesselId}/open-terminal", "Workspace", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/workspace/vessels/{vesselId}/directory", "Workspace", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/workspace/vessels/{vesselId}/rename", "Workspace", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
             Add("DELETE", "/api/v1/workspace/vessels/{vesselId}/entry", "Workspace", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);

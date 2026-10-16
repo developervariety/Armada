@@ -6123,6 +6123,23 @@
     },
     {
       "method": "POST",
+      "route": "/api/v1/workspace/vessels/{vesselId}/open-terminal",
+      "auth": "Authenticated",
+      "resource": "Workspace:Execute",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "WorkspaceOpenTerminalResult",
+        "404": ""
+      },
+      "tags": [
+        "Workspace"
+      ],
+      "summary": "Open a terminal at the vessel checkout",
+      "experimental": false
+    },
+    {
+      "method": "POST",
       "route": "/api/v1/workspace/vessels/{vesselId}/rename",
       "auth": "Authenticated",
       "resource": "Workspace:Create",
