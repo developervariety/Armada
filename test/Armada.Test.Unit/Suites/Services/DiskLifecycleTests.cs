@@ -394,6 +394,86 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Operator evidence loses idle clones and build outputs, keeps receipts, and skips recent and kept folders", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string evidence = Path.Combine(layout.Settings.LogDirectory, "operator-evidence");
+                    string idle = CreateEvidenceFolder(evidence, "proof-v1", DateTime.UtcNow.AddDays(-2));
+                    string recent = CreateEvidenceFolder(evidence, "proof-v2", DateTime.UtcNow);
+                    string kept = CreateEvidenceFolder(evidence, "proof-pinned", DateTime.UtcNow.AddDays(-2), keep: true);
+                    string expired = CreateEvidenceFolder(evidence, "proof-v0", DateTime.UtcNow.AddDays(-20));
+
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                    service.FreeBytesProbe = _ => 500L * 1024 * 1024 * 1024;
+
+                    DiskLifecycleReport dry = await service.ScanAsync().ConfigureAwait(false);
+                    DiskLifecycleCategory dryCategory = dry.Categories.First(c => c.Category == "operatorEvidence");
+                    AssertEqual(4, dryCategory.TotalItems, "Every evidence folder is counted");
+                    AssertTrue(dryCategory.TotalBytes > 0, "Nested files are measured, not only the top folder");
+                    AssertTrue(Directory.Exists(Path.Combine(idle, "checkout", ".git")), "A scan deletes nothing");
+
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+                    DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertFalse(Directory.Exists(Path.Combine(idle, "checkout", ".git")), "An idle clone's .git is reclaimed");
+                    AssertFalse(Directory.Exists(Path.Combine(idle, "checkout", "bin")), "An idle build output is reclaimed");
+                    AssertTrue(File.Exists(Path.Combine(idle, "receipt.json")), "The receipt stays");
+                    AssertTrue(File.Exists(Path.Combine(idle, "checkout", "src", "Program.cs")), "Source files stay");
+                    AssertTrue(Directory.Exists(Path.Combine(recent, "checkout", ".git")), "A recently written folder is protected");
+                    AssertTrue(Directory.Exists(Path.Combine(kept, "checkout", ".git")), "A folder with the keep marker is protected");
+                    AssertFalse(Directory.Exists(expired), "A folder idle past the folder retention is removed whole");
+                    AssertFalse(live.LowSpace, "Ample free space is not low-space mode");
+
+                    DiskLifecycleCategory category = live.Categories.First(c => c.Category == "operatorEvidence");
+                    AssertEqual(3, category.ReclaimableItems, "Two payload directories and one whole folder are reclaimable");
+                    AssertEqual(2, category.ProtectedItems, "The recent and the kept folders are protected");
+                    AssertTrue(live.Actions.Any(a => a.Category == "operatorEvidence" && a.Disposition == "reclaimed" && a.Reason.Contains("receipts and logs kept", StringComparison.Ordinal)),
+                        "A payload reclaim records its reason");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Low free space shortens operator-evidence payload retention", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string evidence = Path.Combine(layout.Settings.LogDirectory, "operator-evidence");
+                    string folder = CreateEvidenceFolder(evidence, "proof-v3", DateTime.UtcNow.AddHours(-8));
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                    service.FreeBytesProbe = _ => 500L * 1024 * 1024 * 1024;
+                    DiskLifecycleReport ample = await service.ReconcileAsync().ConfigureAwait(false);
+                    AssertTrue(Directory.Exists(Path.Combine(folder, "checkout", ".git")), "Eight idle hours are inside the normal 24-hour retention");
+                    AssertEqual(500L * 1024 * 1024 * 1024, ample.FreeBytes, "The report carries the measured free space");
+
+                    service.FreeBytesProbe = _ => 2L * 1024 * 1024 * 1024;
+                    DiskLifecycleReport low = await service.ReconcileAsync().ConfigureAwait(false);
+                    AssertTrue(low.LowSpace, "Free space under the threshold is low-space mode");
+                    AssertFalse(Directory.Exists(Path.Combine(folder, "checkout", ".git")), "Low-space mode reclaims payload idle past its shorter retention");
+                    AssertTrue(File.Exists(Path.Combine(folder, "receipt.json")), "Low-space mode still keeps the receipt");
+
+                    DiskLifecycleReport measured = await new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging()).ScanAsync().ConfigureAwait(false);
+                    AssertTrue(measured.FreeBytes > 0, "The default probe reads the real free space of the log volume");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Temp artifacts and leftover integration worktrees are reclaimable past retention", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -621,6 +701,26 @@ namespace Armada.Test.Unit.Suites.Services
                 SiblingPath = Path.Combine(vesselDir, "ExampleSibling"),
                 BackupsPath = Path.Combine(settings.DataDirectory, "backups")
             };
+        }
+
+        private static string CreateEvidenceFolder(string evidenceRoot, string name, DateTime writtenUtc, bool keep = false)
+        {
+            string folder = Path.Combine(evidenceRoot, name);
+            Directory.CreateDirectory(Path.Combine(folder, "checkout", ".git", "objects"));
+            Directory.CreateDirectory(Path.Combine(folder, "checkout", "src"));
+            Directory.CreateDirectory(Path.Combine(folder, "checkout", "bin"));
+            File.WriteAllText(Path.Combine(folder, "receipt.json"), "{\"exit\":0}");
+            File.WriteAllText(Path.Combine(folder, "checkout", ".git", "objects", "pack.bin"), new string('p', 4096));
+            File.WriteAllText(Path.Combine(folder, "checkout", "src", "Program.cs"), "class Program { }");
+            File.WriteAllText(Path.Combine(folder, "checkout", "bin", "app.dll"), new string('b', 2048));
+            if (keep) File.WriteAllText(Path.Combine(folder, ".armada-keep"), "pinned");
+
+            foreach (string file in Directory.EnumerateFiles(folder, "*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0 }))
+                File.SetLastWriteTimeUtc(file, writtenUtc);
+            foreach (string directory in Directory.EnumerateDirectories(folder, "*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0 }).OrderByDescending(d => d.Length))
+                Directory.SetLastWriteTimeUtc(directory, writtenUtc);
+            Directory.SetLastWriteTimeUtc(folder, writtenUtc);
+            return folder;
         }
 
         private static void Cleanup(Layout layout)

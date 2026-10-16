@@ -52,6 +52,17 @@ namespace Armada.Core.Services
         private const string _CategoryMergeQueueWorktrees = "mergeQueueWorktrees";
         private const string _CategoryTempArtifacts = "tempArtifacts";
         private const string _CategoryBackups = "backups";
+        private const string _CategoryOperatorEvidence = "operatorEvidence";
+        private const string _OperatorEvidenceFolder = "operator-evidence";
+        private const string _KeepMarkerFile = ".armada-keep";
+
+        private static readonly HashSet<string> _EvidencePayloadDirectoryNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            ".git",
+            "bin",
+            "obj",
+            "node_modules"
+        };
 
         private static readonly string[] _TempArtifactPrefixes = new string[]
         {
@@ -114,6 +125,11 @@ namespace Armada.Core.Services
         internal Func<CancellationToken, Task>? OnPassStarted { get; set; }
 
         /// <summary>
+        /// Test seam: returns the free bytes on the volume holding a path, or -1 when unknown.
+        /// </summary>
+        internal Func<string, long> FreeBytesProbe { get; set; } = ReadFreeBytes;
+
+        /// <summary>
         /// The lease registry used to protect shared sibling worktrees from reclamation.
         /// </summary>
         public SiblingLeaseRegistry Leases
@@ -153,6 +169,9 @@ namespace Armada.Core.Services
                 ScannedUtc = DateTime.UtcNow
             };
             _CurrentReport = report;
+            report.FreeBytes = FreeBytesProbe(_Settings.LogDirectory);
+            long lowSpaceBytes = (long)section.LowSpaceThresholdGb * 1024L * 1024L * 1024L;
+            report.LowSpace = lowSpaceBytes > 0 && report.FreeBytes >= 0 && report.FreeBytes < lowSpaceBytes;
 
             if (OnPassStarted != null)
                 await OnPassStarted(token).ConfigureAwait(false);
@@ -177,6 +196,7 @@ namespace Armada.Core.Services
                 await ScanDockMetadata(section, delete, report, token).ConfigureAwait(false);
                 await ScanTempArtifacts(section, delete, report, token).ConfigureAwait(false);
                 await ScanBackups(section, delete, report, token).ConfigureAwait(false);
+                await ScanOperatorEvidence(section, delete, report, token).ConfigureAwait(false);
                 ScanBareRepos(report);
             }
             catch (Exception ex)
@@ -388,7 +408,7 @@ namespace Armada.Core.Services
             DiskLifecycleCategory category = NewCategory(_CategoryIntegrationWorktrees);
             string root = Path.Combine(_Settings.DocksDirectory, "_integration");
             TimeSpan retention = TimeSpan.FromHours(Math.Max(1, section.IntegrationWorktreeRetentionHours));
-            ScanWorktreeDirs(root, retention, delete, report, category, token);
+            await ScanWorktreeDirs(root, retention, delete, report, category, token).ConfigureAwait(false);
             report.Categories.Add(category);
         }
 
@@ -463,7 +483,7 @@ namespace Armada.Core.Services
             DiskLifecycleCategory category = NewCategory(_CategoryMissionLogs);
             string root = Path.Combine(_Settings.LogDirectory, "missions");
             TimeSpan retention = TimeSpan.FromDays(Math.Max(0, section.MissionLogRetentionDays));
-            ScanExpiredFiles(root, "*.log", retention, delete, report, category, token);
+            await ScanExpiredFiles(root, "*.log", retention, delete, report, category, token).ConfigureAwait(false);
             report.Categories.Add(category);
         }
 
@@ -472,7 +492,7 @@ namespace Armada.Core.Services
             DiskLifecycleCategory category = NewCategory(_CategoryDiffs);
             string root = Path.Combine(_Settings.LogDirectory, "diffs");
             TimeSpan retention = TimeSpan.FromDays(Math.Max(0, section.DiffSnapshotRetentionDays));
-            ScanExpiredFiles(root, "*.diff", retention, delete, report, category, token);
+            await ScanExpiredFiles(root, "*.diff", retention, delete, report, category, token).ConfigureAwait(false);
             report.Categories.Add(category);
         }
 
@@ -481,7 +501,7 @@ namespace Armada.Core.Services
             DiskLifecycleCategory category = NewCategory(_CategoryInstructions);
             string root = Path.Combine(_Settings.LogDirectory, "instructions");
             TimeSpan retention = TimeSpan.FromDays(Math.Max(0, section.InstructionRetentionDays));
-            ScanExpiredFiles(root, "*", retention, delete, report, category, token);
+            await ScanExpiredFiles(root, "*", retention, delete, report, category, token).ConfigureAwait(false);
             report.Categories.Add(category);
         }
 
@@ -490,7 +510,7 @@ namespace Armada.Core.Services
             DiskLifecycleCategory category = NewCategory(_CategoryDockMetadata);
             string root = Path.Combine(_Settings.LogDirectory, "docks");
             TimeSpan retention = TimeSpan.FromDays(Math.Max(0, section.DockMetadataRetentionDays));
-            ScanExpiredFiles(root, "*.start", retention, delete, report, category, token);
+            await ScanExpiredFiles(root, "*.start", retention, delete, report, category, token).ConfigureAwait(false);
             report.Categories.Add(category);
         }
 
@@ -676,6 +696,94 @@ namespace Armada.Core.Services
                 else
                 {
                     RecordAction(report, category, archive, "dry-run-reclaim", "backup past retention (newest " + minKeep + " protected)");
+                }
+            }
+
+            report.Categories.Add(category);
+        }
+
+        // Operator proof runs keep their receipts, logs and full clones here. A folder with no write
+        // anywhere inside it for the payload retention loses its clones and build outputs; one idle for
+        // the folder retention is removed whole. A folder holding the keep marker is never touched.
+        private async Task ScanOperatorEvidence(DiskLifecycleSettings section, bool delete, DiskLifecycleReport report, CancellationToken token)
+        {
+            DiskLifecycleCategory category = NewCategory(_CategoryOperatorEvidence);
+            string root = Path.Combine(_Settings.LogDirectory, _OperatorEvidenceFolder);
+            if (!Directory.Exists(root))
+            {
+                report.Categories.Add(category);
+                return;
+            }
+
+            int payloadHours = report.LowSpace
+                ? Math.Min(section.LowSpacePayloadRetentionHours, section.OperatorEvidencePayloadRetentionHours)
+                : section.OperatorEvidencePayloadRetentionHours;
+            DateTime payloadCutoff = DateTime.UtcNow.AddHours(-payloadHours);
+            DateTime folderCutoff = DateTime.UtcNow.AddDays(-section.OperatorEvidenceRetentionDays);
+            if (report.LowSpace) category.Note = "low-space mode: payload retention " + payloadHours + "h";
+
+            foreach (string candidate in SafeEnumerateDirectories(root))
+            {
+                if (token.IsCancellationRequested) break;
+
+                string full = Path.GetFullPath(candidate);
+                if (IsSymlink(full)) continue;
+                long bytes = SafeGetDirectoryBytes(full);
+                category.TotalBytes += bytes;
+                category.TotalItems++;
+
+                if (File.Exists(Path.Combine(full, _KeepMarkerFile)))
+                {
+                    category.ProtectedItems++;
+                    continue;
+                }
+
+                DateTime newest = NewestWriteTimeUtc(full, payloadCutoff);
+                if (newest > payloadCutoff)
+                {
+                    category.ProtectedItems++;
+                    continue;
+                }
+
+                if (newest <= folderCutoff)
+                {
+                    category.ReclaimableBytes += bytes;
+                    category.ReclaimableItems++;
+                    string folderReason = "operator evidence idle past " + section.OperatorEvidenceRetentionDays + " days";
+                    if (delete)
+                    {
+                        bool removed = await RemoveDirectorySafeAsync(full, token).ConfigureAwait(false);
+                        RecordAction(report, category, full, removed ? "reclaimed" : "skipped", removed ? folderReason : "directory removal failed");
+                    }
+                    else
+                    {
+                        RecordAction(report, category, full, "dry-run-reclaim", folderReason);
+                    }
+                    continue;
+                }
+
+                List<string> payload = FindPayloadDirectories(full);
+                if (payload.Count == 0)
+                {
+                    category.ProtectedItems++;
+                    continue;
+                }
+
+                string payloadReason = "operator evidence payload (clones and build outputs) idle past " + payloadHours + " hours; receipts and logs kept";
+                foreach (string directory in payload)
+                {
+                    long payloadBytes = SafeGetDirectoryBytes(directory);
+                    category.ReclaimableBytes += payloadBytes;
+                    category.ReclaimableItems++;
+                    if (delete)
+                    {
+                        bool removed = await RemoveDirectorySafeAsync(directory, token).ConfigureAwait(false);
+                        RecordAction(report, category, directory, removed ? "reclaimed" : "skipped", removed ? payloadReason : "directory removal failed");
+                    }
+                    else
+                    {
+                        RecordAction(report, category, directory, "dry-run-reclaim", payloadReason);
+                    }
                 }
             }
 
@@ -1151,11 +1259,95 @@ namespace Armada.Core.Services
         private long SafeGetDirectoryBytes(string path)
         {
             long total = 0;
-            foreach (string file in SafeEnumerateFiles(path, "*"))
+            try
             {
-                total += SafeGetFileBytes(file);
+                foreach (FileInfo file in new DirectoryInfo(path).EnumerateFiles("*", RecursiveEnumeration()))
+                {
+                    // A file removed while it is measured holds no bytes.
+                    try { total += file.Length; } catch (IOException) { }
+                }
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // A directory removed between listing and reading holds nothing to account for.
+            }
+            catch (Exception ex)
+            {
+                RecordError("cannot measure " + path + ": " + ex.GetType().Name + ": " + ex.Message);
             }
             return total;
+        }
+
+        // The newest write time of the directory or anything inside it. It stops at the first entry
+        // newer than the stop bound, because the caller only needs to know the tree is recent.
+        private DateTime NewestWriteTimeUtc(string path, DateTime stopAfter)
+        {
+            DateTime newest = SafeGetLastWriteTimeUtc(path);
+            if (newest > stopAfter) return newest;
+            try
+            {
+                foreach (FileSystemInfo entry in new DirectoryInfo(path).EnumerateFileSystemInfos("*", RecursiveEnumeration()))
+                {
+                    DateTime written = entry.LastWriteTimeUtc;
+                    if (written > newest) newest = written;
+                    if (newest > stopAfter) return newest;
+                }
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // A directory removed between listing and reading is not recent.
+            }
+            catch (Exception ex)
+            {
+                RecordError("cannot read write times under " + path + ": " + ex.GetType().Name + ": " + ex.Message);
+                return DateTime.UtcNow;
+            }
+            return newest;
+        }
+
+        // Outermost payload directories under an evidence folder; a payload directory's own contents are
+        // not searched, and symlinks are never followed.
+        private List<string> FindPayloadDirectories(string root)
+        {
+            List<string> result = new List<string>();
+            Stack<string> pending = new Stack<string>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                string current = pending.Pop();
+                foreach (string child in SafeEnumerateDirectories(current))
+                {
+                    if (IsSymlink(child)) continue;
+                    if (_EvidencePayloadDirectoryNames.Contains(Path.GetFileName(child))) result.Add(child);
+                    else pending.Push(child);
+                }
+            }
+            result.Sort(StringComparer.Ordinal);
+            return result;
+        }
+
+        private static EnumerationOptions RecursiveEnumeration()
+        {
+            // Hidden entries such as .git count; symlinks are neither counted nor followed.
+            return new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                IgnoreInaccessible = false,
+                AttributesToSkip = FileAttributes.ReparsePoint
+            };
+        }
+
+        private static long ReadFreeBytes(string path)
+        {
+            try
+            {
+                string probe = Directory.Exists(path) ? path : Path.GetTempPath();
+                return new DriveInfo(Path.GetFullPath(probe)).AvailableFreeSpace;
+            }
+            catch
+            {
+                return -1;
+            }
         }
 
         private List<string> SafeEnumerateDirectories(string root)

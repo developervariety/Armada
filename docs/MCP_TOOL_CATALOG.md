@@ -642,7 +642,21 @@ dialog. There is no MCP tool for the restart; it is a REST and dashboard action.
 reclaims Armada-owned disk storage. Run `action=scan` for the dry-run report
 before anything destructive: it returns bytes per owned category (docks, bare
 repos, mission logs, diffs, instruction snapshots, dock metadata, integration
-and merge-queue worktrees, temp artifacts, backups) plus reclaimable counts.
+and merge-queue worktrees, temp artifacts, backups, operator evidence) plus
+reclaimable counts. Folder sizes count every nested file; symlinks are neither
+counted nor followed.
+
+Operator evidence is the `operator-evidence` folder under the log directory,
+where operator proof runs keep receipts, logs and full clones. A folder's age is
+its newest write anywhere inside it. After
+`diskLifecycle.operatorEvidencePayloadRetentionHours` (default 24) a folder
+loses its nested `.git`, `bin`, `obj` and `node_modules` directories and keeps
+every other file. After `diskLifecycle.operatorEvidenceRetentionDays` (default
+14) the whole folder is removed. A folder holding an `.armada-keep` file is
+never touched. When free space on the log volume is below
+`diskLifecycle.lowSpaceThresholdGb` (default 20; `0` turns it off), the pass
+runs in low-space mode and uses `diskLifecycle.lowSpacePayloadRetentionHours`
+(default 6) for that payload. The report carries `FreeBytes` and `LowSpace`.
 `action=reconcile` additionally purges stale sibling-worktree leases and, only
 when `diskLifecycle.enabled` is true and `diskLifecycle.dryRun` is false,
 deletes eligible items. Lease reconciliation takes each lease's lock, drops a

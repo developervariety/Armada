@@ -136,6 +136,48 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Hours without any write anywhere inside an operator-evidence folder after which its
+        /// heavy payload (nested <c>.git</c>, <c>bin</c>, <c>obj</c> and <c>node_modules</c>
+        /// directories) is reclaimable. Receipts, logs and other files stay. Defaults to 24.
+        /// </summary>
+        public int OperatorEvidencePayloadRetentionHours
+        {
+            get => _OperatorEvidencePayloadRetentionHours;
+            set => _OperatorEvidencePayloadRetentionHours = Math.Max(1, Math.Min(720, value));
+        }
+
+        /// <summary>
+        /// Days without any write anywhere inside an operator-evidence folder after which the
+        /// whole folder is reclaimable. Defaults to 14.
+        /// </summary>
+        public int OperatorEvidenceRetentionDays
+        {
+            get => _OperatorEvidenceRetentionDays;
+            set => _OperatorEvidenceRetentionDays = Math.Max(1, Math.Min(3650, value));
+        }
+
+        /// <summary>
+        /// Free space, in GB, on the log volume below which a pass runs in low-space mode and uses
+        /// <see cref="LowSpacePayloadRetentionHours"/> for operator-evidence payload. Zero turns
+        /// low-space mode off. Defaults to 20.
+        /// </summary>
+        public int LowSpaceThresholdGb
+        {
+            get => _LowSpaceThresholdGb;
+            set => _LowSpaceThresholdGb = Math.Max(0, Math.Min(100000, value));
+        }
+
+        /// <summary>
+        /// Operator-evidence payload retention, in hours, while free space is below
+        /// <see cref="LowSpaceThresholdGb"/>. Defaults to 6.
+        /// </summary>
+        public int LowSpacePayloadRetentionHours
+        {
+            get => _LowSpacePayloadRetentionHours;
+            set => _LowSpacePayloadRetentionHours = Math.Max(1, Math.Min(720, value));
+        }
+
+        /// <summary>
         /// Additional filesystem roots the reconciler may reclaim from, on top of the
         /// built-in Armada-owned roots (log, docks, repos, backups, and the system temp
         /// directory for Armada-prefixed artifacts). Any path outside these roots is
@@ -158,6 +200,10 @@ namespace Armada.Core.Settings
         private int _TempArtifactRetentionHours = 24;
         private int _BackupRetentionDays = 7;
         private int _MinBackupCount = 2;
+        private int _OperatorEvidencePayloadRetentionHours = 24;
+        private int _OperatorEvidenceRetentionDays = 14;
+        private int _LowSpaceThresholdGb = 20;
+        private int _LowSpacePayloadRetentionHours = 6;
 
         #endregion
     }

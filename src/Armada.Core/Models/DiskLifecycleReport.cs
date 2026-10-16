@@ -61,6 +61,17 @@ namespace Armada.Core.Models
         public List<DiskLifecycleAction> Actions { get; set; } = new List<DiskLifecycleAction>();
 
         /// <summary>
+        /// Free bytes on the log volume when the pass started; -1 when it could not be read.
+        /// </summary>
+        public long FreeBytes { get; set; } = -1;
+
+        /// <summary>
+        /// True when free space was below the low-space threshold, so the pass used the shorter
+        /// low-space retention for operator-evidence payload.
+        /// </summary>
+        public bool LowSpace { get; set; } = false;
+
+        /// <summary>
         /// Number of failures in this pass, such as a folder that could not be listed. A category whose
         /// folder could not be read reports zero bytes, so a non-zero count means the totals are incomplete.
         /// </summary>

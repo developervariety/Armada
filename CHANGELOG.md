@@ -9,6 +9,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The disk lifecycle reclaims operator evidence: clones and build outputs in a
+  folder idle for 24 hours (6 hours when free space is low), and whole folders
+  idle for 14 days, keeping receipts and logs and any folder marked
+  `.armada-keep`. Folder sizes and ages now include nested files, and the
+  report carries the free space it measured.
+
 - The rescue findings list carries a Judge defect written as a paragraph under
   Correctness, Failure Modes or Tests, not only list items, so a rescue sees a
   required revision or a missing proof that the review states in prose.
