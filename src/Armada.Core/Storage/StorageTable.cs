@@ -23,6 +23,10 @@ namespace Armada.Core.Storage
         /// <summary>Table allocation where supported.</summary>
         public long? DataBytes { get; set; } = null;
 
+        /// <summary>Logical visible-column value bytes for SQLite, excluding record, page and index overhead.
+        /// Integers and reals count as eight bytes; text and blobs use their byte lengths. Null when unavailable.</summary>
+        public long? LogicalBytes { get; set; } = null;
+
         /// <summary>Index allocation where supported.</summary>
         public long? IndexBytes { get; set; } = null;
 

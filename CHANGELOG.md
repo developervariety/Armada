@@ -35,6 +35,7 @@ All notable changes to Armada are documented in this file.
 ## v1.1.0 (2026-10-15)
 
 ### Administrator storage inventory
+- SQLite storage now reports bounded background exact counts and logical data bytes even when the native runtime lacks dbstat; physical allocation remains separately labeled.
 - Kept terminal and mobile route parity with a read-only administrator storage view using the same typed inventory API.
 - Added System > Storage and a Storage tab in Settings for global administrators, with exclusive managed-root accounting, log categories, database allocation and opt-in exact counts, host capacity and coverage, largest-file samples, retention context and bounded recent growth.
 - Added cached GET /api/v1/storage and asynchronous POST /api/v1/storage/refresh with explicit global-administrator authorization. Statistics support SQLite, PostgreSQL, MySQL and SQL Server. Scans are bounded and cancellable, skip links, and preserve previous measurements on failures.

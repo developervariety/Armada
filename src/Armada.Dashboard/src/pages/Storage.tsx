@@ -109,6 +109,7 @@ export default function Storage() {
             { key: 'name', label: t('storage.table'), required: true, render: r => r.name },
             { key: 'rows', label: t('storage.records'), render: r => number(r.rows) },
             { key: 'countKind', label: t('storage.accuracy'), render: r => state(r.countKind) },
+            { key: 'logicalBytes', label: t('storage.logicalBytes'), render: r => bytes(r.logicalBytes) },
             { key: 'dataBytes', label: t('storage.dataBytes'), render: r => bytes(r.dataBytes) },
             { key: 'indexBytes', label: t('storage.indexBytes'), render: r => bytes(r.indexBytes) },
             { key: 'warning', label: t('storage.warning'), render: r => r.warning ? state(r.warning) : '-' },

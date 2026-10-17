@@ -1,0 +1,1 @@
+import{l as e,o as t}from"./LocaleContext-BjxjQebo.js";import{a as n,i as r,o as i,r as a,t as o}from"./index-DhgYEL-x.js";var s=e(t(),1);function c(e,t=25){let c=`armada_pagesize_${e}`,[l,u]=(0,s.useState)(()=>{let e=r(c);return a(e===null?null:Number(e),t)});return[l,(0,s.useCallback)(e=>{let r=o.includes(e)?e:t;u(r),i(c,String(r)),n(r)},[c,t])]}export{c as t};

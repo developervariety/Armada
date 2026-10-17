@@ -19,7 +19,7 @@ Use the existing Server page and administration routes as the design reference: 
 | Admiral managed filesystem | Configured logs, docks, repository roots, data-directory remainder, backups, retained builds | Recursive file lengths, not allocated blocks. Separate managed roots into exclusive categories. Configured paths can live outside the data directory. |
 | Logs | Server, missions, captains, planning sessions, diffs, instructions, final messages, docks and Harbor jobs | File count, byte count, oldest/newest modification time, largest files. Modification time is not semantic record age. |
 | Repository and dock directories | Per-directory size and associated vessel/dock when known | Shared Git objects are attributed to their containing repository, not copied into each worktree estimate. Symlinks and reparse points are skipped. Hard links and copy-on-write extents can still differ from physical disk usage. |
-| SQLite | Main file, WAL, SHM, database page allocation and free pages; table counts and table/index pages when dbstat is available | Physical sidecars belong in filesystem totals only. Database allocation is displayed separately. No checkpoint, vacuum or write operation. |
+| SQLite | Main file, WAL, SHM, database page allocation and free pages; exact background row counts, logical column-value bytes, and table/index pages when dbstat is available | Physical sidecars belong in filesystem totals only. Database allocation is displayed separately. No checkpoint, vacuum or write operation. |
 | PostgreSQL | Database size, table/index size, estimated rows | System catalogs scoped to the configured database/schema. Estimates depend on statistics freshness. |
 | MySQL | Data/index allocation and estimated table rows | InnoDB statistics and allocation are estimates. No host-volume inference. |
 | SQL Server | Database file allocation, table/index allocation and catalog row counts | Catalog permissions may restrict metrics. Label counts as estimates. |
@@ -35,7 +35,7 @@ Implement typed storage models in Core, a bounded filesystem collector, provider
 
 Inventory discovery uses configured roots plus known vessel/dock paths on their owning host. Normalize paths using the operating system's case rules. Sort roots by specificity and exclude child roots from ancestor traversal. Never follow symlinks or reparse points, including configured roots and intermediate path components. File races and access failures become partial-source warnings. Cap traversal and retained detail so a large checkout cannot exhaust memory. Limit concurrent collections to one, coalesce refresh requests, publish complete snapshots atomically, and cancel and await background workers before database disposal.
 
-Read catalog statistics by default. Add an explicit asynchronous exact-count operation with query timeouts and cancellation; never execute `COUNT(*)` merely because a browser opens or polls the page. Discover table identifiers from trusted provider catalogs and quote them with provider-specific escaping. Count failures are per-table and preserve other metrics. Database failures are independent of filesystem failures.
+Read catalog statistics by default. Add an explicit asynchronous exact-count operation with query timeouts and cancellation; never execute `COUNT(*)` merely because a browser opens or polls the page. SQLite background collection also reads exact counts and logical value bytes in one aggregate per table, because its bundled runtime supplies neither row estimates nor dbstat allocation. Bound each aggregate with a five-second native VM progress handler and honor the overall collection cancellation budget. Discover table identifiers from trusted provider catalogs and quote them with provider-specific escaping. Count failures are per-table and preserve other metrics. Database failures are independent of filesystem failures.
 
 Harbor collection must run outside heartbeat creation and socket processing. Extend the heartbeat with an optional typed cached report; omitted reports mean unsupported or not yet measured. Bind reports to the authenticated Harbor identity on the Admiral, bound accepted payload detail, and retain last-known measurements on disconnect. Do not accept a Harbor-supplied host identity as authority or expose this data through ordinary Harbor detail APIs. Explicitly show that a fresh Harbor binary is needed to report storage.
 
@@ -61,7 +61,7 @@ Retention context includes data, request history, planning sessions, Ask threads
 
 1. Define settings and DTOs, including units, null semantics, bounded detail and timestamp fields. Add defaults without changing existing version metadata.
 2. Implement and test filesystem accounting: nested roots, roots outside data, excluded links, missing paths, bounded scans, largest files, timestamps, cancellation and volume association.
-3. Implement all four database adapters. Test a common contract against seeded tables, metadata/count modes, allocation semantics and cancellation. Verify SQLite WAL/SHM accounting and unavailable dbstat behavior.
+3. Implement all four database adapters. Test a common contract against seeded tables, metadata/count modes, allocation semantics and cancellation. Verify SQLite WAL/SHM accounting and useful counts and logical sizes without dbstat, including WAL data, empty tables, quoted identifiers, Unicode and binary values.
 4. Add background inventory lifecycle, single-flight refresh, bounded recent history, stale-host coverage and retention context. Instrument collection counters, duration and category bytes with bounded metric dimensions and spans, using the existing telemetry host.
 5. Wire optional Harbor reports through link lifecycle and collectors; test old/new heartbeat compatibility, trusted identity binding and disconnect behavior.
 6. Register global-admin-only REST endpoints and write authentication/authorization tests covering anonymous, user, tenant admin and global admin. Confirm no detail leaks in denied responses.
@@ -137,6 +137,16 @@ Both tags resolve to the same multi-architecture index for each image. Each inde
 
 | Repository | Tags | Index digest |
 | --- | --- | --- |
-| `jchristn77/armada-server` | `v1.1.0`, `latest` | `sha256:feda3d838a1055d549c4b11beac410dd52346f19d93f7b801f9f35a594024788` |
-| `jchristn77/armada-dashboard` | `v1.1.0`, `latest` | `sha256:19ed8755efd108bfcc9e55daaab8c591ce38d71179b5aab95f5b26015b27938c` |
-| `jchristn77/armada-proxy` | `v1.1.0`, `latest` | `sha256:9b5462a7e77f48d737722008159727d283fcd04639775259868a4bf75b1cdde9` |
+| `jchristn77/armada-server` | `v1.1.0`, `latest` | `sha256:c9e5f01715ba06c989fb5b0250f7563a3b8a497168631b610221b2368336e3e1` |
+| `jchristn77/armada-dashboard` | `v1.1.0`, `latest` | `sha256:557ffaeccd2900ad392fd45566ee77d6f5b5c1812f44dbf197132993c5608a06` |
+| `jchristn77/armada-proxy` | `v1.1.0`, `latest` | `sha256:4016954e73e17d741606e17deca4e03b2212b8e56bd685f83e5b1f549482bd3d` |
+
+
+## SQLite usability correction
+
+The bundled native SQLite library lacks `SQLITE_ENABLE_DBSTAT_VTAB`. Treating that as a nullable capability left every table metric unavailable until a separate exact-count request, which was not a useful default. SQLite collection now reads exact rows and logical column-value bytes in the background using the normal read-only connection. Numeric values count as eight bytes, text and blobs use byte lengths, and NULL contributes zero. Logical bytes exclude page, record and index overhead and have a separate `LogicalBytes` contract field. Physical table/index allocation remains nullable; the database page allocation and reusable-page totals remain available. Other providers keep their existing catalog estimates and explicit exact-count action.
+
+Each SQLite table aggregate has a five-second native VM execution budget in addition to lock timeouts and the service collection budget. Cancellation interrupts active scans through the progress callback. The page continues to read cached data only. Dashboard, mobile and terminal views display the separate logical measurement, and regression checks exercise the bundled runtime without dbstat rather than accepting an entirely blank table report.
+
+
+Correction validation: the solution builds for both target frameworks with zero warnings and errors; 24 focused backend checks, 10 dashboard checks, mobile TypeScript validation, and all 1,225 mobile tests pass. A fresh published-image SQLite inventory contains all 65 application tables with exact row counts and logical byte measurements before any explicit storage refresh request. Physical table/index allocation remains unavailable on the bundled native library, with an explanation of the separate logical measurement.

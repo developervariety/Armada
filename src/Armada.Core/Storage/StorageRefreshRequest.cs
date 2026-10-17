@@ -8,7 +8,7 @@ namespace Armada.Core.Storage
     /// </summary>
     public class StorageRefreshRequest
     {
-        /// <summary>Opt in to bounded exact database table counts.</summary>
+        /// <summary>Opt in to bounded exact database table counts for providers using catalog estimates. SQLite already measures exact counts during normal collection.</summary>
         public bool ExactCounts { get; set; } = false;
 
     }

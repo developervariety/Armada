@@ -62,3 +62,18 @@ it('explains a first measurement pending', async () => {
   mount(); expect(await screen.findByText(/The first background measurement/)).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Collecting...' })).toBeDisabled();
 });
+
+it('shows SQLite logical bytes and exact rows when native table allocation is unavailable', async () => {
+  const data = fixture();
+  data.database.status = 'Partial';
+  data.database.warnings = ['TableAllocationUnavailable'];
+  data.database.tables[0] = { schema: 'main', name: 'missions', rows: 500, countKind: 'Exact', logicalBytes: 3072, dataBytes: null, indexBytes: null, warning: null };
+  vi.mocked(getStorage).mockResolvedValue(data);
+  mount(); await screen.findByText('/logs/missions');
+  fireEvent.click(screen.getByRole('tab', { name: 'Database' }));
+  expect(screen.getByText('Logical data bytes')).toBeInTheDocument();
+  expect(screen.getByText('3 KiB')).toBeInTheDocument();
+  expect(screen.getByText('500')).toBeInTheDocument();
+  expect(screen.getByText(/This SQLite runtime cannot report/)).toBeInTheDocument();
+  expect(refreshStorage).not.toHaveBeenCalled();
+});

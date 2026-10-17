@@ -11,7 +11,7 @@ export interface StorageHostReport {
 export interface StorageDatabase {
   provider: string; measuredUtc: string; allocatedBytes: number | null; unusedBytes: number | null; status: string; warnings: string[]; tables: StorageTable[];
 }
-export interface StorageTable { schema: string; name: string; rows: number | null; countKind: string; dataBytes: number | null; indexBytes: number | null; warning: string | null }
+export interface StorageTable { schema: string; name: string; rows: number | null; countKind: string; dataBytes: number | null; logicalBytes?: number | null; indexBytes: number | null; warning: string | null }
 export interface StorageHistoryPoint {
   measuredUtc: string; observedFileBytes: number; databaseBytes: number | null;
   categories: Record<string, number>; hosts: Record<string, number>; tables: Record<string, number>;
