@@ -3,27 +3,28 @@ namespace Armada.Server
     using System.IO;
     using System.Runtime.CompilerServices;
     using System.Text.Json;
-    using SyslogLogging;
-    using WatsonWebserver;
-    using WatsonWebserver.Core;
-    using WatsonWebserver.Core.OpenApi;
-    using Voltaic;
-    using Voltaic.Core;
-    using Voltaic.Mcp;
     using Armada.Core;
     using Armada.Core.Authorization;
-    using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Core.Storage;
     using Armada.Runtimes;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Server.Routes;
     using Armada.Server.WebSocket;
+    using ArmadaConstants = Armada.Core.Constants;
+    using SyslogLogging;
+    using Voltaic;
+    using Voltaic.Core;
+    using Voltaic.Mcp;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
 
     /// <summary>
     /// Admiral server orchestrating REST API, MCP server, and agent coordination.
@@ -145,6 +146,7 @@ namespace Armada.Server
         private LogRotationService _LogRotation = null!;
         private DataExpiryService? _DataExpiry = null;
         private RetentionService _Retention = null!;
+        private StorageInventoryService _StorageInventory = null!;
         private RemoteTunnelManager _RemoteTunnel = null!;
         private RemoteDashboardRelayService _RemoteDashboardRelay = null!;
         private PlanningSessionCoordinator _PlanningSessions = null!;
@@ -339,6 +341,8 @@ namespace Armada.Server
             _HarborConnectionManager = new HarborConnectionManager(_HarborService, _Logging, harborMcpUrl);
             _HarborMetricsRecorder = new HarborMetricsRecorder(_Database, _Logging, _Settings.Harbor);
             _HarborConnectionManager.Metrics = _HarborMetricsRecorder;
+            _StorageInventory = new StorageInventoryService(_Database, _Settings, _HarborConnectionManager.IsConnected);
+            _HarborConnectionManager.StorageReportReceived = _StorageInventory.Receive;
 
             // Operations that need a vessel's checkout outside a mission (check runs, Workspace, readiness, health, branch
             // views) run where the checkout lives: the working directory on this host, or a connected Harbor's checkout.
@@ -803,6 +807,8 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "objective refinement session maintenance error: " + ex.ToString());
             }
 
+            _StorageInventory.Start();
+
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
         }
@@ -851,6 +857,7 @@ namespace Armada.Server
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
             _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
             _McpServer?.Stop();
+            _StorageInventory?.Dispose();
             _Database?.Dispose();
             _TelemetryHost?.Dispose();
             OnStopping?.Invoke();
@@ -1265,6 +1272,8 @@ namespace Armada.Server
             ServerRebuildService rebuildService = new ServerRebuildService(_Database, _Settings, slotManager, new LocalHostCommandExecutor(), _Logging, () => Stop(), _HarborConnectionManager);
             new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging, slotManager, rebuildService, _RemoteTunnel.GetStatus, _RemoteTunnel.ReloadAsync, () => RestartOverride?.Invoke())
                 .Register(_App, authenticate, _AuthorizationService);
+
+            new StorageRoutes(_StorageInventory, _JsonOptions).Register(_App, authenticate, _AuthorizationService);
 
             // Fleets
             new FleetRoutes(_Database, EmitEventAsync, _JsonOptions)

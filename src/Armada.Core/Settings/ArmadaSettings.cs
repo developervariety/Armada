@@ -741,6 +741,15 @@ namespace Armada.Core.Settings
             set => _RepositoryHealth = value ?? new RepositoryHealthSettings();
         }
 
+        /// <summary>Background storage inventory configuration.</summary>
+        public StorageSettings Storage
+        {
+            get => _Storage;
+            set => _Storage = value ?? new StorageSettings();
+        }
+
+        private StorageSettings _Storage = new StorageSettings();
+
         /// <summary>
         /// Retention for Ask threads, finished background jobs, and finished import batches, pruned on the
         /// health-check loop's slow cadence. Never null; setting null restores the defaults.

@@ -7,14 +7,14 @@ namespace Armada.Core.Database.Mysql
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
-    using MySqlConnector;
-    using SyslogLogging;
     using Armada.Core.Database.Interfaces;
     using Armada.Core.Database.Mysql.Implementations;
     using Armada.Core.Database.Mysql.Queries;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Settings;
+    using MySqlConnector;
+    using SyslogLogging;
 
     /// <summary>
     /// MySQL implementation of the Armada database driver.
@@ -50,6 +50,7 @@ namespace Armada.Core.Database.Mysql
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _ConnectionString = settings.GetConnectionString();
+            Storage = new StorageMethods(_ConnectionString);
 
             Fleets = new FleetMethods(_ConnectionString);
             Vessels = new VesselMethods(_ConnectionString);

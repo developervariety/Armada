@@ -132,6 +132,9 @@ namespace Armada.Client.Models
         /// </summary>
         public Armada.Core.Settings.RetentionSettings? Retention { get; set; } = null;
 
+        /// <summary>Optional bounded background storage inventory settings.</summary>
+        public Armada.Core.Settings.StorageSettings? Storage { get; set; } = null;
+
         /// <summary>
         /// CLI tool permission settings (Ask and mission default policies, owner approval, prompt timeout), or null.
         /// </summary>

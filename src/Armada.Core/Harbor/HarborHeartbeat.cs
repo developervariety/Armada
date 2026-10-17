@@ -2,6 +2,7 @@ namespace Armada.Core.Harbor
 {
     using System;
     using System.Collections.Generic;
+    using Armada.Core.Storage;
 
     /// <summary>
     /// Harbor-to-server periodic liveness message. Also carries the set of jobs the Harbor still has
@@ -12,6 +13,10 @@ namespace Armada.Core.Harbor
     public class HarborHeartbeat : HarborMessage
     {
         #region Public-Members
+
+        /// <summary>Optional cached host storage measurement. Older Harbors omit it.</summary>
+        public StorageHostReport? StorageReport { get; set; } = null;
+
 
         /// <summary>
         /// Job identifiers currently alive on the Harbor.

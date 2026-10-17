@@ -85,6 +85,7 @@ export const DASHBOARD_ROUTES: DashboardRoute[] = [
   { pattern: "/admin/tenants", dashboard: "/admin/tenants", tab: "more", title: "Tenants", workstream: "W0.5", redirect: "/server?tab=tenants", file: "(app)/(more)/admin/tenants.tsx" },
   { pattern: "/admin/users", dashboard: "/admin/users", tab: "more", title: "Users", workstream: "W0.5", redirect: "/server?tab=users", file: "(app)/(more)/admin/users.tsx" },
   { pattern: "/admin/credentials", dashboard: "/admin/credentials", tab: "more", title: "Credentials", workstream: "W0.5", redirect: "/server?tab=credentials", file: "(app)/(more)/admin/credentials.tsx" },
+  { pattern: "/storage", dashboard: "/storage", tab: "more", title: "Storage", workstream: "W4.4", redirect: null, file: "(app)/(more)/storage.tsx" },
   { pattern: "/server", dashboard: "/server", tab: "more", title: "Settings", workstream: "W4.4", redirect: null, file: "(app)/(more)/server.tsx" },
   { pattern: "/doctor", dashboard: "/doctor", tab: "more", title: "Diagnostics", workstream: "W0.5", redirect: "/server?tab=diagnostics", file: "(app)/(more)/doctor.tsx" },
   { pattern: "/settings", dashboard: "/settings", tab: "more", title: "Settings", workstream: "W0.5", redirect: "/server", file: "(app)/(more)/settings.tsx" },

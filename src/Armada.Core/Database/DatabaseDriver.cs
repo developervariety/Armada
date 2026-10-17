@@ -11,6 +11,10 @@ namespace Armada.Core.Database
     {
         #region Public-Members
 
+        /// <summary>Read-only storage and record statistics.</summary>
+        public IStorageMethods Storage { get; protected set; } = null!;
+
+
         /// <summary>
         /// Fleet operations.
         /// </summary>

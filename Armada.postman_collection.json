@@ -11919,6 +11919,102 @@
                     "response": []
                 }
             ]
+        },
+        {
+            "name": "Storage",
+            "description": "Global administrators only. Read bounded cached utilization or request an asynchronous scan. Physical disk usage, logical file bytes and database allocation are distinct. History and remote caches reset on restart. No cleanup operations.",
+            "item": [
+                {
+                    "name": "Read cached storage",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/storage",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "storage"
+                            ]
+                        },
+                        "description": "Returns the latest cached StorageSnapshot: host locations and volumes, database table statistics, retention and bounded recent history. Does not start scans. 200 success, 401 anonymous, 403 non-global-admin. Missing metrics are omitted, not zero."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Collect storage metadata",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/storage/refresh",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "storage",
+                                "refresh"
+                            ]
+                        },
+                        "description": "Starts or coalesces bounded background collection. 202 accepted, 400 invalid body, 401 anonymous, 403 non-global-admin. Poll the cached GET until Collecting is false. Does not force Harbor collection.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"ExactCounts\": false\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Count records exactly",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/storage/refresh",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "storage",
+                                "refresh"
+                            ]
+                        },
+                        "description": "Opt in to exact table scans, bounded by query and stage timeouts. Run when no collection is active; in-flight requests coalesce without upgrading count mode. Returns 202 immediately. No writes or cleanup.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"ExactCounts\": true\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                }
+            ]
         }
     ]
 }

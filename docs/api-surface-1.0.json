@@ -20,6 +20,23 @@
       "experimental": false
     },
     {
+      "method": "POST",
+      "route": "/api/v1/activity/synthetic",
+      "auth": "AdminOnly",
+      "resource": "TokenUsage:Create",
+      "requestType": "SyntheticActivityRequest",
+      "requestRequired": true,
+      "responses": {
+        "200": "SyntheticActivityResult",
+        "400": ""
+      },
+      "tags": [
+        "SyntheticActivity"
+      ],
+      "summary": "Generate historical synthetic activity for screenshots",
+      "experimental": false
+    },
+    {
       "method": "GET",
       "route": "/api/v1/ask/quick-actions",
       "auth": "Authenticated",
@@ -2340,7 +2357,8 @@
       "requestType": "MergeEntry",
       "requestRequired": true,
       "responses": {
-        "201": "MergeEntry"
+        "201": "MergeEntry",
+        "409": "ApiErrorResponse"
       },
       "tags": [
         "MergeQueue"
@@ -3338,7 +3356,7 @@
       "route": "/api/v1/personas/{name}",
       "auth": "Authenticated",
       "resource": "Persona:Update",
-      "requestType": "Persona",
+      "requestType": "PersonaUpdateRequest",
       "requestRequired": true,
       "responses": {
         "200": "Persona",
@@ -4932,6 +4950,43 @@
     },
     {
       "method": "GET",
+      "route": "/api/v1/storage",
+      "auth": "AdminOnly",
+      "resource": "Storage:Admin",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "StorageSnapshot",
+        "401": "",
+        "403": ""
+      },
+      "tags": [
+        "Storage"
+      ],
+      "summary": "Read cached storage inventory",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/storage/refresh",
+      "auth": "AdminOnly",
+      "resource": "Storage:Admin",
+      "requestType": "StorageRefreshRequest",
+      "requestRequired": false,
+      "responses": {
+        "202": "StorageSnapshot",
+        "400": "",
+        "401": "",
+        "403": ""
+      },
+      "tags": [
+        "Storage"
+      ],
+      "summary": "Request background storage collection",
+      "experimental": false
+    },
+    {
+      "method": "GET",
       "route": "/api/v1/tenants",
       "auth": "AdminOnly",
       "resource": "Tenant:Read",
@@ -5076,6 +5131,24 @@
         "TokenUsage"
       ],
       "summary": "Summarize token usage",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/token-usage/synthetic",
+      "auth": "AdminOnly",
+      "resource": "TokenUsage:Create",
+      "requestType": "TokenUsageSyntheticRequest",
+      "requestRequired": true,
+      "responses": {
+        "200": "TokenUsageSyntheticResult",
+        "400": "",
+        "409": "ApiErrorResponse"
+      },
+      "tags": [
+        "TokenUsage"
+      ],
+      "summary": "Import explicitly synthetic usage for screenshots",
       "experimental": false
     },
     {
@@ -6356,6 +6429,25 @@
       "experimental": false
     },
     {
+      "name": "approve_ask_proposal",
+      "auth": "Authenticated",
+      "resource": "AskThread:Execute",
+      "arguments": [
+        {
+          "name": "proposalId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Approve an action Armada proposed in an Ask Armada conversation, so it runs now.",
+      "experimental": false
+    },
+    {
       "name": "approve_deployment",
       "auth": "TenantAdmin",
       "resource": "Deployment:Execute",
@@ -6375,6 +6467,30 @@
       "experimental": false
     },
     {
+      "name": "approve_mission_review",
+      "auth": "TenantAdmin",
+      "resource": "Mission:Update",
+      "arguments": [
+        {
+          "name": "comment",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "conditional",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "missionId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Approve a mission waiting at a pipeline review gate (status Review). A non-final stage continues to the next stage with this stage's branch, diff, and output; a final stage continues to landing. Set conditional with a comment to pass guidance to the following stages. Refused for captain sessions.",
+      "experimental": false
+    },
+    {
       "name": "backup",
       "auth": "AdminOnly",
       "resource": "Backup:Admin",
@@ -6386,6 +6502,20 @@
         }
       ],
       "description": "Create a ZIP backup of the Armada database and settings for disaster recovery. Uses SQLite online backup API for a consistent snapshot.",
+      "experimental": false
+    },
+    {
+      "name": "cancel_ask_turn",
+      "auth": "Authenticated",
+      "resource": "AskThread:Execute",
+      "arguments": [
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Stop the turn running in an Ask Armada conversation.",
       "experimental": false
     },
     {
@@ -6495,6 +6625,30 @@
         }
       ],
       "description": "Permission prompt tool for CLI captains (Claude Code --permission-prompt-tool). Only callable by a captain's own mission- or Ask-thread-scoped session; people decide requests with decide_cli_permission_request. Waits until an approver allows or denies the call, a CLI permission rule decides it, or it expires, then returns {\"behavior\":\"allow\",\"updatedInput\":{...}} or {\"behavior\":\"deny\",\"message\":\"...\"}.",
+      "experimental": false
+    },
+    {
+      "name": "create_ask_thread",
+      "auth": "Authenticated",
+      "resource": "AskThread:Create",
+      "arguments": [
+        {
+          "name": "autoApprove",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "captainId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "Start a new Ask Armada conversation. Optionally give it a title, choose the captain that answers, and set whether its proposed actions run without asking (autoApprove).",
       "experimental": false
     },
     {
@@ -7192,6 +7346,26 @@
           "required": false
         },
         {
+          "name": "authHeaderName",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "authQueryParameter",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "authType",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "authUsername",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "baseUrl",
           "type": "string",
           "required": true
@@ -7204,6 +7378,11 @@
         {
           "name": "enabled",
           "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "headers",
+          "type": "array<object>",
           "required": false
         },
         {
@@ -7405,6 +7584,11 @@
       "resource": "Persona:Create",
       "arguments": [
         {
+          "name": "captainPriorities",
+          "type": "array<object>",
+          "required": false
+        },
+        {
           "name": "defaultCaptainId",
           "type": "string",
           "required": false
@@ -7418,6 +7602,16 @@
           "name": "name",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "priorityAvailability",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "priorityExhaustion",
+          "type": "string",
+          "required": false
         },
         {
           "name": "promptTemplateName",
@@ -7610,7 +7804,35 @@
           "required": false
         }
       ],
-      "description": "Allow once, allow and remember (store an allow rule; admins only), or deny a pending CLI permission request. Deciding requires a global admin or a tenant admin of the request's tenant, or the mission or thread owner when Permissions.AllowOwnerApproval is on. Requires a credential (not the unauthenticated loopback identity) and is refused for captain sessions, so a captain can never approve its own prompt.",
+      "description": "Allow once, allow and remember (store an allow rule; admins only), allow for the conversation (set the Ask thread to Bypass; the admin thread owner only), or deny a pending CLI permission request. Deciding requires a global admin or a tenant admin of the request's tenant, or the mission or thread owner when Permissions.AllowOwnerApproval is on. Requires a credential (not the unauthenticated loopback identity) and is refused for captain sessions, so a captain can never approve its own prompt.",
+      "experimental": false
+    },
+    {
+      "name": "delete_ask_thread",
+      "auth": "Authenticated",
+      "resource": "AskThread:Delete",
+      "arguments": [
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Permanently delete an Ask Armada conversation and its messages, cancelling its turn if one is running. This cannot be undone.",
+      "experimental": false
+    },
+    {
+      "name": "delete_ask_threads",
+      "auth": "Authenticated",
+      "resource": "AskThread:Delete",
+      "arguments": [
+        {
+          "name": "threadIds",
+          "type": "array<string>",
+          "required": true
+        }
+      ],
+      "description": "Permanently delete several Ask Armada conversations by ID (cancelling running turns). Returns which were deleted and which were not found. This cannot be undone.",
       "experimental": false
     },
     {
@@ -7950,6 +8172,30 @@
       "experimental": false
     },
     {
+      "name": "deny_mission_review",
+      "auth": "TenantAdmin",
+      "resource": "Mission:Update",
+      "arguments": [
+        {
+          "name": "action",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "comment",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "missionId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Deny a mission waiting at a pipeline review gate (status Review). RetryStage runs the stage again on the same branch with the comment added to its instructions; FailPipeline fails the mission and cancels the following stages. Without action the stage's configured deny action applies. Refused for captain sessions.",
+      "experimental": false
+    },
+    {
       "name": "discover_vessels",
       "auth": "TenantAdmin",
       "resource": "VesselImport:Execute",
@@ -7990,6 +8236,11 @@
         },
         {
           "name": "description",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "landingMode",
           "type": "string",
           "required": false
         },
@@ -8284,6 +8535,39 @@
         }
       ],
       "description": "Get a fleet action run with per-target summaries (status, skip/failure reason codes, exit code, voyage id, output length hints). Output text is not included.",
+      "experimental": false
+    },
+    {
+      "name": "get_ask_thread",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "arguments": [
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Get one Ask Armada conversation with its recent messages, pending and decided action proposals, and tracked work.",
+      "experimental": false
+    },
+    {
+      "name": "get_ask_work",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "arguments": [
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "workId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Get the current state of work an Ask Armada conversation is tracking (a voyage, mission, or fleet action run it started).",
       "experimental": false
     },
     {
@@ -8770,6 +9054,67 @@
       "experimental": false
     },
     {
+      "name": "list_ask_messages",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "arguments": [
+        {
+          "name": "beforeSequence",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Read an Ask Armada conversation's messages, newest page first. Pass beforeSequence (the lowest sequence you have) to read older messages.",
+      "experimental": false
+    },
+    {
+      "name": "list_ask_quick_actions",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "arguments": [],
+      "description": "List the quick actions an Ask Armada conversation can run directly (each is an Armada tool with its argument form).",
+      "experimental": false
+    },
+    {
+      "name": "list_ask_threads",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "arguments": [
+        {
+          "name": "includeArchived",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "search",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "List the caller's Ask Armada conversations, newest first, with titles, captain, pinned and archived state, and unread counts. Use search to match titles and includeArchived to include archived ones.",
+      "experimental": false
+    },
+    {
       "name": "list_backlog",
       "auth": "Authenticated",
       "resource": "Objective:Read",
@@ -8908,7 +9253,7 @@
           "required": false
         }
       ],
-      "description": "List CLI permission requests (a CLI captain asking to run one of its own tools, for example a shell command) visible to the caller, newest first. Admins see their tenant (global admins every tenant); other users see requests from their own missions and Ask conversations. Each request has the tool name, a redacted input summary, captain, vessel, mission or thread, status, expiry, and canDecide.",
+      "description": "List CLI permission requests (a CLI captain asking to run one of its own tools, for example a shell command) visible to the caller, newest first. Admins see their tenant (global admins every tenant); other users see requests from their own missions and Ask conversations. Each request has the tool name, a redacted input summary, captain, vessel, mission or thread, status, expiry, and canDecide. The result has count (rows returned), limit (the cap applied, default 100, at most 1000), and truncated (true when the limit was reached, so more requests exist).",
       "experimental": false
     },
     {
@@ -9036,6 +9381,20 @@
         }
       ],
       "description": "List prompt templates (lightweight, paginated), optionally filtered by category. Returns metadata only -- name, category, description, active flag, and a contentLength hint -- not the template body. Fetch a single template's full content with get_prompt_template.",
+      "experimental": false
+    },
+    {
+      "name": "mark_ask_thread_read",
+      "auth": "Authenticated",
+      "resource": "AskThread:Update",
+      "arguments": [
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Mark an Ask Armada conversation as read (clears its unread count).",
       "experimental": false
     },
     {
@@ -9208,6 +9567,25 @@
       "experimental": false
     },
     {
+      "name": "reject_ask_proposal",
+      "auth": "Authenticated",
+      "resource": "AskThread:Execute",
+      "arguments": [
+        {
+          "name": "proposalId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Reject an action Armada proposed in an Ask Armada conversation; it does not run.",
+      "experimental": false
+    },
+    {
       "name": "release_captain",
       "auth": "TenantAdmin",
       "resource": "Captain:Execute",
@@ -9298,7 +9676,7 @@
           "required": false
         }
       ],
-      "description": "Restart a failed or cancelled mission, resetting it to Pending for re-dispatch. Optionally update title and description (instructions) before restarting.",
+      "description": "Restart a Failed, LandingFailed, or Cancelled mission, resetting it to Pending for re-dispatch. A later pipeline stage keeps the previous stage's branch, a finished voyage is reopened, and the stages cancelled because this one failed are restored. Optionally update title and description (instructions) before restarting.",
       "experimental": false
     },
     {
@@ -9355,6 +9733,30 @@
         }
       ],
       "description": "Run the configured rollback flow for an existing deployment.",
+      "experimental": false
+    },
+    {
+      "name": "run_ask_quick_action",
+      "auth": "Authenticated",
+      "resource": "AskThread:Execute",
+      "arguments": [
+        {
+          "name": "arguments",
+          "type": "object",
+          "required": false
+        },
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "toolName",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Propose a quick action in an Ask Armada conversation (toolName from list_ask_quick_actions, with its arguments). It becomes an action proposal that runs when approved, or at once when the conversation auto-approves.",
       "experimental": false
     },
     {
@@ -9512,6 +9914,35 @@
         }
       ],
       "description": "Search durable memories (episodic/semantic/procedural). Use this BEFORE writing to find existing memories to consolidate against. Returns matches ordered by salience, newest first.",
+      "experimental": false
+    },
+    {
+      "name": "send_ask_message",
+      "auth": "Authenticated",
+      "resource": "AskThread:Execute",
+      "arguments": [
+        {
+          "name": "content",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "showThinking",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "waitSeconds",
+          "type": "integer",
+          "required": false
+        }
+      ],
+      "description": "Send a message in an Ask Armada conversation; its captain answers in the background. Set waitSeconds (up to 600) to wait for the reply and get the latest messages back; otherwise read the reply later with list_ask_messages. Fails with Conflict while a turn is already running.",
       "experimental": false
     },
     {
@@ -9736,6 +10167,20 @@
       "experimental": false
     },
     {
+      "name": "summarize_ask_thread",
+      "auth": "Authenticated",
+      "resource": "AskThread:Execute",
+      "arguments": [
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Ask the conversation's captain to summarize the conversation so far (runs as a turn in the background).",
+      "experimental": false
+    },
+    {
       "name": "summarize_backlog_refinement_session",
       "auth": "TenantAdmin",
       "resource": "ObjectiveRefinementSession:Execute",
@@ -9800,6 +10245,11 @@
           "required": false
         },
         {
+          "name": "sourceId",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "toUtc",
           "type": "string",
           "required": false
@@ -9844,6 +10294,50 @@
         }
       ],
       "description": "Unstick a wedged dock: release any captain still holding it back to Idle and reclaim its worktree so it stops pinning capacity. Committed branch history is preserved.",
+      "experimental": false
+    },
+    {
+      "name": "update_ask_thread",
+      "auth": "Authenticated",
+      "resource": "AskThread:Update",
+      "arguments": [
+        {
+          "name": "archived",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "autoApprove",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "captainId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "clearCaptain",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "pinned",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "Rename, pin or unpin, archive or unarchive an Ask Armada conversation, change its captain (or clearCaptain to use the default), or change autoApprove. Only supplied fields change.",
       "experimental": false
     },
     {
@@ -10404,6 +10898,26 @@
           "required": false
         },
         {
+          "name": "authHeaderName",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "authQueryParameter",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "authType",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "authUsername",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "baseUrl",
           "type": "string",
           "required": false
@@ -10422,6 +10936,11 @@
           "name": "endpointId",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "headers",
+          "type": "array<object>",
+          "required": false
         },
         {
           "name": "kind",
@@ -10627,6 +11146,11 @@
       "resource": "Persona:Update",
       "arguments": [
         {
+          "name": "captainPriorities",
+          "type": "array<object>",
+          "required": false
+        },
+        {
           "name": "defaultCaptainId",
           "type": "string",
           "required": false
@@ -10640,6 +11164,16 @@
           "name": "name",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "priorityAvailability",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "priorityExhaustion",
+          "type": "string",
+          "required": false
         },
         {
           "name": "promptTemplateName",
@@ -18225,6 +18759,48 @@
       "key": "stallThresholdMinutes",
       "type": "int",
       "default": "10",
+      "experimental": false
+    },
+    {
+      "key": "storage",
+      "type": "object",
+      "default": null,
+      "experimental": false
+    },
+    {
+      "key": "storage.historyCapacity",
+      "type": "int",
+      "default": "288",
+      "experimental": false
+    },
+    {
+      "key": "storage.intervalSeconds",
+      "type": "int",
+      "default": "300",
+      "experimental": false
+    },
+    {
+      "key": "storage.largestFileLimit",
+      "type": "int",
+      "default": "20",
+      "experimental": false
+    },
+    {
+      "key": "storage.maxEntries",
+      "type": "int",
+      "default": "250000",
+      "experimental": false
+    },
+    {
+      "key": "storage.maxLocations",
+      "type": "int",
+      "default": "1000",
+      "experimental": false
+    },
+    {
+      "key": "storage.timeoutSeconds",
+      "type": "int",
+      "default": "30",
       "experimental": false
     },
     {

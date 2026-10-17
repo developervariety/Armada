@@ -34,6 +34,12 @@ All notable changes to Armada are documented in this file.
 
 ## v1.1.0 (2026-10-15)
 
+### Administrator storage inventory
+- Kept terminal and mobile route parity with a read-only administrator storage view using the same typed inventory API.
+- Added System > Storage and a Storage tab in Settings for global administrators, with exclusive managed-root accounting, log categories, database allocation and opt-in exact counts, host capacity and coverage, largest-file samples, retention context and bounded recent growth.
+- Added cached GET /api/v1/storage and asynchronous POST /api/v1/storage/refresh with explicit global-administrator authorization. Statistics support SQLite, PostgreSQL, MySQL and SQL Server. Scans are bounded and cancellable, skip links, and preserve previous measurements on failures.
+- Updated Harbors report cached local storage measurements through optional protocol 1.0 heartbeat fields. Offline hosts retain stale reports within the running Admiral; older Harbors remain compatible and show unavailable coverage. Recent history resets on restart; collection telemetry is exported through the existing Armada meter.
+
 ### Frontier models plan and review, local models do the work
 Armada can now run one job across Claude Code, Codex, and a local model through mux (for example GPT-OSS 20b on your own GPU) on one Harbor, with planning and review on the frontier captains and the implementation on the local one, and land the result on GitHub without anyone stepping in.
 - **Defaults land automatically.** The built-in pipelines (Reviewed, Tested, Recorded, FullPipeline) no longer stop for a human after each stage. Finished work lands with the server's landing mode, MergeAndPush by default, as soon as the last stage completes. The Judge is still the automatic gate: a Judge that does not PASS stops the pipeline. Existing installations keep their pipelines as they are.

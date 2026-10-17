@@ -96,10 +96,11 @@ export const navModelSections: NavModelSection[] = [
   {
     key: 'system',
     label: 'SYSTEM',
-    matchers: ['/server', '/doctor', '/settings', '/admin', '/api-explorer', '/cli-permissions'],
+    matchers: ['/storage', '/server', '/doctor', '/settings', '/admin', '/api-explorer', '/cli-permissions'],
     items: [
       { to: '/cli-permissions', label: 'CLI Tool Permissions', tooltip: 'Approve CLI tool requests from captains and manage allow and deny rules', icon: 'cliPermissions' },
       { to: '/api-explorer', label: 'API Explorer', tooltip: 'Browse the live OpenAPI document, execute requests, and inspect responses', icon: 'apiExplorer' },
+      { to: '/storage', label: 'Storage', tooltip: 'Inspect managed files, database allocation, host capacity and record counts', icon: 'server' },
       { to: '/server', label: 'Settings', tooltip: 'Server settings, diagnostics, and tenant/user/credential administration', icon: 'server' },
     ],
   },

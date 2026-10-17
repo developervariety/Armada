@@ -6,10 +6,7 @@ namespace Armada.Server
     using System.Net;
     using System.Runtime.InteropServices;
     using System.Text.Json;
-    using SyslogLogging;
-    using Voltaic;
     using Armada.Core;
-    using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
@@ -20,6 +17,9 @@ namespace Armada.Server
     using Armada.Runtimes;
     using Armada.Server.Mcp;
     using Armada.Server.WebSocket;
+    using ArmadaConstants = Armada.Core.Constants;
+    using SyslogLogging;
+    using Voltaic;
 
     /// <summary>
     /// Request model for partial update of server settings.
@@ -130,6 +130,9 @@ namespace Armada.Server
         /// defaults and out-of-range values are clamped to 0..3650 (0 means never). Applied live.
         /// </summary>
         public RetentionSettings? Retention { get; set; }
+
+        /// <summary>Optional background storage inventory settings. Replaces the full group.</summary>
+        public StorageSettings? Storage { get; set; }
 
         /// <summary>
         /// Optional CLI tool permission settings update (AskDefaultPolicy, MissionDefaultPolicy, AllowOwnerApproval,

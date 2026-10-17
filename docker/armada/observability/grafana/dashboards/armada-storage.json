@@ -1,0 +1,166 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "title": "Armada Storage",
+  "uid": "armada-storage",
+  "tags": [
+    "armada",
+    "storage"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Observed logical file bytes by category",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "armada_storage_observed_bytes{category!=\"DatabaseAllocation\"}",
+          "refId": "A",
+          "legendFormat": "{{category}} {{stage}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Database allocation (separate from file bytes)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "armada_storage_observed_bytes{category=\"DatabaseAllocation\"}",
+          "refId": "A",
+          "legendFormat": "{{category}} {{stage}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Collections by outcome",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(armada_storage_collections_total[15m]))",
+          "refId": "A",
+          "legendFormat": "{{category}} {{stage}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Collection duration p95",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(armada_storage_collection_duration_seconds_bucket[15m])))",
+          "refId": "A",
+          "legendFormat": "{{category}} {{stage}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Stage duration p95",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le,stage) (rate(armada_storage_stage_duration_seconds_bucket[15m])))",
+          "refId": "A",
+          "legendFormat": "{{category}} {{stage}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Failed or timed-out collections (1h)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(armada_storage_collections_total{outcome!=\"Succeeded\"}[1h]))",
+          "refId": "A",
+          "legendFormat": "{{category}} {{stage}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "description": "Bounded background storage collection. File lengths and database allocation are separate. Missing hosts and shared mounts affect observed totals. No path, host ID or table labels."
+}

@@ -633,6 +633,14 @@
     },
     {
       "kind": "route",
+      "key": "/storage",
+      "status": "implemented",
+      "mobile": "src/app/(app)/(more)/storage.tsx",
+      "workstream": "W4.4",
+      "notes": "Read-only global-administrator storage inventory and explicit bounded collection, using the shared API client."
+    },
+    {
+      "kind": "route",
       "key": "/vessels",
       "status": "implemented",
       "mobile": "src/app/(app)/(work)/vessels/index.tsx",
@@ -1022,6 +1030,14 @@
       "mobile": "/server?tab=server",
       "workstream": "W4.4",
       "notes": "Server"
+    },
+    {
+      "kind": "tab",
+      "key": "ServerHub:storage",
+      "status": "implemented",
+      "mobile": "src/screens/system/StorageTab.tsx",
+      "workstream": "W4.4",
+      "notes": "Read-only global-administrator storage inventory and explicit bounded collection, using the shared API client."
     },
     {
       "kind": "tab",
@@ -2473,6 +2489,14 @@
     },
     {
       "kind": "api",
+      "key": "getStorage",
+      "status": "implemented",
+      "mobile": "src/screens/system/StorageTab.tsx",
+      "workstream": "W4.4",
+      "notes": "Administrator storage uses the shared dashboard API client; reads cached results and explicitly requests bounded collection."
+    },
+    {
+      "kind": "api",
       "key": "getTokenUsage",
       "status": "implemented",
       "mobile": "src/screens/activity/TokenUsageTab.tsx",
@@ -3065,6 +3089,14 @@
     },
     {
       "kind": "api",
+      "key": "openWorkspaceTerminal",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W3.1",
+      "notes": "Opening an operating-system terminal on a Harbor is a desktop-host action. Mobile workspace execution remains available through the existing workspace command surface."
+    },
+    {
+      "kind": "api",
       "key": "previewPersonaPrompt",
       "status": "implemented",
       "mobile": "src/screens/configuration/ProjectProfilesTab, ProjectProfileDetail",
@@ -3142,6 +3174,14 @@
       "mobile": "src/screens/delivery/ReleasesTab.tsx, ReleaseDetail.tsx",
       "workstream": "W4.1",
       "notes": "Releases"
+    },
+    {
+      "kind": "api",
+      "key": "refreshStorage",
+      "status": "implemented",
+      "mobile": "src/screens/system/StorageTab.tsx",
+      "workstream": "W4.4",
+      "notes": "Administrator storage uses the shared dashboard API client; reads cached results and explicitly requests bounded collection."
     },
     {
       "kind": "api",
@@ -4462,6 +4502,14 @@
       "mobile": "src/screens/system/ServerPolicySections.tsx",
       "workstream": "W4.4",
       "notes": ""
+    },
+    {
+      "kind": "setting",
+      "key": "settings.requireHarborForLaunch",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.4",
+      "notes": "Native editing of this existing Harbor launch policy is outside storage management. Administrators use the dashboard Server settings for this field; storage collection does not change launch policy."
     },
     {
       "kind": "setting",

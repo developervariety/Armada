@@ -17,6 +17,7 @@ namespace Test.Shared.Infrastructure
         public static StubHttpHandler SignedInServer(int tenants = 1)
         {
             StubHttpHandler stub = new StubHttpHandler();
+            stub.Json("GET", "/api/v1/storage", Armada.Client.ArmadaJson.Serialize(new Armada.Core.Storage.StorageSnapshot()));
             stub.Json("GET", "/api/v1/status/health", "{\"Status\":\"healthy\",\"Version\":\"0.9.0\",\"Ports\":{\"Admiral\":7890,\"Mcp\":7891}}");
             stub.On("GET", "/api/v1/whoami", body => StubHttpHandler.Response(System.Net.HttpStatusCode.OK, WhoAmI()));
             stub.Json("GET", "/api/v1/inbox", "[{\"Kind\":\"MissionReview\",\"Severity\":\"Warning\",\"Title\":\"Review: Fix tables\",\"Detail\":\"msn_1\",\"Href\":\"/missions/msn_1\"}]");

@@ -28,6 +28,7 @@ namespace Armada.Tui.Screens
             screens.Register("TokenUsageScreen", (m, c) => new TokenUsageScreen(m, c));
             screens.Register("ApiExplorerScreen", (m, c) => new ApiExplorerScreen(m, c));
             screens.Register("ServerSettingsScreen", (m, c) => new ServerSettingsScreen(m, c));
+            screens.Register("StorageScreen", (m, c) => new StorageScreen(m, c));
             screens.Register("DiagnosticsScreen", (m, c) => new DiagnosticsScreen(m, c));
             screens.Register("TenantsScreen", (m, c) => new TenantsScreen(m, c));
             screens.Register("UsersScreen", (m, c) => new UsersScreen(m, c));

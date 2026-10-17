@@ -24,13 +24,13 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 370 | 12 |
-| MCP tools | 156 | 6 |
+| REST routes | 374 | 12 |
+| MCP tools | 174 | 6 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
-| Settings keys | 188 | 12 |
+| Settings keys | 195 | 12 |
 
 ## REST API
 
@@ -40,6 +40,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | Method | Route | Auth | Request | Responses | Status |
 |---|---|---|---|---|---|
 | PUT | `/api/v1/account/password` | Authenticated | `PasswordChangeRequest` | 200 `WhoAmIResult`, 400 |  |
+| POST | `/api/v1/activity/synthetic` | AdminOnly | `SyntheticActivityRequest` | 200 `SyntheticActivityResult`, 400 |  |
 | GET | `/api/v1/ask/quick-actions` | Authenticated |  | 200 `List<AskQuickAction>` |  |
 | POST | `/api/v1/ask/threads` | Authenticated | `AskThreadCreateRequest` (optional) | 201 `AskThread`, 400 |  |
 | POST | `/api/v1/ask/threads/enumerate` | Authenticated | `AskThreadEnumerateRequest` (optional) | 200 `EnumerationResult<AskThread>` |  |
@@ -178,7 +179,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/memories/{id}` | Authenticated |  | 200 `Memory`, 404 |  |
 | PUT | `/api/v1/memories/{id}` | Authenticated | `Memory` | 200 `Memory`, 400, 404 |  |
 | GET | `/api/v1/merge-queue` | Authenticated |  | 200 `EnumerationResult<MergeEntry>` |  |
-| POST | `/api/v1/merge-queue` | TenantAdmin | `MergeEntry` | 201 `MergeEntry` |  |
+| POST | `/api/v1/merge-queue` | TenantAdmin | `MergeEntry` | 201 `MergeEntry`, 409 `ApiErrorResponse` |  |
 | POST | `/api/v1/merge-queue/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
 | POST | `/api/v1/merge-queue/process` | TenantAdmin |  |  |  |
 | POST | `/api/v1/merge-queue/purge` | TenantAdmin | `PurgeMergeEntriesRequest` | 200 `MergeQueuePurgeResult`, 400 |  |
@@ -237,7 +238,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/personas/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
 | DELETE | `/api/v1/personas/{name}` | Authenticated |  | 204, 400, 404 |  |
 | GET | `/api/v1/personas/{name}` | Authenticated |  | 200 `Persona`, 404 |  |
-| PUT | `/api/v1/personas/{name}` | Authenticated | `Persona` | 200 `Persona`, 400, 404 |  |
+| PUT | `/api/v1/personas/{name}` | Authenticated | `PersonaUpdateRequest` | 200 `Persona`, 400, 404 |  |
 | GET | `/api/v1/pipelines` | Authenticated |  | 200 `EnumerationResult<Pipeline>` |  |
 | POST | `/api/v1/pipelines` | Authenticated | `Pipeline` | 201 `Pipeline`, 409 `ApiErrorResponse` |  |
 | POST | `/api/v1/pipelines/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
@@ -333,6 +334,8 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | PUT | `/api/v1/skills/{id}` | Authenticated | `Skill` | 200 `Skill`, 404 |  |
 | GET | `/api/v1/status` | Authenticated |  | 200 `ArmadaStatus` |  |
 | GET | `/api/v1/status/health` | NoAuthRequired |  |  |  |
+| GET | `/api/v1/storage` | AdminOnly |  | 200 `StorageSnapshot`, 401, 403 |  |
+| POST | `/api/v1/storage/refresh` | AdminOnly | `StorageRefreshRequest` (optional) | 202 `StorageSnapshot`, 400, 401, 403 |  |
 | GET | `/api/v1/tenants` | AdminOnly |  |  |  |
 | POST | `/api/v1/tenants` | AdminOnly |  | 201 `TenantCreateResult`, 400 |  |
 | POST | `/api/v1/tenants/lookup` | NoAuthRequired |  | 200, 400 |  |
@@ -342,6 +345,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/token-usage` | Authenticated |  | 200 `EnumerationResult<TokenUsageRecord>` |  |
 | POST | `/api/v1/token-usage/delete/by-filter` | Authenticated | `TokenUsageQuery` (optional) | 200 `DeleteMultipleResult` |  |
 | GET | `/api/v1/token-usage/summary` | Authenticated |  | 200 `TokenUsageSummaryResult` |  |
+| POST | `/api/v1/token-usage/synthetic` | AdminOnly | `TokenUsageSyntheticRequest` | 200 `TokenUsageSyntheticResult`, 400, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/users` | Authenticated |  |  |  |
 | POST | `/api/v1/users` | TenantAdmin |  | 201 `UserMaster`, 400, 409 `ApiErrorResponse` |  |
 | DELETE | `/api/v1/users/{id}` | Authenticated |  | 200, 404 |  |
@@ -419,14 +423,18 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `add_vessel` | TenantAdmin | `allowConcurrentMissions: boolean`, `autoApprove: boolean`, `defaultBranch: string`, `defaultPipelineId: string`, `enableModelContext: boolean`, `fleetId*: string`, `gitHubTokenOverride: string`, `name*: string`, `projectContext: string`, `repoUrl*: string`, `styleGuide: string`, `workingDirectory: string` |  |
 | `apply_backlog_refinement_summary` | TenantAdmin | `endSession: boolean`, `markMessageSelected: boolean`, `messageId: string`, `promoteBacklogState: boolean`, `sessionId*: string` |  |
 | `apply_fleet_recommendations` | TenantAdmin | `batchId*: string`, `fleets: array<object>` |  |
+| `approve_ask_proposal` | Authenticated | `proposalId*: string`, `threadId*: string` |  |
 | `approve_deployment` | TenantAdmin | `comment: string`, `deploymentId*: string` |  |
+| `approve_mission_review` | TenantAdmin | `comment: string`, `conditional: boolean`, `missionId*: string` |  |
 | `backup` | AdminOnly | `outputPath: string` |  |
+| `cancel_ask_turn` | Authenticated | `threadId*: string` |  |
 | `cancel_fleet_action_run` | TenantAdmin | `runId*: string` |  |
 | `cancel_merge` | TenantAdmin | `entryId*: string` |  |
 | `cancel_mission` | TenantAdmin | `missionId*: string` |  |
 | `cancel_voyage` | TenantAdmin | `voyageId*: string` |  |
 | `categorize_vessel_import` | TenantAdmin | `applyFleetsAutomatically: boolean`, `batchId*: string`, `captainId: string`, `prompt: string` |  |
 | `cli_permission_prompt` | Authenticated | `input*: object`, `tool_name*: string`, `tool_use_id: string` |  |
+| `create_ask_thread` | Authenticated | `autoApprove: boolean`, `captainId: string`, `title: string` |  |
 | `create_backlog_item` | TenantAdmin | `acceptanceCriteria: array<string>`, `backlogState: string`, `blockedByObjectiveIds: array<string>`, `category: string`, `checkRunIds: array<string>`, `deploymentIds: array<string>`, `description: string`, `dueUtc: string`, `effort: string`, `evidenceLinks: array<string>`, `fleetIds: array<string>`, `incidentIds: array<string>`, `kind: string`, `missionIds: array<string>`, `nonGoals: array<string>`, `owner: string`, `parentObjectiveId: string`, `planningSessionIds: array<string>`, `priority: string`, `rank: integer`, `refinementSessionIds: array<string>`, `refinementSummary: string`, `releaseIds: array<string>`, `rolloutConstraints: array<string>`, `status: string`, `suggestedPipelineId: string`, `tags: array<string>`, `targetVersion: string`, `title*: string`, `vesselIds: array<string>`, `voyageIds: array<string>` |  |
 | `create_backlog_planning_session` | TenantAdmin | `captainId*: string`, `fleetId: string`, `objectiveId*: string`, `pipelineId: string`, `selectedPlaybooks: array<object>`, `title: string`, `vesselId*: string` |  |
 | `create_backlog_refinement_session` | TenantAdmin | `captainId*: string`, `fleetId: string`, `initialMessage: string`, `objectiveId*: string`, `title: string`, `vesselId: string` |  |
@@ -438,14 +446,16 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `create_harbor` | Authenticated | `enabled: boolean`, `maxConcurrentJobs: integer`, `name*: string` | experimental |
 | `create_memory` | Authenticated | `content*: string`, `key: string`, `salience: number`, `scope: string`, `sourceDetail: string`, `sourceKind: string`, `sourceMissionId: string`, `sourceVesselId: string`, `sourceVoyageId: string`, `summary: string`, `tags: array<string>`, `topic: string`, `type: string`, `vesselId: string` |  |
 | `create_mission` | TenantAdmin | `description*: string`, `mode: string`, `persona: string`, `selectedPlaybooks: array<object>`, `tier: string`, `title*: string`, `vesselId*: string`, `voyageId: string` |  |
-| `create_model_endpoint` | Authenticated | `apiKey: string`, `baseUrl*: string`, `dimensionality: integer`, `enabled: boolean`, `kind: string`, `model: string`, `name*: string`, `provider: string`, `timeoutMs: integer` |  |
+| `create_model_endpoint` | Authenticated | `apiKey: string`, `authHeaderName: string`, `authQueryParameter: string`, `authType: string`, `authUsername: string`, `baseUrl*: string`, `dimensionality: integer`, `enabled: boolean`, `headers: array<object>`, `kind: string`, `model: string`, `name*: string`, `provider: string`, `timeoutMs: integer` |  |
 | `create_objective` | TenantAdmin | `acceptanceCriteria: array<string>`, `backlogState: string`, `blockedByObjectiveIds: array<string>`, `category: string`, `checkRunIds: array<string>`, `deploymentIds: array<string>`, `description: string`, `dueUtc: string`, `effort: string`, `evidenceLinks: array<string>`, `fleetIds: array<string>`, `incidentIds: array<string>`, `kind: string`, `missionIds: array<string>`, `nonGoals: array<string>`, `owner: string`, `parentObjectiveId: string`, `planningSessionIds: array<string>`, `priority: string`, `rank: integer`, `refinementSessionIds: array<string>`, `refinementSummary: string`, `releaseIds: array<string>`, `rolloutConstraints: array<string>`, `status: string`, `suggestedPipelineId: string`, `tags: array<string>`, `targetVersion: string`, `title*: string`, `vesselIds: array<string>`, `voyageIds: array<string>` |  |
-| `create_persona` | TenantAdmin | `defaultCaptainId: string`, `description: string`, `name*: string`, `promptTemplateName*: string` |  |
+| `create_persona` | TenantAdmin | `captainPriorities: array<object>`, `defaultCaptainId: string`, `description: string`, `name*: string`, `priorityAvailability: string`, `priorityExhaustion: string`, `promptTemplateName*: string` |  |
 | `create_pipeline` | TenantAdmin | `description: string`, `name*: string`, `stages*: array<object>` |  |
 | `create_playbook` | TenantAdmin | `active: boolean`, `content*: string`, `description: string`, `fileName*: string` |  |
 | `create_prompt_template` | TenantAdmin | `active: boolean`, `category*: string`, `content*: string`, `description: string`, `name*: string` |  |
 | `create_release` | TenantAdmin | `checkRunIds: array<string>`, `missionIds: array<string>`, `notes: string`, `status: string`, `summary: string`, `tagName: string`, `title: string`, `version: string`, `vesselId: string`, `voyageIds: array<string>`, `workflowProfileId: string` |  |
 | `decide_cli_permission_request` | Authenticated | `decision*: string`, `message: string`, `requestId*: string`, `rulePattern: string`, `ruleScope: string` |  |
+| `delete_ask_thread` | Authenticated | `threadId*: string` |  |
+| `delete_ask_threads` | Authenticated | `threadIds*: array<string>` |  |
 | `delete_backlog_item` | TenantAdmin | `objectiveId*: string` |  |
 | `delete_captain` | TenantAdmin | `captainId*: string` |  |
 | `delete_captains` | TenantAdmin | `ids*: array<string>` |  |
@@ -470,14 +480,17 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `delete_vessel` | TenantAdmin | `vesselId*: string` |  |
 | `delete_vessels` | TenantAdmin | `ids*: array<string>` |  |
 | `delete_voyages` | TenantAdmin | `ids*: array<string>` |  |
+| `deny_mission_review` | TenantAdmin | `action: string`, `comment: string`, `missionId*: string` |  |
 | `discover_vessels` | TenantAdmin | `directories: array<string>`, `maxDepth: integer`, `roots: array<string>`, `runInBackground: boolean` |  |
-| `dispatch` | TenantAdmin | `captainAssignments: array<object>`, `description: string`, `missions: array<object>`, `objectiveId: string`, `pipeline: string`, `pipelineId: string`, `selectedPlaybooks: array<object>`, `title*: string`, `vesselId: string` |  |
+| `dispatch` | TenantAdmin | `captainAssignments: array<object>`, `description: string`, `landingMode: string`, `missions: array<object>`, `objectiveId: string`, `pipeline: string`, `pipelineId: string`, `selectedPlaybooks: array<object>`, `title*: string`, `vesselId: string` |  |
 | `dispatch_backlog_planning_session` | TenantAdmin | `description: string`, `messageId: string`, `sessionId*: string`, `title: string` |  |
 | `enqueue_merge` | TenantAdmin | `branchName*: string`, `missionId: string`, `priority: integer`, `targetBranch: string`, `testCommand: string`, `vesselId*: string` |  |
 | `enumerate` | Authenticated | `captainId: string`, `createdAfter: string`, `createdBefore: string`, `entityType*: string`, `eventType: string`, `fleetId: string`, `includeContext: boolean`, `includeDescription: boolean`, `includeInactive: boolean`, `includeMessage: boolean`, `includeOutput: boolean`, `includePayload: boolean`, `includeTestOutput: boolean`, `missionId: string`, `order: string`, `pageNumber: integer`, `pageSize: integer`, `runId: string`, `search: string`, `signalType: string`, `status: string`, `toCaptainId: string`, `unreadOnly: boolean`, `vesselId: string`, `voyageId: string` |  |
 | `evaluate_autoland` | Authenticated | `missionId*: string` |  |
 | `evaluate_vessel_health` | TenantAdmin | `fleetId: string`, `force: boolean`, `vesselIds: array<string>` |  |
 | `fleet_action_run_status` | Authenticated | `runId*: string` |  |
+| `get_ask_thread` | Authenticated | `threadId*: string` |  |
+| `get_ask_work` | Authenticated | `threadId*: string`, `workId*: string` |  |
 | `get_backlog_item` | Authenticated | `objectiveId*: string` |  |
 | `get_backlog_planning_session` | Authenticated | `sessionId*: string` |  |
 | `get_backlog_refinement_session` | Authenticated | `sessionId*: string` |  |
@@ -508,12 +521,16 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `health_check_model_endpoints` | Authenticated |  |  |
 | `import_vessels` | TenantAdmin | `allNew: boolean`, `applyFleetsAutomatically: boolean`, `batchId*: string`, `captainId: string`, `categorize: boolean`, `defaultPipelineId: string`, `fleetId: string`, `landingMode: string`, `paths: array<string>`, `prompt: string` |  |
 | `inbox` | Authenticated |  |  |
+| `list_ask_messages` | Authenticated | `beforeSequence: integer`, `pageSize: integer`, `threadId*: string` |  |
+| `list_ask_quick_actions` | Authenticated |  |  |
+| `list_ask_threads` | Authenticated | `includeArchived: boolean`, `pageNumber: integer`, `pageSize: integer`, `search: string` |  |
 | `list_backlog` | Authenticated | `backlogState: string`, `category: string`, `effort: string`, `fleetId: string`, `kind: string`, `owner: string`, `pageNumber: integer`, `pageSize: integer`, `parentObjectiveId: string`, `priority: string`, `search: string`, `status: string`, `targetVersion: string`, `vesselId: string` |  |
 | `list_backlog_refinement_sessions` | Authenticated | `objectiveId*: string`, `pageNumber: integer`, `pageSize: integer` |  |
 | `list_cli_permission_requests` | Authenticated | `captainId: string`, `limit: integer`, `missionId: string`, `status: string`, `threadId: string`, `vesselId: string` |  |
 | `list_cli_permission_rules` | Authenticated | `captainId: string`, `scope: string`, `vesselId: string` |  |
 | `list_objectives` | Authenticated | `backlogState: string`, `category: string`, `effort: string`, `fleetId: string`, `kind: string`, `owner: string`, `pageNumber: integer`, `pageSize: integer`, `parentObjectiveId: string`, `priority: string`, `search: string`, `status: string`, `targetVersion: string`, `vesselId: string` |  |
 | `list_prompt_templates` | Authenticated | `category: string`, `pageNumber: integer`, `pageSize: integer` |  |
+| `mark_ask_thread_read` | Authenticated | `threadId*: string` |  |
 | `mission_status` | Authenticated | `missionId*: string` |  |
 | `papercut_summary` | Authenticated | `category: string`, `limit: integer`, `minSeverity: string`, `scanLimit: integer`, `sinceHours: integer`, `ungrouped: boolean`, `vesselId: string` |  |
 | `process_merge_entry` | TenantAdmin | `entryId*: string` |  |
@@ -524,6 +541,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `purge_merge_queue` | TenantAdmin | `status: string`, `vesselId: string` |  |
 | `purge_mission` | TenantAdmin | `missionId*: string` |  |
 | `purge_voyage` | TenantAdmin | `voyageId*: string` |  |
+| `reject_ask_proposal` | Authenticated | `proposalId*: string`, `threadId*: string` |  |
 | `release_captain` | TenantAdmin | `captainId*: string` |  |
 | `reorder_backlog_items` | TenantAdmin | `items*: array<object>` |  |
 | `reorder_objectives` | TenantAdmin | `items*: array<object>` |  |
@@ -534,9 +552,11 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `retry_check_run` | TenantAdmin | `checkRunId*: string` |  |
 | `retry_landing` | TenantAdmin | `missionId*: string` |  |
 | `rollback_deployment` | TenantAdmin | `deploymentId*: string` |  |
+| `run_ask_quick_action` | Authenticated | `arguments: object`, `threadId*: string`, `toolName*: string` |  |
 | `run_check` | TenantAdmin | `branchName: string`, `commandOverride: string`, `commitHash: string`, `environmentName: string`, `label: string`, `missionId: string`, `type*: string`, `vesselId*: string`, `voyageId: string`, `workflowProfileId: string` |  |
 | `run_fleet_action` | TenantAdmin | `actionId: string`, `commandText: string`, `concurrency: integer`, `kind: string`, `name: string`, `pipelineId: string`, `promptTemplate: string`, `requiresCleanWorkingTree: boolean`, `timeoutSeconds: integer`, `vesselIds*: array<string>` |  |
 | `search_memory` | Authenticated | `pageNumber: integer`, `pageSize: integer`, `search: string`, `topic: string`, `type: string`, `vesselId: string` |  |
+| `send_ask_message` | Authenticated | `content*: string`, `showThinking: boolean`, `threadId*: string`, `waitSeconds: integer` |  |
 | `send_backlog_refinement_message` | TenantAdmin | `content*: string`, `sessionId*: string` |  |
 | `send_signal` | TenantAdmin | `captainId*: string`, `message*: string` |  |
 | `set_captain_cli_permission_policy` | TenantAdmin | `captainId*: string`, `policy: string` |  |
@@ -548,10 +568,12 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `stop_backlog_refinement_session` | TenantAdmin | `sessionId*: string` |  |
 | `stop_captain` | TenantAdmin | `captainId*: string` |  |
 | `stop_server` | AdminOnly |  |  |
+| `summarize_ask_thread` | Authenticated | `threadId*: string` |  |
 | `summarize_backlog_refinement_session` | TenantAdmin | `messageId: string`, `sessionId*: string` |  |
-| `token_usage_summary` | Authenticated | `bucketMinutes: number`, `captainId: string`, `fromUtc: string`, `harborId: string`, `model: string`, `runtime: string`, `sinceHours: integer`, `source: string`, `toUtc: string`, `vesselId: string` |  |
+| `token_usage_summary` | Authenticated | `bucketMinutes: number`, `captainId: string`, `fromUtc: string`, `harborId: string`, `model: string`, `runtime: string`, `sinceHours: integer`, `source: string`, `sourceId: string`, `toUtc: string`, `vesselId: string` |  |
 | `transition_mission_status` | TenantAdmin | `missionId*: string`, `status*: string` |  |
 | `unstick_dock` | TenantAdmin | `dockId*: string` |  |
+| `update_ask_thread` | Authenticated | `archived: boolean`, `autoApprove: boolean`, `captainId: string`, `clearCaptain: boolean`, `pinned: boolean`, `threadId*: string`, `title: string` |  |
 | `update_backlog_item` | TenantAdmin | `acceptanceCriteria: array<string>`, `backlogState: string`, `blockedByObjectiveIds: array<string>`, `category: string`, `checkRunIds: array<string>`, `deploymentIds: array<string>`, `description: string`, `dueUtc: string`, `effort: string`, `evidenceLinks: array<string>`, `fleetIds: array<string>`, `incidentIds: array<string>`, `kind: string`, `missionIds: array<string>`, `nonGoals: array<string>`, `objectiveId*: string`, `owner: string`, `parentObjectiveId: string`, `planningSessionIds: array<string>`, `priority: string`, `rank: integer`, `refinementSessionIds: array<string>`, `refinementSummary: string`, `releaseIds: array<string>`, `rolloutConstraints: array<string>`, `status: string`, `suggestedPipelineId: string`, `tags: array<string>`, `targetVersion: string`, `title: string`, `vesselIds: array<string>`, `voyageIds: array<string>` |  |
 | `update_captain` | TenantAdmin | `allowedPersonas: string`, `autoApprove: boolean`, `captainId*: string`, `model: string`, `muxAdapterType: string`, `muxApprovalPolicy: string`, `muxBaseUrl: string`, `muxConfigDirectory: string`, `muxEndpoint: string`, `muxMaxTokens: integer`, `muxSystemPromptPath: string`, `muxTemperature: number`, `name: string`, `preferredPersona: string`, `reasoningEffort: string`, `runtime: string`, `systemInstructions: string`, `tier: string` |  |
 | `update_cli_permission_rule` | TenantAdmin | `action*: string`, `description: string`, `pattern*: string`, `ruleId*: string` |  |
@@ -560,9 +582,9 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `update_harbor` | Authenticated | `enabled: boolean`, `harborId*: string`, `maxConcurrentJobs: integer`, `name: string` | experimental |
 | `update_memory` | Authenticated | `content: string`, `key: string`, `memoryId*: string`, `salience: number`, `scope: string`, `sourceDetail: string`, `summary: string`, `tags: array<string>`, `topic: string`, `type: string`, `vesselId: string` |  |
 | `update_mission` | TenantAdmin | `branchName: string`, `description: string`, `missionId*: string`, `mode: string`, `parentMissionId: string`, `persona: string`, `prUrl: string`, `priority: integer`, `title: string`, `vesselId: string`, `voyageId: string` |  |
-| `update_model_endpoint` | Authenticated | `apiKey: string`, `baseUrl: string`, `dimensionality: integer`, `enabled: boolean`, `endpointId*: string`, `kind: string`, `model: string`, `name: string`, `provider: string`, `timeoutMs: integer` |  |
+| `update_model_endpoint` | Authenticated | `apiKey: string`, `authHeaderName: string`, `authQueryParameter: string`, `authType: string`, `authUsername: string`, `baseUrl: string`, `dimensionality: integer`, `enabled: boolean`, `endpointId*: string`, `headers: array<object>`, `kind: string`, `model: string`, `name: string`, `provider: string`, `timeoutMs: integer` |  |
 | `update_objective` | TenantAdmin | `acceptanceCriteria: array<string>`, `backlogState: string`, `blockedByObjectiveIds: array<string>`, `category: string`, `checkRunIds: array<string>`, `deploymentIds: array<string>`, `description: string`, `dueUtc: string`, `effort: string`, `evidenceLinks: array<string>`, `fleetIds: array<string>`, `incidentIds: array<string>`, `kind: string`, `missionIds: array<string>`, `nonGoals: array<string>`, `objectiveId*: string`, `owner: string`, `parentObjectiveId: string`, `planningSessionIds: array<string>`, `priority: string`, `rank: integer`, `refinementSessionIds: array<string>`, `refinementSummary: string`, `releaseIds: array<string>`, `rolloutConstraints: array<string>`, `status: string`, `suggestedPipelineId: string`, `tags: array<string>`, `targetVersion: string`, `title: string`, `vesselIds: array<string>`, `voyageIds: array<string>` |  |
-| `update_persona` | TenantAdmin | `defaultCaptainId: string`, `description: string`, `name*: string`, `promptTemplateName: string` |  |
+| `update_persona` | TenantAdmin | `captainPriorities: array<object>`, `defaultCaptainId: string`, `description: string`, `name*: string`, `priorityAvailability: string`, `priorityExhaustion: string`, `promptTemplateName: string` |  |
 | `update_pipeline` | TenantAdmin | `description: string`, `name*: string`, `stages: array<object>` |  |
 | `update_playbook` | TenantAdmin | `active: boolean`, `content: string`, `description: string`, `fileName: string`, `id*: string` |  |
 | `update_prompt_template` | TenantAdmin | `content*: string`, `description: string`, `name*: string` |  |
@@ -927,6 +949,13 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `selfVesselId` | string | `null` | experimental |
 | `sessionTokenEncryptionKey` | string | `null` |  |
 | `stallThresholdMinutes` | int | `10` |  |
+| `storage` | object |  |  |
+| `storage.historyCapacity` | int | `288` |  |
+| `storage.intervalSeconds` | int | `300` |  |
+| `storage.largestFileLimit` | int | `20` |  |
+| `storage.maxEntries` | int | `250000` |  |
+| `storage.maxLocations` | int | `1000` |  |
+| `storage.timeoutSeconds` | int | `30` |  |
 | `syslogServers` | array<SyslogServer> | `[{"hostname":"127.0.0.1","port":514,"ipPort":"127.0.0.1:514"}]` |  |
 | `telemetry` | object |  |  |
 | `telemetry.enabled` | bool | `false` |  |

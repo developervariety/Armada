@@ -1,0 +1,13 @@
+.storage-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-block: 1rem; }
+.storage-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin-block: 1rem; }
+.storage-page .storage-path { display: flex; align-items: center; gap: .35rem; max-width: 32rem; }
+.storage-path code { display: block; max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.storage-warning { display: block; color: var(--text-dim); white-space: normal; max-width: 22rem; }
+.storage-chart { height: 8rem; display: flex; align-items: flex-end; gap: 3px; border-bottom: 1px solid var(--border); margin-block: 1rem; }
+.storage-chart > div { flex: 1; min-width: 2px; background: var(--accent, #548bf5); border-radius: 2px 2px 0 0; }
+@media (max-width: 900px) { .storage-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .storage-kpis { grid-template-columns: 1fr; } .storage-page .page-actions { flex-wrap: wrap; } }
+.storage-kpis .stat-card { padding: .8rem 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); }
+.storage-kpis .stat-label { color: var(--text-dim); font-size: .8rem; }
+.storage-kpis .stat-value { font-size: 1.4rem; font-weight: 650; margin-top: .25rem; overflow-wrap: anywhere; }
+@media (min-width: 341px) and (max-width: 480px) { .storage-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

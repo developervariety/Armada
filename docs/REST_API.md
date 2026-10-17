@@ -10044,3 +10044,71 @@ Global admin only. Body: `{ "BatchId": "screenshots-unique", "Days": 42, "Densit
 Creates explicitly synthetic terminal missions, API records, events, read signals, model tokens, and disabled screenshot Harbor/vessel resources. Ownership comes from authenticated context. The .NET SDK exposes `GenerateSyntheticActivityAsync`. HTTP 200 returns `SyntheticActivityResult`: batch ID, Harbor/vessel IDs, `Created` counts per record type, and `Existing` replay count. Exact profile replays skip existing IDs; changed profiles are separate datasets. No inference or dispatch occurs. Partial failures can be resumed with the preserved profile. See [CLI and chart inventory](SYNTHETIC_ACTIVITY.md).
 
 `GET/PUT /api/v1/settings` also exposes `DataRetentionDays` (completed mission/event/signal history) and `RequestHistoryRetentionDays` (API history). Both accept non-negative days; zero disables expiry. PUT patches only supplied values, applies changes live and persists them; negative retention values return 400 before mutation. Set these beyond the screenshot window to preserve historical samples.
+
+## Storage inventory
+
+Storage endpoints are global system administrator operations. Tenant administrators and regular users receive `403`; anonymous callers receive `401`. Existing bearer/session and administrator API-key authentication apply. Responses never contain connection strings or file contents. Paths and cross-tenant record counts are intentionally administrator-only.
+
+### GET /api/v1/storage
+
+Returns `200` with the latest cached `StorageSnapshot`. There are no path or query parameters and no request body. Reading this endpoint does not start scans or exact counts. Before the initial sample, `MeasuredUtc` is absent, `Hosts` and `History` are empty, and the collection may already be running.
+
+```bash
+curl -H "Authorization: Bearer $ARMADA_TOKEN" "$ARMADA_URL/api/v1/storage"
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `MeasuredUtc` | UTC timestamp, optional | Last completed Admiral inventory |
+| `Collecting` | boolean | A scan is running; concurrent refresh requests coalesce |
+| `LastError` | string, optional | `CollectionTimedOut` or `CollectionFailed`; previous measurements remain |
+| `Database` | object | Provider, measurement time, `AllocatedBytes`, `UnusedBytes`, `Status`, `Warnings`, `Tables` |
+| `Hosts` | object array | Admiral and registered Harbors with `HostId`, `Name`, `MeasuredUtc`, `Stale`, `Status`, `Warnings`, `Locations`, `Volumes` |
+| `History` | object array | Bounded process-local samples with timestamp, observed file bytes, database bytes, and numeric `Categories`, `Hosts`, `Tables` maps |
+| `Retention` | integer map | Current settings: `DataDays`, `RequestHistoryDays`, `PlanningSessionDays`, `AskArchiveDays`, `AskDeleteDays`, `JobDays`, `ImportDays`, `CliPermissionDays`, `FleetActionDays`, `BuildSlots` |
+| `IntervalSeconds`, `HistoryCapacity` | integers | Active collection cadence and recent-history limit |
+
+Database table entries contain `Schema`, `Name`, optional `Rows`, `CountKind` (`Exact`, `Estimated`, `Unavailable`), optional `DataBytes` and `IndexBytes`, and an optional warning code. SQLite uses page allocation and free pages; optional dbstat support supplies table allocation. PostgreSQL uses database/table/index sizes and estimated live rows. MySQL reports catalog allocation and estimated rows. SQL Server reports database file allocation and catalog table/index pages with estimated counts. Missing metrics remain absent rather than becoming zero.
+
+Location entries contain `Category`, `Path`, optional `EntityId` and `Activity`, optional `Bytes`, `FileCount`, optional oldest/newest UTC write times, `Status`, `Warnings`, and bounded `LargestFiles` entries (`Path`, `Bytes`, `LastWriteUtc`). Counts are examined files, not database records. More specific roots own their subtree; duplicate normalized roots are measured once. Symbolic links and reparse points, including ancestor components, are skipped. Hard links, shared mounts across reporting processes, and copy-on-write extents are not physical-byte accounting. Configured roots outside the data directory are included. Unknown files within the data directory are classified as `Other`.
+
+Volume entries contain `Path`, optional `TotalBytes`, optional `AvailableBytes`, and `Status`. Capacity includes unrelated files and describes the process/container-visible mount. Remote database host capacity is not inferred. Volume capacity, logical file lengths and database allocation must not be summed together.
+
+Statuses distinguish `Pending`, `Complete`, `Partial`, `Missing`, `Unavailable` and `Skipped`. Missing optional directories do not make the whole host incomplete. Warnings are stable codes translated by the dashboard: `BudgetExceeded`, `LinkSkipped`, `AccessDenied`, `FileChangedOrUnreadable`, `Unreadable`, `InvalidPath`, `LocationLimit`, `VolumesUnavailable`, `TableLimit`, `TableAllocationUnavailable`, `DatabaseAllocationUnavailable`, `DatabaseStatisticsUnavailable`, `ExactCountUnavailable`, `CollectionTimedOut`, and `HarborReportUnavailable`.
+
+### POST /api/v1/storage/refresh
+
+Requests background collection and returns `202` with a cached `StorageSnapshot` immediately. Optional JSON body:
+
+```json
+{ "ExactCounts": false }
+```
+
+`ExactCounts` defaults to false. True explicitly requests table scans, with a five-second per-query timeout and an overall database-stage budget. Exact counts on different tables are measured sequentially and are not a transactionally consistent cross-table snapshot. An already running request is coalesced; a later exact-count request does not upgrade the in-flight scan. Wait until `Collecting` is false and request again if exact counts are needed. Poll GET to observe completion.
+
+Invalid JSON or a non-boolean exact-count value returns `400`. `401` and `403` have the same access rules as GET. No parameters select arbitrary paths, SQL, databases or hosts. The operation does not delete, prune, vacuum, checkpoint, restart services or force a remote Harbor scan.
+
+```bash
+curl -X POST -H "Authorization: Bearer $ARMADA_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"ExactCounts":true}' \
+  "$ARMADA_URL/api/v1/storage/refresh"
+```
+
+### Configuration, freshness and retention
+
+`GET/PUT /api/v1/settings` includes a `Storage` group. A PUT replaces the supplied group, with omitted fields taking defaults. Settings also persist in settings.json:
+
+| Setting | Default | Bounds |
+| --- | --- | --- |
+| `IntervalSeconds` | 300 | 30..86400 |
+| `TimeoutSeconds` | 30 | 1..300 per discovery/filesystem/database stage |
+| `MaxEntries` | 250000 | 100..2000000 examined filesystem entries per host |
+| `LargestFileLimit` | 20 | 1..100 per location |
+| `MaxLocations` | 1000 | 10..5000 per host |
+| `HistoryCapacity` | 288 | 2..2016 process-local samples |
+
+Local collection starts in the background. Harbors report asynchronously on their own five-minute cadence through an additive optional heartbeat field. A disconnected Harbor retains its last report and is marked stale; an old Harbor, one with heartbeats disabled, or a freshly restarted Admiral without a report shows unavailable coverage. Reports older than twice the greater of the source cadence and the configured Admiral interval are stale. Host reports include `IntervalSeconds` (300 on the Harbor app). An administrator-triggered local refresh does not force Harbor collection. The page identifies host coverage and timestamps beside observed totals.
+
+Recent history and remote caches reset when the Admiral restarts. Prometheus owns durable telemetry history. `Armada` emits `armada.storage.collections` (outcome), `armada.storage.collection_duration` (seconds), `armada.storage.stage_duration` (discovery/filesystem/database), and `armada.storage.observed_bytes` (bounded category gauge), plus storage collection/stage spans. Category metrics have no file paths, host identifiers or table names as labels.
+
+Retention values provide policy context rather than reclaimable-byte estimates. Zero days means expiry is disabled; `BuildSlots` counts retained builds. Storage inventory offers no cleanup controls.

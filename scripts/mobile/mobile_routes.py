@@ -37,7 +37,7 @@ WORKSTREAMS = {
     "playbooks": "W4.2", "workflow-profiles": "W4.2", "project-profiles": "W4.2", "skills": "W4.2",
     "activity": "W4.3", "history": "W4.3", "requests": "W4.3", "jobs": "W4.3",
     "cli-permissions": "W4.4", "api-explorer": "W4.4", "server": "W4.4", "admin": "W4.4", "doctor": "W4.4",
-    "settings": "W4.4",
+    "settings": "W4.4", "storage": "W4.4",
 }
 
 # Workstream that ships the redirects and the navigation shell.

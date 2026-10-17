@@ -4,19 +4,19 @@ namespace Armada.Server.Routes
     using System.IO;
     using System.Runtime.InteropServices;
     using System.Text.Json;
-    using WatsonWebserver;
-    using WatsonWebserver.Core;
-    using WatsonWebserver.Core.OpenApi;
-    using Armada.Server;
     using Armada.Core;
-    using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server;
+    using ArmadaConstants = Armada.Core.Constants;
     using SyslogLogging;
+    using WatsonWebserver;
+    using WatsonWebserver.Core;
+    using WatsonWebserver.Core.OpenApi;
 
     /// <summary>
     /// REST API routes for status management.
@@ -535,6 +535,7 @@ namespace Armada.Server.Routes
                     _settings.FleetActions = body.FleetActions;
                 if (body.RepositoryHealth != null)
                     _settings.RepositoryHealth = body.RepositoryHealth;
+                if (body.Storage != null) _settings.Storage = body.Storage;
                 if (body.Retention != null)
                     _settings.Retention = body.Retention;
                 if (body.Permissions != null)
@@ -730,6 +731,7 @@ namespace Armada.Server.Routes
                 FleetActions = _settings.FleetActions,
                 RepositoryHealth = _settings.RepositoryHealth,
                 Retention = _settings.Retention,
+                Storage = _settings.Storage,
                 Permissions = _settings.Permissions,
                 Ask = _settings.Ask,
                 Push = RedactPush(_settings.Push)

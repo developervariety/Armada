@@ -21,6 +21,7 @@ const MergeQueue = lazy(() => import('./pages/MergeQueue'));
 const Jobs = lazy(() => import('./pages/Jobs'));
 const Docks = lazy(() => import('./pages/Docks'));
 const Doctor = lazy(() => import('./pages/Doctor'));
+const Storage = lazy(() => import('./pages/Storage'));
 const Tenants = lazy(() => import('./pages/admin/Tenants'));
 const Users = lazy(() => import('./pages/admin/Users'));
 const Credentials = lazy(() => import('./pages/admin/Credentials'));
@@ -197,6 +198,7 @@ export default function App() {
                       <Route path="admin/users" element={<Navigate to="/server?tab=users" replace />} />
                       <Route path="admin/credentials" element={<Navigate to="/server?tab=credentials" replace />} />
 
+                      <Route path="storage" element={<Storage />} />
                       <Route path="server" element={<ServerHub />} />
                       <Route path="doctor" element={<Navigate to="/server?tab=diagnostics" replace />} />
                       <Route path="settings" element={<Navigate to="/server" replace />} />

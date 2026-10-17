@@ -585,6 +585,14 @@
     },
     {
       "kind": "route",
+      "key": "/storage",
+      "status": "implemented",
+      "tui": "StorageScreen",
+      "workstream": "Storage",
+      "notes": "Read-only administrator inventory, cached refresh, explicit collection and exact counts."
+    },
+    {
+      "kind": "route",
       "key": "/vessels",
       "status": "implemented",
       "tui": "HubScreen",
@@ -974,6 +982,14 @@
       "tui": "ServerSettingsScreen",
       "workstream": "W7.7",
       "notes": "Server"
+    },
+    {
+      "kind": "tab",
+      "key": "ServerHub:storage",
+      "status": "implemented",
+      "tui": "StorageScreen",
+      "workstream": "Storage",
+      "notes": "Read-only administrator inventory, cached refresh, explicit collection and exact counts."
     },
     {
       "kind": "tab",
@@ -2425,6 +2441,14 @@
     },
     {
       "kind": "api",
+      "key": "getStorage",
+      "status": "implemented",
+      "tui": "ArmadaClient.GetStorageAsync",
+      "workstream": "W0.2",
+      "notes": "Fleet Actions"
+    },
+    {
+      "kind": "api",
       "key": "getTokenUsage",
       "status": "implemented",
       "tui": "ArmadaClient.GetTokenUsageAsync",
@@ -3070,6 +3094,14 @@
       "tui": "ArmadaClient.RefreshReleaseAsync",
       "workstream": "W0.2",
       "notes": "Releases"
+    },
+    {
+      "kind": "api",
+      "key": "refreshStorage",
+      "status": "implemented",
+      "tui": "ArmadaClient.RefreshStorageAsync",
+      "workstream": "W0.2",
+      "notes": "Fleet Actions"
     },
     {
       "kind": "api",

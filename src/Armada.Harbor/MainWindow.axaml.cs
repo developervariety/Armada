@@ -7,15 +7,17 @@ namespace Armada.Harbor
     using System.Net.WebSockets;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Harbor;
+    using Armada.Core.Hosting;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
+    using Armada.Core.Settings;
+    using Armada.Core.Storage;
     using Avalonia;
     using Avalonia.Controls;
     using Avalonia.Interactivity;
     using Avalonia.Media;
     using Avalonia.Threading;
-    using Armada.Core.Harbor;
-    using Armada.Core.Hosting;
-    using Armada.Core.Models;
-    using Armada.Core.Services;
     using SyslogLogging;
 
     /// <summary>
@@ -426,6 +428,20 @@ namespace Armada.Harbor
                         jobRunner,
                         dockManager);
                     // One set of link counters across sessions, so heartbeats report this process's reconnects.
+                    client.StorageCollector = async storageToken =>
+                    {
+                        HarborDockSettings storageDocks = _Settings.BuildDockSettings();
+                        List<StorageLocation> roots = new List<StorageLocation>
+                        {
+                            new StorageLocation { Category = "Logs/harbor-jobs", Path = Path.Combine(HarborAppSettings.LogDirectory(), "jobs") },
+                            new StorageLocation { Category = "Logs/harbor", Path = HarborAppSettings.LogDirectory() },
+                            new StorageLocation { Category = "Docks", Path = storageDocks.DocksDirectory },
+                            new StorageLocation { Category = "Repositories", Path = storageDocks.ReposDirectory }
+                        };
+                        foreach (HarborRepositoryMapping mapping in storageDocks.Repositories)
+                            roots.Add(new StorageLocation { Category = "Repositories", Path = mapping.Path, EntityId = mapping.Vessel });
+                        return await new StorageFileCollector().CollectAsync(roots, new StorageSettings(), storageToken).ConfigureAwait(false);
+                    };
                     client.LinkStatistics = _LinkStatistics;
                     client.LogClassifier = _LogClassifier;
                     client.JobState = _JobState;

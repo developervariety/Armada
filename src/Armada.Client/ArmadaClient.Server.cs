@@ -9,6 +9,7 @@ namespace Armada.Client
     using Armada.Client.Models;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Storage;
 
     /// <summary>
     /// Server API calls (dashboard <c>api/client.ts</c> parity).
@@ -16,6 +17,21 @@ namespace Armada.Client
     public partial class ArmadaClient
     {
         #region Public-Methods
+
+        /// <summary>Read cached global-administrator storage measurements without starting a scan.</summary>
+        /// <exception cref="ArmadaApiException">Authorization, transport or API failure.</exception>
+        public Task<StorageSnapshot?> GetStorageAsync(CancellationToken token = default)
+        {
+            return GetAsync<StorageSnapshot>("/api/v1/storage", null, token);
+        }
+
+        /// <summary>Request bounded background collection. Exact counts are opt-in; concurrent requests coalesce.</summary>
+        /// <exception cref="ArmadaApiException">Authorization, transport or API failure.</exception>
+        public Task<StorageSnapshot?> RefreshStorageAsync(StorageRefreshRequest request, CancellationToken token = default)
+        {
+            return PostAsync<StorageSnapshot>("/api/v1/storage/refresh", request, null, token);
+        }
+
 
         /// <summary>Generate historical synthetic activity without dispatching work. Global admin only.</summary>
         /// <param name="request">Bounded, fixed-window generation profile.</param>

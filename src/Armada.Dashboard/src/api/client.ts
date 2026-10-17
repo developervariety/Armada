@@ -349,17 +349,19 @@ function keyToCamel(key: string): string {
 
 /** Recursively convert all object keys from PascalCase to camelCase. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function camelizeKeys(obj: any): any {
-  if (Array.isArray(obj)) return obj.map(camelizeKeys);
+export function camelizeKeys(obj: any, dictionaryKeys: string[] = []): any {
+  if (Array.isArray(obj)) return obj.map(value => camelizeKeys(value, dictionaryKeys));
   if (obj !== null && typeof obj === 'object' && !(obj instanceof Date)) {
     return Object.fromEntries(
-      Object.entries(obj).map(([k, v]) => [keyToCamel(k), camelizeKeys(v)])
+      Object.entries(obj).map(([k, v]) => [keyToCamel(k), dictionaryKeys.includes(keyToCamel(k)) && v !== null && typeof v === 'object' && !Array.isArray(v) ? v : camelizeKeys(v, dictionaryKeys)])
     );
   }
   return obj;
 }
 
 interface RequestOptions {
+  /** Numeric dictionary keys are domain values, not DTO property names. */
+  dictionaryKeys?: string[];
   timeout?: number;
   rawText?: boolean;
   /** External abort signal; when it fires the in-flight request is cancelled (used by chat Stop). */
@@ -426,7 +428,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
       try {
         const e = JSON.parse(text);
         msg = e.Message || e.message || e.Error || e.error || msg;
-        data = camelizeKeys(e.Data ?? e.data ?? null);
+        data = camelizeKeys(e.Data ?? e.data ?? null, opts?.dictionaryKeys);
       } catch {
         // use raw text
       }
@@ -441,7 +443,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
     }
 
     const json = await res.json();
-    return camelizeKeys(json) as T;
+    return camelizeKeys(json, opts?.dictionaryKeys) as T;
   } catch (err) {
     // An external abort is a deliberate cancel (Stop), not a timeout; surface it distinctly so callers
     // can treat it as a clean stop instead of an error.
@@ -1656,3 +1658,11 @@ export const cancelFleetActionRun = (id: string) => post<FleetActionRun>(`/api/v
 
 /** Admin-only screenshot data import; never runs agents or calls inference providers. */
 export const importSyntheticTokenUsage = (data: TokenUsageSyntheticRequest) => post<TokenUsageSyntheticResult>('/api/v1/token-usage/synthetic', data);
+
+// Global-administrator storage inventory. Reads use cached snapshots; scans are explicitly requested.
+export function getStorage(): Promise<import('../types/storage').StorageSnapshot> {
+  return request('GET', '/api/v1/storage', undefined, { dictionaryKeys: ['retention', 'categories', 'hosts', 'tables'] });
+}
+export function refreshStorage(exactCounts = false): Promise<import('../types/storage').StorageSnapshot> {
+  return request('POST', '/api/v1/storage/refresh', { exactCounts }, { dictionaryKeys: ['retention', 'categories', 'hosts', 'tables'] });
+}

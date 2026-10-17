@@ -1221,3 +1221,9 @@ When filing an issue, include:
 ## License
 
 Armada is released under the [MIT License](LICENSE.md). See the LICENSE.md file for details.
+
+### Administrator storage inventory
+
+System administrators can open **System > Storage** (also **Settings > Storage**) to inspect managed file sizes, log categories, database allocation and record counts, host coverage, containing volumes, largest-file samples, retention policies and recent growth. Use **Collect now** for a bounded background scan, or **Count records exactly** to opt in to database table scans. Normal page refreshes only read cached data.
+
+Storage includes configured roots outside the default data directory. Updated Harbors collect on their own machines and attach cached reports to heartbeats; older or offline Harbors show unavailable or stale coverage. File bytes describe logical lengths, database allocation is separate, and volume usage includes unrelated files. Recent history resets on Admiral restart. See [the storage API and configuration](docs/REST_API.md#storage-inventory) and [the implementation plan](STORAGE_MGMT_PLAN.md) for limits and review checks.

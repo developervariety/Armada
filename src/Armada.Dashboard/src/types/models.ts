@@ -2483,6 +2483,7 @@ export interface SendSignalRequest {
 }
 
 export interface SettingsData {
+  storage?: import('./storage').StorageSettings;
   dataRetentionDays?: number;
   requestHistoryRetentionDays?: number;
   [key: string]: unknown;

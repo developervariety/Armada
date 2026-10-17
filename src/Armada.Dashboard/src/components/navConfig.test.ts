@@ -22,14 +22,14 @@ describe('navConfig', () => {
     const present = [
       '/', '/ask', '/inbox', '/planning', '/dispatch', '/missions',
       '/delivery', '/fleet-actions', '/vessels', '/captains', '/configuration', '/activity',
-      '/jobs', '/cli-permissions', '/api-explorer', '/server',
+      '/jobs', '/cli-permissions', '/api-explorer', '/server', '/storage',
     ];
     for (const target of present) {
       expect(allTargets).toContain(target);
     }
-    // 16 top-level destinations (Jobs under Activity, Fleet Actions under Delivery, CLI Tool Permissions under System);
+    // 17 top-level destinations, including system administrator storage.
     // admin lives as tabs under Settings.
-    expect(commands).toHaveLength(16);
+    expect(commands).toHaveLength(17);
   });
 
   it('no longer surfaces the folded-away pages as nav items', () => {

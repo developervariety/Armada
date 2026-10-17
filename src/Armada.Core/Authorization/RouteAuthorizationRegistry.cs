@@ -74,6 +74,9 @@ namespace Armada.Core.Authorization
             Add("POST", "/api/v1/tenants/lookup", "Session", ResourceOperationEnum.Read, PermissionLevel.NoAuthRequired);
             Add("POST", "/api/v1/onboarding", "User", ResourceOperationEnum.Execute, PermissionLevel.NoAuthRequired);
 
+            Add("GET", "/api/v1/storage", "Storage", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
+            Add("POST", "/api/v1/storage/refresh", "Storage", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
+
             // BackupRoutes
             Add("GET", "/api/v1/backup", "Backup", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);
             Add("POST", "/api/v1/restore", "Backup", ResourceOperationEnum.Admin, PermissionLevel.AdminOnly);

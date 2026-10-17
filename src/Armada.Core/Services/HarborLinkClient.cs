@@ -11,6 +11,7 @@ namespace Armada.Core.Services
     using Armada.Core.Enums;
     using Armada.Core.Harbor;
     using Armada.Core.Models;
+    using Armada.Core.Storage;
     using SyslogLogging;
 
     /// <summary>
@@ -99,6 +100,11 @@ namespace Armada.Core.Services
         }
 
         #endregion
+
+        /// <summary>Optional bounded local storage collector. Runs off the socket and heartbeat paths.</summary>
+        public Func<CancellationToken, Task<StorageHostReport>>? StorageCollector { get; set; }
+
+        private StorageHostReport? _StorageReport;
 
         #region Private-Members
 
@@ -265,6 +271,7 @@ namespace Armada.Core.Services
                 _JobState.Outbox.BeginSession();
                 _JobState.Outbox.MessageAdded += onJobMessage;
                 Task pump = SendPumpAsync(transport, outbound, wake, sessionCts.Token);
+                Task storage = StorageCollector != null ? Task.Run(() => StorageLoopAsync(sessionCts.Token), sessionCts.Token) : Task.CompletedTask;
                 Task heartbeat = _HeartbeatIntervalMs > 0 ? HeartbeatLoopAsync(sessionCts.Token) : Task.CompletedTask;
 
                 HarborHandshake handshake = BuildHandshake();
@@ -319,6 +326,7 @@ namespace Armada.Core.Services
                     _JobState.Outbox.MessageAdded -= onJobMessage;
                     sessionCts.Cancel();
                     try { await heartbeat.ConfigureAwait(false); } catch { }
+                    try { await storage.ConfigureAwait(false); } catch (OperationCanceledException) { }
                     await transport.CloseAsync(CancellationToken.None).ConfigureAwait(false);
                     _SessionLink = null;
                     _Outbound = null;
@@ -905,12 +913,29 @@ namespace Armada.Core.Services
 
             return new HarborHeartbeat
             {
+                StorageReport = Volatile.Read(ref _StorageReport),
                 LiveJobIds = _JobState.LiveJobIds(),
                 Sequence = sequence,
                 LastRoundTripMs = lastRoundTrip,
                 ReconnectCount = _LinkStatistics.ReconnectCount,
                 LastReconnectUtc = _LinkStatistics.LastReconnectUtc
             };
+        }
+
+        private async Task StorageLoopAsync(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    StorageHostReport report = await StorageCollector!(token).ConfigureAwait(false);
+                    Volatile.Write(ref _StorageReport, report);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+                catch (Exception) { _Logging.Warn(_Header + "storage measurement unavailable; keeping last report"); }
+                try { await Task.Delay(TimeSpan.FromMinutes(5), token).ConfigureAwait(false); }
+                catch (OperationCanceledException) { break; }
+            }
         }
 
         private void ResetHeartbeatTiming()

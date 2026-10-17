@@ -7,13 +7,13 @@ namespace Armada.Core.Database.SqlServer
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Data.SqlClient;
-    using SyslogLogging;
     using Armada.Core.Database.Interfaces;
     using Armada.Core.Database.SqlServer.Implementations;
     using Armada.Core.Database.SqlServer.Queries;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Settings;
+    using SyslogLogging;
 
     /// <summary>
     /// SQL Server implementation of the Armada database driver.
@@ -56,6 +56,7 @@ namespace Armada.Core.Database.SqlServer
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _ConnectionString = settings.GetConnectionString();
+            Storage = new StorageMethods(_ConnectionString);
 
             Fleets = new FleetMethods(this, _Settings, _Logging);
             Vessels = new VesselMethods(this, _Settings, _Logging);

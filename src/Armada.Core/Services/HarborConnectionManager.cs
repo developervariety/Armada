@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using Armada.Core.Enums;
     using Armada.Core.Harbor;
     using Armada.Core.Models;
+    using Armada.Core.Storage;
     using SyslogLogging;
 
     /// <summary>
@@ -73,6 +74,9 @@ namespace Armada.Core.Services
         }
 
         #endregion
+
+        /// <summary>Admin inventory sink for reports bound to an authenticated Harbor link.</summary>
+        public Action<string, StorageHostReport>? StorageReportReceived { get; set; }
 
         #region Private-Members
 
@@ -321,6 +325,7 @@ namespace Armada.Core.Services
                     TrackReportedJobs(harborId, heartbeat.LiveJobIds ?? new List<string>(), now);
                 }
 
+                if (linked && heartbeat.StorageReport != null) StorageReportReceived?.Invoke(harborId, heartbeat.StorageReport);
                 if (Metrics != null) await Metrics.OnHeartbeatAsync(harborId, heartbeat, token).ConfigureAwait(false);
 
                 // A heartbeat that arrives on a link already dropped (the sweep found it dead) must not mark the Harbor

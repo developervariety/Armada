@@ -151,7 +151,7 @@ export default function Layout() {
   const filteredSections = navSections
     .map((section) =>
       section.key !== 'security'
-        ? section
+        ? { ...section, items: section.items.filter(item => item.to !== '/storage' || isAdmin) }
         : {
             ...section,
             items: section.items.filter((item) => {

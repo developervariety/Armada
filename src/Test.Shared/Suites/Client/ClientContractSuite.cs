@@ -9,6 +9,7 @@ namespace Test.Shared.Suites.Client
     using Armada.Client.Models;
     using Armada.Client.Socket;
     using Armada.Core.Models;
+    using Armada.Core.Storage;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -39,6 +40,15 @@ namespace Test.Shared.Suites.Client
                 SettingsData? settings = await c.GetSettingsAsync();
                 AssertTrue((settings?.AdmiralPort ?? 0) > 0, "settings");
                 AssertNotNull(settings?.Import, "import settings typed");
+            }));
+
+            cases.Add(Case("storage", "Cached storage and asynchronous refresh", async c =>
+            {
+                StorageSnapshot? snapshot = await c.GetStorageAsync().ConfigureAwait(false);
+                AssertNotNull(snapshot);
+                AssertTrue(snapshot!.IntervalSeconds >= 30);
+                StorageSnapshot? requested = await c.RefreshStorageAsync(new StorageRefreshRequest()).ConfigureAwait(false);
+                AssertNotNull(requested);
             }));
 
             cases.Add(Case("auth_flows", "Whoami, tenant lookup, authenticate, and session token", async c =>

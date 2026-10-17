@@ -84,6 +84,7 @@ export interface ServerSettings {
   import?: VesselImportSettingsData;
   fleetActions?: FleetActionSettingsData;
   retention?: RetentionSettingsData;
+  storage?: import('../types/storage').StorageSettings;
   permissions?: CliPermissionSettingsData;
   /** Absent on servers older than the Ask settings group. */
   ask?: AskSettingsData;

@@ -5,6 +5,7 @@ import { CredentialsTab } from './CredentialsTab';
 import { DiagnosticsTab } from './DiagnosticsTab';
 import { ServerSettingsTab } from './ServerSettingsTab';
 import { TenantsTab } from './TenantsTab';
+import { StorageTab } from './StorageTab';
 import { UsersTab } from './UsersTab';
 
 /**
@@ -18,6 +19,7 @@ export function ServerHub() {
   const admin = isAdmin || isTenantAdmin;
   const tabs: HubTab[] = [
     { key: 'server', label: 'Server', render: () => <ServerSettingsTab /> },
+    { key: 'storage', label: 'Storage', hidden: !isAdmin, render: () => <StorageTab /> },
     { key: 'diagnostics', label: 'Diagnostics', render: () => <DiagnosticsTab /> },
     { key: 'tenants', label: 'Tenants', hidden: !isAdmin, render: () => <TenantsTab /> },
     { key: 'users', label: 'Users', hidden: !admin, render: () => <UsersTab /> },

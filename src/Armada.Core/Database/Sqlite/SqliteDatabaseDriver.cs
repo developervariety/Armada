@@ -8,13 +8,13 @@ namespace Armada.Core.Database.Sqlite
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Data.Sqlite;
-    using SyslogLogging;
     using Armada.Core.Database.Interfaces;
     using Armada.Core.Database.Sqlite.Implementations;
     using Armada.Core.Database.Sqlite.Queries;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Settings;
+    using SyslogLogging;
 
     /// <summary>
     /// SQLite implementation of the Armada database driver.
@@ -76,6 +76,7 @@ namespace Armada.Core.Database.Sqlite
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _ConnectionString = NormalizeConnectionString(settings.GetConnectionString());
+            Storage = new StorageMethods(_ConnectionString);
             _WriteGate = SqliteWriteGate.ForConnectionString(_ConnectionString);
 
             Fleets = new FleetMethods(this, _Settings, _Logging);
@@ -145,6 +146,7 @@ namespace Armada.Core.Database.Sqlite
         {
             if (connectionString == null) throw new ArgumentNullException(nameof(connectionString));
             _ConnectionString = NormalizeConnectionString(connectionString);
+            Storage = new StorageMethods(_ConnectionString);
             _WriteGate = SqliteWriteGate.ForConnectionString(_ConnectionString);
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Settings = new DatabaseSettings();

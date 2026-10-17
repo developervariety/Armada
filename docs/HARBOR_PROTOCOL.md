@@ -303,3 +303,9 @@ example a mission that was recovered while the laptop slept), so two agents neve
 Dead links: the Admiral closes a link silent for longer than max(45 seconds, 3x the Harbor's heartbeat interval), and
 the Harbor ends a session on its side after the same gap once a heartbeat has been acknowledged, then reconnects. A
 Harbor with heartbeats disabled is never swept.
+
+### Optional storage inventory in heartbeats
+
+Protocol 1.0 heartbeats may carry `storageReport`, a typed `StorageHostReport` using the protocol's camelCase JSON naming. The updated Harbor app collects its managed logs, job logs, docks, bare clones and explicitly mapped repositories on a background worker every five minutes. Heartbeat creation reads the last report without touching the filesystem. Heartbeats disabled means these reports are not delivered. Discovery search roots and external model/CLI caches are not recursively scanned. Older Harbors omit the field; older Admirals ignore it.
+
+A report contains `measuredUtc`, `status`, `locations`, `volumes` and bounded warnings. Location detail uses logical file lengths and bounded largest-file lists, never file content. The Admiral accepts a report only on an authenticated linked Harbor, overrides its host identity with the link's Harbor ID, and bounds collection detail. The report is visible exclusively through the global administrator storage API, never through ordinary Harbor detail or metrics responses. Cached measurements survive a disconnect within the running Admiral process and become stale. Restarting the Admiral clears this cache.

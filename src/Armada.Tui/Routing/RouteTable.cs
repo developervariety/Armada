@@ -89,6 +89,7 @@ namespace Armada.Tui.Routing
                 new HubTab("runs", "Runs", "FleetActionRunsScreen", "W3.7"));
             HubDefinition server = new HubDefinition("tab",
                 new HubTab("server", "Server", "ServerSettingsScreen", "W7.7"),
+                new HubTab("storage", "Storage", "StorageScreen", "Storage", true, false),
                 new HubTab("diagnostics", "Diagnostics", "DiagnosticsScreen", "W7.8"),
                 new HubTab("tenants", "Tenants", "TenantsScreen", "W7.9", true, false),
                 new HubTab("users", "Users", "UsersScreen", "W7.9", false, true),
@@ -178,6 +179,7 @@ namespace Armada.Tui.Routing
             r.Add(Redirect("/admin/tenants", "/server?tab=tenants"));
             r.Add(Redirect("/admin/users", "/server?tab=users"));
             r.Add(Redirect("/admin/credentials", "/server?tab=credentials"));
+            r.Add(Screen("/storage", "Storage", "StorageScreen", "Storage"));
             r.Add(Hub("/server", "Settings", server));
             r.Add(Redirect("/doctor", "/server?tab=diagnostics"));
             r.Add(Redirect("/settings", "/server"));

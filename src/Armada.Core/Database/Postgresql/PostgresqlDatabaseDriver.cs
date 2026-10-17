@@ -4,12 +4,12 @@ namespace Armada.Core.Database.Postgresql
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
-    using Npgsql;
-    using SyslogLogging;
     using Armada.Core.Database.Postgresql.Implementations;
     using Armada.Core.Database.Postgresql.Queries;
     using Armada.Core.Models;
     using Armada.Core.Settings;
+    using Npgsql;
+    using SyslogLogging;
 
     /// <summary>
     /// PostgreSQL implementation of the Armada database driver.
@@ -51,6 +51,7 @@ namespace Armada.Core.Database.Postgresql
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _ConnectionString = settings.GetConnectionString();
+            Storage = new StorageMethods(_ConnectionString);
             _DataSource = NpgsqlDataSource.Create(_ConnectionString);
 
             InitializeImplementations();
@@ -64,6 +65,7 @@ namespace Armada.Core.Database.Postgresql
         public PostgresqlDatabaseDriver(string connectionString, LoggingModule logging)
         {
             _ConnectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            Storage = new StorageMethods(_ConnectionString);
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Settings = new DatabaseSettings();
             _DataSource = NpgsqlDataSource.Create(_ConnectionString);

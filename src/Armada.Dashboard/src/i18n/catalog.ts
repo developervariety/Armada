@@ -1,3 +1,5 @@
+import { storageMessages } from './storageMessages';
+
 /**
  * The i18n catalog and translation logic shared by every Armada client (the dashboard and the mobile app). Pure:
  * no window, document, localStorage, or navigator. The dashboard's DOM translator and storage live in runtime.ts,
@@ -440,6 +442,7 @@ function applyDynamicPatterns(locale: string, text: string, catalog: I18nCatalog
 }
 
 export function translateText(locale: string, text: string, catalog: I18nCatalog | null | undefined): string {
+  if (text.startsWith('storage.')) return translateExactPhrase(locale, text, catalog) ?? translateText(locale, storageMessages[text] ?? storageMessages['storage.unavailable'], catalog);
   if (!text || locale === 'en') return text;
   const trimmed = text.trim();
   if (!trimmed) return text;
