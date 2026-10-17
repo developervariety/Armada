@@ -229,7 +229,18 @@ Duplicate or unrelated claims do not cover a missing criterion.
 A `NOT MET` verdict for a required criterion refuses PASS, including a later
 entry that contradicts a `MET` entry. The same words inside the copied criterion
 or its evidence do not act as verdicts. The gate checks the citation format;
-the Judge checks its truth.
+the Judge checks its truth. A criterion the brief lists twice, with identical
+text, is one criterion.
+
+A PASS that this check refuses on format alone (no section, an unlisted
+criterion, or missing evidence; not a `NOT MET` entry) does not fail the
+mission. The same Judge mission runs once more in place, with a
+`## Judge Format Correction` section appended to its brief: the check's
+reason, the exact accepted line form, and the previous review indented so it
+adds no headings or criteria. The re-run does not count against the rescue
+budget, and records a `judge_acceptance_format` retry. A second format miss
+fails the mission as a NEEDS_REVISION, as before. Every Judge prompt that asks
+for the section states the same line form.
 
 Objective dispatch renders every acceptance criterion in full. It folds line
 breaks and other whitespace in each criterion into spaces so one stored item

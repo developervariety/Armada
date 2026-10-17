@@ -2842,12 +2842,14 @@ namespace Armada.Core.Services
             }
 
             bool retryingMissingVerdict = false;
+            bool retryingAcceptanceFormat = false;
             if (!failedForScopeViolation && !failedForBlockedResult && !failedForDodGate && !dodGateCancelled && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
             {
                 JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
                 string? verdictFailureReason = null;
                 bool judgeGateRejected = false;
                 bool heldRevisionForChecks = false;
+                bool acceptanceFormatMiss = false;
                 if (verdict == JudgeVerdict.Pass)
                 {
                     // The deterministic required-heading regex plus the narrative-length floor is the
@@ -2864,6 +2866,8 @@ namespace Armada.Core.Services
                         // (NEEDS_REVISION semantics) so the mission stays non-terminal and the
                         // review is not recorded as a rejection.
                         verdict = JudgeVerdict.NeedsRevision;
+                        acceptanceFormatMiss = IsAcceptanceFormatMiss(ruleValidation.Category, ruleValidation.FailureReason)
+                            && !HasAcceptanceFormatCorrection(mission.Description);
                     }
                     else
                     {
@@ -2971,7 +2975,27 @@ namespace Armada.Core.Services
                 // opens an incident and burns the auto-rescue budget on verified-good work. The
                 // RecoveryAttempts counter bounds the total automated recovery effort on this one
                 // mission; explicit FAIL / NEEDS_REVISION verdicts skip this path and stay terminal.
-                if (ShouldRetryMissingJudgeVerdict(verdict != JudgeVerdict.None, CountRetrySkipCaptains(mission.RetrySkipCaptainIds)))
+                // A PASS whose acceptance-criteria section has the wrong line shape is a format miss, not a
+                // rejection: the review reached PASS and only the mechanical check refused its layout. The
+                // same Judge mission runs once more in place with the check's reason and the exact accepted
+                // line form appended to its brief. The correction section is the persisted record that the
+                // one re-run was used, so a second format miss fails as before. A NOT MET criterion is a
+                // real rejection and never takes this path. The re-run does not consume the rescue budget.
+                if (acceptanceFormatMiss)
+                {
+                    string priorReview = mission.AgentOutput ?? String.Empty;
+                    mission.Description = AppendAcceptanceFormatCorrection(mission.Description, verdictFailureReason, priorReview);
+                    await AppendMissionActivityAsync(mission.Id,
+                        "Judge PASS acceptance criteria rejected on format (" + (verdictFailureReason ?? String.Empty) +
+                        "); re-running the Judge once with the accepted line form", token).ConfigureAwait(false);
+                    await ResetMissionForReRunAsync(mission, "judge_acceptance_format", token, countRecoveryBudget: false).ConfigureAwait(false);
+                    retryingMissingVerdict = true;
+                    retryingAcceptanceFormat = true;
+                    _Logging.Warn(_Header + "judge mission " + mission.Id +
+                        " PASS failed the acceptance-criteria format check (" + (verdictFailureReason ?? String.Empty) +
+                        "); re-running in place once with the accepted line form");
+                }
+                else if (ShouldRetryMissingJudgeVerdict(verdict != JudgeVerdict.None, CountRetrySkipCaptains(mission.RetrySkipCaptainIds)))
                 {
                     // Record the captain that produced the empty/no-verdict output so the in-place
                     // re-run dispatches to a DIFFERENT captain (native fallback) instead of
@@ -3029,7 +3053,7 @@ namespace Armada.Core.Services
                 // appear later, but the audit item must already exist and survive that race.
                 string? followUps = ExtractSuggestedFollowUps(mission.AgentOutput);
                 bool hasFollowUps = !String.IsNullOrEmpty(followUps);
-                if (!heldRevisionForChecks && (verdict == JudgeVerdict.NeedsRevision || hasFollowUps))
+                if (!heldRevisionForChecks && !retryingAcceptanceFormat && (verdict == JudgeVerdict.NeedsRevision || hasFollowUps))
                 {
                     await CaptureJudgeFollowUpAsync(mission, verdict, followUps, token).ConfigureAwait(false);
                 }
@@ -10809,6 +10833,81 @@ namespace Armada.Core.Services
             if (hasParseableVerdict) return false;
             return priorRetryCount < _MaxMissingJudgeVerdictRetries;
         }
+
+        /// <summary>
+        /// Returns true when a rejected Judge PASS failed only the acceptance-criteria line shape: the walk
+        /// refused it for a missing section, an unlisted criterion or missing evidence, and not because it
+        /// marked a criterion NOT MET.
+        /// </summary>
+        /// <param name="category">Rule category of the PASS validation.</param>
+        /// <param name="failureReason">Rule failure reason.</param>
+        /// <returns>True for a format-only acceptance-criteria miss.</returns>
+        internal static bool IsAcceptanceFormatMiss(ReviewSubstanceRuleCategory category, string? failureReason)
+        {
+            if (category != ReviewSubstanceRuleCategory.AcceptanceCriteria) return false;
+            if (String.IsNullOrEmpty(failureReason)) return false;
+            return !String.Equals(failureReason, JudgeAcceptanceWalk.NotMetReason, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Returns true when the brief already carries the acceptance-criteria format correction, which
+        /// means the one format re-run has been used.
+        /// </summary>
+        /// <param name="description">Mission description.</param>
+        /// <returns>True when the correction section is present.</returns>
+        internal static bool HasAcceptanceFormatCorrection(string? description)
+        {
+            return !String.IsNullOrEmpty(description)
+                && description.Contains(_AcceptanceFormatCorrectionHeading, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Appends the acceptance-criteria format correction to a Judge brief: the check's reason, the exact
+        /// accepted line form, and the previous review indented so none of its headings or bullets read as
+        /// brief sections or criteria.
+        /// </summary>
+        /// <param name="description">Mission description.</param>
+        /// <param name="failureReason">The walk's failure reason.</param>
+        /// <param name="priorReview">The rejected review output.</param>
+        /// <returns>The description with the correction section at its end.</returns>
+        internal static string AppendAcceptanceFormatCorrection(string? description, string? failureReason, string priorReview)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder((description ?? String.Empty).TrimEnd());
+            sb.Append("\n\n").Append(_AcceptanceFormatCorrectionHeading).Append('\n');
+            sb.Append("Your previous review of this mission ended in PASS, but Armada's mechanical acceptance-criteria check refused its format: ")
+                .Append(String.IsNullOrEmpty(failureReason) ? "the section did not match the accepted form" : failureReason)
+                .Append(". Review again and give your verdict. If you still find PASS, write the acceptance criteria exactly in this form.\n\n");
+            sb.Append(AcceptanceCriteriaLineForm).Append("\n\n");
+            sb.Append("Do not use a table, do not put the evidence on the next line, and do not put the criterion in backticks or quotes. ")
+                .Append("The heading line is exactly `## ").Append(JudgeAcceptanceWalk.SectionName).Append("`, at the start of the line, and appears once in your response.\n");
+
+            string review = RuntimeLogFormatter.RedactSecrets(priorReview ?? String.Empty).Replace("\r\n", "\n");
+            if (review.Length > _MaxReportOnlyStageOutputChars)
+                review = BuildBoundedMissionOutputPreview(review, _MaxReportOnlyStageOutputChars / 2);
+            if (review.Trim().Length > 0)
+            {
+                sb.Append("\nYour previous review, indented, for reference:\n\n");
+                foreach (string line in review.Split('\n'))
+                    sb.Append("    ").Append(line).Append('\n');
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// The accepted acceptance-criteria line form. Every Judge prompt that asks for the section states
+        /// it, and the format correction repeats it.
+        /// </summary>
+        internal const string AcceptanceCriteriaLineForm =
+            "Under `## Acceptance Criteria`, write one line per criterion in the brief. Start the line with `- `, then the criterion's text copied exactly " +
+            "as the brief lists it, then ` \u2014 MET.` or ` \u2014 NOT MET.`, then on the SAME line at least one piece of evidence: a location written " +
+            "`path/File.ext:LINE`, or a command written `command: `the exact command`` followed by its result. " +
+            "Example: `- The parser rejects a truncated frame. \u2014 MET. src/Parser/FrameParser.cs:88 returns Truncated; " +
+            "command: `dotnet test --filter FrameParserTests` gave 0 failed.`";
+
+        // Heading of the acceptance-criteria format correction. Deliberately not prefixed with the
+        // criteria heading, so the criteria section of the brief never extends into it.
+        private const string _AcceptanceFormatCorrectionHeading = "## Judge Format Correction";
 
         /// <summary>
         /// Count the captain ids already skipped from in-place re-runs for a mission. Each

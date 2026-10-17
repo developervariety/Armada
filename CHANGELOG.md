@@ -30,6 +30,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A Judge PASS that the acceptance-criteria check refuses on line shape alone
+  (a table, evidence on the next line, a missing criterion line) runs the same
+  Judge once more in place with the check's reason and the exact accepted line
+  form, instead of failing the mission and starting a Worker rescue. A NOT MET
+  criterion still fails at once. The build prompt states the exact line form,
+  and a criterion listed twice in a brief is covered by one line.
+
 - A report-only (Audit or Research) pipeline stage reviews the root report
   itself. Each stage received only the stage it depends on, so a Judge after a
   Linter never saw the Worker report, parallel reviewers lost each other's

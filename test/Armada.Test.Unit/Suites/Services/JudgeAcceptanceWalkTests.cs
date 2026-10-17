@@ -53,6 +53,13 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("ValidatePass covers a criterion the brief lists twice with one MET line", () =>
+            {
+                string brief = BriefTwo.Replace("- CHANGELOG names the behaviour\n", "- CHANGELOG names the behaviour\n- Gate stays green\n");
+                AssertNull(JudgeAcceptanceWalk.ValidatePass(PassReview, brief));
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("ValidatePass refuses a missing Acceptance Criteria section", () =>
             {
                 string output = PassReview.Replace("## Acceptance Criteria\n- Gate stays green: MET (JudgeAcceptanceWalk.cs:40)\n- CHANGELOG names the behaviour: MET (CHANGELOG.md:12)\n", "");

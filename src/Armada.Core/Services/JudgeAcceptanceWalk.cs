@@ -14,6 +14,9 @@ namespace Armada.Core.Services
         /// <summary>Section heading the brief and the Judge share for the walk.</summary>
         public const string SectionName = "Acceptance Criteria";
 
+        /// <summary>Failure reason when a PASS marks a brief criterion NOT MET. This is a substantive rejection, never a format miss.</summary>
+        public const string NotMetReason = "Judge PASS names a NOT MET acceptance criterion";
+
         private static readonly Regex _NotMet = new Regex(@"\bNOT\s+MET\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex _Met = new Regex(@"\b(?:NOT\s+)?MET\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private static readonly Regex _ObjectiveBriefStart = new Regex(
@@ -152,7 +155,8 @@ namespace Armada.Core.Services
         /// <summary>Require a distinct, evidenced MET entry for each criterion in the brief.</summary>
         public static string? ValidatePass(string? agentOutput, string? brief)
         {
-            List<string> expected = ExtractCriteria(brief);
+            // A criterion the brief lists twice is one criterion: one MET line covers it.
+            List<string> expected = Deduplicate(ExtractCriteria(brief));
             if (expected.Count == 0) return null;
 
             string? block = ExtractSection(agentOutput, SectionName);
@@ -172,7 +176,7 @@ namespace Armada.Core.Services
                         if (!String.Equals(claim, NormalizeClaim(expected[index]), StringComparison.OrdinalIgnoreCase))
                             continue;
                         if (_NotMet.IsMatch(mark.Value))
-                            return "Judge PASS names a NOT MET acceptance criterion";
+                            return NotMetReason;
                         if (covered.Contains(index)) break;
                         if (!HasEvidence(evidence))
                             return "Judge PASS acceptance criterion lacks file:line or command evidence";

@@ -892,6 +892,45 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A PASS whose acceptance-criteria section is a table is a format miss. The same Judge mission runs
+            // once more in place with the accepted line form in its brief, instead of failing and starting a
+            // rescue; a second format miss fails as before.
+            await RunTest("Judge PASS with a format-only acceptance miss re-runs once in place, then fails", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission first = await CompleteJudgeAsync(testDb, FormatBrief, TableShapedPass).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, first.Status, "A format-only miss re-runs the Judge in place");
+                    AssertNull(first.FailureReason, "The re-run is not recorded as a failure");
+                    AssertEqual(0, first.RecoveryAttempts, "The re-run does not use the rescue budget");
+                    string brief = first.Description ?? String.Empty;
+                    AssertContains("## Judge Format Correction", brief, "The brief carries the correction");
+                    AssertContains("does not list every acceptance criterion", brief, "The correction names the check's reason");
+                    AssertContains("\u2014 MET.", brief, "The correction states the accepted line form");
+                    AssertContains("    | The parser rejects a truncated frame |", brief, "The previous review is carried, indented");
+                    AssertEqual(2, JudgeAcceptanceWalk.ExtractCriteria(brief).Count, "The correction adds no criteria to the brief");
+
+                    Mission second = await CompleteJudgeAsync(testDb, brief, TableShapedPass, first).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, second.Status, "A second format miss fails");
+                    AssertContains("does not list every acceptance criterion", second.FailureReason ?? String.Empty);
+                }
+            });
+
+            await RunTest("Judge PASS that names a NOT MET criterion fails without a format re-run", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    string output = FormatReviewBody +
+                        "## Acceptance Criteria\n" +
+                        "- The parser rejects a truncated frame \u2014 MET. src/Parser/FrameParser.cs:88\n" +
+                        "- CHANGELOG names the behaviour \u2014 NOT MET.\n\n" +
+                        "## Verdict\n[ARMADA:VERDICT] PASS\n";
+                    Mission judge = await CompleteJudgeAsync(testDb, FormatBrief, output).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, judge.Status, "A NOT MET criterion is a real rejection");
+                    AssertFalse((judge.Description ?? String.Empty).Contains("## Judge Format Correction", StringComparison.Ordinal), "No format re-run");
+                }
+            });
+
             await RunTest("Judge parser accepts structured ARMADA verdict signal", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1661,6 +1700,94 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         #endregion
+
+        private const string FormatBrief =
+            "Review the change.\n" +
+            "## Acceptance Criteria\n" +
+            "- The parser rejects a truncated frame\n" +
+            "- CHANGELOG names the behaviour\n" +
+            "## Scope\nThe parser only.\n";
+
+        private const string FormatReviewBody =
+            "## Completeness\nThe mission requirements are fully implemented with no missing scope items.\n\n" +
+            "## Correctness\nThe reviewed changes are logically consistent and I do not see defects in the touched paths.\n\n" +
+            "## Tests\nAutomated coverage exists for the new behavior and the affected scenarios are exercised.\n\n" +
+            "## Failure Modes\nI reviewed error and edge behavior for this scope and found no unaddressed safety issues.\n\n";
+
+        private const string TableShapedPass =
+            FormatReviewBody +
+            "## Acceptance Criteria\n" +
+            "| Criterion | Result |\n| --- | --- |\n" +
+            "| The parser rejects a truncated frame | MET src/Parser/FrameParser.cs:88 |\n" +
+            "| CHANGELOG names the behaviour | MET CHANGELOG.md:12 |\n\n" +
+            "## Verdict\n[ARMADA:VERDICT] PASS\n";
+
+        /// <summary>
+        /// Completes one in-progress Judge mission with the given output and returns it as stored.
+        /// </summary>
+        private async Task<Mission> CompleteJudgeAsync(TestDatabase testDb, string description, string output, Mission? existing = null)
+        {
+            LoggingModule logging = CreateLogging();
+            ArmadaSettings settings = CreateSettings();
+            DirCreatingGitStub git = new DirCreatingGitStub();
+            IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+            ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+            MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+            missionService.OnMissionComplete = (m, d) =>
+            {
+                m.Status = MissionStatusEnum.Complete;
+                m.CompletedUtc = DateTime.UtcNow;
+                m.LastUpdateUtc = DateTime.UtcNow;
+                return testDb.Driver.Missions.UpdateAsync(m);
+            };
+
+            Vessel vessel = new Vessel("judge-format-vessel-" + Guid.NewGuid().ToString("N"), "https://github.com/test/repo.git");
+            vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+            vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+            vessel.DefaultBranch = "main";
+            vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+            Captain judgeCaptain = new Captain("judge-format-captain-" + Guid.NewGuid().ToString("N"));
+            judgeCaptain.State = CaptainStateEnum.Working;
+            judgeCaptain = await testDb.Driver.Captains.CreateAsync(judgeCaptain).ConfigureAwait(false);
+
+            Mission judge;
+            if (existing == null)
+            {
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("judge-format-voyage")).ConfigureAwait(false);
+                judge = new Mission("[Judge] Review worker output", description);
+                judge.VesselId = vessel.Id;
+                judge.VoyageId = voyage.Id;
+                judge.Persona = "Judge";
+                judge.BranchName = "armada/judge/format";
+                judge = await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+                await AddGreenVoyageCheckAsync(testDb, voyage.Id).ConfigureAwait(false);
+            }
+            else
+            {
+                judge = existing;
+                judge.VesselId = vessel.Id;
+            }
+
+            judge.Status = MissionStatusEnum.InProgress;
+            judge.CaptainId = judgeCaptain.Id;
+            Dock judgeDock = new Dock(vessel.Id);
+            judgeDock.CaptainId = judgeCaptain.Id;
+            judgeDock.WorktreePath = Path.Combine(settings.DocksDirectory, vessel.Name, judge.Id);
+            judgeDock.BranchName = judge.BranchName;
+            judgeDock.Active = true;
+            judgeDock = await testDb.Driver.Docks.CreateAsync(judgeDock).ConfigureAwait(false);
+            judge.DockId = judgeDock.Id;
+            await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+            judgeCaptain.CurrentMissionId = judge.Id;
+            judgeCaptain.CurrentDockId = judgeDock.Id;
+            await testDb.Driver.Captains.UpdateAsync(judgeCaptain).ConfigureAwait(false);
+
+            missionService.OnGetMissionOutput = _ => output;
+            await missionService.HandleCompletionAsync(judgeCaptain, judge.Id).ConfigureAwait(false);
+            return (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+        }
 
         private static async Task AddGreenVoyageCheckAsync(TestDatabase testDb, string voyageId)
         {
