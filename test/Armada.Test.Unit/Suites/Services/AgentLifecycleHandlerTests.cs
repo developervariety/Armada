@@ -1765,6 +1765,69 @@ namespace Armada.Test.Unit.Suites.Services
             });
 
             // ----------------------------------------------------------------
+            // A report-only Worker that ends COMPLETE while its report states
+            // its acceptance criteria are not met fails before any reviewer
+            // ----------------------------------------------------------------
+
+            await RunTest("A Research Worker that ends COMPLETE but states its acceptance criteria are not met fails and its reviewers are cancelled", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    BlockedStageRig rig = await BlockedStageRig.CreateAsync(this, testDb, "Worker", MissionModeEnum.Research, withJudgeStage: true).ConfigureAwait(false);
+
+                    await rig.RunCaptainAsync(
+                        "## Research report",
+                        "Every history lookup returned an error, so I stopped before the source study.",
+                        "No matrix was completed. The acceptance criteria are therefore **not met**.",
+                        "",
+                        "[ARMADA:RESULT] COMPLETE",
+                        "History access could not be established; the source study was not started.").ConfigureAwait(false);
+
+                    Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Failed, worker.Status, "An unfinished report by the captain's own account does not complete");
+                    AssertTrue(ReportIncompleteResult.IsIncompleteReportFailure(worker.FailureReason), "The failure names the incomplete-report class: " + worker.FailureReason);
+                    AssertContains("The acceptance criteria are therefore not met.", worker.FailureReason ?? String.Empty, "The captain's statement is quoted");
+
+                    Mission judge = (await testDb.Driver.Missions.ReadAsync(rig.JudgeStage!.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Cancelled, judge.Status, "The reviewer stage is cancelled, not run");
+
+                    Voyage voyage = (await testDb.Driver.Voyages.ReadAsync(rig.Voyage.Id).ConfigureAwait(false))!;
+                    AssertEqual(VoyageStatusEnum.Failed, voyage.Status, "The voyage does not complete as a success");
+                }
+            });
+
+            await RunTest("A report that meets its criteria, or an Implementation Worker that says criteria are not met, still completes and hands off", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    BlockedStageRig research = await BlockedStageRig.CreateAsync(this, testDb, "Worker", MissionModeEnum.Research, withJudgeStage: true).ConfigureAwait(false);
+                    await research.RunCaptainAsync(
+                        "## Research report",
+                        "The parser does not meet the documented limit; that is the finding. The acceptance criteria are met.",
+                        "[ARMADA:RESULT] COMPLETE").ConfigureAwait(false);
+
+                    Mission report = (await testDb.Driver.Missions.ReadAsync(research.Mission.Id).ConfigureAwait(false))!;
+                    AssertTrue(report.Status != MissionStatusEnum.Failed, "A report that meets its criteria is not failed: " + report.FailureReason);
+                    Mission reportJudge = (await testDb.Driver.Missions.ReadAsync(research.JudgeStage!.Id).ConfigureAwait(false))!;
+                    AssertTrue(reportJudge.Status != MissionStatusEnum.Cancelled, "Its reviewer is handed off, not cancelled");
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    BlockedStageRig impl = await BlockedStageRig.CreateAsync(this, testDb, "Worker", MissionModeEnum.Implementation, withJudgeStage: true).ConfigureAwait(false);
+                    await impl.RunCaptainAsync(
+                        "Implemented the first half; the acceptance criteria are not met yet.",
+                        "[ARMADA:RESULT] COMPLETE",
+                        "Remaining work: the second half of the migration.").ConfigureAwait(false);
+
+                    Mission worker = (await testDb.Driver.Missions.ReadAsync(impl.Mission.Id).ConfigureAwait(false))!;
+                    AssertFalse(ReportIncompleteResult.IsIncompleteReportFailure(worker.FailureReason), "An Implementation Worker continues through its reviewers");
+                    Mission judge = (await testDb.Driver.Missions.ReadAsync(impl.JudgeStage!.Id).ConfigureAwait(false))!;
+                    AssertTrue(judge.Status != MissionStatusEnum.Cancelled, "Its reviewer is handed off, not cancelled");
+                }
+            });
+
+            // ----------------------------------------------------------------
             // One output record can carry several markers; each one is routed
             // ----------------------------------------------------------------
 

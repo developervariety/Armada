@@ -94,6 +94,39 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(CaptainBlockedResult.IsBlockedFailure(CaptainBlockedResult.BuildFailureReason("Judge", before)), "The failure reason carries the blocked class");
             });
 
+            await RunTest("A COMPLETE report that states its acceptance criteria are not met is read as unfinished; other wording is not", async () =>
+            {
+                string[] unfinished = new string[]
+                {
+                    "No matrix was done. The acceptance criteria are therefore **not met**.\n[ARMADA:RESULT] COMPLETE",
+                    "These gaps mean the whole-file acceptance criterion is not met.\n[ARMADA:RESULT] COMPLETE\nSummary.",
+                    "Ten acceptance criteria remain NOT MET overall.\n[ARMADA:RESULT] COMPLETE"
+                };
+                foreach (string output in unfinished)
+                {
+                    AssertTrue(ReportIncompleteResult.TryRead(output, out string statement), "Unfinished: " + output);
+                    AssertContains("not met", statement.ToLowerInvariant(), "The statement is the sentence that says so");
+                    AssertFalse(statement.Contains("[ARMADA:RESULT]", StringComparison.Ordinal), "The statement stops at its sentence");
+                }
+
+                string[] finished = new string[]
+                {
+                    "The acceptance criteria are met.\n[ARMADA:RESULT] COMPLETE",
+                    "The parser does not meet the documented limit; that is the finding.\n[ARMADA:RESULT] COMPLETE",
+                    "The acceptance criteria are not met.\n[ARMADA:RESULT] BLOCKED: which source is authoritative?",
+                    "The acceptance criteria are not met.",
+                    "The acceptance criteria are not met.\n[ARMADA:VERDICT] NEEDS_REVISION"
+                };
+                foreach (string output in finished)
+                {
+                    AssertFalse(ReportIncompleteResult.TryRead(output, out string _), "Not an unfinished COMPLETE report: " + output);
+                }
+
+                AssertTrue(ReportIncompleteResult.IsIncompleteReportFailure(ReportIncompleteResult.BuildFailureReason("Worker", "The acceptance criteria are not met.")), "The failure reason carries the class");
+                AssertFalse(ReportIncompleteResult.IsIncompleteReportFailure(CaptainBlockedResult.BuildFailureReason("Worker", "q")), "A blocked failure is a different class");
+                await Task.CompletedTask;
+            });
+
             await RunTest("TryParse Null ReturnsNull", () =>
             {
                 ProgressParser.ProgressSignal? result = ProgressParser.TryParse(null!);

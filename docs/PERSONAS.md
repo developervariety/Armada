@@ -249,6 +249,26 @@ Research, and Audit mode:
   owner-addressed board note. Answer it, then re-dispatch the stage with the
   answer in its brief.
 
+### A report-only Worker that ends COMPLETE with an unfinished report
+
+A Research or Audit Worker that ends with `[ARMADA:RESULT] COMPLETE` while its
+own report states that its acceptance criteria are not met ("The acceptance
+criteria are therefore not met") did not finish the report. Every reviewer
+stage after it could only confirm that, so Armada does not run them:
+
+- The mission fails with a `report_incomplete:` failure reason that quotes the
+  captain's sentence.
+- The pending stages after it are cancelled, so the voyage fails at the Worker
+  instead of after every reviewer.
+- As for every report-only failure, autonomous recovery opens an incident and
+  dispatches no rescue.
+
+Only the final outcome `[ARMADA:RESULT] COMPLETE` counts, and the sentence must
+say the acceptance criteria themselves are not met; a finding that some code
+does not meet a limit is not matched. An Implementation Worker that ends
+COMPLETE with a `Remaining work:` list still hands off, because its reviewers
+continue the work.
+
 ### Several markers in one output record
 
 A runtime can deliver several physical lines as one output record, for example

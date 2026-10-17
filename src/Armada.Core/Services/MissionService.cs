@@ -2584,6 +2584,29 @@ namespace Armada.Core.Services
                 await RaiseBlockedQuestionForOwnerAsync(mission, blockedQuestion, token).ConfigureAwait(false);
             }
 
+            // A report-only Worker that ends COMPLETE while its own report states that its acceptance criteria
+            // are not met did not finish its report (ReportIncompleteResult). Every reviewer stage after it could
+            // only confirm that, so the stage fails here with the captain's statement and the reviewer stages
+            // are cancelled instead of run.
+            bool failedForIncompleteReport = false;
+            if (!failedForScopeViolation && !failedForBlockedResult && mission.IsReadOnlyMode
+                && String.Equals(mission.Persona ?? "Worker", "Worker", StringComparison.Ordinal)
+                && ReportIncompleteResult.TryRead(mission.AgentOutput, out string incompleteStatement))
+            {
+                failedForIncompleteReport = true;
+                mission.Status = MissionStatusEnum.Failed;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                mission.FailureReason = ReportIncompleteResult.BuildFailureReason(mission.Persona, incompleteStatement);
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                await AppendMissionActivityAsync(mission.Id, "report incomplete: the report states its acceptance criteria are not met; reviewer stages not run", token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "mission " + mission.Id + " (" + (mission.Persona ?? "Worker") + ", " + mission.Mode
+                    + ") ended COMPLETE with a report that states its acceptance criteria are not met; failed as report_incomplete with no handoff");
+            }
+
+            // Every gate below reads a stage that finished; a blocked stage and an unfinished report did not.
+            bool failedBeforeGates = failedForBlockedResult || failedForIncompleteReport;
+
             // Detect "false complete": a captain that ends its run within seconds with an
             // empty diff and a tiny AgentOutput, with or without the [ARMADA:RESULT] COMPLETE
             // marker, and did no real work. The captain-side fix is not always available
@@ -2596,7 +2619,7 @@ namespace Armada.Core.Services
             // the continuation service records the refusal and either requeues the mission once for an
             // approved alternate runtime or fails it with the reason.
             bool failedForPolicyRefusal = false;
-            if (!failedForScopeViolation && !failedForBlockedResult)
+            if (!failedForScopeViolation && !failedBeforeGates)
             {
                 CaptainRefusal refusal = CaptainRefusalClassifier.Classify(mission.AgentOutput);
                 refusal = await RefineRefusalAsync(mission, refusal, token).ConfigureAwait(false);
@@ -2646,7 +2669,7 @@ namespace Armada.Core.Services
 
             bool failedForNoOpCompletion = false;
             bool? dockProducedChanges = null;
-            if (!failedForScopeViolation && !failedForBlockedResult && !failedForPolicyRefusal && mission.StartedUtc.HasValue)
+            if (!failedForScopeViolation && !failedBeforeGates && !failedForPolicyRefusal && mission.StartedUtc.HasValue)
             {
                 TimeSpan runtime = (mission.CompletedUtc ?? DateTime.UtcNow) - mission.StartedUtc.Value;
                 int diffLineCount = String.IsNullOrEmpty(mission.DiffSnapshot)
@@ -2682,7 +2705,7 @@ namespace Armada.Core.Services
             // have been dispatched to write docs; a RESCUE was dispatched against a named defect,
             // so a change set that cannot carry behavior is evidence on its own.
             bool failedForIneffectiveRescue = false;
-            if (!failedForScopeViolation && !failedForBlockedResult && !failedForNoOpCompletion && !failedForPolicyRefusal &&RescueMissionMarker.IsAutoRescue(mission)
+            if (!failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal &&RescueMissionMarker.IsAutoRescue(mission)
                 && !PersonaCatalog.IsNoOpCompletionExempt(mission.Persona))
             {
                 IReadOnlyList<string> changedPaths = DiffPathExtractor.ExtractChangedPaths(mission.DiffSnapshot);
@@ -2728,7 +2751,7 @@ namespace Armada.Core.Services
             // Implementation mission, keeps the gate unchanged. When either commit cannot be read the
             // gate runs, because a skip must rest on proof that nothing was committed.
             bool dodSkippedForReadOnlyNoCommit = false;
-            if (!failedForScopeViolation && !failedForBlockedResult && !failedForNoOpCompletion && !failedForPolicyRefusal && !failedForIneffectiveRescue && dock != null
+            if (!failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal && !failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && mission.IsReadOnlyMode)
             {
                 string? readOnlyNoCommitDetail = await DescribeReadOnlyNoCommitAsync(dock, token).ConfigureAwait(false);
@@ -2745,7 +2768,7 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (!failedForScopeViolation && !failedForBlockedResult && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
+            if (!failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && !dodGateHasWorkToVerify)
             {
                 await AppendMissionActivityAsync(
@@ -2766,7 +2789,7 @@ namespace Armada.Core.Services
             bool failedForDodGate = false;
             bool dodGateCancelled = false;
             string? dodFailureReasonCode = null;
-            if (!failedForScopeViolation && !failedForBlockedResult && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
+            if (!failedForScopeViolation && !failedBeforeGates && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify && !dodSkippedForReadOnlyNoCommit)
             {
                 DateTime dodStartedUtc = DateTime.UtcNow;
@@ -2843,7 +2866,7 @@ namespace Armada.Core.Services
 
             bool retryingMissingVerdict = false;
             bool retryingAcceptanceFormat = false;
-            if (!failedForScopeViolation && !failedForBlockedResult && !failedForDodGate && !dodGateCancelled && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
+            if (!failedForScopeViolation && !failedBeforeGates && !failedForDodGate && !dodGateCancelled && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
             {
                 JudgeVerdict verdict = ParseJudgeVerdict(mission.AgentOutput);
                 string? verdictFailureReason = null;
@@ -3114,7 +3137,7 @@ namespace Armada.Core.Services
 
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
             bool preparedDownstreamStages = false;
-            if (!failedForScopeViolation && !failedForBlockedResult && !failedForDodGate && !dodGateCancelled && !failedForIneffectiveRescue && !awaitingManualReview && !heldForOperatorReview)
+            if (!failedForScopeViolation && !failedBeforeGates && !failedForDodGate && !dodGateCancelled && !failedForIneffectiveRescue && !awaitingManualReview && !heldForOperatorReview)
             {
                 preparedDownstreamStages = await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
             }

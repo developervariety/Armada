@@ -37,6 +37,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A Research or Audit Worker that ends `[ARMADA:RESULT] COMPLETE` while its own
+  report states that its acceptance criteria are not met now fails with a
+  `report_incomplete:` reason that quotes the statement, and the reviewer
+  stages after it are cancelled. Before, every reviewer ran and the Judge
+  failed the voyage for the same reason.
 - A pipeline stage's own description now reaches its captain: dispatch appends
   it to the stage's mission description as a `## Pipeline Stage` section.
   Before, only an internal decision read it. Pipelines whose stages carry
