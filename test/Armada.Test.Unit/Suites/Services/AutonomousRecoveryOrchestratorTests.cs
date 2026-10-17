@@ -4288,6 +4288,8 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildBlockingFindingsForBrief_RequiredRevisionInAParagraph_IsCarried).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief carries test and failure-mode gaps written as paragraphs",
                 BuildBlockingFindingsForBrief_TestAndFailureModeGapsInParagraphs_AreCarried).ConfigureAwait(false);
+            await RunTest("BuildBlockingFindingsForBrief leaves out an item whose closing sentence labels it a follow-up",
+                BuildBlockingFindingsForBrief_ItemClosingWithFollowUpLabel_IsLeftOut).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief keeps passing and minor lists out, so required items are not shortened",
                 BuildBlockingFindingsForBrief_PassingAndMinorLists_DoNotCrowdOutRequiredItems).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief drops plain reviewed items before shortening a named defect",
@@ -5416,6 +5418,32 @@ namespace Armada.Test.Unit.Suites.Services
             AssertContains(StageReportEssentials.IncompleteFindingsMarker, block, "Dropping plain items says the list is incomplete");
             AssertFalse(block.Contains("Concurrency gap", StringComparison.Ordinal), "An item marked not a blocker is not a finding");
             AssertFalse(block.Contains("latest-identical skip", StringComparison.Ordinal), "An item under a passing lead-in is not a finding");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildBlockingFindingsForBrief_ItemClosingWithFollowUpLabel_IsLeftOut()
+        {
+            string review = String.Join("\n", new[]
+            {
+                "## Correctness",
+                "The delivered logic is correct for the cases the brief names. Hidden-defect hunt findings:",
+                "- **Unbounded pending loop (the blocking defect).** A peer that keeps answering \"pending\" holds the request open forever (`Client.cs:508-517`).",
+                "- **Deadline race (reviewer finding, confirmed by reading).** If the read and the delay finish in the same tick, the frame is dropped. The old code had the same race. Follow-up, not a blocker.",
+                "- **Transport must honour cancellation promptly.** After the deadline the code awaits the cancelled read. This was true of the old code too. Follow-up.",
+                "",
+                "## Verdict",
+                "NEEDS_REVISION. The one blocking defect:",
+                "- **Cap consecutive pending replies.** Add a fixed cap to `RetryPolicy` and count pending replies at `Client.cs:508-517`; on exhaustion throw a distinct failure.",
+                "",
+                "[ARMADA:VERDICT] NEEDS_REVISION"
+            });
+
+            string block = AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief(review, AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars);
+
+            AssertContains("Unbounded pending loop", block, "The blocking defect is carried");
+            AssertContains("count pending replies at `Client.cs:508-517`", block, "The Verdict's required change is carried with its anchor");
+            AssertFalse(block.Contains("Deadline race", StringComparison.Ordinal), "An item that closes with 'Follow-up, not a blocker.' is not a finding");
+            AssertFalse(block.Contains("Transport must honour cancellation", StringComparison.Ordinal), "An item that closes with 'Follow-up.' is not a finding");
             await Task.CompletedTask;
         }
 

@@ -160,8 +160,9 @@ MET criteria and narration before shortening, and uses one list marker per item.
 The line that introduces a list decides what its items are: items under a lead-in
 that reports passing or reviewed behaviour ("The core logic is sound:", "What the
 new tests cover:") are context unless the item itself names a defect, items under a
-minor or follow-up lead-in are left out, and an item marked "(not a blocker)" is
-left out. When the list does not fit its 4,000-character bound, plain list items
+minor or follow-up lead-in are left out, and an item marked "(not a blocker)", or
+one whose closing sentence is only such a label ("Follow-up.", "Follow-up, not a
+blocker."), is left out. When the list does not fit its 4,000-character bound, plain list items
 that name no defect are dropped before any named defect, Verdict change or NOT MET
 criterion is shortened, and the list says it is incomplete.
 The embedded full-review

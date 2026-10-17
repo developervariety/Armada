@@ -81,6 +81,13 @@ namespace Armada.Core.Services
             @"\([^)]*\b(?:not\s+a\s+blocker|non-?blocking)\b[^)]*\)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        // A closing sentence that is only a lesser label ("Follow-up.", "Follow-up, not a blocker.",
+        // "Non-blocking.") marks the whole item as lesser, the same as a parenthetical label.
+        private static readonly Regex _NonBlockingClosingLabel = new Regex(
+            @"(?:^|[.!?]\s+)(?:a\s+)?(?:follow-?up|non-?blocking|not\s+a\s+blocker|minor|nit)"
+            + @"(?:\s*[,;:]\s*(?:not\s+a\s+blocker|non-?blocking))?\s*[.!]?\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         // Case-sensitive on purpose: a directive opens a sentence with a capitalised verb.
         private static readonly Regex _ParagraphDirective = new Regex(
             @"(?:^|[.;!?]\s+)(?:Add|Replace|Correct|Fix|Resolve|Apply|Validate|Repair|Remove|Restore|Obtain|Prove|Preserve|Rerun|Re-run)\s",
@@ -448,7 +455,8 @@ namespace Armada.Core.Services
                 || HasLabelPrefix(item, "Lesser item")
                 || HasLabelPrefix(line, "Lower priority")
                 || HasLabelPrefix(item, "Lower priority")
-                || _NonBlockingParenthetical.IsMatch(item);
+                || _NonBlockingParenthetical.IsMatch(item)
+                || _NonBlockingClosingLabel.IsMatch(item.TrimEnd());
         }
 
         private static bool IsCompletedCriterion(string line)

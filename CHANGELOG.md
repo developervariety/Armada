@@ -37,6 +37,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A rescue brief's blocking-findings list leaves out an item whose closing
+  sentence only labels it lesser ("Follow-up.", "Follow-up, not a blocker."),
+  the same as an item with a parenthetical "(not a blocker)" label. A natural
+  rescue listed two such follow-ups as findings to fix.
 - A read-only (Audit or Research) brief no longer contradicts itself. Captain
   instructions that order commits are followed by a line that gives the
   read-only rules precedence. A Product Manager or Usability Engineer gets a
