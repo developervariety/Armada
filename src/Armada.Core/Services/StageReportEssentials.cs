@@ -192,6 +192,16 @@ namespace Armada.Core.Services
             for (int i = 0; i < lines.Length; i++)
             {
                 string raw = lines[i].Trim();
+                string boldSection = BoldLineSection(raw);
+                if (boldSection.Length > 0)
+                {
+                    // A whole-line bold label such as "**Correctness**" opens a section the way a heading does.
+                    // Any markdown heading after it closes it.
+                    leadIn = String.Empty;
+                    section = boldSection;
+                    protectedHeadingDepth = _BoldSectionDepth;
+                    continue;
+                }
                 if (raw.StartsWith("#", StringComparison.Ordinal))
                 {
                     leadIn = String.Empty;
@@ -276,7 +286,11 @@ namespace Armada.Core.Services
                 if (plain) plainFindings.Add(value);
             }
 
-            if (findings.Count == 0 && criteria.Count == 0) return String.Empty;
+            if (findings.Count == 0 && criteria.Count == 0)
+            {
+                // A rejection that yields no finding means the extraction missed them, not that there are none.
+                return IsRejection(text) ? IncompleteFindingsLine(maxChars) : String.Empty;
+            }
             List<string> formattedFindings = findings.Select(item => "- " + item).ToList();
             List<string> formattedCriteria = criteria.Select(item => "- " + item).ToList();
             List<string> formatted = new List<string>(formattedFindings);
@@ -412,6 +426,12 @@ namespace Armada.Core.Services
         {
             string name = heading.TrimStart('#').Trim();
             if (name.StartsWith("Correctness", StringComparison.OrdinalIgnoreCase)) return "Correctness";
+            // Linter and free-form reviewer reports name their defects under these headings.
+            if (name.StartsWith("Code Correctness", StringComparison.OrdinalIgnoreCase)) return "Correctness";
+            if (name.StartsWith("Required Changes", StringComparison.OrdinalIgnoreCase)) return "Correctness";
+            if (name.StartsWith("Blocking Findings", StringComparison.OrdinalIgnoreCase)) return "Correctness";
+            if (name.StartsWith("Blocking Issues", StringComparison.OrdinalIgnoreCase)) return "Correctness";
+            if (name.StartsWith("Findings", StringComparison.OrdinalIgnoreCase)) return "Correctness";
             if (name.StartsWith("Failure Modes", StringComparison.OrdinalIgnoreCase)) return "Failure Modes";
             if (name.StartsWith("Tests", StringComparison.OrdinalIgnoreCase)) return "Tests";
             if (name.StartsWith("Evidence", StringComparison.OrdinalIgnoreCase)) return "Evidence";
@@ -421,6 +441,29 @@ namespace Armada.Core.Services
             if (name.StartsWith("Acceptance Criteria", StringComparison.OrdinalIgnoreCase)) return "Acceptance Criteria";
             if (name.StartsWith("Definition of Done", StringComparison.OrdinalIgnoreCase)) return "Definition of Done";
             return String.Empty;
+        }
+
+        private const int _BoldSectionDepth = 7;
+
+        private static readonly Regex _BoldLine = new Regex(@"^\*\*([^*]+?)\*\*:?$", RegexOptions.CultureInvariant);
+
+        private static readonly Regex _VerdictMarker = new Regex(
+            @"\[ARMADA:VERDICT\]\s*([A-Z_]+)", RegexOptions.CultureInvariant);
+
+        // The final verdict marker decides; an earlier one may be quoted instruction text.
+        private static bool IsRejection(string text)
+        {
+            MatchCollection matches = _VerdictMarker.Matches(text);
+            if (matches.Count == 0) return false;
+            string verdict = matches[matches.Count - 1].Groups[1].Value;
+            return verdict == "NEEDS_REVISION" || verdict == "FAIL";
+        }
+
+        private static string BoldLineSection(string line)
+        {
+            Match match = _BoldLine.Match(line);
+            if (!match.Success) return String.Empty;
+            return JudgeSection(match.Groups[1].Value.Trim().TrimEnd(':'));
         }
 
         private static bool TryStripListPrefix(string source, out string item)

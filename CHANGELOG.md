@@ -45,6 +45,11 @@ upstream integrations and excludes changes already present at that baseline.
   "resolve the reviewer feedback" sentence. After a reviewer rejection they
   carry the blocking findings to check; after any other failure they carry the
   failure reason.
+- Report essentials read blocking findings under a Linter's `Code
+  Correctness` and under `Findings`, `Required Changes`, `Blocking Findings`
+  and `Blocking Issues`, and under whole-line bold section labels. A
+  `NEEDS_REVISION` or `FAIL` verdict with no readable finding is marked
+  incomplete instead of reading as no findings.
 
 - An admiral restart no longer leaves a finished mission held for good when it
   kills that mission's running or queued definition-of-done gate. The health

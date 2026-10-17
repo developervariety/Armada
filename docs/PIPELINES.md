@@ -86,6 +86,15 @@ and total-budget trimming pin each report heading and complete-output reference
 before trimming the narrative. Voyage board notes cannot displace those
 references. Compaction of older blocks retains their report essentials.
 
+Blocking findings are read from the Judge sections (Correctness, Failure Modes,
+Tests, Evidence, Residual Risks, Verdict and the criteria sections) and from
+the headings other reviewers use: `Code Correctness`, `Findings`,
+`Required Changes`, `Blocking Findings` and `Blocking Issues`. A whole-line
+bold label such as `**Correctness**` opens its section like a heading. When the
+final `[ARMADA:VERDICT]` is `NEEDS_REVISION` or `FAIL` and no finding can be
+read, the list is the incomplete-findings marker, so a stage is sent to the
+complete output instead of being told there is nothing to fix.
+
 A handoff block carries the stage the dependent names. In an Audit or Research
 pipeline every stage reviews the same root report, so a report-only dependent
 also gets one `## Earlier Stage Reports` section, placed before its handoff

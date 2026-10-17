@@ -4352,6 +4352,28 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(essentials.Length <= 400, "The essentials section respects its outer cap.");
                 await Task.CompletedTask;
             }).ConfigureAwait(false);
+            await RunTest("StageReportEssentials reads Linter, Findings and bold section labels, and flags a rejection it could not read", async () =>
+            {
+                string linter = "## Code Style\n- Fine.\n## Code Correctness\n- src/Lint.cs:12 -- the null check is inverted.\n## Residual Issues\nNone.\n[ARMADA:RESULT] COMPLETE";
+                AssertContains("src/Lint.cs:12", StageReportEssentials.BlockingFindings(linter, 4000), "A Linter's Code Correctness defect is a finding");
+
+                string findings = "## Findings\n1. src/Report.cs:7 -- the cited path does not resolve.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                AssertContains("src/Report.cs:7", StageReportEssentials.BlockingFindings(findings, 4000), "A Findings section defect is a finding");
+
+                string required = "## Required Changes\n- Add the missing timeout test.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                AssertContains("missing timeout test", StageReportEssentials.BlockingFindings(required, 4000), "A Required Changes item is a finding");
+
+                string bold = "**Correctness**\n- src/Bold.cs:3 -- the retry count is off by one.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                AssertContains("src/Bold.cs:3", StageReportEssentials.BlockingFindings(bold, 4000), "A whole-line bold section label opens its section");
+
+                string unreadable = "The work looks incomplete overall and needs another pass.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                AssertContains(StageReportEssentials.IncompleteFindingsMarker, StageReportEssentials.BlockingFindings(unreadable, 4000),
+                    "A rejection with no readable finding is marked incomplete instead of reading as no findings");
+
+                string quoted = "End with `[ARMADA:VERDICT] FAIL` when it fails.\nAll criteria hold.\n[ARMADA:VERDICT] PASS";
+                AssertEqual(String.Empty, StageReportEssentials.BlockingFindings(quoted, 4000), "Only the final verdict marker decides a rejection");
+                await Task.CompletedTask;
+            }).ConfigureAwait(false);
             await RunTest("TruncateReviewerFeedbackForBrief keeps the head-first cut for text without Judge sections",
                 TruncateReviewerFeedbackForBrief_TextWithoutJudgeSections_KeepsTheHeadFirstCut).ConfigureAwait(false);
             await RunTest("BuildRescueDescription carries every blocking finding of a long review whose findings sit mid-report",
