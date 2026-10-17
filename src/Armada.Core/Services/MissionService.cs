@@ -6710,6 +6710,46 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Builds the orchestrator note that lists the acceptance criteria a partial stage left unmet. A stage that
+        /// does the work (an Implementation Worker or TestEngineer) is told to complete them; every other stage,
+        /// including every Judge and every report-only stage, is told to check them and report each one still
+        /// unmet as a finding, never to do the prior stage's work itself.
+        /// </summary>
+        /// <param name="dependent">The pending stage that receives the note.</param>
+        /// <param name="criteria">The objective's acceptance criteria, in order; may be empty.</param>
+        /// <param name="unmetIndices">One-based indices of the unmet criteria; may be empty.</param>
+        /// <returns>The note, including its markers.</returns>
+        internal static string BuildPartialUnmetCriteriaNote(Mission dependent, IReadOnlyList<string> criteria, IReadOnlyList<int> unmetIndices)
+        {
+            bool doesTheWork = dependent != null && !dependent.IsReadOnlyMode
+                && (IsPersona(dependent.Persona ?? "Worker", "Worker") || IsPersona(dependent.Persona, PersonaCatalog.TestEngineer));
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.AppendLine("[ORCHESTRATOR NOTES]");
+            sb.AppendLine(doesTheWork
+                ? "The prior stage's work is PARTIAL: the handoff-outcome check found acceptance criteria not yet met. "
+                    + "Complete these before you finish, and treat any you cannot as a finding:"
+                : "The prior stage's work may be PARTIAL: the handoff-outcome check found acceptance criteria that look unmet. "
+                    + "Check each one against the prior stage's work and report each one still unmet as a finding. "
+                    + "Do not do the prior stage's work yourself:");
+            if (unmetIndices != null && unmetIndices.Count > 0 && criteria != null && criteria.Count > 0)
+            {
+                foreach (int index in unmetIndices)
+                {
+                    if (index >= 1 && index <= criteria.Count)
+                        sb.AppendLine("- " + criteria[index - 1]);
+                    else
+                        sb.AppendLine("- Acceptance criterion " + index + " (see the objective).");
+                }
+            }
+            else
+            {
+                sb.AppendLine("- One or more acceptance criteria (see the objective) are not yet satisfied.");
+            }
+            sb.Append("[/ORCHESTRATOR NOTES]");
+            return sb.ToString();
+        }
+
+        /// <summary>
         /// Prepend an orchestrator note listing the unmet acceptance criteria to each pending dependent's
         /// brief, for a D20 partial outcome. The handoff then proceeds normally, so the next stage runs
         /// with the unmet criteria in front of it. Never throws into the handoff.
@@ -6719,26 +6759,6 @@ namespace Armada.Core.Services
             try
             {
                 IReadOnlyList<string> criteria = await ReadObjectiveAcceptanceCriteriaAsync(completedMission, token).ConfigureAwait(false);
-                System.Text.StringBuilder sb = new System.Text.StringBuilder();
-                sb.AppendLine("[ORCHESTRATOR NOTES]");
-                sb.AppendLine("The prior stage's work is PARTIAL: the handoff-outcome check found acceptance criteria not yet met. "
-                    + "Complete these before you finish, and treat any you cannot as a finding:");
-                if (verdict.UnmetCriterionIndices.Count > 0 && criteria.Count > 0)
-                {
-                    foreach (int index in verdict.UnmetCriterionIndices)
-                    {
-                        if (index >= 1 && index <= criteria.Count)
-                            sb.AppendLine("- " + criteria[index - 1]);
-                        else
-                            sb.AppendLine("- Acceptance criterion " + index + " (see the objective).");
-                    }
-                }
-                else
-                {
-                    sb.AppendLine("- One or more acceptance criteria (see the objective) are not yet satisfied.");
-                }
-                sb.Append("[/ORCHESTRATOR NOTES]");
-                string note = sb.ToString();
 
                 foreach (Mission dependent in dependentMissions)
                 {
@@ -6747,6 +6767,7 @@ namespace Armada.Core.Services
                     {
                         continue;
                     }
+                    string note = BuildPartialUnmetCriteriaNote(dependent, criteria, verdict.UnmetCriterionIndices);
                     dependent.Description = note + "\n\n" + (dependent.Description ?? String.Empty);
                     dependent.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);

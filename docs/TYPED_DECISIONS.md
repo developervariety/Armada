@@ -541,7 +541,10 @@ Two decision points recover captain time at the pipeline level (both ship
   stage's output as the question text, an owner-addressed board note is posted for
   a blocked owner question, and the finished stage's branch is preserved. A
   `partial` outcome does **not** halt; it Mails the next stage the unmet
-  acceptance criteria and the voyage continues. The decision never approves work,
+  acceptance criteria and the voyage continues. An Implementation Worker or
+  TestEngineer is told to complete them; every other stage, including every
+  Judge and every Research or Audit stage, is told to check them and report each
+  one still unmet as a finding, not to do the prior stage's work. The decision never approves work,
   never lands, and never bypasses the Judge — a halt opens an incident rather than
   passing work through, and work that reaches the Judge is still judged. With the
   decision `Off` the deterministic handoff stands. A stage whose final result is a

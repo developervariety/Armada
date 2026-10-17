@@ -37,6 +37,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The partial-outcome note that lists unmet acceptance criteria tells only an
+  Implementation Worker or TestEngineer to complete them. Every other stage,
+  including every Judge and every Research or Audit stage, is told to check
+  them, report each one still unmet as a finding, and not do the prior stage's
+  work itself.
 - A captain brief whose acceptance criteria fill the 12,000-character metadata
   cap keeps at least 8,000 characters of mission context beside them: the role
   text at the head and the newest handoff at the tail. Before, such a brief

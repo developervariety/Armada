@@ -745,6 +745,37 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("Worker (Implement)", impl, "implementation-mode Worker keeps the implement role");
             });
 
+            await RunTest("Partial-outcome note asks the working stage to finish and every reviewer only to check", async () =>
+            {
+                List<string> criteria = new List<string> { "First criterion.", "Second criterion." };
+                List<int> unmet = new List<int> { 2 };
+
+                Mission implWorker = new Mission("w", "d") { Persona = "Worker", Mode = MissionModeEnum.Implementation };
+                Mission implTests = new Mission("t", "d") { Persona = "TestEngineer", Mode = MissionModeEnum.Implementation };
+                Mission implJudge = new Mission("j", "d") { Persona = "Judge", Mode = MissionModeEnum.Implementation };
+                Mission researchTests = new Mission("r", "d") { Persona = "TestEngineer", Mode = MissionModeEnum.Research };
+                Mission researchWorker = new Mission("rw", "d") { Persona = "Worker", Mode = MissionModeEnum.Research };
+
+                foreach (Mission worker in new[] { implWorker, implTests })
+                {
+                    string note = MissionService.BuildPartialUnmetCriteriaNote(worker, criteria, unmet);
+                    AssertContains("Complete these before you finish", note, worker.Persona + " in Implementation mode does the work");
+                    AssertContains("- Second criterion.", note, "the unmet criterion is listed");
+                    AssertFalse(note.Contains("- First criterion.", StringComparison.Ordinal), "a met criterion is not listed");
+                }
+
+                foreach (Mission reviewer in new[] { implJudge, researchTests, researchWorker })
+                {
+                    string note = MissionService.BuildPartialUnmetCriteriaNote(reviewer, criteria, unmet);
+                    AssertFalse(note.Contains("Complete these before you finish", StringComparison.Ordinal), reviewer.Persona + " in " + reviewer.Mode + " is not told to do the work");
+                    AssertContains("report each one still unmet as a finding", note, reviewer.Persona + " in " + reviewer.Mode + " checks and reports");
+                    AssertContains("Do not do the prior stage's work yourself", note, "the reviewer keeps its role");
+                    AssertContains("handoff-outcome check", note, "the note keeps the text its repeat guard reads");
+                }
+
+                await Task.CompletedTask;
+            });
+
             await RunTest("Judge preamble specializes for report-only modes", async () =>
             {
                 string audit = MissionService.BuildPersonaPreamble("Judge", MissionModeEnum.Audit);
