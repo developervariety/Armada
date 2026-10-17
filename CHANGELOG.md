@@ -50,6 +50,10 @@ upstream integrations and excludes changes already present at that baseline.
   and `Blocking Issues`, and under whole-line bold section labels. A
   `NEEDS_REVISION` or `FAIL` verdict with no readable finding is marked
   incomplete instead of reading as no findings.
+- The shared E2E test that lists Open voyages no longer fails when the
+  fixture's idle Worker captain dispatches one of its voyages before the list
+  call. It checks the filter against each voyage's status after the call
+  instead of counting on two voyages staying Open.
 
 - An admiral restart no longer leaves a finished mission held for good when it
   kills that mission's running or queued definition-of-done gate. The health

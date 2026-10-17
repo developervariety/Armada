@@ -8,6 +8,7 @@ namespace Test.Shared.Suites.E2E
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
@@ -986,22 +987,32 @@ namespace Test.Shared.Suites.E2E
 
                 PrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, createdFleetIds, createdVesselIds);
                 string vesselId = prereqs.VesselId;
-                await CreateVoyageAsync(authClient, createdVoyageIds, vesselId, "Open Voyage 1");
-                await CreateVoyageAsync(authClient, createdVoyageIds, vesselId, "Open Voyage 2");
+                Voyage open1 = await CreateVoyageAsync(authClient, createdVoyageIds, vesselId, "Open Voyage 1");
+                Voyage open2 = await CreateVoyageAsync(authClient, createdVoyageIds, vesselId, "Open Voyage 2");
 
                 Voyage toCancel = await CreateVoyageAsync(authClient, createdVoyageIds, vesselId, "To Cancel For Filter");
                 string cancelId = toCancel.Id;
                 await authClient.DeleteAsync("/api/v1/voyages/" + cancelId);
 
-                // Voyages start as Open (no captain available to advance them)
-                HttpResponseMessage response = await authClient.GetAsync("/api/v1/voyages?status=Open");
+                HttpResponseMessage response = await authClient.GetAsync("/api/v1/voyages?status=Open&pageSize=1000");
                 EnumerationResult<Voyage> result = await JsonHelper.DeserializeAsync<EnumerationResult<Voyage>>(response);
-
-                AssertTrue(result.Objects.Count >= 2);
+                HashSet<string> listed = new HashSet<string>(result.Objects.Select(v => v.Id), StringComparer.Ordinal);
 
                 foreach (Voyage v in result.Objects)
                 {
                     AssertEqual("Open", v.Status.ToString());
+                }
+                AssertFalse(listed.Contains(cancelId), "The cancelled voyage is not listed as Open");
+
+                // The fixture's idle Worker captain can dispatch a new voyage and move it past Open at any time, so
+                // the test cannot count on either voyage still being Open. A voyage only leaves Open, never returns
+                // to it, so one that is still Open after the list call was Open during it and must be listed.
+                foreach (Voyage created in new[] { open1, open2 })
+                {
+                    HttpResponseMessage getResp = await authClient.GetAsync("/api/v1/voyages/" + created.Id);
+                    VoyageDetailResponse detail = await JsonHelper.DeserializeAsync<VoyageDetailResponse>(getResp);
+                    if (detail.Voyage!.Status == VoyageStatusEnum.Open)
+                        AssertTrue(listed.Contains(created.Id), "A voyage still Open after the list call is in the Open list");
                 }
             }));
 
