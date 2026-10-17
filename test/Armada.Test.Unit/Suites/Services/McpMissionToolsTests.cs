@@ -637,6 +637,221 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MissionEvidence_SameObjectiveCallerReadsEarlierVoyageMission", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage earlierVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("earlier objective voyage")).ConfigureAwait(false);
+                    Voyage laterVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("later objective voyage")).ConfigureAwait(false);
+                    Voyage markedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("brief-rendered objective voyage")).ConfigureAwait(false);
+                    Mission earlier = await testDb.Driver.Missions.CreateAsync(new Mission("earlier voyage worker")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageId = earlierVoyage.Id,
+                        Description = "earlier voyage brief",
+                        AgentOutput = "earlier voyage report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission listedMission = await testDb.Driver.Missions.CreateAsync(new Mission("objective-listed mission")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        AgentOutput = "objective-listed report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("later voyage judge")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageId = laterVoyage.Id,
+                        Persona = "Judge"
+                    }).ConfigureAwait(false);
+                    Mission markedJudge = await testDb.Driver.Missions.CreateAsync(new Mission("brief-rendered voyage judge")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageId = markedVoyage.Id,
+                        Persona = "Judge"
+                    }).ConfigureAwait(false);
+                    Objective byVoyages = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "objective listing both voyages",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageIds = new List<string> { earlierVoyage.Id, laterVoyage.Id, markedVoyage.Id }
+                    }).ConfigureAwait(false);
+                    Objective byMissions = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "objective listing both missions",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        MissionIds = new List<string> { listedMission.Id, judge.Id }
+                    }).ConfigureAwait(false);
+                    markedVoyage.Description = "<!-- armada-objective-brief:" + byVoyages.Id + " -->\nrendered brief";
+                    await testDb.Driver.Voyages.UpdateAsync(markedVoyage).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? readOutput = null;
+                    Func<JsonElement?, Task<object>>? readStatus = null;
+                    McpMissionTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == "armada_mission_output") readOutput = handler;
+                        if (name == "armada_mission_status") readStatus = handler;
+                    }, testDb.Driver, new RecordingAdmiralDouble(), null, null);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = judge.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        object outputResult = await readOutput!(JsonSerializer.SerializeToElement(new { missionId = earlier.Id })).ConfigureAwait(false);
+                        AssertTrue(outputResult is MissionOutputArtifactPage,
+                            "A Judge reads the output of an earlier voyage of its objective; actual result: " + JsonSerializer.Serialize(outputResult));
+                        AssertEqual("earlier voyage report", ((MissionOutputArtifactPage)outputResult).Content);
+
+                        object statusResult = await readStatus!(JsonSerializer.SerializeToElement(new { missionId = earlier.Id, includeDescription = true })).ConfigureAwait(false);
+                        AssertTrue(statusResult is Mission,
+                            "A Judge reads the status of an earlier voyage of its objective; actual result: " + JsonSerializer.Serialize(statusResult));
+                        AssertEqual("earlier voyage brief", ((Mission)statusResult).Description);
+
+                        object listedResult = await readOutput!(JsonSerializer.SerializeToElement(new { missionId = listedMission.Id })).ConfigureAwait(false);
+                        AssertTrue(listedResult is MissionOutputArtifactPage,
+                            "An objective that lists both missions authorizes the read; actual result: " + JsonSerializer.Serialize(listedResult));
+                        AssertEqual("objective-listed report", ((MissionOutputArtifactPage)listedResult).Content);
+                    }
+                    caller.MissionId = markedJudge.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        object markedResult = await readOutput!(JsonSerializer.SerializeToElement(new { missionId = earlier.Id })).ConfigureAwait(false);
+                        AssertTrue(markedResult is MissionOutputArtifactPage,
+                            "The objective named by the voyage brief authorizes the read; actual result: " + JsonSerializer.Serialize(markedResult));
+                        string deniedListed = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = listedMission.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedListed, "An objective that lists only the target does not authorize the read.");
+                    }
+                }
+            });
+
+            await RunTest("MissionEvidence_DifferentObjectiveSameOwnerMissionStaysHidden", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage callerVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("caller objective voyage")).ConfigureAwait(false);
+                    Voyage otherVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("other objective voyage")).ConfigureAwait(false);
+                    Mission other = await testDb.Driver.Missions.CreateAsync(new Mission("other objective worker")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageId = otherVoyage.Id,
+                        AgentOutput = "other objective report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("caller objective judge")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageId = callerVoyage.Id,
+                        Persona = "Judge"
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "caller objective",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageIds = new List<string> { callerVoyage.Id }
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "other objective",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageIds = new List<string> { otherVoyage.Id }
+                    }).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? readOutput = null;
+                    McpMissionTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == "armada_mission_output") readOutput = handler;
+                    }, testDb.Driver, new RecordingAdmiralDouble(), null, null);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = judge.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string denied = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = other.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", denied, "A same-owner mission of a different objective stays hidden.");
+                    }
+                }
+            });
+
+            await RunTest("MissionEvidence_SameObjectiveOtherOwnerMissionStaysHidden", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    UserMaster otherUser = await testDb.Driver.Users.CreateAsync(new UserMaster(Armada.Core.Constants.DefaultTenantId, "objective-other@example.com", "password")).ConfigureAwait(false);
+                    Voyage earlierVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("earlier shared voyage")).ConfigureAwait(false);
+                    Voyage laterVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("later shared voyage")).ConfigureAwait(false);
+                    Mission foreignEarlier = await testDb.Driver.Missions.CreateAsync(new Mission("other owner earlier worker")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = otherUser.Id,
+                        VoyageId = earlierVoyage.Id,
+                        AgentOutput = "other owner report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission ownEarlier = await testDb.Driver.Missions.CreateAsync(new Mission("own earlier worker")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageId = earlierVoyage.Id,
+                        AgentOutput = "own earlier report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("later shared judge")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageId = laterVoyage.Id,
+                        Persona = "Judge"
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "objective owned by another user",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = otherUser.Id,
+                        VoyageIds = new List<string> { earlierVoyage.Id, laterVoyage.Id }
+                    }).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? readOutput = null;
+                    McpMissionTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == "armada_mission_output") readOutput = handler;
+                    }, testDb.Driver, new RecordingAdmiralDouble(), null, null);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = judge.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string deniedByForeignObjective = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = ownEarlier.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedByForeignObjective, "An objective owned by another user does not authorize the read.");
+                    }
+
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "objective owned by the caller",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageIds = new List<string> { earlierVoyage.Id, laterVoyage.Id }
+                    }).ConfigureAwait(false);
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        object ownResult = await readOutput!(JsonSerializer.SerializeToElement(new { missionId = ownEarlier.Id })).ConfigureAwait(false);
+                        AssertTrue(ownResult is MissionOutputArtifactPage,
+                            "The caller's own objective authorizes its own earlier mission; actual result: " + JsonSerializer.Serialize(ownResult));
+                        string deniedForeign = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { missionId = foreignEarlier.Id })).ConfigureAwait(false));
+                        AssertContains("Mission not found", deniedForeign, "A shared objective never crosses mission ownership.");
+                    }
+                }
+            });
+
             await RunTest("TransitionMissionStatus_CallerOutsideMissionOwnerIsRefusedWithoutChange", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

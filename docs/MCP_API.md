@@ -638,7 +638,12 @@ is true, and check the final reconstructed UTF-8 content against `Sha256`.
 all content. A later autonomous rescue stage can also read the failed parent
 named by its marked rescue root, reached through the same-owner, same-voyage
 and same-vessel dependency chain. A legacy rescue title alone does not grant
-this additional read. Existing direct-parent reads remain available.
+this additional read. Existing direct-parent reads remain available. A mission
+caller can also read a mission from another voyage of its own objective: one
+objective with the caller's tenant and owner must list both missions, by voyage
+in `VoyageIds` or by mission in `MissionIds`, and the target must have the same
+tenant and owner. A same-owner mission of a different objective stays out of
+scope.
 
 `armada_mission_status` uses the same evidence scope before it returns mission
 metadata or context events. Its default response omits the description and

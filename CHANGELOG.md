@@ -30,6 +30,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A mission caller can read missions from the other voyages of its own
+  objective. A Judge in a later voyage got `Mission not found` for a mission of
+  an earlier voyage, because the evidence scope used objective links only for
+  objective reads. One objective with the caller's owner must list both
+  missions, by voyage or by mission, and the target must have the same owner;
+  missions of other objectives stay out of scope.
+
 - A pipeline that names one persona at two stages (for example Worker, analyst,
   TestEngineer, Worker, Judge) is rescued at the right stage. A rescue anchors
   on the last stage of its persona before the failed stage, or at the failed

@@ -10,8 +10,8 @@ namespace Armada.Server.Mcp
     using Armada.Core.Services;
 
     /// <summary>
-    /// Limits captain evidence reads to the calling mission's report chain and authorizing objectives.
-    /// A mission token never inherits its owner's operator privileges.
+    /// Limits captain evidence reads to the calling mission's report chain, the missions of the objectives
+    /// that list it, and those authorizing objectives. A mission token never inherits its owner's operator privileges.
     /// </summary>
     internal static class McpMissionEvidenceScope
     {
@@ -36,7 +36,45 @@ namespace Armada.Server.Mcp
                 && rescueRoot.ParentMissionId == target.Id
                 && SameRescueVessel(anchor, target))
                 return target;
+            if (await SharesOwnedObjectiveAsync(database, caller, anchor, target).ConfigureAwait(false))
+                return target;
             return null;
+        }
+
+        /// <summary>
+        /// True when one objective of the caller's owner lists both the anchor and the target, by voyage or by mission.
+        /// The objectives named by the two voyages' brief markers are read first by id; only when neither
+        /// authorizes both does the check enumerate the caller's own objectives.
+        /// </summary>
+        private static async Task<bool> SharesOwnedObjectiveAsync(
+            DatabaseDriver database,
+            AuthContext caller,
+            Mission anchor,
+            Mission target)
+        {
+            HashSet<string> checkedObjectiveIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string? voyageId in new[] { anchor.VoyageId, target.VoyageId })
+            {
+                if (String.IsNullOrEmpty(voyageId)) continue;
+                Voyage? voyage = await database.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
+                string? briefObjectiveId = VoyageObjectiveResolver.ReadBriefObjectiveId(voyage?.Description);
+                if (briefObjectiveId == null || !checkedObjectiveIds.Add(briefObjectiveId)) continue;
+                Objective? named = await database.Objectives.ReadAsync(briefObjectiveId).ConfigureAwait(false);
+                if (named != null && AuthorizesBoth(caller, named, anchor, target)) return true;
+            }
+
+            List<Objective> owned = await database.Objectives
+                .EnumerateAsync(OwnershipPolicy.TenantOf(caller), OwnershipPolicy.UserOf(caller))
+                .ConfigureAwait(false);
+            return owned.Any(objective => !checkedObjectiveIds.Contains(objective.Id)
+                && AuthorizesBoth(caller, objective, anchor, target));
+        }
+
+        private static bool AuthorizesBoth(AuthContext caller, Objective objective, Mission anchor, Mission target)
+        {
+            return SameOwner(caller, objective.TenantId, objective.UserId)
+                && Authorizes(objective, anchor)
+                && Authorizes(objective, target);
         }
 
         private static async Task<Mission?> FindRescueRootInDependencyChainAsync(
