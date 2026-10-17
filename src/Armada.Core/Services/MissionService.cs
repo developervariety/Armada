@@ -3579,11 +3579,24 @@ namespace Armada.Core.Services
             // prompt IS its contract; a producing mission's persona template is followed by the code-owned
             // contract, because the template carries role guidance and the contract carries the rules the
             // stage is validated against.
-            string personaPrompt = mission.IsReadOnlyMode
-                ? MissionPromptBuilder.GetPersonaOutputContract(mission.Persona, mission.Mode, judgePrimaryLens)
-                : AppendOutputContract(
+            // A custom persona has no code-owned read-only contract, so a read-only mission gets the read-only role
+            // header followed by the persona's own template as specialty guidance.
+            string personaPrompt;
+            if (mission.IsReadOnlyMode)
+            {
+                personaPrompt = MissionPromptBuilder.GetPersonaOutputContract(mission.Persona, mission.Mode, judgePrimaryLens);
+                if (String.IsNullOrEmpty(personaPrompt))
+                {
+                    personaPrompt = MissionPromptBuilder.BuildReadOnlyCustomPersonaPrompt(mission.Persona, mission.Mode,
+                        await ResolvePersonaPromptAsync(mission.Persona, templateParams, personaOverride, token).ConfigureAwait(false));
+                }
+            }
+            else
+            {
+                personaPrompt = AppendOutputContract(
                     await ResolvePersonaPromptAsync(mission.Persona, templateParams, personaOverride, token).ConfigureAwait(false),
                     MissionPromptBuilder.GetPersonaOutputContract(mission.Persona, mission.Mode, judgePrimaryLens));
+            }
             templateParams["PersonaPrompt"] = personaPrompt;
 
             content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false));

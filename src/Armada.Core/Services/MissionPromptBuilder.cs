@@ -590,6 +590,29 @@ namespace Armada.Core.Services
             };
         }
 
+        /// <summary>
+        /// Builds the persona prompt of a read-only mission whose persona has no code-owned read-only contract (an
+        /// operator-defined persona). The role header states the report-only deliverable and comes first; the
+        /// persona's own template follows as specialty guidance, so the captain keeps its focus and checklist while
+        /// any order in it to change, commit, or run implementation checks is reported as a finding instead.
+        /// </summary>
+        /// <param name="persona">Mission persona.</param>
+        /// <param name="mode">Mission mode.</param>
+        /// <param name="personaTemplate">The persona's rendered template; may be empty.</param>
+        /// <returns>The persona prompt.</returns>
+        internal static string BuildReadOnlyCustomPersonaPrompt(string? persona, MissionModeEnum mode, string? personaTemplate)
+        {
+            string name = String.IsNullOrWhiteSpace(persona) ? "Captain" : persona!.Trim();
+            string prompt = "## Your Role: " + name + " (Report Only)\n\n" +
+                "This is a report-only " + mode + " mission: your deliverable is a report, not a code change. " +
+                "Do not edit, commit, or push repository files. Your persona guidance follows; use it for what to examine and how to report it. " +
+                "Where it tells you to change, commit, or run implementation checks, report what you would change as a finding instead; the read-only rules in this brief take precedence. " +
+                "Report exact evidence for every claim, and state plainly when the evidence does not settle a question. " +
+                "End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what you found.";
+            if (String.IsNullOrWhiteSpace(personaTemplate)) return prompt;
+            return prompt + "\n\n### Persona Guidance\n\n" + personaTemplate!.Trim();
+        }
+
         private static string GetPersonaPromptFallback(string? persona)
         {
             return PersonaCatalog.NormalizeName(persona) switch

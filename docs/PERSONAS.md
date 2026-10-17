@@ -130,6 +130,11 @@ A brief carries only what the mission's mode and persona can use:
   Usability Engineer gets a report contract. The Product Manager and Usability
   Engineer use their product or usability sections only when the mission
   description asks for them.
+- On a read-only mission an operator-defined persona, which has no
+  code-owned contract, gets a `## Your Role: <persona> (Report Only)` header
+  that states the report deliverable, followed by its own template under
+  `### Persona Guidance`. Any order in the template to change, commit or run
+  implementation checks is reported as a finding instead.
 
 The instruction file has a byte budget, `captainInstructionByteBudget`
 (default 65,536; `0` selects the default). A brief assembled over it records a

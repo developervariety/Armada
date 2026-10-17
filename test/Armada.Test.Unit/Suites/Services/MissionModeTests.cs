@@ -269,6 +269,46 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A read-only mission of a custom persona gets a report-only role and its persona guidance", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_repos_" + Guid.NewGuid().ToString("N"));
+
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    string dir = Path.Combine(Path.GetTempPath(), "armada_mode_custom_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(dir);
+                    try
+                    {
+                        Vessel vessel = new Vessel("ModeVessel", "https://github.com/test/repo");
+                        Mission research = new Mission();
+                        research.Title = "Specialist review";
+                        research.Description = "Review the root report against the sources.";
+                        research.Persona = "SpecialistReviewer";
+                        research.Mode = MissionModeEnum.Research;
+                        await service.GenerateClaudeMdAsync(dir, research, vessel);
+                        string brief = await File.ReadAllTextAsync(Path.Combine(dir, "CLAUDE.md"));
+
+                        AssertContains("## Your Role: SpecialistReviewer (Report Only)", brief, "a custom persona is told its role");
+                        AssertContains("your deliverable is a report, not a code change", brief, "the report-only deliverable is stated");
+                        AssertContains("### Persona Guidance", brief, "the persona's own template follows as guidance");
+                        AssertContains("[ARMADA:RESULT] COMPLETE", brief, "the completion line is stated");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(dir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("A read-only ProductManager or UsabilityEngineer contract does not demand a specification", async () =>
             {
                 string implementationPm = MissionPromptBuilder.GetPersonaOutputContract(PersonaCatalog.ProductManager, MissionModeEnum.Implementation);

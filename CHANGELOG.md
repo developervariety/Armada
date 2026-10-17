@@ -37,6 +37,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A Research or Audit mission of an operator-defined persona gets a
+  report-only role header and its persona template as guidance. Before, such a
+  brief carried no role text and no output contract at all.
 - The partial-outcome note that lists unmet acceptance criteria tells only an
   Implementation Worker or TestEngineer to complete them. Every other stage,
   including every Judge and every Research or Audit stage, is told to check
