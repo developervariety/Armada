@@ -88,6 +88,11 @@ namespace Armada.Server
         private readonly ConcurrentDictionary<string, byte> _NudgeSuppressedMissions =
             new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
+        // Missions whose closed incident already produced a skip event, so a closed failure
+        // yields one event rather than one per sweep tick.
+        private readonly ConcurrentDictionary<string, byte> _ClosedIncidentSkippedMissions =
+            new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+
         // Rescues refused by an engaged dispatch hold, keyed by failed mission id. Each entry
         // records which hold engagement refused it, so the refusal is written to the incident once
         // per engagement, and the first sweep after the hold clears re-evaluates every entry even
@@ -2729,7 +2734,50 @@ namespace Armada.Server
             if (rescues.Any(rescue => !IsRetryableRescueTerminalFailure(rescue.Status)))
                 return true;
 
-            return false;
+            return await IsClosedIncidentDispositionAsync(failedMission, token).ConfigureAwait(false);
+        }
+
+        // A Closed incident for this mission, closed at or after its latest failure, with no incident
+        // for the mission still active, is the final disposition of that failure, whether an operator closed it or the lifecycle closed it as
+        // superseded or mitigated: recovery opens no new incident and dispatches no rescue for it.
+        // A hold deferral lives only in memory, so without this check a hold clearing or a restart
+        // turns a closed failure into a fresh incident and a duplicate rescue. A failure newer than
+        // the closure is a new failure and is still recovered.
+        private async Task<bool> IsClosedIncidentDispositionAsync(Mission failedMission, CancellationToken token)
+        {
+            DateTime failedUtc = failedMission.CompletedUtc ?? failedMission.LastUpdateUtc;
+            EnumerationResult<Incident> closed = await _Incidents.EnumerateAsync(BuildAuth(failedMission), new IncidentQuery
+            {
+                MissionId = failedMission.Id,
+                Status = IncidentStatusEnum.Closed,
+                PageNumber = 1,
+                PageSize = 50
+            }, token).ConfigureAwait(false);
+
+            Incident? closure = closed.Objects
+                .Where(incident => incident.ClosedUtc.HasValue && incident.ClosedUtc.Value >= failedUtc)
+                .OrderByDescending(incident => incident.ClosedUtc)
+                .FirstOrDefault();
+            if (closure == null) return false;
+
+            // An incident still active for the mission means the failure is not finally disposed;
+            // recovery keeps working it through that incident.
+            List<Incident> active = await _Incidents.EnumerateActiveAsync(BuildAuth(failedMission), new IncidentQuery
+            {
+                MissionId = failedMission.Id
+            }, token).ConfigureAwait(false);
+            if (active.Count > 0) return false;
+
+            _HoldDeferredRescues.TryRemove(failedMission.Id, out HoldDeferredRescue? _);
+            if (_ClosedIncidentSkippedMissions.TryAdd(failedMission.Id, 0))
+            {
+                await EmitEventAsync("autonomous_recovery.skipped_closed_incident",
+                    "Autonomous recovery skipped mission " + failedMission.Id + ": incident " + closure.Id
+                    + " was closed at " + closure.ClosedUtc!.Value.ToString("u") + ", after the failure; no incident or rescue was created.",
+                    failedMission, closure.Id, token).ConfigureAwait(false);
+            }
+
+            return true;
         }
 
         // Mutating voyage-cancel path. This runs inside SuppressCancelledVoyageRecoveryAsync,

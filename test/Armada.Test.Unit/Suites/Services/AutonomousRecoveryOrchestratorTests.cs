@@ -2314,6 +2314,84 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, await CountIncidentsAsync(incidents, vessel, reconciled.Id).ConfigureAwait(false), "No incident after the hold clears.");
             }).ConfigureAwait(false);
 
+            await RunTest("An incident an operator closed during a hold stops the deferred rescue, before and after a restart", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_closed_hold", "usr_auto_closed_hold").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_closed_hold", "usr_auto_closed_hold").ConfigureAwait(false);
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
+                Mission closedByOperator = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                Mission stillOpen = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                DispatchHold hold = new DispatchHold();
+                AutonomousRecoveryOrchestrator orchestrator = new AutonomousRecoveryOrchestrator(
+                    testDb.Driver, admiral, incidents, runbooks, new ArmadaSettings(), new LoggingModule(),
+                    null, null, null, null, null, null, null, null, hold);
+
+                hold.Engage("redeploy window", "session-hold");
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                AssertEqual(2, orchestrator.HoldDeferredRescueCount, "Both rescues are deferred while the hold is engaged.");
+
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                Incident deferredIncident = (await incidents.EnumerateActiveAsync(auth, new IncidentQuery { MissionId = closedByOperator.Id }).ConfigureAwait(false)).Single();
+                await incidents.UpdateAsync(auth, deferredIncident.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Closed,
+                    ClosedUtc = DateTime.UtcNow,
+                    RootCause = "The owning work landed by another path.",
+                    RecoveryNotes = "Operator closed: the owning work landed by another path."
+                }).ConfigureAwait(false);
+
+                // A restart loses the in-memory deferral; the replacement process sweeps the same failure.
+                AutonomousRecoveryOrchestrator restarted = new AutonomousRecoveryOrchestrator(
+                    testDb.Driver, admiral, incidents, runbooks, new ArmadaSettings(), new LoggingModule(),
+                    null, null, null, null, null, null, null, null, hold);
+                hold.Clear();
+                await restarted.SweepAsync().ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "Only the failure whose incident is still open is rescued.");
+                AssertEqual(stillOpen.Id, admiral.DispatchedMissions[0].ParentMissionId, "The rescue belongs to the still-open failure.");
+                AssertEqual(1, await CountIncidentsAsync(incidents, vessel, closedByOperator.Id).ConfigureAwait(false),
+                    "No second incident is opened for a failure an operator closed.");
+                Mission closedAfter = (await testDb.Driver.Missions.ReadAsync(closedByOperator.Id).ConfigureAwait(false))!;
+                AssertEqual(0, closedAfter.RecoveryAttempts, "Recovery spends no budget on a failure an operator closed.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A failure newer than its closed incident is still recovered", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_refailed", "usr_auto_refailed").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_refailed", "usr_auto_refailed").ConfigureAwait(false);
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
+                Mission refailed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Mission failed: earlier attempt",
+                    Status = IncidentStatusEnum.Closed,
+                    ClosedUtc = DateTime.UtcNow.AddHours(-2),
+                    RootCause = "An earlier attempt was resolved.",
+                    VesselId = vessel.Id,
+                    MissionId = refailed.Id,
+                    DetectedUtc = DateTime.UtcNow.AddHours(-3)
+                }).ConfigureAwait(false);
+
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "An incident closed before the latest failure does not stop its rescue.");
+                AssertEqual(refailed.Id, admiral.DispatchedMissions[0].ParentMissionId, "The rescue belongs to the refailed mission.");
+            }).ConfigureAwait(false);
+
             await RunTest("A later failure-reason rewrite does not return a reconciler-failed mission to recovery", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

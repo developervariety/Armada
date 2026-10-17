@@ -544,7 +544,12 @@ recovery attempt. Its incident's `RecoveryNotes` gets one
 first recovery sweep after the hold clears re-evaluates each deferred rescue,
 even when the failure is older than the sweep lookback window. Deferrals are
 runtime state like the hold itself: after a restart, the sweep picks up only
-failures inside its lookback window.
+failures inside its lookback window. A deferred failure whose incident is
+`Closed` at or after the failure (by an operator, or by the lifecycle as
+superseded or mitigated), with no other incident for it still active, is not rescued when the hold clears or after a
+restart: recovery opens no new incident, spends no attempt, and records one
+`autonomous_recovery.skipped_closed_incident` event. A failure newer than the
+closure is recovered as usual.
 
 Automatic Checks obey the same hold. The heartbeat runs no Pending Check while
 the hold is engaged, records one `check.auto_deferred_dispatch_hold` event per

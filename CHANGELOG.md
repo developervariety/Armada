@@ -30,6 +30,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Autonomous recovery no longer reopens a failure whose incident is closed.
+  A rescue deferred by a dispatch hold was kept only in memory, so when the
+  hold cleared or the admiral restarted, a failure an operator had already
+  closed got a new incident and a duplicate rescue. An incident `Closed` at or
+  after the failure now ends recovery for it, with one
+  `autonomous_recovery.skipped_closed_incident` event.
 - The disk lifecycle reclaims operator evidence: clones and build outputs in a
   folder idle for 24 hours (6 hours when free space is low), keeping receipts,
   logs and any folder marked `.armada-keep`. Whole-folder removal is opt-in
