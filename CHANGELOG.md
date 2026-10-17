@@ -37,6 +37,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A captain brief whose acceptance criteria fill the 12,000-character metadata
+  cap keeps at least 8,000 characters of mission context beside them: the role
+  text at the head and the newest handoff at the tail. Before, such a brief
+  carried only the criteria and an elision marker.
 - A Research or Audit Worker that ends `[ARMADA:RESULT] COMPLETE` while its own
   report states that its acceptance criteria are not met now fails with a
   `report_incomplete:` reason that quotes the statement, and the reviewer

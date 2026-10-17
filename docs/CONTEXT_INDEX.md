@@ -218,7 +218,10 @@ section instead, behind `contextRetrieval.briefSlimmingEnabled`:
 - **The mission description follows the same rule.** A description longer than
   the metadata cap (12,000 characters) is embedded as its head and newest
   handoff block, and the full text is written under `_briefing/mission/` in the
-  same bounded files; the elision marker names them. A copy is kept under
+  same bounded files; the elision marker names them. Acceptance criteria and
+  report references are pinned whole beside it, and at least 8,000 characters
+  of that head and tail stay with them even when the pinned lines alone reach
+  the cap, so large criteria never leave the captain without its role text. A copy is kept under
   `<mission id>.mission/`. Neither counts against the instruction-file byte
   budget (`captainInstructionByteBudget`, default 65,536), so the budget
   bounds the brief itself; `docs/PERSONAS.md` describes its warning event.

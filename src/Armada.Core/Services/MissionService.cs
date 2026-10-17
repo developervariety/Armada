@@ -7940,6 +7940,10 @@ namespace Armada.Core.Services
         internal const int _MaxMetadataDescriptionChars = 12000;
         internal const int _MaxMetadataDescriptionHeadChars = 4000;
 
+        // Mission context the metadata copy keeps beside pinned criteria and report references, so a criteria
+        // block near the description cap cannot leave the captain with criteria and no role or task text.
+        internal const int _MinMetadataContextChars = 8000;
+
         // Opening marker of a prior-stage handoff block, keyed by the upstream mission id. Present so a
         // repeated handoff replaces its own previous block rather than appending a duplicate.
         private const string _HandoffMarkerPrefix = "<!-- ARMADA:HANDOFF:";
@@ -8462,7 +8466,7 @@ namespace Armada.Core.Services
                 marker = "\n\n...(middle of the mission description elided here. The full description is in " + files
                     + " in your working directory. Read them in full, in order, before you start; each fits one read.)\n";
             }
-            return BoundDescriptionWithCriteria(description, _MaxMetadataDescriptionChars, _MaxMetadataDescriptionHeadChars, marker);
+            return BoundDescriptionWithCriteria(description, _MaxMetadataDescriptionChars, _MaxMetadataDescriptionHeadChars, marker, _MinMetadataContextChars);
         }
 
         /// <summary>
@@ -8475,8 +8479,12 @@ namespace Armada.Core.Services
         /// <param name="maxChars">Maximum characters allowed in the result.</param>
         /// <param name="headChars">Characters kept from the head before eliding.</param>
         /// <param name="marker">Visible elision marker placed between head and tail.</param>
+        /// <param name="minContextChars">Characters of mission context kept beside the pinned lines even when that
+        /// exceeds <paramref name="maxChars"/>; 0 keeps the strict bound. The metadata copy sets it so large criteria
+        /// never push out the role text at the head and the newest handoff at the tail; the total brief budget still
+        /// applies afterwards.</param>
         /// <returns>The bounded description.</returns>
-        private static string BoundDescriptionWithCriteria(string description, int maxChars, int headChars, string marker)
+        private static string BoundDescriptionWithCriteria(string description, int maxChars, int headChars, string marker, int minContextChars = 0)
         {
             if (description.Length <= maxChars) return description;
             string? criteria = JudgeAcceptanceWalk.FormatPinnedBlock(description);
@@ -8494,8 +8502,9 @@ namespace Armada.Core.Services
             // report the excess rather than silently removing the only route to a full stage report.
             const string contextHeading = "\n## Mission Context\n";
             int contextBudget = maxChars - pinned.Length - marker.Length - contextHeading.Length;
+            if (contextBudget < minContextChars) contextBudget = minContextChars;
             if (contextBudget <= 0) return pinned.ToString() + marker;
-            string bounded = BuildBoundedDescription(description, maxChars - pinned.Length - contextHeading.Length,
+            string bounded = BuildBoundedDescription(description, contextBudget + marker.Length,
                 Math.Min(headChars, contextBudget / 3), marker);
             return pinned.ToString() + contextHeading + bounded;
         }

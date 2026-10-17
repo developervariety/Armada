@@ -342,6 +342,23 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask;
             });
 
+            await RunTest("Metadata copy keeps the role text and newest handoff beside criteria that fill its cap", async () =>
+            {
+                System.Text.StringBuilder criteria = new System.Text.StringBuilder("\n## Acceptance Criteria\n");
+                for (int i = 0; i < 60; i++) criteria.Append("- Criterion ").Append(i).Append(' ').Append(new string('c', 220)).Append('\n');
+                string full = "## Your Role: Judge (Review the Report)\nJudge the report.\n" + new string('h', 3000) + "\n"
+                    + criteria + "## Scope\n" + new string('m', 20000) + "\n## Prior Stage Output\nLATEST-HANDOFF-SENTINEL\n";
+                AssertTrue(criteria.Length > MissionService._MaxMetadataDescriptionChars, "the criteria alone exceed the metadata cap");
+
+                string bounded = MissionService.BoundMetadataDescription(full);
+
+                AssertEqual(60, JudgeAcceptanceWalk.ExtractCriteria(bounded).Count, "every criterion stays pinned");
+                AssertContains("## Your Role: Judge (Review the Report)", bounded, "the role text at the head survives");
+                AssertContains("LATEST-HANDOFF-SENTINEL", bounded, "the newest handoff at the tail survives");
+                AssertTrue(bounded.Length < full.Length, "the narrative middle is still elided");
+                await Task.CompletedTask;
+            });
+
             await RunTest("Mission truncation keeps the report artifact reference after large criteria, diff, and board notes", async () =>
             {
                 string criteria = "\n## Acceptance Criteria\n" + String.Join("\n", Enumerable.Range(0, 10)
