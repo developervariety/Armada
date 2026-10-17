@@ -130,6 +130,13 @@ includes a Correctness, Failure Modes or Tests paragraph that names a defect
 change does not establish) or asks for a fix, excludes narration of what was
 reviewed, bare lead-in lines and passing test summaries, places NOT MET criteria after defects, removes
 MET criteria and narration before shortening, and uses one list marker per item.
+The line that introduces a list decides what its items are: items under a lead-in
+that reports passing or reviewed behaviour ("The core logic is sound:", "What the
+new tests cover:") are context unless the item itself names a defect, items under a
+minor or follow-up lead-in are left out, and an item marked "(not a blocker)" is
+left out. When the list does not fit its 4,000-character bound, plain list items
+that name no defect are dropped before any named defect, Verdict change or NOT MET
+criterion is shortened, and the list says it is incomplete.
 The embedded full-review
 cap is 12,000 characters. When the report fits, the brief carries it whole.
 When it does not, the brief keeps the protected sections whole after removing

@@ -54,7 +54,31 @@ namespace Armada.Core.Services
 
         private static readonly Regex _ParagraphDefect = new Regex(
             @"\brequired\s+(?:revision|change|correction)s?\b|\bincorrect(?:ly)?\b|\bcontradicts?\b|\bunsupported\b|\bunproven\b|\bnot\s+proven\b"
-            + @"|\b(?:does|do)\s+not\s+(?:meet|establish|prove|satisfy)\b|\bstill\s+(?!pass)[a-z]+s\b",
+            + @"|\b(?:does|do)\s+not\s+(?:meet|establish|prove|satisfy)\b|\bstill\s+(?!pass)[a-z]+s\b"
+            + @"|\bnot\s+(?:tested|covered)\b|\bno\s+tests?\s+(?:uses?|exercises?|drives?)\b|\bthe\s+gap\s+is\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // The line that introduces a list decides what its items are. A lead-in that names a defect
+        // introduces findings; one that reports passing or reviewed behaviour introduces context; one
+        // that labels minor or follow-up items introduces lesser items, which a rescue does not fix.
+        private static readonly Regex _LesserLeadIn = new Regex(
+            @"\b(?:minor|nits?|nitpicks?|follow-?ups?|non-?blocking|not\s+(?:a\s+)?blockers?|cosmetic|optional|lesser)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _RequiredLeadIn = new Regex(
+            @"\b(?:required|must|blocking)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _DefectLeadIn = new Regex(
+            @"\b(?:defects?|missing|gaps?|bugs?|wrong|broken|incorrect(?:ly)?|required|problems?|issues?|regressions?|not|never|lacks?|fails?(?!\s+closed))\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _PassingLeadIn = new Regex(
+            @"\b(?:sound|correct(?:ly)?|pass(?:es|ed)?|exit(?:ed|s)?\s+0|cover(?:s|ed)?|fails?\s+closed|reviewed|delivers?|match(?:es)?|acceptable|verified|holds?|fine)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _NonBlockingParenthetical = new Regex(
+            @"\([^)]*\b(?:not\s+a\s+blocker|non-?blocking)\b[^)]*\)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         // Case-sensitive on purpose: a directive opens a sentence with a capitalised verb.
@@ -135,10 +159,12 @@ namespace Armada.Core.Services
         /// <summary>
         /// Required items in Judge sections plus existing explicit NOT MET and Blocking items.
         /// Correctness, Failure Modes and Tests list items, labeled findings, and paragraphs that name a
-        /// defect or ask for a fix are considered defects;
-        /// Verdict carries required changes. Passing test summaries, MET criteria and explicitly
-        /// non-blocking items are excluded. When the bound cannot hold every item, the result names the
-        /// omission instead of claiming completeness.
+        /// defect or ask for a fix are considered defects, except list items whose lead-in line reports
+        /// passing or reviewed behaviour (unless the item itself names a defect) and items under a minor
+        /// or follow-up lead-in. Verdict carries required changes. Passing test summaries, MET criteria and
+        /// explicitly non-blocking items are excluded. When the bound cannot hold every item, plain list
+        /// items that name no defect are dropped before any other finding is shortened, and the result
+        /// names the omission instead of claiming completeness.
         /// </summary>
         /// <param name="review">Review or report text.</param>
         /// <param name="maxChars">Bound for the list.</param>
@@ -152,13 +178,16 @@ namespace Armada.Core.Services
             string[] lines = text.Split('\n');
             List<string> findings = new List<string>();
             List<string> criteria = new List<string>();
+            HashSet<string> plainFindings = new HashSet<string>(StringComparer.Ordinal);
             string section = String.Empty;
+            string leadIn = String.Empty;
             int protectedHeadingDepth = 0;
             for (int i = 0; i < lines.Length; i++)
             {
                 string raw = lines[i].Trim();
                 if (raw.StartsWith("#", StringComparison.Ordinal))
                 {
+                    leadIn = String.Empty;
                     int headingDepth = raw.TakeWhile(character => character == '#').Count();
                     string recognizedSection = JudgeSection(raw);
                     if (recognizedSection.Length > 0)
@@ -177,6 +206,7 @@ namespace Armada.Core.Services
 
                 string item;
                 bool listItem = TryStripListPrefix(raw, out item);
+                if (!listItem) leadIn = item;
                 bool acceptanceSection = section == "Completeness" || section == "Acceptance Criteria" || section == "Definition of Done";
                 if (IsExplicitlyNonBlocking(raw, item)) continue;
                 if (IsPositiveNoTestResult(item, section)) continue;
@@ -192,7 +222,14 @@ namespace Armada.Core.Services
                     || section == "Residual Risks";
                 bool labeledFinding = findingSectionItem && IsFindingLabel(item);
                 bool paragraphFinding = !listItem && IsParagraphFinding(item, section);
-                bool sectionFinding = findingSectionItem && (listItem || labeledFinding || paragraphFinding || IsUnmarkedTestGap(item, section))
+                bool itemNamesDefect = findingSectionItem && (_ParagraphDefect.IsMatch(item) || _ParagraphDirective.IsMatch(item) || IsUnmarkedTestGap(item, section));
+                bool underLead = listItem && findingSectionItem && leadIn.Length > 0;
+                bool lesserLead = underLead && _LesserLeadIn.IsMatch(leadIn) && !_RequiredLeadIn.IsMatch(leadIn);
+                bool defectLead = underLead && !lesserLead && _DefectLeadIn.IsMatch(leadIn);
+                bool passingLead = underLead && !lesserLead && !defectLead && _PassingLeadIn.IsMatch(leadIn);
+                if (lesserLead && !explicitBlocking && !notMetCriterion) continue;
+                bool listFinding = listItem && (!passingLead || itemNamesDefect);
+                bool sectionFinding = findingSectionItem && (listFinding || labeledFinding || paragraphFinding || IsUnmarkedTestGap(item, section))
                     || section == "Verdict"
                         && (ContainsAny(raw, "NEEDS_REVISION", "REQUIRED CHANGE", "MUST ") || (listItem && !ContainsAny(raw, "PASS")));
                 if (!notMetCriterion && !explicitBlocking && !sectionFinding) continue;
@@ -227,6 +264,9 @@ namespace Armada.Core.Services
                 string value = finding.ToString().Trim();
                 List<string> destination = notMetCriterion ? criteria : findings;
                 if (!destination.Contains(value, StringComparer.Ordinal)) destination.Add(value);
+                bool plain = !notMetCriterion && !explicitBlocking && !labeledFinding && !paragraphFinding
+                    && !itemNamesDefect && !defectLead && section != "Verdict";
+                if (plain) plainFindings.Add(value);
             }
 
             if (findings.Count == 0 && criteria.Count == 0) return String.Empty;
@@ -238,6 +278,11 @@ namespace Armada.Core.Services
             if (total <= maxChars) return String.Join("\n", formatted);
 
             string incomplete = IncompleteFindingsLine(maxChars);
+
+            // Plain list items that name no defect go first, so no named defect is shortened to make room for them.
+            List<string> formattedPlain = findings.Where(item => plainFindings.Contains(item)).Select(item => "- " + item).ToList();
+            if (formattedPlain.Count > 0)
+                formattedFindings = findings.Where(item => !plainFindings.Contains(item)).Select(item => "- " + item).ToList();
             int defectTotal = formattedFindings.Sum(line => line.Length) + Math.Max(0, formattedFindings.Count - 1);
             if (defectTotal + incomplete.Length + 1 <= maxChars)
             {
@@ -248,6 +293,13 @@ namespace Armada.Core.Services
                     int addedLength = criterion.Length + (bounded.Count > 0 ? 1 : 0);
                     if (used + addedLength + incomplete.Length + 1 > maxChars) break;
                     bounded.Add(criterion);
+                    used += addedLength;
+                }
+                foreach (string plainItem in formattedPlain)
+                {
+                    int addedLength = plainItem.Length + (bounded.Count > 0 ? 1 : 0);
+                    if (used + addedLength + incomplete.Length + 1 > maxChars) break;
+                    bounded.Add(plainItem);
                     used += addedLength;
                 }
                 bounded.Add(incomplete);
@@ -395,7 +447,8 @@ namespace Armada.Core.Services
                 || HasLabelPrefix(line, "Lesser item")
                 || HasLabelPrefix(item, "Lesser item")
                 || HasLabelPrefix(line, "Lower priority")
-                || HasLabelPrefix(item, "Lower priority");
+                || HasLabelPrefix(item, "Lower priority")
+                || _NonBlockingParenthetical.IsMatch(item);
         }
 
         private static bool IsCompletedCriterion(string line)

@@ -30,6 +30,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The rescue findings list no longer shortens a Judge's required changes to make
+  room for passing notes. Items under a lead-in that reports passing or reviewed
+  behaviour, items under a minor or follow-up lead-in, and items marked not a
+  blocker are left out; when the list is still over its bound, plain items that
+  name no defect are dropped before any named defect is shortened.
 - The disk lifecycle no longer counts a symlinked merge-queue or integration
   worktree entry as reclaimable. The scan followed the link, counted the
   target checkout's bytes, and every reconcile then logged a refused removal.

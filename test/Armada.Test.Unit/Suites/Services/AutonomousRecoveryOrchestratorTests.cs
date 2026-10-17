@@ -4173,6 +4173,10 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildBlockingFindingsForBrief_RequiredRevisionInAParagraph_IsCarried).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief carries test and failure-mode gaps written as paragraphs",
                 BuildBlockingFindingsForBrief_TestAndFailureModeGapsInParagraphs_AreCarried).ConfigureAwait(false);
+            await RunTest("BuildBlockingFindingsForBrief keeps passing and minor lists out, so required items are not shortened",
+                BuildBlockingFindingsForBrief_PassingAndMinorLists_DoNotCrowdOutRequiredItems).ConfigureAwait(false);
+            await RunTest("BuildBlockingFindingsForBrief drops plain reviewed items before shortening a named defect",
+                BuildBlockingFindingsForBrief_PlainReviewedItems_GoBeforeNamedDefectsAreShortened).ConfigureAwait(false);
             await RunTest("TruncateReviewerFeedbackForBrief drops an over-budget narration preamble so the findings survive",
                 TruncateReviewerFeedbackForBrief_NarrationPreambleOverBudget_KeepsTheFindingsNotTheChatter).ConfigureAwait(false);
         }
@@ -5071,6 +5075,143 @@ namespace Armada.Test.Unit.Suites.Services
             AssertFalse(block.Contains("correctly preserves", StringComparison.Ordinal), "A Failure Modes paragraph that reports correct behaviour is not a finding");
             AssertFalse(block.Contains("match their receipt digests", StringComparison.Ordinal), "A passing Tests paragraph is not a finding");
             AssertFalse(block.Contains("The diff adds only", StringComparison.Ordinal), "Completeness narration is not a finding");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildBlockingFindingsForBrief_PassingAndMinorLists_DoNotCrowdOutRequiredItems()
+        {
+            string review = String.Join("\n", new[]
+            {
+                "## Correctness",
+                "",
+                "The core logic is sound against the contract:",
+                "- Budget, off and other prechecks with no transport rows count as zero attempts. A queue-bound capture is not treated as a request.",
+                "- A request with no matching invocation makes the ledger incomplete; it is never counted as zero.",
+                "- Fresh attempt IDs are not collapsed. An invocation from another correlation does not leak into the count.",
+                "- Adjusted net is `raw + credit - modeled allocation`. For the contract's fixture that gives 9.999748, and the test asserts that value.",
+                "- I checked the field names the ledger reads against the real writers: `Client.cs:280-361` and `Clerk.cs:2658-2677`. They match.",
+                "- The formula string the ledger checks matches what `Portfolio.cs:299-303` writes.",
+                "",
+                "Minor issues, all follow-ups:",
+                "- With zero attempts and nothing closed, the ledger serializes `adjustedNet` as `-0`.",
+                "- `TryAllowance` checks the policy text with `Contains`, so a value of 3000 would also match 30000. The manifest is validated upstream by exact equality, so this cannot trigger.",
+                "- A token above `Int64.MaxValue` would still be typed `integer` and read as a clamped value. No realistic response contains such a number.",
+                "",
+                "## Tests",
+                "",
+                "Full check run: `sh scripts/check.sh` exited 0.",
+                "- Raw output: `/tmp/judge-check.log`, SHA-256 `2e7828e2...59b2da`.",
+                "- Result: 945 passed, 0 failed. Node: 83 OK.",
+                "- All four new tests are in the PASS lines.",
+                "",
+                "What the new tests cover:",
+                "- Real producer, two cases: `Sweep` -> `ReturnedTaskHandler` -> both HTTP routes -> reopened store. One case has usage in the reply; the other has no usage and is kept unknown.",
+                "- Synthetic journal fixture: three attempts with a duplicate replay, a no-fill attempted cost, a closed allowance credited once, an open entry that gets no credit, and a late response excluded by the report clock.",
+                "- Store scalar reader: fixed high-water, zero tokens kept as known, malformed and non-object rows, a float token typed `wrong-type`, an oversize row, the read bound, and cancellation.",
+                "",
+                "Missing, although objective criterion 4 or the contract names it:",
+                "- **Budget/off zero attempts.** No ledger assertion exists for either case.",
+                "- **Unknown cost.** There is no case for a legacy manifest or an unknown formula. The `unknown-formula` path is a real case: saved manifests from before the formula keep the old attribution only.",
+                "- **Identity/version mismatch at the ledger level.** No case covers a wrong question version, symbol, hash or correlation, or a conflicting duplicate.",
+                "- **Missing invocation.** No case shows that a request without an invocation makes the ledger incomplete.",
+                "- **Control arm credit.** No case shows a closed control allowance credited once with 0 owned attempts.",
+                "",
+                "## Failure Modes",
+                "",
+                "Each failure path below is reviewed and fails closed:",
+                "- **Cancellation** before or during the ledger returns `incomplete/canceled`. The store read throws between pages, and a test proves it.",
+                "- **Read bound and stalled cursor** both stop the read and report incomplete.",
+                "- **Unreadable rows.** Any oversize, malformed, non-object or unparseable-clock transport row marks the whole ledger `unreadable-row`.",
+                "- **Token overflow** is checked and reported as `token-overflow`.",
+                "- **No writes.** Journal count and cash are unchanged after both GETs.",
+                "- **Bound per kind.** The read bound applies to each journal kind separately, so total work is at most 300k rows, still bounded. Noted as a follow-up.",
+                "",
+                "## Verdict",
+                "",
+                "NEEDS_REVISION. The production code is correct and the full check passes. However, objective criterion 4 requires behavioural proof that the delivery does not contain. Required revisions, all tests only, in `tests/LedgerCoverage.cs`:",
+                "1. **Off:** through the real producer and both HTTP routes, assert `status known`, `uniqueAttempts 0` and allocation 0. A budget refusal with a parent request but no transport rows should also show 0 attempts.",
+                "2. **Legacy manifest:** a manifest from before the formula, or with unknown rates, reports `incomplete` / `unknown-formula`, with the counts shown and `adjustedNet` null.",
+                "3. **Ledger-level mismatches:** a mismatched question version, symbol, hash or correlation is not counted. A conflicting duplicate, or the same attempt ID under a different parent, gives `conflict`. A request without an invocation gives `missing-invocation`.",
+                "4. **Control arm:** a closed control trade's allowance is credited once while the control arm owns 0 attempts.",
+                "",
+                "[ARMADA:VERDICT] NEEDS_REVISION"
+            });
+
+            string block = AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief(review, AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars);
+
+            AssertTrue(block.Length <= AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars, "The block respects its bound. Actual: " + block.Length);
+            AssertFalse(block.Contains("[detail omitted]", StringComparison.Ordinal), "No required item is shortened once passing and minor lists are left out");
+            AssertContains("**Unknown cost.** There is no case for a legacy manifest or an unknown formula. The `unknown-formula` path is a real case", block, "A missing-test item is carried whole");
+            AssertContains("**Control arm credit.** No case shows a closed control allowance credited once with 0 owned attempts.", block, "Every missing-test item is carried");
+            AssertContains("A request without an invocation gives `missing-invocation`.", block, "A Verdict required revision is carried whole");
+            AssertContains("**Control arm:** a closed control trade's allowance is credited once", block, "Every Verdict required revision is carried");
+            AssertFalse(block.Contains("Fresh attempt IDs are not collapsed", StringComparison.Ordinal), "An item under a passing lead-in is not a finding");
+            AssertFalse(block.Contains("Result: 945 passed", StringComparison.Ordinal), "A passing check result is not a finding");
+            AssertFalse(block.Contains("Synthetic journal fixture", StringComparison.Ordinal), "A list of what the tests cover is not a finding");
+            AssertFalse(block.Contains("`Contains`", StringComparison.Ordinal), "An item under a minor follow-up lead-in is not a finding");
+            AssertFalse(block.Contains("Token overflow", StringComparison.Ordinal), "An item under a fails-closed lead-in is not a finding");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildBlockingFindingsForBrief_PlainReviewedItems_GoBeforeNamedDefectsAreShortened()
+        {
+            string padding = " The handler, its route and the reopened store were each read against the contract, and every step matches the recorded journal rows from the writer, so this item reports reviewed behaviour only.";
+            padding = padding + padding + padding;
+            string review = String.Join("\n", new[]
+            {
+                "## Correctness",
+                "",
+                "The task-version side is sound:",
+                "- The latest-identical skip runs inside the write transaction.",
+                "- An archive failure rolls back the live upsert or delete. A trigger-based test covers this.",
+                "",
+                "Two defects in the projection, both on real data:",
+                "1. **Real statuses come back as \"unknown\"** (`History.cs:284`).",
+                "   - `KnownStatus` allows only `\"canceled\"`, but every producer writes `\"cancelled\"`: Clerk.cs:885, 912 and 2162.",
+                "   - It also turns `\"ready\"`, `\"timeout\"`, `\"budget\"` and `\"unavailable\"` into `\"unknown\"`. Clerk.cs:469-488 writes these into the vote status.",
+                "2. **Clocks are mislabelled** (`History.cs:172-175`).",
+                "   - `receivedAt` is the journal's `recorded_at` for every kind, including intent rows, so one value is published as two independent clocks.",
+                "",
+                "## Tests",
+                "",
+                "The new tests cover the following:",
+                "- The literal 61-task, two-provider prune and restart.",
+                "- Fixed-high-water paging with limit 1 and an idempotent restart.",
+                "",
+                "The gap is the producer path. No test uses real producer rows, so the wrong status and clock mapping goes unseen. Cancellation partway through paging is not tested either.",
+                "",
+                "## Failure Modes",
+                "",
+                "- **Bad input.** An invalid source, a bad cursor or a cursor/filter mismatch raises an argument error, which the route turns into HTTP 400." + padding,
+                "- **Read-only legacy store.** It returns \"unavailable\" and creates no table." + padding,
+                "- **Archive failure.** The transaction rolls back and the live task is unchanged." + padding,
+                "- **Cancellation.** It is checked before the read, on each row, and after the read." + padding,
+                "- **Crash between save and amendment.** The version keeps its operation ID with a null result, which reads as unknown." + padding,
+                "- **Concurrency gap (follow-up, not a blocker).** While the gate is released around the submit, a concurrent save would be tagged with this operation.",
+                "- **Secrets.** None are in the returned rows." + padding,
+                "",
+                "## Verdict",
+                "",
+                "**NEEDS_REVISION.** Required fixes:",
+                "1. `History.cs:284`: keep the producers' real status values, including `cancelled`, `ready`, `timeout`, `budget` and `unavailable`, or report each with its source spelling. Do not fold them into `unknown`.",
+                "2. `History.cs:172-175`: do not give request or invocation rows a `receivedAt`. Map each clock by kind: `started` or `requestedAt` to asked, and `completedAt` on response and vote rows to received, with the meaning stated.",
+                "3. Add the combined-source test in the existing suites. Drive real producer rows plus independent task answers for one candidate through prune, restart and the HTTP history routes. Assert the row IDs, body, hash, attempt link and status for a ready vote and a cancelled vote.",
+                "",
+                "[ARMADA:VERDICT] NEEDS_REVISION"
+            });
+
+            string block = AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief(review, AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars);
+
+            AssertTrue(block.Length <= AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars, "The block respects its bound. Actual: " + block.Length);
+            AssertFalse(block.Contains("[detail omitted]", StringComparison.Ordinal), "A named defect is never shortened to make room for plain reviewed items");
+            AssertContains("or report each with its source spelling. Do not fold them into `unknown`.", block, "The first Verdict fix is carried whole with its anchor");
+            AssertContains("`completedAt` on response and vote rows to received, with the meaning stated.", block, "The second Verdict fix is carried whole");
+            AssertContains("Assert the row IDs, body, hash, attempt link and status for a ready vote and a cancelled vote.", block, "The third Verdict fix is carried whole");
+            AssertContains("every producer writes `\"cancelled\"`: Clerk.cs:885, 912 and 2162.", block, "An item under a defect lead-in is carried with its anchors");
+            AssertContains("The gap is the producer path. No test uses real producer rows", block, "A test gap written as a paragraph is carried");
+            AssertContains(StageReportEssentials.IncompleteFindingsMarker, block, "Dropping plain items says the list is incomplete");
+            AssertFalse(block.Contains("Concurrency gap", StringComparison.Ordinal), "An item marked not a blocker is not a finding");
+            AssertFalse(block.Contains("latest-identical skip", StringComparison.Ordinal), "An item under a passing lead-in is not a finding");
             await Task.CompletedTask;
         }
 
