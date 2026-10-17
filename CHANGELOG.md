@@ -30,6 +30,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The disk lifecycle no longer counts a symlinked merge-queue or integration
+  worktree entry as reclaimable. The scan followed the link, counted the
+  target checkout's bytes, and every reconcile then logged a refused removal.
+  Such an entry is now recorded `skipped` as a symlink, as docks already were.
 - Autonomous recovery no longer reopens a failure whose incident is closed.
   A rescue deferred by a dispatch hold was kept only in memory, so when the
   hold cleared or the admiral restarted, a failure an operator had already

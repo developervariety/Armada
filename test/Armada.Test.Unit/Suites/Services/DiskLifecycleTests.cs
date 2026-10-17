@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Diagnostics;
     using System.IO;
     using System.Linq;
     using System.Threading;
@@ -664,9 +665,85 @@ namespace Armada.Test.Unit.Suites.Services
                     Cleanup(layout);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("Fail closed: a symlinked merge-queue worktree is skipped, never counted reclaimable", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                Layout layout = CreateLayout();
+
+                bool symlinkSupported = true;
+                try
+                {
+                    string checkout = Path.Combine(layout.Settings.DataDirectory, "real-checkout");
+                    Directory.CreateDirectory(checkout);
+                    File.WriteAllText(Path.Combine(checkout, "source.cs"), new string('x', 4096));
+                    File.SetLastWriteTimeUtc(checkout, DateTime.UtcNow.AddDays(-3));
+
+                    string queueRoot = Path.Combine(layout.Settings.DocksDirectory, "_merge-queue");
+                    Directory.CreateDirectory(queueRoot);
+                    string linkPath = Path.Combine(queueRoot, "ExampleVessel");
+                    try
+                    {
+                        Directory.CreateSymbolicLink(linkPath, checkout);
+                    }
+                    catch
+                    {
+                        symlinkSupported = false;
+                    }
+
+                    if (symlinkSupported)
+                    {
+                        AgeLinkItself(linkPath, DateTime.UtcNow.AddDays(-3));
+                        layout.Settings.DiskLifecycle.Enabled = true;
+                        layout.Settings.DiskLifecycle.DryRun = false;
+                        DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, logging);
+                        DiskLifecycleReport report = await service.ReconcileAsync().ConfigureAwait(false);
+
+                        DiskLifecycleCategory queue = report.Categories.Single(c => c.Category == "mergeQueueWorktrees");
+                        AssertEqual(0, queue.ReclaimableItems, "A symlinked merge-queue worktree must not be counted reclaimable.");
+                        AssertEqual(0L, queue.ReclaimableBytes, "The symlink target's bytes must not be counted reclaimable.");
+                        AssertTrue(File.Exists(Path.Combine(checkout, "source.cs")), "The symlink target must never be deleted.");
+                        AssertTrue(
+                            report.Actions.Any(a => a.Path == linkPath && a.Disposition == "skipped" && a.Reason == "symlink or outside allowed roots"),
+                            "A symlinked merge-queue worktree must be recorded as skipped for being a symlink.");
+                    }
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods
+
+        // A leftover link carries its own old timestamp. .NET has no API that sets a link's timestamp
+        // without following it, so this uses touch -h where it exists and does nothing elsewhere.
+        private static void AgeLinkItself(string linkPath, DateTime whenUtc)
+        {
+            if (OperatingSystem.IsWindows()) return;
+            try
+            {
+                ProcessStartInfo info = new ProcessStartInfo("touch")
+                {
+                    UseShellExecute = false,
+                    RedirectStandardError = true
+                };
+                info.ArgumentList.Add("-h");
+                info.ArgumentList.Add("-d");
+                info.ArgumentList.Add("@" + new DateTimeOffset(whenUtc).ToUnixTimeSeconds());
+                info.ArgumentList.Add(linkPath);
+                using (Process? process = Process.Start(info))
+                {
+                    process?.WaitForExit(10000);
+                }
+            }
+            catch
+            {
+                // Without touch the link stays fresh; the skip assertion still applies.
+            }
+        }
 
         private static LoggingModule CreateLogging()
         {

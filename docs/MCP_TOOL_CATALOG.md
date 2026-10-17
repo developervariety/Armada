@@ -649,7 +649,9 @@ before anything destructive: it returns bytes per owned category (docks, bare
 repos, mission logs, diffs, instruction snapshots, dock metadata, integration
 and merge-queue worktrees, temp artifacts, backups, operator evidence) plus
 reclaimable counts. Folder sizes count every nested file; symlinks are neither
-counted nor followed.
+counted nor followed. A symlinked dock, integration or merge-queue worktree entry
+is recorded `skipped` with the reason `symlink or outside allowed roots`, and the
+bytes of its target are never counted reclaimable.
 
 Operator evidence is the `operator-evidence` folder under the log directory,
 where operator proof runs keep receipts, logs and full clones. A folder's age is

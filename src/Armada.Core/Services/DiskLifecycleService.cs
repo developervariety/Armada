@@ -443,6 +443,15 @@ namespace Armada.Core.Services
                 }
 
                 string full = Path.GetFullPath(candidate);
+
+                // Fail closed: a symlink can point at a real checkout, so it is never counted
+                // reclaimable and never reaches removal.
+                if (!IsPathAllowed(full))
+                {
+                    RecordAction(report, category, full, "skipped", "symlink or outside allowed roots");
+                    continue;
+                }
+
                 string name = Path.GetFileName(full);
                 if (liveEntryIds.Contains(name))
                 {
@@ -829,6 +838,12 @@ namespace Armada.Core.Services
                 }
 
                 string full = Path.GetFullPath(candidate);
+                if (!IsPathAllowed(full))
+                {
+                    RecordAction(report, category, full, "skipped", "symlink or outside allowed roots");
+                    continue;
+                }
+
                 DateTime lastWrite = SafeGetLastWriteTimeUtc(full);
                 if (lastWrite > cutoff)
                 {
