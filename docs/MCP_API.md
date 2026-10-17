@@ -337,8 +337,9 @@ recorded per dropped stage; its payload carries `Persona`, `StageOrder`,
 `POST /api/v1/voyages` (`SkipStages`), WebSocket `create_voyage` (`skipStages`), alias dispatch,
 and the autonomous scheduler. The dispatch is refused, and nothing is created,
 when a name is the Judge (`stage_skip_judge_refused`), is blank or is not a stage
-of the effective pipeline (`stage_skip_unknown_persona`), or when only the Judge
-would remain (`stage_skip_leaves_no_work`). A `stage_optional` preview Warning
+of the effective pipeline (`stage_skip_unknown_persona`), is the persona of more
+than one stage of the effective pipeline (`stage_skip_ambiguous_persona`), or
+when only the Judge would remain (`stage_skip_leaves_no_work`). A `stage_optional` preview Warning
 is advice only: nothing is skipped unless the operator names it. The autonomous
 scheduler reads an operator-confirmed skip from the objective's
 `preparation.stageSkip` (`stages`, `reason`, `confirmedBy`, `confirmedUtc`, and
@@ -357,13 +358,15 @@ reads that voyage's `voyage.stage_skipped` events, drops the same stages from
 the rescue chain through the same rule, and records one `voyage.stage_skipped`
 event per carried stage on the rescue voyage, with the original `Reason` plus
 `carried from <voyage id>` and the original `Confirmer`. A skip is not carried
-when the failure reason or review comment names that stage's persona, and the
-Judge is never skipped. A voyage with no recorded skip gets the full chain.
+when the failure reason or review comment names that stage's persona, or when
+its persona names more than one stage of the rescue chain, and the Judge is
+never skipped. A voyage with no recorded skip gets the full chain.
 `preview_objective_dispatch` lists `effectivePipelineStages` after that same
 `PipelineStageSkip` rule, names `skippedPipelineStages`, reports whether the
 stored skip is confirmed, and surfaces the named refusal a stored skip would hit
 (`stage_skip_unconfirmed`, `stage_skip_judge_refused`,
-`stage_skip_unknown_persona`, `stage_skip_leaves_no_work`) without creating a
+`stage_skip_unknown_persona`, `stage_skip_ambiguous_persona`,
+`stage_skip_leaves_no_work`) without creating a
 voyage. Captain coverage in the preview follows the effective stages, so preview
 and dispatch agree.
 

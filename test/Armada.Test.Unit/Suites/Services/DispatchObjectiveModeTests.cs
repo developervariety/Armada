@@ -529,6 +529,48 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask.ConfigureAwait(false);
             });
 
+            await RunTest("skipStages naming a persona that two stages share is refused as ambiguous", async () =>
+            {
+                Pipeline revise = new Pipeline("ReviseExample");
+                revise.Stages = new List<PipelineStage>
+                {
+                    new PipelineStage(1, PersonaCatalog.Worker),
+                    new PipelineStage(2, "Usability Engineer"),
+                    new PipelineStage(3, "TestEngineer"),
+                    new PipelineStage(4, PersonaCatalog.Worker),
+                    new PipelineStage(5, PersonaCatalog.Judge)
+                };
+
+                string? code = null;
+                string message = "";
+                try
+                {
+                    PipelineStageSkip.Apply(revise, new StageSkipRequest
+                    {
+                        Stages = new List<string> { "worker" },
+                        ConfirmedBy = "operator"
+                    });
+                }
+                catch (StageSkipRefusedException refused)
+                {
+                    code = refused.Code;
+                    message = refused.Message;
+                }
+
+                AssertEqual("stage_skip_ambiguous_persona", code ?? "(no refusal)",
+                    "a name that matches two stages cannot say which one to skip, so the request is refused");
+                AssertContains("Worker", message, "the refusal names the persona");
+
+                PipelineStageSkipResult unique = PipelineStageSkip.Apply(revise, new StageSkipRequest
+                {
+                    Stages = new List<string> { "TestEngineer" },
+                    ConfirmedBy = "operator"
+                });
+                AssertEqual(1, unique.SkippedStages.Count, "a name that matches one stage still skips it");
+                AssertEqual(4, unique.Pipeline!.Stages.Count, "both Worker stages are kept");
+                await Task.CompletedTask.ConfigureAwait(false);
+            });
+
             await RunTest("Alias dispatch and a skipped whole order group chain the remaining stages across the gap", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

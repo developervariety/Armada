@@ -30,6 +30,18 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A pipeline that names one persona at two stages (for example Worker, analyst,
+  TestEngineer, Worker, Judge) is rescued at the right stage. A rescue anchors
+  on the last stage of its persona before the failed stage, or at the failed
+  stage when the rescue has the failed persona, and takes that stage's order,
+  tier and review settings; a Judge rejection is rescued at the later Worker
+  and re-runs only the stages after it, instead of rebuilding every stage after
+  the first Worker. A dependant of a cancelled
+  stage waits on the rescue stage at the same stage order. A `skipStages` name
+  that is the persona of more than one stage is refused with
+  `stage_skip_ambiguous_persona` instead of dropping every such stage, and a
+  rescue does not carry such a skip.
+
 - Terminal-voyage reconciliation completes an Audit or Research mission that
   recorded no commit, with reason `terminal_voyage_report_only`, under any ended
   voyage. It no longer marks the finished report `Failed` or `Cancelled` with

@@ -1908,9 +1908,7 @@ namespace Armada.Server
                 failedMission,
                 owningObjective,
                 token).ConfigureAwait(false);
-            PipelineStage? recoveryWorkerStage = recoveryPipeline?.Stages
-                .OrderBy(item => item.Order)
-                .FirstOrDefault(item => String.Equals(item.PersonaName, rescuePersona, StringComparison.OrdinalIgnoreCase));
+            PipelineStage? recoveryWorkerStage = ResolveRescueAnchorStage(recoveryPipeline, failedMission, rescuePersona);
             Mission rescue = new Mission
             {
                 TenantId = failedMission.TenantId,
@@ -2458,6 +2456,40 @@ namespace Armada.Server
             };
         }
 
+        // The pipeline stage a rescue takes the place of: its order, tier and review settings, and the
+        // point after which the rescue chain re-runs the pipeline. A pipeline can name one persona at
+        // several stages, so the failed mission's stage order chooses among them:
+        //   - When the rescue persona is the failed persona, the rescue replaces the failed stage itself:
+        //     the last matching stage at or before the failed order.
+        //   - When the persona differs (a reviewer rejection revised by a Worker), the rescue replaces the
+        //     producing stage before the reviewer, and the reviewer re-runs in the chain: the last
+        //     matching stage strictly before the failed order.
+        // With no stage order, or no matching stage in that range, the first stage of the rescue
+        // persona is used. Null when the pipeline names no stage of the rescue persona.
+        private static PipelineStage? ResolveRescueAnchorStage(Pipeline? pipeline, Mission failedMission, string? rescuePersona)
+        {
+            if (pipeline?.Stages == null) return null;
+
+            List<PipelineStage> matching = pipeline.Stages
+                .Where(item => item != null && PersonaCatalog.Matches(item.PersonaName, rescuePersona))
+                .OrderBy(item => item.Order)
+                .ThenBy(item => item.Id, StringComparer.Ordinal)
+                .ToList();
+            if (matching.Count == 0) return null;
+
+            if (failedMission != null && failedMission.StageOrder != null)
+            {
+                int failedOrder = failedMission.StageOrder.Value;
+                bool replacesFailedStage = PersonaCatalog.Matches(failedMission.Persona, rescuePersona);
+                PipelineStage? anchored = matching.LastOrDefault(item => replacesFailedStage
+                    ? item.Order <= failedOrder
+                    : item.Order < failedOrder);
+                if (anchored != null) return anchored;
+            }
+
+            return matching[0];
+        }
+
         private async Task<List<PipelineStage>> ResolveRecoveryStagesAsync(
             Mission failedMission,
             Pipeline? recoveryPipeline,
@@ -2469,9 +2501,7 @@ namespace Armada.Server
                 // The chain continues after the rescued stage: a Linter rescue is followed by the
                 // stages after the Linter, not by a second analyst and TestEngineer pass. A persona
                 // the pipeline does not name anchors at its Worker stage.
-                PipelineStage? workerStage = recoveryPipeline.Stages
-                    .OrderBy(item => item.Order)
-                    .FirstOrDefault(item => PersonaCatalog.Matches(item.PersonaName, rescuePersona))
+                PipelineStage? workerStage = ResolveRescueAnchorStage(recoveryPipeline, failedMission, rescuePersona)
                     ?? recoveryPipeline.Stages
                     .OrderBy(item => item.Order)
                     .FirstOrDefault(item => String.Equals(item.PersonaName, "Worker", StringComparison.OrdinalIgnoreCase));
@@ -2504,8 +2534,9 @@ namespace Armada.Server
         // Exception: a skip is not carried when the failure names the skipped stage's persona (in
         // the failure reason or the review comment). A Judge that rejects the work because no
         // TestEngineer ran is asking for that stage, so the rescue runs it. The Judge is never
-        // skipped. A stage the rescue chain does not contain is ignored, and a voyage with no
-        // recorded skip keeps the full chain.
+        // skipped. A skip whose persona names more than one stage of the rescue chain is not carried,
+        // because a persona name cannot say which of them it meant. A stage the rescue chain does not
+        // contain is ignored, and a voyage with no recorded skip keeps the full chain.
         //
         // Returns one entry per distinct reason and confirmer, applied in order; the last entry's
         // RemainingStages is the chain to build. An empty list means nothing was skipped.
@@ -2547,11 +2578,22 @@ namespace Armada.Server
             foreach (IGrouping<string, RecordedStageSkip> group in carried
                 .GroupBy(item => item.Reason + "\u0001" + item.Confirmer, StringComparer.Ordinal))
             {
-                List<string> names = group
-                    .Select(item => item.Persona)
-                    .Where(name => remaining.Any(stage => PipelineStageSkip.NamesStage(stage.PersonaName, name)))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+                List<string> names = new List<string>();
+                foreach (string name in group.Select(item => item.Persona).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    int matches = remaining.Count(stage => PipelineStageSkip.NamesStage(stage.PersonaName, name));
+                    if (matches == 0) continue;
+                    if (matches > 1)
+                    {
+                        // A persona name cannot say which of several stages it meant, the same request
+                        // PipelineStageSkip.Apply refuses as ambiguous, so every such stage runs.
+                        _Logging.Warn(_Header + "rescue of voyage " + failedMission.VoyageId + " runs skipped stage "
+                            + name + " because " + matches + " rescue stages share that persona ("
+                            + PipelineStageSkip.AmbiguousPersonaCode + ")");
+                        continue;
+                    }
+                    names.Add(name);
+                }
                 if (names.Count == 0) continue;
 
                 RecordedStageSkip first = group.First();

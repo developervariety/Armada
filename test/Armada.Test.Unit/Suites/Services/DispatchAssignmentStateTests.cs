@@ -853,6 +853,36 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A pipeline can name one persona at two stages. The replacement for a cancelled stage is the
+            // rescue's stage at the same order, not whichever stage of that persona finished last.
+            await RunTest("FindReplacement_PersonaAtTwoStages_PrefersTheRescueStageOfTheSameOrder", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("duplicate-persona-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    DateTime now = DateTime.UtcNow;
+
+                    Voyage original = await testDb.Driver.Voyages.CreateAsync(new Voyage("original") { Status = VoyageStatusEnum.Failed }).ConfigureAwait(false);
+                    Mission firstWorker = await testDb.Driver.Missions.CreateAsync(new Mission("Worker", "implement") { VesselId = vessel.Id, VoyageId = original.Id, Persona = "Worker", StageOrder = 1, Status = MissionStatusEnum.Failed }).ConfigureAwait(false);
+                    Mission reviseWorker = await testDb.Driver.Missions.CreateAsync(new Mission("Worker revise", "revise") { VesselId = vessel.Id, VoyageId = original.Id, Persona = "Worker", StageOrder = 4, Status = MissionStatusEnum.Cancelled, DependsOnMissionId = firstWorker.Id }).ConfigureAwait(false);
+                    Mission orphanTester = await testDb.Driver.Missions.CreateAsync(new Mission("Tester", "test") { VesselId = vessel.Id, VoyageId = original.Id, Persona = "TestEngineer", StageOrder = 7, Status = MissionStatusEnum.Cancelled, DependsOnMissionId = reviseWorker.Id }).ConfigureAwait(false);
+
+                    Voyage rescue = await testDb.Driver.Voyages.CreateAsync(new Voyage("rescue") { Status = VoyageStatusEnum.Complete }).ConfigureAwait(false);
+                    Mission rescueFirst = await testDb.Driver.Missions.CreateAsync(new Mission("Rescue 1: Worker", RescueMissionMarker.Marker + "\nRecover") { VesselId = vessel.Id, VoyageId = rescue.Id, Persona = "Worker", StageOrder = 1, Status = MissionStatusEnum.Complete, ParentMissionId = firstWorker.Id, CompletedUtc = now.AddMinutes(-30) }).ConfigureAwait(false);
+                    Mission rescueTester = await testDb.Driver.Missions.CreateAsync(new Mission("Rescue tester", "test") { VesselId = vessel.Id, VoyageId = rescue.Id, Persona = "TestEngineer", StageOrder = 3, Status = MissionStatusEnum.Complete, DependsOnMissionId = rescueFirst.Id, CompletedUtc = now.AddMinutes(-20) }).ConfigureAwait(false);
+                    Mission rescueRevise = await testDb.Driver.Missions.CreateAsync(new Mission("Rescue revise", "revise") { VesselId = vessel.Id, VoyageId = rescue.Id, Persona = "Worker", StageOrder = 4, Status = MissionStatusEnum.Complete, DependsOnMissionId = rescueTester.Id, CompletedUtc = now.AddMinutes(-10) }).ConfigureAwait(false);
+
+                    Mission? forFirst = await RescueDependencyResolver.FindReplacementAsync(testDb.Driver, firstWorker).ConfigureAwait(false);
+                    AssertEqual(rescueFirst.Id, forFirst?.Id ?? "(none)", "The first Worker is replaced by the rescue's stage-1 Worker, not the later stage-4 Worker");
+
+                    Mission? forRevise = await RescueDependencyResolver.FindReplacementAsync(testDb.Driver, reviseWorker).ConfigureAwait(false);
+                    AssertEqual(rescueRevise.Id, forRevise?.Id ?? "(none)", "The revise Worker is replaced by the rescue's stage-4 Worker");
+
+                    Mission? forOrphan = await RescueDependencyResolver.FindReplacementAsync(testDb.Driver, orphanTester).ConfigureAwait(false);
+                    AssertEqual(rescueTester.Id, forOrphan?.Id ?? "(none)", "With no rescue stage at the same order, the latest completed stage of the persona replaces it");
+                }
+            });
+
             await RunTest("TryAssign_FanOutWorkerBelowARecoveryTipPlanner_CutsBranchAtTheTipAndVerifiesTheCheckout", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

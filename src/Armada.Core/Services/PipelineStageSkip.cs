@@ -35,6 +35,9 @@ namespace Armada.Core.Services
         /// <summary>Refusal code: the skip would leave no stage other than the Judge.</summary>
         public const string NoWorkRemainsCode = "stage_skip_leaves_no_work";
 
+        /// <summary>Refusal code: a named persona is the persona of more than one stage of the effective pipeline.</summary>
+        public const string AmbiguousPersonaCode = "stage_skip_ambiguous_persona";
+
         #endregion
 
         #region Public-Methods
@@ -106,8 +109,8 @@ namespace Armada.Core.Services
         /// <param name="request">Skip request, or null.</param>
         /// <returns>The pipeline to materialise and the stages that were dropped.</returns>
         /// <exception cref="StageSkipRefusedException">
-        /// When a name is blank, names the Judge, is not a stage of the pipeline, or the skip would
-        /// leave no stage other than the Judge.
+        /// When a name is blank, names the Judge, is not a stage of the pipeline, is the persona of more
+        /// than one stage of the pipeline, or the skip would leave no stage other than the Judge.
         /// </exception>
         public static PipelineStageSkipResult Apply(Pipeline? pipeline, StageSkipRequest? request)
         {
@@ -128,6 +131,16 @@ namespace Armada.Core.Services
                     throw new StageSkipRefusedException(UnknownPersonaCode, name,
                         "skipStages names \"" + name + "\", which is not a stage of the effective pipeline ("
                         + pipelineName + "; stages: " + String.Join(", ", stages.Select(stage => stage.PersonaName)) + ").");
+                }
+
+                // A persona name names a stage only when exactly one stage carries that persona.
+                List<PipelineStage> named = stages.Where(stage => NamesStage(stage.PersonaName, name)).ToList();
+                if (named.Count > 1)
+                {
+                    throw new StageSkipRefusedException(AmbiguousPersonaCode, name,
+                        "skipStages names \"" + name + "\", which is the persona of " + named.Count + " stages of the effective pipeline ("
+                        + pipelineName + "; orders: " + String.Join(", ", named.Select(stage => stage.Order + " " + stage.PersonaName))
+                        + "). A persona name cannot say which of them to skip.");
                 }
             }
 

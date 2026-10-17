@@ -27,7 +27,8 @@ namespace Armada.Core.Services
         /// <summary>
         /// The completed stage, of the same persona, in a completed rescue voyage descended from the
         /// dependency's voyage; null when the dependency is not cancelled or failed, or no completed
-        /// rescue replaced it. When several rescues completed, the latest one wins.
+        /// rescue replaced it. A stage at the dependency's stage order is preferred over another stage
+        /// of the same persona. When several candidates remain, the latest completed one wins.
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="dependency">The mission a dependant names.</param>
@@ -55,27 +56,54 @@ namespace Armada.Core.Services
             }
             if (rescueVoyages.Count == 0) return null;
 
+            // A pipeline can name one persona at several stages, so a rescue stage at the dependency's
+            // stage order replaces it first; the latest completed stage of the persona is the fallback.
+            Mission? sameOrderReplacement = null;
             Mission? replacement = null;
             foreach (string voyageId in rescueVoyages)
             {
                 Voyage? voyage = await database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
                 if (voyage == null || voyage.Status != VoyageStatusEnum.Complete) continue;
-                Mission? stage = vesselMissions
+                List<Mission> samePersona = vesselMissions
                     .Where(item => String.Equals(item.VoyageId, voyageId, StringComparison.Ordinal)
                         && item.Status == MissionStatusEnum.Complete
                         && String.Equals(item.Persona, dependency.Persona, StringComparison.OrdinalIgnoreCase))
-                    .OrderByDescending(item => item.CompletedUtc ?? DateTime.MinValue)
-                    .FirstOrDefault();
+                    .ToList();
+                Mission? stage = Latest(samePersona.Where(item => SameStageOrder(item, dependency)));
+                if (stage != null)
+                {
+                    if (sameOrderReplacement == null || CompletedAt(stage) > CompletedAt(sameOrderReplacement))
+                        sameOrderReplacement = stage;
+                    continue;
+                }
+
+                stage = Latest(samePersona);
                 if (stage == null) continue;
-                if (replacement == null || (stage.CompletedUtc ?? DateTime.MinValue) > (replacement.CompletedUtc ?? DateTime.MinValue))
+                if (replacement == null || CompletedAt(stage) > CompletedAt(replacement))
                     replacement = stage;
             }
-            return replacement;
+            return sameOrderReplacement ?? replacement;
         }
 
         #endregion
 
         #region Private-Methods
+
+        // A dependency with no stage order matches any stage order.
+        private static bool SameStageOrder(Mission item, Mission dependency)
+        {
+            return dependency.StageOrder == null || item.StageOrder == dependency.StageOrder;
+        }
+
+        private static DateTime CompletedAt(Mission mission)
+        {
+            return mission.CompletedUtc ?? DateTime.MinValue;
+        }
+
+        private static Mission? Latest(IEnumerable<Mission> missions)
+        {
+            return missions.OrderByDescending(CompletedAt).FirstOrDefault();
+        }
 
         // A rescue descends from a voyage when its parent chain, through rescue missions only, reaches a
         // mission of that voyage.

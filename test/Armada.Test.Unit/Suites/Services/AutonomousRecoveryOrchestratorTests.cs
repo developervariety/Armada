@@ -3190,6 +3190,121 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("\"Persona\":\"PortingReferenceAnalyst\"", rescueSkips[0].Payload ?? "", "The analyst skip is the one carried.");
             }).ConfigureAwait(false);
 
+            await RunTest("A Judge rescue on a pipeline with two Worker stages anchors at the Worker stage before the Judge", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DuplicateWorkerRescueOutcome outcome = await RescueOnDuplicateWorkerPipelineAsync(
+                    testDb, "ten_recovery_dup_judge", "Judge", 5,
+                    "Judge verdict: NEEDS_REVISION. The error path swallows the exception.").ConfigureAwait(false);
+
+                AssertEqual("Worker", outcome.Rescue.Persona, "A Judge rejection is rescued by a Worker.");
+                AssertEqual(4, outcome.Rescue.StageOrder ?? 0, "The rescue Worker takes the order of the Worker stage that precedes the failed Judge.");
+                AssertEqual("high", outcome.Rescue.PreferredModel ?? "", "The rescue Worker takes the tier of the Worker stage it replaces.");
+                AssertEqual(
+                    "Worker,Judge",
+                    DescribeStageChain(outcome.RecoveryMissions),
+                    "Only the stages after the second Worker re-run; the earlier analyst and TestEngineer passes are not rebuilt.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A failed second Worker stage is rescued at its own stage and re-runs only the stages after it", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DuplicateWorkerRescueOutcome outcome = await RescueOnDuplicateWorkerPipelineAsync(
+                    testDb, "ten_recovery_dup_worker", "Worker", 4,
+                    "DoD gate failed: classification=TestFail; unit-test command exited 1").ConfigureAwait(false);
+
+                AssertEqual("Worker", outcome.Rescue.Persona, "A failed Worker is rescued by a Worker.");
+                AssertEqual(4, outcome.Rescue.StageOrder ?? 0, "The rescue replaces the failed Worker stage, not the first Worker stage.");
+                AssertEqual(
+                    "Worker,Judge",
+                    DescribeStageChain(outcome.RecoveryMissions),
+                    "Only the stages after the failed Worker re-run.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A carried skip whose persona names two rescue stages is not carried and the other skip still is", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                string tenantId = "ten_recovery_dup_skip";
+                string userId = "usr_" + tenantId;
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
+                Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("DuplicateTestEngineerRecovery")
+                {
+                    TenantId = vessel.TenantId,
+                    Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "TestEngineer"),
+                        new PipelineStage(3, "PortingReferenceAnalyst"),
+                        new PipelineStage(4, "TestEngineer"),
+                        new PipelineStage(5, "Judge") { RequiresReview = true }
+                    }
+                }).ConfigureAwait(false);
+
+                Voyage parentVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent duplicate-persona voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+
+                // The recorded skip names the first TestEngineer stage and the analyst. A persona name
+                // cannot say which of the rescue chain's two TestEngineer stages it meant.
+                StageSkipRequest skip = new StageSkipRequest
+                {
+                    Stages = new List<string> { "TestEngineer", "PortingReferenceAnalyst" },
+                    Reason = "reference already verified",
+                    ConfirmedBy = "operator"
+                };
+                PipelineStageSkipResult recorded = new PipelineStageSkipResult(
+                    pipeline,
+                    new List<PipelineStage> { pipeline.Stages[1], pipeline.Stages[2] });
+                await PipelineStageSkip.EmitSkippedEventsAsync(testDb.Driver, null, parentVoyage, recorded, skip).ConfigureAwait(false);
+
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel,
+                    "DoD gate failed: classification=TestFail; unit-test command exited 1").ConfigureAwait(false);
+                failed.Persona = "Worker";
+                failed.StageOrder = 1;
+                failed.VoyageId = parentVoyage.Id;
+                failed.Mode = MissionModeEnum.Implementation;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "Duplicate-persona skip owner",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { parentVoyage.Id },
+                    SuggestedPipelineId = pipeline.Id
+                }).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    StandardRecoveryTierSettings());
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                Mission worker = admiral.DispatchedMissions.Single();
+                List<Mission> recoveryMissions = await testDb.Driver.Missions
+                    .EnumerateByVoyageAsync(worker.VoyageId!).ConfigureAwait(false);
+                AssertEqual(
+                    "Worker,TestEngineer,TestEngineer,Judge",
+                    DescribeStageChain(recoveryMissions),
+                    "Both TestEngineer stages run because the skip cannot name one of them; the analyst skip is carried.");
+
+                List<ArmadaEvent> rescueSkips = await ReadStageSkippedEventsAsync(testDb, worker.VoyageId!).ConfigureAwait(false);
+                AssertEqual(1, rescueSkips.Count, "Only the unambiguous skip is recorded on the rescue voyage.");
+                AssertContains("\"Persona\":\"PortingReferenceAnalyst\"", rescueSkips[0].Payload ?? "", "The analyst skip is the one carried.");
+            }).ConfigureAwait(false);
+
             await RunTest("Chained rescue stage preserves Research mode and playbook context", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -4422,6 +4537,95 @@ namespace Armada.Test.Unit.Suites.Services
                 new RunbookService(testDb.Driver, new LoggingModule()),
                 StandardRecoveryTierSettings());
             return (failed, parentVoyage, admiral, orchestrator);
+        }
+
+        // A failed stage on an objective voyage whose pipeline names the Worker twice:
+        // Worker, analyst, TestEngineer, Worker (revise), Judge. The second Worker carries an explicit tier.
+        private static async Task<DuplicateWorkerRescueOutcome> RescueOnDuplicateWorkerPipelineAsync(
+            TestDatabase testDb,
+            string tenantId,
+            string failedPersona,
+            int failedStageOrder,
+            string failureReason)
+        {
+            string userId = "usr_" + tenantId;
+            await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+            Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+            await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
+            Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("DuplicateWorkerRecovery")
+            {
+                TenantId = vessel.TenantId,
+                Stages = new List<PipelineStage>
+                {
+                    new PipelineStage(1, "Worker"),
+                    new PipelineStage(2, "PortingReferenceAnalyst"),
+                    new PipelineStage(3, "TestEngineer"),
+                    new PipelineStage(4, "Worker") { PreferredModel = "high" },
+                    new PipelineStage(5, "Judge") { RequiresReview = true }
+                }
+            }).ConfigureAwait(false);
+
+            Voyage parentVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent duplicate-Worker voyage")
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                Status = VoyageStatusEnum.Failed
+            }).ConfigureAwait(false);
+
+            Mission failed = await CreateFailedMissionAsync(testDb, vessel, failureReason).ConfigureAwait(false);
+            failed.Persona = failedPersona;
+            failed.StageOrder = failedStageOrder;
+            failed.VoyageId = parentVoyage.Id;
+            failed.Mode = MissionModeEnum.Implementation;
+            await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+            await testDb.Driver.Objectives.CreateAsync(new Objective
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                Title = "Duplicate-Worker owner",
+                Status = ObjectiveStatusEnum.InProgress,
+                VesselIds = new List<string> { vessel.Id },
+                VoyageIds = new List<string> { parentVoyage.Id },
+                SuggestedPipelineId = pipeline.Id
+            }).ConfigureAwait(false);
+
+            RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+            AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                testDb.Driver,
+                admiral,
+                new IncidentService(testDb.Driver),
+                new RunbookService(testDb.Driver, new LoggingModule()),
+                StandardRecoveryTierSettings());
+
+            await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+            if (admiral.DispatchedMissions.Count != 1)
+                throw new Exception("Expected exactly one rescue dispatch, got " + admiral.DispatchedMissions.Count + ".");
+            Mission rescue = admiral.DispatchedMissions[0];
+            if (String.IsNullOrEmpty(rescue.VoyageId))
+                throw new Exception("Expected the rescue to run in a rescue voyage.");
+            List<Mission> recoveryMissions = await testDb.Driver.Missions
+                .EnumerateByVoyageAsync(rescue.VoyageId!).ConfigureAwait(false);
+            return new DuplicateWorkerRescueOutcome(rescue, recoveryMissions);
+        }
+
+        private static string DescribeStageChain(List<Mission> missions)
+        {
+            return String.Join(",", missions.OrderBy(item => item.StageOrder ?? 0).Select(item => item.Persona));
+        }
+
+        private sealed class DuplicateWorkerRescueOutcome
+        {
+            public DuplicateWorkerRescueOutcome(Mission rescue, List<Mission> recoveryMissions)
+            {
+                Rescue = rescue;
+                RecoveryMissions = recoveryMissions;
+            }
+
+            public Mission Rescue { get; }
+            public List<Mission> RecoveryMissions { get; }
         }
 
         private static async Task<List<ArmadaEvent>> ReadStageSkippedEventsAsync(TestDatabase testDb, string voyageId)

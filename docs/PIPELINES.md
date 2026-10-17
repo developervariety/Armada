@@ -109,11 +109,24 @@ cannot be read.
 A mission that depends on a stage in another voyage waits on that stage. When
 that stage was cancelled or failed and an autonomous rescue of its voyage
 completed, the dependant waits on the rescue's completed stage of the same
-persona instead; the change is recorded as `mission.dependency_rewired`, and the
-original stage stays in the record. An objective whose failed voyage was
+persona instead, preferring the rescue stage at the original stage's order when
+the pipeline names that persona at more than one stage; the change is recorded
+as `mission.dependency_rewired`, and the original stage stays in the record. An objective whose failed voyage was
 recovered reconciles to `Completed` once the rescue voyage completes: a rescue
 of a failed stage also recovers the failed stages above it in the same chain,
 because it started from that stage's commit and re-ran them.
+
+A rescue takes the place of one pipeline stage and re-runs the stages after it.
+A pipeline can name one persona at more than one stage (for example Worker,
+analyst, TestEngineer, Worker, Judge), so the failed mission's stage order
+chooses the stage. A rescue of the failed persona replaces the last stage of
+that persona at or before the failed order. A rescue in another persona (a
+Worker that revises a reviewer rejection) replaces the last stage of its persona
+before the failed order, so the reviewer runs again in the chain. A Judge
+rejection in that example is rescued at the second Worker and re-runs only the
+Judge. The rescue takes the order, tier and review settings of that stage. A
+mission with no stage order, or with no matching stage before it, uses the first
+stage of the rescue persona.
 
 A rescue for a reviewer rejection is a Worker started from the reviewed
 commit. The brief carries a digest-backed pointer to the full Judge output and
