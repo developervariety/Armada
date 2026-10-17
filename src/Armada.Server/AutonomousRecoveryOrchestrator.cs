@@ -3190,6 +3190,16 @@ namespace Armada.Server
             // the context the rescued mission was actually working from -- can still fit.
             originalDescription = MissionService.CompactOlderHandoffBlocks(originalDescription, keepNewestFull: true);
 
+            // The failed stage's description opens with that stage's role. A rescue of a Judge, Linter or
+            // TestEngineer is a Worker that fixes the work, so the reviewer's role must not reach it.
+            string withoutRole = MissionService.StripPersonaPreambles(originalDescription);
+            if (withoutRole.Length != originalDescription.Length)
+            {
+                originalDescription = withoutRole;
+                sb.AppendLine("This description was written for the failed " + (failedMission.Persona ?? "mission")
+                    + " stage. Its role section is removed: your role is this rescue's Objective above, not that stage's role.");
+            }
+
             string sanitized = SanitizeOriginalDescriptionForRescue(originalDescription);
             sb.AppendLine(sanitized);
 

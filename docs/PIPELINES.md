@@ -190,6 +190,11 @@ Description, metadata and total-budget trimming keep each generated rescue-root
 artifact reference with its ID, length, digest and exact read notice. The
 original rescue description remains available as bounded narrative.
 
+The rescue brief embeds the failed mission's description without its persona
+role section (the `## Your Role:` heading and its paragraph) and says so. A
+rescue of a failed Judge, Linter or TestEngineer is a Worker that fixes the
+work, so it never receives the reviewer's role text as its own brief.
+
 The failed parent output is in scope for the rescue Worker and later stages in
 that rescue chain. The server follows same-owner, same-voyage and same-vessel
 dependencies back to the marked rescue root, and exposes only the failed

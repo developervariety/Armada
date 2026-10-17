@@ -8444,6 +8444,57 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Remove every persona role section (a <c>## Your Role:</c> heading and the paragraph under it) from a
+        /// mission description. A stage description carries the role of the stage it was written for; a brief
+        /// built from it for another role, such as a rescue Worker built from a failed Judge, must not inherit that
+        /// role. The follow-on paragraph a revised-report preamble adds is removed with its role section.
+        /// </summary>
+        /// <param name="description">Mission description; may be null or empty.</param>
+        /// <returns>The description without role sections.</returns>
+        public static string StripPersonaPreambles(string? description)
+        {
+            if (String.IsNullOrEmpty(description)) return String.Empty;
+
+            string[] lines = description.Replace("\r\n", "\n").Split('\n');
+            List<string> kept = new List<string>(lines.Length);
+            int i = 0;
+            while (i < lines.Length)
+            {
+                if (!lines[i].StartsWith(_PersonaPreambleHeadingPrefix, StringComparison.Ordinal))
+                {
+                    kept.Add(lines[i]);
+                    i++;
+                    continue;
+                }
+
+                i++;
+                i = SkipBlankLines(lines, i);
+                i = SkipParagraph(lines, i);
+                int next = SkipBlankLines(lines, i);
+                if (next < lines.Length && lines[next].StartsWith(_RevisedReportPreambleFollowOn, StringComparison.Ordinal))
+                    i = SkipParagraph(lines, next);
+                i = SkipBlankLines(lines, i);
+            }
+
+            return String.Join("\n", kept);
+        }
+
+        private const string _PersonaPreambleHeadingPrefix = "## Your Role: ";
+        private const string _RevisedReportPreambleFollowOn = "The prior stage revised the root report.";
+
+        private static int SkipBlankLines(string[] lines, int index)
+        {
+            while (index < lines.Length && String.IsNullOrWhiteSpace(lines[index])) index++;
+            return index;
+        }
+
+        private static int SkipParagraph(string[] lines, int index)
+        {
+            while (index < lines.Length && !String.IsNullOrWhiteSpace(lines[index]) && !lines[index].StartsWith("#", StringComparison.Ordinal)) index++;
+            return index;
+        }
+
+        /// <summary>
         /// Truncates an over-budget mission description, preserving the head (the base brief) and the tail
         /// (the newest handoff block, which carries the diff a reviewing stage needs) and eliding the middle
         /// with a visible marker. Returns the input unchanged when it fits. A tail-only cut would drop the

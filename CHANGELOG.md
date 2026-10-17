@@ -37,6 +37,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A rescue of a failed Judge, Linter or TestEngineer no longer hands its Worker
+  the failed reviewer's role text as the original mission description. The
+  rescue brief removes every persona role section from that description and
+  says it did.
+
 - An admiral restart no longer leaves a finished mission held for good when it
   kills that mission's running or queued definition-of-done gate. The health
   loop re-runs the gate: a pass releases the hold and hands off or lands, a

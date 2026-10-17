@@ -2825,6 +2825,45 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(fallbackBrief.Contains("complete list from the full review", StringComparison.Ordinal), "The fallback does not claim full-review completeness.");
             }).ConfigureAwait(false);
 
+            await RunTest("RescueOfAFailedJudge_DoesNotInheritTheJudgeRole", () =>
+            {
+                string judgeRole = MissionService.BuildPersonaPreamble("Judge", MissionModeEnum.Implementation);
+                Mission failedJudge = new Mission("Align the retry policy [Judge]")
+                {
+                    Id = "msn_test_failed_judge_role",
+                    Status = MissionStatusEnum.Failed,
+                    Persona = "Judge",
+                    AgentOutput = "## Correctness\n1. src/Example.cs:40 -- the retry resends twice.\n## Verdict\nNEEDS_REVISION",
+                    Description = "## Acceptance Criteria\n- A first timeout resends exactly once.\n\n## Mission Context\n"
+                        + judgeRole
+                        + "[ORCHESTRATOR NOTES]\nRouted lint findings stay evidence only."
+                };
+                Incident incident = new Incident
+                {
+                    Id = "inc_test_judge_role",
+                    Title = "synthetic failed judge",
+                    Summary = "synthetic summary",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.Medium
+                };
+
+                string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failedJudge, incident, 1);
+
+                AssertFalse(brief.Contains("## Your Role: Judge", StringComparison.Ordinal), "The rescue Worker brief carries no Judge role heading");
+                AssertFalse(brief.Contains("You are reviewing the completed work", StringComparison.Ordinal), "The rescue Worker brief carries no Judge role text");
+                AssertContains("A first timeout resends exactly once.", brief, "The original acceptance criteria stay in the brief");
+                AssertContains("Routed lint findings stay evidence only.", brief, "The text after the role section stays in the brief");
+                AssertContains("Its role section is removed", brief, "The brief says the failed stage's role was removed");
+                AssertContains("src/Example.cs:40", brief, "The Judge's findings still reach the rescue");
+
+                string revised = MissionService.BuildPersonaPreamble("Linter", MissionModeEnum.Research, 2);
+                string stripped = MissionService.StripPersonaPreambles("Scope line.\n\n" + revised + "Report body.");
+                AssertFalse(stripped.Contains("## Your Role:", StringComparison.Ordinal), "A revised-report role section is removed");
+                AssertFalse(stripped.Contains("The prior stage revised the root report.", StringComparison.Ordinal), "Its follow-on paragraph is removed with it");
+                AssertContains("Scope line.", stripped, "Text before the role section is kept");
+                AssertContains("Report body.", stripped, "Text after the role section is kept");
+            }).ConfigureAwait(false);
+
             await RunTest("ChainedRescueStages_PointToTheFailedJudgeOutput", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
