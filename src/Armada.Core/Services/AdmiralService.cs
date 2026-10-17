@@ -494,7 +494,7 @@ namespace Armada.Core.Services
                     {
                         Mission mission = new Mission(
                             "[" + stage.PersonaName + "] " + baseTitle,
-                            md.Description);
+                            AppendPipelineStageSection(md.Description, stage, pipeline.Stages.Count));
                         mission.TenantId = vessel.TenantId;
                         mission.UserId = vessel.UserId;
                         mission.VoyageId = voyage.Id;
@@ -693,7 +693,8 @@ namespace Armada.Core.Services
 
                         foreach (PipelineStage stage in stageGroup)
                         {
-                            Mission mission = new Mission("[" + stage.PersonaName + "] " + baseTitle, md.Description);
+                            Mission mission = new Mission("[" + stage.PersonaName + "] " + baseTitle,
+                                AppendPipelineStageSection(md.Description, stage, pipeline!.Stages.Count));
                             mission.TenantId = vessel.TenantId;
                             mission.UserId = vessel.UserId;
                             mission.VoyageId = voyage.Id;
@@ -1820,6 +1821,25 @@ namespace Armada.Core.Services
         }
 
         #region Private-Methods
+
+        /// <summary>
+        /// Appends a pipeline stage's own description to the mission description, so the captain of
+        /// that stage reads its role in the pipeline. Two stages can share a persona (a Worker that
+        /// writes a report and a later Worker that revises it), and only the stage description tells
+        /// them apart. A stage without a description leaves the mission description unchanged.
+        /// </summary>
+        /// <param name="description">The dispatched mission description.</param>
+        /// <param name="stage">The pipeline stage the mission runs.</param>
+        /// <param name="stageCount">Number of stages in the pipeline.</param>
+        /// <returns>The mission description for this stage.</returns>
+        internal static string AppendPipelineStageSection(string? description, PipelineStage stage, int stageCount)
+        {
+            string body = description ?? String.Empty;
+            if (stage == null || String.IsNullOrWhiteSpace(stage.Description)) return body;
+            return body.TrimEnd() + "\n\n## Pipeline Stage\n" +
+                "Stage " + stage.Order + " of " + stageCount + " (" + stage.PersonaName + "): " + stage.Description!.Trim() + "\n";
+        }
+
 
         /// <summary>
         /// Build the voyage row a dispatch creates. The per-persona captain assignments are part of the row

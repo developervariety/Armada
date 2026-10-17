@@ -7449,7 +7449,56 @@ namespace Armada.Core.Services
         /// <returns>The persona preamble, or an empty string for a persona without one.</returns>
         internal static string BuildPersonaPreamble(string? persona, MissionModeEnum mode)
         {
+            return BuildPersonaPreamble(persona, mode, 0);
+        }
+
+        /// <summary>
+        /// Build the persona preamble for a downstream stage, aware of report revision. In a report-only
+        /// pipeline a Worker stage that follows an earlier Worker revises the root report rather than
+        /// writing a new one, and every stage after that revision reviews the revised report, which
+        /// replaces the root report as the deliverable.
+        /// </summary>
+        /// <param name="persona">Persona of the downstream mission.</param>
+        /// <param name="mode">Mode of the downstream mission.</param>
+        /// <param name="earlierWorkers">Worker stages of the same voyage ordered before this stage.</param>
+        /// <returns>The persona preamble, or an empty string for a persona without one.</returns>
+        internal static string BuildPersonaPreamble(string? persona, MissionModeEnum mode, int earlierWorkers)
+        {
             bool reportOnly = (mode == MissionModeEnum.Audit || mode == MissionModeEnum.Research);
+            if (reportOnly && earlierWorkers > 0)
+            {
+                if (persona == "Worker")
+                {
+                    return "## Your Role: Worker (Revise the Report)\n\n" +
+                        "This is a report-only " + mode + " mission: your deliverable is the revised report, not a code change. " +
+                        "Do not edit, commit, or push. Earlier Stage Reports holds the root report and every reviewer's findings, and the prior stage output below is the last review. " +
+                        "Revise the root report: address every reviewer finding, or state with evidence why you reject it. " +
+                        "Publish the complete revised report, not a list of changes, because the next stage judges your report alone as the deliverable. " +
+                        "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary of what you changed and rejected.\n\n";
+                }
+
+                if (earlierWorkers > 1)
+                {
+                    if (persona == "Judge")
+                    {
+                        return "## Your Role: Judge (Review the Revised Report)\n\n" +
+                            "This is a report-only " + mode + " mission: validate the report and its evidence, not a code change. " +
+                            "Do not edit, commit, or push, and do not order or run implementation tests. The prior stage output below is the revised report, and it is the deliverable you judge; it replaces the root report. " +
+                            "Earlier Stage Reports holds the root report and every reviewer's findings, so check that each finding was addressed or rejected with evidence. " +
+                            "Judge against the current mission description only, not sibling missions in the same voyage. " +
+                            "Verify that every claim is backed by exact evidence and that cited paths resolve. " +
+                            "Your response must include " + JudgeReviewSections.Headings(true) + " sections. " +
+                            "End with a standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
+                    }
+
+                    string basePreamble = BuildPersonaPreamble(persona, mode, 0);
+                    if (basePreamble.Length > 0)
+                    {
+                        return basePreamble +
+                            "The prior stage revised the root report. Its output below is the deliverable under review; the root report in Earlier Stage Reports is the earlier version.\n\n";
+                    }
+                }
+            }
 
             switch (persona)
             {
@@ -7561,7 +7610,8 @@ namespace Armada.Core.Services
             CancellationToken token = default)
         {
             // Build persona-specific preamble for the next stage
-            string personaPreamble = BuildPersonaPreamble(nextMission.Persona, nextMission.Mode);
+            int earlierWorkers = nextMission.IsReadOnlyMode ? CountEarlierWorkerStages(completedMission, nextMission, voyageMissions) : 0;
+            string personaPreamble = BuildPersonaPreamble(nextMission.Persona, nextMission.Mode, earlierWorkers);
 
             // Inject context from the completed stage into the next stage's description.
             // The block opens with a per-upstream marker so a repeated handoff for the same
@@ -7923,6 +7973,28 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Counts the Worker stages in a dependent's own chain: the prior stage and every earlier stage
+        /// <see cref="CollectEarlierStages"/> reaches. In a report-only pipeline the first Worker writes
+        /// the root report and a later Worker revises it, so the count tells a stage whether it writes,
+        /// revises, or reviews a revised report. Other chains of the same voyage are never counted.
+        /// </summary>
+        /// <param name="completedMission">The prior stage, named by the dependent.</param>
+        /// <param name="nextMission">The dependent being prepared.</param>
+        /// <param name="voyageMissions">Missions of the voyage; null counts only the prior stage.</param>
+        /// <returns>The number of Worker stages before the dependent.</returns>
+        internal static int CountEarlierWorkerStages(Mission? completedMission, Mission? nextMission, List<Mission>? voyageMissions)
+        {
+            if (completedMission == null || nextMission == null) return 0;
+            int count = String.Equals(completedMission.Persona, "Worker", StringComparison.Ordinal) ? 1 : 0;
+            if (voyageMissions == null) return count;
+            foreach (Mission stage in CollectEarlierStages(completedMission, nextMission, voyageMissions))
+            {
+                if (String.Equals(stage.Persona, "Worker", StringComparison.Ordinal)) count++;
+            }
+            return count;
+        }
+
+        /// <summary>
         /// Lists the stages that ran before the prior stage of a dependent, oldest first: each ancestor
         /// reached through <see cref="Mission.DependsOnMissionId"/>, and at each level the parallel siblings
         /// that shared its upstream. The prior stage itself is excluded, because its own handoff block
@@ -8002,8 +8074,22 @@ namespace Armada.Core.Services
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
             sb.Append("\n\n---\n").Append(_StageChainStartMarker).Append('\n');
             sb.Append(_StageChainHeading).Append('\n');
-            sb.Append("Every stage of this report-only pipeline reviews the same root report. The stages before the prior stage are listed here, oldest first, ");
-            sb.Append("so this stage reviews the root report itself and each earlier reviewer's findings, not only the prior stage's summary of them.\n");
+            int earlierWorkers = CountEarlierWorkerStages(completedMission, nextMission, voyageMissions);
+            if (earlierWorkers > 1)
+            {
+                sb.Append("The prior stage revised the root report, and its output is the deliverable under review. The stages before it are listed here, oldest first: ");
+                sb.Append("the root report as first written and each reviewer's findings, so this stage can check that every finding was addressed or rejected with evidence.\n");
+            }
+            else if (earlierWorkers == 1 && nextMission != null && nextMission.Persona == "Worker")
+            {
+                sb.Append("This stage revises the root report. The stages before the prior stage are listed here, oldest first: ");
+                sb.Append("the root report itself and each reviewer's findings, so the revision can address every finding, not only the prior stage's.\n");
+            }
+            else
+            {
+                sb.Append("Every stage of this report-only pipeline reviews the same root report. The stages before the prior stage are listed here, oldest first, ");
+                sb.Append("so this stage reviews the root report itself and each earlier reviewer's findings, not only the prior stage's summary of them.\n");
+            }
 
             foreach (Mission stage in earlier)
             {

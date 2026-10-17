@@ -100,6 +100,19 @@ description has an 80,000-character narrative budget instead of 20,000; the
 captain brief embeds a bounded copy, and the full description is written into
 the dock as files the captain reads.
 
+A report-only pipeline can revise its report. A Worker stage whose own chain
+already holds a Worker is told to revise the root report: address every
+reviewer finding or reject it with evidence, and publish the complete revised
+report. A stage after that revision reviews the revised report as the
+deliverable: a Judge checks that each finding was addressed, and the earlier
+stages section names the root report as the earlier version. Workers of other
+chains in the same voyage are never counted.
+
+A stage's own `Description` is appended to its mission description at dispatch
+as a `## Pipeline Stage` section ("Stage N of M (Persona): ..."), so two
+stages of one persona are told apart. A stage without a description leaves
+the mission description unchanged.
+
 A mission's dock outlives its captain while the mission still lands or is
 approved from it: a mission in `WorkProduced`, `PullRequestOpen` or `Review`
 keeps its dock through stall recovery and the orphan-dock reaper, and the disk

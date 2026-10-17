@@ -240,6 +240,54 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Each stage's own description reaches its mission, so two stages of one persona are told apart", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+                    AdmiralService admiralService = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
+
+                    Vessel vessel = new Vessel("stage-description-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Pipeline pipeline = new Pipeline("ReportRevised");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker") { Description = "Write the root report." },
+                        new PipelineStage(2, "Linter"),
+                        new PipelineStage(3, "Worker") { Description = "Revise the root report once." }
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    List<MissionDescription> missions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Report on module", "Summarize the module")
+                    };
+
+                    Voyage voyage = await admiralService.DispatchVoyageAsync("Stage description voyage", "Test", vessel.Id, missions, pipeline.Id).ConfigureAwait(false);
+                    List<Mission> voyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+
+                    Mission root = voyageMissions.Single(m => m.StageOrder == 1);
+                    Mission linter = voyageMissions.Single(m => m.StageOrder == 2);
+                    Mission revision = voyageMissions.Single(m => m.StageOrder == 3);
+
+                    AssertContains("Summarize the module", root.Description ?? "", "The dispatched description stays first");
+                    AssertContains("Stage 1 of 3 (Worker): Write the root report.", root.Description ?? "", "The first Worker reads its own stage description");
+                    AssertFalse((root.Description ?? "").Contains("Revise the root report once.", StringComparison.Ordinal), "A stage never reads another stage's description");
+                    AssertContains("Stage 3 of 3 (Worker): Revise the root report once.", revision.Description ?? "", "The second Worker reads that it revises");
+                    AssertEqual("Summarize the module", linter.Description, "A stage without a description keeps the dispatched description unchanged");
+                }
+            });
+
             await RunTest("Architect fan-out clones full downstream chain and lands only terminal stage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

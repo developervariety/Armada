@@ -37,6 +37,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A pipeline stage's own description now reaches its captain: dispatch appends
+  it to the stage's mission description as a `## Pipeline Stage` section.
+  Before, only an internal decision read it. Pipelines whose stages carry
+  descriptions show them to captains from this change on.
+- In a report-only pipeline, a Worker stage after an earlier Worker in its own
+  chain is told to revise the root report instead of writing a new one, and a
+  Judge after that revision judges the revised report and checks that each
+  reviewer finding was addressed.
 - A rescue brief's blocking-findings list leaves out an item whose closing
   sentence only labels it lesser ("Follow-up.", "Follow-up, not a blocker."),
   the same as an item with a parenthetical "(not a blocker)" label. A natural

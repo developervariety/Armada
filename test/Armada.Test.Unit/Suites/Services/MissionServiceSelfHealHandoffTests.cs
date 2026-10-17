@@ -203,6 +203,43 @@ namespace Armada.Test.Unit.Suites.Services
             return await db.Missions.CreateAsync(mission).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Builds a report-only chain that revises its report: a root Worker, a Linter that lists findings, a revision
+        /// Worker, and a Judge. The stage named by <paramref name="pendingPersona"/> is the pending dependent, and every
+        /// stage before it has run. A second root Worker of an unrelated chain shares the voyage.
+        /// </summary>
+        private async Task<Mission> CreateRevisedChainAsync(SqliteDatabaseDriver db, Vessel vessel, string pendingPersona)
+        {
+            Voyage voyage = await db.Voyages.CreateAsync(new Voyage("revised chain") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+            Mission root = await CreateStageAsync(db, vessel, voyage, "Worker", 1, null, MissionStatusEnum.Complete,
+                "ROOT-REPORT-SENTINEL root report.").ConfigureAwait(false);
+            await CreateStageAsync(db, vessel, voyage, "Worker", 1, null, MissionStatusEnum.Complete,
+                "OTHER-CHAIN-SENTINEL report.").ConfigureAwait(false);
+            bool revisionPending = pendingPersona == "Worker";
+            Mission linter = await CreateStageAsync(db, vessel, voyage, "Linter", 2, root.Id,
+                revisionPending ? MissionStatusEnum.WorkProduced : MissionStatusEnum.Complete,
+                "## Findings\n1. **Blocking. LINTER-FINDING: the summary cites no path.**\n").ConfigureAwait(false);
+            if (revisionPending) return await CreatePendingStageAsync(db, vessel, voyage, "Worker", 3, linter.Id).ConfigureAwait(false);
+
+            Mission revision = await CreateStageAsync(db, vessel, voyage, "Worker", 3, linter.Id, MissionStatusEnum.WorkProduced,
+                "REVISED-REPORT-SENTINEL revised report.").ConfigureAwait(false);
+            return await CreatePendingStageAsync(db, vessel, voyage, "Judge", 4, revision.Id).ConfigureAwait(false);
+        }
+
+        private async Task<Mission> CreatePendingStageAsync(SqliteDatabaseDriver db, Vessel vessel, Voyage voyage, string persona, int stageOrder, string dependsOn)
+        {
+            Mission mission = new Mission("[" + persona + "] report", "Report on the scope.");
+            mission.VesselId = vessel.Id;
+            mission.VoyageId = voyage.Id;
+            mission.Persona = persona;
+            mission.Mode = MissionModeEnum.Research;
+            mission.StageOrder = stageOrder;
+            mission.Status = MissionStatusEnum.Pending;
+            mission.DependsOnMissionId = dependsOn;
+            mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+            return await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
         private sealed class ReportOnlyChain
         {
             public Mission Worker = null!;
@@ -372,9 +409,51 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("TEST-ENGINEER-MIDDLE-SENTINEL", description, "The prior stage's report is inlined whole in a report-only pipeline");
                     AssertFalse(description.Contains("OTHER-CHAIN-SENTINEL", StringComparison.Ordinal), "An unrelated chain's root is never carried");
                     AssertEqual(1, CountOccurrences(description, "## Earlier Stage Reports"), "The earlier-stages section appears once");
+                    AssertFalse(description.Contains("Revised Report", StringComparison.Ordinal), "A root Worker of another chain in the voyage does not make this a revision");
 
                     string compacted = MissionService.CompactOlderHandoffBlocks(description);
                     AssertContains("ROOT-MATRIX-MIDDLE-ROW", compacted, "Compacting handoff blocks leaves the earlier-stages section whole");
+                }
+            });
+
+            await RunTest("TryAssign_ReportOnlyRevisionWorker_IsToldToReviseTheRootReport", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Mission revision = await CreateRevisedChainAsync(testDb.Driver, vessel, "Worker").ConfigureAwait(false);
+
+                    await missions.TryAssignAsync(revision, vessel).ConfigureAwait(false);
+                    string description = (await testDb.Driver.Missions.ReadAsync(revision.Id).ConfigureAwait(false))!.Description ?? String.Empty;
+
+                    AssertContains("## Your Role: Worker (Revise the Report)", description, "A Worker after an earlier Worker revises the report");
+                    AssertFalse(description.Contains("Investigate and Report", StringComparison.Ordinal), "The revision Worker is not told to write a new report");
+                    AssertContains("This stage revises the root report", description, "The earlier-stages section names the revision");
+                    AssertContains("ROOT-REPORT-SENTINEL", description, "The root report reaches the revision Worker");
+                    AssertContains("LINTER-FINDING", description, "The reviewer's finding reaches the revision Worker");
+                }
+            });
+
+            await RunTest("TryAssign_ReportOnlyJudgeAfterRevision_JudgesTheRevisedReport", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Mission judge = await CreateRevisedChainAsync(testDb.Driver, vessel, "Judge").ConfigureAwait(false);
+
+                    await missions.TryAssignAsync(judge, vessel).ConfigureAwait(false);
+                    string description = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.Description ?? String.Empty;
+
+                    AssertContains("## Your Role: Judge (Review the Revised Report)", description, "The Judge after a revision judges the revised report");
+                    AssertContains("The prior stage revised the root report", description, "The earlier-stages section names the revised report as the deliverable");
+                    AssertContains("REVISED-REPORT-SENTINEL", description, "The revised report reaches the Judge");
+                    AssertContains("ROOT-REPORT-SENTINEL", description, "The root report reaches the Judge as the earlier version");
+                    AssertContains("LINTER-FINDING", description, "The reviewer's finding reaches the Judge, so it can check the finding was addressed");
+                    AssertFalse(description.Contains("OTHER-CHAIN-SENTINEL", StringComparison.Ordinal), "An unrelated chain's root is never carried");
                 }
             });
 
