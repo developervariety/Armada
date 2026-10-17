@@ -30,6 +30,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Terminal-voyage reconciliation completes an Audit or Research mission that
+  recorded no commit, with reason `terminal_voyage_report_only`, under any ended
+  voyage. It no longer marks the finished report `Failed` or `Cancelled` with
+  `terminal_voyage_no_commit`. A read-only mission that recorded a commit keeps
+  the landing-evidence rule. Mission summaries, reconciliation items and the
+  `mission.terminal_voyage_reconciled` event carry the mission mode.
+
 - A Judge PASS that the acceptance-criteria check refuses on line shape alone
   (a table, evidence on the next line, a missing criterion line) runs the same
   Judge once more in place with the check's reason and the exact accepted line

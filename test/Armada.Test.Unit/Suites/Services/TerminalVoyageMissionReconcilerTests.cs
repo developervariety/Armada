@@ -274,6 +274,77 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
+            await RunTest("A report-only mission with no commit completes under every ended voyage and keeps no reconciled marker", async () =>
+            {
+                await WithFixtureAsync(async (fx, db, logging) =>
+                {
+                    Voyage failed = await CreateVoyageAsync(db, VoyageStatusEnum.Failed, _Now.AddHours(-2)).ConfigureAwait(false);
+                    Voyage cancelled = await CreateVoyageAsync(db, VoyageStatusEnum.Cancelled, _Now.AddHours(-2)).ConfigureAwait(false);
+                    Voyage complete = await CreateVoyageAsync(db, VoyageStatusEnum.Complete, _Now.AddHours(-2)).ConfigureAwait(false);
+                    Voyage manual = await CreateVoyageAsync(db, VoyageStatusEnum.Complete, _Now.AddHours(-2), LandingModeEnum.None).ConfigureAwait(false);
+                    Mission research = await CreateMissionAsync(db, fx.Vessel, failed, "Worker", null, mode: MissionModeEnum.Research).ConfigureAwait(false);
+                    Mission audit = await CreateMissionAsync(db, fx.Vessel, cancelled, "Worker", null, mode: MissionModeEnum.Audit).ConfigureAwait(false);
+                    Mission superseded = await CreateMissionAsync(db, fx.Vessel, complete, "Worker", null, mode: MissionModeEnum.Research).ConfigureAwait(false);
+                    Mission unlandable = await CreateMissionAsync(db, fx.Vessel, manual, "Worker", null, mode: MissionModeEnum.Audit).ConfigureAwait(false);
+
+                    TerminalVoyageMissionReconciliationResult result = await Reconciler(fx, db, logging)
+                        .ReconcileAsync(Apply(), CancellationToken.None).ConfigureAwait(false);
+
+                    AssertEqual(4, result.Completed, "every report-only mission without a commit is Complete");
+                    AssertEqual(0, result.Failed + result.Cancelled + result.Kept, "none is failed, cancelled or kept");
+                    AssertEqual(4, Reason(result, TerminalVoyageMissionRule.ReasonReportOnly), "each is counted under the report-only reason");
+                    foreach (Mission reportOnly in new[] { research, audit, superseded, unlandable })
+                    {
+                        Mission after = (await db.Missions.ReadAsync(reportOnly.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Complete, after.Status, "a finished report is Complete: " + after.Mode);
+                        AssertNull(after.ReconciledUtc, "a completed report carries no reconciled marker");
+                        AssertNull(after.ReconciledReason, "a completed report carries no reconciled reason");
+                        AssertFalse(TerminalVoyageMissionRule.IsReconciledOutcome(after), "a completed report is not a reconciled failure");
+                    }
+                    foreach (TerminalVoyageMissionReconciliationItem item in result.Items)
+                    {
+                        AssertEqual(TerminalVoyageMissionRule.ReasonReportOnly, item.Reason, "the item names the report-only reason");
+                        AssertEqual(MissionStatusEnum.Complete, item.ToStatus, "the item reports Complete");
+                        AssertTrue(item.Mode == MissionModeEnum.Research || item.Mode == MissionModeEnum.Audit, "the item carries the mission mode");
+                    }
+
+                    EnumerationResult<ArmadaEvent> events = await db.Events.EnumerateAsync(
+                        new EnumerationQuery { PageNumber = 1, PageSize = 50 }).ConfigureAwait(false);
+                    List<ArmadaEvent> reconciled = events.Objects.Where(e => e.EventType == TerminalVoyageMissionReconciler.EventType).ToList();
+                    AssertEqual(4, reconciled.Count, "each completed report records a reconciliation event");
+                    foreach (ArmadaEvent evt in reconciled)
+                    {
+                        AssertContains("\"reason\":\"terminal_voyage_report_only\"", evt.Payload ?? "", "the event payload names the report-only reason");
+                        AssertContains("\"toStatus\":\"Complete\"", evt.Payload ?? "", "the event payload names the Complete status");
+                        AssertTrue((evt.Payload ?? "").Contains("\"mode\":\"Research\"") || (evt.Payload ?? "").Contains("\"mode\":\"Audit\""),
+                            "the event payload names the mission mode");
+                    }
+                }).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("A report-only mission that committed unlanded work keeps the unlanded rule", async () =>
+            {
+                await WithFixtureAsync(async (fx, db, logging) =>
+                {
+                    Voyage voyage = await CreateVoyageAsync(db, VoyageStatusEnum.Failed, _Now.AddHours(-2)).ConfigureAwait(false);
+                    Mission unlanded = await CreateMissionAsync(db, fx.Vessel, voyage, "Worker", fx.UnlandedSha, mode: MissionModeEnum.Audit).ConfigureAwait(false);
+                    Mission absent = await CreateMissionAsync(db, fx.Vessel, voyage, "Worker", "0123456789abcdef0123456789abcdef01234567", mode: MissionModeEnum.Research).ConfigureAwait(false);
+                    Mission landed = await CreateMissionAsync(db, fx.Vessel, voyage, "Worker", fx.LandedSha, mode: MissionModeEnum.Research).ConfigureAwait(false);
+                    Mission implementation = await CreateMissionAsync(db, fx.Vessel, voyage, "Worker", null).ConfigureAwait(false);
+
+                    TerminalVoyageMissionReconciliationResult result = await Reconciler(fx, db, logging)
+                        .ReconcileAsync(Apply(), CancellationToken.None).ConfigureAwait(false);
+
+                    AssertEqual(0, Reason(result, TerminalVoyageMissionRule.ReasonReportOnly), "only a commitless report-only mission takes the report-only reason");
+                    AssertReason(await db.Missions.ReadAsync(unlanded.Id).ConfigureAwait(false), MissionStatusEnum.Failed, TerminalVoyageMissionRule.ReasonWorkUnlanded);
+                    AssertReason(await db.Missions.ReadAsync(absent.Id).ConfigureAwait(false), MissionStatusEnum.Failed, TerminalVoyageMissionRule.ReasonCommitAbsent);
+                    AssertReason(await db.Missions.ReadAsync(implementation.Id).ConfigureAwait(false), MissionStatusEnum.Failed, TerminalVoyageMissionRule.ReasonNoCommit);
+                    AssertEqual(MissionStatusEnum.Complete, (await db.Missions.ReadAsync(landed.Id).ConfigureAwait(false))!.Status,
+                        "landed report-only work is Complete as landed work");
+                    AssertEqual(1, Reason(result, TerminalVoyageMissionRule.ReasonWorkLanded), "landed report-only work keeps the landed reason");
+                }).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
             await RunTest("The reconciled failure reason is recognised in every stored form and never in a genuine failure", () =>
             {
                 string[] stored =
@@ -488,7 +559,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("The rule never completes unlanded work for any terminal voyage", () =>
+            await RunTest("The rule completes unlanded work only for a commitless report-only mission under an ended voyage", () =>
             {
                 TerminalVoyageLandingProbeEnum[] unlanded =
                 {
@@ -503,14 +574,27 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         foreach (bool noLanding in new[] { false, true })
                         {
-                            TerminalVoyageMissionDecision decision = TerminalVoyageMissionRule.Decide(
-                                voyageStatus, _Now.AddDays(-1), _Now, TimeSpan.FromMinutes(10), false, noLanding, probe);
-                            AssertFalse(decision.TargetStatus == MissionStatusEnum.Complete,
-                                voyageStatus + "/" + probe + " must never become Complete");
-                            if (decision.TargetStatus.HasValue)
+                            foreach (bool readOnly in new[] { false, true })
                             {
-                                AssertTrue(MissionStateMachine.IsValidTransition(MissionStatusEnum.WorkProduced, decision.TargetStatus.Value),
-                                    "WorkProduced to " + decision.TargetStatus.Value + " must be a legal transition");
+                                TerminalVoyageMissionDecision decision = TerminalVoyageMissionRule.Decide(
+                                    voyageStatus, _Now.AddDays(-1), _Now, TimeSpan.FromMinutes(10), false, noLanding, readOnly, probe);
+                                string label = voyageStatus + "/" + probe + "/noLanding=" + noLanding + "/readOnly=" + readOnly;
+                                bool reportOnly = readOnly && probe == TerminalVoyageLandingProbeEnum.NoCommit
+                                    && TerminalVoyageMissionRule.IsTerminalVoyage(voyageStatus);
+                                if (reportOnly)
+                                {
+                                    AssertEqual(MissionStatusEnum.Complete, decision.TargetStatus, label + " is a finished report and must become Complete");
+                                    AssertEqual(TerminalVoyageMissionRule.ReasonReportOnly, decision.Reason, label + " names the report-only reason");
+                                }
+                                else
+                                {
+                                    AssertFalse(decision.TargetStatus == MissionStatusEnum.Complete, label + " must never become Complete");
+                                }
+                                if (decision.TargetStatus.HasValue)
+                                {
+                                    AssertTrue(MissionStateMachine.IsValidTransition(MissionStatusEnum.WorkProduced, decision.TargetStatus.Value),
+                                        "WorkProduced to " + decision.TargetStatus.Value + " must be a legal transition");
+                                }
                             }
                         }
                     }
@@ -644,9 +728,11 @@ namespace Armada.Test.Unit.Suites.Services
             string persona,
             string? commit,
             string? dependsOn = null,
-            MissionStatusEnum status = MissionStatusEnum.WorkProduced)
+            MissionStatusEnum status = MissionStatusEnum.WorkProduced,
+            MissionModeEnum mode = MissionModeEnum.Implementation)
         {
             Mission mission = new Mission(persona + " stage", "stage work");
+            mission.Mode = mode;
             mission.VesselId = vessel.Id;
             mission.VoyageId = voyage.Id;
             mission.Persona = persona;

@@ -43,6 +43,7 @@ namespace Armada.Core.Database
                 PrUrl = row.NullableText("pr_url"),
                 CommitHash = row.NullableText("commit_hash"),
                 Persona = row.NullableText("persona"),
+                Mode = MissionModes.Parse(row.NullableText("mission_mode")),
                 DependsOnMissionId = row.NullableText("depends_on_mission_id"),
                 FailureReason = row.NullableText("failure_reason"),
                 ReconciledUtc = row.NullableUtc("reconciled_utc"),

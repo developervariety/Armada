@@ -30,6 +30,11 @@ namespace Armada.Core.Models
         public string? Persona { get; set; } = null;
 
         /// <summary>
+        /// Mission mode. An Audit or Research mission with no commit is complete, because its deliverable is a report.
+        /// </summary>
+        public MissionModeEnum Mode { get; set; } = MissionModeEnum.Implementation;
+
+        /// <summary>
         /// Mission commit.
         /// </summary>
         public string? CommitHash { get; set; } = null;

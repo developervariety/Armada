@@ -213,7 +213,7 @@ namespace Armada.Core.Models
         [JsonIgnore]
         public bool IsReadOnlyMode
         {
-            get { return Mode == MissionModeEnum.Audit || Mode == MissionModeEnum.Research; }
+            get { return MissionModes.IsReadOnly(Mode); }
         }
 
         /// <summary>

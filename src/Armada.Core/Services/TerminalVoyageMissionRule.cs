@@ -16,6 +16,9 @@ namespace Armada.Core.Services
     /// a Failed voyage can hold landed work and a Complete voyage can hold unlanded work:
     /// <list type="bullet">
     /// <item>Landed work (commit on the default branch, or a recorded landing) becomes Complete.</item>
+    /// <item>A read-only (Audit or Research) mission that recorded no commit becomes Complete under any ended
+    /// voyage: its deliverable is a report, so having no commit is its success condition, not unlanded work.
+    /// A read-only mission that did record a commit follows the same evidence rules as any other mission.</item>
     /// <item>Unlanded work under a Failed voyage becomes Failed; under a Cancelled voyage it becomes Cancelled.</item>
     /// <item>Unlanded work under a Complete voyage becomes Cancelled: the voyage landed through another
     /// stage and this stage's own commit was superseded. It is never marked Complete.</item>
@@ -54,6 +57,9 @@ namespace Armada.Core.Services
 
         /// <summary>The mission recorded no commit.</summary>
         public const string ReasonNoCommit = "terminal_voyage_no_commit";
+
+        /// <summary>A read-only (Audit or Research) mission recorded no commit, which is its success condition.</summary>
+        public const string ReasonReportOnly = "terminal_voyage_report_only";
 
         /// <summary>The mission left WorkProduced between the scan and the write.</summary>
         public const string ReasonStatusChanged = "status_changed";
@@ -219,6 +225,7 @@ namespace Armada.Core.Services
         /// <param name="grace">Minimum time since the voyage ended.</param>
         /// <param name="landingInFlight">True when a merge entry for the mission is still in progress.</param>
         /// <param name="noLandingRequested">True when the voyage or vessel landing mode is None.</param>
+        /// <param name="readOnlyMode">True when the mission is an Audit or Research mission, whose deliverable is a report.</param>
         /// <param name="landing">Landing probe result; ignored until the earlier guards pass.</param>
         /// <returns>The decision.</returns>
         public static TerminalVoyageMissionDecision Decide(
@@ -228,6 +235,7 @@ namespace Armada.Core.Services
             TimeSpan grace,
             bool landingInFlight,
             bool noLandingRequested,
+            bool readOnlyMode,
             TerminalVoyageLandingProbeEnum landing)
         {
             if (!IsTerminalVoyage(voyageStatus))
@@ -244,6 +252,11 @@ namespace Armada.Core.Services
 
             if (landing == TerminalVoyageLandingProbeEnum.Unknown)
                 return TerminalVoyageMissionDecision.Keep(ReasonAncestryUnknown);
+
+            // A report-only mission with no commit has nothing to land, so neither the voyage outcome nor a
+            // manual landing applies to it. One that committed still has unlanded work and falls through.
+            if (readOnlyMode && landing == TerminalVoyageLandingProbeEnum.NoCommit)
+                return TerminalVoyageMissionDecision.Move(MissionStatusEnum.Complete, ReasonReportOnly);
 
             if (voyageStatus == VoyageStatusEnum.Complete && noLandingRequested)
                 return TerminalVoyageMissionDecision.Keep(ReasonAwaitingManualLanding);

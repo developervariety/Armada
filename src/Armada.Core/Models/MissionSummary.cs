@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Text.Json.Serialization;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -73,6 +74,20 @@ namespace Armada.Core.Models
         /// Persona assigned to this mission.
         /// </summary>
         public string? Persona { get; set; } = null;
+
+        /// <summary>
+        /// What kind of work this mission is. See <see cref="Mission.Mode"/>.
+        /// </summary>
+        public MissionModeEnum Mode { get; set; } = MissionModeEnum.Implementation;
+
+        /// <summary>
+        /// True when this mission is not expected to produce a commit. See <see cref="Mission.IsReadOnlyMode"/>.
+        /// </summary>
+        [JsonIgnore]
+        public bool IsReadOnlyMode
+        {
+            get { return MissionModes.IsReadOnly(Mode); }
+        }
 
         /// <summary>
         /// Mission dependency identifier.

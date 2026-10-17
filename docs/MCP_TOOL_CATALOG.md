@@ -982,13 +982,19 @@ and a Complete voyage can hold unlanded work:
 | Commit exists and is not on the default branch | `Failed` | `Failed` | `terminal_voyage_work_unlanded` |
 | Same | `Cancelled` or `Complete` | `Cancelled` | `terminal_voyage_work_unlanded` |
 | Commit absent from the vessel bare | as above | as above | `terminal_voyage_commit_absent` |
-| No commit recorded | as above | as above | `terminal_voyage_no_commit` |
+| No commit recorded, and the mission mode is `Audit` or `Research` | any ended | `Complete` | `terminal_voyage_report_only` |
+| No commit recorded, any other mode | `Failed`; `Cancelled` or `Complete` | `Failed`; `Cancelled` | `terminal_voyage_no_commit` |
+
+An `Audit` or `Research` mission delivers a report, so a recorded commit is not
+expected. When it records none, it becomes `Complete` under any ended voyage,
+also under landing mode `None`, and it carries no reconciled marker. When it
+records a commit, the same landing-evidence rows apply as for any mission.
 
 Unlanded work is never marked `Complete`. Under a `Complete` voyage it becomes
 `Cancelled`, because another stage landed and this stage's commit was
 superseded. A `Failed` or `Cancelled` mission carries the reason in
 `FailureReason`. Every change records a `mission.terminal_voyage_reconciled`
-event with the voyage status, landing probe and commit. The mission keeps its
+event with the voyage status, landing probe, mission mode and commit. The mission keeps its
 commit and branch. The pass never deletes branches, refs or commits, and it
 runs no rescue or wake.
 

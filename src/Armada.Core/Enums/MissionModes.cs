@@ -27,6 +27,17 @@ namespace Armada.Core.Enums
         }
 
         /// <summary>
+        /// Whether a mission in this mode is not expected to produce a commit, because its deliverable
+        /// is a report rather than a change. True for Audit and Research.
+        /// </summary>
+        /// <param name="mode">Mission mode.</param>
+        /// <returns>True for a read-only mode.</returns>
+        public static bool IsReadOnly(MissionModeEnum mode)
+        {
+            return mode == MissionModeEnum.Audit || mode == MissionModeEnum.Research;
+        }
+
+        /// <summary>
         /// Reports whether a supplied mode name is one Armada recognizes. Callers that validate user
         /// input use this to reject a typo instead of silently treating it as Implementation.
         /// </summary>

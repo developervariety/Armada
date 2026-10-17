@@ -126,6 +126,7 @@ namespace Armada.Core.Services
                     request.Grace,
                     landingInFlight,
                     noLandingRequested,
+                    summary.IsReadOnlyMode,
                     landing);
 
                 if (decision.TargetStatus.HasValue && !request.DryRun)
@@ -268,6 +269,7 @@ namespace Armada.Core.Services
                     toStatus = target.ToString(),
                     landing = landing.ToString(),
                     reason = decision.Reason,
+                    mode = mission.Mode.ToString(),
                     commitHash = mission.CommitHash
                 })
             };
@@ -316,6 +318,7 @@ namespace Armada.Core.Services
                 VoyageId = voyage.Id,
                 VesselId = summary.VesselId,
                 Persona = summary.Persona,
+                Mode = summary.Mode,
                 CommitHash = summary.CommitHash,
                 VoyageStatus = voyage.Status,
                 Landing = landing,
