@@ -2451,9 +2451,42 @@ namespace Armada.Server
                     "Read the complete failed mission output with armada_mission_output before editing or re-verifying." + Environment.NewLine +
                     "Read the complete failed stage brief with armada_mission_status (missionId=" + failedMission.Id + ", includeDescription=true) if the description omits scope." + Environment.NewLine +
                     "Re-verification stage for the autonomous revision rescue of failed mission " + failedMission.Id + "." + Environment.NewLine +
-                    "Confirm the revised branch resolves the original reviewer feedback before it lands.",
+                    BuildChainedRescueVerification(failedMission, chainedOutput, chainedReviewFallback),
                     owningObjective)
             };
+        }
+
+        // What a re-verification stage must confirm, chosen by how the original mission failed. A reviewer
+        // rejection carries the blocking findings the rescue Worker was given, so the stage checks each one
+        // instead of only being told to read the review; any other failure carries the failure reason.
+        internal static string BuildChainedRescueVerification(Mission failedMission, MissionOutputArtifactPage output, bool reviewFromFallback)
+        {
+            string persona = String.IsNullOrWhiteSpace(failedMission.Persona) ? "mission" : failedMission.Persona!;
+            if (!IsReviewerPersona(failedMission.Persona))
+            {
+                return "Failure the revision must fix: " + (failedMission.FailureReason == null
+                        ? "not recorded"
+                        : TruncateForBrief(failedMission.FailureReason, _MaxRescueDiagnosticsChars)) + Environment.NewLine +
+                    "Confirm the revised branch no longer fails this way before it lands.";
+            }
+
+            string review = output.Content ?? String.Empty;
+            if (review.Length == 0 && !String.IsNullOrWhiteSpace(failedMission.ReviewComment))
+                review = RuntimeLogFormatter.RedactSecrets(failedMission.ReviewComment).Trim();
+            string blocking = review.Length == 0 ? String.Empty : BuildBlockingFindingsForBrief(review.Trim(), _MaxRescueBlockingFindingsChars);
+            if (blocking.Length == 0)
+            {
+                return "Confirm the revised branch resolves the failed " + persona + "'s review before it lands."
+                    + " No blocking finding could be extracted from it, so read the complete review.";
+            }
+
+            bool complete = output.Complete && !output.HasMore && !reviewFromFallback
+                && !blocking.Contains(StageReportEssentials.IncompleteFindingsMarker, StringComparison.Ordinal);
+            return (complete
+                    ? "Blocking findings from the failed " + persona + " (complete list from the full review):"
+                    : "Blocking findings from the failed " + persona + " (incomplete excerpt; read the complete failed mission output):")
+                + Environment.NewLine + blocking + Environment.NewLine
+                + "Confirm the revised branch resolves each blocking finding above, or that the revision rejected it with evidence, before it lands.";
         }
 
         // The pipeline stage a rescue takes the place of: its order, tier and review settings, and the

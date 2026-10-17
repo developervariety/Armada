@@ -2888,6 +2888,45 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("ChainedRescueStages_CarryTheBlockingFindingsOrTheFailureReason", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()));
+
+                Mission failedJudge = new Mission("Failed review")
+                {
+                    Id = "msn_test_failed_review_findings",
+                    Persona = "Judge",
+                    Status = MissionStatusEnum.Failed,
+                    AgentOutput = "## Correctness\n1. src/Example.cs:40 -- the retry resends twice.\n## Verdict\nNEEDS_REVISION"
+                };
+                Mission judgeStage = orchestrator.BuildChainedRescueStage(
+                    failedJudge, "vyg_test_rescue", "msn_test_rescue_worker", new PipelineStage(3, "Judge"), 1, new List<SelectedPlaybook>());
+                string judgeBrief = judgeStage.Description ?? String.Empty;
+                AssertContains("Blocking findings from the failed Judge", judgeBrief, "The re-verification stage receives the findings it must check");
+                AssertContains("src/Example.cs:40", judgeBrief, "The finding itself is embedded, not only a pointer");
+                AssertContains("resolves each blocking finding above", judgeBrief, "The stage is told to check each finding");
+
+                Mission failedWorker = new Mission("Failed gate")
+                {
+                    Id = "msn_test_failed_gate",
+                    Persona = "Worker",
+                    Status = MissionStatusEnum.Failed,
+                    FailureReason = "DoD gate failed: classification=Test; unit-test command exited 1"
+                };
+                Mission gateStage = orchestrator.BuildChainedRescueStage(
+                    failedWorker, "vyg_test_rescue", "msn_test_rescue_worker", new PipelineStage(3, "Judge"), 1, new List<SelectedPlaybook>());
+                string gateBrief = gateStage.Description ?? String.Empty;
+                AssertContains("Failure the revision must fix: DoD gate failed", gateBrief, "A gate failure names the failure, not reviewer feedback");
+                AssertFalse(gateBrief.Contains("reviewer feedback", StringComparison.Ordinal), "A gate failure is not described as a review");
+                await Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("RealSignalGateRejection_NoRescueLoopOnGreenWork", async () =>
             {
                 // A standalone Audit Judge whose PASS is rejected ONLY by the

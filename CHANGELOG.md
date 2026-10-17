@@ -41,6 +41,10 @@ upstream integrations and excludes changes already present at that baseline.
   the failed reviewer's role text as the original mission description. The
   rescue brief removes every persona role section from that description and
   says it did.
+- The later stages of a rescue chain no longer get only pointers and a fixed
+  "resolve the reviewer feedback" sentence. After a reviewer rejection they
+  carry the blocking findings to check; after any other failure they carry the
+  failure reason.
 
 - An admiral restart no longer leaves a finished mission held for good when it
   kills that mission's running or queued definition-of-done gate. The health

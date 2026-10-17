@@ -195,6 +195,12 @@ role section (the `## Your Role:` heading and its paragraph) and says so. A
 rescue of a failed Judge, Linter or TestEngineer is a Worker that fixes the
 work, so it never receives the reviewer's role text as its own brief.
 
+Each later stage in the rescue chain re-verifies the revision against the
+original failure. After a reviewer rejection, its brief embeds the same
+blocking findings the rescue Worker received and tells it to confirm each one
+is resolved or rejected with evidence. After any other failure, such as a
+definition-of-done gate failure, its brief names the failure reason instead.
+
 The failed parent output is in scope for the rescue Worker and later stages in
 that rescue chain. The server follows same-owner, same-voyage and same-vessel
 dependencies back to the marked rescue root, and exposes only the failed
