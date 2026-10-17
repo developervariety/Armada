@@ -168,8 +168,8 @@ Assignment cancels a `Pending` mission of an ended voyage, so a restart there
 cannot run. Dispatch a new voyage, or a rescue, for that work instead.
 
 `armada_mission_output` pages the authoritative safe report artifact. Follow
-`nextOffset` until `hasMore` is false. Then verify `sha256`, `finalized`, and
-`complete`. A missing page, incomplete artifact, or digest mismatch is an
+`NextOffset` until `HasMore` is false. Then verify `Sha256`, `Finalized`, and
+`Complete`. MCP results keep the model's PascalCase property names. A missing page, incomplete artifact, or digest mismatch is an
 evidence gap.
 
 ### 8.5 Planning, Objectives, And Backlog

@@ -14,7 +14,9 @@ namespace Armada.Server.Mcp
     /// empty string, and send a boolean or number as its string spelling. The handlers
     /// deserialise into typed argument classes, where an empty string is not a valid
     /// nullable DateTime, enum, or boolean, so the whole call fails on a parameter the caller
-    /// did not care about. The normaliser applies three rules, each keyed by the schema:
+    /// did not care about. A snake_case or kebab-case argument name that matches a schema property
+    /// once its separators are removed is renamed to that property, unless the caller also sent the
+    /// property under its own name. The normaliser then applies three value rules, each keyed by the schema:
     /// an empty string for a property the schema does not list as required -- or for any
     /// non-string, enum-constrained, or formatted property -- is treated as omitted, except a
     /// plain string property that declares <c>emptyStringClears</c>, whose empty value is kept; a string
@@ -62,19 +64,40 @@ namespace Armada.Server.Mcp
                 }
             }
 
+            // A separator-free key per schema property, so mission_id or mission-id finds missionId.
+            Dictionary<string, string> schemaNameBySeparatorFreeKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string schemaName in schemaByName.Keys)
+                schemaNameBySeparatorFreeKey[RemoveSeparators(schemaName)] = schemaName;
+
+            HashSet<string> suppliedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (JsonProperty argument in arguments.Value.EnumerateObject())
+                suppliedNames.Add(argument.Name);
+
             bool changed = false;
             List<KeyValuePair<string, JsonElement?>> normalized = new List<KeyValuePair<string, JsonElement?>>();
             foreach (JsonProperty argument in arguments.Value.EnumerateObject())
             {
-                if (!schemaByName.TryGetValue(argument.Name, out JsonElement propertySchema))
+                string name = argument.Name;
+                if (!schemaByName.ContainsKey(name)
+                    && schemaNameBySeparatorFreeKey.TryGetValue(RemoveSeparators(name), out string? schemaName)
+                    && !suppliedNames.Contains(schemaName))
                 {
-                    normalized.Add(new KeyValuePair<string, JsonElement?>(argument.Name, argument.Value));
+                    // A snake_case or kebab-case spelling of a schema property names that property.
+                    // Without this the handler sees the property as absent and answers with a
+                    // misleading "not found" instead of using the value the caller sent.
+                    name = schemaName;
+                    changed = true;
+                }
+
+                if (!schemaByName.TryGetValue(name, out JsonElement propertySchema))
+                {
+                    normalized.Add(new KeyValuePair<string, JsonElement?>(name, argument.Value));
                     continue;
                 }
 
-                JsonElement? value = NormalizeValue(argument.Value, propertySchema, required.Contains(argument.Name), out bool valueChanged);
+                JsonElement? value = NormalizeValue(argument.Value, propertySchema, required.Contains(name), out bool valueChanged);
                 changed |= valueChanged;
-                normalized.Add(new KeyValuePair<string, JsonElement?>(argument.Name, value));
+                normalized.Add(new KeyValuePair<string, JsonElement?>(name, value));
             }
 
             if (!changed) return arguments;
@@ -114,6 +137,11 @@ namespace Armada.Server.Mcp
                 ? element
                 : JsonSerializer.SerializeToElement(inputSchema, options);
             return Normalize(arguments, schema);
+        }
+
+        private static string RemoveSeparators(string name)
+        {
+            return name.Replace("_", String.Empty, StringComparison.Ordinal).Replace("-", String.Empty, StringComparison.Ordinal);
         }
 
         private static JsonElement? NormalizeValue(JsonElement value, JsonElement propertySchema, bool isRequired, out bool changed)

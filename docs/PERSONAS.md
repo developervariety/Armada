@@ -123,6 +123,13 @@ A brief carries only what the mission's mode and persona can use:
   tracked content, not prior art.
 - The Runtime Signals verdict lines reach only a Judge, and the Architect
   signal rule reaches only an Architect.
+- On a read-only mission the captain's own instructions are kept, followed by
+  one line that says the read-only rules win over any edit, commit or push
+  order in them.
+- On a read-only mission a Worker, TestEngineer, Linter, Product Manager or
+  Usability Engineer gets a report contract. The Product Manager and Usability
+  Engineer use their product or usability sections only when the mission
+  description asks for them.
 
 The instruction file has a byte budget, `captainInstructionByteBudget`
 (default 65,536; `0` selects the default). A brief assembled over it records a

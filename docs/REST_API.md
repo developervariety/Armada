@@ -2073,11 +2073,11 @@ If the mission exists but has no log file yet, returns an empty log:
 
 ```bash
 # Get first 50 lines
-curl http://localhost:8080/api/v1/missions/msn_abc123/log?lines=50 \
+curl http://localhost:7890/api/v1/missions/msn_abc123/log?lines=50 \
   -H "X-Api-Key: your-key"
 
 # Get lines 100-200
-curl http://localhost:8080/api/v1/missions/msn_abc123/log?offset=100&lines=100 \
+curl http://localhost:7890/api/v1/missions/msn_abc123/log?offset=100&lines=100 \
   -H "X-Api-Key: your-key"
 ```
 
@@ -2498,7 +2498,7 @@ If the captain has no active log (no pointer file or target file missing), retur
 **Error:** `404` - Captain not found
 
 ```bash
-curl http://localhost:8080/api/v1/captains/cpt_abc123/log?lines=200 \
+curl http://localhost:7890/api/v1/captains/cpt_abc123/log?lines=200 \
   -H "X-Api-Key: your-key"
 ```
 

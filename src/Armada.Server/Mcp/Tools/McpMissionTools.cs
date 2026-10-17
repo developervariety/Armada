@@ -126,7 +126,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_mission_output",
-                "Read a digest-backed page of the authoritative safe output artifact for a mission. Mission callers may read their own mission, same-voyage reports, and direct dependencies or parents within the same owner and tenant. A later stage in an autonomous rescue may also read the failed mission named by that rescue chain's root. Secret-shaped values are redacted. Continue at nextOffset until hasMore is false, then verify sha256 and complete before treating the report as complete.",
+                "Read a digest-backed page of the authoritative safe output artifact for a mission. Mission callers may read their own mission, same-voyage reports, and direct dependencies or parents within the same owner and tenant. A later stage in an autonomous rescue may also read the failed mission named by that rescue chain's root. Secret-shaped values are redacted. Continue at NextOffset until HasMore is false, then verify Sha256 and Complete before treating the report as complete.",
                 new
                 {
                     type = "object",

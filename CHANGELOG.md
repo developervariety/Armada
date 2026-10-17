@@ -37,6 +37,21 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A read-only (Audit or Research) brief no longer contradicts itself. Captain
+  instructions that order commits are followed by a line that gives the
+  read-only rules precedence. A Product Manager or Usability Engineer gets a
+  report contract instead of a required specification, so a mission that asks
+  for findings, or forbids a specification, has one consistent contract.
+- An MCP tool argument sent in snake_case or kebab-case (`mission_id`) is
+  renamed to its schema property (`missionId`), unless the caller also sent
+  that property. Such a call used to answer `Mission not found`.
+- The mission-output handoff points captains at the `armada_mission_output` MCP
+  tool only, with its PascalCase field names (`NextOffset`, `HasMore`). It
+  named a REST route with no host or port, and captains called it on the MCP
+  port. The tool description uses the same field names.
+- Docs: `MCP_API.md` states the `Accept` header a `POST` must send and the `406`
+  answer without it; the `REST_API.md` log examples use the REST port 7890.
+
 - A mission caller can read missions from the other voyages of its own
   objective. A Judge in a later voyage got `Mission not found` for a mission of
   an earlier voyage, because the evidence scope used objective links only for

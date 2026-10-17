@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using Armada.Core;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -211,6 +212,83 @@ namespace Armada.Test.Unit.Suites.Services
                         try { Directory.Delete(implDir, true); } catch { }
                     }
                 }
+            });
+
+            await RunTest("A read-only brief puts captain commit instructions under the read-only rules", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_repos_" + Guid.NewGuid().ToString("N"));
+
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    string researchDir = Path.Combine(Path.GetTempPath(), "armada_mode_research_" + Guid.NewGuid().ToString("N"));
+                    string implDir = Path.Combine(Path.GetTempPath(), "armada_mode_impl_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(researchDir);
+                    Directory.CreateDirectory(implDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("ModeVessel", "https://github.com/test/repo");
+                        Captain captain = new Captain("mode-captain");
+                        captain.SystemInstructions = "Commit incrementally after each sub-item.";
+
+                        Mission research = new Mission();
+                        research.Title = "Read-only probe";
+                        research.Description = "Measure the received context.";
+                        research.Persona = "Worker";
+                        research.Mode = MissionModeEnum.Research;
+                        await service.GenerateClaudeMdAsync(researchDir, research, vessel, captain);
+                        string researchBrief = await File.ReadAllTextAsync(Path.Combine(researchDir, "CLAUDE.md"));
+
+                        Mission implementation = new Mission();
+                        implementation.Title = "Ordinary work";
+                        implementation.Description = "Change the code.";
+                        implementation.Persona = "Worker";
+                        await service.GenerateClaudeMdAsync(implDir, implementation, vessel, captain);
+                        string implBrief = await File.ReadAllTextAsync(Path.Combine(implDir, "CLAUDE.md"));
+
+                        AssertContains("Commit incrementally after each sub-item.", researchBrief, "the captain's own instructions still reach the brief");
+                        AssertContains("the read-only rules in this brief take precedence", researchBrief,
+                            "a read-only brief must say which rule wins over a captain instruction to edit or commit");
+                        AssertFalse(implBrief.Contains("the read-only rules in this brief take precedence", StringComparison.Ordinal),
+                            "an implementation brief carries no read-only precedence line");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(researchDir, true); } catch { }
+                        try { Directory.Delete(implDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A read-only ProductManager or UsabilityEngineer contract does not demand a specification", async () =>
+            {
+                string implementationPm = MissionPromptBuilder.GetPersonaOutputContract(PersonaCatalog.ProductManager, MissionModeEnum.Implementation);
+                AssertContains("## Product Vision", implementationPm, "an implementation ProductManager keeps its product sections");
+
+                foreach (string persona in new string[] { PersonaCatalog.ProductManager, PersonaCatalog.UsabilityEngineer })
+                {
+                    foreach (MissionModeEnum mode in new MissionModeEnum[] { MissionModeEnum.Research, MissionModeEnum.Audit })
+                    {
+                        string contract = MissionPromptBuilder.GetPersonaOutputContract(persona, mode);
+                        AssertContains("your deliverable is a report", contract, persona + " in " + mode + " must be told the deliverable is a report");
+                        AssertContains("Do not edit, commit, or push", contract, persona + " in " + mode + " must forbid edits");
+                        AssertContains("mission description controls", contract, persona + " in " + mode + " must let the mission decide the report shape");
+                        AssertFalse(contract.Contains("Before your result line, include", StringComparison.Ordinal),
+                            persona + " in " + mode + " must not require the producing sections");
+                        AssertContains("[ARMADA:RESULT] COMPLETE", contract, persona + " in " + mode + " keeps the result line");
+                    }
+                }
+
+                await Task.CompletedTask;
             });
 
             await RunTest("A read-only Worker contract does not ask for code changes", async () =>

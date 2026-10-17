@@ -25,6 +25,13 @@ Use `/mcp` for current clients. `/rpc` remains available for older JSON-RPC
 clients. The server accepts normal JSON responses and request-scoped SSE
 responses.
 
+A `POST` must send `Accept: application/json, text/event-stream`, as the MCP
+Streamable HTTP transport requires. A request that does not list both types
+gets HTTP `406 Not Acceptable` and never reaches a tool. MCP client libraries
+send this header; a hand-written `curl` call must add it. The credential check
+runs first, so a request with no valid credential gets `401` whatever its
+`Accept` header says.
+
 The HTTP server is stateless. A client does not need to preserve an MCP session
 ID between requests. A remote client can use an SSH stdio bridge that forwards
 each request to the running Admiral's loopback endpoint.

@@ -555,6 +555,19 @@ namespace Armada.Core.Services
                         "when the evidence does not settle a question. End with a standalone line " +
                         "`[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what you found.";
                 }
+
+                // The product personas' producing contracts demand a specification. A read-only mission
+                // that asks them for findings, or forbids a specification, would contradict that demand.
+                if (normalizedForMode == PersonaCatalog.ProductManager ||
+                    normalizedForMode == PersonaCatalog.UsabilityEngineer)
+                {
+                    return
+                        "This is a " + mode + " mission: your deliverable is a report, not a code change. " +
+                        "Do not edit, commit, or push. The mission description controls the report's shape; use the " +
+                        "product or usability sections only when it asks for them. Report exact evidence for every claim, " +
+                        "and state plainly when the evidence does not settle a question. End with a standalone line " +
+                        "`[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what you found.";
+                }
             }
 
             return PersonaCatalog.NormalizeName(persona) switch

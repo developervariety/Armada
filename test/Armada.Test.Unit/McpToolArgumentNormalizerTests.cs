@@ -238,6 +238,56 @@ namespace Armada.Test.Unit
                     }
                 }
             });
+
+            await RunTest("SnakeOrKebabCaseArgumentName_IsRenamedToSchemaProperty", () =>
+            {
+                object schema = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        missionId = new { type = "string" },
+                        includeDescription = new { type = "boolean" }
+                    },
+                    required = new[] { "missionId" }
+                };
+                JsonElement args = JsonSerializer.SerializeToElement(new Dictionary<string, object>
+                {
+                    ["mission_id"] = "msn_example",
+                    ["include-description"] = "true"
+                });
+
+                JsonElement? result = McpToolArgumentNormalizer.Normalize(args, schema, _JsonOpts);
+                AssertNotNull(result, "result present");
+                JsonElement r = result!.Value;
+                AssertTrue(r.TryGetProperty("missionId", out JsonElement missionId), "mission_id is renamed to missionId");
+                AssertEqual("msn_example", missionId.GetString(), "the renamed value is kept");
+                AssertFalse(r.TryGetProperty("mission_id", out _), "the snake_case name is not passed through as well");
+                AssertTrue(r.TryGetProperty("includeDescription", out JsonElement include), "include-description is renamed to includeDescription");
+                AssertEqual(JsonValueKind.True, include.ValueKind, "the renamed value is still normalised by its schema type");
+
+                MissionStatusArgs parsed = JsonSerializer.Deserialize<MissionStatusArgs>(r, _JsonOpts)!;
+                AssertEqual("msn_example", parsed.MissionId, "the handler's typed arguments receive the mission id");
+            });
+
+            await RunTest("SnakeCaseArgumentName_DoesNotOverrideSchemaNameAlsoSupplied", () =>
+            {
+                object schema = new
+                {
+                    type = "object",
+                    properties = new { missionId = new { type = "string" } }
+                };
+                JsonElement args = JsonSerializer.SerializeToElement(new Dictionary<string, object>
+                {
+                    ["missionId"] = "msn_primary",
+                    ["mission_id"] = "msn_other"
+                });
+
+                JsonElement? result = McpToolArgumentNormalizer.Normalize(args, schema, _JsonOpts);
+                JsonElement r = result!.Value;
+                AssertEqual("msn_primary", r.GetProperty("missionId").GetString(), "the schema-named value wins");
+                AssertTrue(r.TryGetProperty("mission_id", out _), "the unmatched snake_case value passes through untouched");
+            });
         }
 
         private static bool ReferenceEqualsOrSameJson(JsonElement left, JsonElement right)

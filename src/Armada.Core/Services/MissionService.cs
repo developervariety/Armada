@@ -3379,6 +3379,13 @@ namespace Armada.Core.Services
             if (captain != null && !String.IsNullOrEmpty(captain.SystemInstructions))
             {
                 content += ledger.Track("mission.captain_instructions_wrapper", await ResolveSectionAsync("mission.captain_instructions_wrapper", templateParams, token).ConfigureAwait(false));
+
+                // Captain instructions are written once for every mission the captain takes, so they
+                // often order commits. A read-only mission keeps them and states which rule wins, or
+                // the brief contradicts itself and the captain reports the conflict instead of working.
+                if (mission.IsReadOnlyMode)
+                    content += ledger.Track("mission.captain_instructions_read_only", BuildReadOnlyCaptainInstructionsNote(mission.Mode));
+
                 content += "\n";
             }
 
@@ -4843,6 +4850,19 @@ namespace Armada.Core.Services
                 return true;
             }
             return resolved.Value == LandingModeEnum.PullRequest;
+        }
+
+        /// <summary>
+        /// Builds the line that follows a captain's own instructions in a read-only brief. It keeps the
+        /// captain instructions and states that the read-only rules win over any edit, commit, or push
+        /// order in them.
+        /// </summary>
+        /// <param name="mode">The mission mode; named in the text so the captain knows why.</param>
+        /// <returns>The precedence line.</returns>
+        internal static string BuildReadOnlyCaptainInstructionsNote(MissionModeEnum mode)
+        {
+            return "This is a " + mode + " mission. Where the captain instructions above ask you to edit, commit, " +
+                "or push, the read-only rules in this brief take precedence.\n";
         }
 
         /// <summary>
@@ -7697,6 +7717,9 @@ namespace Armada.Core.Services
 
         private static string BuildMissionOutputArtifactInstructions(MissionOutputArtifactPage artifact)
         {
+            // A captain reaches Armada only through its MCP connection. A REST route here has no host or
+            // port the captain knows, so a captain guesses the MCP port and fails. The field names
+            // match the MCP result, which keeps the model's property casing.
             return "\n\nAuthoritative safe artifact: " + artifact.ArtifactRef
                 + "\nTotal characters: " + artifact.TotalLength
                 + "\nTotal UTF-8 bytes: " + artifact.TotalUtf8Bytes
@@ -7704,8 +7727,8 @@ namespace Armada.Core.Services
                 + "\nFinalized: " + artifact.Finalized
                 + "\nComplete: " + artifact.Complete
                 + (artifact.TruncationReason == null ? String.Empty : "\nTruncation reason: " + artifact.TruncationReason)
-                + "\nRetrieve every page with armada_mission_output (or GET /api/v1/missions/"
-                + artifact.MissionId + "/output), follow nextOffset until hasMore=false, and verify the digest before review. "
+                + "\nRetrieve every page with the armada_mission_output MCP tool (missionId " + artifact.MissionId
+                + "), follow NextOffset until HasMore is false, and verify the digest before review. "
                 + "A missing page, incomplete artifact, or digest mismatch is an evidence gap and must not pass review.";
         }
 
