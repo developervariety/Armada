@@ -37,6 +37,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- An admiral restart no longer leaves a finished mission held for good when it
+  kills that mission's running or queued definition-of-done gate. The health
+  loop re-runs the gate: a pass releases the hold and hands off or lands, a
+  failure fails the mission into recovery, and a mission whose dock is gone
+  stays held and says why. `armada_dispatch_hold` `status` and `engage` also
+  list `RunningGates`, `GateReruns` and `HostSlot`, so a deploy can wait until
+  no gate or check is in flight.
 - A Research or Audit mission of an operator-defined persona gets a
   report-only role header and its persona template as guidance. Before, such a
   brief carried no role text and no output contract at all.

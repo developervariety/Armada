@@ -9076,6 +9076,170 @@ namespace Armada.Core.Services
             return null;
         }
 
+        /// <inheritdoc />
+        public Task<int> StartInterruptedDefinitionOfDoneGateRerunsAsync(CancellationToken token = default)
+        {
+            return StartInterruptedDefinitionOfDoneGateRerunsCoreAsync(token);
+        }
+
+        private async Task<int> StartInterruptedDefinitionOfDoneGateRerunsCoreAsync(CancellationToken token)
+        {
+            if (_DefinitionOfDoneGate == null) return 0;
+
+            List<Mission> produced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+            List<string> rerun = new List<string>();
+            foreach (Mission mission in produced)
+            {
+                if (!IsDefinitionOfDoneNotRunHold(mission)) continue;
+                if (DefinitionOfDoneGateRuns.IsRunning(mission.Id)) continue;
+                if (_GateRerunsRefused.ContainsKey(mission.Id)) continue;
+                if (!_GateRerunsInFlight.TryAdd(mission.Id, 0)) continue;
+                rerun.Add(mission.Id);
+            }
+
+            if (rerun.Count == 0) return 0;
+
+            // Each rerun waits for the host-wide command slot like any gate, so the reruns run one after another in
+            // the background and never block the health loop that started them.
+            foreach (string missionId in rerun)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await RerunInterruptedDefinitionOfDoneGateAsync(missionId, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _GateRerunsInFlight.TryRemove(missionId, out byte _);
+                    }
+                });
+            }
+
+            _Logging.Info(_Header + "re-running the definition-of-done gate for " + rerun.Count + " produced mission(s) whose gate was interrupted: "
+                + String.Join(", ", rerun));
+            return rerun.Count;
+        }
+
+        /// <summary>
+        /// True when a produced mission is held only because its definition-of-done gate never recorded a result.
+        /// </summary>
+        /// <param name="mission">Mission to test.</param>
+        /// <returns>True for a definition_of_done_not_run hold on a WorkProduced mission.</returns>
+        internal static bool IsDefinitionOfDoneNotRunHold(Mission mission)
+        {
+            return mission != null
+                && mission.Status == MissionStatusEnum.WorkProduced
+                && mission.HeldForOperatorReview
+                && !String.IsNullOrEmpty(mission.HeldForOperatorReviewReason)
+                && mission.HeldForOperatorReviewReason!.StartsWith(DefinitionOfDoneNotRunHoldPrefix, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Run the definition-of-done gate again for a produced mission whose gate was interrupted (an admiral restart
+        /// kills a running or queued gate), and act on the result the way completion would have: a passed or skipped
+        /// gate releases the hold and runs the handoff or landing it stood in front of; a failed gate fails the mission
+        /// with the gate's reason and hands it to recovery. A mission whose dock is gone stays held and says why.
+        /// </summary>
+        /// <param name="missionId">Held mission identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The gate outcome recorded, or null when no gate ran.</returns>
+        internal async Task<DefinitionOfDoneEvaluationOutcomeEnum?> RerunInterruptedDefinitionOfDoneGateAsync(string missionId, CancellationToken token)
+        {
+            if (_DefinitionOfDoneGate == null) return null;
+            try
+            {
+                Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+                if (mission == null || !IsDefinitionOfDoneNotRunHold(mission)) return null;
+
+                Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
+                if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
+                {
+                    _GateRerunsRefused.TryAdd(mission.Id, 0);
+                    await AppendMissionActivityAsync(mission.Id,
+                        "definition-of-done gate not re-run: the mission dock is gone; clear or fail the hold with armada_review_hold", token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "cannot re-run the interrupted definition-of-done gate for mission " + mission.Id + ": its dock is gone");
+                    return null;
+                }
+
+                Captain? captain = String.IsNullOrEmpty(mission.CaptainId)
+                    ? null
+                    : await _Database.Captains.ReadAsync(mission.CaptainId!, token).ConfigureAwait(false);
+
+                DateTime startedUtc = DateTime.UtcNow;
+                await AppendMissionActivityAsync(mission.Id, "validation started: definition-of-done gate re-run after an interrupted run", token).ConfigureAwait(false);
+                DefinitionOfDoneResult result = await _DefinitionOfDoneGate.EvaluateAsync(mission, dock, token, TryReadDockStartCommit(dock.Id)).ConfigureAwait(false);
+                DefinitionOfDoneEvaluationRecord record = DefinitionOfDoneEvaluationRecord.FromResult(result, startedUtc);
+                await PersistDefinitionOfDoneOutputCaptureAsync(mission, result, record, token).ConfigureAwait(false);
+                await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock, record, token).ConfigureAwait(false);
+
+                Mission? current = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                if (current == null || !IsDefinitionOfDoneNotRunHold(current))
+                {
+                    _Logging.Info(_Header + "mission " + mission.Id + " changed while its definition-of-done gate re-ran; the result is recorded and nothing else is done");
+                    return record.Outcome;
+                }
+
+                if (result.Passed)
+                {
+                    string previousHold = current.HeldForOperatorReviewReason ?? String.Empty;
+                    ClearOperatorReviewHold(current);
+                    current.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(current, token).ConfigureAwait(false);
+                    string passedText = String.IsNullOrEmpty(result.SkippedReason) ? "passed" : "skipped (" + result.SkippedReason + ")";
+                    await AppendMissionActivityAsync(current.Id, "validation " + passedText + ": definition-of-done gate re-run; hold released", token).ConfigureAwait(false);
+                    await RecordHoldEventAsync(current, OperatorHoldClearedEventType,
+                        "The definition-of-done gate re-ran for mission " + current.Id + " and " + passedText + "; the hold is released (" + previousHold + ")",
+                        "armada", "definition-of-done gate re-run " + passedText, previousHold, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + current.Id + " definition-of-done gate re-run " + passedText + "; hold released");
+                    await ContinueReleasedPassAsync(current, "Definition-of-done gate re-run passed", token).ConfigureAwait(false);
+                    return record.Outcome;
+                }
+
+                ClearOperatorReviewHold(current);
+                current.Status = MissionStatusEnum.Failed;
+                current.FailureReason = BuildDodFailureReason(result);
+                current.CompletedUtc = DateTime.UtcNow;
+                current.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(current, token).ConfigureAwait(false);
+                await AppendMissionActivityAsync(current.Id, "validation failed: definition-of-done gate re-run: " + current.FailureReason, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "mission " + current.Id + " failed the re-run definition-of-done gate classification=" + result.FailureClass);
+                await CancelDependentPipelineStagesAsync(current, token).ConfigureAwait(false);
+                await UpdateVoyageTerminalStatusAsync(current.VoyageId, token).ConfigureAwait(false);
+                if (OnMissionOutcome != null)
+                {
+                    try
+                    {
+                        await OnMissionOutcome.Invoke(current, false).ConfigureAwait(false);
+                    }
+                    catch (Exception outcomeEx)
+                    {
+                        _Logging.Warn(_Header + "error in OnMissionOutcome handler for " + current.Id + ": " + outcomeEx.Message);
+                    }
+                }
+                return record.Outcome;
+            }
+            catch (DefinitionOfDoneGateCancelledException)
+            {
+                _Logging.Info(_Header + "definition-of-done gate re-run for mission " + missionId + " stopped because the mission was cancelled");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "definition-of-done gate re-run for mission " + missionId + " did not finish; the mission stays held: "
+                    + ex.GetType().Name + ": " + ex.Message);
+                try
+                {
+                    await AppendMissionActivityAsync(missionId, "definition-of-done gate re-run did not finish (" + ex.GetType().Name + "); the mission stays held", token).ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    _Logging.Warn(_Header + "could not record the unfinished gate re-run on mission " + missionId);
+                }
+                return null;
+            }
+        }
+
         /// <summary>
         /// Hold a produced mission whose definition-of-done gate has no result, so neither handoff nor landing passes
         /// it on unverified. The hold uses the operator review hold: the operator clears it to accept the work as it
@@ -9105,6 +9269,25 @@ namespace Armada.Core.Services
             await AppendMissionActivityAsync(produced.Id, "held for operator review: " + produced.HeldForOperatorReviewReason, token).ConfigureAwait(false);
             _Logging.Warn(_Header + "mission " + produced.Id + " held for operator review: " + missingReason
                 + "; its dependents are not handed off until an operator clears or fails the hold");
+        }
+
+        // Missions whose interrupted definition-of-done gate is being re-run, from the sweep that starts the re-run
+        // until it ends, so a later sweep never starts a second re-run for the same mission.
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _GateRerunsInFlight =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+
+        // Missions whose interrupted gate cannot be re-run (the dock is gone). Each is reported once per process and
+        // then left to the operator, instead of being retried and reported again on every sweep.
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _GateRerunsRefused =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Missions whose interrupted definition-of-done gate is being re-run in this process.
+        /// </summary>
+        /// <returns>The mission identifiers.</returns>
+        public static List<string> GateRerunsInFlight()
+        {
+            return _GateRerunsInFlight.Keys.OrderBy(k => k, StringComparer.Ordinal).ToList();
         }
 
         private static readonly System.Text.Json.JsonSerializerOptions _MailboxJsonOptions = new System.Text.Json.JsonSerializerOptions
@@ -11422,12 +11605,12 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task RecordDefinitionOfDoneEvaluationAsync(
             Mission mission,
-            Captain captain,
+            Captain? captain,
             Dock dock,
             DefinitionOfDoneEvaluationRecord record,
             CancellationToken token)
         {
-            record.CaptainId = captain.Id;
+            record.CaptainId = captain?.Id ?? mission.CaptainId;
             record.DockId = dock.Id;
             record.BranchName = !String.IsNullOrWhiteSpace(mission.BranchName) ? mission.BranchName : dock.BranchName;
             record.CommitHash = mission.CommitHash;

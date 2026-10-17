@@ -441,7 +441,7 @@ namespace Armada.Server.Mcp.Tools
             {
                 register(
                     "armada_dispatch_hold",
-                    "Engage, clear, or inspect the fleet-wide dispatch hold. Engage it BEFORE rebuilding or redeploying the admiral so other sessions and the objective scheduler cannot start new voyages against a binary about to change. In-flight voyages continue; only new dispatches are refused. Engaging or clearing posts a system note to the coordination board. Status and engage list UnfinishedJobs: background jobs (dispatches included) accepted but not finished. A restart records each one Lost, so wait for the list to empty before restarting.",
+                    "Engage, clear, or inspect the fleet-wide dispatch hold. Engage it BEFORE rebuilding or redeploying the admiral so other sessions and the objective scheduler cannot start new voyages against a binary about to change. In-flight voyages continue; only new dispatches are refused. Engaging or clearing posts a system note to the coordination board. Status and engage list UnfinishedJobs: background jobs (dispatches included) accepted but not finished; RunningGates: definition-of-done gates running or waiting for the host command slot; GateReruns: interrupted gates being re-run; and HostSlot: who holds and who waits for the host command slot. A restart records each unfinished job Lost and kills every running gate and check, so wait for UnfinishedJobs, RunningGates and GateReruns to be empty and HostSlot to have no holder or waiter before restarting.",
                     new
                     {
                         type = "object",
@@ -459,7 +459,7 @@ namespace Armada.Server.Mcp.Tools
                         string action = String.IsNullOrWhiteSpace(request.Action) ? "status" : request.Action!.Trim().ToLowerInvariant();
 
                         if (String.Equals(action, "status", StringComparison.Ordinal))
-                            return (object)new { Active = dispatchHold.Snapshot() != null, Hold = dispatchHold.Snapshot(), UnfinishedJobs = UnfinishedJobs(jobs) };
+                            return (object)new { Active = dispatchHold.Snapshot() != null, Hold = dispatchHold.Snapshot(), UnfinishedJobs = UnfinishedJobs(jobs), RunningGates = RunningGates(), GateReruns = MissionService.GateRerunsInFlight(), HostSlot = HostWideCommandLock.Snapshot() };
 
                         if (String.Equals(action, "clear", StringComparison.Ordinal))
                         {
@@ -484,12 +484,33 @@ namespace Armada.Server.Mcp.Tools
                             dispatchHold.Engage(request.Reason!, request.SetBy);
                             await SafePostAsync(coordination, "[hold] Dispatching paused by " + request.SetBy + ": " + request.Reason + " Hold off dispatching new voyages until this is cleared.").ConfigureAwait(false);
                             await coordination.EmitHoldWakeAsync("[hold] Dispatching paused by " + request.SetBy + " (" + request.Reason + "). Hold new voyages; you will be woken on clear.").ConfigureAwait(false);
-                            return (object)new { Active = true, Hold = dispatchHold.Snapshot(), UnfinishedJobs = UnfinishedJobs(jobs) };
+                            return (object)new { Active = true, Hold = dispatchHold.Snapshot(), UnfinishedJobs = UnfinishedJobs(jobs), RunningGates = RunningGates(), GateReruns = MissionService.GateRerunsInFlight(), HostSlot = HostWideCommandLock.Snapshot() };
                         }
 
                         return (object)new { Error = "action must be engage, clear, or status" };
                     });
             }
+        }
+
+        private static List<RunningGateRow> RunningGates()
+        {
+            return DefinitionOfDoneGateRuns.Snapshot().Select(entry => new RunningGateRow
+            {
+                MissionId = entry.Key,
+                StartedUtc = entry.Value
+            }).ToList();
+        }
+
+        /// <summary>
+        /// A definition-of-done gate running or waiting for the host command slot, as listed by the dispatch hold.
+        /// </summary>
+        public sealed class RunningGateRow
+        {
+            /// <summary>Mission whose gate runs.</summary>
+            public string MissionId { get; set; } = String.Empty;
+
+            /// <summary>When the gate started, including its wait for the host command slot.</summary>
+            public DateTime StartedUtc { get; set; }
         }
 
         private static List<UnfinishedJobRow> UnfinishedJobs(LongRunningJobService? jobs)

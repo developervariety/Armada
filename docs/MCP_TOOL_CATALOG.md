@@ -533,8 +533,12 @@ The refusal happens at submission, before any job is accepted: every operator
 entry point answers `dispatch_hold_active` with `SetBy`, `SetByUtc` and
 `Reason` (`docs/MCP_API.md`, "Long Operations", lists them). `status` and
 `engage` return `UnfinishedJobs`: background jobs accepted before the hold and
-not yet finished. A restart records each one `Lost`, so wait for the list to
-empty before restarting.
+not yet finished; `RunningGates`: definition-of-done gates running or waiting
+for the host command slot; `GateReruns`: interrupted gates being re-run; and
+`HostSlot`: who holds and who waits for the host command slot. A restart records
+each unfinished job `Lost` and kills every running gate and check, so wait for
+`UnfinishedJobs`, `RunningGates` and `GateReruns` to be empty and `HostSlot` to
+have no holder or waiter before restarting.
 
 Autonomous recovery obeys the same hold. A recoverable failure that arrives
 while the hold is engaged gets no rescue voyage or mission and spends no

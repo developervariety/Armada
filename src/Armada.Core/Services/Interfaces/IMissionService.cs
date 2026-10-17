@@ -82,6 +82,15 @@ namespace Armada.Core.Services.Interfaces
         Task<int> RecoverDanglingHandoffsAsync(CancellationToken token = default);
 
         /// <summary>
+        /// Start a background re-run of the definition-of-done gate for every produced mission held because its gate
+        /// never recorded a result (an admiral restart kills a running or queued gate). A passed gate releases the hold
+        /// and runs the handoff or landing; a failed gate fails the mission into recovery. Returns the number started.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The number of gate re-runs started.</returns>
+        Task<int> StartInterruptedDefinitionOfDoneGateRerunsAsync(CancellationToken token = default);
+
+        /// <summary>
         /// Reap (delete) the captain branch for a mission that has reached a terminal Failed or
         /// Cancelled state and has no active rescue or retry depending on that branch. Honors the
         /// resolved BranchCleanupPolicy and swallows git failures. No-ops for any non-terminal or

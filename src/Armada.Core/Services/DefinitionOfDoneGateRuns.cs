@@ -87,6 +87,30 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// The missions with a running evaluation and when the oldest one started, oldest first. A restart kills every
+        /// evaluation listed here, so an operator draining the fleet for a restart waits for this list to empty.
+        /// </summary>
+        /// <returns>A point-in-time copy, keyed by mission.</returns>
+        public static List<KeyValuePair<string, DateTime>> Snapshot()
+        {
+            List<KeyValuePair<string, DateTime>> result = new List<KeyValuePair<string, DateTime>>();
+            lock (_Lock)
+            {
+                foreach (KeyValuePair<string, List<DefinitionOfDoneGateRun>> entry in _Runs)
+                {
+                    DateTime oldest = DateTime.MaxValue;
+                    foreach (DefinitionOfDoneGateRun run in entry.Value)
+                    {
+                        if (run.StartedUtc < oldest) oldest = run.StartedUtc;
+                    }
+                    result.Add(new KeyValuePair<string, DateTime>(entry.Key, oldest));
+                }
+            }
+            result.Sort((a, b) => a.Value.CompareTo(b.Value));
+            return result;
+        }
+
         #endregion
 
         #region Internal-Methods

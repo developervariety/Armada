@@ -27,6 +27,11 @@ namespace Armada.Core.Services
         /// </summary>
         public bool CancelledByMission => Volatile.Read(ref _CancelledByMission) == 1;
 
+        /// <summary>
+        /// When the evaluation started, including any wait for the host-wide command slot.
+        /// </summary>
+        public DateTime StartedUtc { get; } = DateTime.UtcNow;
+
         #endregion
 
         #region Private-Members

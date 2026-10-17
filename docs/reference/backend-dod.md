@@ -68,10 +68,17 @@ dangling-handoff recovery, therefore read the upstream's latest evaluation
 event first. They hand off only when that event is newer than the upstream's
 current launch (`StartedUtc`) and its outcome is `Passed`, `Skipped` or
 `NotVerifiable`. Otherwise the upstream is held for operator review with a
-`definition_of_done_not_run:` reason and its dependents keep waiting. The
-operator clears the hold with `armada_review_hold` to accept the work as it
-stands, or fails it to send it to recovery. This applies only when a gate is
-wired.
+`definition_of_done_not_run:` reason and its dependents keep waiting. This
+applies only when a gate is wired.
+
+The admiral health loop re-runs the gate for every mission held this way, one
+background run per mission through the host-wide slot. A gate that passes or is
+skipped on the re-run releases the hold, and the handoff or landing it stood in
+front of runs. A gate that fails fails the mission with the gate's reason and
+hands it to recovery. A mission whose dock is gone cannot be re-run: it stays
+held, its activity log says why, and the operator clears the hold with
+`armada_review_hold` to accept the work as it stands, or fails it to send it to
+recovery.
 
 The server builds the gate only at startup, and only when
 `DefinitionOfDone.Enabled` is true. With no gate, completion records no

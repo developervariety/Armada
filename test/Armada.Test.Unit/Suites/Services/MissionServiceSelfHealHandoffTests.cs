@@ -781,6 +781,152 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("InterruptedGate_RerunPasses_ReleasesHoldAndHandsOff", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    WireDefinitionOfDoneGate(missions, testDb.Driver);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                    {
+                        Name = "Passing Profile",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "exit 0",
+                        UnitTestCommand = "exit 0",
+                        IsDefault = true,
+                        Active = true
+                    }).ConfigureAwait(false);
+                    Mission worker = await CreateProducedWorkerAsync(testDb.Driver, vessel, "armada/worker-rerun").ConfigureAwait(false);
+                    string worktree = Path.Combine(Path.GetTempPath(), "armada_rerun_dock_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktree);
+                    try
+                    {
+                        Dock dock = new Dock(vessel.Id);
+                        dock.WorktreePath = worktree;
+                        dock.BranchName = "armada/worker-rerun";
+                        dock = await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("rerun voyage") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                        worker.DockId = dock.Id;
+                        worker.VoyageId = voyage.Id;
+                        worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+
+                        Mission testEngineer = await CreateDependentAsync(
+                            testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
+                        testEngineer.VoyageId = voyage.Id;
+                        testEngineer = await testDb.Driver.Missions.UpdateAsync(testEngineer).ConfigureAwait(false);
+                        await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+                        Mission held = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                        AssertTrue(MissionService.IsDefinitionOfDoneNotRunHold(held), "The interrupted gate holds the upstream first");
+
+                        DefinitionOfDoneEvaluationOutcomeEnum? outcome = await missions.RerunInterruptedDefinitionOfDoneGateAsync(worker.Id, CancellationToken.None).ConfigureAwait(false);
+                        AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Passed, outcome, "The gate ran again and passed");
+
+                        Mission released = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                        AssertFalse(released.HeldForOperatorReview, "A gate that passes on the re-run releases the hold: " + released.HeldForOperatorReviewReason);
+
+                        Mission dependent = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                        AssertContains(MissionService.BuildHandoffMarker(worker.Id), dependent.Description ?? "", "The released upstream is handed off to its dependent");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktree, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("InterruptedGate_RerunFails_FailsTheMissionAndCancelsItsDependent", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    WireDefinitionOfDoneGate(missions, testDb.Driver);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                    {
+                        Name = "Failing Profile",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "exit 0",
+                        UnitTestCommand = "exit 1",
+                        IsDefault = true,
+                        Active = true
+                    }).ConfigureAwait(false);
+                    Mission worker = await CreateProducedWorkerAsync(testDb.Driver, vessel, "armada/worker-rerun-red").ConfigureAwait(false);
+                    string worktree = Path.Combine(Path.GetTempPath(), "armada_rerun_red_dock_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktree);
+                    try
+                    {
+                        Dock dock = new Dock(vessel.Id);
+                        dock.WorktreePath = worktree;
+                        dock.BranchName = "armada/worker-rerun-red";
+                        dock = await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("rerun voyage") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                        worker.DockId = dock.Id;
+                        worker.VoyageId = voyage.Id;
+                        worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+
+                        Mission testEngineer = await CreateDependentAsync(
+                            testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
+                        testEngineer.VoyageId = voyage.Id;
+                        testEngineer = await testDb.Driver.Missions.UpdateAsync(testEngineer).ConfigureAwait(false);
+                        await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+                        Mission held = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                        AssertTrue(MissionService.IsDefinitionOfDoneNotRunHold(held), "The interrupted gate holds the upstream first");
+
+                        DefinitionOfDoneEvaluationOutcomeEnum? outcome = await missions.RerunInterruptedDefinitionOfDoneGateAsync(worker.Id, CancellationToken.None).ConfigureAwait(false);
+                        AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Failed, outcome, "The gate ran again and failed");
+
+                        Mission failed = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Failed, failed.Status, "A gate that fails on the re-run fails the mission so recovery takes it");
+                        AssertFalse(failed.HeldForOperatorReview, "The failed mission is no longer held");
+                        AssertStartsWith("DoD gate failed", failed.FailureReason ?? "", "The failure carries the gate's reason");
+
+                        Mission dependent = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Cancelled, dependent.Status, "The dependent of a failed upstream is cancelled, not handed unverified work");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktree, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("InterruptedGate_SweepStartsOneRerunPerHeldMission_AndADocklessMissionStaysHeld", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    WireDefinitionOfDoneGate(missions, testDb.Driver);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    AssertEqual(0, await missions.StartInterruptedDefinitionOfDoneGateRerunsAsync().ConfigureAwait(false), "Nothing is held, so nothing re-runs");
+
+                    Mission worker = await CreateProducedWorkerAsync(testDb.Driver, vessel, "armada/worker-dockless").ConfigureAwait(false);
+                    Mission testEngineer = await CreateDependentAsync(
+                        testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
+                    await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+
+                    AssertEqual(1, await missions.StartInterruptedDefinitionOfDoneGateRerunsAsync().ConfigureAwait(false), "The held mission gets one re-run");
+                    for (int i = 0; i < 100 && MissionService.GateRerunsInFlight().Contains(worker.Id); i++)
+                        await Task.Delay(50).ConfigureAwait(false);
+                    AssertFalse(MissionService.GateRerunsInFlight().Contains(worker.Id), "The re-run finishes");
+
+                    Mission stillHeld = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                    AssertTrue(MissionService.IsDefinitionOfDoneNotRunHold(stillHeld), "A mission with no dock cannot be re-gated and stays held");
+                    string activity = File.ReadAllText(Path.Combine(settings.LogDirectory, "missions", worker.Id + ".log"));
+                    AssertContains("the mission dock is gone", activity, "The mission says why the gate was not re-run");
+                    AssertEqual(0, await missions.StartInterruptedDefinitionOfDoneGateRerunsAsync().ConfigureAwait(false),
+                        "A mission whose gate cannot be re-run is reported once, not retried every sweep");
+                }
+            });
+
             await RunTest("TryAssign_UpstreamGatePassedThisLaunch_SelfHealsAndAssigns", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

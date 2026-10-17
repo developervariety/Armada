@@ -290,8 +290,13 @@ job finishes, the next start records it as `Lost` with the reason
 then submit it again. Every job that ends `Failed` or `Lost` writes a
 `job.failed` or `job.lost` event on its objective (on the job when it names no
 objective). Finished records are kept for 14 days. `armada_dispatch_hold`
-`status` and `engage` list `UnfinishedJobs`, the jobs a restart would lose;
-wait for that list to empty before restarting the admiral.
+`status` and `engage` list `UnfinishedJobs`, the jobs a restart would lose,
+`RunningGates`, the definition-of-done gates running or waiting for the host
+command slot, `GateReruns`, the interrupted gates being re-run, and `HostSlot`,
+who holds and who waits for the host command slot. A restart kills every gate
+and check listed there; wait for `UnfinishedJobs`, `RunningGates` and
+`GateReruns` to be empty and `HostSlot` to have no holder or waiter before
+restarting the admiral.
 
 A global administrator can also list every job, newest first, through REST
 `GET /api/v1/jobs` and the dashboard Jobs page, and read one through

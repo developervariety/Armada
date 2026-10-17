@@ -1990,6 +1990,9 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<int> RecoverDanglingHandoffsAsync(CancellationToken token = default)
                 => throw new NotImplementedException();
 
+            public Task<int> StartInterruptedDefinitionOfDoneGateRerunsAsync(CancellationToken token = default)
+                => Task.FromResult(0);
+
             public bool IsBroadScope(Mission mission) => false;
 
             public Task GenerateClaudeMdAsync(string worktreePath, Mission mission, Vessel vessel, Captain? captain = null, CancellationToken token = default)

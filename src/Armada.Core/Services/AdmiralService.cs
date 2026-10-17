@@ -2487,6 +2487,10 @@ namespace Armada.Core.Services
                 HealthLoopMaintenanceStep.EveryCycles("orphaned dock reclaim", () => 1,
                     async token => await ReclaimOrphanedDocksAsync(token).ConfigureAwait(false)),
 
+                // A restart kills every running or queued definition-of-done gate; the held missions get the gate again.
+                HealthLoopMaintenanceStep.EveryCycles("interrupted gate re-run", () => 1,
+                    async token => await _Missions.StartInterruptedDefinitionOfDoneGateRerunsAsync(token).ConfigureAwait(false)),
+
                 HealthLoopMaintenanceStep.EveryCycles("pending mission dispatch", () => 1,
                     async token => await DispatchPendingMissionsAsync(token).ConfigureAwait(false)),
 
