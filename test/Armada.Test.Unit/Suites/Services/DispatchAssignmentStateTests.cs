@@ -1990,6 +1990,9 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<int> RecoverDanglingHandoffsAsync(CancellationToken token = default)
                 => throw new NotImplementedException();
 
+            public Task<bool> AwaitsDefinitionOfDoneResultAsync(Mission mission, CancellationToken token = default)
+                => Task.FromResult(false);
+
             public Task<int> StartInterruptedDefinitionOfDoneGateRerunsAsync(CancellationToken token = default)
                 => Task.FromResult(0);
 

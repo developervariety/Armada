@@ -41,7 +41,9 @@ upstream integrations and excludes changes already present at that baseline.
   kills that mission's running or queued definition-of-done gate. The health
   loop re-runs the gate: a pass releases the hold and hands off or lands, a
   failure fails the mission into recovery, and a mission whose dock is gone
-  stays held and says why. `armada_dispatch_hold` `status` and `engage` also
+  stays held and says why. The orphan-dock reaper keeps the dock of a produced
+  mission whose gate has no result, so the re-run still has the work to test
+  after a restart. `armada_dispatch_hold` `status` and `engage` also
   list `RunningGates`, `GateReruns` and `HostSlot`, so a deploy can wait until
   no gate or check is in flight.
 - A Research or Audit mission of an operator-defined persona gets a

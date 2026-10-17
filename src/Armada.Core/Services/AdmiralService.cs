@@ -2629,6 +2629,24 @@ namespace Armada.Core.Services
                             continue;
                         }
 
+                        // A produced mission whose gate has no result yet is gated from its dock. A restart kills a
+                        // running or queued gate before the mission is held for it, and the gate re-run tests the
+                        // dock, so the dock is kept until the gate records a result.
+                        bool awaitsGate = false;
+                        foreach (Mission produced in producedMissions.Where(m => m.DockId == dock.Id))
+                        {
+                            if (await _Missions.AwaitsDefinitionOfDoneResultAsync(produced, token).ConfigureAwait(false))
+                            {
+                                awaitsGate = true;
+                                break;
+                            }
+                        }
+                        if (awaitsGate)
+                        {
+                            _Logging.Info(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a mission whose definition-of-done gate has no result");
+                            continue;
+                        }
+
                         // A mission awaiting operator review keeps its dock on purpose and releases its
                         // captain; approving it lands from that dock, so the dock is not an orphan.
                         List<Mission> reviewMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);

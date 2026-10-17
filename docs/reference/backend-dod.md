@@ -75,7 +75,9 @@ The admiral health loop re-runs the gate for every mission held this way, one
 background run per mission through the host-wide slot. A gate that passes or is
 skipped on the re-run releases the hold, and the handoff or landing it stood in
 front of runs. A gate that fails fails the mission with the gate's reason and
-hands it to recovery. A mission whose dock is gone cannot be re-run: it stays
+hands it to recovery. The orphan-dock reaper keeps the dock of a produced
+mission whose gate has no result for its current launch, so the dock is there
+when the re-run starts. A mission whose dock is gone cannot be re-run: it stays
 held, its activity log says why, and the operator clears the hold with
 `armada_review_hold` to accept the work as it stands, or fails it to send it to
 recovery.

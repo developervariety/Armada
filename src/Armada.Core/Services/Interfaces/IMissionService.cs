@@ -82,6 +82,15 @@ namespace Armada.Core.Services.Interfaces
         Task<int> RecoverDanglingHandoffsAsync(CancellationToken token = default);
 
         /// <summary>
+        /// True when a produced mission has no accepted definition-of-done result for its current launch: its gate is
+        /// running, queued, or was interrupted. Its dock holds the work the gate must test, so the dock is kept.
+        /// </summary>
+        /// <param name="mission">Mission to check.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the mission still waits on a gate result.</returns>
+        Task<bool> AwaitsDefinitionOfDoneResultAsync(Mission mission, CancellationToken token = default);
+
+        /// <summary>
         /// Start a background re-run of the definition-of-done gate for every produced mission held because its gate
         /// never recorded a result (an admiral restart kills a running or queued gate). A passed gate releases the hold
         /// and runs the handoff or landing; a failed gate fails the mission into recovery. Returns the number started.

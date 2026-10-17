@@ -9077,6 +9077,14 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<bool> AwaitsDefinitionOfDoneResultAsync(Mission mission, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            string? missing = await DescribeMissingDefinitionOfDoneResultAsync(mission, token).ConfigureAwait(false);
+            return missing != null;
+        }
+
+        /// <inheritdoc />
         public Task<int> StartInterruptedDefinitionOfDoneGateRerunsAsync(CancellationToken token = default)
         {
             return StartInterruptedDefinitionOfDoneGateRerunsCoreAsync(token);

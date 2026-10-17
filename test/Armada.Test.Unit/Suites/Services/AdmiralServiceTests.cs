@@ -202,6 +202,65 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A restart kills a running or queued gate before the self-heal holds the mission for it, and the gate
+            // re-run tests the mission's dock. The reaper keeps that dock until the gate records a result, and
+            // reclaims the dock of a produced mission whose gate already passed.
+            await RunTest("The orphan-dock reaper keeps the dock of a produced mission whose gate has no result", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    missionService.DefinitionOfDone = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false }, testDb.Driver, logging);
+                    AdmiralService service = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService,
+                        new VoyageService(logging, testDb.Driver), dockService, git: git);
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("reaper-gate-vessel", "https://github.com/test/reaper-gate.git")).ConfigureAwait(false);
+                    Captain idle = await testDb.Driver.Captains.CreateAsync(new Captain("reaper-gate-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    Dock ungatedDock = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                    {
+                        CaptainId = idle.Id, Active = true, WorktreePath = Path.Combine(Path.GetTempPath(), "armada_reaper_ungated_" + Guid.NewGuid().ToString("N")),
+                        BranchName = "armada/reaper/ungated", CreatedUtc = DateTime.UtcNow.AddMinutes(-30)
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(new Mission("Gate interrupted")
+                    {
+                        VesselId = vessel.Id, DockId = ungatedDock.Id, Status = MissionStatusEnum.WorkProduced, StartedUtc = DateTime.UtcNow.AddMinutes(-20)
+                    }).ConfigureAwait(false);
+
+                    Dock gatedDock = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                    {
+                        CaptainId = idle.Id, Active = true, WorktreePath = Path.Combine(Path.GetTempPath(), "armada_reaper_gated_" + Guid.NewGuid().ToString("N")),
+                        BranchName = "armada/reaper/gated", CreatedUtc = DateTime.UtcNow.AddMinutes(-30)
+                    }).ConfigureAwait(false);
+                    Mission gated = await testDb.Driver.Missions.CreateAsync(new Mission("Gate passed")
+                    {
+                        VesselId = vessel.Id, DockId = gatedDock.Id, Status = MissionStatusEnum.WorkProduced, StartedUtc = DateTime.UtcNow.AddMinutes(-20)
+                    }).ConfigureAwait(false);
+                    DefinitionOfDoneEvaluationRecord record = DefinitionOfDoneEvaluationRecord.FromResult(DefinitionOfDoneResult.Pass(), DateTime.UtcNow.AddMinutes(-2));
+                    ArmadaEvent evt = new ArmadaEvent(DefinitionOfDoneEvaluationRecord.EventType, "Definition-of-done evaluation: " + record.Outcome);
+                    evt.EntityType = "mission";
+                    evt.EntityId = gated.Id;
+                    evt.MissionId = gated.Id;
+                    evt.VesselId = vessel.Id;
+                    evt.Payload = System.Text.Json.JsonSerializer.Serialize(record);
+                    evt.CreatedUtc = DateTime.UtcNow.AddMinutes(-1);
+                    await testDb.Driver.Events.CreateAsync(evt).ConfigureAwait(false);
+
+                    await service.ReclaimOrphanedDocksAsync().ConfigureAwait(false);
+
+                    AssertTrue((await testDb.Driver.Docks.ReadAsync(ungatedDock.Id).ConfigureAwait(false))!.Active,
+                        "The dock of a produced mission whose gate has no result is kept for the gate re-run");
+                    AssertFalse((await testDb.Driver.Docks.ReadAsync(gatedDock.Id).ConfigureAwait(false))!.Active,
+                        "The dock of a produced mission whose gate passed is reclaimed");
+                }
+            });
+
             await RunTest("A captain Stalled with no mission returns to Idle after the stall threshold, and one with a mission stays", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
