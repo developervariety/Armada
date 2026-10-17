@@ -48,6 +48,15 @@ cancel wrote; it is not failed, handed off or landed.
 A failed event write is logged with the outcome and exception type. It never
 changes the gate outcome or the mission decision.
 
+Each gate command (build, unit tests, each consumer build and test) waits for a
+host-wide command slot, which it shares with check runs and merge-queue test
+runs. `DefinitionOfDone.HostCommandSlots` (`definitionOfDone.hostCommandSlots`
+in `settings.json`) sets how many slots the host grants at once: default 1,
+clamped to 1-8, applied at startup and on every settings reload. Slots are
+granted in request order. A count above 1 lets several full suites run at once,
+which risks false `Timeout` failures on a host without the CPU, memory and disk
+to run them inside `CommandTimeoutSeconds`.
+
 ## Handoff requires a recorded result
 
 Mission status is not evidence that the gate passed: completion writes

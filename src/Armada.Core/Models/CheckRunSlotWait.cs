@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Collections.Generic;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -36,12 +37,13 @@ namespace Armada.Core.Models
         public DateTime? WaitingSinceUtc { get; set; } = null;
 
         /// <summary>
-        /// What holds the slot now, or null when the slot is free or this check holds it.
+        /// What holds the slots now, every holder in grant order separated by "; ", or null when every slot is
+        /// free or this check holds one.
         /// </summary>
         public string? HolderDescription { get; set; } = null;
 
         /// <summary>
-        /// When the current holder was granted the slot, or null.
+        /// When the earliest current holder was granted its slot, or null.
         /// </summary>
         public DateTime? HolderSinceUtc { get; set; } = null;
 
@@ -86,14 +88,34 @@ namespace Armada.Core.Models
                     wait.WaitingSinceUtc ??= waiter.RequestedUtc;
                 }
 
-                if (!String.Equals(slot.HolderKey, run.Id, StringComparison.Ordinal))
+                bool runHoldsSlot = String.Equals(slot.HolderKey, run.Id, StringComparison.Ordinal) || slot.FindHolder(run.Id) != null;
+                if (!runHoldsSlot)
                 {
-                    wait.HolderDescription = slot.HolderDescription;
+                    wait.HolderDescription = DescribeHolders(slot);
                     wait.HolderSinceUtc = slot.HolderSinceUtc;
                 }
             }
 
             return wait;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        /// <summary>
+        /// Name every holder in grant order, or the single holder when the snapshot lists none.
+        /// </summary>
+        private static string? DescribeHolders(HostSlotSnapshot slot)
+        {
+            if (slot.Holders.Count == 0) return slot.HolderDescription;
+            List<string> descriptions = new List<string>();
+            foreach (HostSlotHolder holder in slot.Holders)
+            {
+                if (!String.IsNullOrEmpty(holder.Description)) descriptions.Add(holder.Description);
+            }
+
+            return descriptions.Count == 0 ? slot.HolderDescription : String.Join("; ", descriptions);
         }
 
         #endregion

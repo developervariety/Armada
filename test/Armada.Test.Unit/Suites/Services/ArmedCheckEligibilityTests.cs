@@ -327,6 +327,27 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("The check runner's in-flight line names every slot holder and how many slots are in use", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+
+                    // A grant time ahead of the clock reads as held for 0 s however long the assertion takes.
+                    DateTime grantedUtc = DateTime.UtcNow.AddMinutes(5);
+                    HostSlotSnapshot single = new HostSlotSnapshot { HolderKey = "chk_one", HolderDescription = "definition-of-done build", HolderSinceUtc = grantedUtc };
+                    single.Holders.Add(new HostSlotHolder { Key = "chk_one", Description = "definition-of-done build", SinceUtc = single.HolderSinceUtc });
+                    AssertEqual("0 check(s) running, 0 waiting for the host build slot; slot held by definition-of-done build for 0 s",
+                        orchestrator.DescribeInFlight(single), "with one slot the line names its holder and no slot count");
+
+                    HostSlotSnapshot several = new HostSlotSnapshot { SlotCount = 3, HolderKey = "chk_a", HolderDescription = "definition-of-done build", HolderSinceUtc = grantedUtc };
+                    several.Holders.Add(new HostSlotHolder { Key = "chk_a", Description = "definition-of-done build", SinceUtc = several.HolderSinceUtc });
+                    several.Holders.Add(new HostSlotHolder { Key = "chk_b", Description = "merge-queue test", SinceUtc = grantedUtc });
+                    AssertEqual("0 check(s) running, 0 waiting for the host build slot; slot held by definition-of-done build for 0 s, merge-queue test for 0 s (2 of 3 slots in use)",
+                        orchestrator.DescribeInFlight(several), "with several slots the line names every holder and the slots in use");
+                }
+            });
+
             await RunTest("Sweep finds an eligible check behind two hundred ineligible checks", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

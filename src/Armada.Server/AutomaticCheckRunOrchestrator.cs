@@ -198,10 +198,20 @@ namespace Armada.Server
 
             int running = _InFlight.Count - waiting;
             string text = running + " check(s) running, " + waiting + " waiting for the host build slot";
-            if (!String.IsNullOrEmpty(slot.HolderDescription))
+            if (slot.Holders.Count > 0)
             {
-                TimeSpan held = slot.HolderSinceUtc.HasValue ? DateTime.UtcNow - slot.HolderSinceUtc.Value : TimeSpan.Zero;
-                text += "; slot held by " + slot.HolderDescription + " for " + Math.Max(0, (int)held.TotalSeconds) + " s";
+                List<string> holders = new List<string>();
+                foreach (HostSlotHolder holder in slot.Holders)
+                {
+                    holders.Add(holder.Description + " for " + HeldSeconds(holder.SinceUtc) + " s");
+                }
+
+                text += "; slot held by " + String.Join(", ", holders);
+                if (slot.SlotCount > 1) text += " (" + slot.Holders.Count + " of " + slot.SlotCount + " slots in use)";
+            }
+            else if (!String.IsNullOrEmpty(slot.HolderDescription))
+            {
+                text += "; slot held by " + slot.HolderDescription + " for " + HeldSeconds(slot.HolderSinceUtc) + " s";
             }
 
             if (slot.Waiters.Count > waiting) text += "; " + (slot.Waiters.Count - waiting) + " other request(s) queued for the slot";
@@ -657,6 +667,12 @@ namespace Armada.Server
                 isTenantAdmin: true,
                 authMethod: "System",
                 principalDisplay: "Automated checks");
+        }
+
+        private static int HeldSeconds(DateTime? sinceUtc)
+        {
+            TimeSpan held = sinceUtc.HasValue ? DateTime.UtcNow - sinceUtc.Value : TimeSpan.Zero;
+            return Math.Max(0, (int)held.TotalSeconds);
         }
     }
 }

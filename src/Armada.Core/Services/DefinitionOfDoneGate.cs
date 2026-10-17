@@ -204,7 +204,7 @@ namespace Armada.Core.Services
             }
 
             // Serialize the expensive half host-wide. A gate runs the vessel's full build and unit-test
-            // command, and two of those at once on one host produce a failure that looks like broken
+            // command, and more of those at once than the host can carry produce a failure that looks like broken
             // code but is not: a burst of many simultaneous sub-millisecond failures across unrelated
             // test classes, classified Timeout, where the same command passes alone. The mission that
             // loses the race is marked Failed and its whole downstream pipeline is cancelled.
@@ -1342,7 +1342,7 @@ namespace Armada.Core.Services
                 OwnProcessGroup = true
             };
 
-            // Two full build or test commands at once on one host fail in ways that look like broken
+            // More full build or test commands at once than the host can carry fail in ways that look like broken
             // code, so every command waits for the host-wide slot. See HostWideCommandLock.
             BoundedProcessResult result;
             using (await HostWideCommandLock.AcquireAsync(null, "definition-of-done " + label, token).ConfigureAwait(false))

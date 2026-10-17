@@ -245,18 +245,31 @@ full log's size and names the call that fetches it, so nothing is withheld
 silently. The REST check endpoints are unchanged and still return the full
 record.
 
-An expensive Check does not run concurrently with a definition-of-done gate or
-a merge-queue test run; Armada serializes them through one host-wide slot. The
-slot is granted in request order, and a gate holds it for one command at a time
+Expensive Checks, definition-of-done gate commands and merge-queue test runs
+share host-wide command slots. `definitionOfDone.hostCommandSlots` in
+`settings.json` sets how many slots there are: default 1, clamped to 1-8. With
+the default, the host runs one full build or test suite at a time, so a Check
+never runs concurrently with a gate command or a merge-queue test run. Slots
+are granted in request order, and a gate holds a slot for one command at a time
 (its build, its unit tests, each consumer build and test), so a Check that asks
 while a gate builds runs before the gate's next command instead of after the
-whole gate.
+whole gate. The count is applied at startup and on every settings reload. A
+raised count grants waiting requests at once; a lowered count takes no slot
+from a running command and grants nothing new until the holders drop below it.
 
-`run_check` waits at most two minutes. A Check still waiting for the slot, or
+Raising the count above 1 risks false failures. Concurrent full suites contend
+for the same CPU, memory and disk, and on a host without the capacity for them
+the contention shows as failures that look like broken code, most often a burst
+of tests classified `Timeout` that pass when the command runs alone. Raise it
+only on a host that can run that many suites inside
+`definitionOfDone.commandTimeoutSeconds`.
+
+`run_check` waits at most two minutes. A Check still waiting for a slot, or
 still running, comes back unfinished and keeps running; read it again with
 `get_check_run`. Every unfinished Check view carries `SlotWait`: its state
-(`Queued`, `WaitingForSlot` or `Running`), its place in line, what holds the
-slot and since when, and guidance that the wait is an environment condition,
+(`Queued`, `WaitingForSlot` or `Running`), its place in line, every request that
+holds a slot (in grant order) and since when the earliest holder has held it,
+and guidance that the wait is an environment condition,
 not a code defect or an owner question. A Judge PASS given while a Check is
 unresolved is held until the Check passes at the reviewed commit, so a stage
 never needs to fail or block because a Check has not finished. A Judge
@@ -265,8 +278,9 @@ waits in its own hold, and once the Checks resolve (or the wait budget ends)
 the Judge runs again and decides with their result. That re-run happens once
 per mission and spends no recovery budget; a NEEDS_REVISION after it is
 recorded as usual. The automatic
-Check runner logs how many started Checks run and how many wait for the slot,
-and what holds it.
+Check runner logs how many started Checks run and how many wait for a slot,
+what holds each slot, and how many of the slots are in use when there is more
+than one.
 
 The heartbeat runs eligible non-deployment Checks automatically, up to three per
 sweep: a voyage-armed Check once a stage commits work to a branch, a

@@ -2,6 +2,7 @@ namespace Armada.Core.Settings
 {
     using System;
     using System.Collections.Generic;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Controls the in-dock build and unit-test gate that runs before a Worker mission is
@@ -49,6 +50,25 @@ namespace Armada.Core.Settings
         {
             get => _CommandTimeoutSeconds;
             set => _CommandTimeoutSeconds = Math.Max(30, Math.Min(3600, value));
+        }
+
+        /// <summary>
+        /// How many full build or test commands Armada runs on this host at once, across every
+        /// definition-of-done gate command, check run and merge-queue test run. Clamped to [1, 8].
+        /// Defaults to 1, which runs one full suite at a time. Applied at startup and on every
+        /// settings reload.
+        /// </summary>
+        /// <remarks>
+        /// Concurrent full suites contend for the same CPU and disk. A host without the capacity for
+        /// them turns that contention into failures that look like broken code, most often a burst of
+        /// tests classified Timeout that pass when the command runs alone. Raise the count only on a
+        /// host with the cores, memory and disk throughput to run that many suites inside
+        /// <see cref="CommandTimeoutSeconds"/>.
+        /// </remarks>
+        public int HostCommandSlots
+        {
+            get => _HostCommandSlots;
+            set => _HostCommandSlots = HostWideCommandLock.ClampSlotCount(value);
         }
 
         /// <summary>
@@ -183,6 +203,7 @@ namespace Armada.Core.Settings
             DocOnlyMarker = source.DocOnlyMarker;
             RunRestoreBeforeBuild = source.RunRestoreBeforeBuild;
             CommandTimeoutSeconds = source.CommandTimeoutSeconds;
+            HostCommandSlots = source.HostCommandSlots;
             OutputTailLines = source.OutputTailLines;
             DiagnosticLines = source.DiagnosticLines;
             VerifyDeclaredConsumers = source.VerifyDeclaredConsumers;
@@ -200,6 +221,7 @@ namespace Armada.Core.Settings
 
         private string _DocOnlyMarker = "[DOD:DOC-ONLY]";
         private int _CommandTimeoutSeconds = 600;
+        private int _HostCommandSlots = HostWideCommandLock.MinimumSlots;
         private int _OutputTailLines = 50;
         private int _DiagnosticLines = 20;
 

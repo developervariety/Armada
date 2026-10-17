@@ -19,6 +19,13 @@ upstream integrations and excludes changes already present at that baseline.
   decision calls, actions, unavailable calls, latency, tokens and reversals for
   16 September to 14 October, reversal causes, one recommendation per
   decision, and the rescue and papercut baselines. No setting changes.
+- `definitionOfDone.hostCommandSlots` sets how many full build or test
+  commands (definition-of-done gate commands, check runs and merge-queue test
+  runs) the host runs at once. It defaults to 1, which keeps one suite at a
+  time, and is clamped to 1-8. Slots are still granted in request order; a
+  settings reload applies a new count without a restart. The check slot wait
+  and the automatic check runner name every current holder. A count above 1
+  risks false Timeout failures on a host without the capacity for it.
 
 ### Removed
 

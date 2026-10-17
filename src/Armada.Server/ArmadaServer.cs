@@ -256,6 +256,11 @@ namespace Armada.Server
             // settings file and validate the candidate against the live captain roster.
             _SettingsReload = new SettingsReloadService(_Settings, token => _Database.Captains.EnumerateAsync(token));
 
+            // The host-wide command slots are process-global; they take the configured count before any
+            // gate, check or merge-queue test can ask for one, and the reload path keeps them current.
+            HostWideCommandLock.SetSlotCount(_Settings.DefinitionOfDone.HostCommandSlots);
+            _Logging.Info(_Header + "host command slots: " + HostWideCommandLock.SlotCount);
+
             // Background jobs are journalled under the data directory, so an accepted job outlives
             // this process; interrupted jobs are recovered below, before any request is served.
             _LongRunningJobs = new LongRunningJobService(

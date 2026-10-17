@@ -16,7 +16,8 @@ namespace Armada.Core.Services
     /// The manual reload endpoint and the settings-file watcher both call this service, so both read the same file
     /// and accept the same candidates. A missing file, an unreadable file, or a candidate that fails
     /// <see cref="SettingsCandidateValidator"/> is refused and the current settings are kept; only a valid candidate
-    /// reaches <see cref="ArmadaSettings.ApplyHotReloadableFrom"/>, which copies hot-reloaded sections in place.
+    /// reaches <see cref="ArmadaSettings.ApplyHotReloadableFrom"/>, which copies hot-reloaded sections in place, and
+    /// then <see cref="HostWideCommandLock.SetSlotCount"/>, which applies the reloaded host command slot count.
     /// Reloads are serialized, and the service remembers the content it last applied by either path, so a watched
     /// reload can skip content that is already live.
     /// </summary>
@@ -140,6 +141,10 @@ namespace Armada.Core.Services
                 }
 
                 _Settings.ApplyHotReloadableFrom(candidate);
+
+                // The host-wide command slots are process-global and hold no settings reference, so the
+                // reloaded count is pushed to them here; a raised count admits waiting commands at once.
+                HostWideCommandLock.SetSlotCount(_Settings.DefinitionOfDone.HostCommandSlots);
                 _LastAppliedHash = hash;
                 result.Outcome = SettingsReloadOutcomeEnum.Applied;
                 return result;

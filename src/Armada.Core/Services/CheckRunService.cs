@@ -396,8 +396,8 @@ namespace Armada.Core.Services
                         }
                     }
 
-                    // Share the host-wide slot with DoD gates and merge-queue test runs so two full
-                    // build+test suites never run on one host at once. See HostWideCommandLock.
+                    // Share the host-wide slots with DoD gates and merge-queue test runs so no more full
+                    // build+test suites run on one host at once than its slot count allows. See HostWideCommandLock.
                     using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), token).ConfigureAwait(false))
                     {
                         RunningClaim claim = await TryMarkRunningAsync(run, token).ConfigureAwait(false);
