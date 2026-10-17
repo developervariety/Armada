@@ -86,6 +86,20 @@ and total-budget trimming pin each report heading and complete-output reference
 before trimming the narrative. Voyage board notes cannot displace those
 references. Compaction of older blocks retains their report essentials.
 
+A handoff block carries the stage the dependent names. In an Audit or Research
+pipeline every stage reviews the same root report, so a report-only dependent
+also gets one `## Earlier Stage Reports` section, placed before its handoff
+blocks. It holds the root report inlined whole up to 24,000 characters (a
+head-and-tail preview past that, with the verifiable artifact reference), and
+the report essentials of every stage before the prior one, oldest first,
+including parallel siblings that shared an upstream. Root missions of other
+chains in the same voyage are never included. The section is rebuilt on each
+handoff, and compaction of handoff blocks leaves it whole. The prior stage's
+own report is inlined whole up to the same 24,000 characters, and a report-only
+description has an 80,000-character narrative budget instead of 20,000; the
+captain brief embeds a bounded copy, and the full description is written into
+the dock as files the captain reads.
+
 A mission's dock outlives its captain while the mission still lands or is
 approved from it: a mission in `WorkProduced`, `PullRequestOpen` or `Review`
 keeps its dock through stall recovery and the orphan-dock reaper, and the disk

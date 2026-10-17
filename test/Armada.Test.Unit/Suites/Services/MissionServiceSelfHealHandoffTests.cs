@@ -145,6 +145,73 @@ namespace Armada.Test.Unit.Suites.Services
             await db.Events.CreateAsync(evt).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Builds a report-only chain in one voyage: a root Worker, a PlanReviewer and a TestEngineer that run in
+        /// parallel after it, and a pending Judge that names the TestEngineer. A second root Worker of an unrelated
+        /// chain shares the voyage. Every report is longer than the default preview, with a sentinel in its middle.
+        /// </summary>
+        private async Task<ReportOnlyChain> CreateReportOnlyChainAsync(SqliteDatabaseDriver db, Vessel vessel, MissionModeEnum judgeMode)
+        {
+            Voyage voyage = await db.Voyages.CreateAsync(new Voyage("report-only chain") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+            ReportOnlyChain chain = new ReportOnlyChain();
+
+            chain.Worker = await CreateStageAsync(db, vessel, voyage, "Worker", 1, null, MissionStatusEnum.Complete,
+                new string('w', 7000) + "\n| Family | Row |\n| --- | --- |\n| ROOT-MATRIX-MIDDLE-ROW | cited |\n" + new string('x', 7000)).ConfigureAwait(false);
+            chain.OtherRoot = await CreateStageAsync(db, vessel, voyage, "Worker", 1, null, MissionStatusEnum.Complete,
+                "OTHER-CHAIN-SENTINEL report.").ConfigureAwait(false);
+            chain.PlanReviewer = await CreateStageAsync(db, vessel, voyage, "PlanReviewer", 2, chain.Worker.Id, MissionStatusEnum.Complete,
+                "## Completeness\n" + new string('p', 9000) + "\n## Correctness\n" +
+                "1. **Blocking. The matrix omits the PLAN-REVIEWER-FINDING row.** `Matrix.md:12` lists no source for it.\n" +
+                "## Verdict\nNEEDS_REVISION\n").ConfigureAwait(false);
+            chain.TestEngineer = await CreateStageAsync(db, vessel, voyage, "TestEngineer", 2, chain.Worker.Id, MissionStatusEnum.WorkProduced,
+                new string('t', 6000) + "\nTEST-ENGINEER-MIDDLE-SENTINEL\n" + new string('u', 6000)).ConfigureAwait(false);
+
+            Mission judge = new Mission("[Judge] report", "Review the report.");
+            judge.VesselId = vessel.Id;
+            judge.VoyageId = voyage.Id;
+            judge.Persona = "Judge";
+            judge.Mode = judgeMode;
+            judge.StageOrder = 3;
+            judge.Status = MissionStatusEnum.Pending;
+            judge.DependsOnMissionId = chain.TestEngineer.Id;
+            judge.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+            chain.Judge = await db.Missions.CreateAsync(judge).ConfigureAwait(false);
+            return chain;
+        }
+
+        private async Task<Mission> CreateStageAsync(
+            SqliteDatabaseDriver db,
+            Vessel vessel,
+            Voyage voyage,
+            string persona,
+            int stageOrder,
+            string? dependsOn,
+            MissionStatusEnum status,
+            string output)
+        {
+            Mission mission = new Mission("[" + persona + "] report", "Report on the scope.");
+            mission.VesselId = vessel.Id;
+            mission.VoyageId = voyage.Id;
+            mission.Persona = persona;
+            mission.Mode = MissionModeEnum.Research;
+            mission.StageOrder = stageOrder;
+            mission.DependsOnMissionId = dependsOn;
+            mission.BranchName = "armada/report-chain";
+            mission.Status = status;
+            mission.AgentOutput = output;
+            mission.StartedUtc = DateTime.UtcNow.AddMinutes(-10);
+            return await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
+        private sealed class ReportOnlyChain
+        {
+            public Mission Worker = null!;
+            public Mission OtherRoot = null!;
+            public Mission PlanReviewer = null!;
+            public Mission TestEngineer = null!;
+            public Mission Judge = null!;
+        }
+
         private static int CountOccurrences(string haystack, string needle)
         {
             int count = 0;
@@ -279,6 +346,79 @@ namespace Armada.Test.Unit.Suites.Services
                     string description = (await testDb.Driver.Missions.ReadAsync(linter.Id).ConfigureAwait(false))!.Description ?? String.Empty;
                     AssertContains("StressedFill_KeepsClerkSlippage", description, "The added-tests list survives the preview");
                     AssertContains("FillBarPastAge_IsStale", description);
+                }
+            });
+
+            // In a report-only pipeline every reviewer judges the same root report. A Judge that names the
+            // TestEngineer must still receive the root report whole, the findings of the parallel PlanReviewer,
+            // and the prior stage's own report whole, and never a report from an unrelated chain.
+            await RunTest("TryAssign_ReportOnlyJudge_ReceivesRootReportAndEveryEarlierReviewersFindings", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    ReportOnlyChain chain = await CreateReportOnlyChainAsync(testDb.Driver, vessel, MissionModeEnum.Research).ConfigureAwait(false);
+
+                    await missions.TryAssignAsync(chain.Judge, vessel).ConfigureAwait(false);
+                    string description = (await testDb.Driver.Missions.ReadAsync(chain.Judge.Id).ConfigureAwait(false))!.Description ?? String.Empty;
+
+                    AssertContains("ROOT-MATRIX-MIDDLE-ROW", description, "The root report reaches the Judge whole, middle included");
+                    AssertContains("Complete output: mission-output:" + chain.Worker.Id, description, "The root report's complete-output reference is pinned");
+                    AssertContains("PLAN-REVIEWER-FINDING", description, "The parallel reviewer's blocking finding reaches the Judge");
+                    AssertContains("TEST-ENGINEER-MIDDLE-SENTINEL", description, "The prior stage's report is inlined whole in a report-only pipeline");
+                    AssertFalse(description.Contains("OTHER-CHAIN-SENTINEL", StringComparison.Ordinal), "An unrelated chain's root is never carried");
+                    AssertEqual(1, CountOccurrences(description, "## Earlier Stage Reports"), "The earlier-stages section appears once");
+
+                    string compacted = MissionService.CompactOlderHandoffBlocks(description);
+                    AssertContains("ROOT-MATRIX-MIDDLE-ROW", compacted, "Compacting handoff blocks leaves the earlier-stages section whole");
+                }
+            });
+
+            await RunTest("TryAssign_ImplementationJudge_KeepsSinglePredecessorHandoffAndDefaultPreview", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    ReportOnlyChain chain = await CreateReportOnlyChainAsync(testDb.Driver, vessel, MissionModeEnum.Implementation).ConfigureAwait(false);
+
+                    await missions.TryAssignAsync(chain.Judge, vessel).ConfigureAwait(false);
+                    string description = (await testDb.Driver.Missions.ReadAsync(chain.Judge.Id).ConfigureAwait(false))!.Description ?? String.Empty;
+
+                    AssertFalse(description.Contains("## Earlier Stage Reports", StringComparison.Ordinal), "An implementation stage reviews the branch, not earlier reports");
+                    AssertFalse(description.Contains("ROOT-MATRIX-MIDDLE-ROW", StringComparison.Ordinal), "No earlier report is carried");
+                    AssertContains("bounded head/tail preview; middle omitted", description, "The prior stage's long report keeps the default preview");
+                }
+            });
+
+            await RunTest("StageChainSection_RebuiltOnRepeat_AppearsOnceBeforeHandoffBlocks", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    ReportOnlyChain chain = await CreateReportOnlyChainAsync(testDb.Driver, vessel, MissionModeEnum.Research).ConfigureAwait(false);
+                    List<Mission> voyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(chain.Judge.VoyageId!).ConfigureAwait(false);
+
+                    string handoff = "\n\n---\n" + MissionService.BuildHandoffMarker(chain.TestEngineer.Id) + "\n## Prior Stage Output\nBranch: armada/report-chain\n";
+                    string section = MissionService.BuildStageChainSection(chain.TestEngineer, chain.Judge, voyageMissions);
+                    string once = MissionService.InsertStageChainSection("Base brief." + handoff, section);
+                    string twice = MissionService.InsertStageChainSection(MissionService.RemoveStageChainSection(once), section);
+
+                    AssertEqual(once, twice, "Rebuilding the section replaces it rather than adding a copy");
+                    AssertEqual(1, CountOccurrences(twice, "## Earlier Stage Reports"), "The section appears once");
+                    AssertTrue(twice.IndexOf("## Earlier Stage Reports", StringComparison.Ordinal) < twice.IndexOf(MissionService.BuildHandoffMarker(chain.TestEngineer.Id), StringComparison.Ordinal),
+                        "The section sits before the handoff blocks");
+                    AssertEqual("Base brief." + handoff, MissionService.RemoveStageChainSection(twice), "Removing the section restores the description exactly");
+                    AssertContains("ROOT-MATRIX-MIDDLE-ROW", MissionService.StripHandoffBlock(twice, chain.TestEngineer.Id), "Stripping a handoff block leaves the section");
+
+                    List<Mission> earlier = MissionService.CollectEarlierStages(chain.TestEngineer, chain.Judge, voyageMissions);
+                    AssertEqual(2, earlier.Count, "Root and the parallel reviewer, not the unrelated root");
+                    AssertEqual(chain.Worker.Id, earlier[0].Id, "The root comes first");
+                    AssertEqual(chain.PlanReviewer.Id, earlier[1].Id, "Then the parallel reviewer");
                 }
             });
 

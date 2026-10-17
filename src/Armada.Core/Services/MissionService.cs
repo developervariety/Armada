@@ -6386,7 +6386,7 @@ namespace Armada.Core.Services
 
             foreach (Mission nextMission in dependentMissions)
             {
-                await PrepareSingleDependentHandoffAsync(completedMission, nextMission, unreadMailboxSignals, appliedSignalIds, token).ConfigureAwait(false);
+                await PrepareSingleDependentHandoffAsync(completedMission, nextMission, unreadMailboxSignals, appliedSignalIds, voyageMissions, token).ConfigureAwait(false);
             }
 
             // Mark drained signals as read after all downstream missions are updated
@@ -7427,7 +7427,7 @@ namespace Armada.Core.Services
                     {
                         return "## Your Role: TestEngineer (Validate the Report)\n\n" +
                             "This is a report-only " + mode + " mission: your deliverable is a verified report, not tests. " +
-                            "Do not write tests, and do not edit, commit, or push. Review the prior stage output below and validate " +
+                            "Do not write tests, and do not edit, commit, or push. Review the prior stage output below, and the root report in Earlier Stage Reports when present, and validate " +
                             "that the evidence supports every claim, that cited paths and source references resolve, and that the " +
                             "report is complete and internally consistent. Call out anything the prior stage asserts without evidence. " +
                             "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary.\n\n";
@@ -7449,7 +7449,7 @@ namespace Armada.Core.Services
                     {
                         return "## Your Role: Linter (Report Style and Correctness Findings)\n\n" +
                             "This is a report-only " + mode + " mission: do not edit, commit, or push. Evaluate the prior stage " +
-                            "output below for style and correctness in code and documentation, and report every finding with its " +
+                            "output below, and the root report in Earlier Stage Reports when present, for style and correctness in code and documentation, and report every finding with its " +
                             "file. Include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied` (write " +
                             "\"None\"), and `## Residual Issues` sections, then end with a standalone `[ARMADA:RESULT] COMPLETE` " +
                             "line and a short summary.\n\n";
@@ -7470,7 +7470,7 @@ namespace Armada.Core.Services
                     {
                         return "## Your Role: Judge (Review the Report)\n\n" +
                             "This is a report-only " + mode + " mission: validate the report and its evidence, not a code change. " +
-                            "Do not edit, commit, or push, and do not order or run implementation tests. Examine the prior stage output " +
+                            "Do not edit, commit, or push, and do not order or run implementation tests. Examine the root report in Earlier Stage Reports when present, every earlier reviewer's findings, and the prior stage output " +
                             "against the current mission description only, not sibling missions in the same voyage. " +
                             "Verify that every claim is backed by exact evidence and that cited paths resolve. " +
                             "Your response must include " + JudgeReviewSections.Headings(true) + " sections. " +
@@ -7506,12 +7506,14 @@ namespace Armada.Core.Services
         /// <param name="nextMission">The downstream dependent to prepare; mutated and persisted.</param>
         /// <param name="unreadMailboxSignals">Unread mailbox signals loaded once by the caller.</param>
         /// <param name="appliedSignalIds">Accumulator of signal ids applied to a brief.</param>
+        /// <param name="voyageMissions">Missions of the voyage, used to carry earlier stage reports into a report-only dependent; null when not loaded.</param>
         /// <param name="token">Cancellation token.</param>
         private async Task PrepareSingleDependentHandoffAsync(
             Mission completedMission,
             Mission nextMission,
             List<Signal> unreadMailboxSignals,
             HashSet<string> appliedSignalIds,
+            List<Mission>? voyageMissions,
             CancellationToken token = default)
         {
             // Build persona-specific preamble for the next stage
@@ -7534,10 +7536,13 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(completedMission.AgentOutput))
             {
                 string agentOutput = RuntimeLogFormatter.RedactSecrets(completedMission.AgentOutput);
-                int maxOutputChars = 8000;
+
+                // A report-only stage reviews a report, so the report itself is the evidence: it is
+                // inlined at a larger size before it falls back to a head-and-tail preview.
+                int maxOutputChars = nextMission.IsReadOnlyMode ? _MaxReportOnlyStageOutputChars : 8000;
                 if (agentOutput.Length > maxOutputChars)
                 {
-                    agentOutput = BuildBoundedMissionOutputPreview(agentOutput, 3400)
+                    agentOutput = BuildBoundedMissionOutputPreview(agentOutput, nextMission.IsReadOnlyMode ? _MaxReportOnlyStageOutputChars / 2 : 3400)
                         + BuildMissionOutputArtifactInstructions(outputArtifact);
                 }
                 else if (!outputArtifact.Complete)
@@ -7582,7 +7587,17 @@ namespace Armada.Core.Services
             // only one carried in full. Without the second step the total cap is spent on the oldest
             // stage's diff, and the newest stage's diff is what gets cut.
             string existingDescription = CompactOlderHandoffBlocks(
-                StripHandoffBlock(nextMission.Description ?? "", completedMission.Id));
+                StripHandoffBlock(RemoveStageChainSection(nextMission.Description ?? ""), completedMission.Id));
+
+            // Every stage of a report-only pipeline reviews the same root report, but a handoff block
+            // only carries the stage the dependent names. The earlier stages (the root report and every
+            // reviewer before the prior stage, parallel siblings included) go in one rebuilt section.
+            if (nextMission.IsReadOnlyMode && voyageMissions != null)
+            {
+                existingDescription = InsertStageChainSection(
+                    existingDescription,
+                    BuildStageChainSection(completedMission, nextMission, voyageMissions));
+            }
 
             string handoffDescription = personaPreamble.Length > 0 && !ContainsPersonaPreamble(existingDescription, personaPreamble)
                 ? personaPreamble + existingDescription + handoffContext
@@ -7624,14 +7639,15 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (handoffDescription.Length > _MaxMissionDescriptionChars)
+            int descriptionBudget = nextMission.IsReadOnlyMode ? _MaxReportOnlyDescriptionChars : _MaxMissionDescriptionChars;
+            if (handoffDescription.Length > descriptionBudget)
             {
                 _Logging.Warn(_Header + "pipeline handoff: mission " + nextMission.Id + " description of " +
-                    handoffDescription.Length + " chars exceeds the " + _MaxMissionDescriptionChars +
+                    handoffDescription.Length + " chars exceeds the " + descriptionBudget +
                     " char budget; truncating the tail. The full change remains on branch " +
                     (completedMission.BranchName ?? "unknown"));
                 handoffDescription = TruncateMissionDescription(
-                    handoffDescription, _MaxMissionDescriptionChars, completedMission.BranchName);
+                    handoffDescription, descriptionBudget, completedMission.BranchName);
             }
 
             nextMission.Description = handoffDescription;
@@ -7768,6 +7784,26 @@ namespace Armada.Core.Services
         // when they exceed it; prompt-budget telemetry reports any excess in the generated brief.
         private const int _MaxMissionDescriptionChars = 20000;
 
+        // Narrative limit for a report-only stage. Its evidence is the reports of the stages before it,
+        // which are text rather than a diff on a branch, so the bound is larger. The captain brief still
+        // embeds a bounded copy; the full description is written into the dock as files it reads.
+        private const int _MaxReportOnlyDescriptionChars = 80000;
+
+        // Largest stage report inlined whole into a report-only dependent before the head-and-tail
+        // preview applies. The same bound applies to the root report in the earlier-stages section.
+        private const int _MaxReportOnlyStageOutputChars = 24000;
+
+        // Most parallel siblings carried per stage level in the earlier-stages section.
+        private const int _MaxStageChainSiblingsPerLevel = 8;
+
+        // Markers around the earlier-stages section of a report-only dependent. The section sits before
+        // every handoff block, so stripping or compacting a handoff block never reaches it.
+        private const string _StageChainStartMarker = "<!-- ARMADA:STAGE-CHAIN -->";
+
+        private const string _StageChainEndMarker = "<!-- /ARMADA:STAGE-CHAIN -->";
+
+        private const string _StageChainHeading = "## Earlier Stage Reports";
+
         // Cap on the description embedded in the mission.metadata module. The module also carries the
         // persona prompt and the mission header, so the embedded description is capped well below the
         // total captain-instruction budget. Head and tail are both preserved: the head holds the base
@@ -7837,6 +7873,170 @@ namespace Armada.Core.Services
         private static string NormalizePrestagedDestination(string destination)
         {
             return (destination ?? "").Replace('\\', '/').TrimStart('/');
+        }
+
+        /// <summary>
+        /// Lists the stages that ran before the prior stage of a dependent, oldest first: each ancestor
+        /// reached through <see cref="Mission.DependsOnMissionId"/>, and at each level the parallel siblings
+        /// that shared its upstream. The prior stage itself is excluded, because its own handoff block
+        /// carries it. Root-level missions have no shared upstream, so other chains of the same voyage
+        /// are never read as siblings.
+        /// </summary>
+        /// <param name="completedMission">The prior stage, named by the dependent.</param>
+        /// <param name="nextMission">The dependent being prepared.</param>
+        /// <param name="voyageMissions">Missions of the voyage.</param>
+        /// <returns>The earlier stages, oldest first; the first entry is the root when one was reached.</returns>
+        internal static List<Mission> CollectEarlierStages(Mission completedMission, Mission nextMission, List<Mission> voyageMissions)
+        {
+            List<Mission> result = new List<Mission>();
+            if (completedMission == null || voyageMissions == null) return result;
+
+            Dictionary<string, Mission> byId = new Dictionary<string, Mission>(StringComparer.Ordinal);
+            foreach (Mission m in voyageMissions)
+            {
+                if (m != null && !String.IsNullOrEmpty(m.Id)) byId[m.Id] = m;
+            }
+
+            HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal) { completedMission.Id };
+            if (nextMission != null && !String.IsNullOrEmpty(nextMission.Id)) visited.Add(nextMission.Id);
+
+            List<List<Mission>> levels = new List<List<Mission>>();
+            Mission current = completedMission;
+            for (int depth = 0; depth < 64; depth++)
+            {
+                List<Mission> level = new List<Mission>();
+                if (!ReferenceEquals(current, completedMission)) level.Add(current);
+
+                if (!String.IsNullOrEmpty(current.DependsOnMissionId))
+                {
+                    foreach (Mission sibling in voyageMissions.OrderBy(m => m.CreatedUtc))
+                    {
+                        if (level.Count >= _MaxStageChainSiblingsPerLevel + 1) break;
+                        if (sibling == null || visited.Contains(sibling.Id)) continue;
+                        if (!IsParallelStageSibling(sibling, current)) continue;
+                        if (!IsDependencySatisfyingStatus(sibling.Status)) continue;
+                        visited.Add(sibling.Id);
+                        level.Add(sibling);
+                    }
+                }
+
+                levels.Add(level);
+
+                if (String.IsNullOrEmpty(current.DependsOnMissionId)) break;
+                if (!byId.TryGetValue(current.DependsOnMissionId!, out Mission? parent) || parent == null) break;
+                if (visited.Contains(parent.Id)) break;
+                visited.Add(parent.Id);
+                current = parent;
+            }
+
+            levels.Reverse();
+            foreach (List<Mission> level in levels) result.AddRange(level);
+            return result;
+        }
+
+        /// <summary>
+        /// Builds the earlier-stages section of a report-only dependent: the root report inlined whole up
+        /// to <see cref="_MaxReportOnlyStageOutputChars"/> (a head-and-tail preview past that, with the
+        /// verifiable artifact reference), followed by the report essentials of every earlier stage.
+        /// Returns an empty string when no earlier stage exists.
+        /// </summary>
+        /// <param name="completedMission">The prior stage, named by the dependent.</param>
+        /// <param name="nextMission">The dependent being prepared.</param>
+        /// <param name="voyageMissions">Missions of the voyage.</param>
+        /// <returns>The section, including its markers, or an empty string.</returns>
+        internal static string BuildStageChainSection(Mission completedMission, Mission nextMission, List<Mission> voyageMissions)
+        {
+            List<Mission> earlier = CollectEarlierStages(completedMission, nextMission, voyageMissions);
+            if (earlier.Count == 0) return String.Empty;
+
+            Mission first = earlier[0];
+            bool rootReached = String.IsNullOrEmpty(first.DependsOnMissionId);
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.Append("\n\n---\n").Append(_StageChainStartMarker).Append('\n');
+            sb.Append(_StageChainHeading).Append('\n');
+            sb.Append("Every stage of this report-only pipeline reviews the same root report. The stages before the prior stage are listed here, oldest first, ");
+            sb.Append("so this stage reviews the root report itself and each earlier reviewer's findings, not only the prior stage's summary of them.\n");
+
+            foreach (Mission stage in earlier)
+            {
+                string persona = String.IsNullOrWhiteSpace(stage.Persona) ? "Worker" : stage.Persona!;
+                MissionOutputArtifactPage artifact = MissionOutputArtifact.Build(stage, 0, 1);
+                string? output = String.IsNullOrEmpty(stage.AgentOutput) ? null : RuntimeLogFormatter.RedactSecrets(stage.AgentOutput);
+
+                if (rootReached && ReferenceEquals(stage, first))
+                {
+                    sb.Append("\n### Root report (").Append(persona).Append(' ').Append(stage.Id).Append(")\n");
+                    if (output == null)
+                    {
+                        sb.Append("No persisted agent output is available.").Append(BuildMissionOutputArtifactInstructions(artifact)).Append('\n');
+                    }
+                    else
+                    {
+                        string body = output;
+                        bool previewed = body.Length > _MaxReportOnlyStageOutputChars;
+                        if (previewed) body = BuildBoundedMissionOutputPreview(body, _MaxReportOnlyStageOutputChars / 2);
+                        sb.Append("```\n").Append(body).Append("\n```\n");
+                        if (previewed || !artifact.Complete) sb.Append(BuildMissionOutputArtifactInstructions(artifact).TrimStart('\n')).Append('\n');
+                    }
+                }
+
+                sb.Append('\n').Append(StageReportEssentials.Build(persona, stage.Id, output, artifact));
+            }
+
+            sb.Append('\n').Append(_StageChainEndMarker).Append('\n');
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Removes the earlier-stages section from a description, so a repeated handoff rebuilds it rather
+        /// than adding a second copy. A description without the section is returned unchanged; a start
+        /// marker without an end marker is left in place rather than guessing where the section ends.
+        /// </summary>
+        /// <param name="description">Existing mission description; may be null or empty.</param>
+        /// <returns>The description without the section.</returns>
+        internal static string RemoveStageChainSection(string? description)
+        {
+            if (String.IsNullOrEmpty(description)) return description ?? "";
+            int start = description.IndexOf(_StageChainStartMarker, StringComparison.Ordinal);
+            if (start < 0) return description;
+            int end = description.IndexOf(_StageChainEndMarker, start, StringComparison.Ordinal);
+            if (end < 0) return description;
+            end += _StageChainEndMarker.Length;
+
+            const string separator = "\n\n---\n";
+            if (start >= separator.Length &&
+                String.CompareOrdinal(description, start - separator.Length, separator, 0, separator.Length) == 0)
+            {
+                start -= separator.Length;
+            }
+
+            return description.Substring(0, start) + description.Substring(end);
+        }
+
+        /// <summary>
+        /// Places the earlier-stages section before the first handoff block, or at the end when the
+        /// description has none. An empty section leaves the description unchanged.
+        /// </summary>
+        /// <param name="description">Description without an earlier-stages section.</param>
+        /// <param name="section">Section built by <see cref="BuildStageChainSection"/>.</param>
+        /// <returns>The description with the section in place.</returns>
+        internal static string InsertStageChainSection(string description, string section)
+        {
+            if (String.IsNullOrEmpty(section)) return description ?? "";
+            string text = description ?? "";
+            int markerIndex = text.IndexOf(_HandoffMarkerPrefix, StringComparison.Ordinal);
+            if (markerIndex < 0) return text.TrimEnd() + section.TrimEnd('\n');
+
+            const string separator = "\n\n---\n";
+            int blockStart = markerIndex;
+            if (markerIndex >= separator.Length &&
+                String.CompareOrdinal(text, markerIndex - separator.Length, separator, 0, separator.Length) == 0)
+            {
+                blockStart = markerIndex - separator.Length;
+            }
+
+            return text.Substring(0, blockStart).TrimEnd() + section.TrimEnd('\n') + text.Substring(blockStart);
         }
 
         /// <summary>
@@ -8565,7 +8765,10 @@ namespace Armada.Core.Services
         {
             List<Signal> unreadMailboxSignals = await LoadUnreadMailboxSignalsAsync(token).ConfigureAwait(false);
             HashSet<string> appliedSignalIds = new HashSet<string>(StringComparer.Ordinal);
-            await PrepareSingleDependentHandoffAsync(dependency, dependent, unreadMailboxSignals, appliedSignalIds, token).ConfigureAwait(false);
+            List<Mission>? voyageMissions = dependent.IsReadOnlyMode && !String.IsNullOrEmpty(dependent.VoyageId)
+                ? await _Database.Missions.EnumerateByVoyageAsync(dependent.VoyageId, token).ConfigureAwait(false)
+                : null;
+            await PrepareSingleDependentHandoffAsync(dependency, dependent, unreadMailboxSignals, appliedSignalIds, voyageMissions, token).ConfigureAwait(false);
             foreach (string signalId in appliedSignalIds)
                 await _Database.Signals.MarkReadAsync(signalId, token).ConfigureAwait(false);
         }

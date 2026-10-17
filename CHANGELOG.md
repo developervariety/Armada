@@ -30,6 +30,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A report-only (Audit or Research) pipeline stage reviews the root report
+  itself. Each stage received only the stage it depends on, so a Judge after a
+  Linter never saw the Worker report, parallel reviewers lost each other's
+  findings, and a long report reached the next stage as a head-and-tail preview.
+  A report-only dependent now gets an `## Earlier Stage Reports` section with the
+  root report whole and every earlier reviewer's findings, the prior report is
+  inlined whole up to 24,000 characters, and the description budget is 80,000.
+
 - The rescue findings list no longer shortens a Judge's required changes to make
   room for passing notes. Items under a lead-in that reports passing or reviewed
   behaviour, items under a minor or follow-up lead-in, and items marked not a
