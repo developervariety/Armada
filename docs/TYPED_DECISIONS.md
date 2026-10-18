@@ -664,10 +664,14 @@ One decision point reviews what the Recorder stage wrote:
   one typed-decision event scoped to the Recorder mission.
 
 Operators read and close proposals with `armada_list_memory_proposals` (filter
-by `state`) and `armada_dismiss_memory_proposal` (`id`, `reason`, `operator`).
-Both are operator tools, outside mission scope, and refuse any caller other than
-a global administrator. The store is the `memory_proposals` table (migration
-SQLite 104, PostgreSQL 105, MySQL 96, SQL Server 99). See `docs/MCP_API.md`.
+by `state`), `armada_dismiss_memory_proposal` (`id`, `reason`, `operator`) and
+`armada_promote_memory_proposal` (`id`, the full 40-character AI-Memory
+`commitSha`, `operator`). Promotion only records the commit the owner already
+wrote; nothing in Armada writes AI-Memory. All three are operator tools, outside
+mission scope, and refuse any caller other than a global administrator. The
+store is the `memory_proposals` table (created by migration SQLite 104,
+PostgreSQL 105, MySQL 96, SQL Server 99; the promotion columns by SQLite 114,
+PostgreSQL 118, MySQL 107, SQL Server 110). See `docs/MCP_API.md`.
 
 Two operator-side decisions gather owner decisions and pre-fill the corpus:
 

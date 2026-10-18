@@ -1069,28 +1069,31 @@ Returns `{ status: "complete", report }` with `model`, `total`, `passed`,
 
 ## Memory Proposals
 
-Two operator tools read and close the memory proposal store. A memory proposal
+Three operator tools read and close the memory proposal store. A memory proposal
 is a durable lesson the typed-decision system nominated for the owner's external
 AI-Memory: the weekly papercut sweep (`memory_candidate`) or the review of a
 finished Recorder stage (`memory_review`). Proposals live in the database,
 because the AI-Memory folder is read-only to the admiral. Armada never writes
-AI-Memory; the owner promotes a proposal by hand. The model never dismisses a
-proposal.
+AI-Memory: the owner writes the rule by hand, then an operator records the
+promotion with the AI-Memory commit that holds it. The model never dismisses or
+promotes a proposal. An Open proposal moves once, to `Dismissed` or to
+`Promoted`. The boundary between the two stores is stated in AI-Memory
+`shared/sole-memory-source.md`.
 
-Both tools are operator control. They are not caller-scoped, so a mission caller
+All three tools are operator control. They are not caller-scoped, so a mission caller
 can neither list nor call them, and each handler also refuses any caller other
 than a global administrator with `Reason: global_administrator_required`.
 
 ### armada_list_memory_proposals
 
 List proposals, newest first. Args: optional `state` (`Open`, the default,
-`Dismissed`, or `All`) and `limit` (default 25, maximum 200). Returns `{ State,
+`Dismissed`, `Promoted`, or `All`) and `limit` (default 25, maximum 200). Returns `{ State,
 Count, Proposals }`. Each proposal carries `Id` (`mpr_` prefix), `Source`
 (`papercut_sweep` or `recorder_seam`), `SourceKey` (a SHA-256 fingerprint of the
 subject), `Title` and `Body` (both redacted), `TargetHint` (a plain-text
 suggestion: `shared`, `repos/<vessel>`, or `machine-notes`), `Confidence`,
 `RelatedRecordIds` (the missions or memory records it came from), `State`, the
-dismissal fields, `CreatedUtc`, and `LastUpdateUtc`.
+dismissal fields, the promotion fields, `CreatedUtc`, and `LastUpdateUtc`.
 
 ### armada_dismiss_memory_proposal
 
@@ -1098,8 +1101,20 @@ Dismiss one open proposal. Args: `id`, `reason`, and `operator` (all required).
 The proposal is kept with `State: Dismissed`, `DismissedBy`, `DismissedReason`,
 and `DismissedUtc`; nothing is deleted and AI-Memory is not touched. Returns
 `{ Dismissed: true, Proposal }`, or an `Error` when the id is unknown, a field is
-missing, or the proposal is already dismissed. A dismissed subject is not
-proposed again.
+missing, or the proposal is not Open. A dismissed subject is not proposed
+again.
+
+### armada_promote_memory_proposal
+
+Record that the owner wrote one open proposal into AI-Memory. Args: `id`,
+`commitSha` (the full 40-character hexadecimal AI-Memory commit that holds the
+rule), and `operator` (all required). The proposal is kept with
+`State: Promoted`, `PromotedBy`, `PromotedCommitSha` (stored in lower case), and
+`PromotedUtc`. Armada does not read or write AI-Memory, so it does not check that
+the commit exists. Returns `{ Promoted: true, Proposal }`. A short or
+non-hexadecimal SHA returns `Reason: commit_sha_not_full`; a dismissed or already
+promoted proposal returns `Reason: proposal_not_open` and changes nothing. A
+promoted subject is not proposed again.
 
 ## Captain Writes
 

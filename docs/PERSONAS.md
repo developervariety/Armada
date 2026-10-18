@@ -99,7 +99,19 @@ generated instruction file as `## Project Context`, `## Code Style` and
 Model Context section appears only when the vessel's `EnableModelContext` is on
 and its `ModelContext` text is not blank. It is read-only background: writing
 the vessel model context is an operator action, so the brief never asks a
-captain to update it. Each section's bytes are recorded on the
+captain to update it.
+
+Model Context has an owner and a review rule. The operator who writes it owns
+it: a direct write needs `operatorOverride=true`, a captain write is refused, and
+a captain build (`POST /api/v1/vessels/{id}/build-context`) runs only when an
+operator calls it. The text is a short orientation to the repository (layout,
+build and test entry points, where things live), not a rule store. A rule every
+mission must follow belongs in the repository's own instruction file, which is
+reviewed in git; a working fact found during a mission belongs in native memory
+(`create_memory`). An operator reviews the text whenever the vessel's
+instruction file or build changes, and after each captain build, before the next
+dispatch. The boundary between native memory and the owner's AI-Memory rules is
+stated once in AI-Memory `shared/sole-memory-source.md`. Each section's bytes are recorded on the
 `mission.prompt_budget` event, and the total-budget backstop may elide it like
 the other vessel context sections. The Recall Existing Memory guidance in each
 built-in persona template tells the captain to read that section when the brief

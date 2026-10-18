@@ -14,13 +14,13 @@ namespace Armada.Core.Database
     /// <summary>
     /// Provider-neutral implementation of the memory proposal store. Only the migration DDL differs per
     /// provider. The store has no delete and no text update: a proposal is created once and can only
-    /// move from Open to Dismissed.
+    /// move from Open to Dismissed or from Open to Promoted.
     /// </summary>
     public sealed class MemoryProposalMethods : IMemoryProposalMethods
     {
         #region Private-Members
 
-        private const string _Columns = "id, tenant_id, user_id, source, source_key, title, body, target_hint, confidence, related_record_ids_json, state, dismissed_by, dismissed_reason, dismissed_utc, created_utc, last_update_utc";
+        private const string _Columns = "id, tenant_id, user_id, source, source_key, title, body, target_hint, confidence, related_record_ids_json, state, dismissed_by, dismissed_reason, dismissed_utc, promoted_by, promoted_commit_sha, promoted_utc, created_utc, last_update_utc";
         private readonly Func<DbConnection> _ConnectionFactory;
         private readonly DatabaseTypeEnum _Provider;
 
@@ -56,7 +56,7 @@ namespace Armada.Core.Database
                 await connection.OpenAsync(token).ConfigureAwait(false);
                 using (DbCommand command = connection.CreateCommand())
                 {
-                    command.CommandText = "INSERT INTO memory_proposals (" + _Columns + ") VALUES (@id, @tenant_id, @user_id, @source, @source_key, @title, @body, @target_hint, @confidence, @related_record_ids_json, @state, @dismissed_by, @dismissed_reason, @dismissed_utc, @created_utc, @last_update_utc);";
+                    command.CommandText = "INSERT INTO memory_proposals (" + _Columns + ") VALUES (@id, @tenant_id, @user_id, @source, @source_key, @title, @body, @target_hint, @confidence, @related_record_ids_json, @state, @dismissed_by, @dismissed_reason, @dismissed_utc, @promoted_by, @promoted_commit_sha, @promoted_utc, @created_utc, @last_update_utc);";
                     ProductionFactSql.Add(command, "@id", proposal.Id);
                     ProductionFactSql.Add(command, "@tenant_id", proposal.TenantId);
                     ProductionFactSql.Add(command, "@user_id", proposal.UserId);
@@ -71,6 +71,9 @@ namespace Armada.Core.Database
                     ProductionFactSql.Add(command, "@dismissed_by", proposal.DismissedBy);
                     ProductionFactSql.Add(command, "@dismissed_reason", proposal.DismissedReason);
                     ProductionFactSql.AddUtc(command, "@dismissed_utc", proposal.DismissedUtc, _Provider);
+                    ProductionFactSql.Add(command, "@promoted_by", proposal.PromotedBy);
+                    ProductionFactSql.Add(command, "@promoted_commit_sha", proposal.PromotedCommitSha);
+                    ProductionFactSql.AddUtc(command, "@promoted_utc", proposal.PromotedUtc, _Provider);
                     ProductionFactSql.AddUtc(command, "@created_utc", proposal.CreatedUtc, _Provider);
                     ProductionFactSql.AddUtc(command, "@last_update_utc", proposal.LastUpdateUtc, _Provider);
                     await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -135,6 +138,32 @@ namespace Armada.Core.Database
             }
         }
 
+        /// <inheritdoc />
+        public async Task<bool> PromoteAsync(string id, string promotedBy, string commitSha, DateTime promotedUtc, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
+            if (String.IsNullOrWhiteSpace(promotedBy)) throw new ArgumentNullException(nameof(promotedBy));
+            if (!MemoryProposal.IsFullCommitSha(commitSha)) throw new ArgumentException("A full 40-character hexadecimal commit SHA is required.", nameof(commitSha));
+
+            using (DbConnection connection = _ConnectionFactory())
+            {
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                using (DbCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "UPDATE memory_proposals SET state = @promoted, promoted_by = @promoted_by, promoted_commit_sha = @promoted_commit_sha, promoted_utc = @promoted_utc, last_update_utc = @last_update_utc WHERE id = @id AND state = @open;";
+                    ProductionFactSql.Add(command, "@promoted", MemoryProposalStateEnum.Promoted.ToString());
+                    ProductionFactSql.Add(command, "@promoted_by", Bound(promotedBy, MemoryProposal.MaximumReasonLength));
+                    ProductionFactSql.Add(command, "@promoted_commit_sha", commitSha.Trim().ToLowerInvariant());
+                    ProductionFactSql.AddUtc(command, "@promoted_utc", promotedUtc, _Provider);
+                    ProductionFactSql.AddUtc(command, "@last_update_utc", promotedUtc, _Provider);
+                    ProductionFactSql.Add(command, "@id", id.Trim());
+                    ProductionFactSql.Add(command, "@open", MemoryProposalStateEnum.Open.ToString());
+                    int changed = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    return changed == 1;
+                }
+            }
+        }
+
         #endregion
 
         #region Private-Methods
@@ -191,6 +220,9 @@ namespace Armada.Core.Database
                 DismissedBy = ProductionFactSql.ReadText(reader["dismissed_by"]),
                 DismissedReason = ProductionFactSql.ReadText(reader["dismissed_reason"]),
                 DismissedUtc = ProductionFactSql.ReadNullableUtc(reader["dismissed_utc"]),
+                PromotedBy = ProductionFactSql.ReadText(reader["promoted_by"]),
+                PromotedCommitSha = ProductionFactSql.ReadText(reader["promoted_commit_sha"]),
+                PromotedUtc = ProductionFactSql.ReadNullableUtc(reader["promoted_utc"]),
                 CreatedUtc = ProductionFactSql.ReadUtc(reader["created_utc"]),
                 LastUpdateUtc = ProductionFactSql.ReadUtc(reader["last_update_utc"])
             };

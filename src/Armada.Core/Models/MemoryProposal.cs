@@ -91,11 +91,40 @@ namespace Armada.Core.Models
         /// <summary>When the proposal was dismissed, in UTC.</summary>
         public DateTime? DismissedUtc { get; set; } = null;
 
+        /// <summary>The operator who recorded the promotion.</summary>
+        public string? PromotedBy { get; set; } = null;
+
+        /// <summary>The full 40-character AI-Memory commit SHA that holds the promoted rule.</summary>
+        public string? PromotedCommitSha { get; set; } = null;
+
+        /// <summary>When the promotion was recorded, in UTC.</summary>
+        public DateTime? PromotedUtc { get; set; } = null;
+
         /// <summary>Creation time in UTC.</summary>
         public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
         /// <summary>Last update time in UTC.</summary>
         public DateTime LastUpdateUtc { get; set; } = DateTime.UtcNow;
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// Whether a value is a full 40-character hexadecimal git commit SHA. A short SHA is refused,
+        /// because it can become ambiguous as the repository grows.
+        /// </summary>
+        /// <param name="value">Candidate SHA.</param>
+        /// <returns>True for exactly 40 hexadecimal characters, ignoring surrounding whitespace.</returns>
+        public static bool IsFullCommitSha(string? value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return false;
+            string trimmed = value.Trim();
+            if (trimmed.Length != 40) return false;
+            foreach (char c in trimmed)
+                if (!Uri.IsHexDigit(c)) return false;
+            return true;
+        }
 
         #endregion
 

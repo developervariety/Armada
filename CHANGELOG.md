@@ -9,6 +9,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Memory proposals gain a `Promoted` state. The new operator tool
+  `armada_promote_memory_proposal` records the full AI-Memory commit SHA, the
+  operator and the time on an Open proposal after the owner writes the rule by
+  hand. It refuses a short SHA (`commit_sha_not_full`) and a dismissed or
+  already promoted proposal (`proposal_not_open`). Armada still never writes
+  AI-Memory. Migration SQLite 114, PostgreSQL 118, MySQL 107, SQL Server 110
+  adds the promotion columns.
 - Typed-decision call events carry `estimated_cost_usd`, `cost_is_estimate`
   and `price_table_version`, priced from a new `typedDecisions.pricing` table
   that ships empty. A batched item is priced on its share of the request's

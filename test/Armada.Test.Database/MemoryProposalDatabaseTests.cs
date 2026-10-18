@@ -101,6 +101,20 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(1, (await reopened.MemoryProposals.EnumerateAsync(tenant, MemoryProposalStateEnum.Dismissed, 10, token).ConfigureAwait(false)).Count, "The state filter finds the dismissed proposal");
                 DatabaseAssert.Equal(1, (await reopened.MemoryProposals.EnumerateAsync(tenant, MemoryProposalStateEnum.Open, 10, token).ConfigureAwait(false)).Count, "One proposal stays open");
                 DatabaseAssert.Equal(1, (await reopened.MemoryProposals.EnumerateAsync(tenant, null, 1, token).ConfigureAwait(false)).Count, "The limit bounds the listing");
+
+                const string commitSha = "fedcba9876543210fedcba9876543210fedcba98";
+                DateTime promotedUtc = baseUtc.AddHours(3);
+                DatabaseAssert.True(!await reopened.MemoryProposals.PromoteAsync(older.Id, "operator-a", commitSha, promotedUtc, token).ConfigureAwait(false), "A dismissed proposal is not promoted");
+                DatabaseAssert.True(await reopened.MemoryProposals.PromoteAsync(newer.Id, "operator-a", commitSha, promotedUtc, token).ConfigureAwait(false), "An open proposal is promoted");
+                DatabaseAssert.True(!await reopened.MemoryProposals.PromoteAsync(newer.Id, "operator-b", commitSha, promotedUtc.AddHours(1), token).ConfigureAwait(false), "A promoted proposal is not promoted again");
+
+                MemoryProposal? promoted = await reopened.MemoryProposals.ReadAsync(newer.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(MemoryProposalStateEnum.Promoted, promoted!.State, "State is Promoted");
+                DatabaseAssert.Equal("operator-a", promoted.PromotedBy, "The promoting operator round-trips");
+                DatabaseAssert.Equal(commitSha, promoted.PromotedCommitSha, "The commit SHA round-trips");
+                DatabaseAssert.Equal(promotedUtc, promoted.PromotedUtc, "The promotion time round-trips");
+                DatabaseAssert.True((await reopened.MemoryProposals.ReadAsync(older.Id, token).ConfigureAwait(false))!.PromotedCommitSha == null, "The dismissed proposal records no commit");
+                DatabaseAssert.Equal(1, (await reopened.MemoryProposals.EnumerateAsync(tenant, MemoryProposalStateEnum.Promoted, 10, token).ConfigureAwait(false)).Count, "The state filter finds the promoted proposal");
             }
         }
     }

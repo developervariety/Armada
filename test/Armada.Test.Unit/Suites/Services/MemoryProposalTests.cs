@@ -409,6 +409,73 @@ namespace Armada.Test.Unit.Suites.Services
                 string all = JsonSerializer.Serialize(await list(JsonSerializer.SerializeToElement(new { state = "All" })).ConfigureAwait(false));
                 AssertContains(proposal.Id, all, "the All listing keeps the dismissed proposal");
             });
+
+            await RunTest("Mcp_OperatorPromotesAnOpenProposal_ADismissedOrShortShaIsRefused", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                MemoryProposal open = await testDb.Driver.MemoryProposals.CreateAsync(new MemoryProposal
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    SourceKey = "promote-open",
+                    Title = "A durable lesson",
+                    TargetHint = "shared",
+                    Confidence = 0.95
+                }).ConfigureAwait(false);
+                MemoryProposal dismissedProposal = await testDb.Driver.MemoryProposals.CreateAsync(new MemoryProposal
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    SourceKey = "promote-dismissed",
+                    Title = "A rejected lesson",
+                    TargetHint = "shared",
+                    Confidence = 0.95
+                }).ConfigureAwait(false);
+                AssertTrue(await testDb.Driver.MemoryProposals.DismissAsync(dismissedProposal.Id, "operator-a", "not durable", DateTime.UtcNow).ConfigureAwait(false));
+
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>(StringComparer.Ordinal);
+                McpMemoryProposalTools.Register((name, _, _, handler) => handlers[name] = handler, testDb.Driver);
+                AssertTrue(handlers.ContainsKey(McpMemoryProposalTools.PromoteToolName));
+
+                AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, "usr_captain_mission", false, false, "Test");
+                AssertFalse(McpToolAccessPolicy.IsAllowed(captain, McpMemoryProposalTools.PromoteToolName), "the promote tool is not in mission scope");
+                const string sha = "0123456789abcdef0123456789ABCDEF01234567";
+                string refusedCaller;
+                using (McpCallerContext.Begin(captain))
+                {
+                    refusedCaller = JsonSerializer.Serialize(await handlers[McpMemoryProposalTools.PromoteToolName](
+                        JsonSerializer.SerializeToElement(new { id = open.Id, commitSha = sha, @operator = "o" })).ConfigureAwait(false));
+                }
+                AssertContains(McpMemoryProposalTools.GlobalAdministratorRequiredReason, refusedCaller, "a non-administrator is refused");
+
+                Func<JsonElement?, Task<object>> promote = McpTestCaller.Wrap(handlers[McpMemoryProposalTools.PromoteToolName]);
+                Func<JsonElement?, Task<object>> list = McpTestCaller.Wrap(handlers[McpMemoryProposalTools.ListToolName]);
+
+                string shortSha = JsonSerializer.Serialize(await promote(JsonSerializer.SerializeToElement(new { id = open.Id, commitSha = "0123456", @operator = "operator-a" })).ConfigureAwait(false));
+                AssertContains(McpMemoryProposalTools.InvalidCommitShaReason, shortSha, "a short SHA is refused with a named reason");
+                AssertEqual(MemoryProposalStateEnum.Open, (await testDb.Driver.MemoryProposals.ReadAsync(open.Id).ConfigureAwait(false))!.State, "a refused promotion changes nothing");
+
+                string done = JsonSerializer.Serialize(await promote(JsonSerializer.SerializeToElement(new { id = open.Id, commitSha = sha, @operator = "operator-a" })).ConfigureAwait(false));
+                AssertContains("\"Promoted\":true", done, "the promotion succeeds");
+                MemoryProposal? after = await testDb.Driver.MemoryProposals.ReadAsync(open.Id).ConfigureAwait(false);
+                AssertEqual(MemoryProposalStateEnum.Promoted, after!.State);
+                AssertEqual(sha.ToLowerInvariant(), after.PromotedCommitSha, "the full commit SHA is stored");
+                AssertEqual("operator-a", after.PromotedBy);
+                AssertTrue(after.PromotedUtc.HasValue, "the promotion time is stored");
+                AssertTrue(after.DismissedUtc == null, "a promoted proposal carries no dismissal");
+
+                string again = JsonSerializer.Serialize(await promote(JsonSerializer.SerializeToElement(new { id = open.Id, commitSha = sha, @operator = "operator-b" })).ConfigureAwait(false));
+                AssertContains(McpMemoryProposalTools.NotOpenReason, again, "a promoted proposal is not promoted again");
+                AssertEqual("operator-a", (await testDb.Driver.MemoryProposals.ReadAsync(open.Id).ConfigureAwait(false))!.PromotedBy, "the first promotion is kept");
+
+                string refusedDismissed = JsonSerializer.Serialize(await promote(JsonSerializer.SerializeToElement(new { id = dismissedProposal.Id, commitSha = sha, @operator = "operator-a" })).ConfigureAwait(false));
+                AssertContains(McpMemoryProposalTools.NotOpenReason, refusedDismissed, "a dismissed proposal is refused with a named reason");
+                MemoryProposal? stillDismissed = await testDb.Driver.MemoryProposals.ReadAsync(dismissedProposal.Id).ConfigureAwait(false);
+                AssertEqual(MemoryProposalStateEnum.Dismissed, stillDismissed!.State, "a dismissed proposal stays dismissed");
+                AssertTrue(stillDismissed.PromotedCommitSha == null, "a dismissed proposal records no commit");
+
+                string promotedList = JsonSerializer.Serialize(await list(JsonSerializer.SerializeToElement(new { state = "Promoted" })).ConfigureAwait(false));
+                AssertContains(open.Id, promotedList, "the Promoted listing finds the promoted proposal");
+                AssertFalse(promotedList.Contains(dismissedProposal.Id, StringComparison.Ordinal), "the Promoted listing excludes the dismissed proposal");
+            });
         }
 
         private static LoggingModule Quiet()

@@ -8,8 +8,9 @@ namespace Armada.Core.Database.Interfaces
     using Armada.Core.Models;
 
     /// <summary>
-    /// Durable memory proposals. Rows are created by the typed-decision writers and dismissed only by
-    /// an operator; nothing deletes a proposal and nothing rewrites its text after creation.
+    /// Durable memory proposals. Rows are created by the typed-decision writers and dismissed or marked
+    /// promoted only by an operator; nothing deletes a proposal and nothing rewrites its text after
+    /// creation. Nothing here writes AI-Memory.
     /// </summary>
     public interface IMemoryProposalMethods
     {
@@ -50,5 +51,17 @@ namespace Armada.Core.Database.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>True when an open proposal was dismissed.</returns>
         Task<bool> DismissAsync(string id, string dismissedBy, string reason, DateTime dismissedUtc, CancellationToken token = default);
+
+        /// <summary>
+        /// Record that the owner wrote an open proposal into AI-Memory. The write is conditional on the
+        /// Open state, so a dismissed or already promoted proposal changes nothing and returns false.
+        /// </summary>
+        /// <param name="id">Proposal identifier.</param>
+        /// <param name="promotedBy">Operator name.</param>
+        /// <param name="commitSha">The full 40-character AI-Memory commit SHA that holds the rule.</param>
+        /// <param name="promotedUtc">Promotion time in UTC.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when an open proposal was marked promoted.</returns>
+        Task<bool> PromoteAsync(string id, string promotedBy, string commitSha, DateTime promotedUtc, CancellationToken token = default);
     }
 }
