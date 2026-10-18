@@ -429,21 +429,22 @@ namespace Armada.Core.Services
                 }
 
                 string effectiveTest = _Settings.RunRestoreBeforeBuild ? EnsureRestore(selectedTest) : selectedTest;
-                DefinitionOfDoneResult testResult = await RunCommandAsync(testLabel, effectiveTest, worktreePath, token).ConfigureAwait(false);
+                Regex? failedTestLinePattern = ResolveFailedTestLinePattern(profile, "vessel");
+                DefinitionOfDoneResult testResult = await RunCommandAsync(testLabel, effectiveTest, worktreePath, token, failedTestLinePattern).ConfigureAwait(false);
                 if (!testResult.Passed)
                 {
                     // D15 flake_score: when the failure reads as a load flake or a known flaky family,
                     // re-run only the failing classes in isolation; the re-run's real result is the
                     // truth. A red that stays red here is returned unchanged. The model never marks it
                     // green — only a genuine passing isolated re-run can.
-                    DefinitionOfDoneResult afterFlake = await MaybeRerunFlakyTestAsync(mission, effectiveTest, worktreePath, testResult, token).ConfigureAwait(false);
+                    DefinitionOfDoneResult afterFlake = await MaybeRerunFlakyTestAsync(mission, profile, effectiveTest, worktreePath, testResult, token).ConfigureAwait(false);
 
                     // A test that loses a race under the loaded suite passes when its class runs alone, and
                     // a real defect fails again; the isolated re-run is the truth. The independent UnitTest
                     // Check still runs the whole suite at this commit, so a race only the full suite shows
                     // is not hidden. Bounded to a few failing classes.
                     if (!afterFlake.Passed && ReferenceEquals(afterFlake, testResult) && _Settings.RerunFailingClassesOnce)
-                        afterFlake = await RerunFailingClassesOnceAsync("vessel", effectiveTest, worktreePath, testResult, testLabel, token).ConfigureAwait(false);
+                        afterFlake = await RerunFailingClassesOnceAsync("vessel", profile, effectiveTest, worktreePath, testResult, testLabel, token).ConfigureAwait(false);
                     if (!afterFlake.Passed) return afterFlake;
 
                     // The isolated re-run passed: the failure was a flake. Fall through to the consumer
@@ -916,7 +917,8 @@ namespace Armada.Core.Services
             }
 
             string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(selectedTest) : selectedTest;
-            DefinitionOfDoneResult result = await RunCommandAsync(logLabel, effective, consumerWorktree, token).ConfigureAwait(false);
+            Regex? failedTestLinePattern = ResolveFailedTestLinePattern(consumerProfile, "consumer " + consumer.Name);
+            DefinitionOfDoneResult result = await RunCommandAsync(logLabel, effective, consumerWorktree, token, failedTestLinePattern).ConfigureAwait(false);
 
             if (!result.Passed)
             {
@@ -924,7 +926,7 @@ namespace Armada.Core.Services
                 // recommends it, re-run only the failing classes in the same worktree, as the producer's
                 // own suite does. The re-run is the truth; a red that stays red keeps its consumer label.
                 DefinitionOfDoneResult suiteResult = result;
-                result = await MaybeRerunFlakyTestAsync(mission, effective, consumerWorktree, result, token,
+                result = await MaybeRerunFlakyTestAsync(mission, consumerProfile, effective, consumerWorktree, result, token,
                     logLabel + " (flake re-run)", consumer.Id).ConfigureAwait(false);
 
                 // The producer did not write the consumer's tests, so a consumer red is re-run once in
@@ -932,7 +934,7 @@ namespace Armada.Core.Services
                 // consumer test that loses a race under the loaded suite passes alone. The isolated
                 // re-run is the truth either way. Bounded to a few failing classes.
                 if (!result.Passed && ReferenceEquals(result, suiteResult) && _Settings.RerunFailingConsumerClassesOnce)
-                    result = await RerunFailingClassesOnceAsync("consumer " + consumer.Name, effective, consumerWorktree, result, logLabel, token).ConfigureAwait(false);
+                    result = await RerunFailingClassesOnceAsync("consumer " + consumer.Name, consumerProfile, effective, consumerWorktree, result, logLabel, token).ConfigureAwait(false);
             }
 
             if (!result.Passed)
@@ -945,14 +947,16 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Re-run a suite's failing classes once in isolation and return that result. Returns the original
+        /// Re-run a suite's failing tests once in isolation and return that result. Returns the original
         /// failing result, with the reason written at the top of its output, when the failure is not a test
-        /// failure, the failing names are missing, overflowed or span more classes than the bound, or no
-        /// isolated command can be formed.
+        /// failure, the failing names are missing or overflowed, or <see cref="IsolatedRerunPlan"/> names a
+        /// reason no isolated command can run.
         /// </summary>
         /// <param name="subject">Whose suite failed, for the log: "vessel" or "consumer &lt;name&gt;".</param>
+        /// <param name="profile">The workflow profile of the suite that failed.</param>
         private async Task<DefinitionOfDoneResult> RerunFailingClassesOnceAsync(
             string subject,
+            WorkflowProfile? profile,
             string testCommand,
             string worktreePath,
             DefinitionOfDoneResult testResult,
@@ -963,20 +967,17 @@ namespace Armada.Core.Services
             if (testResult.FailedTestNames == null || testResult.FailedTestNames.Count == 0 || testResult.FailedTestNamesOverflow)
                 return NoteNoRerun(testResult, subject, "the failing test names could not be read in full");
 
-            IReadOnlyList<string> classNames = FlakeRerunCommand.DeriveClassNames(testResult.FailedTestNames);
-            if (classNames.Count == 0)
-                return NoteNoRerun(testResult, subject, "no test class could be derived from the failing test names");
-            if (classNames.Count > MaxIsolatedRerunClasses)
-                return NoteNoRerun(testResult, subject, classNames.Count + " failing classes exceed the bound of " + MaxIsolatedRerunClasses);
-            if (!FlakeRerunCommand.TryBuild(testCommand, classNames, out string filteredCommand))
-                return NoteNoRerun(testResult, subject, "no isolated command could be formed from the test command");
+            IsolatedRerunPlan plan = IsolatedRerunPlan.Build(profile, testCommand, testResult.FailedTestNames, MaxIsolatedRerunClasses);
+            if (plan.Command == null)
+                return NoteNoRerun(testResult, subject, plan.NotRerunReason ?? IsolatedRerunPlan.NoCommandReason);
 
-            _Logging.Info(_Header + "re-running " + classNames.Count + " failing class(es) of " + subject + " in isolation");
-            DefinitionOfDoneResult rerun = await RunIsolatedRerunAsync(logLabel + " (isolated re-run)", filteredCommand, worktreePath, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "re-running " + plan.Count + " failing " + plan.Unit + " of " + subject + " in isolation"
+                + (plan.FromProfile ? " through the profile's IsolatedTestRerunCommand" : String.Empty));
+            DefinitionOfDoneResult rerun = await RunIsolatedRerunAsync(logLabel + " (isolated re-run)", plan.Command, worktreePath, plan.Environment, token).ConfigureAwait(false);
             _Logging.Info(_Header + subject + " isolated re-run passed=" + rerun.Passed);
             if (!rerun.Passed)
             {
-                rerun.OutputTail = "Isolated re-run of " + classNames.Count + " failing class(es) alone also failed, so this is not a load race."
+                rerun.OutputTail = "Isolated re-run of " + plan.Count + " failing " + plan.Unit + " alone also failed, so this is not a load race."
                     + (String.IsNullOrEmpty(rerun.OutputTail) ? String.Empty : "\n" + rerun.OutputTail);
             }
 
@@ -1000,6 +1001,7 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<DefinitionOfDoneResult> MaybeRerunFlakyTestAsync(
             Mission mission,
+            WorkflowProfile? profile,
             string testCommand,
             string worktreePath,
             DefinitionOfDoneResult testResult,
@@ -1014,8 +1016,9 @@ namespace Armada.Core.Services
             if (testResult.FailedTestNames == null || testResult.FailedTestNames.Count == 0 || testResult.FailedTestNamesOverflow)
                 return testResult;
 
-            IReadOnlyList<string> classNames = FlakeRerunCommand.DeriveClassNames(testResult.FailedTestNames);
-            if (classNames.Count == 0) return testResult;
+            // The flake-score re-run has no class bound of its own; a profile command is bounded by name count.
+            IsolatedRerunPlan plan = IsolatedRerunPlan.Build(profile, testCommand, testResult.FailedTestNames, MaxIsolatedRerunClasses, boundClasses: false);
+            if (plan.NothingToRerun) return testResult;
 
             bool crossBranch;
             try
@@ -1050,14 +1053,14 @@ namespace Armada.Core.Services
             FlakeScoreVerdict verdict = await _FlakeScoreAdapter.DecideAsync(input, FlakeScoreVerdict.NoRerun(), token).ConfigureAwait(false);
             if (!verdict.RerunRecommended) return testResult;
 
-            if (!FlakeRerunCommand.TryBuild(testCommand, classNames, out string filteredCommand))
+            if (plan.Command == null)
             {
-                _Logging.Info(_Header + "flake_score recommended a re-run but no isolated command could be formed for this test command; the red stands");
+                _Logging.Info(_Header + "flake_score recommended a re-run but " + (plan.NotRerunReason ?? IsolatedRerunPlan.NoCommandReason) + "; the red stands");
                 return testResult;
             }
 
-            _Logging.Info(_Header + "flake_score " + verdict.Outcome + ": re-running " + classNames.Count + " failing class(es) in isolation");
-            DefinitionOfDoneResult rerunResult = await RunIsolatedRerunAsync(rerunLabel, filteredCommand, worktreePath, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "flake_score " + verdict.Outcome + ": re-running " + plan.Count + " failing " + plan.Unit + " in isolation");
+            DefinitionOfDoneResult rerunResult = await RunIsolatedRerunAsync(rerunLabel, plan.Command, worktreePath, plan.Environment, token).ConfigureAwait(false);
 
             // Record BOTH results: the original red and the isolated re-run. The re-run is the truth.
             _Logging.Info(_Header + "flake_score re-run outcome passed=" + rerunResult.Passed
@@ -1089,9 +1092,10 @@ namespace Armada.Core.Services
             string testCommand,
             string worktreePath,
             DefinitionOfDoneResult testResult,
-            CancellationToken token)
+            CancellationToken token,
+            WorkflowProfile? profile = null)
         {
-            return MaybeRerunFlakyTestAsync(mission, testCommand, worktreePath, testResult, token);
+            return MaybeRerunFlakyTestAsync(mission, profile, testCommand, worktreePath, testResult, token);
         }
 
         /// <summary>
@@ -1099,13 +1103,19 @@ namespace Armada.Core.Services
         /// without executing a real test command; production runs the command in the dock worktree.
         /// </summary>
         /// <param name="label">The command label.</param>
-        /// <param name="command">The isolated class-filtered command.</param>
+        /// <param name="command">The isolated command: a class-filtered dotnet test command or the profile's IsolatedTestRerunCommand.</param>
         /// <param name="worktreePath">The dock worktree.</param>
+        /// <param name="environment">Extra environment for the command, such as the failing names for a profile command.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The re-run result.</returns>
-        protected virtual Task<DefinitionOfDoneResult> RunIsolatedRerunAsync(string label, string command, string worktreePath, CancellationToken token)
+        protected virtual Task<DefinitionOfDoneResult> RunIsolatedRerunAsync(
+            string label,
+            string command,
+            string worktreePath,
+            IReadOnlyDictionary<string, string> environment,
+            CancellationToken token)
         {
-            return RunCommandAsync(label, command, worktreePath, token);
+            return RunCommandAsync(label, command, worktreePath, token, null, environment);
         }
 
         /// <summary>
@@ -1313,15 +1323,37 @@ namespace Armada.Core.Services
             return defaultProfile ?? candidates[0];
         }
 
+        /// <summary>
+        /// Build a profile's failing-test line pattern for the gate. A stored pattern that no longer builds
+        /// (one written before save-time validation, or edited outside the service) is ignored with a named
+        /// warning, so the built-in matchers still read the output.
+        /// </summary>
+        private Regex? ResolveFailedTestLinePattern(WorkflowProfile? profile, string subject)
+        {
+            if (String.IsNullOrWhiteSpace(profile?.FailedTestLinePattern)) return null;
+            if (FailedTestLinePattern.TryCreate(profile!.FailedTestLinePattern, FailedTestLinePattern.MatchTimeout, out Regex? regex, out string? error))
+                return regex;
+
+            _Logging.Warn(_Header + subject + " workflow profile " + profile.Id + " FailedTestLinePattern ignored: " + error);
+            return null;
+        }
+
         private async Task<DefinitionOfDoneResult> RunCommandAsync(
             string label,
             string command,
             string workingDir,
-            CancellationToken token)
+            CancellationToken token,
+            Regex? failedTestLinePattern = null,
+            IReadOnlyDictionary<string, string>? environment = null)
         {
             _Logging.Info(_Header + "running " + label + " command");
 
             ProcessStartInfo startInfo = new ProcessStartInfo(GetShell()) { WorkingDirectory = workingDir };
+            if (environment != null)
+            {
+                foreach (KeyValuePair<string, string> variable in environment)
+                    startInfo.Environment[variable.Key] = variable.Value;
+            }
             if (OperatingSystem.IsWindows())
             {
                 startInfo.Arguments = "/c " + command;
@@ -1418,7 +1450,13 @@ namespace Armada.Core.Services
             // and a set read from truncated output is marked incomplete so it is never compared.
             if (failureClass == DefinitionOfDoneFailureClassEnum.TestFail)
             {
-                FailedTestNameExtractor.FailedTestNameSet failedTests = FailedTestNameExtractor.Extract(combined);
+                FailedTestNameExtractor.FailedTestNameSet failedTests = FailedTestNameExtractor.Extract(combined, failedTestLinePattern);
+                if (failedTests.PatternTimedOut)
+                {
+                    _Logging.Warn(_Header + label + " failing test names unreadable: the profile's FailedTestLinePattern exceeded its "
+                        + FailedTestLinePattern.MatchTimeout.TotalMilliseconds.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+                        + " ms match timeout");
+                }
                 failResult.FailedTestNames = failedTests.Names;
                 failResult.FailedTestNamesOverflow = failedTests.Overflow || result.Truncated;
             }

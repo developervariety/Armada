@@ -1661,7 +1661,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(109, "Persist token usage input buckets and the counting rule, and widen token counts to 64-bit", TokenUsageInputBucketsPersistence.SqliteStatements),
                 new SchemaMigration(110, "Keep same-order pipeline stages in their submitted order", PipelineStagePositionPersistence.SqliteStatements),
                 new SchemaMigration(111, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.SqliteStatements),
-                new SchemaMigration(112, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.SqliteStatements)
+                new SchemaMigration(112, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.SqliteStatements),
+                new SchemaMigration(113, "Persist the workflow profile failed-test line pattern and isolated re-run command", WorkflowProfileIsolatedRerunPersistence.SqliteStatements)
             };
         }
 

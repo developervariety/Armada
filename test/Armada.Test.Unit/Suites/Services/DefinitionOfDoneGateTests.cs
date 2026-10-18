@@ -248,6 +248,177 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            // A runner whose failure lines no built-in matcher reads gets its failing tests re-run alone through
+            // the profile's own command. The names travel only in ARMADA_RERUN_TESTS, never in the command text.
+            await RunTest("A profile re-run command receives the failing names only through ARMADA_RERUN_TESTS and its pass clears the red", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    string hostile = "a'; touch pwned; echo '";
+                    string testCommand = WriteExampleRunner(worktreePath, hostile, "Prints the header when the file is empty");
+                    await EnsureVesselWithProfileAsync(testDb, "ten_profile_rerun", "vsl_profile_rerun",
+                        worktreePath, SuccessCommand(), testCommand,
+                        failedTestLinePattern: _ExampleRunnerPattern,
+                        isolatedTestRerunCommand: "printf '%s' \"$" + IsolatedRerunPlan.NamesEnvironmentVariable + "\" > rerun-names.txt").ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        CreateWorkerMission("ten_profile_rerun", "vsl_profile_rerun"),
+                        new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "a passing isolated re-run clears the red and the gate continues");
+                    string namesPath = Path.Combine(worktreePath, "rerun-names.txt");
+                    AssertTrue(File.Exists(namesPath), "the profile's isolated re-run command ran");
+                    AssertEqual(hostile + "\nPrints the header when the file is empty", File.ReadAllText(namesPath),
+                        "the variable carries the exact names, one per line, in output order");
+                    AssertFalse(File.Exists(Path.Combine(worktreePath, "pwned")),
+                        "a name with shell metacharacters is never run as command text");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A profile re-run command that fails again keeps the red with the also-failed-alone text", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    string testCommand = WriteExampleRunner(worktreePath, "Rejects an empty header");
+                    await EnsureVesselWithProfileAsync(testDb, "ten_profile_rerun_red", "vsl_profile_rerun_red",
+                        worktreePath, SuccessCommand(), testCommand,
+                        failedTestLinePattern: _ExampleRunnerPattern,
+                        isolatedTestRerunCommand: "echo \"FAIL Rejects an empty header: assertion failed\" >&2; exit 1").ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        CreateWorkerMission("ten_profile_rerun_red", "vsl_profile_rerun_red"),
+                        new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "a failing isolated re-run keeps the red");
+                    AssertContains("Isolated re-run of 1 failing test(s) alone also failed", result.OutputTail ?? String.Empty,
+                        "the red says the isolated re-run also failed");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("More failing names than the bound are not re-run through the profile command and the bound is named", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    string testCommand = WriteExampleRunner(worktreePath, "First case", "Second case", "Third case", "Fourth case");
+                    await EnsureVesselWithProfileAsync(testDb, "ten_profile_bound", "vsl_profile_bound",
+                        worktreePath, SuccessCommand(), testCommand,
+                        failedTestLinePattern: _ExampleRunnerPattern,
+                        isolatedTestRerunCommand: "touch rerun-ran.marker").ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        CreateWorkerMission("ten_profile_bound", "vsl_profile_bound"),
+                        new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "the red stands");
+                    AssertContains("Not re-run in isolation: 4 failing tests exceed the bound of 3", result.OutputTail ?? String.Empty,
+                        "the reason names the count and the bound");
+                    AssertFalse(File.Exists(Path.Combine(worktreePath, "rerun-ran.marker")), "the profile command does not run");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A pattern that exceeds its match timeout reports the names unreadable instead of hanging", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    File.WriteAllText(Path.Combine(worktreePath, "run-tests.sh"),
+                        "#!/bin/sh\nprintf '%s\\n' \"FAIL " + new string('a', 40) + "!\" >&2\nexit 1\n");
+                    await EnsureVesselWithProfileAsync(testDb, "ten_pattern_slow", "vsl_pattern_slow",
+                        worktreePath, SuccessCommand(), "sh ./run-tests.sh",
+                        failedTestLinePattern: @"^FAIL (?<name>(\w+\s?)+)$",
+                        isolatedTestRerunCommand: "touch rerun-ran.marker").ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        CreateWorkerMission("ten_pattern_slow", "vsl_pattern_slow"),
+                        new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "the red stands");
+                    AssertTrue(result.FailedTestNamesOverflow, "the timed-out read is marked incomplete");
+                    AssertContains("Not re-run in isolation: the failing test names could not be read in full", result.OutputTail ?? String.Empty,
+                        "the gate reports the names unreadable");
+                    AssertFalse(File.Exists(Path.Combine(worktreePath, "rerun-ran.marker")), "nothing is re-run");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Names read from a script command with no profile re-run command get the no-re-run-route reason", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    string testCommand = WriteExampleRunner(worktreePath, "Prints the header when the file is empty");
+                    await EnsureVesselWithProfileAsync(testDb, "ten_noroute", "vsl_noroute",
+                        worktreePath, SuccessCommand(), testCommand,
+                        failedTestLinePattern: _ExampleRunnerPattern).ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        CreateWorkerMission("ten_noroute", "vsl_noroute"),
+                        new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "the red stands");
+                    AssertEqual(1, result.FailedTestNames?.Count ?? 0, "the profile pattern read the name");
+                    AssertContains("Not re-run in isolation: " + IsolatedRerunPlan.NoRerunRouteReason, result.OutputTail ?? String.Empty,
+                        "the reason says which field is missing");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Gate passes when both build and unit-test commands succeed", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1644,7 +1815,9 @@ namespace Armada.Test.Unit.Suites.Services
             string? buildCommand,
             string? testCommand,
             string? containerlessTestCommand = null,
-            string vesselName = "Test Vessel")
+            string vesselName = "Test Vessel",
+            string? failedTestLinePattern = null,
+            string? isolatedTestRerunCommand = null)
         {
             await EnsureVesselOnlyAsync(testDb, tenantId, vesselId, worktreePath, vesselName).ConfigureAwait(false);
 
@@ -1657,10 +1830,26 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildCommand = buildCommand,
                 UnitTestCommand = testCommand,
                 ContainerlessUnitTestCommand = containerlessTestCommand,
+                FailedTestLinePattern = failedTestLinePattern,
+                IsolatedTestRerunCommand = isolatedTestRerunCommand,
                 IsDefault = true,
                 Active = true
             };
             await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+        }
+
+        // An example console runner that prints one "FAIL <sentence>: <message>" line per failing test to
+        // stderr. No built-in matcher reads that shape, so only a profile pattern reads the names.
+        private const string _ExampleRunnerPattern = "^FAIL (?<name>.+?): ";
+
+        private static string WriteExampleRunner(string worktreePath, params string[] failingSentences)
+        {
+            System.Text.StringBuilder script = new System.Text.StringBuilder("#!/bin/sh\necho \"ran 12 tests\"\n");
+            foreach (string sentence in failingSentences)
+                script.Append("printf '%s\\n' \"FAIL ").Append(sentence).Append(": assertion failed\" >&2\n");
+            script.Append("exit 1\n");
+            File.WriteAllText(Path.Combine(worktreePath, "run-tests.sh"), script.ToString());
+            return "sh ./run-tests.sh";
         }
 
         private static async Task EnsureVesselOnlyAsync(

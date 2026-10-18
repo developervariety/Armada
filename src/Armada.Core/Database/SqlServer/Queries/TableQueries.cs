@@ -1000,7 +1000,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(105, "Keep same-order pipeline stages in their submitted order", PipelineStagePositionPersistence.SqlServerStatements),
                 new SchemaMigration(106, "Persist planning sessions and their transcript messages", PlanningSessionSchema.SqlServerStatements),
                 new SchemaMigration(107, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.SqlServerStatements),
-                new SchemaMigration(108, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.SqlServerStatements)
+                new SchemaMigration(108, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.SqlServerStatements),
+                new SchemaMigration(109, "Persist the workflow profile failed-test line pattern and isolated re-run command", WorkflowProfileIsolatedRerunPersistence.SqlServerStatements)
             };
         }
 

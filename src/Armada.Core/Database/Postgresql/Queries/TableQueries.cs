@@ -1210,7 +1210,8 @@ BEGIN
 END
 $convert$;"),
                 new SchemaMigration(115, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.PostgresqlStatements),
-                new SchemaMigration(116, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.PostgresqlStatements)
+                new SchemaMigration(116, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.PostgresqlStatements),
+                new SchemaMigration(117, "Persist the workflow profile failed-test line pattern and isolated re-run command", WorkflowProfileIsolatedRerunPersistence.PostgresqlStatements)
             };
         }
 

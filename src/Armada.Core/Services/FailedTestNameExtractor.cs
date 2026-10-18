@@ -10,7 +10,8 @@ namespace Armada.Core.Services
     /// an explicit overflow flag: only a complete, non-overflowed set is comparable between two
     /// runs, so a caller that compares sets must treat an overflowed set as unknown. Line shapes
     /// differ by runner, so each runner has its own line matcher; a line that no matcher recognizes
-    /// contributes no name.
+    /// contributes no name. A workflow profile may add one more matcher of its own (see
+    /// <see cref="FailedTestLinePattern"/>), tried on each line after the built-in ones.
     /// </summary>
     public sealed class FailedTestNameExtractor
     {
@@ -60,6 +61,20 @@ namespace Armada.Core.Services
         /// <returns>The ordered, de-duplicated set of failing test identifiers and its overflow flag.</returns>
         public static FailedTestNameSet Extract(string? output)
         {
+            return Extract(output, null);
+        }
+
+        /// <summary>
+        /// Read the failing test identifiers from a runner's combined output, with one extra line matcher
+        /// from the vessel's workflow profile. A line the built-in matchers do not read is offered to the
+        /// extra matcher, whose <c>name</c> group is the identifier. A match that exceeds the matcher's
+        /// timeout stops the read and returns an incomplete set flagged <see cref="FailedTestNameSet.PatternTimedOut"/>.
+        /// </summary>
+        /// <param name="output">Whole combined standard output and standard error of the failed command.</param>
+        /// <param name="profilePattern">The profile's extra matcher, or null for the built-in matchers only.</param>
+        /// <returns>The ordered, de-duplicated set of failing test identifiers and its overflow flag.</returns>
+        public static FailedTestNameSet Extract(string? output, Regex? profilePattern)
+        {
             if (String.IsNullOrEmpty(output))
                 return FailedTestNameSet.Empty;
 
@@ -72,6 +87,18 @@ namespace Armada.Core.Services
             {
                 string line = rawLine.TrimEnd('\r');
                 string? name = MatchLine(line);
+                if (name == null && profilePattern != null)
+                {
+                    try
+                    {
+                        name = MatchProfileLine(profilePattern, line);
+                    }
+                    catch (RegexMatchTimeoutException)
+                    {
+                        // The set is no longer known to be complete, so it is incomplete like an overflow.
+                        return new FailedTestNameSet(ordered, true, true);
+                    }
+                }
                 if (name == null) continue;
 
                 if (!seen.Add(name)) continue;
@@ -119,6 +146,15 @@ namespace Armada.Core.Services
             return null;
         }
 
+        private static string? MatchProfileLine(Regex pattern, string line)
+        {
+            if (String.IsNullOrWhiteSpace(line)) return null;
+            Match match = pattern.Match(line);
+            if (!match.Success) return null;
+            string name = match.Groups[FailedTestLinePattern.NameGroup].Value.Trim();
+            return name.Length == 0 ? null : name;
+        }
+
         // Produce one stable identifier from a unittest header. The classic form
         // "FAIL: test_x (module.Case)" and the newer "FAIL: test_x (module.Case.test_x)" both
         // resolve to "module.Case.test_x", so two runs printing either form compare equal.
@@ -153,9 +189,21 @@ namespace Armada.Core.Services
             /// <param name="names">Ordered, de-duplicated failing test identifiers.</param>
             /// <param name="overflow">True when the set is incomplete.</param>
             public FailedTestNameSet(IReadOnlyList<string> names, bool overflow)
+                : this(names, overflow, false)
+            {
+            }
+
+            /// <summary>
+            /// Instantiate.
+            /// </summary>
+            /// <param name="names">Ordered, de-duplicated failing test identifiers.</param>
+            /// <param name="overflow">True when the set is incomplete.</param>
+            /// <param name="patternTimedOut">True when the profile's line matcher exceeded its timeout.</param>
+            public FailedTestNameSet(IReadOnlyList<string> names, bool overflow, bool patternTimedOut)
             {
                 Names = names ?? throw new ArgumentNullException(nameof(names));
                 Overflow = overflow;
+                PatternTimedOut = patternTimedOut;
             }
 
             /// <summary>
@@ -168,6 +216,12 @@ namespace Armada.Core.Services
             /// the set is incomplete and not comparable.
             /// </summary>
             public bool Overflow { get; }
+
+            /// <summary>
+            /// True when the workflow profile's line matcher exceeded its match timeout. The read stopped
+            /// there, so <see cref="Overflow"/> is also true.
+            /// </summary>
+            public bool PatternTimedOut { get; }
         }
 
         #endregion

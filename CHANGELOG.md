@@ -9,6 +9,19 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Two optional workflow-profile fields let the definition-of-done gate re-run
+  the failing tests of a runner that is not `dotnet test`.
+  `failedTestLinePattern` is a regular expression with a named group `name`
+  that reads failing names from lines the built-in matchers do not know; a
+  save refuses an invalid pattern or one without the group, and each match
+  has a 250 ms timeout. `isolatedTestRerunCommand` re-runs only the named
+  tests, at most three, with the names in the `ARMADA_RERUN_TESTS`
+  environment variable and never in the command text. The vessel, flake-score
+  and consumer re-runs all use them, each from its own profile. A red whose
+  names were read but that has no re-run route now says which field is
+  missing. Without the fields, every existing re-run command is unchanged.
+  The dashboard profile editor shows both fields.
+
 - A configuration-driven host storage cleanup (`scripts/linux/storage-cleanup/`)
   with a daily systemd timer and installer. It prunes ignored build outputs,
   agent caches, redundant Docker tags and old test databases, and can remove

@@ -727,10 +727,15 @@ Two platform-side decisions ship `Gate`:
   triggers an isolated, class-filtered re-run of only the failing classes; the
   re-run's real result is the truth (a pass clears the red, a failure leaves it
   red). The model never marks a red check green — only a genuine passing isolated
-  re-run does — and a re-run runs only for a `dotnet test` command that can be
-  isolated; otherwise the red stands unchanged. When the decision does not re-run
-  it, the gate re-runs the failing classes once in isolation anyway, at most
-  three classes, for the vessel's own suite (`RerunFailingClassesOnce`) and for
+  re-run does. A re-run runs through the workflow profile's
+  `isolatedTestRerunCommand` with the failing names in `ARMADA_RERUN_TESTS`, or,
+  without that field, for a `dotnet test` command the gate can narrow to the
+  failing classes; otherwise the red stands unchanged. A profile's
+  `failedTestLinePattern` reads failing names from a runner the built-in
+  matchers do not know (see OPERATIONAL_ASSETS.md, Workflow Profiles). When the
+  decision does not re-run it, the gate re-runs the failing tests once in
+  isolation anyway, at most three classes (or three names through a profile
+  command), for the vessel's own suite (`RerunFailingClassesOnce`) and for
   a consumer suite (`RerunFailingConsumerClassesOnce`); both default on. A test
   that lost a race under the loaded suite passes alone and a real defect fails
   again, and the failure text says which. A race only the full suite shows is

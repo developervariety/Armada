@@ -102,6 +102,8 @@ export default function WorkflowProfileDetail() {
   const [lintCommand, setLintCommand] = useState('');
   const [buildCommand, setBuildCommand] = useState('');
   const [unitTestCommand, setUnitTestCommand] = useState('');
+  const [failedTestLinePattern, setFailedTestLinePattern] = useState('');
+  const [isolatedTestRerunCommand, setIsolatedTestRerunCommand] = useState('');
   const [integrationTestCommand, setIntegrationTestCommand] = useState('');
   const [e2eTestCommand, setE2ETestCommand] = useState('');
   const [migrationCommand, setMigrationCommand] = useState('');
@@ -166,6 +168,8 @@ export default function WorkflowProfileDetail() {
         setLintCommand(result.lintCommand || '');
         setBuildCommand(result.buildCommand || '');
         setUnitTestCommand(result.unitTestCommand || '');
+        setFailedTestLinePattern(result.failedTestLinePattern || '');
+        setIsolatedTestRerunCommand(result.isolatedTestRerunCommand || '');
         setIntegrationTestCommand(result.integrationTestCommand || '');
         setE2ETestCommand(result.e2eTestCommand || '');
         setMigrationCommand(result.migrationCommand || '');
@@ -220,6 +224,8 @@ export default function WorkflowProfileDetail() {
       lintCommand: lintCommand.trim() || null,
       buildCommand: buildCommand.trim() || null,
       unitTestCommand: unitTestCommand.trim() || null,
+      failedTestLinePattern: failedTestLinePattern.trim() ? failedTestLinePattern : null,
+      isolatedTestRerunCommand: isolatedTestRerunCommand.trim() || null,
       integrationTestCommand: integrationTestCommand.trim() || null,
       e2eTestCommand: e2eTestCommand.trim() || null,
       migrationCommand: migrationCommand.trim() || null,
@@ -602,6 +608,14 @@ export default function WorkflowProfileDetail() {
           <label className="playbook-editor-field">
             <span>{t('Unit Test Command')}</span>
             <textarea value={unitTestCommand} disabled={!canManage} onChange={(event) => setUnitTestCommand(event.target.value)} rows={3} />
+          </label>
+          <label className="playbook-editor-field">
+            <span>{t('Failed Test Line Pattern')}</span>
+            <input value={failedTestLinePattern} disabled={!canManage} onChange={(event) => setFailedTestLinePattern(event.target.value)} placeholder="^FAIL (?<name>.+?): " />
+          </label>
+          <label className="playbook-editor-field">
+            <span>{t('Isolated Test Re-run Command')}</span>
+            <textarea value={isolatedTestRerunCommand} disabled={!canManage} onChange={(event) => setIsolatedTestRerunCommand(event.target.value)} rows={2} />
           </label>
           <label className="playbook-editor-field">
             <span>{t('Integration Test Command')}</span>

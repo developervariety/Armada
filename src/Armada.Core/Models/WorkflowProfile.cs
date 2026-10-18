@@ -117,6 +117,23 @@ namespace Armada.Core.Models
         public string? ContainerlessUnitTestCommand { get; set; } = null;
 
         /// <summary>
+        /// A .NET regular expression with a named group <c>name</c> that reads one failing test name from
+        /// one line of the unit-test output. The definition-of-done gate applies it in addition to its
+        /// built-in matchers, so a runner whose failure lines no built-in matcher reads still gets its
+        /// failing tests re-run alone. Validated on save. Null means the built-in matchers only.
+        /// </summary>
+        public string? FailedTestLinePattern { get; set; } = null;
+
+        /// <summary>
+        /// A complete command that re-runs only the named failing tests, plus every other step the
+        /// unit-test command runs. The definition-of-done gate runs it instead of narrowing a
+        /// <c>dotnet test</c> command, and passes the failing names in the <c>ARMADA_RERUN_TESTS</c>
+        /// environment variable, one per line; a name never appears in the command text. Null means the
+        /// gate narrows a <c>dotnet test</c> command itself.
+        /// </summary>
+        public string? IsolatedTestRerunCommand { get; set; } = null;
+
+        /// <summary>
         /// Integration-test command.
         /// </summary>
         public string? IntegrationTestCommand { get; set; } = null;

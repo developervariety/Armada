@@ -213,6 +213,10 @@ namespace Armada.Core.Services
             result.AvailableCheckTypes = availableTypes;
             result.CommandPreviews = BuildCommandPreviews(profile);
 
+            string? patternError = FailedTestLinePattern.Validate(profile.FailedTestLinePattern);
+            if (patternError != null)
+                result.Errors.Add(patternError);
+
             if (availableTypes.Count == 0)
                 result.Errors.Add("At least one build, test, release, deploy, verification, migration, security, or performance command is required.");
 
@@ -630,6 +634,9 @@ namespace Armada.Core.Services
             target.BuildCommand = NullIfWhiteSpace(source.BuildCommand);
             target.UnitTestCommand = NullIfWhiteSpace(source.UnitTestCommand);
             target.ContainerlessUnitTestCommand = NullIfWhiteSpace(source.ContainerlessUnitTestCommand);
+            // A pattern is kept exactly as written: trimming would change what it matches.
+            target.FailedTestLinePattern = String.IsNullOrWhiteSpace(source.FailedTestLinePattern) ? null : source.FailedTestLinePattern;
+            target.IsolatedTestRerunCommand = NullIfWhiteSpace(source.IsolatedTestRerunCommand);
             target.IntegrationTestCommand = NullIfWhiteSpace(source.IntegrationTestCommand);
             target.E2ETestCommand = NullIfWhiteSpace(source.E2ETestCommand);
             target.MigrationCommand = NullIfWhiteSpace(source.MigrationCommand);

@@ -177,6 +177,29 @@ UnitTest command. Use a containerless unit-test command only when the normal
 suite has fixtures that require an unavailable container runtime. Do not use a
 filter to hide ordinary failures.
 
+When the definition-of-done gate sees a red unit-test run, it re-runs the
+failing tests once alone; a test that lost a race under load passes alone and a
+real defect fails again. Two optional fields let a vessel whose runner is not
+`dotnet test` take part:
+
+- `failedTestLinePattern` is a .NET regular expression with a named group
+  `name` that reads one failing test name from one output line, for example
+  `^FAIL (?<name>.+?): ` for a runner that prints `FAIL <test name>: <message>`.
+  The gate tries it on each line after its built-in matchers (dotnet VSTest,
+  pytest, unittest). A save keeps the pattern exactly as written, without
+  trimming, and refuses a pattern that does not compile or has no
+  `name` group. Each match has a 250 ms timeout; a pattern that exceeds it marks
+  the names unreadable, and nothing is re-run.
+- `isolatedTestRerunCommand` is a complete command that re-runs only the named
+  tests and every other step of the unit-test command. The gate passes the
+  failing names in the `ARMADA_RERUN_TESTS` environment variable, one per line,
+  and never writes a name into the command text. It re-runs at most three names
+  this way.
+
+Without `isolatedTestRerunCommand`, the gate narrows a `dotnet test` command to
+the failing classes itself. Any other command is not re-run, and the failure
+text names the missing field. A consumer suite uses the consumer's own profile.
+
 Commands run on the dock host. Use that host's path and shell syntax. A
 Windows `.bat`, `%CD%`, or `.\\` command is invalid on a Linux Admiral host.
 

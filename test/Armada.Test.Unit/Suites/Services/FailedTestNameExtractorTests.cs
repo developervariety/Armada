@@ -1,5 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
+    using System.Text.RegularExpressions;
     using System.Threading.Tasks;
     using Armada.Core.Services;
     using Armada.Test.Common;
@@ -89,6 +91,42 @@ namespace Armada.Test.Unit.Suites.Services
                 FailedTestNameExtractor.FailedTestNameSet set = FailedTestNameExtractor.Extract(builder.ToString());
                 AssertTrue(set.Overflow, "A run naming more than the cap cannot keep a complete set.");
                 AssertEqual(FailedTestNameExtractor.MaxNames, set.Names.Count, "The set holds exactly the cap.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A profile pattern reads runner lines no built-in matcher reads, in order, and the built-in matchers still read theirs", () =>
+            {
+                string output =
+                    "  Failed Example.Api.Tests.ParserTests.Parse_ReadsHeader [3 ms]\n" +
+                    "ran 12 tests\n" +
+                    "--- STDERR ---\n" +
+                    "FAIL Prints the header when the file is empty: Expected 1 line, got 0\n" +
+                    "FAIL Rejects a negative count: ArgumentOutOfRangeException\n";
+
+                FailedTestLinePattern.TryCreate("^FAIL (?<name>.+?): ", FailedTestLinePattern.MatchTimeout, out Regex? pattern, out string? error);
+                AssertTrue(error == null, "the example pattern is valid");
+
+                FailedTestNameExtractor.FailedTestNameSet withPattern = FailedTestNameExtractor.Extract(output, pattern);
+                AssertEqual(3, withPattern.Names.Count, "the dotnet line and both runner lines are read");
+                AssertEqual("Example.Api.Tests.ParserTests.Parse_ReadsHeader", withPattern.Names[0], "the built-in dotnet matcher still reads its line");
+                AssertEqual("Prints the header when the file is empty", withPattern.Names[1], "the first runner line is read first");
+                AssertEqual("Rejects a negative count", withPattern.Names[2], "the second runner line is read second");
+                AssertFalse(withPattern.Overflow, "the set is complete");
+
+                FailedTestNameExtractor.FailedTestNameSet withoutPattern = FailedTestNameExtractor.Extract(output);
+                AssertEqual(1, withoutPattern.Names.Count, "without the pattern only the built-in shape is read");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A profile pattern that exceeds its match timeout stops the read and marks the set incomplete", () =>
+            {
+                string output = "FAIL First case: assertion failed\nFAIL " + new string('a', 40) + "!\n";
+                FailedTestLinePattern.TryCreate(@"^FAIL (?<name>(\w+\s?)+)$|^FAIL (?<name>.+?): ", TimeSpan.FromMilliseconds(20), out Regex? pattern, out string? error);
+                AssertTrue(error == null, "the pattern is valid");
+
+                FailedTestNameExtractor.FailedTestNameSet set = FailedTestNameExtractor.Extract(output, pattern);
+                AssertTrue(set.PatternTimedOut, "the timeout is reported");
+                AssertTrue(set.Overflow, "a timed-out read is incomplete, so it is never compared or re-run");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 

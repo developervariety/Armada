@@ -92,6 +92,44 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(result.CommandPreviews.Exists(command => command.CheckType == CheckRunTypeEnum.HealthCheck && command.EnvironmentName == "dev" && command.Command == "./health-dev.sh"));
             }));
 
+            cases.Add(CaseAsync("profile_save_refuses_an_unusable_failed_test_line_pattern", "Profile save refuses an invalid failed-test line pattern and one without a name group, and keeps a valid one", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService service = new WorkflowProfileService(testDb.Driver, logging);
+                await EnsureTenantAndUserAsync(testDb, "ten_rerun_fields", "usr_rerun_fields").ConfigureAwait(false);
+                AuthContext admin = AuthContext.Authenticated("ten_rerun_fields", "usr_rerun_fields", true, true, "UnitTest");
+
+                WorkflowProfile Requested(string pattern) => new WorkflowProfile
+                {
+                    TenantId = "ten_rerun_fields",
+                    Name = "Example Runner",
+                    Scope = WorkflowProfileScopeEnum.Global,
+                    UnitTestCommand = "./run-tests.sh",
+                    FailedTestLinePattern = pattern,
+                    IsolatedTestRerunCommand = "./run-tests.sh --only-from-env"
+                };
+
+                RecordWriteResult<WorkflowProfile> invalid = await service.CreateAsync(admin, Requested("^FAIL (?<name>.+?: ")).ConfigureAwait(false);
+                AssertEqual(RecordWriteOutcomeEnum.Invalid, invalid.Outcome, "an invalid regular expression is refused");
+                AssertContains("FailedTestLinePattern is not a valid regular expression", invalid.Message ?? "");
+
+                RecordWriteResult<WorkflowProfile> unnamed = await service.CreateAsync(admin, Requested("^FAIL (.+?): ")).ConfigureAwait(false);
+                AssertEqual(RecordWriteOutcomeEnum.Invalid, unnamed.Outcome, "a pattern without a name group is refused");
+                AssertContains("FailedTestLinePattern has no named group 'name'", unnamed.Message ?? "");
+
+                RecordWriteResult<WorkflowProfile> created = await service.CreateAsync(admin, Requested("^FAIL (?<name>.+?): ")).ConfigureAwait(false);
+                AssertEqual(RecordWriteOutcomeEnum.Succeeded, created.Outcome, "a valid pattern is kept");
+                WorkflowProfile? stored = await service.ReadForCallerAsync(admin, created.Record!.Id).ConfigureAwait(false);
+                AssertEqual("^FAIL (?<name>.+?): ", stored!.FailedTestLinePattern, "the pattern persists");
+                AssertEqual("./run-tests.sh --only-from-env", stored.IsolatedTestRerunCommand, "the isolated re-run command persists");
+
+                RecordWriteResult<WorkflowProfile> badUpdate = await service.ReplaceAsync(admin, stored.Id, Requested("[unclosed")).ConfigureAwait(false);
+                AssertEqual(RecordWriteOutcomeEnum.Invalid, badUpdate.Outcome, "an update with an invalid pattern is refused");
+                WorkflowProfile? unchanged = await service.ReadForCallerAsync(admin, stored.Id).ConfigureAwait(false);
+                AssertEqual("^FAIL (?<name>.+?): ", unchanged!.FailedTestLinePattern, "a refused update keeps the stored pattern");
+            }));
+
             cases.Add(CaseAsync("validate_async_rejects_cross_tenant_vessel_scope", "ValidateAsync rejects cross-tenant vessel scope", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

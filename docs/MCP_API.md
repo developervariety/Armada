@@ -1233,7 +1233,9 @@ routes. Update is a complete replacement, including `environmentVariables`. A
 validation refusal carries the validation result as `Details`. A profile that
 cannot be read (for example a blank `name`) returns code `invalid` instead of a
 protocol error. `validate_workflow_profile` resolves the tenant exactly as
-create does, so its answer matches the create.
+create does, so its answer matches the create. Validation refuses a
+`failedTestLinePattern` that is not a valid .NET regular expression or has no
+named group `name`.
 
 ### Playbooks
 

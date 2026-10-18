@@ -694,7 +694,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(102, "Keep same-order pipeline stages in their submitted order", PipelineStagePositionPersistence.MysqlStatements),
                 new SchemaMigration(103, "Persist planning sessions and their transcript messages", PlanningSessionSchema.MysqlStatements),
                 new SchemaMigration(104, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.MysqlStatements),
-                new SchemaMigration(105, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.MysqlStatements)
+                new SchemaMigration(105, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.MysqlStatements),
+                new SchemaMigration(106, "Persist the workflow profile failed-test line pattern and isolated re-run command", WorkflowProfileIsolatedRerunPersistence.MysqlStatements)
             };
         }
 

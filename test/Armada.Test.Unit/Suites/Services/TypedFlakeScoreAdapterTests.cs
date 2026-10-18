@@ -306,6 +306,88 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("IsolatedRerunPlan_WithoutProfileFields_KeepsTheDotnetCommandByteIdentical", () =>
+            {
+                string wrapped = "bash -c 'set -e; dotnet build Example.sln; dotnet test Example.sln --no-build --filter \"Category!=Integration\" --logger trx'; code=$?; exit $code";
+                List<string> names = new List<string> { "Example.Tests.VinConfirmFlowTests.Confirms_Once" };
+
+                IsolatedRerunPlan plan = IsolatedRerunPlan.Build(new WorkflowProfile { UnitTestCommand = wrapped }, wrapped, names, 3);
+                FlakeRerunCommand.TryBuild(wrapped, FlakeRerunCommand.DeriveClassNames(names), out string builderCommand);
+
+                AssertEqual(builderCommand, plan.Command, "the plan uses the dotnet test builder's command unchanged");
+                AssertEqual("bash -c 'set -e; dotnet build Example.sln; dotnet test Example.sln --no-build --filter \"(Category!=Integration)&(FullyQualifiedName~VinConfirmFlowTests)\" --logger trx'; code=$?; exit $code",
+                    plan.Command, "the narrowed command is byte-identical to the builder's");
+                AssertEqual(0, plan.Environment.Count, "no environment is added without a profile command");
+                AssertFalse(plan.FromProfile, "the command does not come from the profile");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate_FlakeRerun_UsesTheProfileCommand_WithTheNamesInTheEnvironment", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FlakeResult(2.0, 0.95, 0.9));
+                TypedFlakeScoreAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+                FlakeTestableGate gate = new FlakeTestableGate(db.Driver, adapter, DefinitionOfDoneResult.Pass());
+                WorkflowProfile profile = new WorkflowProfile
+                {
+                    UnitTestCommand = "sh ./run-tests.sh",
+                    IsolatedTestRerunCommand = "sh ./run-tests.sh --only-from-env"
+                };
+
+                DefinitionOfDoneResult red = DefinitionOfDoneResult.Fail("unit-test", 1, "FAIL Reads the reply: assertion failed", DefinitionOfDoneFailureClassEnum.TestFail);
+                red.FailedTestNames = new List<string> { "Reads the reply", "Times out after the pause" };
+                DefinitionOfDoneResult outcome = await gate.EvaluateFlakeRerunForTestAsync(
+                    BuildInput().Mission!, "sh ./run-tests.sh", "/tmp/dock", red, CancellationToken.None, profile).ConfigureAwait(false);
+
+                AssertTrue(outcome.Passed, "the passing isolated re-run is the truth");
+                AssertEqual(1, gate.RerunCalls);
+                AssertEqual("sh ./run-tests.sh --only-from-env", gate.LastRerunCommand, "the profile's command runs unchanged");
+                AssertEqual("Reads the reply\nTimes out after the pause", gate.LastRerunEnvironment![IsolatedRerunPlan.NamesEnvironmentVariable],
+                    "the names reach the command through the environment");
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate_ConsumerSuiteRed_IsRerunThroughTheConsumerProfileCommand", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                string worktree = Path.Combine(Path.GetTempPath(), "armada_consumer_profile_rerun_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(worktree);
+                try
+                {
+                    string command = "bash -c 'echo \"FAIL Reads the reply: assertion failed\" >&2; exit 1'";
+                    Vessel consumer = new Vessel { Id = "vsl_consumer", Name = "ExampleConsumer" };
+                    WorkflowProfile consumerProfile = new WorkflowProfile
+                    {
+                        UnitTestCommand = command,
+                        FailedTestLinePattern = "^FAIL (?<name>.+?): ",
+                        IsolatedTestRerunCommand = "./consumer-rerun.sh"
+                    };
+
+                    FakeTypedDecisionClient noRerunClient = new FakeTypedDecisionClient(FlakeResult(0.0, 0.99, 0.1));
+                    FlakeTestableGate gate = new FlakeTestableGate(db.Driver,
+                        BuildAdapter(db, noRerunClient, BuildSettings(TypedDecisionModeEnum.Gate)), DefinitionOfDoneResult.Pass());
+                    DefinitionOfDoneResult cleared = await gate.EvaluateConsumerTestsForTestAsync(
+                        BuildInput().Mission!, consumer, consumerProfile, worktree, CancellationToken.None).ConfigureAwait(false);
+
+                    AssertTrue(cleared.Passed, "a consumer test that passes alone clears the consumer red");
+                    AssertEqual("./consumer-rerun.sh", gate.LastRerunCommand, "the consumer's own isolated re-run command runs");
+                    AssertEqual("Reads the reply", gate.LastRerunEnvironment![IsolatedRerunPlan.NamesEnvironmentVariable],
+                        "the consumer's own pattern read the name");
+
+                    WorkflowProfile bareConsumerProfile = new WorkflowProfile { UnitTestCommand = command };
+                    FlakeTestableGate bare = new FlakeTestableGate(db.Driver,
+                        BuildAdapter(db, new FakeTypedDecisionClient(FlakeResult(0.0, 0.99, 0.1)), BuildSettings(TypedDecisionModeEnum.Gate)), DefinitionOfDoneResult.Pass());
+                    DefinitionOfDoneResult red = await bare.EvaluateConsumerTestsForTestAsync(
+                        BuildInput().Mission!, consumer, bareConsumerProfile, worktree, CancellationToken.None).ConfigureAwait(false);
+
+                    AssertTrue(!red.Passed, "a consumer profile without the fields keeps its red");
+                    AssertEqual(0, bare.RerunCalls, "nothing is re-run without the consumer's own fields");
+                }
+                finally
+                {
+                    try { Directory.Delete(worktree, true); } catch { }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("FlakeRerunCommand_DerivesClassAndBuildsDotnetFilter", () =>
             {
                 IReadOnlyList<string> classes = FlakeRerunCommand.DeriveClassNames(new List<string>
@@ -406,16 +488,19 @@ namespace Armada.Test.Unit.Suites.Services
 
             public string? LastRerunCommand { get; private set; }
 
+            public IReadOnlyDictionary<string, string>? LastRerunEnvironment { get; private set; }
+
             public FlakeTestableGate(Armada.Core.Database.DatabaseDriver database, TypedFlakeScoreAdapter adapter, DefinitionOfDoneResult rerunResult, DefinitionOfDoneSettings? settings = null)
                 : base(settings ?? new DefinitionOfDoneSettings { Enabled = true }, database, new LoggingModule(), null, null, adapter)
             {
                 _RerunResult = rerunResult;
             }
 
-            protected override Task<DefinitionOfDoneResult> RunIsolatedRerunAsync(string label, string command, string worktreePath, CancellationToken token)
+            protected override Task<DefinitionOfDoneResult> RunIsolatedRerunAsync(string label, string command, string worktreePath, IReadOnlyDictionary<string, string> environment, CancellationToken token)
             {
                 RerunCalls++;
                 LastRerunCommand = command;
+                LastRerunEnvironment = environment;
                 return Task.FromResult(_RerunResult);
             }
 

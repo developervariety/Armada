@@ -985,6 +985,8 @@ export interface WorkflowProfile {
   lintCommand: string | null;
   buildCommand: string | null;
   unitTestCommand: string | null;
+  failedTestLinePattern?: string | null;
+  isolatedTestRerunCommand?: string | null;
   integrationTestCommand: string | null;
   e2eTestCommand: string | null;
   migrationCommand: string | null;
