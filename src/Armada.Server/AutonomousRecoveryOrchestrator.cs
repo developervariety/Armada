@@ -3362,9 +3362,15 @@ namespace Armada.Server
                 return source;
             }
 
+            // Protected sections are kept whole. Every other section is reduced to its unmet criterion lines,
+            // so a NOT MET acceptance criterion reaches the rescue even when its section is omitted.
             string[] sourceLines = source.Replace("\r\n", "\n").Split('\n');
             StringBuilder protectedSections = new StringBuilder();
+            List<string> omittedSections = new List<string>();
             string section = String.Empty;
+            string omittedHeadingLine = String.Empty;
+            string omittedHeading = String.Empty;
+            bool omittedHeadingWritten = false;
             int protectedHeadingDepth = 0;
             for (int i = 0; i < sourceLines.Length; i++)
             {
@@ -3388,15 +3394,32 @@ namespace Armada.Server
                     {
                         section = String.Empty;
                         protectedHeadingDepth = 0;
+                        omittedHeadingLine = line;
+                        omittedHeading = heading;
+                        omittedHeadingWritten = false;
                     }
                     continue;
                 }
-                if (section.Length == 0 || String.IsNullOrWhiteSpace(line)) continue;
+                if (String.IsNullOrWhiteSpace(line)) continue;
+                if (section.Length == 0)
+                {
+                    if (omittedHeading.Length > 0 && !omittedSections.Contains(omittedHeading, StringComparer.Ordinal))
+                        omittedSections.Add(omittedHeading);
+                    if (!IsUnmetCriterionLine(normalizedLine)) continue;
+                    if (!omittedHeadingWritten && omittedHeadingLine.Length > 0)
+                    {
+                        protectedSections.AppendLine(omittedHeadingLine);
+                        omittedHeadingWritten = true;
+                    }
+                }
                 protectedSections.AppendLine(line);
             }
 
             string selected = protectedSections.ToString().TrimEnd();
-            const string omittedNote = "[Narration and MET criterion lines were omitted. Read the complete output for all context.]";
+            string omittedNote = omittedSections.Count > 0
+                ? "[Sections reduced to their NOT MET, NOT DELIVERED and NOT RESOLVED lines: " + String.Join(", ", omittedSections)
+                    + ". Narration and MET criterion lines were omitted. Read the complete output for all context.]"
+                : "[Narration and MET criterion lines were omitted. Read the complete output for all context.]";
             if (selected.Length <= maxChars)
             {
                 protectedSectionsComplete = true;
@@ -3412,6 +3435,13 @@ namespace Armada.Server
             if (cut <= 0) cut = Math.Min(contentLimit, selected.Length);
             string excerpt = selected.Substring(0, cut).TrimEnd();
             return excerpt + Environment.NewLine + incompleteNote;
+        }
+
+        private static bool IsUnmetCriterionLine(string line)
+        {
+            return line.Contains("NOT MET", StringComparison.Ordinal)
+                || line.Contains("NOT DELIVERED", StringComparison.Ordinal)
+                || line.Contains("NOT RESOLVED", StringComparison.Ordinal);
         }
 
         private static bool IsProtectedReviewSection(string heading)

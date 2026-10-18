@@ -41,6 +41,9 @@ namespace Armada.Core.Services
             "BLOCKING:"
         };
 
+        private static readonly Regex _NegatedBlocking = new Regex(
+            @"\b(?:not\s+(?:a\s+)?|non-?\s?)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         private static readonly string[] _KeptSectionKeywords =
         {
             "follow-up",
@@ -74,7 +77,7 @@ namespace Armada.Core.Services
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _PassingLeadIn = new Regex(
-            @"\b(?:sound|correct(?:ly)?|pass(?:es|ed)?|exit(?:ed|s)?\s+0|cover(?:s|ed)?|fails?\s+closed|reviewed|delivers?|match(?:es)?|acceptable|verified|holds?|fine)\b",
+            @"\b(?:sound|correct(?:ly)?|pass(?:es|ed)?|exit(?:ed|s)?\s+0|cover(?:s|ed)?|fails?\s+closed|reviewed|checked|inspected|delivers?|match(?:es)?|acceptable|verified|holds?|fine)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _NonBlockingParenthetical = new Regex(
@@ -92,6 +95,61 @@ namespace Armada.Core.Services
         private static readonly Regex _ParagraphDirective = new Regex(
             @"(?:^|[.;!?]\s+)(?:Add|Replace|Correct|Fix|Resolve|Apply|Validate|Repair|Remove|Restore|Obtain|Prove|Preserve|Rerun|Re-run)\s",
             RegexOptions.Compiled);
+
+        // A label that opens an item and marks it lesser: "Minor, not blocking:", "Observed, not blocking:",
+        // "Not blocking, for the same rescue if cheap:".
+        private static readonly Regex _LeadingLesserLabel = new Regex(
+            @"^(?:(?:minor|observed|noted|cosmetic|optional)\b[^:.]{0,20}?[,\s]+(?:but\s+)?)?(?:not\s+(?:a\s+)?block(?:ing|er)|non-?blocking)\b"
+            + @"|^(?:minor|nits?|cosmetic|optional)\s*:",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // A closing sentence that files the item as lesser in more words: "Recorded as a follow-up below.",
+        // "Per the brief's rule this is a Suggested Follow-up, not a revision item.", "...; follow-up.",
+        // "so this is a coverage note, not a defect."
+        private static readonly Regex _LesserSentence = new Regex(
+            @"\b(?:follow-?up|non-?blocking|not\s+(?:a\s+)?block(?:er|ing)|note\s+only|coverage\s+note|not\s+a\s+(?:defect|revision\s+item))\b|^(?:cosmetic|minor|harmless)$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _RequiredWording = new Regex(
+            @"\b(?:required|must|needs?\s+to|should)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // The reviewer states outright that the item is not a defect.
+        private static readonly Regex _DisclaimsDefect = new Regex(
+            @"\bnot\s+a\s+defect\b|\bno\s+defect\b|\b(?:do|does|did)\s+not\s+count\s+(?:this|it)\s+as\s+a\s+defect\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // A verdict the reviewer gives the item itself; it stands unless the item qualifies it.
+        private static readonly Regex _PassingItemVerdict = new Regex(
+            @":\s*covered\b|\breviewed\s+and\s+tested\b|\bsource-exact\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // Wording that reports agreement; it counts only when the item names no defect.
+        private static readonly Regex _PassingItemWording = new Regex(
+            @"\bmatch(?:es|ed)?\b|\b(?:is|are)\s+(?:otherwise\s+)?(?:sound|clean)\b|\bunchanged\b|\bunaffected\b|\btested\s+implicitly\b"
+            + @"|\bis\s+what\s+(?:criterion|the\s+(?:brief|criterion))\b|\bno\s+uncovered\b|\bread-only\b|\bdoes\s+the\s+same\b|\breproduces?\b[^.]*\bexactly\b|\bis\s+correct\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _DefectWord = new Regex(
+            @"\b(?:defects?|missing|absent|gaps?|leaks?|wrong|bugs?|broken|incorrect(?:ly)?|regress\w*|diverg\w*|fails?(?!\s+closed)|failing|cannot|never|lacks?|undeclared|unproven|unsupported|contradicts?)\b"
+            + @"|\b(?:does|do)\s+not\b|\bNOT\s+(?:MET|DELIVERED|RESOLVED)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _QualifiedWording = new Regex(
+            @"\b(?:but|however|except|although)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _BoldLabel = new Regex(@"^\*\*([^*]+)\*\*", RegexOptions.Compiled);
+
+        private static readonly Regex _DefectLabel = new Regex(
+            @"\b(?:defects?|blocking|bugs?|required|regressions?|leaks?)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _VerdictRequired = new Regex(
+            @"\brequired\s+(?:revisions?|changes?|corrections?|fix(?:es)?)\b|\brevision\s+items?\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _InlineNumberedItem = new Regex(@"\((\d+)\)\s", RegexOptions.Compiled);
 
         private const int _VerdictSectionChars = 600;
         private const int _KeptSectionChars = 900;
@@ -188,6 +246,7 @@ namespace Armada.Core.Services
             HashSet<string> plainFindings = new HashSet<string>(StringComparer.Ordinal);
             string section = String.Empty;
             string leadIn = String.Empty;
+            string paragraphLead = String.Empty;
             int protectedHeadingDepth = 0;
             for (int i = 0; i < lines.Length; i++)
             {
@@ -198,6 +257,7 @@ namespace Armada.Core.Services
                     // A whole-line bold label such as "**Correctness**" opens a section the way a heading does.
                     // Any markdown heading after it closes it.
                     leadIn = String.Empty;
+                    paragraphLead = String.Empty;
                     section = boldSection;
                     protectedHeadingDepth = _BoldSectionDepth;
                     continue;
@@ -205,6 +265,7 @@ namespace Armada.Core.Services
                 if (raw.StartsWith("#", StringComparison.Ordinal))
                 {
                     leadIn = String.Empty;
+                    paragraphLead = String.Empty;
                     int headingDepth = raw.TakeWhile(character => character == '#').Count();
                     string recognizedSection = JudgeSection(raw);
                     if (recognizedSection.Length > 0)
@@ -223,7 +284,12 @@ namespace Armada.Core.Services
 
                 string item;
                 bool listItem = TryStripListPrefix(raw, out item);
+                bool leadInLine = !listItem && item.EndsWith(":", StringComparison.Ordinal);
                 if (!listItem) leadIn = item;
+                if (leadInLine) paragraphLead = item;
+                // A lead-in that introduces a list covers that list; the paragraph after the list stands alone.
+                if (listItem) paragraphLead = String.Empty;
+                if (section == "Verdict" && (item.StartsWith("[ARMADA:", StringComparison.Ordinal) || leadInLine)) continue;
                 bool acceptanceSection = section == "Completeness" || section == "Acceptance Criteria" || section == "Definition of Done";
                 if (IsExplicitlyNonBlocking(raw, item)) continue;
                 if (IsPositiveNoTestResult(item, section)) continue;
@@ -231,7 +297,9 @@ namespace Armada.Core.Services
                 bool notMetCriterion = ContainsAny(raw, "NOT DELIVERED", "NOT MET", "NOT RESOLVED");
                 if (!notMetCriterion && IsExplicitSuccess(item, section)) continue;
 
-                bool explicitBlocking = IsExplicitBlocking(raw);
+                bool boldDefect = IsDefectLabel(item);
+                bool explicitBlocking = IsExplicitBlocking(raw) || boldDefect;
+                if (!notMetCriterion && !explicitBlocking && IsLesserItem(item)) continue;
                 bool findingSectionItem = section == "Correctness"
                     || section == "Failure Modes"
                     || section == "Tests"
@@ -240,15 +308,41 @@ namespace Armada.Core.Services
                 bool labeledFinding = findingSectionItem && IsFindingLabel(item);
                 bool paragraphFinding = !listItem && IsParagraphFinding(item, section);
                 bool itemNamesDefect = findingSectionItem && (_ParagraphDefect.IsMatch(item) || _ParagraphDirective.IsMatch(item) || IsUnmarkedTestGap(item, section));
+                // Only the closing clause of a lead-in introduces the list: "... all match the source. Specific
+                // traces:" introduces neutral traces, not passing ones.
+                string leadClause = LastSentence(leadIn);
                 bool underLead = listItem && findingSectionItem && leadIn.Length > 0;
-                bool lesserLead = underLead && _LesserLeadIn.IsMatch(leadIn) && !_RequiredLeadIn.IsMatch(leadIn);
-                bool defectLead = underLead && !lesserLead && _DefectLeadIn.IsMatch(leadIn);
-                bool passingLead = underLead && !lesserLead && !defectLead && _PassingLeadIn.IsMatch(leadIn);
+                bool lesserLead = underLead && _LesserLeadIn.IsMatch(leadClause) && !_RequiredLeadIn.IsMatch(leadClause);
+                bool defectLead = underLead && !lesserLead && _DefectLeadIn.IsMatch(leadClause);
+                bool passingLead = underLead && !lesserLead && !defectLead && _PassingLeadIn.IsMatch(leadClause);
                 if (lesserLead && !explicitBlocking && !notMetCriterion) continue;
+
+                // A paragraph that follows a lead-in naming defects ("Confirmed defect:") is one of those defects.
+                string paragraphClause = LastSentence(paragraphLead);
+                bool underDefectParagraphLead = !listItem && !leadInLine && findingSectionItem && paragraphLead.Length > 0
+                    && _DefectLeadIn.IsMatch(paragraphClause)
+                    && !(_LesserLeadIn.IsMatch(paragraphClause) && !_RequiredLeadIn.IsMatch(paragraphClause));
+                if (!notMetCriterion && !explicitBlocking && !labeledFinding && !underDefectParagraphLead
+                    && findingSectionItem && IsPassingItem(item)) continue;
+
+                bool verdictRequired = section == "Verdict" && !listItem && _VerdictRequired.IsMatch(item);
+                if (verdictRequired && !notMetCriterion)
+                {
+                    List<string> inlineItems = InlineNumberedItems(item);
+                    if (inlineItems.Count >= 2)
+                    {
+                        foreach (string inlineItem in inlineItems)
+                        {
+                            if (!findings.Contains(inlineItem, StringComparer.Ordinal)) findings.Add(inlineItem);
+                        }
+                        continue;
+                    }
+                }
+
                 bool listFinding = listItem && (!passingLead || itemNamesDefect);
-                bool sectionFinding = findingSectionItem && (listFinding || labeledFinding || paragraphFinding || IsUnmarkedTestGap(item, section))
+                bool sectionFinding = findingSectionItem && (listFinding || labeledFinding || paragraphFinding || underDefectParagraphLead || IsUnmarkedTestGap(item, section))
                     || section == "Verdict"
-                        && (ContainsAny(raw, "NEEDS_REVISION", "REQUIRED CHANGE", "MUST ") || (listItem && !ContainsAny(raw, "PASS")));
+                        && (verdictRequired || ContainsAny(raw, "NEEDS_REVISION", "REQUIRED CHANGE", "MUST ") || (listItem && !ContainsAny(raw, "PASS")));
                 if (!notMetCriterion && !explicitBlocking && !sectionFinding) continue;
 
                 StringBuilder finding = new StringBuilder(item);
@@ -282,7 +376,7 @@ namespace Armada.Core.Services
                 List<string> destination = notMetCriterion ? criteria : findings;
                 if (!destination.Contains(value, StringComparer.Ordinal)) destination.Add(value);
                 bool plain = !notMetCriterion && !explicitBlocking && !labeledFinding && !paragraphFinding
-                    && !itemNamesDefect && !defectLead && section != "Verdict";
+                    && !underDefectParagraphLead && !itemNamesDefect && !defectLead && section != "Verdict";
                 if (plain) plainFindings.Add(value);
             }
 
@@ -488,6 +582,81 @@ namespace Armada.Core.Services
             return false;
         }
 
+        // The last sentence of a line, without its closing punctuation; file anchors such as "a.cs:12" do not split.
+        private static string LastSentence(string text)
+        {
+            string trimmed = text.Trim().TrimEnd('.', '!', '?', ':', ' ');
+            int cut = -1;
+            foreach (string stop in new[] { ". ", "! ", "? ", "; " })
+            {
+                int at = trimmed.LastIndexOf(stop, StringComparison.Ordinal);
+                if (at > cut) cut = at;
+            }
+            return cut < 0 ? trimmed : trimmed.Substring(cut + 2).Trim();
+        }
+
+        private static string BoldLabel(string item)
+        {
+            Match match = _BoldLabel.Match(item.Trim());
+            return match.Success ? match.Groups[1].Value : String.Empty;
+        }
+
+        // A bold label that names a defect ("**Source fidelity defect (blocking).**") marks a finding.
+        private static bool IsDefectLabel(string item)
+        {
+            string label = BoldLabel(item);
+            return label.Length > 0 && _DefectLabel.IsMatch(label) && !IsLesserLabel(label) && !_DisclaimsDefect.IsMatch(label);
+        }
+
+        private static bool IsLesserLabel(string label)
+        {
+            string normalized = label.Trim().TrimStart('*', '_', '(').Trim();
+            return _LeadingLesserLabel.IsMatch(normalized)
+                || Regex.IsMatch(label, @"\b(?:non-?blocking|not\s+(?:a\s+)?block(?:ing|er)|minor|follow-?up)\b", RegexOptions.IgnoreCase)
+                    && !Regex.IsMatch(label, @"\((?:blocking|required)\)", RegexOptions.IgnoreCase);
+        }
+
+        // An item the reviewer files as lesser: an opening lesser label, a lesser bold label, or a closing
+        // sentence that calls it a follow-up, a note, or not a defect.
+        private static bool IsLesserItem(string item)
+        {
+            string normalized = item.Trim().TrimStart('*', '_').Trim();
+            if (_LeadingLesserLabel.IsMatch(normalized)) return true;
+            string label = BoldLabel(item);
+            if (label.Length > 0 && IsLesserLabel(label)) return true;
+            string last = LastSentence(item);
+            return _LesserSentence.IsMatch(last) && !_RequiredWording.IsMatch(last) && !_ParagraphDirective.IsMatch(last + " ");
+        }
+
+        // An item that reports agreement rather than a defect: the reviewer disclaims a defect, gives the item
+        // a passing verdict without qualifying it, or reports agreement in an item that names no defect.
+        private static bool IsPassingItem(string item)
+        {
+            if (_DisclaimsDefect.IsMatch(item)) return true;
+            if (Regex.IsMatch(LastSentence(item), @"^(?:reviewed\s+and\s+tested|covered|source-exact)$", RegexOptions.IgnoreCase)) return true;
+            if (_PassingItemVerdict.IsMatch(item)) return !_QualifiedWording.IsMatch(item) && !_DefectWord.IsMatch(item.Replace("fails closed", String.Empty, StringComparison.OrdinalIgnoreCase)) || !_QualifiedWording.IsMatch(item) && Regex.IsMatch(item, @":\s*covered\b", RegexOptions.IgnoreCase);
+            return _PassingItemWording.IsMatch(item)
+                && !_DefectWord.IsMatch(item)
+                && !_RequiredWording.IsMatch(item)
+                && !_ParagraphDirective.IsMatch(item);
+        }
+
+        // Required changes written inline in one Verdict paragraph: "(1) replace ...; (2) add ...".
+        private static List<string> InlineNumberedItems(string paragraph)
+        {
+            List<string> items = new List<string>();
+            MatchCollection markers = _InlineNumberedItem.Matches(paragraph);
+            for (int m = 0; m < markers.Count; m++)
+            {
+                int start = markers[m].Index;
+                int end = m + 1 < markers.Count ? markers[m + 1].Index : paragraph.Length;
+                string text = paragraph.Substring(start, end - start).Trim().TrimEnd(';', ',').Trim();
+                if (text.EndsWith(" and", StringComparison.Ordinal)) text = text.Substring(0, text.Length - 4).TrimEnd(';', ',', ' ');
+                if (text.Length > markers[m].Length) items.Add(text);
+            }
+            return items;
+        }
+
         private static bool IsExplicitlyNonBlocking(string line, string item)
         {
             return HasLabelPrefix(line, "Non-blocking")
@@ -610,7 +779,13 @@ namespace Armada.Core.Services
         {
             foreach (string marker in _BlockingMarkers)
             {
-                if (line.Contains(marker, StringComparison.OrdinalIgnoreCase)) return true;
+                int at = line.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                while (at >= 0)
+                {
+                    // "not blocking:" and "non-blocking:" carry the marker's text but file the item as lesser.
+                    if (!_NegatedBlocking.IsMatch(line.Substring(0, at))) return true;
+                    at = line.IndexOf(marker, at + marker.Length, StringComparison.OrdinalIgnoreCase);
+                }
             }
             return false;
         }

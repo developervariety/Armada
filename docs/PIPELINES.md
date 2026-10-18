@@ -258,13 +258,23 @@ that reports passing or reviewed behaviour ("The core logic is sound:", "What th
 new tests cover:") are context unless the item itself names a defect, items under a
 minor or follow-up lead-in are left out, and an item marked "(not a blocker)", or
 one whose closing sentence is only such a label ("Follow-up.", "Follow-up, not a
-blocker."), is left out. When the list does not fit its 4,000-character bound, plain list items
+blocker.", "Cosmetic.", or a closing sentence that calls it a note or not a defect), is left out.
+A lead-in covers only its own list and is read by its closing sentence. An item is also left out when it
+opens with a lesser label ("Minor, not blocking:", "Observed but not blocking:"), when its bold label
+disclaims a defect, when it closes "Reviewed and tested.", and when it reports agreement ("matches the
+source", "is otherwise sound", "unchanged", "tested implicitly") without naming a defect, unless it is
+marked blocking or NOT MET. A bold label that names a defect ("**Source fidelity defect (blocking).**")
+marks a finding, and so does a paragraph under a lead-in that names defects ("Confirmed defect:"). In the
+Verdict, lead-in lines and `[ARMADA:` marker lines are not findings, and required changes written inline
+in one paragraph ("(1) replace ...; (2) add ...") become one finding each. When the list does not fit its 4,000-character bound, plain list items
 that name no defect are dropped before any named defect, Verdict change or NOT MET
 criterion is shortened, and the list says it is incomplete.
 The embedded full-review
 cap is 12,000 characters. When the report fits, the brief carries it whole.
 When it does not, the brief keeps the protected sections whole after removing
-narration and MET criteria. If those protected sections exceed the bound, the
+narration and MET criteria. Every other section (Completeness, Acceptance Criteria
+and the like) is reduced to its NOT MET, NOT DELIVERED and NOT RESOLVED lines under
+its heading, and the closing note names each reduced section. If those protected sections exceed the bound, the
 brief labels the embedded list incomplete and directs the stage to the complete
 parent output. Gate-log truncation keeps its existing cap and content-filter
 recovery behavior.

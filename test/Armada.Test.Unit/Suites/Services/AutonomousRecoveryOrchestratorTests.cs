@@ -4426,6 +4426,16 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildBlockingFindingsForBrief_TestAndFailureModeGapsInParagraphs_AreCarried).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief leaves out an item whose closing sentence labels it a follow-up",
                 BuildBlockingFindingsForBrief_ItemClosingWithFollowUpLabel_IsLeftOut).ConfigureAwait(false);
+            await RunTest("BuildBlockingFindingsForBrief leaves out items labelled not blocking, minor or cosmetic",
+                BuildBlockingFindingsForBrief_LesserLabelledItems_AreLeftOut).ConfigureAwait(false);
+            await RunTest("BuildBlockingFindingsForBrief leaves out items that report agreement or disclaim a defect",
+                BuildBlockingFindingsForBrief_PassingItems_AreLeftOut).ConfigureAwait(false);
+            await RunTest("BuildBlockingFindingsForBrief splits required changes written inline in the Verdict",
+                BuildBlockingFindingsForBrief_InlineVerdictChanges_AreSplit).ConfigureAwait(false);
+            await RunTest("BuildBlockingFindingsForBrief carries a paragraph that follows a defect lead-in",
+                BuildBlockingFindingsForBrief_ParagraphUnderDefectLeadIn_IsCarried).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription keeps unmet criteria from omitted review sections and names those sections",
+                BuildRescueDescription_OversizedJudgeReview_KeepsUnmetCriteriaFromOmittedSections).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief keeps passing and minor lists out, so required items are not shortened",
                 BuildBlockingFindingsForBrief_PassingAndMinorLists_DoNotCrowdOutRequiredItems).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief drops plain reviewed items before shortening a named defect",
@@ -5600,8 +5610,8 @@ namespace Armada.Test.Unit.Suites.Services
 
         public async Task BuildBlockingFindingsForBrief_PlainReviewedItems_GoBeforeNamedDefectsAreShortened()
         {
-            string padding = " The handler, its route and the reopened store were each read against the contract, and every step matches the recorded journal rows from the writer, so this item reports reviewed behaviour only.";
-            padding = padding + padding + padding;
+            string padding = " The handler, its route and the reopened store were each read against the contract and against the recorded journal rows from the writer, so this item reports reviewed behaviour only.";
+            padding = padding + padding + padding + padding + padding;
             string review = String.Join("\n", new[]
             {
                 "## Correctness",
@@ -5683,6 +5693,168 @@ namespace Armada.Test.Unit.Suites.Services
             AssertContains("count pending replies at `Client.cs:508-517`", block, "The Verdict's required change is carried with its anchor");
             AssertFalse(block.Contains("Deadline race", StringComparison.Ordinal), "An item that closes with 'Follow-up, not a blocker.' is not a finding");
             AssertFalse(block.Contains("Transport must honour cancellation", StringComparison.Ordinal), "An item that closes with 'Follow-up.' is not a finding");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildBlockingFindingsForBrief_LesserLabelledItems_AreLeftOut()
+        {
+            string review = String.Join("\n", new[]
+            {
+                "## Correctness",
+                "- **Blocking: the export retries without a limit.** `Exporter.cs:120` loops on every transient error.",
+                "- Minor, not blocking: the helper takes the concrete store type rather than its interface.",
+                "",
+                "## Failure Modes",
+                "- Observed but not blocking: the compacted file reopens in the default journal mode until the next write.",
+                "- **Empty input.** The parser returns an empty result without logging the reason. Cosmetic.",
+                "",
+                "## Verdict",
+                "NEEDS_REVISION. Bound the export retries.",
+                "",
+                "[ARMADA:VERDICT] NEEDS_REVISION"
+            });
+
+            string block = AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief(review, AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars);
+
+            AssertContains("the export retries without a limit", block, "The labelled blocking defect is carried");
+            AssertFalse(block.Contains("concrete store type", StringComparison.Ordinal), "An item opening 'Minor, not blocking:' is not a finding");
+            AssertFalse(block.Contains("default journal mode", StringComparison.Ordinal), "An item opening 'Observed but not blocking:' is not a finding");
+            AssertFalse(block.Contains("without logging the reason", StringComparison.Ordinal), "An item closing 'Cosmetic.' is not a finding");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildBlockingFindingsForBrief_PassingItems_AreLeftOut()
+        {
+            string review = String.Join("\n", new[]
+            {
+                "## Correctness",
+                "",
+                "Required revisions:",
+                "",
+                "1. **Keep the failed state.** A retry replaces `unavailable` with `loading` at `Cache.cs:84-95`; keep `unavailable` until a good report replaces it.",
+                "",
+                "Source fidelity is otherwise sound: counting delegates to the unchanged reader and lookups call their existing owners.",
+                "",
+                "- **The earlier stage's must-fix is a misreading of the brief, not a defect.** The source maps a missing reply to the same failure the port returns.",
+                "- **Retry limit (blocking).** The port stops after two attempts where the source allows three (`Retry.cs:40`).",
+                "- **Resend.** Repeated frames are re-sent with the source's limit and the inherited single-frame defect is reproduced. Reviewed and tested.",
+                "",
+                "## Failure Modes",
+                "- **Null resolver.** The constructor falls back to the identity default. Tested implicitly by every test that omits the argument.",
+                "- **Disposed reader.** The existing disposed check is unchanged.",
+                "",
+                "## Verdict",
+                "NEEDS_REVISION. Two items block.",
+                "",
+                "[ARMADA:VERDICT] NEEDS_REVISION"
+            });
+
+            string block = AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief(review, AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars);
+
+            AssertContains("Keep the failed state.", block, "The numbered required revision is carried");
+            AssertContains("Retry limit (blocking).", block, "A bold label naming the item blocking is carried");
+            AssertFalse(block.Contains("otherwise sound", StringComparison.Ordinal), "A passing paragraph after the required list is not a finding");
+            AssertFalse(block.Contains("misreading of the brief", StringComparison.Ordinal), "An item that disclaims a defect is not a finding");
+            AssertFalse(block.Contains("Resend.", StringComparison.Ordinal), "An item closing 'Reviewed and tested.' is not a finding");
+            AssertFalse(block.Contains("Null resolver", StringComparison.Ordinal), "A handled failure mode is not a finding");
+            AssertFalse(block.Contains("Disposed reader", StringComparison.Ordinal), "An unchanged failure mode is not a finding");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildBlockingFindingsForBrief_InlineVerdictChanges_AreSplit()
+        {
+            string review = String.Join("\n", new[]
+            {
+                "## Correctness",
+                "- **Blocking: the probe waits forever on a held lock.** `Compact.cs:123` sets an unbounded timeout.",
+                "",
+                "## Verdict",
+                "NEEDS_REVISION. Required revisions:",
+                "",
+                "Required changes: (1) replace the unbounded timeout at `Compact.cs:123` with a bounded one; (2) catch unexpected exceptions and exit 1 with the named reason; and (3) add a test for a held write lock.",
+                "",
+                "[ARMADA:VERDICT] NEEDS_REVISION"
+            });
+
+            string block = AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief(review, AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars);
+
+            AssertContains("- (1) replace the unbounded timeout at `Compact.cs:123` with a bounded one", block, "The first inline change is its own finding");
+            AssertContains("- (2) catch unexpected exceptions and exit 1 with the named reason", block, "The second inline change is its own finding");
+            AssertContains("- (3) add a test for a held write lock", block, "The last inline change is its own finding");
+            AssertFalse(block.Contains("Required revisions:", StringComparison.Ordinal), "A Verdict lead-in line is not a finding");
+            AssertFalse(block.Contains("[ARMADA:VERDICT]", StringComparison.Ordinal), "The verdict marker is not a finding");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildBlockingFindingsForBrief_ParagraphUnderDefectLeadIn_IsCarried()
+        {
+            string review = String.Join("\n", new[]
+            {
+                "## Correctness",
+                "",
+                "Confirmed defect:",
+                "",
+                "The summary counts the closing bar twice when the window ends on a session boundary (`Summary.cs:61`).",
+                "",
+                "## Verdict",
+                "NEEDS_REVISION.",
+                "",
+                "[ARMADA:VERDICT] NEEDS_REVISION"
+            });
+
+            string block = AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief(review, AutonomousRecoveryOrchestrator._MaxRescueBlockingFindingsChars);
+
+            AssertContains("counts the closing bar twice", block, "A paragraph under 'Confirmed defect:' is carried");
+            AssertFalse(block.Contains("- Confirmed defect:", StringComparison.Ordinal), "The lead-in itself is not a finding");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildRescueDescription_OversizedJudgeReview_KeepsUnmetCriteriaFromOmittedSections()
+        {
+            StringBuilder review = new StringBuilder();
+            review.AppendLine("## Completeness");
+            for (int i = 0; i < 200; i++)
+                review.AppendLine("- Step " + i + " of the brief is delivered as written and its output matches the requested shape.");
+            review.AppendLine("## Acceptance Criteria");
+            review.AppendLine("- The export stops after the configured retry limit. — MET.");
+            review.AppendLine("- A failed export keeps the last good report marked stale. — NOT MET. `Cache.cs:84-95` overwrites it.");
+            review.AppendLine("## Correctness");
+            review.AppendLine("- **Blocking: a retry overwrites the failed state.** `Cache.cs:84-95`.");
+            review.AppendLine("## Verdict");
+            review.AppendLine("NEEDS_REVISION.");
+            review.AppendLine("[ARMADA:VERDICT] NEEDS_REVISION");
+            string text = review.ToString();
+            AssertTrue(text.Length > AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars,
+                "Precondition: the review exceeds the embedded feedback limit, so sections are omitted.");
+            Mission failed = new Mission
+            {
+                Id = "msn_test_unmet_criteria_kept",
+                Title = "review the export retry change",
+                Status = MissionStatusEnum.Failed,
+                Persona = "Judge",
+                FailureReason = "Judge verdict: NEEDS_REVISION",
+                Description = "title: review the export retry change",
+                AgentOutput = text,
+                ReviewComment = text,
+            };
+            Incident incident = new Incident
+            {
+                Id = "inc_test_unmet_criteria_kept",
+                Title = "synthetic review",
+                Summary = "synthetic summary",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.Medium,
+            };
+
+            string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+            string feedback = brief.Substring(brief.IndexOf("Reviewer feedback to address:", StringComparison.Ordinal));
+
+            AssertContains("## Acceptance Criteria", feedback, "The heading of a section with an unmet criterion is kept");
+            AssertContains("keeps the last good report marked stale. — NOT MET.", feedback, "The NOT MET criterion reaches the reviewer feedback");
+            AssertFalse(feedback.Contains("configured retry limit. — MET.", StringComparison.Ordinal), "A MET criterion is still omitted");
+            AssertFalse(feedback.Contains("Step 5 of the brief", StringComparison.Ordinal), "Completeness narration is still omitted");
+            AssertContains("[Sections reduced to their NOT MET, NOT DELIVERED and NOT RESOLVED lines: Completeness, Acceptance Criteria.", feedback,
+                "The note names the reduced sections");
             await Task.CompletedTask;
         }
 

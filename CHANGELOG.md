@@ -71,6 +71,16 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Rescue briefs carry only a review's real defects. The blocking-findings list
+  no longer reads "Minor, not blocking:" or "Observed but not blocking:" items
+  as blocking, leaves out items that disclaim a defect, close "Reviewed and
+  tested." or "Cosmetic.", or report agreement without naming a defect, and
+  keeps the paragraph after a required list out of that list. It now carries
+  bold defect labels, paragraphs under a "Confirmed defect:" lead-in, and each
+  inline "(n)" change in a Verdict paragraph as its own finding. When a long
+  review is reduced, NOT MET criteria from the omitted sections stay in the
+  embedded feedback and the note names the reduced sections.
+
 - The PostgreSQL and SQL Server binders name `memory_proposals.promoted_utc`,
   so the startup schema guard accepts the promotion column. A unit test now
   compares every timestamp column a PostgreSQL or SQL Server migration adds
