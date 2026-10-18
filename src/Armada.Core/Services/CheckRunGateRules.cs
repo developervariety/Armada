@@ -201,21 +201,27 @@ namespace Armada.Core.Services
         /// recently created one that is not Canceled.
         /// </summary>
         /// <remarks>
-        /// A retry creates a new record for the same voyage, mission, type, label, workflow profile
-        /// and commit, and leaves the record it retried unchanged. A gate that read every record
-        /// would keep rejecting on a failure that its own retry has since passed, and would reject
-        /// while that retry is still running. The latest record for a Check is its current verdict,
-        /// so it alone decides: a running retry holds the gate and a passing retry clears it. A
-        /// Canceled retry does not decide, so the verdict it was meant to replace still stands.
-        /// Records that measure different commits or carry different labels are different Checks
-        /// and are all kept; <see cref="IsStale"/> rules on those. A record attached to no voyage
-        /// and no mission is kept on its own.
+        /// A Check is the voyage, mission, type, workflow profile, executed command and commit it
+        /// measures. A retry, or an operator re-run under any label, creates a new record for that
+        /// Check and leaves the earlier record unchanged. A gate that read every record would keep
+        /// rejecting on a failure that a re-run has since passed, and would reject while that
+        /// re-run is still running. The latest record for a Check is its current verdict, so it
+        /// alone decides: a running re-run holds the gate and a passing re-run clears it. A
+        /// Canceled record does not decide, so the verdict it was meant to replace still stands.
+        /// The label is a display name and does not identify a Check. The command does: a run of
+        /// a narrower command (a filtered test run, say) is a different Check and cannot clear the
+        /// full command's failure. Commits compare with <see cref="SameCommit"/>, so an
+        /// abbreviated hash and the full hash name one Check. Records that measure different
+        /// commits are different Checks and are all kept; <see cref="IsStale"/> rules on those. A
+        /// record attached to no voyage and no mission is kept on its own.
         /// </remarks>
         /// <param name="checks">The collected Check records. Null yields an empty list.</param>
         /// <returns>One record per Check, in no particular order.</returns>
         public static List<CheckRun> SelectLatestPerCheck(IEnumerable<CheckRun>? checks)
         {
-            Dictionary<string, CheckRun> latest = new Dictionary<string, CheckRun>(StringComparer.Ordinal);
+            // Keyed on everything but the commit; each entry holds one latest record per commit,
+            // because commits are matched by prefix rather than by exact text.
+            Dictionary<string, List<CheckRun>> latest = new Dictionary<string, List<CheckRun>>(StringComparer.Ordinal);
             if (checks == null) return new List<CheckRun>();
 
             foreach (CheckRun run in checks)
@@ -223,19 +229,26 @@ namespace Armada.Core.Services
                 if (run == null) continue;
                 if (run.Status == CheckRunStatusEnum.Canceled) continue;
 
-                string key = CheckIdentity(run);
-                if (!latest.TryGetValue(key, out CheckRun? current) || IsNewer(run, current))
-                    latest[key] = run;
+                string key = CheckIdentityWithoutCommit(run);
+                if (!latest.TryGetValue(key, out List<CheckRun>? perCommit))
+                {
+                    perCommit = new List<CheckRun>();
+                    latest[key] = perCommit;
+                }
+
+                int index = perCommit.FindIndex(existing => SameCheckCommit(existing.CommitHash, run.CommitHash));
+                if (index < 0) perCommit.Add(run);
+                else if (IsNewer(run, perCommit[index])) perCommit[index] = run;
             }
 
-            return latest.Values.ToList();
+            return latest.Values.SelectMany(perCommit => perCommit).ToList();
         }
 
         #endregion
 
         #region Private-Methods
 
-        private static string CheckIdentity(CheckRun run)
+        private static string CheckIdentityWithoutCommit(CheckRun run)
         {
             const char separator = '\u001F';
             // A record tied to no voyage and no mission has no retry lineage a gate could read, so
@@ -245,9 +258,23 @@ namespace Armada.Core.Services
             return (run.VoyageId ?? String.Empty) + separator
                 + (run.MissionId ?? String.Empty) + separator
                 + run.Type.ToString() + separator
-                + (run.Label ?? String.Empty).Trim().ToLowerInvariant() + separator
                 + (run.WorkflowProfileId ?? String.Empty) + separator
-                + (run.CommitHash ?? String.Empty).Trim().ToLowerInvariant();
+                + NormalizeCommand(run.Command);
+        }
+
+        private static string NormalizeCommand(string? command)
+        {
+            if (String.IsNullOrWhiteSpace(command)) return String.Empty;
+            return String.Join(" ", command.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        private static bool SameCheckCommit(string? left, string? right)
+        {
+            bool leftEmpty = String.IsNullOrWhiteSpace(left);
+            bool rightEmpty = String.IsNullOrWhiteSpace(right);
+            if (leftEmpty || rightEmpty) return leftEmpty && rightEmpty;
+            if (SameCommit(left, right)) return true;
+            return String.Equals(left!.Trim(), right!.Trim(), StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsNewer(CheckRun candidate, CheckRun current)

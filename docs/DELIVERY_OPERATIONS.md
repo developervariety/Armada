@@ -236,6 +236,15 @@ Use `get_check_run` to read one Check. Use `run_check` for initial execution and
 `retry_check_run` for a real rerun. Use `resolve_check` only for valid evidence
 that was produced outside Armada.
 
+Every Check gate (the Judge gate, voyage completion and the manual completion
+proof) reads only the latest record of each Check that is not Canceled. A Check
+is its voyage, mission, type, workflow profile, executed command and commit. The
+label is a display name only, so a `run_check` re-run of the same command at the
+same commit supersedes an earlier failed record under any label. An abbreviated
+commit hash and the full hash name the same commit. A run of a different command,
+such as a filtered test run, is a different Check and does not clear the full
+command's failure.
+
 These three return a BOUNDED view: status, exit code, parsed test and coverage
 totals, artifacts, and the last lines of output. They do not return the whole
 command log, which for a real vessel runs to megabytes and overruns the tool

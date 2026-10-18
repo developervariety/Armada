@@ -569,6 +569,53 @@ namespace Armada.Test.Unit
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("JudgeGate_ManualRerunUnderAnotherLabel_SupersedesTheFailedRecord", () =>
+            {
+                DateTime first = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+                DateTime later = first.AddMinutes(5);
+                const string abbreviatedCommit = "11111111";
+
+                CheckRun failed = RetryRecord("chk_manual_first", CheckRunStatusEnum.Failed, first);
+                failed.MissionId = "msn_linter";
+                failed.Label = "UnitTest at Linter 11111111";
+                failed.CommitHash = abbreviatedCommit;
+                CheckRun rerun = RetryRecord("chk_manual_rerun", CheckRunStatusEnum.Passed, later);
+                rerun.MissionId = "msn_linter";
+                rerun.Label = "UnitTest re-run at Linter 11111111";
+                rerun.CommitHash = abbreviatedCommit;
+                AssertEqual(
+                    MissionService.JudgeCheckGate.GreenChecks,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { failed, rerun }, "review ok", _ReviewedCommit),
+                    "A passing re-run of the same command at the same commit clears the failure, whatever its label.");
+
+                CheckRun fullHashRerun = RetryRecord("chk_manual_full", CheckRunStatusEnum.Passed, later);
+                fullHashRerun.MissionId = "msn_linter";
+                fullHashRerun.Label = "UnitTest re-run";
+                AssertEqual(
+                    MissionService.JudgeCheckGate.GreenChecks,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { failed, fullHashRerun }, "review ok", _ReviewedCommit),
+                    "An abbreviated and a full hash of one commit name the same Check.");
+
+                CheckRun focused = RetryRecord("chk_narrow", CheckRunStatusEnum.Passed, later);
+                focused.MissionId = "msn_linter";
+                focused.Label = "UnitTest re-run";
+                focused.CommitHash = abbreviatedCommit;
+                focused.Command = "dotnet test --filter KwpClientTests";
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasFailed,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { failed, focused }, "review ok", _ReviewedCommit),
+                    "A passing run of a narrower command does not clear the failure of the full command.");
+
+                CheckRun otherCommit = RetryRecord("chk_manual_other", CheckRunStatusEnum.Passed, later);
+                otherCommit.MissionId = "msn_linter";
+                otherCommit.CommitHash = "22222222";
+                AssertEqual(
+                    MissionService.JudgeCheckGate.HasFailed,
+                    MissionService.ClassifyJudgeCheckGate(new List<CheckRun> { failed, otherCommit }, "review ok", _ReviewedCommit),
+                    "A green run at another commit does not clear a failure at the reviewed commit.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("VoyageGate_PassedRetryOfFailedCheck_VoyageCompletes", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
