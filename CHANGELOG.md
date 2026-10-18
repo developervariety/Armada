@@ -68,6 +68,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Dispatch stages a context pack built for each mission's own goal. Before, every
+  dispatch on an indexed vessel staged the vessel's cached baseline pack, which
+  answers a generic architecture question, so captains reported packs that did not
+  cover their files. The baseline is now a logged fallback for a goal pack that
+  fails, times out or returns no file. The captain brief tells captains to record a
+  pack miss in the `Pack:` line instead of a papercut.
 - The nine typed decisions the owner switched off after the four-week
   observation review (`inbox_triage`, `stage_necessity`, `prior_art`,
   `revision_kind`, `memory_record`, `memory_review`, `memory_candidate`,

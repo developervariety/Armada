@@ -471,7 +471,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_CodeContextAuto_CacheMiss_BuildsBeforeDispatch", async () =>
+            await RunTest("Dispatch_CodeContextAuto_BuildsTheGoalPackBeforeDispatch", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -513,8 +513,8 @@ namespace Armada.Test.Unit.Suites.Services
                     string resultJson = JsonSerializer.Serialize(result);
 
                     AssertFalse(resultJson.Contains("\"Error\""), "Auto mode should not return error on cache miss: " + resultJson);
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode must build on cache miss before dispatch");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must warm before building on cache miss");
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode builds the goal pack before dispatch");
+                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Dispatch never warms the baseline");
                     AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after synchronous pack preparation");
                     AssertEqual(1, admiralDouble.LastMissionDescriptions.Count, "Dispatch should receive the mission");
                     AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Auto missions must carry the prepared context file");
@@ -690,8 +690,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertContains("\"Error\"", resultJson);
                     AssertContains("no prestaged files", resultJson);
-                    AssertEqual(2, codeIndex.CacheRequests.Count, "Force must check cache before and after warm");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Force must warm on cache miss");
+                    AssertEqual(1, codeIndex.CacheRequests.Count, "An empty goal pack reads the baseline once, as the fallback");
+                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Dispatch never warms the baseline");
                     AssertEqual(1, codeIndex.ContextPackRequests.Count, "Force must attempt generation once");
                     AssertFalse(admiralDouble.DispatchVoyageCalled, "Force empty pack must fail before dispatch persistence");
                 }
@@ -936,392 +936,109 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_UsesCachedContextPack_SkipsGeneration", async () =>
+            await RunTest("Dispatch_BuildsTheMissionGoalPack_EvenWhenABaselinePackIsCached", async () =>
             {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                string generatedPackPath = Path.Combine(Path.GetTempPath(), "goal-pack-" + Guid.NewGuid().ToString("N") + ".md");
+                RecordingCodeIndexService codeIndex = new RecordingCodeIndexService { CachedResponse = BaselinePack(true) };
+                codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(generatedPackPath, "_briefing/context-pack.md"));
+
+                PackDispatchOutcome outcome = await DispatchWithPackAsync(codeIndex, null, LegacyContextSettings()).ConfigureAwait(false);
+
+                AssertFalse(outcome.ResultJson.Contains("\"Error\""), "Should not return error: " + outcome.ResultJson);
+                AssertEqual(1, codeIndex.ContextPackRequests.Count, "The pack is built for the mission goal");
+                AssertContains("Pack task", codeIndex.ContextPackRequests[0].Goal, "the build request carries the mission's own goal");
+                AssertEqual(0, codeIndex.CacheRequests.Count, "A built goal pack never reads the baseline");
+                AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Dispatch never warms the baseline");
+                AssertEqual(generatedPackPath, outcome.Admiral.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath, "the goal pack is staged, not the baseline");
+            });
+
+            await RunTest("Dispatch_Force_BuildsTheMissionGoalPack_WithoutReadingOrWarmingTheBaseline", async () =>
+            {
+                string generatedPackPath = Path.Combine(Path.GetTempPath(), "goal-pack-force-" + Guid.NewGuid().ToString("N") + ".md");
+                RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(generatedPackPath, "_briefing/context-pack.md"));
+
+                PackDispatchOutcome outcome = await DispatchWithPackAsync(codeIndex, "force", LegacyContextSettings()).ConfigureAwait(false);
+
+                AssertFalse(outcome.ResultJson.Contains("\"Error\""), "Should not return error: " + outcome.ResultJson);
+                AssertEqual(1, codeIndex.ContextPackRequests.Count);
+                AssertEqual(0, codeIndex.CacheRequests.Count);
+                AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count);
+                AssertEqual(generatedPackPath, outcome.Admiral.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+            });
+
+            foreach (string fallbackMode in new[] { "auto", "force" })
+            {
+                await RunTest("Dispatch_" + fallbackMode + "_GoalPackThrows_StagesTheCachedBaselinePack", async () =>
                 {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("cache-hit-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
-                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
-
-                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
-
-                    string cachedPackPath = Path.Combine(Path.GetTempPath(), "cache-hit-context-pack.md");
-                    ContextPackResponse cachedPack = new ContextPackResponse
-                    {
-                        Goal = "cached goal",
-                        MaterializedPath = cachedPackPath,
-                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "abc123" }
-                    };
-                    cachedPack.PrestagedFiles.Add(new PrestagedFile(cachedPackPath, "_briefing/context-pack.md"));
-
+                    ContextPackResponse baseline = BaselinePack(true);
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
                     {
-                        CachedResponse = cachedPack
+                        CachedResponse = baseline,
+                        BuildException = new InvalidOperationException("search backend down")
                     };
-                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
-                        Path.Combine(Path.GetTempPath(), "generated.md"), "_briefing/context-pack.md"));
 
-                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
-                    McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
-                        testDb.Driver,
-                        admiralDouble,
-                        LegacyContextSettings(),
-                        null,
-                        null,
-                        codeIndex);
+                    PackDispatchOutcome outcome = await DispatchWithPackAsync(codeIndex, fallbackMode == "auto" ? null : fallbackMode, LegacyContextSettings()).ConfigureAwait(false);
 
-                    JsonElement args = JsonSerializer.SerializeToElement(new
-                    {
-                        title = "cache hit voyage",
-                        vesselId = vessel.Id,
-                        missions = new object[]
-                        {
-                            new { title = "Task A", description = "should use cached pack" }
-                        }
-                    });
+                    AssertFalse(outcome.ResultJson.Contains("\"Error\""), "A cached baseline keeps the dispatch going: " + outcome.ResultJson);
+                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "the goal pack is tried first");
+                    AssertEqual(1, codeIndex.CacheRequests.Count, "the baseline is read once, as the fallback");
+                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Dispatch never warms the baseline");
+                    AssertEqual(baseline.PrestagedFiles[0].SourcePath, outcome.Admiral.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath, "the baseline is staged as the fallback");
+                }).ConfigureAwait(false);
+            }
 
-                    object result = await dispatchHandler!(args).ConfigureAwait(false);
-                    string resultJson = JsonSerializer.Serialize(result);
+            await RunTest("Dispatch_GoalPackTimesOut_StagesTheCachedBaselinePack", async () =>
+            {
+                string? priorTimeout = Environment.GetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS");
+                Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", "100");
+                try
+                {
+                    ContextPackResponse baseline = BaselinePack(true);
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService { CachedResponse = baseline, NeverCompleteBuild = true };
 
-                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
-                    AssertEqual(1, codeIndex.CacheRequests.Count, "Cache lookup must have been attempted");
-                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Synchronous generation must NOT be called on cache hit");
-                    AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Cache hit must skip baseline warm");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
-                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Cached pack must be staged");
-                    AssertEqual(cachedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
-                    AssertNull(admiralDouble.LastMissionDescriptions[0].CodeContextQuery,
-                        "Cache hit must merge inline; deferred query must not be set");
+                    PackDispatchOutcome outcome = await DispatchWithPackAsync(codeIndex, "force", LegacyContextSettings()).ConfigureAwait(false);
+
+                    AssertFalse(outcome.ResultJson.Contains("\"Error\""), "A cached baseline covers a timed-out goal pack: " + outcome.ResultJson);
+                    AssertEqual(baseline.PrestagedFiles[0].SourcePath, outcome.Admiral.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", priorTimeout);
                 }
             });
 
-            await RunTest("Dispatch_Force_CacheMiss_FallsBackToGeneration", async () =>
+            await RunTest("Dispatch_GoalPackReturnsNoFiles_StagesTheCachedBaselinePack", async () =>
             {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("cache-miss-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
-                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
+                ContextPackResponse baseline = BaselinePack(true);
+                RecordingCodeIndexService codeIndex = new RecordingCodeIndexService { CachedResponse = baseline };
 
-                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                PackDispatchOutcome outcome = await DispatchWithPackAsync(codeIndex, "force", LegacyContextSettings()).ConfigureAwait(false);
 
-                    string generatedPackPath = Path.Combine(Path.GetTempPath(), "generated-context-pack.md");
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
-                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
-                        generatedPackPath, "_briefing/context-pack.md"));
-
-                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
-                    McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
-                        testDb.Driver,
-                        admiralDouble,
-                        LegacyContextSettings(),
-                        null,
-                        null,
-                        codeIndex);
-
-                    JsonElement args = JsonSerializer.SerializeToElement(new
-                    {
-                        title = "cache miss force voyage",
-                        vesselId = vessel.Id,
-                        codeContextMode = "force",
-                        missions = new object[]
-                        {
-                            new { title = "Task B", description = "force must fall back to generation on cache miss" }
-                        }
-                    });
-
-                    object result = await dispatchHandler!(args).ConfigureAwait(false);
-                    string resultJson = JsonSerializer.Serialize(result);
-
-                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
-                    AssertEqual(2, codeIndex.CacheRequests.Count, "Cache lookup must be attempted before and after warm");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must run on cache miss");
-                    AssertEqual(vessel.Id, codeIndex.WarmBaselineCacheVesselIds[0]);
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Synchronous generation must be called when warm does not populate cache");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
-                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Generated pack must be staged");
-                    AssertEqual(generatedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
-                }
+                AssertFalse(outcome.ResultJson.Contains("\"Error\""), "Should not return error: " + outcome.ResultJson);
+                AssertEqual(1, codeIndex.ContextPackRequests.Count);
+                AssertEqual(baseline.PrestagedFiles[0].SourcePath, outcome.Admiral.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
             });
 
-            await RunTest("Dispatch_Force_CacheMiss_LazyWarmHitsCache_SkipsGeneration", async () =>
+            foreach (bool nullFiles in new[] { false, true })
             {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                await RunTest("Dispatch_Force_GoalPackThrows_BaselineWith" + (nullFiles ? "Null" : "Empty") + "Files_ReturnsError", async () =>
                 {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("lazy-warm-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
-                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
-
-                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
-
-                    string warmedPackPath = Path.Combine(Path.GetTempPath(), "lazy-warm-context-pack.md");
-                    ContextPackResponse warmedPack = new ContextPackResponse
-                    {
-                        Goal = "warmed goal",
-                        MaterializedPath = warmedPackPath,
-                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "warm123" }
-                    };
-                    warmedPack.PrestagedFiles.Add(new PrestagedFile(warmedPackPath, "_briefing/context-pack.md"));
-
+                    ContextPackResponse unusable = BaselinePack(false);
+                    if (nullFiles) unusable.PrestagedFiles = null!;
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
                     {
-                        SecondCacheLookupResponse = warmedPack
-                    };
-                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
-                        Path.Combine(Path.GetTempPath(), "should-not-generate.md"), "_briefing/context-pack.md"));
-
-                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
-                    McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
-                        testDb.Driver,
-                        admiralDouble,
-                        LegacyContextSettings(),
-                        null,
-                        null,
-                        codeIndex);
-
-                    JsonElement args = JsonSerializer.SerializeToElement(new
-                    {
-                        title = "lazy warm force voyage",
-                        vesselId = vessel.Id,
-                        codeContextMode = "force",
-                        missions = new object[]
-                        {
-                            new { title = "Task D", description = "force must warm then use cached pack" }
-                        }
-                    });
-
-                    object result = await dispatchHandler!(args).ConfigureAwait(false);
-                    string resultJson = JsonSerializer.Serialize(result);
-
-                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
-                    AssertEqual(2, codeIndex.CacheRequests.Count, "Cache must be checked before and after warm");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must run on cache miss");
-                    AssertEqual(vessel.Id, codeIndex.WarmBaselineCacheVesselIds[0]);
-                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Generation must be skipped when warm produces cache hit");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
-                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Warmed pack must be staged");
-                    AssertEqual(warmedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
-                }
-            });
-
-            await RunTest("Dispatch_CodeContextAuto_CacheMiss_WarmsBeforeBuild", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("warm-never-called-auto-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
-                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
-
-                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
-
-                    string packSource = Path.Combine(Path.GetTempPath(), "auto-warm-pack-" + Guid.NewGuid().ToString("N") + ".md");
-                    File.WriteAllText(packSource, "# context pack");
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
-                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(packSource, "_briefing/context-pack.md"));
-
-                    // Optional packs still need deterministic preparation.
-                    ArmadaSettings legacySettings = new ArmadaSettings();
-                    legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
-
-                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
-                    McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
-                        testDb.Driver,
-                        admiralDouble,
-                        legacySettings,
-                        null,
-                        null,
-                        codeIndex);
-
-                    JsonElement args = JsonSerializer.SerializeToElement(new
-                    {
-                        title = "auto no warm voyage",
-                        vesselId = vessel.Id,
-                        missions = new object[]
-                        {
-                            new { title = "Task E", description = "auto must warm before build" }
-                        }
-                    });
-
-                    object result = await dispatchHandler!(args).ConfigureAwait(false);
-                    string resultJson = JsonSerializer.Serialize(result);
-
-                    AssertFalse(resultJson.Contains("\"Error\""), "Auto mode must not error: " + resultJson);
-                    AssertEqual(2, codeIndex.CacheRequests.Count, "Cache must be checked before and after warm");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto mode must warm on cache miss");
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto mode must build after warm on cache miss");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
-                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Prepared pack must be staged");
-                }
-            });
-
-            await RunTest("Dispatch_CodeContextAuto_EmptyCachedPack_WarmsAndBuilds", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("auto-empty-cache-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
-                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
-
-                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
-
-                    ContextPackResponse emptyCachedPack = new ContextPackResponse
-                    {
-                        Goal = "empty cached pack",
-                        MaterializedPath = Path.Combine(Path.GetTempPath(), "auto-empty-cache.md"),
-                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "auto-empty" }
+                        CachedResponse = unusable,
+                        BuildException = new InvalidOperationException("search backend down")
                     };
 
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
-                    {
-                        CachedResponse = emptyCachedPack,
-                    };
+                    PackDispatchOutcome outcome = await DispatchWithPackAsync(codeIndex, "force", LegacyContextSettings()).ConfigureAwait(false);
 
-                    // An empty cache entry is a cache miss. Prepare the file before dispatch.
-                    ArmadaSettings legacySettings = new ArmadaSettings();
-                    legacySettings.CodeIndex.RequireContextPackWhenEnabled = false;
-
-                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
-                    McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
-                        testDb.Driver,
-                        admiralDouble,
-                        legacySettings,
-                        null,
-                        null,
-                        codeIndex);
-
-                    JsonElement args = JsonSerializer.SerializeToElement(new
-                    {
-                        title = "auto empty cache voyage",
-                        vesselId = vessel.Id,
-                        codeContextMode = "auto",
-                        missions = new object[]
-                        {
-                            new { title = "Task H", description = "empty cache must warm and build" }
-                        }
-                    });
-
-                    object result = await dispatchHandler!(args).ConfigureAwait(false);
-                    string resultJson = JsonSerializer.Serialize(result);
-
-                    AssertFalse(resultJson.Contains("\"Error\""), "Auto must prepare an empty cached pack: " + resultJson);
-                    AssertEqual(2, codeIndex.CacheRequests.Count, "Cache must be checked before and after warm");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Auto must warm when cached pack has no files");
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Auto must build after warming an empty cache");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed after pack preparation");
-                }
-            });
-
-            await RunTest("Dispatch_WarmThrows_ForceMode_ReturnsError", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("warm-throw-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
-
-                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
-
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
-                    {
-                        WarmBaselineCacheException = new InvalidOperationException("warm boom")
-                    };
-
-                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
-                    McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
-                        testDb.Driver,
-                        admiralDouble,
-                        LegacyContextSettings(),
-                        null,
-                        null,
-                        codeIndex);
-
-                    JsonElement args = JsonSerializer.SerializeToElement(new
-                    {
-                        title = "warm throw force voyage",
-                        vesselId = vessel.Id,
-                        codeContextMode = "force",
-                        missions = new object[]
-                        {
-                            new { title = "Task F", description = "warm throws and force must surface error" }
-                        }
-                    });
-
-                    object result = await dispatchHandler!(args).ConfigureAwait(false);
-                    string resultJson = JsonSerializer.Serialize(result);
-
-                    AssertTrue(resultJson.Contains("\"Error\""), "Force mode must surface warm failure as an error: " + resultJson);
-                    AssertTrue(resultJson.Contains("warm boom"), "Error must carry the underlying failure message: " + resultJson);
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must have been attempted");
-                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Generation must NOT run after warm throws");
-                    AssertFalse(admiralDouble.DispatchVoyageCalled, "Dispatch must NOT proceed when force code context fails");
-                }
-            });
-
-            await RunTest("Dispatch_ForceMode_LazyWarmHitsCache_Succeeds", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("force-warm-hit-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
-                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
-
-                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
-
-                    string warmedPackPath = Path.Combine(Path.GetTempPath(), "force-warm-context-pack.md");
-                    ContextPackResponse warmedPack = new ContextPackResponse
-                    {
-                        Goal = "force warmed goal",
-                        MaterializedPath = warmedPackPath,
-                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "forcewarm" }
-                    };
-                    warmedPack.PrestagedFiles.Add(new PrestagedFile(warmedPackPath, "_briefing/context-pack.md"));
-
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
-                    {
-                        SecondCacheLookupResponse = warmedPack
-                    };
-                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
-                        Path.Combine(Path.GetTempPath(), "force-should-not-generate.md"), "_briefing/context-pack.md"));
-
-                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
-                    McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
-                        testDb.Driver,
-                        admiralDouble,
-                        LegacyContextSettings(),
-                        null,
-                        null,
-                        codeIndex);
-
-                    JsonElement args = JsonSerializer.SerializeToElement(new
-                    {
-                        title = "force warm voyage",
-                        vesselId = vessel.Id,
-                        codeContextMode = "force",
-                        missions = new object[]
-                        {
-                            new { title = "Task G", description = "force mode warms then uses cached pack" }
-                        }
-                    });
-
-                    object result = await dispatchHandler!(args).ConfigureAwait(false);
-                    string resultJson = JsonSerializer.Serialize(result);
-
-                    AssertFalse(resultJson.Contains("\"Error\""), "Force mode must succeed when warm produces a cache hit: " + resultJson);
-                    AssertEqual(2, codeIndex.CacheRequests.Count, "Cache must be checked before and after warm");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must run on cold force dispatch");
-                    AssertEqual(0, codeIndex.ContextPackRequests.Count, "Generation must be skipped when warm satisfies force mode");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
-                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Warmed pack must be staged");
-                    AssertEqual(warmedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
-                }
-            });
+                    AssertContains("\"Error\"", outcome.ResultJson);
+                    AssertContains("search backend down", outcome.ResultJson, "the error carries the goal pack failure");
+                    AssertFalse(outcome.Admiral.DispatchVoyageCalled, "Force with no usable pack must not dispatch");
+                }).ConfigureAwait(false);
+            }
 
             await RunTest("Dispatch_DefaultDispatchTimeout_IsAtLeast60Seconds", () =>
             {
@@ -1340,131 +1057,6 @@ namespace Armada.Test.Unit.Suites.Services
                     Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", priorTimeout);
                 }
                 return Task.CompletedTask;
-            });
-
-            await RunTest("Dispatch_Force_CachedPackWithEmptyPrestagedFiles_FallsBackToGeneration", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("cache-empty-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
-                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
-
-                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
-
-                    // Cache returns a non-null response, but with NO prestaged files. The dispatch
-                    // guard (PrestagedFiles.Count > 0) must treat this as a miss and generate (force).
-                    ContextPackResponse emptyCachedPack = new ContextPackResponse
-                    {
-                        Goal = "empty cached pack",
-                        MaterializedPath = Path.Combine(Path.GetTempPath(), "empty-cache.md"),
-                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "empty" }
-                    };
-
-                    string generatedPackPath = Path.Combine(Path.GetTempPath(), "fallback-after-empty.md");
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
-                    {
-                        CachedResponse = emptyCachedPack
-                    };
-                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
-                        generatedPackPath, "_briefing/context-pack.md"));
-
-                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
-                    McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
-                        testDb.Driver,
-                        admiralDouble,
-                        LegacyContextSettings(),
-                        null,
-                        null,
-                        codeIndex);
-
-                    JsonElement args = JsonSerializer.SerializeToElement(new
-                    {
-                        title = "empty cache force voyage",
-                        vesselId = vessel.Id,
-                        codeContextMode = "force",
-                        missions = new object[]
-                        {
-                            new { title = "Task C", description = "force must not short-circuit on empty cached pack" }
-                        }
-                    });
-
-                    object result = await dispatchHandler!(args).ConfigureAwait(false);
-                    string resultJson = JsonSerializer.Serialize(result);
-
-                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
-                    AssertEqual(2, codeIndex.CacheRequests.Count, "Cache lookup must be attempted before and after warm");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must run when first cache entry is empty");
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count,
-                        "Empty cached prestaged files must NOT short-circuit; generation must run");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
-                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Generated pack must be staged");
-                    AssertEqual(generatedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
-                }
-            });
-
-            await RunTest("Dispatch_Force_CachedPackWithNullPrestagedFiles_FallsBackToGeneration", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("cache-null-force-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
-                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
-
-                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
-
-                    // Cache returns a non-null response whose PrestagedFiles is explicitly null.
-                    // The dispatch guard's null check must treat this as a miss and generate (force).
-                    ContextPackResponse nullCachedPack = new ContextPackResponse
-                    {
-                        Goal = "null cached pack",
-                        MaterializedPath = Path.Combine(Path.GetTempPath(), "null-cache.md"),
-                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "null" },
-                        PrestagedFiles = null!
-                    };
-
-                    string generatedPackPath = Path.Combine(Path.GetTempPath(), "fallback-after-null.md");
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
-                    {
-                        CachedResponse = nullCachedPack
-                    };
-                    codeIndex.ContextPackResponse.PrestagedFiles.Add(new PrestagedFile(
-                        generatedPackPath, "_briefing/context-pack.md"));
-
-                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
-                    McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
-                        testDb.Driver,
-                        admiralDouble,
-                        LegacyContextSettings(),
-                        null,
-                        null,
-                        codeIndex);
-
-                    JsonElement args = JsonSerializer.SerializeToElement(new
-                    {
-                        title = "null cache force voyage",
-                        vesselId = vessel.Id,
-                        codeContextMode = "force",
-                        missions = new object[]
-                        {
-                            new { title = "Task D", description = "force must not short-circuit on null cached prestaged files" }
-                        }
-                    });
-
-                    object result = await dispatchHandler!(args).ConfigureAwait(false);
-                    string resultJson = JsonSerializer.Serialize(result);
-
-                    AssertFalse(resultJson.Contains("\"Error\""), "Should not return error: " + resultJson);
-                    AssertEqual(2, codeIndex.CacheRequests.Count, "Cache lookup must be attempted before and after warm");
-                    AssertEqual(1, codeIndex.WarmBaselineCacheVesselIds.Count, "Baseline warm must run when first cache entry has null prestaged files");
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count,
-                        "Null cached prestaged files must NOT short-circuit; generation must run");
-                    AssertTrue(admiralDouble.DispatchVoyageCalled, "Dispatch must proceed");
-                    AssertNotNull(admiralDouble.LastMissionDescriptions[0].PrestagedFiles, "Generated pack must be staged");
-                    AssertEqual(generatedPackPath, admiralDouble.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
-                }
             });
 
             await RunTest("Dispatch_EmptyMissions_ReturnsStructuredError", async () =>
@@ -2235,6 +1827,67 @@ namespace Armada.Test.Unit.Suites.Services
         /// These tests predate that change and assert the earlier best-effort contract, so they opt
         /// into it explicitly instead of silently depending on the old default.
         /// </summary>
+        private sealed class PackDispatchOutcome
+        {
+            public string ResultJson { get; set; } = "";
+
+            public RecordingAdmiralDouble Admiral { get; set; } = new RecordingAdmiralDouble();
+        }
+
+        // A cached baseline pack, with or without a staged file.
+        private static ContextPackResponse BaselinePack(bool withFile)
+        {
+            string path = Path.Combine(Path.GetTempPath(), "baseline-pack-" + Guid.NewGuid().ToString("N") + ".md");
+            ContextPackResponse pack = new ContextPackResponse
+            {
+                Goal = "codebase architecture key types and responsibilities",
+                MaterializedPath = path,
+                Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "abc123" }
+            };
+            if (withFile) pack.PrestagedFiles.Add(new PrestagedFile(path, "_briefing/context-pack.md"));
+            return pack;
+        }
+
+        // Dispatch one mission through armada_dispatch with the given code index and mode (null is auto).
+        private static async Task<PackDispatchOutcome> DispatchWithPackAsync(RecordingCodeIndexService codeIndex, string? mode, ArmadaSettings settings)
+        {
+            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+            {
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                    new Vessel("pack-vessel-" + Guid.NewGuid().ToString("N").Substring(0, 8), "https://github.com/test/repo.git")).ConfigureAwait(false);
+                await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
+
+                RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                McpVoyageTools.Register(
+                    (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
+                    testDb.Driver,
+                    admiralDouble,
+                    settings,
+                    null,
+                    null,
+                    codeIndex);
+
+                JsonElement args = mode == null
+                    ? JsonSerializer.SerializeToElement(new
+                    {
+                        title = "pack voyage",
+                        vesselId = vessel.Id,
+                        missions = new object[] { new { title = "Pack task", description = "Fix the Hino action decoder" } }
+                    })
+                    : JsonSerializer.SerializeToElement(new
+                    {
+                        title = "pack voyage",
+                        vesselId = vessel.Id,
+                        codeContextMode = mode,
+                        missions = new object[] { new { title = "Pack task", description = "Fix the Hino action decoder" } }
+                    });
+
+                object result = await dispatchHandler!(args).ConfigureAwait(false);
+                return new PackDispatchOutcome { ResultJson = JsonSerializer.Serialize(result), Admiral = admiralDouble };
+            }
+        }
+
         private static ArmadaSettings LegacyContextSettings()
         {
             ArmadaSettings settings = new ArmadaSettings();

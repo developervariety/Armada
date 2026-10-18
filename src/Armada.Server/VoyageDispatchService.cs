@@ -1140,59 +1140,21 @@ namespace Armada.Server
                     MaxResults = maxResults
                 };
 
+                // The pack is built for this mission's own goal. The vessel's cached baseline pack answers a
+                // generic architecture question, so it is staged only when the goal pack cannot be built.
                 try
                 {
                     Stopwatch totalWatch = Stopwatch.StartNew();
                     LogCodeContextInfo(
                         "code context phase start for mission '" + mission.Title + "' vessel " + vesselId
                         + " mode=" + mode + " timeoutMs=" + ((int)GetCodeContextTimeout().TotalMilliseconds));
-                    ContextPackResponse? cached = await RunCodeIndexCallWithTimeoutAsync(
-                        "code context cache probe",
-                        cancellationToken => _CodeIndexService.TryGetCachedContextPackAsync(contextRequest, cancellationToken))
-                        .ConfigureAwait(false);
-
-                    if (cached != null && cached.PrestagedFiles != null && cached.PrestagedFiles.Count > 0)
-                    {
-                        totalWatch.Stop();
-                        LogCodeContextInfo(
-                            "code context for mission '" + mission.Title + "': cache_hit"
-                            + " totalMs=" + totalWatch.ElapsedMilliseconds
-                            + " cacheKey=" + (cached.Metrics?.CacheKey ?? "unknown"));
-                        MergeGeneratedPrestagedFiles(mission, cached.PrestagedFiles);
-                        continue;
-                    }
-
-                    LogCodeContextInfo(
-                        "code context for mission '" + mission.Title + "': cache_miss; warming baseline cache for vessel " + vesselId);
-                    await RunCodeIndexCallWithTimeoutAsync(
-                        "code context baseline warm",
-                        async cancellationToken =>
-                        {
-                            await _CodeIndexService.WarmBaselineCacheAsync(vesselId, cancellationToken).ConfigureAwait(false);
-                            return true;
-                        }).ConfigureAwait(false);
-
-                    cached = await RunCodeIndexCallWithTimeoutAsync(
-                        "code context cache probe after warm",
-                        cancellationToken => _CodeIndexService.TryGetCachedContextPackAsync(contextRequest, cancellationToken))
-                        .ConfigureAwait(false);
-                    if (cached != null && cached.PrestagedFiles != null && cached.PrestagedFiles.Count > 0)
-                    {
-                        totalWatch.Stop();
-                        LogCodeContextInfo(
-                            "code context for mission '" + mission.Title + "': cache_hit_after_warm"
-                            + " totalMs=" + totalWatch.ElapsedMilliseconds
-                            + " cacheKey=" + (cached.Metrics?.CacheKey ?? "unknown"));
-                        MergeGeneratedPrestagedFiles(mission, cached.PrestagedFiles);
-                        continue;
-                    }
 
                     ContextPackResponse contextPack = await BuildContextPackWithTimeoutAsync(_CodeIndexService, contextRequest)
                         .ConfigureAwait(false);
                     totalWatch.Stop();
                     TimeSpan usedTimeout = GetCodeContextTimeout();
                     LogCodeContextInfo(
-                        "code context for mission '" + mission.Title + "': cache_miss"
+                        "code context for mission '" + mission.Title + "': goal_pack"
                         + " totalMs=" + totalWatch.ElapsedMilliseconds
                         + " searchMs=" + contextPack.Metrics?.SearchElapsedMs
                         + " summarizerMs=" + contextPack.Metrics?.SummarizerElapsedMs
@@ -1213,6 +1175,9 @@ namespace Armada.Server
 
                     if (contextPack.PrestagedFiles == null || contextPack.PrestagedFiles.Count == 0)
                     {
+                        if (await TryStageBaselineFallbackAsync(mission, contextRequest, "the goal pack returned no prestaged files").ConfigureAwait(false))
+                            continue;
+
                         if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)
                             return "code context generation returned no prestaged files for mission '" + mission.Title + "'";
 
@@ -1224,6 +1189,9 @@ namespace Armada.Server
                 }
                 catch (TimeoutException ex)
                 {
+                    if (await TryStageBaselineFallbackAsync(mission, contextRequest, "the goal pack timed out: " + ex.Message).ConfigureAwait(false))
+                        continue;
+
                     // A stalled index/embedding backend must never block dispatch. Force/require
                     // callers get a specific actionable error; auto callers degrade to no pack.
                     // Keep the established "code context generation failed" prefix -- it is an error
@@ -1238,6 +1206,9 @@ namespace Armada.Server
                 }
                 catch (Exception ex)
                 {
+                    if (await TryStageBaselineFallbackAsync(mission, contextRequest, "the goal pack failed: " + ex.Message).ConfigureAwait(false))
+                        continue;
+
                     if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)
                         return "code context generation failed for mission '" + mission.Title + "': " + ex.Message;
 
@@ -1246,6 +1217,43 @@ namespace Armada.Server
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Stage the vessel's cached baseline pack when the pack for the mission's goal could not be built.
+        /// The baseline answers a generic architecture question, so it is a degraded fallback, never the
+        /// first choice, and the fallback is logged with its reason. Dispatch never warms the baseline:
+        /// warming builds a pack, which is the step that just failed.
+        /// </summary>
+        /// <param name="mission">Mission being prepared.</param>
+        /// <param name="contextRequest">The goal pack request.</param>
+        /// <param name="reason">Why the goal pack was not staged.</param>
+        /// <returns>True when a cached baseline pack was staged.</returns>
+        private async Task<bool> TryStageBaselineFallbackAsync(MissionDescription mission, ContextPackRequest contextRequest, string reason)
+        {
+            if (_CodeIndexService == null) return false;
+            ContextPackResponse? cached;
+            try
+            {
+                cached = await RunCodeIndexCallWithTimeoutAsync(
+                    "code context baseline probe",
+                    cancellationToken => _CodeIndexService.TryGetCachedContextPackAsync(contextRequest, cancellationToken))
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogCodeContextWarning("code context baseline fallback for mission '" + mission.Title + "' unavailable: " + ex.Message);
+                return false;
+            }
+
+            if (cached?.PrestagedFiles == null || cached.PrestagedFiles.Count == 0) return false;
+
+            LogCodeContextWarning(
+                "code context for mission '" + mission.Title + "': baseline_fallback because " + reason
+                + "; the staged pack is the vessel's generic baseline, not a pack for this mission's goal"
+                + " cacheKey=" + (cached.Metrics?.CacheKey ?? "unknown"));
+            MergeGeneratedPrestagedFiles(mission, cached.PrestagedFiles);
+            return true;
         }
 
         private static async Task<ContextPackResponse> BuildContextPackWithTimeoutAsync(

@@ -5100,7 +5100,8 @@ namespace Armada.Core.Services
                 "\n" +
                 "Snippets may reflect the default branch and must be verified against the current branch before editing.\n" +
                 "\n" +
-                "If the pack is absent or misses material files, search the worktree directly.\n" +
+                "If the pack is absent or misses material files, search the worktree directly and record the miss " +
+                "in the `Pack:` line, not as a papercut.\n" +
                 "\n" +
                 "Final report must include one `Pack:` line: `read before search`, `search before read`, " +
                 "`not staged`, or `miss`, with a short reason.\n";
