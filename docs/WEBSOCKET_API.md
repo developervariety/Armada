@@ -266,6 +266,12 @@ the snapshot, and `stream.ready`. If complete replay is not possible, it sends
 `event.gap` before the snapshot. Old clients that send only `Route` continue to
 work.
 
+When the server cannot build the snapshot, it sends
+`{"type": "subscribe.error", "error": "<reason>", "retryable": true}` and the
+subscription stays inactive, so the client may send `subscribe` again on the
+same connection. A second `subscribe` on an already active connection returns
+`command.error` saying the connection is already subscribed.
+
 After the initial snapshot, the client will receive all broadcast events ([`mission.changed`](#missionchanged), [`voyage.changed`](#voyagechanged), [`captain.changed`](#captainchanged), [`objective.changed`](#objectivechanged), [`objective.deleted`](#objectivedeleted), [`objective-refinement-session.changed`](#objective-refinement-sessionchanged), [`objective-refinement-session.message.created`](#objective-refinement-sessionmessagecreated), [`objective-refinement-session.message.updated`](#objective-refinement-sessionmessageupdated), [`objective-refinement-session.summary.created`](#objective-refinement-sessionsummarycreated), [`objective-refinement-session.applied`](#objective-refinement-sessionapplied), [`check-run.changed`](#check-runchanged), [`deployment.changed`](#deploymentchanged), [`deployment.progress`](#deploymentprogress), [`environment.health`](#environmenthealth), [`approval-needed`](#approval-needed), and [generic events](#generic-events)) as they occur.
 
 ---

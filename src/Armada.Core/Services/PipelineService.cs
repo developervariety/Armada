@@ -162,6 +162,10 @@ namespace Armada.Core.Services
             }
             if (!OwnershipPolicy.CanEdit(caller, existing)) return RecordWriteResult<Pipeline>.Forbidden("You may not delete this pipeline");
 
+            // An objective that suggests this pipeline is cleared through the objective write path first. The
+            // database would clear the column on delete, but without a newer snapshot the objective snapshot
+            // backfill would later try to write the deleted id back.
+            await new ObjectiveService(_Database).ClearSuggestedPipelineAsync(existing.Id, token).ConfigureAwait(false);
             await _Database.Pipelines.DeleteAsync(existing.Id, token).ConfigureAwait(false);
             return RecordWriteResult<Pipeline>.Success(existing);
         }

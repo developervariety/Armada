@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Concurrent;
+    using System.Runtime.CompilerServices;
     using System.Security.Cryptography;
     using System.Text;
     using System.Collections.Generic;
@@ -44,10 +45,19 @@ namespace Armada.Core.Services
         /// </summary>
         public Action<Objective>? OnObjectiveDeleted { get; set; }
 
+        /// <summary>Event recorded when the snapshot backfill drops a suggested pipeline that no longer exists.</summary>
+        public const string SnapshotPipelineDroppedEventType = "objective.snapshot_pipeline_dropped";
+
+        /// <summary>Event recorded when the snapshot backfill cannot restore one objective and skips it.</summary>
+        public const string SnapshotRestoreSkippedEventType = "objective.snapshot_restore_skipped";
+
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule? _Logging;
         private const string _Header = "[ObjectiveService] ";
-        private readonly SemaphoreSlim _BackfillLock = new SemaphoreSlim(1, 1);
+        // The snapshot backfill runs once per database, shared by every ObjectiveService over it. Many callers
+        // build a short-lived service per request, and a per-instance flag replayed every snapshot on each one.
+        private static readonly ConditionalWeakTable<DatabaseDriver, SnapshotBackfillState> _BackfillStates =
+            new ConditionalWeakTable<DatabaseDriver, SnapshotBackfillState>();
         private static readonly SemaphoreSlim _DependencyWriteLock = new SemaphoreSlim(1, 1);
         // Serializes voyage linking per objective inside this process. Static so every
         // ObjectiveService instance in the process shares it. This is local defense-in-depth only:
@@ -55,7 +65,6 @@ namespace Armada.Core.Services
         // while a caller holds or awaits an objective, so the lock set stays bounded.
         private static readonly KeyedAsyncLock _VoyageLinkLocks = new KeyedAsyncLock(StringComparer.OrdinalIgnoreCase);
         private readonly TimeSpan _DispatchAdmissionTtl;
-        private bool _BackfillCompleted = false;
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -1418,24 +1427,66 @@ namespace Armada.Core.Services
             await _Database.Objectives.DeleteAsync(auth.TenantId!, id, token).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Clear the suggested pipeline of every objective that names <paramref name="pipelineId"/>, through the
+        /// objective write path: each change bumps the objective's update time and writes a snapshot, so the
+        /// snapshot backfill never restores the reference after the pipeline is deleted. Call it before the
+        /// pipeline row is deleted.
+        /// </summary>
+        /// <param name="pipelineId">Identifier of the pipeline being deleted.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The number of objectives changed.</returns>
+        public async Task<int> ClearSuggestedPipelineAsync(string pipelineId, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(pipelineId)) throw new ArgumentNullException(nameof(pipelineId));
+            await EnsureBackfilledAsync(token).ConfigureAwait(false);
+
+            int cleared = 0;
+            List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
+            foreach (Objective objective in objectives.Where(item => String.Equals(item.SuggestedPipelineId, pipelineId, StringComparison.Ordinal)))
+            {
+                objective.SuggestedPipelineId = null;
+                objective.LastUpdateUtc = DateTime.UtcNow;
+                AuthContext owner = AuthContext.Authenticated(
+                    objective.TenantId ?? Armada.Core.Constants.DefaultTenantId,
+                    objective.UserId ?? Armada.Core.Constants.DefaultUserId,
+                    objective.TenantId == null,
+                    true,
+                    "PipelineDelete");
+                await PersistObjectiveAsync(owner, objective, token).ConfigureAwait(false);
+                cleared++;
+            }
+
+            if (cleared > 0)
+                WarnBackfill("cleared the suggested pipeline " + pipelineId + " from " + cleared + " objective(s) before the pipeline was deleted");
+            return cleared;
+        }
+
         private async Task EnsureBackfilledAsync(CancellationToken token)
         {
-            if (_BackfillCompleted)
+            SnapshotBackfillState state = _BackfillStates.GetValue(_Database, _ => new SnapshotBackfillState());
+            if (state.Completed)
                 return;
 
-            await _BackfillLock.WaitAsync(token).ConfigureAwait(false);
+            await state.Lock.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                if (_BackfillCompleted)
+                if (state.Completed)
                     return;
 
                 await BackfillFromSnapshotsAsync(token).ConfigureAwait(false);
-                _BackfillCompleted = true;
+                state.Completed = true;
             }
             finally
             {
-                _BackfillLock.Release();
+                state.Lock.Release();
             }
+        }
+
+        private sealed class SnapshotBackfillState
+        {
+            public SemaphoreSlim Lock { get; } = new SemaphoreSlim(1, 1);
+            public bool Completed { get; set; }
         }
 
         private async Task BackfillFromSnapshotsAsync(CancellationToken token)
@@ -1476,9 +1527,14 @@ namespace Armada.Core.Services
                 pageNumber++;
             }
 
-            // A stored row that cannot be read is left untouched for repair and named; it must not stop the
-            // backfill, which every objective read waits on, for every other objective.
-            List<StoredObjectiveDataException> unreadable = new List<StoredObjectiveDataException>();
+            // A snapshot that cannot be restored is left for repair and named; it must not stop the backfill,
+            // which every objective read waits on, for every other objective. A suggested pipeline that no longer
+            // exists is dropped from the restored row rather than written back against the pipeline reference.
+            HashSet<string> pipelineIds = new HashSet<string>(
+                (await _Database.Pipelines.EnumerateAsync(token).ConfigureAwait(false)).Select(pipeline => pipeline.Id),
+                StringComparer.Ordinal);
+            List<string> skipped = new List<string>();
+            List<string> droppedPipelines = new List<string>();
             foreach (ArmadaEvent snapshot in latestByObjectiveId.Values)
             {
                 Objective? objective = DeserializeObjective(snapshot);
@@ -1486,24 +1542,73 @@ namespace Armada.Core.Services
                     continue;
 
                 SanitizeObjective(objective);
+                if (!String.IsNullOrWhiteSpace(objective.SuggestedPipelineId) && !pipelineIds.Contains(objective.SuggestedPipelineId))
+                {
+                    string missingPipelineId = objective.SuggestedPipelineId;
+                    droppedPipelines.Add(objective.Id + " (" + missingPipelineId + ")");
+                    objective.SuggestedPipelineId = null;
+                    await RecordBackfillEventAsync(objective, SnapshotPipelineDroppedEventType,
+                        "Snapshot backfill dropped suggested pipeline " + missingPipelineId + ", which no longer exists.",
+                        new { ObjectiveId = objective.Id, PipelineId = missingPipelineId }, token).ConfigureAwait(false);
+                }
+
+                string? skipReason = null;
                 try
                 {
                     await UpsertObjectiveRowAsync(objective, token, skipIfExistingNewer: true).ConfigureAwait(false);
                 }
                 catch (StoredObjectiveDataException ex)
                 {
-                    unreadable.Add(ex);
+                    skipReason = "unreadable " + ex.Field;
+                }
+                catch (Exception ex) when (!(ex is OperationCanceledException))
+                {
+                    skipReason = ex.GetType().Name + ": " + ex.Message;
+                }
+
+                if (skipReason != null)
+                {
+                    skipped.Add(objective.Id + " (" + skipReason + ")");
+                    await RecordBackfillEventAsync(objective, SnapshotRestoreSkippedEventType,
+                        "Snapshot backfill skipped this objective: " + skipReason,
+                        new { ObjectiveId = objective.Id, Reason = skipReason }, token).ConfigureAwait(false);
                 }
             }
 
-            if (unreadable.Count > 0)
+            if (droppedPipelines.Count > 0)
+                WarnBackfill("snapshot backfill dropped " + droppedPipelines.Count
+                    + " suggested pipeline reference(s) to pipelines that no longer exist: " + String.Join("; ", droppedPipelines));
+            if (skipped.Count > 0)
+                WarnBackfill("snapshot backfill skipped " + skipped.Count
+                    + " objective(s) whose snapshot could not be restored: " + String.Join("; ", skipped));
+        }
+
+        private async Task RecordBackfillEventAsync(Objective objective, string eventType, string message, object payload, CancellationToken token)
+        {
+            try
             {
-                string message = _Header + "snapshot backfill skipped " + unreadable.Count
-                    + " objective row(s) whose stored data cannot be read: "
-                    + String.Join("; ", unreadable.Select(ex => ex.ObjectiveId + " (" + ex.Field + ")"));
-                if (_Logging != null) _Logging.Warn(message);
-                else Console.Error.WriteLine(message);
+                await _Database.Events.CreateAsync(new ArmadaEvent
+                {
+                    TenantId = objective.TenantId,
+                    UserId = objective.UserId,
+                    EventType = eventType,
+                    EntityType = "objective",
+                    EntityId = objective.Id,
+                    Message = message,
+                    Payload = JsonSerializer.Serialize(payload, _JsonOptions),
+                    CreatedUtc = DateTime.UtcNow
+                }, token).ConfigureAwait(false);
             }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                WarnBackfill("could not record " + eventType + " for objective " + objective.Id + ": " + ex.Message);
+            }
+        }
+
+        private void WarnBackfill(string message)
+        {
+            if (_Logging != null) _Logging.Warn(_Header + message);
+            else Console.Error.WriteLine(_Header + message);
         }
 
         private async Task<Objective?> TryRehydrateObjectiveFromSnapshotsAsync(AuthContext auth, string id, CancellationToken token)

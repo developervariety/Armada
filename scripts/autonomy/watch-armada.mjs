@@ -29,6 +29,10 @@
 // The hub refuses a session that does not authenticate. A refusal ends the watch
 // with a hint, because reconnecting with the same credentials cannot succeed.
 //
+// Every hub error frame is printed as a HUB line. A refused subscribe closes the
+// socket and reconnects with backoff; after MAX_SUBSCRIBE_FAILURES refusals in a
+// row the watch prints STOPPED and exits 1, so silence always means no events.
+//
 // Usage (run ON the Armada server; the hub is loopback-bound):
 //   watch-armada.mjs [--voyage <id>] [--participant <key>] [--all-notes]
 //                    [--quiet-captains] [--exit-on-terminal]
@@ -39,6 +43,8 @@
 const DEFAULT_WS_URL = "ws://127.0.0.1:7890/ws";
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+// Consecutive refused subscriptions after which the watch stops and exits non-zero.
+export const MAX_SUBSCRIBE_FAILURES = 5;
 const TERMINAL_VOYAGE_STATES = new Set(["Complete", "Failed", "Cancelled"]);
 
 export function parseArguments(argv) {
@@ -165,6 +171,8 @@ export async function watch(options = {}) {
   const wait = options.wait || ((durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs)));
 
   let backoffMs = RECONNECT_MIN_MS;
+  let subscribeFailures = 0;
+  let fatal = null;
   let stop = false;
   let streamId = null;
   let cursor = null;
@@ -244,6 +252,7 @@ export async function watch(options = {}) {
     const closed = await new Promise((resolve) => {
       let socket;
       let snapshotApplied = false;
+      let subscribed = false;
       try {
         socket = openSocket(url);
       } catch (error) {
@@ -278,6 +287,23 @@ export async function watch(options = {}) {
 
         if (event.type === "auth.result") return;
 
+        if (event.type === "subscribe.error" || event.type === "command.error" || event.type === "error") {
+          // A refused subscription delivers no events, so silence would read as a quiet fleet.
+          // Every error frame is printed; one that answers this connection's subscribe closes
+          // the socket so the loop reconnects with backoff, and repeated refusals stop the watch.
+          const reason = shorten(event.error ?? event.message ?? "no reason given", 200);
+          write(`HUB ${event.type}: ${reason}`);
+          if (!subscribed) {
+            subscribeFailures += 1;
+            if (subscribeFailures >= MAX_SUBSCRIBE_FAILURES) {
+              fatal = `subscribe refused ${subscribeFailures} times in a row; last: ${reason}`;
+              stop = true;
+            }
+            try { socket.close(); } catch { /* close event will schedule retry */ }
+          }
+          return;
+        }
+
         if (event.type === "auth.required" || event.type === "auth.failed") {
           // Retrying with the same credentials cannot succeed, so stop instead of
           // reconnecting forever.
@@ -304,7 +330,10 @@ export async function watch(options = {}) {
           if (!validBoundary) {
             note(`EVENT GAP invalid stream.ready boundary; reconnecting`);
             try { socket.close(); } catch { /* close event will schedule retry */ }
+            return;
           }
+          subscribed = true;
+          subscribeFailures = 0;
           return;
         }
 
@@ -358,9 +387,15 @@ export async function watch(options = {}) {
     await wait(backoffMs);
     backoffMs = Math.min(backoffMs * 2, RECONNECT_MAX_MS);
   }
+
+  if (fatal) {
+    write(`STOPPED: ${fatal}`);
+    return 1;
+  }
+  return 0;
 }
 
 const isMainModule = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (isMainModule) {
-  await watch(parseArguments(process.argv.slice(2)));
+  process.exitCode = await watch(parseArguments(process.argv.slice(2)));
 }

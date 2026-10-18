@@ -631,6 +631,17 @@ upstream integrations and excludes changes already present at that baseline.
   default to an inactive pipeline is refused on every write surface. A rescue
   that would run on an inactive pipeline is not created, spends no attempt, and
   names the pipeline on its incident.
+- **A deleted pipeline no longer breaks status and subscriptions:** deleting a
+  pipeline clears it from every objective that suggests it through the
+  objective update, so each objective gets a new snapshot. The objective
+  snapshot backfill runs once per admiral process instead of on every status
+  read, drops a suggested pipeline that no longer exists
+  (`objective.snapshot_pipeline_dropped`), and names and skips one objective it
+  cannot restore (`objective.snapshot_restore_skipped`) instead of failing every
+  read. A subscribe whose snapshot fails gets `subscribe.error` and can be sent
+  again on the same connection. `scripts/autonomy/watch-armada.mjs` prints
+  every hub error frame, reconnects after a refused subscribe, and exits 1
+  after five refusals in a row.
 - **Pipeline stages have no optional flag:** `IsOptional` is gone from the
   stage model, `create_pipeline` and `update_pipeline`, the REST and MCP
   references and the dashboard, and its column is dropped (SQLite 112,

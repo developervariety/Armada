@@ -47,6 +47,56 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, process.ExitCode, "autonomy helper contract test should pass: " + standardOutput + standardError);
                 AssertContains("PASS: bounded helper lifecycle", standardOutput, "autonomy helper contract test should report completion");
             });
+
+            const string watcherTest = "Hub Watcher Reports A Refused Subscription And Reconnects";
+            string? node = FindOnPath("node");
+            if (OperatingSystem.IsWindows() || node == null)
+            {
+                SkipTest(watcherTest, OperatingSystem.IsWindows()
+                    ? "the watcher self-check runs on Unix hosts"
+                    : "node is not on PATH, so scripts/autonomy/test-watch-armada.mjs cannot run");
+            }
+            else
+            {
+                await RunTest(watcherTest, () =>
+                {
+                    string root = FindRepositoryRoot();
+                    using Process process = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = node,
+                        ArgumentList = { Path.Combine(root, "scripts", "autonomy", "test-watch-armada.mjs") },
+                        WorkingDirectory = root,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                    }) ?? throw new InvalidOperationException("Could not start the hub watcher self-check.");
+
+                    Task<string> standardOutput = process.StandardOutput.ReadToEndAsync();
+                    Task<string> standardError = process.StandardError.ReadToEndAsync();
+                    if (!process.WaitForExit(60000))
+                    {
+                        process.Kill(true);
+                        throw new InvalidOperationException("the hub watcher self-check did not finish in 60 s: a refused subscription left the watch silent");
+                    }
+
+                    string output = standardOutput.Result + standardError.Result;
+                    AssertEqual(0, process.ExitCode, "the hub watcher self-check should pass: " + output);
+                    AssertContains("RESULT: PASS", output, "the hub watcher self-check should report its result");
+                });
+            }
+        }
+
+        private static string? FindOnPath(string executable)
+        {
+            string? path = Environment.GetEnvironmentVariable("PATH");
+            if (String.IsNullOrEmpty(path)) return null;
+            foreach (string directory in path.Split(Path.PathSeparator))
+            {
+                if (String.IsNullOrWhiteSpace(directory)) continue;
+                string candidate = Path.Combine(directory, executable);
+                if (File.Exists(candidate)) return candidate;
+            }
+            return null;
         }
 
         private static string FindRepositoryRoot()

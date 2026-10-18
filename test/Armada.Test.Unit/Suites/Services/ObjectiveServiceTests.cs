@@ -147,6 +147,104 @@ namespace Armada.Test.Unit.Suites.Services
                     "Annotating the objective with an incident must leave it auto-dispatch eligible.");
             }).ConfigureAwait(false);
 
+            await RunTest("Deleting a pipeline clears it from a Completed objective with a new snapshot, and the next read succeeds", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "UnitTest");
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                PipelineService pipelines = new PipelineService(testDb.Driver);
+                Pipeline doomed = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("DoomedExample") { TenantId = Armada.Core.Constants.DefaultTenantId }).ConfigureAwait(false);
+                Pipeline unused = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("UnusedExample") { TenantId = Armada.Core.Constants.DefaultTenantId }).ConfigureAwait(false);
+                Objective completed = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Completed objective naming a pipeline",
+                    Status = ObjectiveStatusEnum.Completed,
+                    SuggestedPipelineId = doomed.Id
+                }).ConfigureAwait(false);
+                Objective before = (await testDb.Driver.Objectives.ReadAsync(completed.Id).ConfigureAwait(false))!;
+                int snapshotsBefore = (await testDb.Driver.Events.EnumerateByEntityAsync("objective", completed.Id, 100).ConfigureAwait(false))
+                    .Count(evt => evt.EventType == "objective.snapshot");
+
+                RecordWriteResult<Pipeline> deleted = await pipelines.DeleteAsync(auth, doomed.Name).ConfigureAwait(false);
+                AssertTrue(deleted.Succeeded, "the pipeline delete succeeds: " + deleted.Message);
+
+                Objective? after = await testDb.Driver.Objectives.ReadAsync(completed.Id).ConfigureAwait(false);
+                AssertNull(after!.SuggestedPipelineId, "the objective no longer names the deleted pipeline");
+                AssertTrue(after.LastUpdateUtc > before.LastUpdateUtc, "the objective's update time moves");
+                List<ArmadaEvent> snapshots = (await testDb.Driver.Events.EnumerateByEntityAsync("objective", completed.Id, 100).ConfigureAwait(false))
+                    .Where(evt => evt.EventType == "objective.snapshot").ToList();
+                AssertEqual(snapshotsBefore + 1, snapshots.Count, "the clear writes one new snapshot");
+                AssertFalse(snapshots.OrderByDescending(evt => evt.CreatedUtc).First().Payload!.Contains(doomed.Id, StringComparison.Ordinal),
+                    "the newest snapshot no longer names the deleted pipeline");
+
+                Objective? reread = await new ObjectiveService(testDb.Driver).ReadAsync(auth, completed.Id).ConfigureAwait(false);
+                AssertNull(reread!.SuggestedPipelineId, "a later read does not restore the deleted pipeline");
+
+                RecordWriteResult<Pipeline> plain = await pipelines.DeleteAsync(auth, unused.Name).ConfigureAwait(false);
+                AssertTrue(plain.Succeeded, "deleting a pipeline no objective names behaves as before");
+                AssertNull(await testDb.Driver.Pipelines.ReadAsync(unused.Id).ConfigureAwait(false), "the unused pipeline is gone");
+            }).ConfigureAwait(false);
+
+            await RunTest("Snapshot backfill drops a suggested pipeline that no longer exists and names it", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Objective stale = NewSnapshotObjective("Snapshot naming a missing pipeline");
+                stale.SuggestedPipelineId = "ppl_missing_example";
+                await testDb.Driver.Objectives.CreateAsync(CopyWithoutPipeline(stale)).ConfigureAwait(false);
+                await SeedSnapshotAsync(testDb, stale).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "UnitTest");
+                Objective? read = await new ObjectiveService(testDb.Driver).ReadAsync(auth, stale.Id).ConfigureAwait(false);
+
+                AssertNotNull(read, "the read succeeds");
+                AssertNull(read!.SuggestedPipelineId, "the backfill does not write the missing pipeline back");
+                List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByEntityAsync("objective", stale.Id, 100).ConfigureAwait(false);
+                ArmadaEvent? dropped = events.FirstOrDefault(evt => evt.EventType == ObjectiveService.SnapshotPipelineDroppedEventType);
+                AssertNotNull(dropped, "the dropped reference is recorded as a named event");
+                AssertContains("ppl_missing_example", dropped!.Payload ?? String.Empty, "the event names the missing pipeline");
+            }).ConfigureAwait(false);
+
+            await RunTest("Snapshot backfill runs once per database, not once per objective service", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "UnitTest");
+                Objective original = await new ObjectiveService(testDb.Driver).CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Original title"
+                }).ConfigureAwait(false);
+
+                // A snapshot newer than the row appears after the first service has backfilled. A second service
+                // over the same database must not replay snapshots again.
+                Objective changed = (await testDb.Driver.Objectives.ReadAsync(original.Id).ConfigureAwait(false))!;
+                changed.Title = "Replayed title";
+                changed.LastUpdateUtc = DateTime.UtcNow.AddMinutes(5);
+                await SeedSnapshotAsync(testDb, changed).ConfigureAwait(false);
+
+                await new ObjectiveService(testDb.Driver).EnumerateAsync(auth, new ObjectiveQuery { PageNumber = 1, PageSize = 10 }).ConfigureAwait(false);
+                Objective? row = await testDb.Driver.Objectives.ReadAsync(original.Id).ConfigureAwait(false);
+                AssertEqual("Original title", row!.Title, "a second service over the same database does not replay snapshots");
+            }).ConfigureAwait(false);
+
+            await RunTest("Snapshot backfill names and skips one objective it cannot restore and restores the rest", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Objective broken = NewSnapshotObjective("Snapshot whose restore fails");
+                broken.ParentObjectiveId = "obj_absentparent";
+                await SeedSnapshotAsync(testDb, broken).ConfigureAwait(false);
+                Objective healthy = NewSnapshotObjective("Snapshot that restores");
+                await SeedSnapshotAsync(testDb, healthy).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "UnitTest");
+                EnumerationResult<Objective> page = await new ObjectiveService(testDb.Driver).EnumerateAsync(auth, new ObjectiveQuery { PageNumber = 1, PageSize = 10 }).ConfigureAwait(false);
+
+                AssertTrue(page.Objects.Any(item => item.Id == healthy.Id), "the restorable objective is restored and listed");
+                AssertNull(await testDb.Driver.Objectives.ReadAsync(broken.Id).ConfigureAwait(false), "the failing objective is not written");
+                List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByEntityAsync("objective", broken.Id, 100).ConfigureAwait(false);
+                ArmadaEvent? skipped = events.FirstOrDefault(evt => evt.EventType == ObjectiveService.SnapshotRestoreSkippedEventType);
+                AssertNotNull(skipped, "the skipped objective is recorded as a named event");
+                AssertFalse(String.IsNullOrWhiteSpace(skipped!.Message), "the event states the reason");
+            }).ConfigureAwait(false);
+
             await RunTest("Objective writes refuse a suggested pipeline that is inactive", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -2144,6 +2242,40 @@ namespace Armada.Test.Unit.Suites.Services
         private sealed class ToolSchemaProperty
         {
             public Dictionary<string, ToolSchemaProperty> Properties { get; set; } = new Dictionary<string, ToolSchemaProperty>();
+        }
+
+        private static Objective NewSnapshotObjective(string title)
+        {
+            return new Objective
+            {
+                TenantId = Armada.Core.Constants.DefaultTenantId,
+                UserId = Armada.Core.Constants.DefaultUserId,
+                Title = title,
+                CreatedUtc = DateTime.UtcNow.AddMinutes(-10),
+                LastUpdateUtc = DateTime.UtcNow.AddMinutes(-10)
+            };
+        }
+
+        private static Objective CopyWithoutPipeline(Objective source)
+        {
+            Objective copy = JsonSerializer.Deserialize<Objective>(JsonSerializer.Serialize(source))!;
+            copy.SuggestedPipelineId = null;
+            return copy;
+        }
+
+        private static async Task SeedSnapshotAsync(TestDatabase testDb, Objective objective)
+        {
+            await testDb.Driver.Events.CreateAsync(new ArmadaEvent
+            {
+                TenantId = objective.TenantId,
+                UserId = objective.UserId,
+                EventType = "objective.snapshot",
+                EntityType = "objective",
+                EntityId = objective.Id,
+                Message = objective.Title,
+                Payload = JsonSerializer.Serialize(objective),
+                CreatedUtc = objective.LastUpdateUtc
+            }).ConfigureAwait(false);
         }
     }
 }

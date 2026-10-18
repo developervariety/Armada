@@ -560,7 +560,19 @@ namespace Armada.Server.WebSocket
                     // aggregates stay with global administrators.
                     WebSocketSubscribeRequest request = JsonSerializer.Deserialize<WebSocketSubscribeRequest>(body, _JsonOptions)
                         ?? new WebSocketSubscribeRequest { Route = "subscribe" };
-                    await ActivateSubscriptionAsync(sessionId, request).ConfigureAwait(false);
+                    try
+                    {
+                        await ActivateSubscriptionAsync(sessionId, request).ConfigureAwait(false);
+                    }
+                    catch (Exception subscribeFailure) when (!(subscribeFailure is OperationCanceledException) && !(subscribeFailure is AlreadySubscribedException))
+                    {
+                        // The subscription did not activate and the connection may subscribe again; the frame
+                        // names the cause so a client never mistakes the failure for a quiet stream.
+                        _Logging.Warn(_Header + "subscribe failed for session " + sessionId + ": " + subscribeFailure.Message);
+                        EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(
+                            new { type = "subscribe.error", error = subscribeFailure.Message, retryable = true },
+                            _JsonOptions));
+                    }
                     return;
                 }
 
@@ -640,7 +652,7 @@ namespace Armada.Server.WebSocket
             {
                 if (!_Sessions.TryGetValue(sessionId, out ClientConnection? pending)) return;
                 if (pending.SubscriptionRequested)
-                    throw new InvalidOperationException("This WebSocket connection is already subscribed.");
+                    throw new AlreadySubscribedException();
                 pending.SubscriptionRequested = true;
                 pending.Subscribed = false;
                 snapshotWatermark = _ReplayBuffer.CurrentCursor;
@@ -653,10 +665,25 @@ namespace Armada.Server.WebSocket
             // own records through the REST API, which applies its scope.
             if (!_Sessions.TryGetValue(sessionId, out ClientConnection? subscriber)) return;
             bool fleetWide = subscriber.Auth != null && subscriber.Auth.IsAdmin;
-            ArmadaStatus? status = fleetWide ? await _Admiral.GetStatusAsync().ConfigureAwait(false) : null;
-            FleetReconciliationSnapshot? reconciliation = fleetWide
-                ? await _SnapshotService.GetAsync(request.VoyageId).ConfigureAwait(false)
-                : null;
+            ArmadaStatus? status;
+            FleetReconciliationSnapshot? reconciliation;
+            try
+            {
+                status = fleetWide ? await _Admiral.GetStatusAsync().ConfigureAwait(false) : null;
+                reconciliation = fleetWide
+                    ? await _SnapshotService.GetAsync(request.VoyageId).ConfigureAwait(false)
+                    : null;
+            }
+            catch
+            {
+                // The subscription never activated, so the connection may ask again once the snapshot reads.
+                lock (_BroadcastLock)
+                {
+                    if (_Sessions.TryGetValue(sessionId, out ClientConnection? unactivated))
+                        unactivated.SubscriptionRequested = false;
+                }
+                throw;
+            }
 
             ClientConnection? failedConnection = null;
             lock (_BroadcastLock)
@@ -920,6 +947,15 @@ namespace Armada.Server.WebSocket
             {
                 Session = session;
                 Output = output;
+            }
+        }
+
+        // A second subscribe on an active connection is a client error, answered as a command error; it is not a
+        // failed activation the client may retry.
+        private sealed class AlreadySubscribedException : InvalidOperationException
+        {
+            public AlreadySubscribedException() : base("This WebSocket connection is already subscribed.")
+            {
             }
         }
 
