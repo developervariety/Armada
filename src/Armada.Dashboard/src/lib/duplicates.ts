@@ -148,7 +148,6 @@ export function buildPipelineDuplicatePayload(pipeline: Pipeline): Partial<Pipel
         id: createNestedId('pst'),
         pipelineId: null,
         personaName: stage.personaName,
-        isOptional: stage.isOptional,
         description: stage.description ?? null,
         requiresReview: stage.requiresReview,
         reviewDenyAction: stage.reviewDenyAction,

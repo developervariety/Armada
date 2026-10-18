@@ -2421,7 +2421,6 @@ export interface PipelineStage {
   pipelineId: string | null;
   order: number;
   personaName: string;
-  isOptional: boolean;
   description: string | null;
   requiresReview: boolean;
   reviewDenyAction: 'RetryStage' | 'FailPipeline';

@@ -1209,7 +1209,8 @@ BEGIN
     END LOOP;
 END
 $convert$;"),
-                new SchemaMigration(115, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.PostgresqlStatements)
+                new SchemaMigration(115, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.PostgresqlStatements),
+                new SchemaMigration(116, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.PostgresqlStatements)
             };
         }
 

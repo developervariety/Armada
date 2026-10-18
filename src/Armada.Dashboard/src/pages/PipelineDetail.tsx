@@ -18,7 +18,6 @@ import { buildPipelineDuplicatePayload } from '../lib/duplicates';
 
 interface StageForm {
   personaName: string;
-  isOptional: boolean;
   description: string;
   requiresReview: boolean;
   reviewDenyAction: 'RetryStage' | 'FailPipeline';
@@ -39,7 +38,6 @@ function PipelineFlow({ stages, label }: { stages: PipelineStage[]; label: (key:
             <div className="text-dim" style={{ fontSize: '0.7rem' }}>{label('Stage')} {i + 1}</div>
             <strong>{stage.personaName || label('(unset)')}</strong>
             <div style={{ marginTop: '0.3rem', display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-              {stage.isOptional && <span className="badge badge-info">{label('Optional')}</span>}
               {stage.requiresReview && <span className="badge badge-warning">{label('Review')}</span>}
             </div>
           </div>
@@ -119,7 +117,6 @@ export default function PipelineDetail() {
       description: pipeline.description ?? '',
       stages: pipeline.stages.map(s => ({
         personaName: s.personaName,
-        isOptional: s.isOptional,
         description: s.description ?? '',
         requiresReview: s.requiresReview,
         reviewDenyAction: s.reviewDenyAction,
@@ -129,7 +126,7 @@ export default function PipelineDetail() {
   }
 
   function addStage() {
-    setForm(f => ({ ...f, stages: [...f.stages, { personaName: '', isOptional: false, description: '', requiresReview: false, reviewDenyAction: 'RetryStage' }] }));
+    setForm(f => ({ ...f, stages: [...f.stages, { personaName: '', description: '', requiresReview: false, reviewDenyAction: 'RetryStage' }] }));
   }
 
   function moveStage(index: number, direction: number) {
@@ -161,7 +158,7 @@ export default function PipelineDetail() {
     try {
       const stagesPayload = form.stages
         .filter(s => s.personaName.trim() !== '')
-        .map((s, i) => ({ personaName: s.personaName.trim(), isOptional: s.isOptional, description: s.description || null, requiresReview: s.requiresReview, reviewDenyAction: s.reviewDenyAction, order: i + 1 }));
+        .map((s, i) => ({ personaName: s.personaName.trim(), description: s.description || null, requiresReview: s.requiresReview, reviewDenyAction: s.reviewDenyAction, order: i + 1 }));
       const payload = { description: form.description || null, stages: stagesPayload } as Partial<Pipeline>;
       await updatePipeline(pipeline.name, payload);
       setShowForm(false);
@@ -289,10 +286,6 @@ export default function PipelineDetail() {
                     ))}
                   </select>
                   <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={stage.isOptional} onChange={e => updateStage(i, 'isOptional', e.target.checked)} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
-                    <span style={{ verticalAlign: 'middle' }}>{t('Optional')}</span>
-                  </label>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
                     <input type="checkbox" checked={stage.requiresReview} onChange={e => updateStage(i, 'requiresReview', e.target.checked)} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
                     <span style={{ verticalAlign: 'middle' }}>{t('Review gate')}</span>
                   </label>
@@ -387,7 +380,6 @@ export default function PipelineDetail() {
                 <tr>
                   <th title={t('Execution order of the stage')}>{t('Order')}</th>
                   <th title={t('Name of the persona assigned to this stage')}>{t('Persona Name')}</th>
-                  <th title={t('Whether this stage can be skipped')}>{t('Optional')}</th>
                   <th title={t('Whether this stage requires an explicit review approval')}>{t('Review')}</th>
                   <th title={t('Action to take if the review gate is denied')}>{t('On Deny')}</th>
                   <th title={t('Description of this stage')}>{t('Description')}</th>
@@ -401,7 +393,6 @@ export default function PipelineDetail() {
                     <tr key={stage.id}>
                       <td>{stage.order}</td>
                       <td><strong>{stage.personaName}</strong></td>
-                      <td>{stage.isOptional ? <span className="badge badge-info">{t('Yes')}</span> : <span className="badge">{t('No')}</span>}</td>
                       <td>{stage.requiresReview ? <span className="badge badge-warning">{t('Required')}</span> : <span className="text-dim">{t('None')}</span>}</td>
                       <td>{stage.requiresReview ? <span>{stage.reviewDenyAction === 'FailPipeline' ? t('Fail pipeline') : t('Retry stage')}</span> : <span className="text-dim">-</span>}</td>
                       <td className="text-dim">{stage.description || '-'}</td>

@@ -139,7 +139,6 @@ namespace Armada.Server.Mcp.Tools
                     {
                         personaName = new { type = "string", description = "Persona name for this stage" },
                         order = new { type = "integer", description = "Execution order. Give every stage an order (stages that share one run as parallel siblings) or none, and list position numbers the stages 1..n." },
-                        isOptional = new { type = "boolean", description = "Whether this stage is optional (default false)" },
                         requiresReview = new { type = "boolean", description = "Whether this stage requires an explicit review approval before the pipeline continues (default false)" },
                         reviewDenyAction = new { type = "string", @enum = new[] { "RetryStage", "FailPipeline" }, description = "Action when the review is denied (default RetryStage)" },
                         description = new { type = "string", description = "Description of what this stage does" },

@@ -207,7 +207,6 @@ namespace Armada.Core.Services
 
                 PipelineStage stage = new PipelineStage(allOrdered ? entry.Order!.Value : i + 1, personaName);
                 stage.PipelineId = pipelineId;
-                stage.IsOptional = entry.IsOptional ?? previous?.IsOptional ?? false;
                 stage.RequiresReview = entry.RequiresReview ?? previous?.RequiresReview ?? false;
                 stage.ReviewDenyAction = entry.ReviewDenyAction ?? previous?.ReviewDenyAction ?? stage.ReviewDenyAction;
                 stage.Description = entry.DescriptionSupplied ? entry.Description : previous?.Description;

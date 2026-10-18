@@ -326,7 +326,6 @@ namespace Armada.Core.Services
 
                 if (existing.Order != expected.Order ||
                     !String.Equals(existing.PersonaName, expected.PersonaName, StringComparison.Ordinal) ||
-                    existing.IsOptional != expected.IsOptional ||
                     !String.Equals(existing.Description ?? "", expected.Description ?? "", StringComparison.Ordinal) ||
                     !String.Equals(existing.PreferredModel ?? "", expected.PreferredModel ?? "", StringComparison.Ordinal))
                 {

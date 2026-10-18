@@ -52,11 +52,6 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
-        /// Whether this stage is optional. Optional stages may be skipped by the Admiral.
-        /// </summary>
-        public bool IsOptional { get; set; } = false;
-
-        /// <summary>
         /// Description of what this stage does (e.g. "Plan the voyage", "Review the diff").
         /// </summary>
         public string? Description { get; set; } = null;

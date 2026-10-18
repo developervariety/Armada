@@ -68,7 +68,6 @@ namespace Armada.Core.Database
             stage.PipelineId = row.NullableText("pipeline_id");
             stage.Order = row.Int("stage_order");
             stage.PersonaName = row.Text("persona_name");
-            stage.IsOptional = row.Bool("is_optional");
             stage.Description = row.NullableText("description");
             stage.PreferredModel = row.NullableText("preferred_model");
             stage.RequiresReview = row.Bool("requires_review");
@@ -89,7 +88,6 @@ namespace Armada.Core.Database
                 .Text("pipeline_id", stage.PipelineId)
                 .Int("stage_order", stage.Order)
                 .Text("persona_name", stage.PersonaName)
-                .Bool("is_optional", stage.IsOptional)
                 .Text("description", stage.Description)
                 .Text("preferred_model", stage.PreferredModel)
                 .Bool("requires_review", stage.RequiresReview)

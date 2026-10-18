@@ -438,8 +438,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             using (MySqlCommand cmd = conn.CreateCommand())
             {
                 cmd.Transaction = tx;
-                cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, stage_position, persona_name, is_optional, description, preferred_model, requires_review, review_deny_action)
-                        VALUES (@id, @pipeline_id, @stage_order, @stage_position, @persona_name, @is_optional, @description, @preferred_model, @requires_review, @review_deny_action);";
+                cmd.CommandText = @"INSERT INTO pipeline_stages (id, pipeline_id, stage_order, stage_position, persona_name, description, preferred_model, requires_review, review_deny_action)
+                        VALUES (@id, @pipeline_id, @stage_order, @stage_position, @persona_name, @description, @preferred_model, @requires_review, @review_deny_action);";
                 PipelineColumns.WriteStage(MysqlDatabaseDriver.StoredBinder.For(cmd, "pipeline_stages"), stage);
                 StoredValueBinder.Value(cmd, "@stage_position", position);
                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);

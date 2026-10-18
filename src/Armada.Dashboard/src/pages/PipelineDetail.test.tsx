@@ -40,7 +40,7 @@ const vessels = pickerRecords('vsl');
 beforeEach(() => {
   vi.mocked(getPipeline).mockResolvedValue({
     id: 'ppl_1', tenantId: null, ownershipScope: 'Global', name: 'Reviewed', description: null,
-    stages: [{ order: 1, personaName: 'Worker', isOptional: false, description: null }],
+    stages: [{ order: 1, personaName: 'Worker', description: null }],
     isBuiltIn: false, active: true, createdUtc: '2026-01-01T00:00:00Z', lastUpdateUtc: '2026-01-01T00:00:00Z',
   } as never);
   vi.mocked(listPersonas).mockResolvedValue(serverDefaultPage([{ name: 'Worker' }]) as never);

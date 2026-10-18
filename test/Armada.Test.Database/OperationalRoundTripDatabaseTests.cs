@@ -1525,7 +1525,6 @@ namespace Armada.Test.Database
                         {
                             Order = 1,
                             PersonaName = "Worker",
-                            IsOptional = true,
                             Description = "Stage description ユニコード",
                             PreferredModel = "model ユニコード",
                             RequiresReview = true,
@@ -1547,7 +1546,6 @@ namespace Armada.Test.Database
                 created.Description = null;
                 created.IsBuiltIn = false;
                 created.Active = true;
-                created.Stages[0].IsOptional = false;
                 created.Stages[0].Description = null;
                 created.Stages[0].PreferredModel = null;
                 created.Stages[0].RequiresReview = false;

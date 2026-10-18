@@ -135,7 +135,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Pipelines")
                 .WithSummary("Create a pipeline")
-                .WithDescription("Creates a new pipeline with stages defining the persona workflow. Name and a non-empty Stages list are required; each stage needs a PersonaName and may set IsOptional, RequiresReview, ReviewDenyAction, Description and PreferredModel. A list without orders runs in list order (1..n); a list that gives every stage an Order keeps it, and stages sharing an order run as parallel siblings; a list that orders only some stages is refused. Ownership, identifiers and timestamps come from the server, never the body. A name already used in the caller's tenant returns 409.")
+                .WithDescription("Creates a new pipeline with stages defining the persona workflow. Name and a non-empty Stages list are required; each stage needs a PersonaName and may set RequiresReview, ReviewDenyAction, Description and PreferredModel. A list without orders runs in list order (1..n); a list that gives every stage an Order keeps it, and stages sharing an order run as parallel siblings; a list that orders only some stages is refused. Ownership, identifiers and timestamps come from the server, never the body. A name already used in the caller's tenant returns 409.")
                 .WithRequestBody(OpenApiJson.BodyFor<PipelineWriteRequest>("Pipeline data (Name, Description, Stages array, Active, OwnershipScope)", true))
                 .WithResponse(201, OpenApiJson.For<Pipeline>("Created pipeline"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())

@@ -83,6 +83,11 @@ at that order reach a successful terminal state, Armada advances to the next
 order. A required failure stops normal advancement. The operator must inspect
 the failed mission, evidence, and recovery options.
 
+Every stage of a pipeline runs; a stage has no optional flag. To leave a stage
+out, remove it from the pipeline, or skip it for one dispatch or objective with
+a recorded stage skip (`skipStages` with a reason), which every later stage and
+rescue honours.
+
 A stage whose final result is `[ARMADA:RESULT] BLOCKED` is a failure of this
 kind: it does not hand off, its later stages are cancelled, and no rescue runs.
 Its question goes to the owner on an incident and a board note. See

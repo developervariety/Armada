@@ -22,11 +22,6 @@ namespace Armada.Core.Models
         public int? Order { get; set; } = null;
 
         /// <summary>
-        /// Whether the stage is optional. Null leaves it unchanged (false for a new stage).
-        /// </summary>
-        public bool? IsOptional { get; set; } = null;
-
-        /// <summary>
         /// Whether the stage requires an explicit review approval. Null leaves it unchanged (false for a new stage).
         /// </summary>
         public bool? RequiresReview { get; set; } = null;

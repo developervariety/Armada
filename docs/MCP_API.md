@@ -1202,7 +1202,7 @@ it may read but not change returns `forbidden`.
 `create_pipeline` requires `name` and a non-empty `stages` list, and accepts
 `description`, `active` and `ownershipScope`. A name already used in the
 caller's tenant returns `conflict`. Each stage requires `personaName` and
-accepts `order`, `isOptional`, `requiresReview`, `reviewDenyAction`
+accepts `order`, `requiresReview`, `reviewDenyAction`
 (`RetryStage` or `FailPipeline`), `description` and `preferredModel`. Give every
 stage an `order` (stages that share one run as parallel siblings) or none, and
 list position numbers the stages 1..n; a list that orders only some stages is

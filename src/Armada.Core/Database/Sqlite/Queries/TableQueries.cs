@@ -1660,7 +1660,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(108, "Persist agent process start times next to process identifiers", ProcessLaunchIdentityPersistence.SqliteStatements),
                 new SchemaMigration(109, "Persist token usage input buckets and the counting rule, and widen token counts to 64-bit", TokenUsageInputBucketsPersistence.SqliteStatements),
                 new SchemaMigration(110, "Keep same-order pipeline stages in their submitted order", PipelineStagePositionPersistence.SqliteStatements),
-                new SchemaMigration(111, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.SqliteStatements)
+                new SchemaMigration(111, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.SqliteStatements),
+                new SchemaMigration(112, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.SqliteStatements)
             };
         }
 

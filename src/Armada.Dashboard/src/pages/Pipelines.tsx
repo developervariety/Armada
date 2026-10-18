@@ -26,7 +26,6 @@ import { useLoadError } from '../lib/useLoadError';
 
 interface StageFormEntry {
   personaName: string;
-  isOptional: boolean;
   requiresReview: boolean;
   reviewDenyAction: 'RetryStage' | 'FailPipeline';
 }
@@ -51,7 +50,7 @@ export default function Pipelines() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Pipeline | null>(null);
-  const [form, setForm] = useState<{ name: string; description: string; stages: StageFormEntry[]; ownershipScope: ScopeEnum }>({ name: '', description: '', stages: [{ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' }], ownershipScope: 'TenantWide' });
+  const [form, setForm] = useState<{ name: string; description: string; stages: StageFormEntry[]; ownershipScope: ScopeEnum }>({ name: '', description: '', stages: [{ personaName: '', requiresReview: false, reviewDenyAction: 'RetryStage' }], ownershipScope: 'TenantWide' });
   const [personaNames, setPersonaNames] = useState<string[]>([]);
 
   // JSON viewer
@@ -99,7 +98,7 @@ export default function Pipelines() {
 
   // CRUD
   function openCreate() {
-    setForm({ name: '', description: '', stages: [{ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' }], ownershipScope: resolveCreateScope(viewer) });
+    setForm({ name: '', description: '', stages: [{ personaName: '', requiresReview: false, reviewDenyAction: 'RetryStage' }], ownershipScope: resolveCreateScope(viewer) });
     setEditing(null);
     setShowForm(true);
   }
@@ -107,15 +106,15 @@ export default function Pipelines() {
   function openEdit(p: Pipeline) {
     const stages: StageFormEntry[] = (p.stages ?? [])
       .sort((a, b) => a.order - b.order)
-      .map(s => ({ personaName: s.personaName, isOptional: s.isOptional, requiresReview: s.requiresReview, reviewDenyAction: s.reviewDenyAction }));
-    if (stages.length === 0) stages.push({ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' });
+      .map(s => ({ personaName: s.personaName, requiresReview: s.requiresReview, reviewDenyAction: s.reviewDenyAction }));
+    if (stages.length === 0) stages.push({ personaName: '', requiresReview: false, reviewDenyAction: 'RetryStage' });
     setForm({ name: p.name, description: p.description ?? '', stages, ownershipScope: p.ownershipScope });
     setEditing(p);
     setShowForm(true);
   }
 
   function addStage() {
-    setForm(f => ({ ...f, stages: [...f.stages, { personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' }] }));
+    setForm(f => ({ ...f, stages: [...f.stages, { personaName: '', requiresReview: false, reviewDenyAction: 'RetryStage' }] }));
   }
 
   function moveStage(index: number, direction: number) {
@@ -133,7 +132,7 @@ export default function Pipelines() {
   function removeStage(index: number) {
     setForm(f => {
       const stages = f.stages.filter((_, i) => i !== index);
-      if (stages.length === 0) stages.push({ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' });
+      if (stages.length === 0) stages.push({ personaName: '', requiresReview: false, reviewDenyAction: 'RetryStage' });
       return { ...f, stages };
     });
   }
@@ -151,7 +150,7 @@ export default function Pipelines() {
     try {
       const stagesPayload = form.stages
         .filter(s => s.personaName.trim() !== '')
-        .map((s, i) => ({ personaName: s.personaName.trim(), isOptional: s.isOptional, requiresReview: s.requiresReview, reviewDenyAction: s.reviewDenyAction, order: i + 1 }));
+        .map((s, i) => ({ personaName: s.personaName.trim(), requiresReview: s.requiresReview, reviewDenyAction: s.reviewDenyAction, order: i + 1 }));
       const payload = { name: form.name, description: form.description || null, stages: stagesPayload } as Partial<Pipeline>;
       if (editing) await updatePipeline(editing.name, payload as Partial<Pipeline>);
       else await createPipeline({ ...payload, ownershipScope: form.ownershipScope });
@@ -228,15 +227,6 @@ export default function Pipelines() {
                       <option key={name} value={name}>{name}</option>
                     ))}
                   </select>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={stage.isOptional}
-                      onChange={e => updateStage(i, 'isOptional', e.target.checked)}
-                      style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }}
-                    />
-                    <span style={{ verticalAlign: 'middle' }}>{t('Optional')}</span>
-                  </label>
                   <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', margin: 0, whiteSpace: 'nowrap', lineHeight: 1, cursor: 'pointer' }}>
                     <input
                       type="checkbox"

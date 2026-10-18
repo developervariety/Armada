@@ -631,6 +631,12 @@ upstream integrations and excludes changes already present at that baseline.
   default to an inactive pipeline is refused on every write surface. A rescue
   that would run on an inactive pipeline is not created, spends no attempt, and
   names the pipeline on its incident.
+- **Pipeline stages have no optional flag:** `IsOptional` is gone from the
+  stage model, `create_pipeline` and `update_pipeline`, the REST and MCP
+  references and the dashboard, and its column is dropped (SQLite 112,
+  PostgreSQL 116, SQL Server 108, MySQL 105). Nothing read it, so a stage marked
+  optional still ran. Leave a stage out by removing it or with a recorded stage
+  skip.
 - **A held Pending stage names its hold:** the assignment pass records why it
   holds a Pending mission in `AssignmentHoldReason`, with the holding record in
   `AssignmentHoldEntityId`, persisted on every provider (SQLite 111, PostgreSQL

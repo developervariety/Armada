@@ -3661,7 +3661,6 @@ timestamps come from the server, never the body.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `PersonaName` | string | yes | Name of the persona for this stage |
-| `IsOptional` | bool | no | Whether this stage can be skipped (default: false) |
 | `RequiresReview` | bool | no | Whether the stage needs an explicit review approval before the pipeline continues (default: false) |
 | `ReviewDenyAction` | string | no | `RetryStage` (default) or `FailPipeline` |
 | `PreferredModel` | string | no | Per-stage tier (`low`, `mid`, `high`) |
@@ -3674,7 +3673,7 @@ timestamps come from the server, never the body.
 ```bash
 curl -X POST http://localhost:7890/api/v1/pipelines \
   -H "Content-Type: application/json" \
-  -d '{"Name": "review-pipeline", "Description": "Code with review", "Stages": [{"PersonaName": "default", "Description": "Implementation"}, {"PersonaName": "reviewer", "IsOptional": false, "Description": "Code review"}]}'
+  -d '{"Name": "review-pipeline", "Description": "Code with review", "Stages": [{"PersonaName": "default", "Description": "Implementation"}, {"PersonaName": "reviewer", "Description": "Code review"}]}'
 ```
 
 ---

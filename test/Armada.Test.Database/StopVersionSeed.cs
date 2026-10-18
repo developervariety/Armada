@@ -143,7 +143,6 @@ namespace Armada.Test.Database
                 stage["pipeline_id"] = id;
                 stage["stage_order"] = index + 1;
                 stage["persona_name"] = personas[index];
-                stage["is_optional"] = Flag(false);
                 await InsertAsync("pipeline_stages", stage, token).ConfigureAwait(false);
             }
             return id;

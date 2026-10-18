@@ -264,7 +264,6 @@ namespace Armada.Test.Automated.Suites
             foreach (JsonElement stage in stages)
             {
                 parts.Add(ConfigurationSurfaces.Text(stage, "personaName") + "#" + ConfigurationSurfaces.Text(stage, "order")
-                    + " optional=" + ConfigurationSurfaces.Text(stage, "isOptional")
                     + " review=" + ConfigurationSurfaces.Text(stage, "requiresReview")
                     + " deny=" + ConfigurationSurfaces.Text(stage, "reviewDenyAction")
                     + " model=" + ConfigurationSurfaces.Text(stage, "preferredModel")

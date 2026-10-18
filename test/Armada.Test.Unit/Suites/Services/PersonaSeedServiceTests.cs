@@ -354,7 +354,7 @@ namespace Armada.Test.Unit.Suites.Services
                     customPipeline.Stages = new List<PipelineStage>
                     {
                         new PipelineStage(1, "Worker") { PreferredModel = "medium" },
-                        new PipelineStage(2, "CustomSecurityAuditor") { IsOptional = true, PreferredModel = "custom-high" }
+                        new PipelineStage(2, "CustomSecurityAuditor") { PreferredModel = "custom-high" }
                     };
                     await testDb.Driver.Pipelines.CreateAsync(customPipeline).ConfigureAwait(false);
 
@@ -379,7 +379,6 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("Worker", ordered[0].PersonaName, "Custom stage 1 persona");
                     AssertEqual("medium", ordered[0].PreferredModel, "Custom stage 1 preferred model");
                     AssertEqual("CustomSecurityAuditor", ordered[1].PersonaName, "Custom stage 2 persona");
-                    AssertTrue(ordered[1].IsOptional, "Custom stage 2 optional flag should be unchanged");
                     AssertEqual("custom-high", ordered[1].PreferredModel, "Custom stage 2 preferred model");
                 }
             });
