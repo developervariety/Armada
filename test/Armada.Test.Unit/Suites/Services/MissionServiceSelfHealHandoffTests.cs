@@ -651,6 +651,20 @@ namespace Armada.Test.Unit.Suites.Services
                         "No persona preamble should be injected while deferring on the in-flight gate.");
                     AssertFalse((afterFirst.Description ?? "").Contains("## Prior Stage Output", StringComparison.Ordinal),
                         "No prior-stage context should be injected while deferring on the in-flight gate.");
+                    AssertEqual(MissionAssignmentHold.DependencyCompletionInFlight, afterFirst.AssignmentHoldReason,
+                        "The mission names the hold: its predecessor's completion handling is still running.");
+                    AssertEqual(worker.Id, afterFirst.AssignmentHoldEntityId, "The hold names the predecessor that holds it.");
+
+                    // A second tick inside the same gate keeps the hold without recording it again.
+                    AssertFalse(await missions.TryAssignAsync(afterFirst, vessel).ConfigureAwait(false), "A second tick inside the gate still defers.");
+                    afterFirst = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                    List<ArmadaEvent> heldEvents = await testDb.Driver.Events.EnumerateByTypeAsync(MissionAssignmentHold.HeldEventType).ConfigureAwait(false);
+                    AssertEqual(1, heldEvents.Count(e => e.MissionId == testEngineer.Id),
+                        "One hold event for the whole hold, not one per assignment tick.");
+                    AssertContains(MissionAssignmentHold.DependencyCompletionInFlight, heldEvents.Single(e => e.MissionId == testEngineer.Id).Payload ?? "",
+                        "The hold event carries the reason code.");
+                    AssertContains(worker.Id, heldEvents.Single(e => e.MissionId == testEngineer.Id).Payload ?? "",
+                        "The hold event carries the holding record.");
 
                     // Now the gate clears (simulating the DoD gate finishing and the batch handoff
                     // running). The next sweep tick should self-heal cleanly.
@@ -658,6 +672,10 @@ namespace Armada.Test.Unit.Suites.Services
 
                     bool secondAssigned = await missions.TryAssignAsync(afterFirst, vessel).ConfigureAwait(false);
                     Mission afterSecond = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                    AssertNull(afterSecond.AssignmentHoldReason, "Assignment clears the hold reason.");
+                    AssertNull(afterSecond.AssignmentHoldEntityId, "Assignment clears the holding record.");
+                    List<ArmadaEvent> releasedEvents = await testDb.Driver.Events.EnumerateByTypeAsync(MissionAssignmentHold.ReleasedEventType).ConfigureAwait(false);
+                    AssertEqual(1, releasedEvents.Count(e => e.MissionId == testEngineer.Id), "The release is recorded once.");
 
                     AssertTrue(secondAssigned, "Once the gate clears, the next sweep tick must self-heal and assign.");
                     AssertEqual(MissionStatusEnum.InProgress, afterSecond.Status, "Self-healed dependent launches normally.");

@@ -544,6 +544,8 @@ namespace Armada.Server.Mcp.Tools
                 DependsOnMissionId = defaultSlim || fields.Contains("dependsOn") ? mission.DependsOnMissionId : null,
                 PrestagedFiles = fields.Contains("prestaged") ? mission.PrestagedFiles : null,
                 mission.AssignmentState,
+                mission.AssignmentHoldReason,
+                mission.AssignmentHoldEntityId,
                 mission.CaptainId,
                 mission.ProcessId,
                 mission.DockId,

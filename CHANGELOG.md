@@ -617,6 +617,16 @@ upstream integrations and excludes changes already present at that baseline.
   serves ordinary requests makes the account Reserve (demoted, still routable) instead of Exhausted,
   and a provider that refuses ordinary usage makes it Exhausted. With no verdict reported, the
   measured windows decide as before.
+- **A held Pending stage names its hold:** the assignment pass records why it
+  holds a Pending mission in `AssignmentHoldReason`, with the holding record in
+  `AssignmentHoldEntityId`, persisted on every provider (SQLite 111, PostgreSQL
+  115, MySQL 104, SQL Server 107) and shown by mission status, voyage status and
+  the dashboard mission page. A stage waiting while its predecessor's
+  definition-of-done gate re-verifies declared consumers reads
+  `dependency_completion_in_flight`; before, only a repeated log line said so.
+  Each named hold records `mission.assignment_held` once when it starts or
+  changes and `mission.assignment_hold_released` once when it ends, never one
+  event per assignment tick.
 - **The latest record of a Check decides every Check gate:** the Judge gate, the
   voyage completion gate and the manual completion proof read, for each Check
   (same voyage, mission, type, workflow profile, executed command and commit),

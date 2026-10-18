@@ -609,9 +609,8 @@ namespace Armada.Core.Services
                 if (dependency == null)
                 {
                     _Logging.Warn(_Header + "mission " + mission.Id + " depends on " + mission.DependsOnMissionId + " which was not found -- skipping assignment");
-                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-                    await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                    await HoldForAssignmentAsync(mission, MissionAssignmentHold.DependencyMissing, mission.DependsOnMissionId,
+                        "Predecessor stage " + mission.DependsOnMissionId + " was not found.", token).ConfigureAwait(false);
                     return false;
                 }
 
@@ -641,9 +640,8 @@ namespace Armada.Core.Services
                     // dependents per the breaking-change PR-fallback design: the captain
                     // branch is finalized + push at PR-open time, so downstreams can
                     // continue chaining off it without waiting for the PR to merge.
-                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-                    await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                    await HoldForAssignmentAsync(mission, MissionAssignmentHold.DependencyUnfinished, dependency.Id,
+                        "Predecessor stage " + dependency.Id + " is " + dependency.Status + ".", token).ConfigureAwait(false);
                     return false;
                 }
 
@@ -656,10 +654,8 @@ namespace Armada.Core.Services
                 // parent but must run independently, and keying on the parent alone deadlocks them.
                 if (!await DependencyGroupSatisfiedAsync(mission, dependency, token).ConfigureAwait(false))
                 {
-                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-                    await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " +
-                        mission.AssignmentState + " (parallel sibling stages still running)");
+                    await HoldForAssignmentAsync(mission, MissionAssignmentHold.ParallelStagesRunning, dependency.Id,
+                        "Predecessor stage " + dependency.Id + " finished, but a parallel sibling stage of the same order is still running.", token).ConfigureAwait(false);
                     return false;
                 }
 
@@ -672,9 +668,8 @@ namespace Armada.Core.Services
                 {
                     _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
                         " on a different vessel (" + dependency.VesselId + ") which is still WorkProduced -- waiting for Complete before assigning");
-                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-                    await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                    await HoldForAssignmentAsync(mission, MissionAssignmentHold.CrossVesselDependencyNotLanded, dependency.Id,
+                        "Predecessor stage " + dependency.Id + " on vessel " + dependency.VesselId + " produced work that has not landed yet.", token).ConfigureAwait(false);
                     return false;
                 }
 
@@ -692,9 +687,8 @@ namespace Armada.Core.Services
                         // batch handoff runs.
                         _Logging.Info(_Header + "mission " + mission.Id + " depends on architect " + dependency.Id +
                             " whose handoff is not prepared yet -- deferring assignment");
-                        mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-                        await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                        _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                        await HoldForAssignmentAsync(mission, MissionAssignmentHold.ArchitectHandoffPending, dependency.Id,
+                            "Architect stage " + dependency.Id + " has not been turned into downstream stages yet.", token).ConfigureAwait(false);
                         return false;
                     }
 
@@ -716,9 +710,9 @@ namespace Armada.Core.Services
                     {
                         _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
                             " (" + dependency.Status + ") whose completion is still in flight -- deferring self-heal to next sweep tick");
-                        mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-                        await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                        _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                        await HoldForAssignmentAsync(mission, MissionAssignmentHold.DependencyCompletionInFlight, dependency.Id,
+                            "Predecessor stage " + dependency.Id + " produced work and its completion handling is still running"
+                            + " (the definition-of-done gate, including any declared consumer re-verification, then the handoff).", token).ConfigureAwait(false);
                         return false;
                     }
 
@@ -742,11 +736,12 @@ namespace Armada.Core.Services
             {
                 _Logging.Info(_Header + "mission " + mission.Id +
                     " is architect-marked as sequential after implementation work -- deferring assignment");
-                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-                await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                await HoldForAssignmentAsync(mission, MissionAssignmentHold.ArchitectSequenced, null,
+                    "The Architect plan runs this mission after the implementation work.", token).ConfigureAwait(false);
                 return false;
             }
+
+            if (!await ReleaseAssignmentHoldAsync(mission, token).ConfigureAwait(false)) return false;
 
             // Reserve the complete build-participating sibling lane while admission is checked and
             // the winning mission is made durable. Coordination leases make the read-to-write
@@ -6027,6 +6022,73 @@ namespace Armada.Core.Services
             return false;
         }
 
+        /// <summary>
+        /// Park a Pending mission on WaitingForDependency and record why on the mission. The hold event is written
+        /// only when the reason or the holding record changes, so a hold that lasts many assignment ticks records
+        /// one event, not one per tick.
+        /// </summary>
+        private async Task HoldForAssignmentAsync(Mission mission, string reason, string? entityId, string detail, CancellationToken token)
+        {
+            bool changed = !String.Equals(mission.AssignmentHoldReason, reason, StringComparison.Ordinal)
+                || !String.Equals(mission.AssignmentHoldEntityId, entityId, StringComparison.Ordinal);
+            mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+            mission.AssignmentHoldReason = reason;
+            mission.AssignmentHoldEntityId = entityId;
+            bool written = await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState + " (" + reason + ")");
+            if (written && changed && MissionAssignmentHold.IsNamedHold(reason))
+            {
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment held: " + reason + " -- " + detail);
+                await RecordAssignmentHoldEventAsync(mission, MissionAssignmentHold.HeldEventType, reason, entityId,
+                    "Mission " + mission.Id + " is held from assignment (" + reason + "): " + detail, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Clear the recorded hold once the mission has passed every dependency check, and record the release when
+        /// the hold was a named one. Returns false when the mission is no longer Pending, so assignment stops.
+        /// </summary>
+        private async Task<bool> ReleaseAssignmentHoldAsync(Mission mission, CancellationToken token)
+        {
+            if (mission.AssignmentHoldReason == null && mission.AssignmentHoldEntityId == null) return true;
+            string? reason = mission.AssignmentHoldReason;
+            string? entityId = mission.AssignmentHoldEntityId;
+            mission.AssignmentHoldReason = null;
+            mission.AssignmentHoldEntityId = null;
+            if (!await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false)) return false;
+            if (MissionAssignmentHold.IsNamedHold(reason))
+            {
+                _Logging.Info(_Header + "mission " + mission.Id + " assignment hold released: " + reason);
+                await RecordAssignmentHoldEventAsync(mission, MissionAssignmentHold.ReleasedEventType, reason!, entityId,
+                    "Mission " + mission.Id + " is no longer held from assignment (" + reason + ").", token).ConfigureAwait(false);
+            }
+            return true;
+        }
+
+        private async Task RecordAssignmentHoldEventAsync(Mission mission, string eventType, string reason, string? entityId, string message, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(eventType, message);
+                EventOwnerScope.ApplyFromMission(evt, mission);
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.Payload = JsonSerializer.Serialize(new { missionId = mission.Id, reason, holdingEntityId = entityId, persona = mission.Persona });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record " + eventType + " for mission " + mission.Id + ": " + ex.Message);
+            }
+        }
+
 
         private static string BuildMissionBranchName(Captain captain, Mission mission)
         {
@@ -9035,10 +9097,12 @@ namespace Armada.Core.Services
         private async Task<bool> DeferForUnverifiedDependencyAsync(Mission dependent, Mission dependency, CancellationToken token)
         {
             string? deferReason = null;
+            string? holdReason = null;
             if (dependency.HeldForOperatorReview)
             {
                 deferReason = "is held for operator review ("
                     + (dependency.HeldForOperatorReviewReason ?? "no reason recorded") + ")";
+                holdReason = MissionAssignmentHold.DependencyHeldForReview;
             }
             else
             {
@@ -9047,15 +9111,16 @@ namespace Armada.Core.Services
                 {
                     await HoldForMissingDefinitionOfDoneResultAsync(dependency, missingGateResult, token).ConfigureAwait(false);
                     deferReason = "has no definition-of-done result: " + missingGateResult;
+                    holdReason = MissionAssignmentHold.DependencyGateResultMissing;
                 }
             }
 
-            if (deferReason == null) return false;
+            if (deferReason == null || holdReason == null) return false;
 
             _Logging.Warn(_Header + "mission " + dependent.Id + " depends on " + dependency.Id + " (" + dependency.Status
                 + ") which " + deferReason + " -- not handing off; the dependent waits");
-            dependent.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
-            await WriteAssignmentAsync(dependent, MissionStatusEnum.Pending, token).ConfigureAwait(false);
+            await HoldForAssignmentAsync(dependent, holdReason, dependency.Id,
+                "Predecessor stage " + dependency.Id + " " + deferReason + ".", token).ConfigureAwait(false);
             return true;
         }
 

@@ -379,6 +379,10 @@ export interface Mission {
   parentMissionId: string | null;
   persona: string | null;
   dependsOnMissionId: string | null;
+  /** Why the assignment pass holds this Pending mission; absent on older payloads. */
+  assignmentHoldReason?: string | null;
+  /** Record that holds the mission, such as the predecessor stage it waits on. */
+  assignmentHoldEntityId?: string | null;
   requiresReview: boolean;
   reviewDenyAction: 'RetryStage' | 'FailPipeline';
   reviewComment: string | null;

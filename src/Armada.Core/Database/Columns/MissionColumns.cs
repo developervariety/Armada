@@ -38,6 +38,8 @@ namespace Armada.Core.Database
             mission.Description = row.NullableText("description");
             mission.Status = row.Enum<MissionStatusEnum>("status");
             mission.AssignmentState = row.EnumOrFallback("mission_assignment_state", MissionAssignmentStateEnum.Pending);
+            mission.AssignmentHoldReason = row.NullableText(MissionAssignmentHoldPersistence.ReasonColumn);
+            mission.AssignmentHoldEntityId = row.NullableText(MissionAssignmentHoldPersistence.EntityColumn);
             mission.Priority = row.Int("priority");
             mission.ParentMissionId = row.NullableText("parent_mission_id");
             mission.BranchName = row.NullableText("branch_name");
@@ -101,6 +103,8 @@ namespace Armada.Core.Database
                 .Text("description", mission.Description)
                 .Text("status", mission.Status.ToString())
                 .Text("mission_assignment_state", mission.AssignmentState.ToString())
+                .Text(MissionAssignmentHoldPersistence.ReasonColumn, mission.AssignmentHoldReason)
+                .Text(MissionAssignmentHoldPersistence.EntityColumn, mission.AssignmentHoldEntityId)
                 .Int("priority", mission.Priority)
                 .Text("parent_mission_id", mission.ParentMissionId)
                 .Text("branch_name", mission.BranchName)

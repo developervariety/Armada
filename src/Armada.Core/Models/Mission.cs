@@ -86,6 +86,20 @@ namespace Armada.Core.Models
         public MissionAssignmentStateEnum AssignmentState { get; set; } = MissionAssignmentStateEnum.Pending;
 
         /// <summary>
+        /// Why the assignment pass is holding this Pending mission back from a captain, as a reason code from
+        /// <see cref="Armada.Core.Services.MissionAssignmentHold"/>. Null when nothing holds it. The assignment pass
+        /// clears it when it releases the hold; a mission that leaves Pending another way, such as a cancel, keeps
+        /// the last hold it recorded.
+        /// </summary>
+        public string? AssignmentHoldReason { get; set; } = null;
+
+        /// <summary>
+        /// Identifier of the record that holds this mission, such as the predecessor stage it waits on. Null when
+        /// nothing holds it or the hold names no record.
+        /// </summary>
+        public string? AssignmentHoldEntityId { get; set; } = null;
+
+        /// <summary>
         /// Mission priority (lower is higher priority).
         /// </summary>
         public int Priority { get; set; } = 100;

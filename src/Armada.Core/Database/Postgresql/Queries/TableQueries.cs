@@ -1208,7 +1208,8 @@ BEGIN
             item.table_name, item.column_name, item.column_name);
     END LOOP;
 END
-$convert$;")
+$convert$;"),
+                new SchemaMigration(115, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.PostgresqlStatements)
             };
         }
 

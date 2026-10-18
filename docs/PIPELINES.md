@@ -128,6 +128,23 @@ keeps its dock through stall recovery and the orphan-dock reaper, and the disk
 sweep skips its orphan-dock scan for a pass in which the protected docks
 cannot be read.
 
+A Pending stage that the assignment pass holds records why on the mission:
+`AssignmentHoldReason` names the reason and `AssignmentHoldEntityId` names the
+record that holds it, usually the predecessor stage. `armada_mission_status`,
+`armada_voyage_status` and the dashboard mission page show both. The reasons are
+`dependency_unfinished` (the predecessor has not finished), `dependency_missing`,
+`parallel_stages_running`, `cross_vessel_dependency_not_landed`,
+`architect_handoff_pending`, `architect_sequenced`, `dependency_held_for_review`,
+`dependency_gate_result_missing`, and `dependency_completion_in_flight`. The last
+one is the hold after a predecessor produced work while its completion handling
+runs: the definition-of-done gate, which re-verifies every declared consumer
+repository when a later stage commits production changes, then the handoff. On a
+vessel with consumer suites this hold can last many minutes. Every reason except
+`dependency_unfinished` records `mission.assignment_held` once when it starts or
+changes, and `mission.assignment_hold_released` once when assignment proceeds;
+each event's payload carries the reason and the holding record. A hold that lasts
+many assignment ticks records one event, not one per tick.
+
 A mission that depends on a stage in another voyage waits on that stage. When
 that stage was cancelled or failed and an autonomous rescue of its voyage
 completed, the dependant waits on the rescue's completed stage of the same

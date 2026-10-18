@@ -801,6 +801,22 @@ export default function MissionDetail() {
             <Link to={`/missions/${mission.dependsOnMissionId}`} className="mono">{mission.dependsOnMissionId}</Link>
           </div>
         )}
+        {mission.status === 'Pending' && mission.assignmentHoldReason && (
+          <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
+            <span className="detail-label">{t('Assignment Hold')}</span>
+            <span>
+              <span className="mono">{mission.assignmentHoldReason}</span>
+              {mission.assignmentHoldEntityId && (
+                <>
+                  {' '}
+                  {mission.assignmentHoldEntityId.startsWith('msn_')
+                    ? <Link to={`/missions/${mission.assignmentHoldEntityId}`} className="mono">{mission.assignmentHoldEntityId}</Link>
+                    : <span className="mono">{mission.assignmentHoldEntityId}</span>}
+                </>
+              )}
+            </span>
+          </div>
+        )}
         {mission.status === 'WorkProduced' && mission.dependsOnMissionId === null && mission.persona && mission.persona !== 'Worker' && (
           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
             <span className="detail-label">{t('Pipeline Status')}</span>
