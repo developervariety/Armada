@@ -50,6 +50,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A rescue runs the stage list its failed voyage was dispatched with, not the
+  pipeline as it is at rescue time. Every dispatch records its resolved stage
+  list as a `voyage.pipeline_recorded` event, and a rescue anchors on that
+  list, so editing, deactivating, deleting or re-pointing a pipeline while a
+  voyage runs no longer moves the rescue to the wrong stage. A voyage with no
+  recorded list is rescued from the live pipeline and records a
+  `rescue.live_pipeline_used` event. `update_pipeline` and `delete_pipeline`
+  report `RunningVoyageCount`, the running voyages that keep the old stages.
+
 - `GET /api/v1/status` reads the objectives once and the incident snapshots
   once to build its objective, backlog and incident counts. It read every
   objective once per status and backlog value and every incident snapshot

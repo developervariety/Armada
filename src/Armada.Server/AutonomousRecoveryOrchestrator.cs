@@ -2089,15 +2089,54 @@ namespace Armada.Server
             Objective? owningObjective,
             CancellationToken token)
         {
+            // The stage list the failed voyage was dispatched with wins over the live pipeline, so an edit,
+            // delete or re-point made while the voyage ran does not change which stages the rescue runs.
+            Pipeline? recorded = await VoyagePipelineRecord.ReadAsync(
+                _Database, failedMission.VoyageId, _Logging, token).ConfigureAwait(false);
+            if (recorded != null) return recorded;
+
             if (String.IsNullOrWhiteSpace(failedMission.VesselId)) return null;
 
             Vessel? vessel = await _Database.Vessels.ReadAsync(failedMission.VesselId, token).ConfigureAwait(false);
             if (vessel == null) return null;
 
-            return await _Admiral.ResolvePipelineAsync(
+            Pipeline? live = await _Admiral.ResolvePipelineAsync(
                 owningObjective?.SuggestedPipelineId,
                 vessel,
                 token).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(failedMission.VoyageId))
+                await RecordLivePipelineFallbackAsync(failedMission, live, token).ConfigureAwait(false);
+            return live;
+        }
+
+        // A rescue of a voyage with no recorded stage list uses the live pipeline; say so on the
+        // failed mission and its voyage, so the operator can tell which stage list the rescue ran.
+        private async Task RecordLivePipelineFallbackAsync(Mission failedMission, Pipeline? live, CancellationToken token)
+        {
+            string pipelineName = live?.Name ?? "none";
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(VoyagePipelineRecord.LiveFallbackEventType,
+                    "Rescue of mission " + failedMission.Id + " uses the live pipeline " + pipelineName
+                    + " because voyage " + failedMission.VoyageId + " has no recorded stage list.");
+                evt.EntityType = "mission";
+                evt.EntityId = failedMission.Id;
+                evt.MissionId = failedMission.Id;
+                evt.VoyageId = failedMission.VoyageId;
+                evt.VesselId = failedMission.VesselId;
+                evt.TenantId = failedMission.TenantId;
+                evt.UserId = failedMission.UserId;
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record " + VoyagePipelineRecord.LiveFallbackEventType
+                    + " for mission " + failedMission.Id + ": " + ex.Message);
+            }
         }
 
         private async Task<List<SelectedPlaybook>> ResolveRescuePlaybooksAsync(
@@ -2358,6 +2397,10 @@ namespace Armada.Server
                     await PipelineStageSkip.EmitSkippedEventsAsync(
                         _Database, _Logging, rescueVoyage, carried.Result, carried.Request, token).ConfigureAwait(false);
                 }
+
+                // The rescue voyage carries the stage list its rescue anchored on, so a rescue of this
+                // rescue anchors on the same list.
+                await VoyagePipelineRecord.RecordAsync(_Database, _Logging, rescueVoyage, recoveryPipeline, token).ConfigureAwait(false);
 
                 // A rescue-Judge PASS is subject to the real-signal gate: it needs independent green
                 // Build/UnitTest Checks, and a rescue voyage has none unless something creates them.

@@ -443,6 +443,7 @@ namespace Armada.Core.Services
                 Voyage workerVoyage = await DispatchSingleStageVoyageAsync(
                     title, description, vesselId, missionDescriptions, selectedPlaybooks, SingleStagePersona(pipeline), token).ConfigureAwait(false);
                 await PipelineStageSkip.EmitSkippedEventsAsync(_Database, _Logging, workerVoyage, skipResult, stageSkip, token).ConfigureAwait(false);
+                await VoyagePipelineRecord.RecordAsync(_Database, _Logging, workerVoyage, resolvedPipeline, token).ConfigureAwait(false);
                 return workerVoyage;
             }
 
@@ -553,6 +554,7 @@ namespace Armada.Core.Services
             await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
             QueueVoyageAssignments(voyage.Id, vessel.Id, assignmentMissionIds);
             await PipelineStageSkip.EmitSkippedEventsAsync(_Database, _Logging, voyage, skipResult, stageSkip, token).ConfigureAwait(false);
+            await VoyagePipelineRecord.RecordAsync(_Database, _Logging, voyage, resolvedPipeline, token).ConfigureAwait(false);
 
             await VoyageDispatchedEvent.EmitAsync(_Database, _Logging, voyage, vessel.Id, missionDescriptions.Count).ConfigureAwait(false);
             return voyage;
@@ -748,6 +750,7 @@ namespace Armada.Core.Services
             await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
             QueueVoyageAssignments(voyage.Id, vessel.Id, assignmentMissionIds);
             await PipelineStageSkip.EmitSkippedEventsAsync(_Database, _Logging, voyage, skipResult, stageSkip, token).ConfigureAwait(false);
+            await VoyagePipelineRecord.RecordAsync(_Database, _Logging, voyage, resolvedPipeline, token).ConfigureAwait(false);
 
             await VoyageDispatchedEvent.EmitAsync(_Database, _Logging, voyage, vessel.Id, missionDescriptions.Count).ConfigureAwait(false);
             return voyage;

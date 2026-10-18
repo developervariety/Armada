@@ -609,6 +609,53 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("DispatchVoyageAsync records the dispatched stage list before skips, and pipeline update and delete count the running voyage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), new StubGitService());
+
+                    Pipeline recorded = new Pipeline("RecordedStages") { TenantId = Armada.Core.Constants.DefaultTenantId };
+                    recorded.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "TestEngineer"),
+                        new PipelineStage(3, "Judge")
+                    };
+                    recorded = await db.Pipelines.CreateAsync(recorded);
+
+                    Vessel vessel = new Vessel("RecordedStagesVessel", "https://github.com/test/repo");
+                    await db.Vessels.CreateAsync(vessel);
+
+                    Voyage voyage = await service.DispatchVoyageAsync(
+                        "Recorded stages", "dispatch", vessel.Id,
+                        new List<MissionDescription> { new MissionDescription("Change", "edit") },
+                        recorded.Id,
+                        null,
+                        new StageSkipRequest { Stages = new List<string> { "TestEngineer" }, Reason = "covered", ConfirmedBy = "operator" }).ConfigureAwait(false);
+
+                    Pipeline? read = await VoyagePipelineRecord.ReadAsync(db, voyage.Id, null).ConfigureAwait(false);
+                    AssertNotNull(read, "the dispatch records its stage list on the voyage");
+                    AssertEqual(recorded.Id, read!.Id, "the record names the dispatched pipeline");
+                    AssertEqual("Worker(1),TestEngineer(2),Judge(3)",
+                        String.Join(",", read.Stages.Select(stage => stage.PersonaName + "(" + stage.Order + ")")),
+                        "the record holds the resolved list before skips; the skip is recorded on its own");
+
+                    PipelineService pipelines = new PipelineService(db);
+                    RecordWriteResult<Pipeline> updated = await pipelines.UpdateAsync(McpTestCaller.Operator, recorded.Name,
+                        new PipelineWriteRequest { Description = "edited while a voyage runs" }).ConfigureAwait(false);
+                    AssertTrue(updated.Succeeded, "the edit is not refused");
+                    AssertEqual(1, updated.Record!.RunningVoyageCount ?? -1, "the update reports the running voyage");
+
+                    voyage.Status = VoyageStatusEnum.Complete;
+                    await db.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+                    RecordWriteResult<Pipeline> deleted = await pipelines.DeleteAsync(McpTestCaller.Operator, recorded.Name).ConfigureAwait(false);
+                    AssertTrue(deleted.Succeeded, "the delete is not refused");
+                    AssertEqual(0, deleted.Record!.RunningVoyageCount ?? -1, "a finished voyage is not counted");
+                }
+            });
+
             // Read-only missions still run every declared pipeline stage. Review and verification
             // stages consume the report and must remain in the dependency chain.
             await RunTest("DispatchVoyageAsync ReadOnlyMissionPreservesTheTestEngineerStage", async () =>

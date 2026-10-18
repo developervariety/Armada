@@ -60,8 +60,9 @@ names an inactive pipeline, the dispatch is refused with the code
 pipeline, the vessel default or the fleet default. Armada never substitutes the
 next default or `WorkerOnly` for a retired pipeline. The objective dispatch
 preview reports the same pipeline as a `pipeline_inactive` blocking issue. A
-rescue that would run on an inactive pipeline is not created and spends no
-recovery attempt; its incident names the pipeline.
+rescue that resolves the live pipeline (see "Rescue stage list" below) and finds
+it inactive is not created and spends no recovery attempt; its incident names
+the pipeline.
 
 An objective's suggested pipeline and a vessel's or fleet's default pipeline
 cannot be set to an inactive pipeline, on every write surface (MCP, REST and the
@@ -185,6 +186,31 @@ as `mission.dependency_rewired`, and the original stage stays in the record. An 
 recovered reconciles to `Completed` once the rescue voyage completes: a rescue
 of a failed stage also recovers the failed stages above it in the same chain,
 because it started from that stage's commit and re-ran them.
+
+### Rescue stage list
+
+Every dispatch records the stage list it resolved, before operator stage skips,
+as one `voyage.pipeline_recorded` event on the voyage: the pipeline id and name,
+and each stage's order, persona, description, review settings and preferred
+model. Stage skips are recorded beside it as `voyage.stage_skipped` events. A
+rescue anchors on and continues from the failed voyage's recorded list, so a
+pipeline edited, deactivated or deleted while the voyage runs, or an objective,
+vessel or fleet re-pointed to another pipeline, does not change which stages the
+rescue runs. The rescue voyage records the same list, so a rescue of a rescue
+anchors on it too.
+
+A voyage with no recorded list (one dispatched before recording existed, or a
+bare voyage created without a pipeline) is rescued from the live pipeline: the
+owning objective's suggested pipeline, then the vessel and fleet defaults. That
+rescue records a `rescue.live_pipeline_used` event on the failed mission that
+names the voyage and the pipeline it used.
+
+`update_pipeline` and `delete_pipeline` never refuse an edit for a running
+voyage. Their responses carry `RunningVoyageCount`, the Open and InProgress
+voyages whose recorded list came from the pipeline, so the operator sees which
+running work keeps the old stages. REST `PUT` and the dashboard socket's
+`update_pipeline` and `delete_pipeline` return the same count; REST `DELETE`
+answers 204 with no body.
 
 A rescue takes the place of one pipeline stage and re-runs the stages after it.
 A pipeline can name one persona at more than one stage (for example Worker,

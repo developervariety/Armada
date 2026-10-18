@@ -1213,6 +1213,10 @@ replaces the stages; an empty list is refused. In a replacement list, a stage
 field left out keeps the value of the existing stage for the same persona, so an
 update that does not name `requiresReview` keeps the review gate; send `false`
 to turn it off, or `null` to clear a stage's `description` or `preferredModel`.
+The `update_pipeline` and `delete_pipeline` responses carry `RunningVoyageCount`:
+the Open and InProgress voyages dispatched with the pipeline, by their recorded
+stage lists. Those voyages keep the stages they were dispatched with, and a
+rescue of one runs those stages (docs/PIPELINES.md, "Rescue stage list").
 
 ### Personas
 

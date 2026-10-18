@@ -88,6 +88,15 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime LastUpdateUtc { get; set; } = DateTime.UtcNow;
 
+        /// <summary>
+        /// Set only on an update or delete response: how many Open or InProgress voyages were dispatched
+        /// with this pipeline, by their recorded stage lists. Those voyages keep the stages they were
+        /// dispatched with, and a rescue of one of them runs those stages. Never stored; null on every
+        /// other read.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? RunningVoyageCount { get; set; } = null;
+
         #endregion
 
         #region Private-Members

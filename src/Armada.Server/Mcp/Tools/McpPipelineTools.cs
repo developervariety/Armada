@@ -78,7 +78,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "update_pipeline",
-                "Update an existing pipeline. Only supplied fields change. A non-empty stages list replaces the stages; an empty list is refused. A stage field left out keeps the value of the existing stage for the same persona, so an update that does not name requiresReview keeps the review gate.",
+                "Update an existing pipeline. Only supplied fields change. A non-empty stages list replaces the stages; an empty list is refused. A stage field left out keeps the value of the existing stage for the same persona, so an update that does not name requiresReview keeps the review gate. The response carries runningVoyageCount: the Open or InProgress voyages dispatched with this pipeline. They keep the stages they were dispatched with, and a rescue of one runs those stages.",
                 new
                 {
                     type = "object",
@@ -102,7 +102,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "delete_pipeline",
-                "Delete a pipeline by name. Built-in pipelines cannot be deleted.",
+                "Delete a pipeline by name. Built-in pipelines cannot be deleted. The response carries runningVoyageCount: the Open or InProgress voyages dispatched with this pipeline. They keep the stages they were dispatched with, and a rescue of one runs those stages.",
                 new
                 {
                     type = "object",
@@ -117,7 +117,7 @@ namespace Armada.Server.Mcp.Tools
                     PipelineWriteRequest request = JsonSerializer.Deserialize<PipelineWriteRequest>(args!.Value, _JsonOptions) ?? new PipelineWriteRequest();
                     RecordWriteResult<Pipeline> result = await pipelines.DeleteAsync(McpCallerContext.Require(), request.Name).ConfigureAwait(false);
                     if (!result.Succeeded) return McpRecordWriteResult.From(result);
-                    return (object)new { Status = "deleted", Name = result.Record!.Name };
+                    return (object)new { Status = "deleted", Name = result.Record!.Name, RunningVoyageCount = result.Record.RunningVoyageCount ?? 0 };
                 });
         }
 

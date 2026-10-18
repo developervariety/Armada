@@ -1363,7 +1363,7 @@ namespace Armada.Server.WebSocket
         private async Task<object> DeletePipelineCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
             RecordWriteResult<Pipeline> result = await new Armada.Core.Services.PipelineService(_Database).DeleteAsync(caller, command.Id).ConfigureAwait(false);
-            return WriteResult("delete_pipeline", result, new { Status = "deleted", Name = result.Record?.Name });
+            return WriteResult("delete_pipeline", result, new { Status = "deleted", Name = result.Record?.Name, RunningVoyageCount = result.Record?.RunningVoyageCount ?? 0 });
         }
 
         /// <summary>

@@ -134,6 +134,7 @@ namespace Armada.Core.Services
             existing.LastUpdateUtc = DateTime.UtcNow;
 
             Pipeline updated = await _Database.Pipelines.UpdateAsync(existing, token).ConfigureAwait(false);
+            updated.RunningVoyageCount = await VoyagePipelineRecord.CountRunningVoyagesAsync(_Database, updated.Id, token).ConfigureAwait(false);
             return RecordWriteResult<Pipeline>.Success(updated);
         }
 
@@ -166,6 +167,7 @@ namespace Armada.Core.Services
             // database would clear the column on delete, but without a newer snapshot the objective snapshot
             // backfill would later try to write the deleted id back.
             await new ObjectiveService(_Database).ClearSuggestedPipelineAsync(existing.Id, token).ConfigureAwait(false);
+            existing.RunningVoyageCount = await VoyagePipelineRecord.CountRunningVoyagesAsync(_Database, existing.Id, token).ConfigureAwait(false);
             await _Database.Pipelines.DeleteAsync(existing.Id, token).ConfigureAwait(false);
             return RecordWriteResult<Pipeline>.Success(existing);
         }

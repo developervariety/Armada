@@ -1884,6 +1884,7 @@ namespace Armada.Server
                 voyage.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
                 await PipelineStageSkip.EmitSkippedEventsAsync(_Database, _Logging, voyage, skipResult, stageSkip).ConfigureAwait(false);
+                await VoyagePipelineRecord.RecordAsync(_Database, _Logging, voyage, resolvedPipeline).ConfigureAwait(false);
                 await VoyageDispatchedEvent.EmitAsync(_Database, _Logging, voyage, vesselId, sortedMissions.Count).ConfigureAwait(false);
 
                 return voyage;

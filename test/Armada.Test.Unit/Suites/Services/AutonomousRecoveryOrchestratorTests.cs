@@ -3284,6 +3284,42 @@ namespace Armada.Test.Unit.Suites.Services
                     "Only the stages after the second Worker re-run; the earlier analyst and TestEngineer passes are not rebuilt.");
             }).ConfigureAwait(false);
 
+            await RunTest("A rescue anchors on the stage list its voyage was dispatched with after the pipeline gains a stage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                EditedPipelineRescueOutcome outcome = await RescueAfterPipelineGainsAStageAsync(testDb, "ten_rescue_rec", true).ConfigureAwait(false);
+
+                AssertEqual("Worker", outcome.Rescue.Persona, "A Judge rejection is rescued by a Worker.");
+                AssertEqual(1, outcome.Rescue.StageOrder ?? 0, "The rescue Worker anchors on the Worker before the Judge in the dispatched list.");
+                AssertEqual(
+                    "Worker,PortingReferenceAnalyst,TestEngineer,Judge",
+                    DescribeStageChain(outcome.RecoveryMissions),
+                    "The rescue runs the dispatched stages after its anchor, not the stage inserted later.");
+                AssertEqual(4, outcome.RecoveryMissions.Single(item => item.Persona == "Judge").StageOrder ?? 0, "The rescue Judge keeps its dispatched order.");
+                AssertEqual(0, outcome.FallbackEvents.Count, "A voyage with a recorded list records no live-pipeline fallback.");
+
+                Pipeline? rescueRecord = await VoyagePipelineRecord.ReadAsync(testDb.Driver, outcome.Rescue.VoyageId, null).ConfigureAwait(false);
+                AssertNotNull(rescueRecord, "The rescue voyage records the stage list its rescue anchored on.");
+                AssertEqual(
+                    "Worker,PortingReferenceAnalyst,TestEngineer,Judge",
+                    String.Join(",", rescueRecord!.Stages.Select(item => item.PersonaName)),
+                    "A rescue of the rescue anchors on the same dispatched list.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A rescue of a voyage with no recorded stage list uses the live pipeline and records that it did", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                EditedPipelineRescueOutcome outcome = await RescueAfterPipelineGainsAStageAsync(testDb, "ten_rescue_live", false).ConfigureAwait(false);
+
+                AssertEqual(
+                    "Worker,PortingReferenceAnalyst,TestEngineer,Worker,Judge",
+                    DescribeStageChain(outcome.RecoveryMissions),
+                    "Without a recorded list the rescue runs the live pipeline's stages.");
+                AssertEqual(1, outcome.FallbackEvents.Count, "The rescue records one live-pipeline fallback event.");
+                AssertEqual(outcome.Failed.VoyageId, outcome.FallbackEvents[0].VoyageId, "The fallback event names the failed voyage.");
+                AssertContains("EditedRecovery", outcome.FallbackEvents[0].Message ?? "", "The fallback event names the live pipeline it used.");
+            }).ConfigureAwait(false);
+
             await RunTest("A failed second Worker stage is rescued at its own stage and re-runs only the stages after it", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -4711,6 +4747,109 @@ namespace Armada.Test.Unit.Suites.Services
             List<Mission> recoveryMissions = await testDb.Driver.Missions
                 .EnumerateByVoyageAsync(rescue.VoyageId!).ConfigureAwait(false);
             return new DuplicateWorkerRescueOutcome(rescue, recoveryMissions);
+        }
+
+        // Dispatches nothing: records (or not) the four-stage list W(1) > PRA(2) > TE(3) > J(4) on a failed
+        // voyage the way a dispatch does, then inserts a revising Worker so the live pipeline becomes
+        // W(1) > PRA(2) > TE(3) > W(4) > J(5), and rescues the Judge (stage 4) that returned NEEDS_REVISION.
+        private static async Task<EditedPipelineRescueOutcome> RescueAfterPipelineGainsAStageAsync(
+            TestDatabase testDb,
+            string tenantId,
+            bool recordDispatchList)
+        {
+            string userId = "usr_" + tenantId;
+            await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+            Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+            await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
+            Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("EditedRecovery")
+            {
+                TenantId = vessel.TenantId,
+                Stages = new List<PipelineStage>
+                {
+                    new PipelineStage(1, "Worker"),
+                    new PipelineStage(2, "PortingReferenceAnalyst"),
+                    new PipelineStage(3, "TestEngineer"),
+                    new PipelineStage(4, "Judge") { RequiresReview = true }
+                }
+            }).ConfigureAwait(false);
+
+            Voyage parentVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent edited-pipeline voyage")
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                Status = VoyageStatusEnum.Failed
+            }).ConfigureAwait(false);
+            if (recordDispatchList)
+                await VoyagePipelineRecord.RecordAsync(testDb.Driver, null, parentVoyage, pipeline).ConfigureAwait(false);
+
+            pipeline.Stages = new List<PipelineStage>
+            {
+                new PipelineStage(1, "Worker"),
+                new PipelineStage(2, "PortingReferenceAnalyst"),
+                new PipelineStage(3, "TestEngineer"),
+                new PipelineStage(4, "Worker"),
+                new PipelineStage(5, "Judge") { RequiresReview = true }
+            };
+            await testDb.Driver.Pipelines.UpdateAsync(pipeline).ConfigureAwait(false);
+
+            Mission failed = await CreateFailedMissionAsync(testDb, vessel,
+                "Judge verdict: NEEDS_REVISION. The error path swallows the exception.").ConfigureAwait(false);
+            failed.Persona = "Judge";
+            failed.StageOrder = 4;
+            failed.VoyageId = parentVoyage.Id;
+            failed.Mode = MissionModeEnum.Implementation;
+            await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+            await testDb.Driver.Objectives.CreateAsync(new Objective
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                Title = "Edited-pipeline owner",
+                Status = ObjectiveStatusEnum.InProgress,
+                VesselIds = new List<string> { vessel.Id },
+                VoyageIds = new List<string> { parentVoyage.Id },
+                SuggestedPipelineId = pipeline.Id
+            }).ConfigureAwait(false);
+
+            RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+            AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                testDb.Driver,
+                admiral,
+                new IncidentService(testDb.Driver),
+                new RunbookService(testDb.Driver, new LoggingModule()),
+                StandardRecoveryTierSettings());
+
+            await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+            if (admiral.DispatchedMissions.Count != 1)
+                throw new Exception("Expected exactly one rescue dispatch, got " + admiral.DispatchedMissions.Count + ".");
+            Mission rescue = admiral.DispatchedMissions[0];
+            if (String.IsNullOrEmpty(rescue.VoyageId))
+                throw new Exception("Expected the rescue to run in a rescue voyage.");
+            List<Mission> recoveryMissions = await testDb.Driver.Missions
+                .EnumerateByVoyageAsync(rescue.VoyageId!).ConfigureAwait(false);
+            List<ArmadaEvent> fallbackEvents = (await testDb.Driver.Events
+                .EnumerateByEntityAsync("mission", failed.Id, 500).ConfigureAwait(false))
+                .Where(item => item.EventType == VoyagePipelineRecord.LiveFallbackEventType)
+                .ToList();
+            return new EditedPipelineRescueOutcome(failed, rescue, recoveryMissions, fallbackEvents);
+        }
+
+        private sealed class EditedPipelineRescueOutcome
+        {
+            public EditedPipelineRescueOutcome(Mission failed, Mission rescue, List<Mission> recoveryMissions, List<ArmadaEvent> fallbackEvents)
+            {
+                Failed = failed;
+                Rescue = rescue;
+                RecoveryMissions = recoveryMissions;
+                FallbackEvents = fallbackEvents;
+            }
+
+            public Mission Failed { get; }
+            public Mission Rescue { get; }
+            public List<Mission> RecoveryMissions { get; }
+            public List<ArmadaEvent> FallbackEvents { get; }
         }
 
         private static string DescribeStageChain(List<Mission> missions)
