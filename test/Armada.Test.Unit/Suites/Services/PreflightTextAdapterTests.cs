@@ -185,6 +185,79 @@ namespace Armada.Test.Unit.Suites.Services
                 });
             }
 
+            await RunTest("Preflight cache: a repeat of the same state makes one client call and applies identical issues", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FlaggingResult("jev-1.13.0"));
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate, out TypedDecisionSettings _);
+
+                ObjectiveDispatchPreview fresh = SeededPreview();
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), fresh, CancellationToken.None).ConfigureAwait(false);
+                ObjectiveDispatchPreview cached = SeededPreview();
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), cached, CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(1, client.Calls, "the repeat is answered from the cache");
+                AssertEqual(DescribeIssues(fresh), DescribeIssues(cached), "cached and fresh answers apply the same issues");
+                AssertTrue(fresh.Issues.Any(issue => issue.Code == PreflightTextAdapter.ModelFlagIssueCode), "the seed flags a blocking question");
+
+                List<ArmadaEvent> calls = await AllTypedDecisionEventsAsync(testDb.Driver).ConfigureAwait(false);
+                AssertEqual(1, calls.Count, "only the fresh call records a typed-decision call event");
+                List<ArmadaEvent> hits = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeCacheHit, 50).ConfigureAwait(false);
+                AssertEqual(1, hits.Count, "the repeat records one cache-hit event");
+                AssertContains("\"gate_outcome\":\"applied\"", hits[0].Payload ?? "", "the cache hit records the outcome its answers produced");
+                AssertContains("\"input_tokens\":0", hits[0].Payload ?? "", "a cache hit records no tokens");
+            });
+
+            await RunTest("Preflight cache: a changed state, question contract, configured model or reported model each make a new call", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                string reportedModel = "jev-1.13.0";
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(_ => FlaggingResult(reportedModel));
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate, out TypedDecisionSettings settings);
+
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(1, client.Calls, "the first state is asked");
+
+                Objective changed = Objective();
+                changed.Title = "Port the vendor telemetry result decoder and its checksum";
+                await adapter.EvaluateAsync(changed, Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(2, client.Calls, "a changed state misses");
+
+                Func<IReadOnlyDictionary<string, TypedQuestion>> shipped = adapter.QuestionFactory;
+                adapter.QuestionFactory = () =>
+                {
+                    Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(shipped(), StringComparer.Ordinal);
+                    questions["q1"] = new NoulQuestion("A reworded premise question.");
+                    return questions;
+                };
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(3, client.Calls, "a changed question contract misses");
+                adapter.QuestionFactory = shipped;
+
+                settings.Model = "jev-pinned";
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(4, client.Calls, "a changed configured model misses");
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(4, client.Calls, "the same state under the same model hits");
+
+                reportedModel = "jev-1.14.0";
+                await adapter.EvaluateAsync(changed, Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(5, client.Calls, "a state not cached under this model is asked, and reports a new model version");
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(6, client.Calls, "a newly reported model version empties the cache");
+            });
+
+            await RunTest("Preflight cache: an unavailable answer is not cached", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(new TypedDecisionResult { Available = false, UnavailableReason = "http_402" });
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate, out TypedDecisionSettings _);
+
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(2, client.Calls, "an unavailable answer is asked again");
+            });
+
             await RunTest("Preflight_ForwardsCallerTokenToClient", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -246,11 +319,42 @@ namespace Armada.Test.Unit.Suites.Services
             TypedDecisionModeEnum globalMode,
             TypedDecisionModeEnum decisionMode)
         {
+            return BuildAdapter(database, client, globalMode, decisionMode, out TypedDecisionSettings _);
+        }
+
+        private static PreflightTextAdapter BuildAdapter(
+            DatabaseDriver database,
+            FakeTypedDecisionClient client,
+            TypedDecisionModeEnum globalMode,
+            TypedDecisionModeEnum decisionMode,
+            out TypedDecisionSettings settingsOut)
+        {
             TypedDecisionSettings settings = new TypedDecisionSettings { Mode = globalMode };
             settings.Decisions[PreflightTextAdapter.DecisionPoint].Mode = decisionMode;
             settings.Decisions[PreflightTextAdapter.DecisionPoint].GateThreshold = _Threshold;
             TypedDecisionRecorder recorder = new TypedDecisionRecorder(database, new LoggingModule());
+            settingsOut = settings;
             return new PreflightTextAdapter(settings, client, recorder, new LoggingModule());
+        }
+
+        // Flags the blocking Q5 noul above the threshold, so a Gate call applies a model Error issue.
+        private static TypedDecisionResult FlaggingResult(string model)
+        {
+            TypedDecisionResult basis = ModelResult(new Dictionary<string, double> { ["q5"] = 0.97, ["q1"] = 0.05 }, "none", 0.10);
+            return new TypedDecisionResult
+            {
+                Available = true,
+                Answers = basis.Answers,
+                Model = model,
+                InputTokens = basis.InputTokens,
+                OutputTokens = basis.OutputTokens,
+                LatencyMs = basis.LatencyMs
+            };
+        }
+
+        private static string DescribeIssues(ObjectiveDispatchPreview preview)
+        {
+            return String.Join(";", preview.Issues.Select(issue => issue.Code + "/" + issue.Severity + "/" + issue.Message));
         }
 
         private static Objective Objective()

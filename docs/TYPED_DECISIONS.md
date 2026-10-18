@@ -10,10 +10,16 @@ client or records an event, and every decision runs its deterministic rule.
 With a key, the stored global `mode` (default `Gate`) applies and each decision
 runs at its own mode. Per decision group:
 
-- Every decision ships in `Gate` at its threshold (`0.90` unless stated below)
+- A decision ships in `Gate` at its threshold (`0.90` unless stated below)
   and records the rule's verdict and the model's on every call, so a post-gate
   review can move a threshold or set one decision `Off` without a deploy. This
-  includes `capacity_escalation`, the Smart Routing model group choice.
+  includes `capacity_escalation`, the Smart Routing model group choice. The
+  nine decisions the owner switched off after the four-week observation review
+  ship `Off` at their threshold, so a settings reset or a new install keeps
+  them off: `inbox_triage`, `stage_necessity`, `prior_art`, `revision_kind`,
+  `memory_record`, `memory_review`, `memory_candidate`, `flake_score` and
+  `owner_digest`. `Off` is a mode: each stays wired, and setting it to `Gate`
+  runs it again.
 - Some shipped decisions reach no decision point yet, so their mode has no
   effect until one is wired. Each is declared with the reason it is inert in
   `TypedDecisionWiring.UnwiredDecisions`, and every status surface reports that
@@ -244,7 +250,8 @@ table). The global `mode` is `Off`, `Shadow`, or `Gate` and is the single kill
 switch: `Off` stops every decision point and every captain tool; each entry in `decisions` has its own `mode` and `gateThreshold`, and
 the effective mode is the minimum of the two. `Shadow` consults the model and
 records the answer while the rule stands; it is also the demotion target for a
-decision operators reverse too often. Every decision ships in `Gate`. A shipped
+decision operators reverse too often. A decision ships in `Gate`, except the
+nine listed above that ship `Off`. A shipped
 decision missing from a stored `decisions` map runs at its shipped mode; set its
 `mode` to `Off` to stop it. Without a key the effective mode is `Off` whatever
 these values say. `mode` and `decisions` hot-reload in place — a change reaches
@@ -258,7 +265,17 @@ rule verdict, the model version the provider reported (`model`), the model's
 answers with their confidences and probability distributions, tokens, latency,
 `batch_size`, the gate outcome, the provider's redacted explanation when it
 rejected the request (`unavailable_detail`), and the state's SHA-256 and byte
-count — the state itself is never recorded. Each event also names its subject:
+count — the state itself is never recorded. Each event also carries
+`estimated_cost_usd`, `cost_is_estimate` (always true) and
+`price_table_version`: the call's tokens priced from `pricing`, the price table
+in the typed-decision settings (`version`, and `models` keyed by model with
+`inputUsdPerMillionTokens` and `outputUsdPerMillionTokens`; a reported model
+takes the price of its exact key, else of the longest key it starts with). A
+batched item carries its share of the request's tokens, so the item estimates
+of one batch add up to the request's cost. When there is no estimate the cost
+is null, never zero, and `cost_unavailable_reason` names why:
+`no_price_for_model` (the table, which ships empty, has no price for the
+model), `model_not_reported`, or `call_unavailable`. Each event also names its subject:
 `objective_id` and `mission_id` in the payload (the mission id also fills the
 event's mission column), set wherever the calling seam knows them. They are
 record links for joining a call to its objective or mission; they are never
@@ -489,7 +506,15 @@ One decision point reads the objective dispatch preview:
   gated outcome. The model only ADDS issues; it never dispatches, never lands,
   and never removes a deterministic issue. Below-threshold, unavailable, or
   `Off` leaves the deterministic preview unchanged (`Shadow` adds high flags as
-  advisory `preflight_q<n>_model` warnings).
+  advisory `preflight_q<n>_model` warnings). Answers are cached by the redacted
+  state's SHA-256, the question contract's SHA-256, the configured `model` and
+  the model version the provider last reported. A repeat preview of an
+  unchanged objective reuses the stored answers, applies them under the current
+  mode and threshold exactly as a fresh call would, and records one
+  `typed_decision.cache_hit` event (no tokens, gate outcome as a fresh call
+  would record it) instead of a new call. A changed state, question contract or
+  configured model asks again, and a newly reported model version empties the
+  cache. Only available answers are cached, each for 24 hours, at most 4,096.
 
 - `review_substance` (D4, ships `Gate` at 0.85) — the Judge-PASS structural
   validator (the required-heading regex plus the narrative-length floor) stays

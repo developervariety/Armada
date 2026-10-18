@@ -9,6 +9,8 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -167,6 +169,88 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(Armada.Core.Constants.DefaultTenantId, evt.TenantId);
             });
 
+            await RunTest("A batch of three records estimated costs that split the request's cost by token share", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionSettings settings = PricedSettings();
+                TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule(), null, () => settings);
+
+                SharedBatchClient client = new SharedBatchClient(itemCount: 3, inputTokens: 1001, outputTokens: 7);
+                List<TypedDecisionBatchItem> items = new List<TypedDecisionBatchItem>();
+                for (int i = 0; i < 3; i++)
+                {
+                    items.Add(new TypedDecisionBatchItem(
+                        DecisionStateRedactor.RedactState(new Dictionary<string, object?> { ["item"] = i }, 1000),
+                        new Dictionary<string, TypedQuestion> { ["cause"] = new NoulQuestion("Is it environmental?") }));
+                }
+                List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(client, "failure_cause", items, 60000, CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(1, client.Calls, "the three items share one provider request");
+
+                double total = 0;
+                foreach (TypedDecisionResult result in results)
+                {
+                    ArmadaEvent? evt = await recorder.RecordShadowAsync(new TypedDecisionEventContext
+                    {
+                        DecisionPoint = "failure_cause",
+                        RuleVerdict = "Infra",
+                        Result = result,
+                        RedactedState = "batched item"
+                    }, "below_threshold", CancellationToken.None).ConfigureAwait(false);
+                    CostPayload payload = System.Text.Json.JsonSerializer.Deserialize<CostPayload>(evt!.Payload!)!;
+                    AssertNotNull(payload.EstimatedCostUsd, "a priced model records a cost");
+                    AssertTrue(payload.CostIsEstimate, "the cost is marked estimated");
+                    AssertEqual("prices-test-1", payload.PriceTableVersion, "the event names the price table version");
+                    AssertEqual(Math.Round((result.InputTokens * 2.0 + result.OutputTokens * 8.0) / 1_000_000.0, 8), payload.EstimatedCostUsd!.Value, "each item is priced on its token share");
+                    total += payload.EstimatedCostUsd!.Value;
+                }
+
+                double requestCost = (1001 * 2.0 + 7 * 8.0) / 1_000_000.0;
+                AssertTrue(Math.Abs(requestCost - total) < 0.0000001, "the item costs add up to the request's cost: " + total + " vs " + requestCost);
+            });
+
+            await RunTest("A model with no price records a null cost with a named reason, never zero", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionSettings settings = PricedSettings();
+                TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule(), null, () => settings);
+
+                TypedDecisionResult unpriced = new TypedDecisionResult { Available = true, Model = "other-model-2", InputTokens = 500, OutputTokens = 10 };
+                ArmadaEvent? evt = await recorder.RecordShadowAsync(new TypedDecisionEventContext
+                {
+                    DecisionPoint = "failure_cause",
+                    RuleVerdict = "Infra",
+                    Result = unpriced,
+                    RedactedState = "state"
+                }, "below_threshold", CancellationToken.None).ConfigureAwait(false);
+                CostPayload payload = System.Text.Json.JsonSerializer.Deserialize<CostPayload>(evt!.Payload!)!;
+                AssertNull(payload.EstimatedCostUsd, "an unpriced model records no cost");
+                AssertEqual(TypedDecisionCostEstimator.NoPriceForModelReason, payload.CostUnavailableReason, "the missing price is named");
+                AssertContains("\"estimated_cost_usd\":null", evt.Payload!, "the cost is null, not zero");
+
+                ArmadaEvent? unavailable = await recorder.RecordUnavailableAsync(new TypedDecisionEventContext
+                {
+                    DecisionPoint = "failure_cause",
+                    RuleVerdict = "Infra",
+                    Result = SampleResult("http_402"),
+                    RedactedState = "state"
+                }, CancellationToken.None).ConfigureAwait(false);
+                CostPayload unavailablePayload = System.Text.Json.JsonSerializer.Deserialize<CostPayload>(unavailable!.Payload!)!;
+                AssertNull(unavailablePayload.EstimatedCostUsd, "an unavailable call records no cost");
+                AssertEqual(TypedDecisionCostEstimator.CallUnavailableReason, unavailablePayload.CostUnavailableReason, "the reason names the unavailable call");
+
+                TypedDecisionRecorder unconfigured = new TypedDecisionRecorder(testDb.Driver, new LoggingModule());
+                ArmadaEvent? noTable = await unconfigured.RecordShadowAsync(new TypedDecisionEventContext
+                {
+                    DecisionPoint = "failure_cause",
+                    RuleVerdict = "Infra",
+                    Result = SampleResult(),
+                    RedactedState = "state"
+                }, "below_threshold", CancellationToken.None).ConfigureAwait(false);
+                CostPayload noTablePayload = System.Text.Json.JsonSerializer.Deserialize<CostPayload>(noTable!.Payload!)!;
+                AssertNull(noTablePayload.EstimatedCostUsd, "with no price table no cost is recorded");
+                AssertEqual(TypedDecisionCostEstimator.NoPriceForModelReason, noTablePayload.CostUnavailableReason, "the empty table is a missing price");
+            });
+
             await RunTest("Constructor_NullDatabase_Throws", () =>
             {
                 AssertThrows<ArgumentNullException>(() =>
@@ -175,6 +259,71 @@ namespace Armada.Test.Unit.Suites.Services
                     GC.KeepAlive(ignored);
                 });
             });
+        }
+
+        // Prices the jev-1 family by prefix: 2 USD per million input tokens, 8 per million output tokens.
+        private static TypedDecisionSettings PricedSettings()
+        {
+            TypedDecisionSettings settings = new TypedDecisionSettings();
+            settings.Pricing = new TypedDecisionPriceTable
+            {
+                Version = "prices-test-1",
+                Models = new Dictionary<string, TypedDecisionModelPrice>
+                {
+                    ["jev-1"] = new TypedDecisionModelPrice { InputUsdPerMillionTokens = 2.0, OutputUsdPerMillionTokens = 8.0 }
+                }
+            };
+            return settings;
+        }
+
+        // Answers a batched request with one shared result the way the provider does: every item's answers
+        // under its item prefix, and the request's whole token usage.
+        private sealed class SharedBatchClient : ITypedDecisionClient
+        {
+            private readonly int _ItemCount;
+            private readonly int _InputTokens;
+            private readonly int _OutputTokens;
+
+            public SharedBatchClient(int itemCount, int inputTokens, int outputTokens)
+            {
+                _ItemCount = itemCount;
+                _InputTokens = inputTokens;
+                _OutputTokens = outputTokens;
+            }
+
+            public int Calls { get; private set; }
+
+            public Task<TypedDecisionResult> DecideAsync(TypedDecisionRequest request, CancellationToken token)
+            {
+                Calls++;
+                Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal);
+                for (int i = 1; i <= _ItemCount; i++)
+                    answers["item" + i + "__cause"] = new TypedAnswer { Type = "noul", Noul = 0.2, Confidence = 0.2 };
+                return Task.FromResult(new TypedDecisionResult
+                {
+                    Available = true,
+                    Answers = answers,
+                    Model = "jev-1.13.0",
+                    InputTokens = _InputTokens,
+                    OutputTokens = _OutputTokens,
+                    LatencyMs = 30
+                });
+            }
+        }
+
+        private sealed class CostPayload
+        {
+            [JsonPropertyName("estimated_cost_usd")]
+            public double? EstimatedCostUsd { get; set; }
+
+            [JsonPropertyName("cost_is_estimate")]
+            public bool CostIsEstimate { get; set; }
+
+            [JsonPropertyName("cost_unavailable_reason")]
+            public string? CostUnavailableReason { get; set; }
+
+            [JsonPropertyName("price_table_version")]
+            public string? PriceTableVersion { get; set; }
         }
 
         private static string ExpectedSha(string text)

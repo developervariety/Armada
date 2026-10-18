@@ -95,6 +95,9 @@ namespace Armada.Test.Unit.Suites.Services
             settings.TypedDecisions.Mode = TypedDecisionModeEnum.Gate;
             settings.TypedDecisions.CaptainTool.Enabled = true;
             settings.TypedDecisions.EgressExcludedVesselIds = new List<string> { ExcludedVesselId };
+            // Decisions that ship Off are switched on, so every seam reaches its egress guard.
+            foreach (string name in TypedDecisionSettings.ShippedDecisionNames)
+                settings.TypedDecisions.Decisions[name].Mode = TypedDecisionModeEnum.Gate;
             return settings;
         }
 

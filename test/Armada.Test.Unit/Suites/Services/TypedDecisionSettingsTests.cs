@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Test.Common;
 
@@ -12,7 +13,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Defaults_ShipEveryDecisionInGate", () =>
+            await RunTest("Defaults_ShipTheOwnerRuledDecisionsOff_AndTheRestInGate", () =>
             {
                 TypedDecisionSettings settings = new TypedDecisionSettings();
                 AssertEqual(TypedDecisionModeEnum.Gate, settings.Mode);
@@ -31,16 +32,30 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0.85, settings.Decisions["review_substance"].GateThreshold);
                 AssertEqual(0.80, settings.Decisions["preflight"].GateThreshold);
 
-                // Every named decision ships in Gate with a real threshold; none is left at an unset zero.
+                // The decisions the owner switched off ship Off; every other named decision ships in Gate.
+                // Each keeps a real threshold; none is left at an unset zero.
                 AssertTrue(settings.Decisions.Count >= 26, "the default decision map carries every named decision");
                 foreach (string name in new[] { "prior_art", "memory_review", "stage_necessity", "handoff_outcome", "lint_finding", "criteria_lint", "dispatch_staleness" })
                     AssertTrue(settings.Decisions.ContainsKey(name), name + " is in the decision map");
                 AssertFalse(settings.Decisions.ContainsKey("context_compaction"), "context_compaction is not a shipped decision");
+                AssertFalse(settings.Decisions.ContainsKey("routing_hint"), "routing_hint is not a shipped decision");
+
+                HashSet<string> shippedOff = new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "inbox_triage", "stage_necessity", "prior_art", "revision_kind", "memory_record",
+                    "memory_review", "memory_candidate", "flake_score", "owner_digest"
+                };
+                foreach (string name in shippedOff)
+                {
+                    AssertTrue(settings.Decisions.ContainsKey(name), name + " stays in the decision map");
+                    AssertFalse(TypedDecisionWiring.UnwiredDecisions.ContainsKey(name), name + " is Off by mode, not unwired");
+                }
 
                 foreach (KeyValuePair<string, TypedDecisionRuleSettings> entry in settings.Decisions)
                 {
-                    AssertEqual(TypedDecisionModeEnum.Gate, entry.Value.Mode, entry.Key + " ships in Gate");
-                    AssertEqual(TypedDecisionModeEnum.Gate, settings.For(entry.Key).Mode, entry.Key + " is effective in Gate");
+                    TypedDecisionModeEnum shipped = shippedOff.Contains(entry.Key) ? TypedDecisionModeEnum.Off : TypedDecisionModeEnum.Gate;
+                    AssertEqual(shipped, entry.Value.Mode, entry.Key + " ships in " + shipped);
+                    AssertEqual(shipped, settings.For(entry.Key).Mode, entry.Key + " is effective in " + shipped);
                     AssertTrue(entry.Value.GateThreshold >= 0.80, entry.Key + " has a gate threshold at or above the norm");
                     AssertTrue(entry.Value.GateThreshold > 0.0, entry.Key + " is never left at an unset zero");
                 }

@@ -9,7 +9,8 @@ namespace Armada.Core.Settings
     /// <summary>
     /// Settings for the typed-decision system (TypeSafe Jev). The system is Off until a provider key
     /// resolves (the environment variable named by <see cref="ApiKeyEnv"/>, or the key file in the data
-    /// directory). With a key, every decision ships in Gate; the stored global <see cref="Mode"/> is a cap
+    /// directory). With a key, each decision runs at its shipped mode (Gate, or Off for the decisions the
+    /// owner switched off); the stored global <see cref="Mode"/> is a cap
     /// and kill switch, each decision has its own mode, and the effective mode is the minimum of the two.
     /// </summary>
     public class TypedDecisionSettings
@@ -96,6 +97,16 @@ namespace Armada.Core.Settings
         /// Retention of redacted decision state on this host as training data. Off by default.
         /// </summary>
         public TypedDecisionRetentionSettings Retention { get; set; } = new TypedDecisionRetentionSettings();
+
+        /// <summary>
+        /// Price table for the estimated cost recorded on every call event. Ships empty, so every call
+        /// records a null cost with a named reason until an operator sets the provider's prices.
+        /// </summary>
+        public TypedDecisionPriceTable Pricing
+        {
+            get => _Pricing;
+            set => _Pricing = value ?? new TypedDecisionPriceTable();
+        }
 
         /// <summary>
         /// Vessels whose content must never leave this host, by vessel id. Every decision about a
@@ -200,6 +211,7 @@ namespace Armada.Core.Settings
         private List<string> _EgressExcludedVesselIds = new List<string>();
         private List<string> _EgressExcludedMarkers = new List<string>();
         private Dictionary<string, TypedDecisionRuleSettings> _Decisions = DefaultDecisions();
+        private TypedDecisionPriceTable _Pricing = new TypedDecisionPriceTable();
         private TypedDecisionCaptainToolSettings _CaptainTool = new TypedDecisionCaptainToolSettings();
         private Dictionary<string, CustomTypedDecisionSettings> _Custom = new Dictionary<string, CustomTypedDecisionSettings>(StringComparer.Ordinal);
 
@@ -309,6 +321,7 @@ namespace Armada.Core.Settings
             CaptainTool = source.CaptainTool;
             Custom = CloneCustom(source.Custom);
             Retention = source.Retention;
+            Pricing = source.Pricing;
         }
 
         private static Dictionary<string, TypedDecisionRuleSettings> WithShippedDefaults(Dictionary<string, TypedDecisionRuleSettings>? supplied)
@@ -323,10 +336,12 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// The default decision map. Every decision ships in Gate at its threshold (0.90 unless its
-        /// design states otherwise) and records the rule's verdict and the model's on every call, so a
-        /// post-gate review can move a threshold or switch a decision off. The per-decision mode and the
-        /// global cap stop one decision, or all of them, without a deploy.
+        /// The default decision map. A decision ships in Gate at its threshold (0.90 unless its design
+        /// states otherwise) and records the rule's verdict and the model's on every call, so a post-gate
+        /// review can move a threshold or switch a decision off. The decisions the owner switched off after
+        /// the four-week observation review ship Off, at their threshold, so a reset or a new install keeps
+        /// them off; Off is a mode, and each stays wired. The per-decision mode and the global cap stop one
+        /// decision, or all of them, without a deploy.
         /// </summary>
         /// <returns>The default per-decision configuration.</returns>
         private static Dictionary<string, TypedDecisionRuleSettings> DefaultDecisions()
@@ -344,23 +359,23 @@ namespace Armada.Core.Settings
                 ["log_watch"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
                 ["premise_check"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
                 ["criteria_lint"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
-                ["inbox_triage"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["inbox_triage"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
                 ["followup_routing"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
-                ["owner_digest"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["owner_digest"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
                 ["corpus_prelabel"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
-                ["flake_score"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["flake_score"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
                 ["capacity_escalation"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
                 ["dispatch_staleness"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
                 ["change_substance"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
-                ["memory_candidate"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
-                ["stage_necessity"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["memory_candidate"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
+                ["stage_necessity"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
                 ["handoff_outcome"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
-                ["revision_kind"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["revision_kind"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
                 ["test_covers"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
-                ["memory_record"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
-                ["memory_review"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["memory_record"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
+                ["memory_review"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
                 ["lint_finding"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
-                ["prior_art"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["prior_art"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
                 ["memory_relevance"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 }
             };
         }

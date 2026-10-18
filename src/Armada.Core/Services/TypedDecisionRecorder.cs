@@ -60,6 +60,12 @@ namespace Armada.Core.Services
         /// <summary>Event type for an operator reversing a gated outcome.</summary>
         public const string EventTypeReversed = "typed_decision.reversed";
 
+        /// <summary>
+        /// Event type for a decision answered from stored answers to the same state, question contract and
+        /// model, with no new provider call. It records no tokens and is not a typed-decision call.
+        /// </summary>
+        public const string EventTypeCacheHit = "typed_decision.cache_hit";
+
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
         private readonly TypedDecisionSampleStore? _Samples;
@@ -119,6 +125,51 @@ namespace Armada.Core.Services
         {
             string outcome = String.IsNullOrWhiteSpace(gateOutcome) ? "shadow" : gateOutcome;
             return RecordAsync(EventTypeShadow, outcome, context, token);
+        }
+
+        /// <summary>
+        /// Record a decision answered from stored answers instead of a new provider call. Emits
+        /// <see cref="EventTypeCacheHit"/> with the outcome the stored answers produced under the current
+        /// mode and threshold. The event carries the stored answers and model and no tokens, so its
+        /// estimated cost is zero when the model has a price.
+        /// </summary>
+        /// <param name="context">The decision context, carrying the stored result; its state is hashed, never stored.</param>
+        /// <param name="gateOutcome">The outcome the stored answers produced.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The created event, or null when recording failed.</returns>
+        public Task<ArmadaEvent?> RecordCacheHitAsync(TypedDecisionEventContext context, string gateOutcome, CancellationToken token)
+        {
+            if (context == null) return Task.FromResult<ArmadaEvent?>(null);
+            TypedDecisionResult stored = context.Result;
+            TypedDecisionEventContext hit = new TypedDecisionEventContext
+            {
+                DecisionPoint = context.DecisionPoint,
+                RuleVerdict = context.RuleVerdict,
+                ModelVerdict = context.ModelVerdict,
+                Confidence = context.Confidence,
+                Result = new TypedDecisionResult
+                {
+                    Available = stored?.Available ?? false,
+                    Provenance = stored?.Provenance,
+                    UnavailableReason = stored?.UnavailableReason,
+                    UnavailableDetail = stored?.UnavailableDetail,
+                    Answers = stored?.Answers ?? new Dictionary<string, TypedAnswer>(),
+                    Model = stored?.Model,
+                    InputTokens = 0,
+                    OutputTokens = 0,
+                    LatencyMs = 0,
+                    BatchSize = 1
+                },
+                RedactedState = context.RedactedState,
+                Mission = context.Mission,
+                MissionId = context.MissionId,
+                ObjectiveId = context.ObjectiveId,
+                CaptainId = context.CaptainId,
+                ParticipantKey = context.ParticipantKey,
+                ToolName = context.ToolName
+            };
+            string outcome = String.IsNullOrWhiteSpace(gateOutcome) ? "cache_hit" : gateOutcome;
+            return RecordAsync(EventTypeCacheHit, outcome, hit, token);
         }
 
         /// <summary>
@@ -333,7 +384,7 @@ namespace Armada.Core.Services
             {
                 ArmadaEvent evt = new ArmadaEvent(eventType, BuildMessage(eventType, context))
                 {
-                    Payload = BuildPayload(context, gateOutcome)
+                    Payload = BuildPayload(context, gateOutcome, _Settings?.Invoke()?.Pricing)
                 };
 
                 if (context.Mission != null)
@@ -360,7 +411,9 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrWhiteSpace(context.CaptainId)) evt.CaptainId = context.CaptainId;
 
                 ArmadaEvent created = await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
-                await RetainAsync(context, gateOutcome, created, token).ConfigureAwait(false);
+                // A cache hit repeats a state already retained by the call it reuses.
+                if (!String.Equals(eventType, EventTypeCacheHit, StringComparison.Ordinal))
+                    await RetainAsync(context, gateOutcome, created, token).ConfigureAwait(false);
                 return created;
             }
             catch (Exception ex)
@@ -435,9 +488,10 @@ namespace Armada.Core.Services
             return sb.ToString();
         }
 
-        private static string BuildPayload(TypedDecisionEventContext context, string gateOutcome)
+        private static string BuildPayload(TypedDecisionEventContext context, string gateOutcome, TypedDecisionPriceTable? pricing)
         {
             TypedDecisionResult? result = context.Result;
+            TypedDecisionCostEstimate cost = TypedDecisionCostEstimator.Estimate(pricing, result);
             string stateSha256 = ComputeSha256(context.RedactedState);
             int stateBytes = String.IsNullOrEmpty(context.RedactedState) ? 0 : Encoding.UTF8.GetByteCount(context.RedactedState);
 
@@ -473,6 +527,10 @@ namespace Armada.Core.Services
                 ["output_tokens"] = result?.OutputTokens ?? 0,
                 ["latency_ms"] = result?.LatencyMs ?? 0,
                 ["batch_size"] = result?.BatchSize ?? 1,
+                ["estimated_cost_usd"] = cost.EstimatedCostUsd,
+                ["cost_is_estimate"] = true,
+                ["cost_unavailable_reason"] = cost.UnavailableReason,
+                ["price_table_version"] = cost.PriceTableVersion,
                 ["state_sha256"] = stateSha256,
                 ["provenance_unavailable_reason"] = result?.Provenance?.UnavailableReason
                     ?? (result?.Available == true && result.Provenance == null ? "not_recorded" : null),

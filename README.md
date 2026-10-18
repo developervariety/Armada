@@ -225,8 +225,9 @@ selects in three layers; see [Smart Routing](docs/USAGE_ROUTING.md).
 A calibrated classifier (TypeSafe Jev) the admiral can consult at a decision
 point, behind the deterministic rules it never replaces. Without a provider key
 the effective global mode is `Off` (reason `typed_decisions_no_key`), whatever
-the stored mode. With a key, every decision ships in `Gate` and records the
-rule's verdict and the model's on every call. The key comes from the environment
+the stored mode. With a key, each decision ships in `Gate`, except the nine the
+owner switched off after the observation review, which ship `Off`; a decision
+that runs records the rule's verdict and the model's on every call. The key comes from the environment
 variable named by `apiKeyEnv`, or from the key file
 `<data directory>/secrets/typesafe-api-key` that `PUT /api/v1/typed-decisions/key`
 writes; adding or removing it takes effect without a restart. The decision

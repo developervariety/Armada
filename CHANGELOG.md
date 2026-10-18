@@ -9,6 +9,17 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Typed-decision call events carry `estimated_cost_usd`, `cost_is_estimate`
+  and `price_table_version`, priced from a new `typedDecisions.pricing` table
+  that ships empty. A batched item is priced on its share of the request's
+  tokens. With no price the cost is null and `cost_unavailable_reason` says
+  why. The observation SQL reports cost per decision, cost per applied action
+  and cache hits.
+- The `preflight` decision caches its answers by state hash, question
+  contract and model, so a repeat preview of an unchanged objective records a
+  `typed_decision.cache_hit` event instead of a new provider call. The verdicts
+  are the same as a fresh call's.
+
 - Two optional workflow-profile fields let the definition-of-done gate re-run
   the failing tests of a runner that is not `dotnet test`.
   `failedTestLinePattern` is a regular expression with a named group `name`
@@ -49,6 +60,13 @@ upstream integrations and excludes changes already present at that baseline.
   cycle-log renderer and watcher scripts.
 
 ### Fixed
+
+- The nine typed decisions the owner switched off after the four-week
+  observation review (`inbox_triage`, `stage_necessity`, `prior_art`,
+  `revision_kind`, `memory_record`, `memory_review`, `memory_candidate`,
+  `flake_score`, `owner_digest`) ship `Off`, so a settings reset or a new
+  install no longer turns them back on. Each stays wired; live settings that
+  name a mode keep it.
 
 - A rescue runs the stage list its failed voyage was dispatched with, not the
   pipeline as it is at rescue time. Every dispatch records its resolved stage

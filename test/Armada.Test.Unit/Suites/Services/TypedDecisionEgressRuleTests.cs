@@ -281,6 +281,9 @@ namespace Armada.Test.Unit.Suites.Services
                 EgressExcludedMarkers = new List<string> { Marker },
                 EgressExcludedVesselIds = new List<string> { ExcludedVessel }
             };
+            // Decisions that ship Off are switched on, so every seam reaches its egress guard.
+            foreach (string name in TypedDecisionSettings.ShippedDecisionNames)
+                settings.Decisions[name].Mode = TypedDecisionModeEnum.Gate;
             return settings;
         }
 

@@ -81,7 +81,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         #region Helpers
 
-        // Every shipped decision is on and retains its state, so each call writes an event and a sample.
+        // Every shipped decision, including those that ship Off, is on and retains its state, so each call writes an event and a sample.
         private static ArmadaSettings RetainingSettings()
         {
             ArmadaSettings settings = new ArmadaSettings();
@@ -89,7 +89,10 @@ namespace Armada.Test.Unit.Suites.Services
             settings.TypedDecisions.CaptainTool.Enabled = true;
             settings.TypedDecisions.Retention.Enabled = true;
             foreach (string name in TypedDecisionSettings.ShippedDecisionNames)
+            {
+                settings.TypedDecisions.Decisions[name].Mode = TypedDecisionModeEnum.Gate;
                 settings.TypedDecisions.Decisions[name].RetainState = true;
+            }
             return settings;
         }
 

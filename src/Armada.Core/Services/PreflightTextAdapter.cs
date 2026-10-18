@@ -4,6 +4,9 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
+    using System.Security.Cryptography;
+    using System.Text;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
@@ -30,6 +33,14 @@ namespace Armada.Core.Services
     /// an Error issue <see cref="ModelFlagIssueCode"/> that the autonomous scheduler already skips on. A
     /// Q4 or Q13 model flag never blocks dispatch or posts an owner-addressed board note. The adapter never
     /// throws into the caller.
+    ///
+    /// Answers are cached by the redacted state's hash, the question contract's hash, the configured model
+    /// and the model version the provider last reported. A repeat preview of an unchanged objective reuses
+    /// the stored answers, applies them under the current mode and threshold exactly as a fresh call would,
+    /// and records one <see cref="TypedDecisionRecorder.EventTypeCacheHit"/> event instead of a new call. A
+    /// changed state, question contract or configured model misses; a newly reported model version empties
+    /// the cache. Only available answers are cached, each for <see cref="CacheLifetime"/>, and at most
+    /// <see cref="MaxCacheEntries"/> are kept.
     /// </summary>
     public sealed class PreflightTextAdapter
     {
@@ -47,6 +58,16 @@ namespace Armada.Core.Services
         /// </summary>
         public const string ModelFlagIssueCode = "objective_preflight_model_flag";
 
+        /// <summary>
+        /// How long a cached answer is reused.
+        /// </summary>
+        public static readonly TimeSpan CacheLifetime = TimeSpan.FromHours(24);
+
+        /// <summary>
+        /// Most cached answers kept; the oldest is dropped first.
+        /// </summary>
+        public const int MaxCacheEntries = 4096;
+
         #endregion
 
         #region Private-Members
@@ -61,6 +82,9 @@ namespace Armada.Core.Services
         private readonly ITypedDecisionClient _Client;
         private readonly TypedDecisionRecorder _Recorder;
         private readonly LoggingModule _Logging;
+        private readonly object _CacheLock = new object();
+        private readonly Dictionary<string, CachedAnswer> _Cache = new Dictionary<string, CachedAnswer>(StringComparer.Ordinal);
+        private string? _LastReportedModel = null;
 
         // The text-half battery. Each entry is a noul phrased as the defect: a high answer names a
         // brief problem the deterministic block cannot settle on its own. The numbers match the
@@ -167,7 +191,7 @@ namespace Armada.Core.Services
                 {
                     DecisionPoint = DecisionPoint,
                     State = state,
-                    Questions = BuildQuestions()
+                    Questions = QuestionFactory()
                 };
             }
             catch (Exception ex)
@@ -177,19 +201,30 @@ namespace Armada.Core.Services
                 return;
             }
 
+            string questionsSha256 = QuestionContractSha256(request.Questions);
+            TypedDecisionResult? cached = ReadCache(redacted, questionsSha256);
             TypedDecisionResult decision;
-            try
+            if (cached != null)
             {
-                // Forward the caller's token unchanged so the client links its settings timeout to it:
-                // a slow decision cancels through this token and is unavailable, never late.
-                decision = await _Client.DecideAsync(request, token).ConfigureAwait(false);
+                decision = cached;
             }
-            catch (Exception ex)
+            else
             {
-                _Logging.Warn(_Header + "client threw, deterministic preview stands: " + ex.Message);
-                await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                    BuildContext(objective, vessel, TypedDecisionResult.Exception(), null, null, redacted), token)).ConfigureAwait(false);
-                return;
+                try
+                {
+                    // Forward the caller's token unchanged so the client links its settings timeout to it:
+                    // a slow decision cancels through this token and is unavailable, never late.
+                    decision = await _Client.DecideAsync(request, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "client threw, deterministic preview stands: " + ex.Message);
+                    await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
+                        BuildContext(objective, vessel, TypedDecisionResult.Exception(), null, null, redacted), token)).ConfigureAwait(false);
+                    return;
+                }
+
+                if (decision != null && decision.Available) StoreCache(redacted, questionsSha256, decision);
             }
 
             if (decision == null || !decision.Available)
@@ -231,7 +266,17 @@ namespace Armada.Core.Services
             }
 
             bool applied = gate && reading.Flags.Any(flag => flag.BlocksDispatch);
-            if (applied)
+            if (cached != null)
+            {
+                string cachedOutcome = applied
+                    ? "applied"
+                    : cfg.Mode == TypedDecisionModeEnum.Shadow
+                        ? "shadow_mode"
+                        : reading.HasAdvisory ? "advisory_only" : "below_threshold";
+                await SafeRecordAsync(() => _Recorder.RecordCacheHitAsync(
+                    BuildContext(objective, vessel, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), cachedOutcome, token)).ConfigureAwait(false);
+            }
+            else if (applied)
             {
                 await SafeRecordAsync(() => _Recorder.RecordGatedAsync(
                     BuildContext(objective, vessel, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), token)).ConfigureAwait(false);
@@ -248,7 +293,78 @@ namespace Armada.Core.Services
 
         #endregion
 
+        #region Internal-Members
+
+        /// <summary>
+        /// Builds the question battery sent with each call. Replaced only by tests that change the
+        /// question contract.
+        /// </summary>
+        internal Func<IReadOnlyDictionary<string, TypedQuestion>> QuestionFactory { get; set; } = BuildQuestions;
+
+        #endregion
+
         #region Private-Methods
+
+        private TypedDecisionResult? ReadCache(string redactedState, string questionsSha256)
+        {
+            lock (_CacheLock)
+            {
+                string key = CacheKey(redactedState, questionsSha256);
+                if (!_Cache.TryGetValue(key, out CachedAnswer? entry)) return null;
+                if (DateTime.UtcNow - entry.StoredUtc > CacheLifetime)
+                {
+                    _Cache.Remove(key);
+                    return null;
+                }
+
+                return entry.Result;
+            }
+        }
+
+        private void StoreCache(string redactedState, string questionsSha256, TypedDecisionResult result)
+        {
+            lock (_CacheLock)
+            {
+                // A model version the provider reports for the first time makes every stored answer stale.
+                if (!String.IsNullOrWhiteSpace(result.Model)
+                    && !String.Equals(result.Model, _LastReportedModel, StringComparison.Ordinal))
+                {
+                    _Cache.Clear();
+                    _LastReportedModel = result.Model;
+                }
+
+                if (_Cache.Count >= MaxCacheEntries)
+                {
+                    string oldest = _Cache.OrderBy(pair => pair.Value.StoredUtc).First().Key;
+                    _Cache.Remove(oldest);
+                }
+
+                _Cache[CacheKey(redactedState, questionsSha256)] = new CachedAnswer(result, DateTime.UtcNow);
+            }
+        }
+
+        private string CacheKey(string redactedState, string questionsSha256)
+        {
+            return Sha256(redactedState) + "|" + questionsSha256 + "|" + (_Settings.Model ?? String.Empty)
+                + "|" + (_LastReportedModel ?? String.Empty);
+        }
+
+        private static string QuestionContractSha256(IReadOnlyDictionary<string, TypedQuestion> questions)
+        {
+            StringBuilder contract = new StringBuilder();
+            foreach (KeyValuePair<string, TypedQuestion> entry in questions.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                contract.Append(entry.Key).Append('=').Append(entry.Value?.GetType().Name ?? "null").Append(':')
+                    .Append(entry.Value == null ? "null" : JsonSerializer.Serialize<object>(entry.Value)).Append('\n');
+            }
+
+            return Sha256(contract.ToString());
+        }
+
+        private static string Sha256(string text)
+        {
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text ?? String.Empty))).ToLowerInvariant();
+        }
 
         private static object BuildState(Objective objective, Vessel vessel, Pipeline? pipeline, ObjectiveDispatchPreview result)
         {
@@ -387,6 +503,18 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Types
+
+        private sealed class CachedAnswer
+        {
+            public CachedAnswer(TypedDecisionResult result, DateTime storedUtc)
+            {
+                Result = result;
+                StoredUtc = storedUtc;
+            }
+
+            public TypedDecisionResult Result { get; }
+            public DateTime StoredUtc { get; }
+        }
 
         private sealed class PreflightNoul
         {
