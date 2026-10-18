@@ -686,6 +686,8 @@ namespace Armada.Core.Services
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (request == null) throw new ArgumentNullException(nameof(request));
             await EnsureBackfilledAsync(token).ConfigureAwait(false);
+            await PipelineReferenceRule.EnsureNotInactiveAsync(
+                _Database, request.SuggestedPipelineId, null, PipelineReferenceRule.ObjectiveSource, token).ConfigureAwait(false);
 
             Objective objective = new Objective
             {
@@ -797,7 +799,12 @@ namespace Armada.Core.Services
             if (request.BlockedByObjectiveIds != null) objective.BlockedByObjectiveIds = DistinctNormalized(request.BlockedByObjectiveIds);
             if (request.RefinementSummary != null) objective.RefinementSummary = Normalize(request.RefinementSummary);
             if (request.Preparation != null) objective.Preparation = request.Preparation;
-            if (request.SuggestedPipelineId != null) objective.SuggestedPipelineId = Normalize(request.SuggestedPipelineId);
+            if (request.SuggestedPipelineId != null)
+            {
+                await PipelineReferenceRule.EnsureNotInactiveAsync(
+                    _Database, request.SuggestedPipelineId, objective.SuggestedPipelineId, PipelineReferenceRule.ObjectiveSource, token).ConfigureAwait(false);
+                objective.SuggestedPipelineId = Normalize(request.SuggestedPipelineId);
+            }
             if (request.SuggestedPlaybooks != null) objective.SuggestedPlaybooks = DistinctPlaybooks(request.SuggestedPlaybooks);
             if (request.Tags != null) objective.Tags = DistinctNormalized(request.Tags);
             if (request.AcceptanceCriteria != null) objective.AcceptanceCriteria = DistinctNormalized(request.AcceptanceCriteria);

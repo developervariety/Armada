@@ -268,7 +268,10 @@ Use `armada_enumerate(entityType: "pipelines")`, `get_pipeline`,
 Pipeline selection order is explicit dispatch, vessel default, fleet default,
 then `WorkerOnly`. A missing default therefore changes behavior. Check the
 resolved pipeline before dispatch. Do not shorten an approved full pipeline
-only to reduce time or cost.
+only to reduce time or cost. An inactive pipeline is refused by name wherever it
+resolves, and no default or objective can be pointed at one;
+[Pipelines](PIPELINES.md#resolution) owns the rule. Before you deactivate a
+pipeline, move every vessel, fleet and objective that names it to an active one.
 
 Parallel stages share the same stage order. They are siblings, not a duplicate
 database error.

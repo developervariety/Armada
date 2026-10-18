@@ -1881,7 +1881,10 @@ namespace Armada.Core.Services
         /// <summary>
         /// Resolve which pipeline to use for a dispatch.
         /// Resolution order: explicit pipelineId > vessel default > fleet default > null (WorkerOnly).
+        /// The first usable reference decides: when it names a pipeline the operator has deactivated, the
+        /// dispatch is refused with <see cref="PipelineInactiveException"/> and no later reference is tried.
         /// </summary>
+        /// <exception cref="PipelineInactiveException">The resolved pipeline is inactive.</exception>
         public async Task<Pipeline?> ResolvePipelineAsync(string? pipelineId, Vessel vessel, CancellationToken token = default)
         {
             // A dispatch runs on behalf of the vessel's owner. A pipeline that owner may not use is
@@ -1894,14 +1897,15 @@ namespace Armada.Core.Services
                 Pipeline? explicit_ = await _Database.Pipelines.ReadAsync(pipelineId, token).ConfigureAwait(false);
                 if (explicit_ != null)
                 {
-                    if (Armada.Core.Authorization.OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, explicit_)) return explicit_;
+                    if (Armada.Core.Authorization.OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, explicit_))
+                        return RequireActive(explicit_, PipelineSourceRequested);
                     _Logging.Warn(_Header + "vessel " + vessel.Id + " requested pipeline " + explicit_.Id + " that its owner may not use -- request refused");
                 }
                 else
                 {
                     // Try by name if not found by ID
                     Pipeline? named = await ReadUsablePipelineByNameAsync(pipelineId, vessel, token).ConfigureAwait(false);
-                    if (named != null) return named;
+                    if (named != null) return RequireActive(named, PipelineSourceRequested);
                 }
             }
 
@@ -1911,7 +1915,8 @@ namespace Armada.Core.Services
                 Pipeline? vesselPipeline = await _Database.Pipelines.ReadAsync(vessel.DefaultPipelineId, token).ConfigureAwait(false);
                 if (vesselPipeline != null)
                 {
-                    if (Armada.Core.Authorization.OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, vesselPipeline)) return vesselPipeline;
+                    if (Armada.Core.Authorization.OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, vesselPipeline))
+                        return RequireActive(vesselPipeline, PipelineReferenceRule.VesselDefaultSource);
                     _Logging.Warn(_Header + "vessel " + vessel.Id + " default pipeline " + vesselPipeline.Id + " is private to another owner -- not inherited");
                 }
                 else
@@ -1932,7 +1937,8 @@ namespace Armada.Core.Services
                     Pipeline? fleetPipeline = await _Database.Pipelines.ReadAsync(fleet.DefaultPipelineId, token).ConfigureAwait(false);
                     if (fleetPipeline != null)
                     {
-                        if (Armada.Core.Authorization.OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, fleetPipeline)) return fleetPipeline;
+                        if (Armada.Core.Authorization.OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, fleetPipeline))
+                            return RequireActive(fleetPipeline, PipelineReferenceRule.FleetDefaultSource);
                         _Logging.Warn(_Header + "fleet " + fleet.Id + " default pipeline " + fleetPipeline.Id + " is private to another owner -- not inherited by vessel " + vessel.Id);
                     }
                     else
@@ -1946,6 +1952,15 @@ namespace Armada.Core.Services
             }
 
             return null;
+        }
+
+        private const string PipelineSourceRequested = "requested pipeline";
+
+        private Pipeline RequireActive(Pipeline pipeline, string source)
+        {
+            if (pipeline.Active) return pipeline;
+            _Logging.Warn(_Header + "dispatch refused: " + source + " " + pipeline.Name + " (" + pipeline.Id + ") is inactive");
+            throw new PipelineInactiveException(pipeline.Id, pipeline.Name, source);
         }
 
         /// <summary>

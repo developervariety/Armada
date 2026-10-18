@@ -1163,6 +1163,11 @@ namespace Armada.Server
                     // The hold was engaged between the admission check above and the dispatch.
                     return await DeferRescueForDispatchHoldAsync(auth, latest, decision, held.Hold, token).ConfigureAwait(false);
                 }
+                catch (PipelineInactiveException inactive)
+                {
+                    await BlockRescueForInactivePipelineAsync(auth, latest, incident, inactive, token).ConfigureAwait(false);
+                    return true;
+                }
                 await ApplyClaudeThinkingDisableAsync(latest, rescue, token).ConfigureAwait(false);
                 latest.RecoveryAttempts++;
                 latest.LastRecoveryActionUtc = DateTime.UtcNow;
@@ -1688,6 +1693,35 @@ namespace Armada.Server
             await EmitEventAsync(
                 "autonomous_recovery.rescue_deferred_unassignable",
                 "Autonomous rescue for failed mission " + mission.Id + " was deferred: " + reasonCode + ". No rescue was created and no recovery attempt was spent.",
+                mission,
+                incident.Id,
+                token).ConfigureAwait(false);
+        }
+
+        // A rescue runs on the pipeline a dispatch would resolve. When that pipeline is retired the rescue is
+        // not created and no recovery attempt is spent; the incident names the pipeline, and the recovery
+        // sweep may retry once an operator reactivates it or points the reference at an active pipeline.
+        private async Task BlockRescueForInactivePipelineAsync(
+            AuthContext auth,
+            Mission mission,
+            Incident incident,
+            PipelineInactiveException inactive,
+            CancellationToken token)
+        {
+            string reasonCode = PipelineInactiveException.ReasonCode;
+            if (!(incident.RecoveryNotes ?? String.Empty).Contains(reasonCode + ": " + inactive.PipelineId, StringComparison.Ordinal))
+            {
+                await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+                {
+                    RecoveryNotes = AppendNote(incident.RecoveryNotes,
+                        reasonCode + ": " + inactive.PipelineId + ": no rescue mission was created and no recovery attempt was spent because "
+                        + inactive.Message)
+                }, token).ConfigureAwait(false);
+            }
+
+            await EmitEventAsync(
+                "autonomous_recovery.blocked",
+                "Autonomous rescue for failed mission " + mission.Id + " was not dispatched: " + inactive.Message,
                 mission,
                 incident.Id,
                 token).ConfigureAwait(false);

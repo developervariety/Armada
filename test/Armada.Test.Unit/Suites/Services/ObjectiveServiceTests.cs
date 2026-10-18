@@ -147,6 +147,49 @@ namespace Armada.Test.Unit.Suites.Services
                     "Annotating the objective with an incident must leave it auto-dispatch eligible.");
             }).ConfigureAwait(false);
 
+            await RunTest("Objective writes refuse a suggested pipeline that is inactive", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "UnitTest");
+                Pipeline retired = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("RetiredExample") { Active = false }).ConfigureAwait(false);
+                Pipeline active = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("ActiveExample")).ConfigureAwait(false);
+
+                RecordWriteResult<Objective> createById = await objectives.CreateRecordAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Retired pipeline by id",
+                    SuggestedPipelineId = retired.Id
+                }).ConfigureAwait(false);
+                AssertFalse(createById.Succeeded, "a create naming an inactive pipeline id is refused");
+                AssertContains("inactive", createById.Message ?? String.Empty);
+
+                RecordWriteResult<Objective> createByName = await objectives.CreateRecordAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Retired pipeline by name",
+                    SuggestedPipelineId = "RetiredExample"
+                }).ConfigureAwait(false);
+                AssertFalse(createByName.Succeeded, "a create naming an inactive pipeline by name is refused");
+
+                Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Active pipeline",
+                    SuggestedPipelineId = active.Id
+                }).ConfigureAwait(false);
+                RecordWriteResult<Objective> update = await objectives.UpdateRecordAsync(auth, created.Id, new ObjectiveUpsertRequest
+                {
+                    SuggestedPipelineId = retired.Id
+                }).ConfigureAwait(false);
+                AssertFalse(update.Succeeded, "an update pointing at an inactive pipeline is refused");
+                Objective? reread = await objectives.ReadAsync(auth, created.Id).ConfigureAwait(false);
+                AssertEqual(active.Id, reread!.SuggestedPipelineId, "a refused update leaves the suggestion unchanged");
+
+                RecordWriteResult<Objective> clear = await objectives.UpdateRecordAsync(auth, created.Id, new ObjectiveUpsertRequest
+                {
+                    SuggestedPipelineId = String.Empty
+                }).ConfigureAwait(false);
+                AssertTrue(clear.Succeeded, "clearing the suggestion is never refused");
+            }).ConfigureAwait(false);
+
             await RunTest("MCP update_backlog_item returns structured errors and accepts backlogItemId alias", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

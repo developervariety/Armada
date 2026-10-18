@@ -253,6 +253,13 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 404;
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Fleet not found" };
                 }
+                string? createPipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
+                    _database, vessel.DefaultPipelineId, null, Armada.Core.Services.PipelineReferenceRule.VesselDefaultSource).ConfigureAwait(false);
+                if (createPipelineRefusal != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = createPipelineRefusal };
+                }
                 vessel.TenantId = ctx.TenantId;
                 vessel.UserId = ctx.UserId;
                 vessel.AutoLandPredicate = autoLandPredicateJson;
@@ -335,6 +342,13 @@ namespace Armada.Server.Routes
                     if (updatePathForbidden) return RouteAuthRefusal.Forbid(req, updatePathError);
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updatePathError };
+                }
+                string? updatePipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
+                    _database, updated.DefaultPipelineId, existing.DefaultPipelineId, Armada.Core.Services.PipelineReferenceRule.VesselDefaultSource).ConfigureAwait(false);
+                if (updatePipelineRefusal != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updatePipelineRefusal };
                 }
                 updated = await _database.Vessels.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;

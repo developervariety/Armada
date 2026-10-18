@@ -624,6 +624,13 @@ upstream integrations and excludes changes already present at that baseline.
   in at the next start and can then be deleted. Deleting a pipeline the seed
   still declares is refused with a reason that names deactivation as the
   durable retirement.
+- **A retired pipeline is refused by name, never replaced:** a dispatch whose
+  requested pipeline, vessel default or fleet default is inactive is refused
+  with `pipeline_inactive` and the pipeline's name and source, instead of
+  running it. Setting an objective's suggested pipeline or a vessel or fleet
+  default to an inactive pipeline is refused on every write surface. A rescue
+  that would run on an inactive pipeline is not created, spends no attempt, and
+  names the pipeline on its incident.
 - **A held Pending stage names its hold:** the assignment pass records why it
   holds a Pending mission in `AssignmentHoldReason`, with the holding record in
   `AssignmentHoldEntityId`, persisted on every provider (SQLite 111, PostgreSQL

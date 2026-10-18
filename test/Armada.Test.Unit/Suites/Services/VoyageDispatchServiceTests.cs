@@ -1262,6 +1262,63 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Validation_InactivePipeline_RefusedByNameFromEverySourceWithoutFallback", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    OverrideDispatchHarness harness = await OverrideDispatchHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Pipeline retired = await harness.CreatePipelineAsync("RetiredExample", "Worker", "Judge").ConfigureAwait(false);
+                    retired.Active = false;
+                    retired = await testDb.Driver.Pipelines.UpdateAsync(retired).ConfigureAwait(false);
+                    Pipeline active = await harness.CreatePipelineAsync("ActiveExample", "Worker", "Judge").ConfigureAwait(false);
+
+                    // Requested by name.
+                    VoyageDispatchResult requested = await harness.Service.DispatchAsync(InactivePipelineRequest(harness.Vessel.Id, "RetiredExample")).ConfigureAwait(false);
+                    string requestedBody = JsonSerializer.Serialize(requested.Value);
+                    AssertEqual(400, requested.StatusCode);
+                    AssertContains("pipeline_inactive", requestedBody);
+                    AssertContains("requested pipeline", requestedBody);
+                    AssertContains(retired.Id, requestedBody);
+
+                    // Inherited from the vessel default, while the fleet default is active: no fall-through.
+                    Fleet fleet = await testDb.Driver.Fleets.CreateAsync(new Fleet("inactive-pipeline-fleet")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        DefaultPipelineId = active.Id
+                    }).ConfigureAwait(false);
+                    Vessel vessel = harness.Vessel;
+                    vessel.FleetId = fleet.Id;
+                    vessel.DefaultPipelineId = retired.Id;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                    VoyageDispatchResult vesselDefault = await harness.Service.DispatchAsync(InactivePipelineRequest(vessel.Id, null)).ConfigureAwait(false);
+                    string vesselBody = JsonSerializer.Serialize(vesselDefault.Value);
+                    AssertEqual(400, vesselDefault.StatusCode);
+                    AssertContains("pipeline_inactive", vesselBody);
+                    AssertContains("vessel default pipeline", vesselBody);
+
+                    // Inherited from the fleet default.
+                    vessel.DefaultPipelineId = null;
+                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                    fleet.DefaultPipelineId = retired.Id;
+                    await testDb.Driver.Fleets.UpdateAsync(fleet).ConfigureAwait(false);
+                    VoyageDispatchResult fleetDefault = await harness.Service.DispatchAsync(InactivePipelineRequest(vessel.Id, null)).ConfigureAwait(false);
+                    string fleetBody = JsonSerializer.Serialize(fleetDefault.Value);
+                    AssertEqual(400, fleetDefault.StatusCode);
+                    AssertContains("pipeline_inactive", fleetBody);
+                    AssertContains("fleet default pipeline", fleetBody);
+
+                    // No refusal created a voyage.
+                    AssertEqual(0, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count);
+
+                    // Reactivated, the same dispatch is no longer refused for the pipeline.
+                    retired.Active = true;
+                    await testDb.Driver.Pipelines.UpdateAsync(retired).ConfigureAwait(false);
+                    VoyageDispatchResult reactivated = await harness.Service.DispatchAsync(InactivePipelineRequest(vessel.Id, null)).ConfigureAwait(false);
+                    AssertFalse(JsonSerializer.Serialize(reactivated.Value).Contains("pipeline_inactive", StringComparison.Ordinal),
+                        "a reactivated pipeline is not refused");
+                }
+            });
+
             await RunTest("Validation_ObjectiveIdWithoutObjectiveService_Returns400", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -2722,6 +2779,18 @@ namespace Armada.Test.Unit.Suites.Services
                     "Occupancy must remain active while the writer could still run.");
                 AssertEqual(MissionStatusEnum.InProgress, storedMission.Status);
             });
+        }
+
+        private static SharedVoyageDispatchRequest InactivePipelineRequest(string vesselId, string? pipeline)
+        {
+            return new SharedVoyageDispatchRequest
+            {
+                Title = "inactive pipeline",
+                VesselId = vesselId,
+                CodeContextMode = "off",
+                Pipeline = pipeline,
+                Missions = new List<MissionDescription> { new MissionDescription("t", "d") }
+            };
         }
 
         private static VoyageDispatchService NewService(TestDatabase testDb, ArmadaSettings? settings = null)

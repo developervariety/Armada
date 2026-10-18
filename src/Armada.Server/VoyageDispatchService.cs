@@ -217,6 +217,17 @@ namespace Armada.Server
                 });
             }
 
+            // A retired pipeline is refused here, before a background job is accepted, wherever the
+            // reference comes from. The dispatch never falls back to another pipeline.
+            try
+            {
+                await ResolveDispatchPipelineAsync(request, dispatchVessel, token).ConfigureAwait(false);
+            }
+            catch (PipelineInactiveException inactive)
+            {
+                return PipelineInactiveResult(inactive);
+            }
+
             return null;
         }
 
@@ -227,7 +238,15 @@ namespace Armada.Server
             IReadOnlyList<MissionDescription> effectiveMissions,
             CancellationToken token)
         {
-            Pipeline? resolvedPipeline = await _Admiral.ResolvePipelineAsync(pipelineId, vessel, token).ConfigureAwait(false);
+            Pipeline? resolvedPipeline;
+            try
+            {
+                resolvedPipeline = await _Admiral.ResolvePipelineAsync(pipelineId, vessel, token).ConfigureAwait(false);
+            }
+            catch (PipelineInactiveException inactive)
+            {
+                return PipelineInactiveResult(inactive);
+            }
             PipelineStageSkipResult skipped;
             try
             {
@@ -483,6 +502,10 @@ namespace Armada.Server
             {
                 return StageSkipRefusedResult(refused);
             }
+            catch (PipelineInactiveException inactive) when (voyage == null)
+            {
+                return PipelineInactiveResult(inactive);
+            }
             catch (DispatchHoldActiveException held) when (voyage == null)
             {
                 return VoyageDispatchResult.Conflict(DispatchHoldRefusal.From(held.Hold));
@@ -650,6 +673,10 @@ namespace Armada.Server
                     {
                         return StageSkipRefusedResult(refused);
                     }
+                    catch (PipelineInactiveException inactive)
+                    {
+                        return PipelineInactiveResult(inactive);
+                    }
                     personas = stagePersonas
                         .Where(persona => MissionService.SelectCaptainOverride(request.CaptainAssignments, persona) == assignment)
                         .ToList();
@@ -693,17 +720,8 @@ namespace Armada.Server
             string? requestedPipeline = await ResolvePipelineIdAsync(NormalizeEmpty(request.PipelineId), NormalizeEmpty(request.Pipeline)).ConfigureAwait(false);
             // An unknown pipeline name is refused by name later in validation; no stage applies to it here.
             if (String.Equals(requestedPipeline, "__pipeline_not_found__", StringComparison.Ordinal)) return new List<string>();
-            string? objectiveId = NormalizeEmpty(request.ObjectiveId);
-            if (requestedPipeline == null && objectiveId != null && _ObjectiveService != null)
-            {
-                Objective? objective = await _ObjectiveService.ReadAsync(
-                    RequireObjectiveCaller(request.ObjectiveAuthContext, objectiveId), objectiveId, token).ConfigureAwait(false);
-                requestedPipeline = NormalizeEmpty(objective?.SuggestedPipelineId);
-            }
 
-            Pipeline? pipeline = AdmiralService.SkipsDefaultPipeline(requestedPipeline, request.Missions)
-                ? null
-                : await _Admiral.ResolvePipelineAsync(requestedPipeline, vessel, token).ConfigureAwait(false);
+            Pipeline? pipeline = await ResolveDispatchPipelineAsync(request, vessel, token).ConfigureAwait(false);
             pipeline = PipelineStageSkip.Apply(
                 pipeline, PipelineStageSkip.FromOperator(request.SkipStages, request.SkipStagesReason, request.ObjectiveAuthContext)).Pipeline;
             if (pipeline == null || pipeline.Stages == null || pipeline.Stages.Count <= 1)
@@ -1633,6 +1651,40 @@ namespace Armada.Server
                 Action = "Cancel the winning voyage first if you intend to re-dispatch this objective.",
                 ObjectiveId = objectiveId,
                 VoyageId = winningVoyageId
+            });
+        }
+
+        // The pipeline a dispatch runs: the requested pipeline, else the linked objective's suggested pipeline,
+        // else the vessel or fleet default, unless a read-only dispatch skips the default. Throws
+        // PipelineInactiveException when that pipeline is retired.
+        private async Task<Pipeline?> ResolveDispatchPipelineAsync(SharedVoyageDispatchRequest request, Vessel vessel, CancellationToken token)
+        {
+            string? requestedPipeline = await ResolvePipelineIdAsync(NormalizeEmpty(request.PipelineId), NormalizeEmpty(request.Pipeline)).ConfigureAwait(false);
+            if (String.Equals(requestedPipeline, "__pipeline_not_found__", StringComparison.Ordinal)) return null;
+            string? objectiveId = NormalizeEmpty(request.ObjectiveId);
+            if (requestedPipeline == null && objectiveId != null && _ObjectiveService != null)
+            {
+                Objective? objective = await _ObjectiveService.ReadAsync(
+                    RequireObjectiveCaller(request.ObjectiveAuthContext, objectiveId), objectiveId, token).ConfigureAwait(false);
+                requestedPipeline = NormalizeEmpty(objective?.SuggestedPipelineId);
+            }
+
+            return AdmiralService.SkipsDefaultPipeline(requestedPipeline, request.Missions)
+                ? null
+                : await _Admiral.ResolvePipelineAsync(requestedPipeline, vessel, token).ConfigureAwait(false);
+        }
+
+        private static VoyageDispatchResult PipelineInactiveResult(PipelineInactiveException inactive)
+        {
+            return VoyageDispatchResult.BadRequest(new
+            {
+                Error = inactive.Message,
+                Code = PipelineInactiveException.ReasonCode,
+                Reason = "The " + inactive.Source + " " + inactive.PipelineName + " is retired (active=false); a dispatch never substitutes another pipeline.",
+                Action = "Reactivate it with update_pipeline(active=true), or name an active pipeline and point the vessel, fleet or objective at it.",
+                Pipeline = inactive.PipelineName,
+                PipelineId = inactive.PipelineId,
+                inactive.Source
             });
         }
 

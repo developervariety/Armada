@@ -92,6 +92,35 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("UpdateVessel_DefaultPipeline_RefusesAnInactivePipelineButKeepsOtherEdits", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await SeedVesselAsync(testDb).ConfigureAwait(false);
+                    Pipeline retired = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("RetiredExample") { Active = false }).ConfigureAwait(false);
+                    Pipeline active = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("ActiveExample")).ConfigureAwait(false);
+                    Func<JsonElement?, Task<object>> handler = CaptureUpdateHandler(testDb);
+
+                    object refused = await handler(JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, defaultPipelineId = retired.Id })).ConfigureAwait(false);
+                    string refusedJson = JsonSerializer.Serialize(refused);
+                    AssertContains("pipeline_inactive", refusedJson);
+                    AssertContains(retired.Id, refusedJson);
+                    Vessel? afterRefusal = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNull(afterRefusal!.DefaultPipelineId, "a refused write leaves the default unchanged");
+
+                    object accepted = await handler(JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, defaultPipelineId = active.Id })).ConfigureAwait(false);
+                    AssertFalse(JsonSerializer.Serialize(accepted).Contains("\"Error\""), "an active pipeline is accepted: " + JsonSerializer.Serialize(accepted));
+
+                    // Retiring the default afterwards does not lock the vessel: an unchanged reference is not re-checked.
+                    active.Active = false;
+                    await testDb.Driver.Pipelines.UpdateAsync(active).ConfigureAwait(false);
+                    object edited = await handler(JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, defaultPipelineId = active.Id, projectContext = "edited" })).ConfigureAwait(false);
+                    AssertFalse(JsonSerializer.Serialize(edited).Contains("\"Error\""), "an unchanged retired reference does not refuse other edits: " + JsonSerializer.Serialize(edited));
+                    Vessel? afterEdit = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertEqual("edited", afterEdit!.ProjectContext);
+                }
+            });
+
             await RunTest("AddVessel_EnableModelContext_SchemaDefaultMatchesCreatedVessel", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

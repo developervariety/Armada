@@ -212,6 +212,9 @@ namespace Armada.Server.Mcp.Tools
                     }
                     vessel.AllowConcurrentMissions = request.AllowConcurrentMissions ?? false;
                     vessel.EnableModelContext = request.EnableModelContext ?? true;
+                    string? addPipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
+                        database, request.DefaultPipelineId, null, Armada.Core.Services.PipelineReferenceRule.VesselDefaultSource).ConfigureAwait(false);
+                    if (addPipelineRefusal != null) return (object)new { Error = addPipelineRefusal, Code = Armada.Core.Services.PipelineInactiveException.ReasonCode };
                     vessel.DefaultPipelineId = request.DefaultPipelineId;
                     vessel.ProtectedPaths = (request.ProtectedPaths != null && request.ProtectedPaths.Count > 0) ? request.ProtectedPaths : null;
                     vessel.AutoLandPredicate = autoLandPredicateJson;
@@ -355,7 +358,12 @@ namespace Armada.Server.Mcp.Tools
                     if (request.EnableModelContext.HasValue)
                         vessel.EnableModelContext = request.EnableModelContext.Value;
                     if (request.DefaultPipelineId != null)
+                    {
+                        string? pipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
+                            database, request.DefaultPipelineId, vessel.DefaultPipelineId, Armada.Core.Services.PipelineReferenceRule.VesselDefaultSource).ConfigureAwait(false);
+                        if (pipelineRefusal != null) return (object)new { Error = pipelineRefusal, Code = Armada.Core.Services.PipelineInactiveException.ReasonCode };
                         vessel.DefaultPipelineId = request.DefaultPipelineId;
+                    }
                     if (request.ProtectedPaths != null)
                         vessel.ProtectedPaths = request.ProtectedPaths.Count > 0 ? request.ProtectedPaths : null;
                     if (request.BranchCleanupPolicy != null)

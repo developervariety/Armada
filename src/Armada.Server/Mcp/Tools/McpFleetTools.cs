@@ -111,7 +111,12 @@ namespace Armada.Server.Mcp.Tools
                     if (request.Description != null)
                         fleet.Description = request.Description;
                     if (request.DefaultPipelineId != null)
+                    {
+                        string? pipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
+                            database, request.DefaultPipelineId, fleet.DefaultPipelineId, Armada.Core.Services.PipelineReferenceRule.FleetDefaultSource).ConfigureAwait(false);
+                        if (pipelineRefusal != null) return (object)new { Error = pipelineRefusal, Code = Armada.Core.Services.PipelineInactiveException.ReasonCode };
                         fleet.DefaultPipelineId = request.DefaultPipelineId;
+                    }
                     if (request.DefaultPlaybooks != null)
                         fleet.DefaultPlaybooks = request.DefaultPlaybooks;
                     fleet = await database.Fleets.UpdateAsync(fleet).ConfigureAwait(false);

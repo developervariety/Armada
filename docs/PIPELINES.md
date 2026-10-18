@@ -52,6 +52,21 @@ then a fleet default, then `WorkerOnly`. A source repository can need a stronger
 default. Configure a specialist pipeline when approved reference
 material is a normal part of that vessel's work.
 
+The first of these references that the vessel's owner may use decides. When it
+names an inactive pipeline, the dispatch is refused with the code
+`pipeline_inactive`, naming the pipeline and whether it was the requested
+pipeline, the vessel default or the fleet default. Armada never substitutes the
+next default or `WorkerOnly` for a retired pipeline. The objective dispatch
+preview reports the same pipeline as a `pipeline_inactive` blocking issue. A
+rescue that would run on an inactive pipeline is not created and spends no
+recovery attempt; its incident names the pipeline.
+
+An objective's suggested pipeline and a vessel's or fleet's default pipeline
+cannot be set to an inactive pipeline, on every write surface (MCP, REST and the
+dashboard socket). Only a changed reference is checked, so a record whose
+pipeline was retired later still accepts edits to its other fields; clear or
+replace the reference to dispatch it again.
+
 Read current fleet and vessel settings before a default change. Do not infer a
 default from a previous voyage.
 

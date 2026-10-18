@@ -369,6 +369,10 @@ namespace Armada.Server.WebSocket
         private async Task<object> CreateFleetCommandAsync(WebSocketCommand command, string rawBody, AuthContext caller)
         {
             Fleet newFleet = JsonSerializer.Deserialize<WebSocketDataCommand<Fleet>>(rawBody, _JsonOptions)?.Data!;
+            string? createPipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
+                _Database, newFleet.DefaultPipelineId, null, Armada.Core.Services.PipelineReferenceRule.FleetDefaultSource).ConfigureAwait(false);
+            if (createPipelineRefusal != null)
+                return new { type = "command.error", action = "create_fleet", error = createPipelineRefusal };
             newFleet.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
             newFleet.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
             newFleet = await _Database.Fleets.CreateAsync(newFleet).ConfigureAwait(false);
@@ -386,6 +390,10 @@ namespace Armada.Server.WebSocket
                 return NotFound("update_fleet", "Fleet not found");
             Fleet updFleet = JsonSerializer.Deserialize<WebSocketDataCommand<Fleet>>(rawBody, _JsonOptions)?.Data!;
             FleetUpdateMerge.KeepServerOwnedFields(existFleet, updFleet, ReadDataFieldNames(rawBody));
+            string? updatePipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
+                _Database, updFleet.DefaultPipelineId, existFleet.DefaultPipelineId, Armada.Core.Services.PipelineReferenceRule.FleetDefaultSource).ConfigureAwait(false);
+            if (updatePipelineRefusal != null)
+                return new { type = "command.error", action = "update_fleet", error = updatePipelineRefusal };
             updFleet = await _Database.Fleets.UpdateAsync(updFleet).ConfigureAwait(false);
             return new { type = "command.result", action = "update_fleet", data = (object)updFleet };
         }
@@ -438,6 +446,10 @@ namespace Armada.Server.WebSocket
                 return createPathForbidden
                     ? Forbidden("create_vessel", createPathError)
                     : new { type = "command.error", action = "create_vessel", error = createPathError };
+            string? createPipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
+                _Database, newVessel.DefaultPipelineId, null, Armada.Core.Services.PipelineReferenceRule.VesselDefaultSource).ConfigureAwait(false);
+            if (createPipelineRefusal != null)
+                return new { type = "command.error", action = "create_vessel", error = createPipelineRefusal };
             newVessel.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
             newVessel.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
             newVessel.NormalizeGitHubTokenOverride();
@@ -461,6 +473,10 @@ namespace Armada.Server.WebSocket
                 return updatePathForbidden
                     ? Forbidden("update_vessel", updatePathError)
                     : new { type = "command.error", action = "update_vessel", error = updatePathError };
+            string? updatePipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
+                _Database, updVessel.DefaultPipelineId, existVessel.DefaultPipelineId, Armada.Core.Services.PipelineReferenceRule.VesselDefaultSource).ConfigureAwait(false);
+            if (updatePipelineRefusal != null)
+                return new { type = "command.error", action = "update_vessel", error = updatePipelineRefusal };
             updVessel = await _Database.Vessels.UpdateAsync(updVessel).ConfigureAwait(false);
             return new { type = "command.result", action = "update_vessel", data = (object)updVessel };
         }

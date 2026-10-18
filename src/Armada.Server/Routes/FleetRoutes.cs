@@ -107,6 +107,13 @@ namespace Armada.Server.Routes
                 }
                 Fleet fleet = JsonSerializer.Deserialize<Fleet>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Fleet.");
+                string? createPipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
+                    _database, fleet.DefaultPipelineId, null, Armada.Core.Services.PipelineReferenceRule.FleetDefaultSource).ConfigureAwait(false);
+                if (createPipelineRefusal != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = createPipelineRefusal };
+                }
                 fleet.TenantId = ctx.TenantId;
                 fleet.UserId = ctx.UserId;
                 fleet = await _database.Fleets.CreateAsync(fleet).ConfigureAwait(false);
@@ -169,6 +176,13 @@ namespace Armada.Server.Routes
                 Fleet updated = JsonSerializer.Deserialize<Fleet>(fleetBody, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Fleet.");
                 FleetUpdateMerge.KeepServerOwnedFields(existing, updated, ReadTopLevelFieldNames(fleetBody));
+                string? updatePipelineRefusal = await Armada.Core.Services.PipelineReferenceRule.RefusalAsync(
+                    _database, updated.DefaultPipelineId, existing.DefaultPipelineId, Armada.Core.Services.PipelineReferenceRule.FleetDefaultSource).ConfigureAwait(false);
+                if (updatePipelineRefusal != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updatePipelineRefusal };
+                }
                 updated = await _database.Fleets.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },
