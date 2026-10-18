@@ -45,6 +45,29 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Count the incidents visible to the caller by status, and the open ones by severity. The counts
+        /// equal the totals of <see cref="EnumerateAsync"/> filtered on each value, from one read of the
+        /// incident snapshots instead of one read per value.
+        /// </summary>
+        public async Task<IncidentCountSummary> CountAsync(AuthContext auth, CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+
+            List<Incident> incidents = await ReadAllIncidentsAsync(auth, token).ConfigureAwait(false);
+            IncidentCountSummary summary = new IncidentCountSummary();
+            foreach (Incident incident in incidents)
+            {
+                summary.ByStatus.TryGetValue(incident.Status, out int statusCount);
+                summary.ByStatus[incident.Status] = statusCount + 1;
+                if (incident.Status != IncidentStatusEnum.Open) continue;
+                summary.OpenBySeverity.TryGetValue(incident.Severity, out int severityCount);
+                summary.OpenBySeverity[incident.Severity] = severityCount + 1;
+            }
+
+            return summary;
+        }
+
+        /// <summary>
         /// Enumerate incidents visible to the caller.
         /// </summary>
         public async Task<EnumerationResult<Incident>> EnumerateAsync(

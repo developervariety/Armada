@@ -489,6 +489,71 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GetStatusAsync objective and incident counts equal the filtered enumerate totals for every value", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), new StubGitService());
+                    AuthContext auth = McpTestCaller.Operator;
+                    ObjectiveService objectives = new ObjectiveService(db);
+                    IncidentService incidents = new IncidentService(db);
+
+                    ObjectiveStatusEnum[] objectiveStatuses = Enum.GetValues<ObjectiveStatusEnum>();
+                    ObjectiveBacklogStateEnum[] backlogStates = Enum.GetValues<ObjectiveBacklogStateEnum>();
+                    for (int i = 0; i < 20; i++)
+                    {
+                        await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                        {
+                            Title = "Counted objective " + i,
+                            Status = objectiveStatuses[(i * 5) % objectiveStatuses.Length],
+                            BacklogState = backlogStates[i % backlogStates.Length]
+                        });
+                    }
+
+                    IncidentStatusEnum[] incidentStatuses = Enum.GetValues<IncidentStatusEnum>();
+                    IncidentSeverityEnum[] severities = Enum.GetValues<IncidentSeverityEnum>();
+                    for (int i = 0; i < 14; i++)
+                    {
+                        await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                        {
+                            Title = "Counted incident " + i,
+                            Status = i < 6 ? IncidentStatusEnum.Open : incidentStatuses[i % incidentStatuses.Length],
+                            Severity = severities[(i * 3) % severities.Length],
+                            RootCause = "Written cause for counted incident " + i
+                        });
+                    }
+
+                    StructuredDeliveryStatus delivery = (await service.GetStatusAsync()).StructuredDelivery;
+
+                    foreach (ObjectiveStatusEnum value in objectiveStatuses)
+                    {
+                        long total = (await objectives.EnumerateAsync(auth, new ObjectiveQuery { Status = value, PageNumber = 1, PageSize = 1 })).TotalRecords;
+                        AssertEqual(total, delivery.ObjectivesByStatus.TryGetValue(value.ToString(), out int count) ? count : 0L, "objectives with status " + value);
+                    }
+                    foreach (ObjectiveBacklogStateEnum value in backlogStates)
+                    {
+                        long total = (await objectives.EnumerateAsync(auth, new ObjectiveQuery { BacklogState = value, PageNumber = 1, PageSize = 1 })).TotalRecords;
+                        AssertEqual(total, delivery.BacklogByState.TryGetValue(value.ToString(), out int count) ? count : 0L, "objectives in backlog state " + value);
+                    }
+                    foreach (IncidentStatusEnum value in incidentStatuses)
+                    {
+                        long total = (await incidents.EnumerateAsync(auth, new IncidentQuery { Status = value, PageNumber = 1, PageSize = 1 })).TotalRecords;
+                        AssertEqual(total, delivery.IncidentsByStatus.TryGetValue(value.ToString(), out int count) ? count : 0L, "incidents with status " + value);
+                    }
+                    foreach (IncidentSeverityEnum value in severities)
+                    {
+                        long total = (await incidents.EnumerateAsync(auth, new IncidentQuery { Status = IncidentStatusEnum.Open, Severity = value, PageNumber = 1, PageSize = 1 })).TotalRecords;
+                        AssertEqual(total, delivery.OpenIncidentsBySeverity.TryGetValue(value.ToString(), out int count) ? count : 0L, "open incidents with severity " + value);
+                    }
+
+                    AssertTrue(delivery.ObjectivesByStatus.Count > 1, "the seed spans several objective statuses");
+                    AssertTrue(delivery.IncidentsByStatus.Count > 1, "the seed spans several incident statuses");
+                    AssertTrue(delivery.OpenIncidentsBySeverity.Count > 1, "the seed spans several open severities");
+                    AssertFalse(delivery.ObjectivesByStatus.Values.Any(v => v == 0), "empty buckets are omitted");
+                }
+            });
+
             // Dispatch ergonomics: a read-only dispatch (all missions Audit/Research)
             // must NOT inherit a multi-stage vessel default pipeline -- a four-mission diagnostic
             // probe once expanded to sixteen missions. An explicitly requested pipeline still wins.

@@ -564,6 +564,29 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Count the objectives visible to the caller by lifecycle status and by backlog state. The counts
+        /// equal the totals of <see cref="EnumerateAsync"/> filtered on each value, from one read instead of
+        /// one read per value.
+        /// </summary>
+        public async Task<ObjectiveCountSummary> CountAsync(AuthContext auth, CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+
+            await EnsureBackfilledAsync(token).ConfigureAwait(false);
+            List<Objective> objectives = await ReadAllObjectivesAsync(auth, token).ConfigureAwait(false);
+            ObjectiveCountSummary summary = new ObjectiveCountSummary();
+            foreach (Objective objective in objectives)
+            {
+                summary.ByStatus.TryGetValue(objective.Status, out int statusCount);
+                summary.ByStatus[objective.Status] = statusCount + 1;
+                summary.ByBacklogState.TryGetValue(objective.BacklogState, out int stateCount);
+                summary.ByBacklogState[objective.BacklogState] = stateCount + 1;
+            }
+
+            return summary;
+        }
+
+        /// <summary>
         /// Enumerate objectives visible to the caller.
         /// </summary>
         public async Task<EnumerationResult<Objective>> EnumerateAsync(

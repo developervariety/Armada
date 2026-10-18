@@ -1357,26 +1357,14 @@ namespace Armada.Core.Services
             ObjectiveService objectives = new ObjectiveService(_Database);
             IncidentService incidents = new IncidentService(_Database);
 
+            ObjectiveCountSummary objectiveCounts = await objectives.CountAsync(auth, token).ConfigureAwait(false);
             foreach (ObjectiveStatusEnum value in Enum.GetValues<ObjectiveStatusEnum>())
             {
-                EnumerationResult<Objective> page = await objectives.EnumerateAsync(auth, new ObjectiveQuery
-                {
-                    Status = value,
-                    PageNumber = 1,
-                    PageSize = 1
-                }, token).ConfigureAwait(false);
-                if (page.TotalRecords > 0) status.ObjectivesByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
+                if (objectiveCounts.ByStatus.TryGetValue(value, out int count) && count > 0) status.ObjectivesByStatus[value.ToString()] = count;
             }
-
             foreach (ObjectiveBacklogStateEnum value in Enum.GetValues<ObjectiveBacklogStateEnum>())
             {
-                EnumerationResult<Objective> page = await objectives.EnumerateAsync(auth, new ObjectiveQuery
-                {
-                    BacklogState = value,
-                    PageNumber = 1,
-                    PageSize = 1
-                }, token).ConfigureAwait(false);
-                if (page.TotalRecords > 0) status.BacklogByState[value.ToString()] = ClampStatusCount(page.TotalRecords);
+                if (objectiveCounts.ByBacklogState.TryGetValue(value, out int count) && count > 0) status.BacklogByState[value.ToString()] = count;
             }
 
             foreach (CheckRunStatusEnum value in Enum.GetValues<CheckRunStatusEnum>())
@@ -1426,26 +1414,14 @@ namespace Armada.Core.Services
                     && !String.Equals(kvp.Key, DeploymentStatusEnum.Denied.ToString(), StringComparison.OrdinalIgnoreCase))
                 .Sum(kvp => kvp.Value);
 
+            IncidentCountSummary incidentCounts = await incidents.CountAsync(auth, token).ConfigureAwait(false);
             foreach (IncidentStatusEnum value in Enum.GetValues<IncidentStatusEnum>())
             {
-                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
-                {
-                    Status = value,
-                    PageNumber = 1,
-                    PageSize = 1
-                }, token).ConfigureAwait(false);
-                if (page.TotalRecords > 0) status.IncidentsByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
+                if (incidentCounts.ByStatus.TryGetValue(value, out int count) && count > 0) status.IncidentsByStatus[value.ToString()] = count;
             }
             foreach (IncidentSeverityEnum value in Enum.GetValues<IncidentSeverityEnum>())
             {
-                EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
-                {
-                    Status = IncidentStatusEnum.Open,
-                    Severity = value,
-                    PageNumber = 1,
-                    PageSize = 1
-                }, token).ConfigureAwait(false);
-                if (page.TotalRecords > 0) status.OpenIncidentsBySeverity[value.ToString()] = ClampStatusCount(page.TotalRecords);
+                if (incidentCounts.OpenBySeverity.TryGetValue(value, out int count) && count > 0) status.OpenIncidentsBySeverity[value.ToString()] = count;
             }
 
             return status;

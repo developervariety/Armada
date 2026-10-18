@@ -50,6 +50,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- `GET /api/v1/status` reads the objectives once and the incident snapshots
+  once to build its objective, backlog and incident counts. It read every
+  objective once per status and backlog value and every incident snapshot
+  once per status and severity value, which made the call take several
+  seconds on a large store. The counts are unchanged.
+
 - A rescue of a failed Judge, Linter or TestEngineer no longer hands its Worker
   the failed reviewer's role text as the original mission description. The
   rescue brief removes every persona role section from that description and
