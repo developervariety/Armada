@@ -59,6 +59,7 @@ namespace Armada.Core.Database.SqlServer
                 { "lane_state_transitions.created_utc", StoredTimestampEnum.Timestamp },
                 { "memory_proposals.created_utc", StoredTimestampEnum.Timestamp },
                 { "memory_proposals.dismissed_utc", StoredTimestampEnum.Timestamp },
+                { "memory_proposals.promoted_utc", StoredTimestampEnum.Timestamp },
                 { "memory_proposals.last_update_utc", StoredTimestampEnum.Timestamp },
                 { "mission_attempt_facts.created_utc", StoredTimestampEnum.Timestamp },
                 { "missions.last_recovery_action_utc", StoredTimestampEnum.Timestamp },

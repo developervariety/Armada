@@ -43,6 +43,15 @@ namespace Armada.Test.Unit.Suites.Database
                 return Task.CompletedTask;
             });
 
+            await RunTest("Every timestamp column a migration adds is written in the form its column type stores", () =>
+            {
+                // The startup schema guard refuses a column whose type differs from the binder's form for it, so a
+                // migration that adds a zoned or zone-less column the binder does not name stops the admiral.
+                CheckMigrationTimestampForms(Armada.Core.Enums.DatabaseTypeEnum.Postgresql, Armada.Core.Database.Postgresql.Queries.TableQueries.GetMigrations());
+                CheckMigrationTimestampForms(Armada.Core.Enums.DatabaseTypeEnum.SqlServer, Armada.Core.Database.SqlServer.Queries.TableQueries.GetMigrations());
+                return Task.CompletedTask;
+            });
+
             await RunTest("Skipped migration rule lists unapplied known versions below the applied maximum", () =>
             {
                 List<SchemaMigration> known = new List<SchemaMigration>
@@ -135,6 +144,49 @@ namespace Armada.Test.Unit.Suites.Database
                 }
             });
 
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex _AddedTimestampColumn = new System.Text.RegularExpressions.Regex(
+            @"ALTER\s+TABLE\s+(?<table>\w+)\s+(?:ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?|ALTER\s+COLUMN\s+)(?<column>\w+_utc)\s+(?:TYPE\s+)?(?<type>TIMESTAMPTZ|TIMESTAMP\s+WITH\s+TIME\s+ZONE|TIMESTAMP|DATETIMEOFFSET|DATETIME2|DATETIME|TEXT|NVARCHAR)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        private void CheckMigrationTimestampForms(Armada.Core.Enums.DatabaseTypeEnum provider, List<SchemaMigration> migrations)
+        {
+            HashSet<string> tables = ProviderSchemaTables.For(provider);
+            StoredValueBinder binder = StoredValueBinder.For(provider);
+            Dictionary<string, string> lastType = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (SchemaMigration migration in migrations.OrderBy(m => m.Version))
+            {
+                foreach (string statement in migration.Statements)
+                {
+                    foreach (System.Text.RegularExpressions.Match match in _AddedTimestampColumn.Matches(statement))
+                    {
+                        string table = match.Groups["table"].Value.ToLowerInvariant();
+                        if (!tables.Contains(table)) continue;
+                        lastType[table + "." + match.Groups["column"].Value.ToLowerInvariant()] = match.Groups["type"].Value.ToUpperInvariant();
+                    }
+                }
+            }
+
+            List<string> mismatches = new List<string>();
+            foreach (KeyValuePair<string, string> column in lastType)
+            {
+                string[] parts = column.Key.Split('.');
+                StoredTimestampEnum storage = binder.TimestampStorage(parts[0], parts[1]);
+                string type = System.Text.RegularExpressions.Regex.Replace(column.Value, @"\s+", " ");
+                bool zoned = type == "TIMESTAMPTZ" || type == "TIMESTAMP WITH TIME ZONE" || type == "DATETIMEOFFSET";
+                bool zoneless = type == "TIMESTAMP" || type == "DATETIME2" || type == "DATETIME";
+                bool fits = storage switch
+                {
+                    StoredTimestampEnum.TimestampWithZone => zoned,
+                    StoredTimestampEnum.Timestamp => zoneless,
+                    _ => !zoned && !zoneless
+                };
+                if (!fits) mismatches.Add(column.Key + " is " + column.Value + " but is written as " + storage);
+            }
+
+            AssertTrue(lastType.Count > 0, provider + " migrations add timestamp columns, so the check reads them");
+            AssertTrue(mismatches.Count == 0, provider + " migrations add columns the binder writes in another form: " + String.Join("; ", mismatches));
         }
     }
 }

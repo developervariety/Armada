@@ -71,6 +71,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The PostgreSQL and SQL Server binders name `memory_proposals.promoted_utc`,
+  so the startup schema guard accepts the promotion column. A unit test now
+  compares every timestamp column a PostgreSQL or SQL Server migration adds
+  with the binder's form for it, so a missing entry fails the suite instead of
+  stopping the admiral at startup.
+
 - Dispatch stages a context pack built for each mission's own goal. Before, every
   dispatch on an indexed vessel staged the vessel's cached baseline pack, which
   answers a generic architecture question, so captains reported packs that did not

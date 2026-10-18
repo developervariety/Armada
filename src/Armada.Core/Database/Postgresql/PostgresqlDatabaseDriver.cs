@@ -90,6 +90,7 @@ namespace Armada.Core.Database.Postgresql
                 { "memories.last_update_utc", StoredTimestampEnum.TimestampWithZone },
                 { "memory_proposals.created_utc", StoredTimestampEnum.TimestampWithZone },
                 { "memory_proposals.dismissed_utc", StoredTimestampEnum.TimestampWithZone },
+                { "memory_proposals.promoted_utc", StoredTimestampEnum.TimestampWithZone },
                 { "memory_proposals.last_update_utc", StoredTimestampEnum.TimestampWithZone },
                 { "mission_attempt_facts.created_utc", StoredTimestampEnum.TimestampWithZone },
                 { "model_endpoints.created_utc", StoredTimestampEnum.TimestampWithZone },
