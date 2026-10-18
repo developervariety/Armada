@@ -67,6 +67,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Follow-up text splits into one item per bullet and holds no item for an explicit none", () =>
+            {
+                List<string> items = JudgeFollowUpItems.Split("- Add the boundary test.\n  It covers the empty frame.\n* Rename the helper.\n2. Pin the clock in the retry test.");
+                AssertEqual(3, items.Count, "three bullets are three items");
+                AssertEqual("Add the boundary test. It covers the empty frame.", items[0], "an indented line continues its bullet");
+                AssertEqual("Rename the helper.", items[1]);
+                AssertEqual("Pin the clock in the retry test.", items[2], "a numbered line is an item");
+                AssertEqual(1, JudgeFollowUpItems.Split("Document the retry limit.").Count, "unmarked text is one item");
+                foreach (string? none in new[] { "(none)", "- None", "None.", "n/a", "No follow-up needed.", "  ", null })
+                    AssertEqual(0, JudgeFollowUpItems.Split(none).Count, "'" + none + "' holds no item");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("The follow-up listing returns reviews with items, newest first, inside the window and vessel filter", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DateTime now = DateTime.UtcNow;
+                    await StoreFollowUpAsync(testDb.Driver, "msn_judge-old", "vsl_list-a", "- Old item.", now.AddHours(-300)).ConfigureAwait(false);
+                    await StoreFollowUpAsync(testDb.Driver, "msn_judge-none", "vsl_list-a", "(none)", now.AddHours(-3)).ConfigureAwait(false);
+                    await StoreFollowUpAsync(testDb.Driver, "msn_judge-older", "vsl_list-a", "- First item.\n- Second item.", now.AddHours(-20)).ConfigureAwait(false);
+                    await StoreFollowUpAsync(testDb.Driver, "msn_judge-newer", "vsl_list-a", "- Newest item.", now.AddHours(-2)).ConfigureAwait(false);
+                    await StoreFollowUpAsync(testDb.Driver, "msn_judge-other", "vsl_list-b", "- Other vessel item.", now.AddHours(-1)).ConfigureAwait(false);
+
+                    Func<System.Text.Json.JsonElement?, Task<object>>? list = null;
+                    Armada.Server.Mcp.Tools.McpAuditTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == Armada.Server.Mcp.Tools.McpAuditTools.ListJudgeFollowUpsToolName) list = McpTestCaller.Wrap(handler);
+                    }, testDb.Driver);
+                    AssertNotNull(list, "the listing tool is registered");
+
+                    string json = System.Text.Json.JsonSerializer.Serialize(await list!(System.Text.Json.JsonSerializer.SerializeToElement(new { vesselId = "vsl_list-a", sinceHours = 168 })).ConfigureAwait(false));
+                    AssertContains("\"ReviewsWithFollowUps\":2", json, "the explicit none and the out-of-window review are left out");
+                    AssertContains("\"TotalItems\":3", json);
+                    AssertFalse(json.Contains("Other vessel item", StringComparison.Ordinal), "the vessel filter holds");
+                    AssertFalse(json.Contains("Old item", StringComparison.Ordinal), "the window holds");
+                    AssertTrue(json.IndexOf("msn_judge-newer", StringComparison.Ordinal) < json.IndexOf("msn_judge-older", StringComparison.Ordinal), "newest first");
+
+                    string paged = System.Text.Json.JsonSerializer.Serialize(await list(System.Text.Json.JsonSerializer.SerializeToElement(new { vesselId = "vsl_list-a", limit = 1, offset = 1 })).ConfigureAwait(false));
+                    AssertContains("msn_judge-older", paged, "offset reaches the second review");
+                    AssertContains("\"HasMore\":false", paged);
+                }
+            });
+
             await RunTest("Bounded backfill records actionable and explicit-none sections exactly once", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -422,6 +466,18 @@ namespace Armada.Test.Unit.Suites.Services
             };
         }
 
+        private static Task<JudgeFollowUp> StoreFollowUpAsync(DatabaseDriver database, string judgeMissionId, string vesselId, string text, DateTime createdUtc)
+        {
+            return database.JudgeFollowUps.UpsertAsync(new JudgeFollowUp
+            {
+                JudgeMissionId = judgeMissionId,
+                ReviewedMissionId = judgeMissionId + "-reviewed",
+                VesselId = vesselId,
+                SuggestedFollowUps = text,
+                CreatedUtc = createdUtc
+            });
+        }
+
         private sealed class FailOnceJudgeFollowUps : IJudgeFollowUpMethods
         {
             private readonly IJudgeFollowUpMethods _Inner;
@@ -448,6 +504,7 @@ namespace Armada.Test.Unit.Suites.Services
                 _Inner.CompleteAuditAsync(id, verdict, notes, recommendedAction, completedUtc, token);
             public Task<List<JudgeFollowUp>> EnumeratePendingAsync(string? vesselId = null, CancellationToken token = default) => _Inner.EnumeratePendingAsync(vesselId, token);
             public Task<List<JudgeFollowUp>> EnumerateUnassociatedAsync(string? vesselId = null, CancellationToken token = default) => _Inner.EnumerateUnassociatedAsync(vesselId, token);
+            public Task<List<JudgeFollowUp>> EnumerateCreatedSinceAsync(DateTime sinceUtc, string? vesselId = null, CancellationToken token = default) => _Inner.EnumerateCreatedSinceAsync(sinceUtc, vesselId, token);
             public Task<List<JudgeFollowUp>> EnumerateUnassociatedByReviewedMissionAsync(string reviewedMissionId, CancellationToken token = default) => _Inner.EnumerateUnassociatedByReviewedMissionAsync(reviewedMissionId, token);
             public Task<List<JudgeFollowUp>> EnumerateUnassociatedByJudgeMissionAsync(string judgeMissionId, CancellationToken token = default) => _Inner.EnumerateUnassociatedByJudgeMissionAsync(judgeMissionId, token);
         }

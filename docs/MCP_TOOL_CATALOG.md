@@ -275,7 +275,7 @@ for the complete record, or `outputTailLines` to widen the tail.
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_get_merge_entry`, `armada_drain_audit_queue` |
+| Read | `armada_get_merge_entry`, `armada_drain_audit_queue`, `armada_list_judge_followups` |
 | Write | `armada_enqueue_merge`, `armada_record_audit_verdict`, `armada_backfill_judge_followups` |
 | Execute | `armada_process_merge_entry`, `armada_process_merge_queue` |
 | Interrupt | `armada_cancel_merge` |
@@ -285,6 +285,13 @@ for the complete record, or `outputTailLines` to widen the tail.
 write fault. Pass an explicit `fromUtc` (and optional `toUtc`), run with
 `dryRun: true` first, check `incomplete` and `errors`, then run the same range
 with `dryRun: false`. A second write pass must report zero `created` rows.
+
+`armada_list_judge_followups` lists the stored Judge reviews that suggested at
+least one follow-up, newest first, with each review's text split into items (one
+bullet is one item; an explicit "none" has no items). Filters: `vesselId`,
+`sinceHours` (default 168, maximum 2160), `limit` (default 25, maximum 200) and
+`offset`. It is read-only. Sweep it like papercuts, so every item gets a home: a
+fix objective, an owner decision, or a recorded note.
 
 ### 8.9 Docks, Signals, And Events
 

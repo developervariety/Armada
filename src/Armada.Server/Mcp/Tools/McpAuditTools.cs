@@ -12,11 +12,50 @@ namespace Armada.Server.Mcp.Tools
 
     /// <summary>
     /// MCP tools exposing the auto-land safety-net audit queue and verdict recording.
+    /// armada_list_judge_followups: orchestrator lists the follow-ups Judge reviews suggested.
     /// armada_drain_audit_queue: orchestrator pulls Pending entries flagged for deep review.
     /// armada_record_audit_verdict: orchestrator records the subagent's Pass/Concern/Critical verdict.
     /// </summary>
     public static class McpAuditTools
     {
+        /// <summary>Registered name of the Judge follow-up listing tool.</summary>
+        public const string ListJudgeFollowUpsToolName = "armada_list_judge_followups";
+
+        private static readonly JsonSerializerOptions _ListJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+        private sealed class ListJudgeFollowUpsArgs
+        {
+            public string? VesselId { get; set; }
+
+            public int? SinceHours { get; set; }
+
+            public int? Limit { get; set; }
+
+            public int? Offset { get; set; }
+        }
+
+        private sealed class JudgeFollowUpListItem
+        {
+            public string Id { get; set; } = "";
+
+            public string JudgeMissionId { get; set; } = "";
+
+            public string ReviewedMissionId { get; set; } = "";
+
+            public string? VoyageId { get; set; }
+
+            public string? VesselId { get; set; }
+
+            public string JudgeVerdict { get; set; } = "";
+
+            public DateTime CreatedUtc { get; set; }
+
+            public List<string> Items { get; set; } = new List<string>();
+        }
+
         private class AuditQueueItem
         {
             public DateTime CreatedUtc { get; set; }
@@ -87,6 +126,65 @@ namespace Armada.Server.Mcp.Tools
                         toUtc.ToUniversalTime(),
                         dryRun,
                         maxPages).ConfigureAwait(false);
+                });
+            register(
+                ListJudgeFollowUpsToolName,
+                "List the follow-ups Judge reviews suggested, newest first: each stored Judge review with at least one suggested follow-up, split into items. Use it to sweep follow-ups the same way as papercuts, so each item gets a home (a fix objective, an owner decision, or a recorded note). Read-only.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Optional: filter to one vessel (vsl_ prefix)" },
+                        sinceHours = new { type = "integer", description = "Only reviews newer than this many hours (default 168, maximum 2160)" },
+                        limit = new { type = "integer", description = "Maximum reviews returned (default 25, maximum 200)" },
+                        offset = new { type = "integer", description = "Reviews to skip, for the next page (default 0)" }
+                    }
+                },
+                async (args) =>
+                {
+                    ListJudgeFollowUpsArgs request = args.HasValue
+                        ? JsonSerializer.Deserialize<ListJudgeFollowUpsArgs>(args.Value, _ListJsonOptions) ?? new ListJudgeFollowUpsArgs()
+                        : new ListJudgeFollowUpsArgs();
+                    int sinceHours = Math.Clamp(request.SinceHours ?? 168, 1, 2160);
+                    int limit = Math.Clamp(request.Limit ?? 25, 1, 200);
+                    int offset = Math.Max(0, request.Offset ?? 0);
+                    DateTime sinceUtc = DateTime.UtcNow.AddHours(-sinceHours);
+                    string? vesselId = String.IsNullOrWhiteSpace(request.VesselId) ? null : request.VesselId!.Trim();
+
+                    List<JudgeFollowUp> rows = await database.JudgeFollowUps.EnumerateCreatedSinceAsync(sinceUtc, vesselId).ConfigureAwait(false);
+                    List<JudgeFollowUpListItem> withItems = new List<JudgeFollowUpListItem>();
+                    int totalItems = 0;
+                    foreach (JudgeFollowUp row in rows)
+                    {
+                        List<string> items = JudgeFollowUpItems.Split(row.SuggestedFollowUps);
+                        if (items.Count == 0) continue;
+                        totalItems += items.Count;
+                        withItems.Add(new JudgeFollowUpListItem
+                        {
+                            Id = row.Id,
+                            JudgeMissionId = row.JudgeMissionId,
+                            ReviewedMissionId = row.ReviewedMissionId,
+                            VoyageId = row.VoyageId,
+                            VesselId = row.VesselId,
+                            JudgeVerdict = row.JudgeVerdict,
+                            CreatedUtc = row.CreatedUtc,
+                            Items = items
+                        });
+                    }
+
+                    List<JudgeFollowUpListItem> page = withItems.Skip(offset).Take(limit).ToList();
+                    return (object)new
+                    {
+                        SinceUtc = sinceUtc,
+                        ReviewsScanned = rows.Count,
+                        ReviewsWithFollowUps = withItems.Count,
+                        TotalItems = totalItems,
+                        Offset = offset,
+                        Count = page.Count,
+                        HasMore = offset + page.Count < withItems.Count,
+                        FollowUps = page
+                    };
                 });
             register(
                 "armada_drain_audit_queue",

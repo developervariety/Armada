@@ -40,6 +40,13 @@ namespace Armada.Core.Database.Interfaces
         /// <summary>Enumerate pending items, optionally for one vessel, oldest first.</summary>
         Task<List<JudgeFollowUp>> EnumeratePendingAsync(string? vesselId = null, CancellationToken token = default);
 
+        /// <summary>Enumerate follow-ups created at or after a time, newest first, optionally for one vessel.</summary>
+        /// <param name="sinceUtc">Earliest creation time, in UTC.</param>
+        /// <param name="vesselId">Vessel filter, or null for every vessel.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The follow-ups.</returns>
+        Task<List<JudgeFollowUp>> EnumerateCreatedSinceAsync(DateTime sinceUtc, string? vesselId = null, CancellationToken token = default);
+
         /// <summary>Enumerate all unassociated items, optionally for one vessel, oldest first.</summary>
         Task<List<JudgeFollowUp>> EnumerateUnassociatedAsync(string? vesselId = null, CancellationToken token = default);
 

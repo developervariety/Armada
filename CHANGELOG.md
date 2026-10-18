@@ -9,6 +9,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- `armada_list_judge_followups` lists the follow-ups Judge reviews suggested,
+  newest first, split into one item per bullet, with vessel, time-window and
+  paging filters. An explicit "none" counts as no follow-up.
 - Memory proposals gain a `Promoted` state. The new operator tool
   `armada_promote_memory_proposal` records the full AI-Memory commit SHA, the
   operator and the time on an Open proposal after the owner writes the rule by

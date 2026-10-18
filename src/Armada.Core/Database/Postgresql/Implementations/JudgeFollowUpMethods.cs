@@ -189,6 +189,29 @@ namespace Armada.Core.Database.Postgresql.Implementations
             }
         }
 
+        /// <inheritdoc />
+        public async Task<List<JudgeFollowUp>> EnumerateCreatedSinceAsync(DateTime sinceUtc, string? vesselId = null, CancellationToken token = default)
+        {
+            List<JudgeFollowUp> results = new List<JudgeFollowUp>();
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT * FROM judge_follow_ups WHERE created_utc >= @since"
+                        + (vesselId == null ? "" : " AND vessel_id = @value")
+                        + " ORDER BY created_utc DESC, id DESC;";
+                    PostgresqlDatabaseDriver.StoredBinder.For(cmd, "judge_follow_ups").Utc("@since", "created_utc", sinceUtc);
+                    if (vesselId != null) StoredValueBinder.Value(cmd, "@value", vesselId);
+                    using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(token).ConfigureAwait(false)) results.Add(JudgeFollowUpColumns.Read(reader, PostgresqlDatabaseDriver.StoredValues));
+                    }
+                }
+            }
+            return results;
+        }
+
         private async Task<List<JudgeFollowUp>> EnumerateAsync(string condition, string? value, CancellationToken token)
         {
             List<JudgeFollowUp> results = new List<JudgeFollowUp>();
