@@ -694,7 +694,6 @@
         "No stages defined.": "No hay etapas definidas.",
         "Execution order of the stage": "Orden de ejecución de la etapa",
         "Name of the persona assigned to this stage": "Nombre del perfil asignado a esta etapa",
-        "Whether this stage can be skipped": "Si esta etapa puede omitirse",
         "Description of this stage": "Descripción de esta etapa",
         "Move up": "Mover arriba",
         "Move down": "Mover abajo",
