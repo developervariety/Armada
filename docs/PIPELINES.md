@@ -37,8 +37,10 @@ pipelines are deployment configuration, seeded through `additionalPipelines`
 with matching personas and templates.
 
 An operator retires a seeded pipeline by deactivating it (`active: false`). The
-seed leaves an inactive pipeline exactly as it is, so the retirement survives a
-restart; reactivating it hands it back to the seed. A pipeline the seed declares
+seed leaves an inactive built-in pipeline exactly as it is, so the retirement
+survives a restart; reactivating it hands it back to the seed. A same-name
+pipeline the seed never owned (not built in) is adopted and brought to its
+definition, active or not. A pipeline the seed declares
 cannot be deleted, because the next start would re-create it, and the refusal
 says so. A pipeline that was seeded as built in but that neither the code nor
 `additionalPipelines` declares any more stops being built in at the next start,

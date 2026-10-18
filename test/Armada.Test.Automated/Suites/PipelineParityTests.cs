@@ -68,7 +68,7 @@ namespace Armada.Test.Automated.Suites
                 AssertFalse(mcp.IsError, "MCP create: " + mcp);
                 AssertFalse(ws.IsError, "WebSocket create: " + ws);
 
-                await AssertSameStoredAsync(names, "Worker#1 optional=False review=False deny=RetryStage model= desc=|Judge#2 optional=False review=True deny=FailPipeline model=high desc=review", "parity").ConfigureAwait(false);
+                await AssertSameStoredAsync(names, "Worker#1 review=False deny=RetryStage model= desc=|Judge#2 review=True deny=FailPipeline model=high desc=review", "parity").ConfigureAwait(false);
 
                 // The replacement list names no review field: the gate the Judge stage carries must survive.
                 object updateStages = new object[] { new { personaName = "Worker" }, new { personaName = "Judge" } };
@@ -79,14 +79,14 @@ namespace Armada.Test.Automated.Suites
                 AssertFalse(mcp.IsError, "MCP update: " + mcp);
                 AssertFalse(ws.IsError, "WebSocket update: " + ws);
 
-                await AssertSameStoredAsync(names, "Worker#1 optional=False review=False deny=RetryStage model= desc=|Judge#2 optional=False review=True deny=FailPipeline model=high desc=review", "changed").ConfigureAwait(false);
+                await AssertSameStoredAsync(names, "Worker#1 review=False deny=RetryStage model= desc=|Judge#2 review=True deny=FailPipeline model=high desc=review", "changed").ConfigureAwait(false);
 
                 // An explicit value still turns the gate off, the same way on every surface.
                 object gateOff = new object[] { new { personaName = "Worker" }, new { personaName = "Judge", requiresReview = false, preferredModel = (string?)null } };
                 await _Surfaces.RestAsync(HttpMethod.Put, "/api/v1/pipelines/" + names["rest"], ConfigurationSurfaces.Json(new { stages = gateOff })).ConfigureAwait(false);
                 await _Surfaces.McpAsync("update_pipeline", ConfigurationSurfaces.Json(new { name = names["mcp"], stages = gateOff })).ConfigureAwait(false);
                 await _Surfaces.WsAsync("update_pipeline", names["ws"], ConfigurationSurfaces.Json(new { stages = gateOff })).ConfigureAwait(false);
-                await AssertSameStoredAsync(names, "Worker#1 optional=False review=False deny=RetryStage model= desc=|Judge#2 optional=False review=False deny=FailPipeline model= desc=review", "changed").ConfigureAwait(false);
+                await AssertSameStoredAsync(names, "Worker#1 review=False deny=RetryStage model= desc=|Judge#2 review=False deny=FailPipeline model= desc=review", "changed").ConfigureAwait(false);
 
                 foreach (string name in names.Values)
                     await _Surfaces.RestAsync(HttpMethod.Delete, "/api/v1/pipelines/" + name, null).ConfigureAwait(false);
@@ -114,7 +114,7 @@ namespace Armada.Test.Automated.Suites
                 AssertFalse((await _Surfaces.McpAsync("create_pipeline", ConfigurationSurfaces.Json(new { name = names["mcp"], description = "parallel", stages = stages })).ConfigureAwait(false)).IsError, "MCP create");
                 AssertFalse((await _Surfaces.WsAsync("create_pipeline", null, ConfigurationSurfaces.Json(new { name = names["ws"], description = "parallel", stages = stages })).ConfigureAwait(false)).IsError, "WebSocket create");
 
-                await AssertSameStoredAsync(names, "Worker#1 optional=False review=False deny=RetryStage model= desc=|TestEngineer#2 optional=False review=False deny=RetryStage model= desc=|Linter#2 optional=False review=False deny=RetryStage model= desc=|Judge#3 optional=False review=False deny=RetryStage model= desc=", "parallel").ConfigureAwait(false);
+                await AssertSameStoredAsync(names, "Worker#1 review=False deny=RetryStage model= desc=|TestEngineer#2 review=False deny=RetryStage model= desc=|Linter#2 review=False deny=RetryStage model= desc=|Judge#3 review=False deny=RetryStage model= desc=", "parallel").ConfigureAwait(false);
 
                 foreach (string name in names.Values)
                     await _Surfaces.RestAsync(HttpMethod.Delete, "/api/v1/pipelines/" + name, null).ConfigureAwait(false);

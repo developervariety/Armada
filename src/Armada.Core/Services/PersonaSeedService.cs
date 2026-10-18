@@ -254,9 +254,10 @@ namespace Armada.Core.Services
             Pipeline? existing = await _Database.Pipelines.ReadByNameAsync(name, token).ConfigureAwait(false);
             if (existing != null)
             {
-                // An inactive pipeline is one the operator retired. The seed keeps that decision: it neither
-                // reactivates the pipeline nor rewrites it. Reactivating it hands it back to the seed.
-                if (!existing.Active)
+                // An inactive built-in pipeline is one the operator retired. The seed keeps that decision: it
+                // neither reactivates the pipeline nor rewrites it. Reactivating it hands it back to the seed. A
+                // same-name pipeline the seed never owned is still adopted and brought to its definition.
+                if (existing.IsBuiltIn && !existing.Active)
                 {
                     _Logging.Debug(_Header + "left retired pipeline inactive: " + name);
                     return;

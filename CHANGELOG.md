@@ -618,7 +618,7 @@ upstream integrations and excludes changes already present at that baseline.
   and a provider that refuses ordinary usage makes it Exhausted. With no verdict reported, the
   measured windows decide as before.
 - **An operator can retire a seeded pipeline:** the startup seed leaves an
-  inactive pipeline inactive instead of reactivating and rewriting it, so a
+  inactive built-in pipeline inactive instead of reactivating and rewriting it, so a
   deactivated built-in stays retired across restarts. A built-in pipeline that
   neither the code nor `additionalPipelines` declares any more stops being built
   in at the next start and can then be deleted. Deleting a pipeline the seed
