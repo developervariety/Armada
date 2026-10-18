@@ -617,6 +617,13 @@ upstream integrations and excludes changes already present at that baseline.
   serves ordinary requests makes the account Reserve (demoted, still routable) instead of Exhausted,
   and a provider that refuses ordinary usage makes it Exhausted. With no verdict reported, the
   measured windows decide as before.
+- **An operator can retire a seeded pipeline:** the startup seed leaves an
+  inactive pipeline inactive instead of reactivating and rewriting it, so a
+  deactivated built-in stays retired across restarts. A built-in pipeline that
+  neither the code nor `additionalPipelines` declares any more stops being built
+  in at the next start and can then be deleted. Deleting a pipeline the seed
+  still declares is refused with a reason that names deactivation as the
+  durable retirement.
 - **A held Pending stage names its hold:** the assignment pass records why it
   holds a Pending mission in `AssignmentHoldReason`, with the holding record in
   `AssignmentHoldEntityId`, persisted on every provider (SQLite 111, PostgreSQL

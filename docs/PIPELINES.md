@@ -31,9 +31,18 @@ concurrently.
 | `ProductDevelopment` | Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Linter, Judge, Recorder |
 | `Recorded` | Worker, Recorder |
 
-The startup seed service creates or reconciles these definitions. Built-in
-pipelines cannot be deleted. Specialist pipelines are deployment configuration,
-seeded through `additionalPipelines` with matching personas and templates.
+The startup seed service creates these definitions on a fresh install and
+reconciles an active one back to its definition on every start. Specialist
+pipelines are deployment configuration, seeded through `additionalPipelines`
+with matching personas and templates.
+
+An operator retires a seeded pipeline by deactivating it (`active: false`). The
+seed leaves an inactive pipeline exactly as it is, so the retirement survives a
+restart; reactivating it hands it back to the seed. A pipeline the seed declares
+cannot be deleted, because the next start would re-create it, and the refusal
+says so. A pipeline that was seeded as built in but that neither the code nor
+`additionalPipelines` declares any more stops being built in at the next start,
+and can then be deleted like any other pipeline.
 See [Operational Assets](OPERATIONAL_ASSETS.md#8-pipelines).
 
 ## Resolution

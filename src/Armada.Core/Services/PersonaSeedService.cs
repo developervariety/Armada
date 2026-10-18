@@ -22,6 +22,7 @@ namespace Armada.Core.Services
         private LoggingModule _Logging;
         private readonly IReadOnlyList<AdditionalPersonaSettings> _AdditionalPersonas;
         private readonly IReadOnlyList<AdditionalPipelineSettings> _AdditionalPipelines;
+        private readonly HashSet<string> _DeclaredPipelineNames = new HashSet<string>(StringComparer.Ordinal);
 
         #endregion
 
@@ -136,6 +137,7 @@ namespace Armada.Core.Services
 
         private async Task SeedPipelinesAsync(CancellationToken token)
         {
+            _DeclaredPipelineNames.Clear();
             await SeedPipelineAsync(
                 "WorkerOnly",
                 "Single worker stage -- backward compatible default.",
@@ -217,10 +219,30 @@ namespace Armada.Core.Services
 
                 await SeedPipelineAsync(extra.Name.Trim(), extra.Description ?? String.Empty, stages, token).ConfigureAwait(false);
             }
+
+            await ReleaseUndeclaredBuiltInPipelinesAsync(token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// A pipeline that was seeded as built in, but that neither the code nor <c>additionalPipelines</c> declares
+        /// any more, is no longer built in: nothing re-creates it, so the operator may delete it like any other.
+        /// </summary>
+        private async Task ReleaseUndeclaredBuiltInPipelinesAsync(CancellationToken token)
+        {
+            List<Pipeline> pipelines = await _Database.Pipelines.EnumerateAsync(token).ConfigureAwait(false);
+            foreach (Pipeline pipeline in pipelines)
+            {
+                if (!pipeline.IsBuiltIn || _DeclaredPipelineNames.Contains(pipeline.Name)) continue;
+                pipeline.IsBuiltIn = false;
+                pipeline.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Pipelines.UpdateAsync(pipeline, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "pipeline " + pipeline.Name + " is no longer declared by any seed -- it is no longer built in and may be deleted");
+            }
         }
 
         private async Task SeedPipelineIfAbsentAsync(string name, string description, List<PipelineStage> stages, CancellationToken token)
         {
+            _DeclaredPipelineNames.Add(name);
             Pipeline? existing = await _Database.Pipelines.ReadByNameAsync(name, token).ConfigureAwait(false);
             if (existing != null) return;
             await SeedPipelineAsync(name, description, stages, token).ConfigureAwait(false);
@@ -228,9 +250,18 @@ namespace Armada.Core.Services
 
         private async Task SeedPipelineAsync(string name, string description, List<PipelineStage> stages, CancellationToken token)
         {
+            _DeclaredPipelineNames.Add(name);
             Pipeline? existing = await _Database.Pipelines.ReadByNameAsync(name, token).ConfigureAwait(false);
             if (existing != null)
             {
+                // An inactive pipeline is one the operator retired. The seed keeps that decision: it neither
+                // reactivates the pipeline nor rewrites it. Reactivating it hands it back to the seed.
+                if (!existing.Active)
+                {
+                    _Logging.Debug(_Header + "left retired pipeline inactive: " + name);
+                    return;
+                }
+
                 if (IsCanonicalPipeline(existing, description, stages))
                 {
                     return;

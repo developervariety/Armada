@@ -138,7 +138,9 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Delete a pipeline the caller may change. A built-in pipeline is never deleted.
+        /// Delete a pipeline the caller may change. A built-in pipeline is not deleted, because the startup seed
+        /// declares it and would re-create it; the operator retires it by deactivating it, which the seed keeps. A
+        /// pipeline no seed declares any more stops being built in at the next start and can then be deleted.
         /// </summary>
         /// <param name="caller">Caller.</param>
         /// <param name="name">Pipeline name.</param>
@@ -151,7 +153,13 @@ namespace Armada.Core.Services
 
             Pipeline? existing = await ReadVisibleAsync(caller, name).ConfigureAwait(false);
             if (existing == null) return RecordWriteResult<Pipeline>.NotFound("Pipeline not found: " + name);
-            if (existing.IsBuiltIn) return RecordWriteResult<Pipeline>.Invalid("Built-in pipelines cannot be deleted");
+            if (existing.IsBuiltIn)
+            {
+                return RecordWriteResult<Pipeline>.Invalid("Built-in pipeline " + existing.Name
+                    + " cannot be deleted: the startup seed declares it and would re-create it. To retire it durably, deactivate it"
+                    + " (active=false); the seed leaves an inactive pipeline inactive. A pipeline no seed declares stops being built in"
+                    + " at the next start and can then be deleted.");
+            }
             if (!OwnershipPolicy.CanEdit(caller, existing)) return RecordWriteResult<Pipeline>.Forbidden("You may not delete this pipeline");
 
             await _Database.Pipelines.DeleteAsync(existing.Id, token).ConfigureAwait(false);

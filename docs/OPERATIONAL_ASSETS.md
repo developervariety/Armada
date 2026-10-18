@@ -257,6 +257,11 @@ Specialist-tested pipelines (`DiagnosticProtocolTested`,
 `TenantSecurityTested`, `ReferencePortingTested`) are not built in.
 Seed them from `additionalPipelines` in settings. They load at startup.
 
+Retire a seeded pipeline by deactivating it; the seed keeps it inactive across
+restarts. A seeded pipeline cannot be deleted while a seed still declares it. One
+that is no longer declared stops being built in at the next start and can then be
+deleted. [Pipelines](PIPELINES.md#built-in-pipelines) owns the rule.
+
 Use `armada_enumerate(entityType: "pipelines")`, `get_pipeline`,
 `create_pipeline`, `update_pipeline`, and `delete_pipeline`.
 
