@@ -343,108 +343,6 @@ namespace Armada.Test.Automated.Suites
 
             #region List-Pagination
 
-            await RunTest("List_25Entries_PageSize10_Returns3Pages", async () =>
-            {
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("Pag25").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 25; i++)
-                {
-                    string msn = await CreateMissionAsync("PagMission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(msn, vesselId, "feat/pag-" + i.ToString("D2")).ConfigureAwait(false);
-                }
-
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/merge-queue?pageSize=10&pageNumber=1").ConfigureAwait(false);
-                EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
-
-                AssertEqual(10, result.Objects.Count);
-                AssertTrue(result.TotalRecords >= 25, "TotalRecords should be >= 25");
-                AssertTrue(result.TotalPages >= 3, "TotalPages should be >= 3");
-                AssertEqual(1, result.PageNumber);
-                AssertEqual(10, result.PageSize);
-            }).ConfigureAwait(false);
-
-            await RunTest("List_25Entries_PageSize10_Page2_Returns10", async () =>
-            {
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("Pag25P2").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 25; i++)
-                {
-                    string msn = await CreateMissionAsync("Pag2Mission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(msn, vesselId, "feat/pag2-" + i.ToString("D2")).ConfigureAwait(false);
-                }
-
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/merge-queue?pageSize=10&pageNumber=2").ConfigureAwait(false);
-                EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
-
-                AssertEqual(10, result.Objects.Count);
-                AssertEqual(2, result.PageNumber);
-            }).ConfigureAwait(false);
-
-            await RunTest("List_25Entries_PageSize10_Page3_Returns5", async () =>
-            {
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("Pag25P3").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 25; i++)
-                {
-                    string msn = await CreateMissionAsync("Pag3Mission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(msn, vesselId, "feat/pag3-" + i.ToString("D2")).ConfigureAwait(false);
-                }
-
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/merge-queue?pageSize=10&pageNumber=3").ConfigureAwait(false);
-                EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
-
-                AssertTrue(result.Objects.Count >= 5, "Page 3 should have at least 5 items");
-                AssertEqual(3, result.PageNumber);
-            }).ConfigureAwait(false);
-
-            await RunTest("List_25Entries_PageSize10_Page4_BeyondLastPage_ReturnsEmpty", async () =>
-            {
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("Pag25P4").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 25; i++)
-                {
-                    string msn = await CreateMissionAsync("Pag4Mission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(msn, vesselId, "feat/pag4-" + i.ToString("D2")).ConfigureAwait(false);
-                }
-
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/merge-queue?pageSize=10&pageNumber=999").ConfigureAwait(false);
-                EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
-
-                AssertEqual(0, result.Objects.Count);
-                AssertTrue(result.TotalRecords >= 25, "TotalRecords should be >= 25");
-            }).ConfigureAwait(false);
-
-            await RunTest("List_PageBoundaries_FirstAndLastRecords", async () =>
-            {
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("PagBound").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                List<string> createdIds = new List<string>();
-                for (int i = 0; i < 5; i++)
-                {
-                    string msn = await CreateMissionAsync("BoundMission" + i).ConfigureAwait(false);
-                    MergeEntry entry = await EnqueueAsync(msn, vesselId, "feat/bound-" + i.ToString("D2")).ConfigureAwait(false);
-                    createdIds.Add(entry.Id);
-                }
-
-                HttpResponseMessage page1Response = await _AuthClient.GetAsync("/api/v1/merge-queue?pageSize=3&pageNumber=1").ConfigureAwait(false);
-                EnumerationResult<MergeEntry> page1Result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(page1Response).ConfigureAwait(false);
-                AssertEqual(3, page1Result.Objects.Count);
-
-                HttpResponseMessage page2Response = await _AuthClient.GetAsync("/api/v1/merge-queue?pageSize=3&pageNumber=2").ConfigureAwait(false);
-                EnumerationResult<MergeEntry> page2Result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(page2Response).ConfigureAwait(false);
-                AssertTrue(page2Result.Objects.Count >= 2, "Page 2 should have at least 2 items");
-
-                List<string> page1Ids = page1Result.Objects.Select(obj => obj.Id).ToList();
-                List<string> page2Ids = page2Result.Objects.Select(obj => obj.Id).ToList();
-
-                AssertEqual(0, page1Ids.Intersect(page2Ids).Count());
-            }).ConfigureAwait(false);
-
             await RunTest("List_Ordering_EntriesOrderedByCreatedUtc", async () =>
             {
                 MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("Order").ConfigureAwait(false);
@@ -488,27 +386,6 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(result.Success);
             }).ConfigureAwait(false);
 
-            await RunTest("Enumerate_WithPageSizeAndPageNumber_ReturnsCorrectPage", async () =>
-            {
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("EnumPage").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 15; i++)
-                {
-                    string msn = await CreateMissionAsync("EnumMission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(msn, vesselId, "feat/enum-" + i.ToString("D2")).ConfigureAwait(false);
-                }
-
-                HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/merge-queue/enumerate", JsonHelper.ToJsonContent(new { PageSize = 5, PageNumber = 2 })).ConfigureAwait(false);
-                EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
-
-                AssertEqual(5, result.Objects.Count);
-                AssertEqual(2, result.PageNumber);
-                AssertEqual(5, result.PageSize);
-                AssertTrue(result.TotalRecords >= 15, "TotalRecords should be >= 15");
-                AssertTrue(result.TotalPages >= 3, "TotalPages should be >= 3");
-            }).ConfigureAwait(false);
-
             await RunTest("Enumerate_AfterEnqueue_ContainsEntry", async () =>
             {
                 MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("EnumAfter").ConfigureAwait(false);
@@ -521,24 +398,6 @@ namespace Armada.Test.Automated.Suites
                 EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
 
                 AssertTrue(result.Objects.Count >= 1);
-            }).ConfigureAwait(false);
-
-            await RunTest("Enumerate_QuerystringOverrides_Work", async () =>
-            {
-                MergeQueuePrerequisiteResult prereqs = await CreatePrerequisitesAsync("EnumQS").ConfigureAwait(false);
-                string vesselId = prereqs.VesselId;
-
-                for (int i = 0; i < 8; i++)
-                {
-                    string msn = await CreateMissionAsync("EnumQSMission" + i).ConfigureAwait(false);
-                    await EnqueueAsync(msn, vesselId, "feat/enumqs-" + i).ConfigureAwait(false);
-                }
-
-                HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/merge-queue/enumerate?pageSize=3", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false);
-                EnumerationResult<MergeEntry> result = await JsonHelper.DeserializeAsync<EnumerationResult<MergeEntry>>(response).ConfigureAwait(false);
-
-                AssertEqual(3, result.Objects.Count);
-                AssertEqual(3, result.PageSize);
             }).ConfigureAwait(false);
 
             #endregion

@@ -299,70 +299,6 @@ namespace Armada.Test.Automated.Suites
 
             #region Pagination-Tests
 
-            await RunTest("ListEvents_Pagination_MultiPage_VerifyCounts", async () =>
-            {
-                for (int i = 0; i < 12; i++)
-                {
-                    Mission mission = await CreateMissionAsync("PageTest-" + i).ConfigureAwait(false);
-                    string missionId = mission.Id;
-                    await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
-                }
-
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/events?pageSize=5&pageNumber=1").ConfigureAwait(false);
-                EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response).ConfigureAwait(false);
-
-                AssertEqual(5, result.Objects.Count);
-                AssertTrue(result.TotalRecords >= 12);
-                AssertEqual(1, result.PageNumber);
-                AssertEqual(5, result.PageSize);
-                AssertTrue(result.Success);
-            }).ConfigureAwait(false);
-
-            await RunTest("ListEvents_Pagination_Page2", async () =>
-            {
-                for (int i = 0; i < 12; i++)
-                {
-                    Mission mission = await CreateMissionAsync("Page2Test-" + i).ConfigureAwait(false);
-                    string missionId = mission.Id;
-                    await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
-                }
-
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/events?pageSize=5&pageNumber=2").ConfigureAwait(false);
-                EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response).ConfigureAwait(false);
-
-                AssertEqual(5, result.Objects.Count);
-                AssertEqual(2, result.PageNumber);
-            }).ConfigureAwait(false);
-
-            await RunTest("ListEvents_Pagination_LastPage_PartialResults", async () =>
-            {
-                for (int i = 0; i < 7; i++)
-                {
-                    Mission mission = await CreateMissionAsync("LastPage-" + i).ConfigureAwait(false);
-                    string missionId = mission.Id;
-                    await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
-                }
-
-                long totalRecords;
-                {
-                    HttpResponseMessage countResp = await _AuthClient.GetAsync("/api/v1/events?pageSize=1000").ConfigureAwait(false);
-                    EnumerationResult<ArmadaEvent> countResult = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(countResp).ConfigureAwait(false);
-                    totalRecords = countResult.TotalRecords;
-                }
-
-                int pageSize = 5;
-                int totalPages = (int)Math.Ceiling((double)totalRecords / pageSize);
-
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/events?pageSize=" + pageSize + "&pageNumber=" + totalPages).ConfigureAwait(false);
-                EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response).ConfigureAwait(false);
-
-                int expectedOnLastPage = (int)(totalRecords % pageSize);
-                if (expectedOnLastPage == 0) expectedOnLastPage = pageSize;
-
-                AssertEqual(expectedOnLastPage, result.Objects.Count);
-                AssertEqual(totalPages, result.PageNumber);
-            }).ConfigureAwait(false);
-
             await RunTest("ListEvents_Pagination_BeyondLastPage_ReturnsEmpty", async () =>
             {
                 Mission mission = await CreateMissionAsync("BeyondPage").ConfigureAwait(false);
@@ -383,25 +319,6 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue((long)(beyondPage - 1) * pageSize >= result.TotalRecords,
                     "Page " + beyondPage + " is not past the last page of " + result.TotalRecords + " events.");
                 AssertEqual(0, result.Objects.Count);
-            }).ConfigureAwait(false);
-
-            await RunTest("ListEvents_Pagination_FirstPageHasCorrectEventIds", async () =>
-            {
-                for (int i = 0; i < 8; i++)
-                {
-                    Mission mission = await CreateMissionAsync("IdCheck-" + i).ConfigureAwait(false);
-                    string missionId = mission.Id;
-                    await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
-                }
-
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/events?pageSize=3&pageNumber=1").ConfigureAwait(false);
-                EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response).ConfigureAwait(false);
-
-                AssertEqual(3, result.Objects.Count);
-                foreach (ArmadaEvent evt in result.Objects)
-                {
-                    AssertStartsWith("evt_", evt.Id);
-                }
             }).ConfigureAwait(false);
 
             await RunTest("ListEvents_Ordering_DefaultIsCreatedDescending", async () =>
@@ -603,24 +520,6 @@ namespace Armada.Test.Automated.Suites
 
             #region Filter-By-Limit-Tests
 
-            await RunTest("ListEvents_FilterByLimit", async () =>
-            {
-                for (int i = 0; i < 10; i++)
-                {
-                    Mission mission = await CreateMissionAsync("LimitTest-" + i).ConfigureAwait(false);
-                    string missionId = mission.Id;
-                    await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
-                }
-
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/events?limit=3").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
-
-                EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response).ConfigureAwait(false);
-
-                AssertEqual(3, result.Objects.Count);
-                AssertEqual(3, result.PageSize);
-            }).ConfigureAwait(false);
-
             await RunTest("ListEvents_WithLimit_RespectsLimit", async () =>
             {
                 HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/events?limit=10").ConfigureAwait(false);
@@ -683,24 +582,6 @@ namespace Armada.Test.Automated.Suites
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("ListEvents_CombinedFilters_LimitAndType", async () =>
-            {
-                for (int i = 0; i < 5; i++)
-                {
-                    Mission mission = await CreateMissionAsync("LimitType-" + i).ConfigureAwait(false);
-                    string missionId = mission.Id;
-                    await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
-                }
-
-                HttpResponseMessage response = await _AuthClient.GetAsync(
-                    "/api/v1/events?type=mission.status_changed&limit=2").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
-
-                EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response).ConfigureAwait(false);
-
-                AssertEqual(2, result.Objects.Count);
-            }).ConfigureAwait(false);
-
             #endregion
 
             #region Enumerate-Tests
@@ -731,26 +612,6 @@ namespace Armada.Test.Automated.Suites
 
                 // Note: database may not be empty at this point due to previous tests
                 AssertTrue(result.TotalRecords >= 0);
-            }).ConfigureAwait(false);
-
-            await RunTest("EnumerateEvents_WithPageSizeAndPageNumber", async () =>
-            {
-                for (int i = 0; i < 12; i++)
-                {
-                    Mission mission = await CreateMissionAsync("EnumPage-" + i).ConfigureAwait(false);
-                    string missionId = mission.Id;
-                    await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
-                }
-
-                StringContent content = JsonHelper.ToJsonContent(new { PageSize = 5, PageNumber = 2 });
-
-                HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/events/enumerate", content).ConfigureAwait(false);
-                EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response).ConfigureAwait(false);
-
-                AssertEqual(5, result.Objects.Count);
-                AssertEqual(2, result.PageNumber);
-                AssertEqual(5, result.PageSize);
-                AssertTrue(result.TotalRecords >= 12);
             }).ConfigureAwait(false);
 
             await RunTest("EnumerateEvents_WithEventTypeFilter", async () =>
@@ -855,24 +716,6 @@ namespace Armada.Test.Automated.Suites
                 {
                     AssertEqual(missionId1, evt.MissionId);
                 }
-            }).ConfigureAwait(false);
-
-            await RunTest("EnumerateEvents_QuerystringOverrides_PageSize", async () =>
-            {
-                for (int i = 0; i < 10; i++)
-                {
-                    Mission mission = await CreateMissionAsync("EnumQS-" + i).ConfigureAwait(false);
-                    string missionId = mission.Id;
-                    await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
-                }
-
-                StringContent content = JsonHelper.ToJsonContent(new { });
-
-                HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/events/enumerate?pageSize=3", content).ConfigureAwait(false);
-                EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response).ConfigureAwait(false);
-
-                AssertEqual(3, result.Objects.Count);
-                AssertEqual(3, result.PageSize);
             }).ConfigureAwait(false);
 
             #endregion

@@ -264,23 +264,6 @@ namespace Test.Shared.Suites.E2E
                     "CompletedUtc should be null or omitted on a new voyage");
             }));
 
-            cases.Add(CaseAsync("create_voyage_bare_voyage_without_vessel_id_returns_201", "Create Voyage Bare Voyage Without VesselId Returns 201", TestTags.Positive, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-                List<string> createdVoyageIds = new List<string>();
-
-                StringContent content = JsonHelper.ToJsonContent(new { Title = "Bare Voyage", Description = "No vessel" });
-
-                HttpResponseMessage resp = await authClient.PostAsync("/api/v1/voyages", content);
-                AssertEqual(HttpStatusCode.Created, resp.StatusCode);
-
-                Voyage voyage = await JsonHelper.DeserializeAsync<Voyage>(resp);
-                createdVoyageIds.Add(voyage.Id);
-                AssertStartsWith("vyg_", voyage.Id);
-                AssertEqual("Open", voyage.Status.ToString());
-            }));
-
             cases.Add(CaseAsync("create_voyage_bare_voyage_with_empty_missions_returns_201", "Create Voyage Bare Voyage With Empty Missions Returns 201", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
@@ -637,40 +620,6 @@ namespace Test.Shared.Suites.E2E
                 HttpResponseMessage getResp = await authClient.GetAsync("/api/v1/voyages/" + voyageId);
                 ArmadaErrorResponse error = await JsonHelper.DeserializeAsync<ArmadaErrorResponse>(getResp);
                 AssertTrue(error.Error != null || error.Message != null);
-            }));
-
-            cases.Add(CaseAsync("purge_voyage_missions_also_deleted", "Purge Voyage Missions Also Deleted", TestTags.Negative, async () =>
-            {
-                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
-                HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
-                List<string> createdVoyageIds = new List<string>();
-
-                PrerequisiteResult prereqs = await CreatePrerequisitesAsync(authClient, createdFleetIds, createdVesselIds);
-                string vesselId = prereqs.VesselId;
-
-                Voyage created = await CreateVoyageAsync(authClient, createdVoyageIds, vesselId, "Purge Missions Gone", missionCount: 2);
-                string voyageId = created.Id;
-
-                // Cancel first -- purge is blocked on Open/InProgress voyages
-                await authClient.DeleteAsync("/api/v1/voyages/" + voyageId);
-
-                HttpResponseMessage getBeforeResp = await authClient.GetAsync("/api/v1/voyages/" + voyageId);
-                VoyageDetailResponse detailBefore = await JsonHelper.DeserializeAsync<VoyageDetailResponse>(getBeforeResp);
-                List<string> missionIds = detailBefore.Missions!.Select(m => m.Id).ToList();
-
-                AssertTrue(missionIds.Count > 0);
-
-                await authClient.DeleteAsync("/api/v1/voyages/" + voyageId + "/purge");
-                createdVoyageIds.Remove(voyageId);
-
-                foreach (string missionId in missionIds)
-                {
-                    HttpResponseMessage missionResp = await authClient.GetAsync("/api/v1/missions/" + missionId);
-                    ArmadaErrorResponse error = await JsonHelper.DeserializeAsync<ArmadaErrorResponse>(missionResp);
-                    AssertTrue(error.Error != null || error.Message != null);
-                }
             }));
 
             cases.Add(CaseAsync("purge_voyage_not_found_returns_error", "Purge Voyage Not Found Returns Error", TestTags.Negative, async () =>

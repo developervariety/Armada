@@ -91,6 +91,11 @@ upstream integrations and excludes changes already present at that baseline.
   audit and Markdown backlog import scripts, and the hand-run tests for the
   image rebuild, framework resolution, fork migration check, SSH bridge,
   cycle-log renderer and watcher scripts.
+- 132 legacy `test/Armada.Test.Automated` HTTP cases for voyages, fleets,
+  captains, events, the merge queue and vessels, each of which the
+  `Test.Shared` E2E suite runs with the same route, inputs and assertions; and
+  two weaker `Test.Shared` voyage cases whose legacy twins assert more. Mission
+  status cases stay in both suites, because the two set up different missions.
 
 ### Fixed
 
