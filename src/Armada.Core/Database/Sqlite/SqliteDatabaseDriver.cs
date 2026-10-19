@@ -175,6 +175,8 @@ namespace Armada.Core.Database.Sqlite
                             await HarborRunnerSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
                         if (migration.Version == 104)
                             await MemoryProposalSchema.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
+                        if (migration.Version == 115)
+                            await JudgeFollowUpHandledItemSchema.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
                         for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                         {
                             string sql = migration.Statements[statementOrdinal];
@@ -408,6 +410,7 @@ namespace Armada.Core.Database.Sqlite
             Releases = new ReleaseMethods(_Stored);
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(this);
+            JudgeFollowUpHandledItems = new JudgeFollowUpHandledItemMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             ProjectProfiles = new ProjectProfileMethods(_Stored);
             Skills = new SkillMethods(_Stored);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);

@@ -105,6 +105,10 @@ namespace Armada.Test.Database
             await AssertColumnAsync(conn, "personas", "minimum_tier", token).ConfigureAwait(false);
             DatabaseAssert.True(await TableExistsAsync(conn, "coordination_leases", token).ConfigureAwait(false), "coordination_leases table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "judge_follow_ups", token).ConfigureAwait(false), "judge_follow_ups table missing");
+            DatabaseAssert.True(await TableExistsAsync(conn, "judge_follow_up_handled_items", token).ConfigureAwait(false), "judge_follow_up_handled_items table missing");
+            foreach (string column in new[] { "id", "tenant_id", "user_id", "follow_up_id", "item_number", "kind", "disposition", "handled_by", "handled_utc" })
+                await AssertColumnAsync(conn, "judge_follow_up_handled_items", column, token).ConfigureAwait(false);
+            DatabaseAssert.True(await IndexExistsAsync(conn, "idx_judge_follow_up_handled_items_item", token).ConfigureAwait(false), "idx_judge_follow_up_handled_items_item index missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "memories", token).ConfigureAwait(false), "memories table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "memory_tags", token).ConfigureAwait(false), "memory_tags table missing");
             DatabaseAssert.True(!await TableExistsAsync(conn, "jobs", token).ConfigureAwait(false), "jobs table is absent");

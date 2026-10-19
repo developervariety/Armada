@@ -82,6 +82,7 @@ namespace Armada.Core.Database.Postgresql
                 { "harbor_runner_enrollments.created_utc", StoredTimestampEnum.TimestampWithZone },
                 { "harbor_runner_enrollments.last_update_utc", StoredTimestampEnum.TimestampWithZone },
                 { "harbor_runner_enrollments.revoked_utc", StoredTimestampEnum.TimestampWithZone },
+                { "judge_follow_up_handled_items.handled_utc", StoredTimestampEnum.TimestampWithZone },
                 { "judge_follow_ups.audit_completed_utc", StoredTimestampEnum.TimestampWithZone },
                 { "judge_follow_ups.created_utc", StoredTimestampEnum.TimestampWithZone },
                 { "judge_follow_ups.last_update_utc", StoredTimestampEnum.TimestampWithZone },
@@ -226,6 +227,8 @@ namespace Armada.Core.Database.Postgresql
                                 await HarborRunnerSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, token).ConfigureAwait(false);
                             if (migration.Version == 105)
                                 await MemoryProposalSchema.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, token).ConfigureAwait(false);
+                            if (migration.Version == 119)
+                                await JudgeFollowUpHandledItemSchema.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, token).ConfigureAwait(false);
                             for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                             {
                                 string sql = migration.Statements[statementOrdinal];
@@ -424,6 +427,7 @@ namespace Armada.Core.Database.Postgresql
             Releases = new ReleaseMethods(_Stored);
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(_Settings);
+            JudgeFollowUpHandledItems = new JudgeFollowUpHandledItemMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             TokenUsage = new TokenUsageMethods(_Stored);
             ModelEndpoints = new ModelEndpointMethods(_Stored);
             ProjectProfiles = new ProjectProfileMethods(_Stored);

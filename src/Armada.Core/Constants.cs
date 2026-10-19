@@ -278,6 +278,11 @@ namespace Armada.Core
         public static readonly string JudgeFollowUpIdPrefix = "jfu_";
 
         /// <summary>
+        /// Judge follow-up handled-item marker ID prefix.
+        /// </summary>
+        public static readonly string JudgeFollowUpHandledItemIdPrefix = "jfh_";
+
+        /// <summary>
         /// Mission attempt fact ID prefix.
         /// </summary>
         public static readonly string MissionAttemptFactIdPrefix = "maf_";

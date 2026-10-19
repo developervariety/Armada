@@ -392,6 +392,72 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyJudgeFollowUpHandledItemsAsync(CancellationToken token)
+        {
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+            string followUpId = "jfu_handled_" + suffix;
+            List<string> storedIds = new List<string>();
+            try
+            {
+                JudgeFollowUpHandledItem first = new JudgeFollowUpHandledItem
+                {
+                    TenantId = "ten_handled_" + suffix,
+                    UserId = "usr_handled_" + suffix,
+                    FollowUpId = followUpId,
+                    ItemNumber = 2,
+                    Kind = Armada.Core.Enums.JudgeFollowUpDispositionKindEnum.Note,
+                    Disposition = "Covered by the retry fix ユニコード",
+                    HandledBy = "operator-a",
+                    HandledUtc = DateTime.UtcNow.AddMinutes(-3)
+                };
+                DatabaseAssert.True(await _Driver.JudgeFollowUpHandledItems.CreateAsync(first, token).ConfigureAwait(false), "The first marker for an item is stored");
+                storedIds.Add(first.Id);
+                JudgeFollowUpHandledItem read = DatabaseAssert.NotNull(await _Driver.JudgeFollowUpHandledItems.ReadAsync(followUpId, 2, token).ConfigureAwait(false), "Marker by item");
+                DatabaseAssert.Equal(first.Id, read.Id, "Marker id");
+                DatabaseAssert.Equal(first.Disposition, read.Disposition, "Marker disposition");
+                DatabaseAssert.Equal(Armada.Core.Enums.JudgeFollowUpDispositionKindEnum.Note, read.Kind, "Marker kind");
+                DatabaseAssert.Equal("operator-a", read.HandledBy, "Marker handler");
+                DatabaseAssert.UtcInstant(first.HandledUtc, read.HandledUtc, "JudgeFollowUpHandledItem.HandledUtc");
+                DatabaseAssert.True(await _Driver.JudgeFollowUpHandledItems.ReadAsync(followUpId, 1, token).ConfigureAwait(false) == null, "An unmarked item reads as open");
+
+                JudgeFollowUpHandledItem duplicate = new JudgeFollowUpHandledItem { FollowUpId = followUpId, ItemNumber = 2, Disposition = "again", HandledBy = "operator-b" };
+                DatabaseAssert.True(!await _Driver.JudgeFollowUpHandledItems.CreateAsync(duplicate, token).ConfigureAwait(false), "A second marker for one item is refused");
+
+                JudgeFollowUpHandledItem replacement = new JudgeFollowUpHandledItem
+                {
+                    FollowUpId = followUpId,
+                    ItemNumber = 2,
+                    Kind = Armada.Core.Enums.JudgeFollowUpDispositionKindEnum.Objective,
+                    Disposition = "obj_home_" + suffix,
+                    HandledBy = "operator-b"
+                };
+                await _Driver.JudgeFollowUpHandledItems.ReplaceAsync(replacement, token).ConfigureAwait(false);
+                storedIds.Add(replacement.Id);
+                JudgeFollowUpHandledItem other = new JudgeFollowUpHandledItem { FollowUpId = followUpId, ItemNumber = 1, Kind = Armada.Core.Enums.JudgeFollowUpDispositionKindEnum.Decision, Disposition = "Owner declined", HandledBy = "operator-a" };
+                DatabaseAssert.True(await _Driver.JudgeFollowUpHandledItems.CreateAsync(other, token).ConfigureAwait(false), "Another item takes its own marker");
+                storedIds.Add(other.Id);
+
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    List<JudgeFollowUpHandledItem> markers = await reopened.JudgeFollowUpHandledItems.EnumerateForFollowUpsAsync(new List<string> { followUpId, "jfu_absent_" + suffix }, token).ConfigureAwait(false);
+                    DatabaseAssert.Equal(2, markers.Count, "Both markers persist across a reopen");
+                    DatabaseAssert.Equal(1, markers[0].ItemNumber, "Markers are ordered by item number");
+                    DatabaseAssert.Equal(Armada.Core.Enums.JudgeFollowUpDispositionKindEnum.Decision, markers[0].Kind, "Decision marker kind");
+                    DatabaseAssert.Equal(replacement.Id, markers[1].Id, "The replacement is the stored marker");
+                    DatabaseAssert.Equal("obj_home_" + suffix, markers[1].Disposition, "Replacement disposition");
+                }
+            }
+            finally
+            {
+                // The marker method set has no delete; remove the fixture rows directly.
+                if (!_NoCleanup)
+                {
+                    foreach (string id in storedIds)
+                        await ExecuteForIdAsync("DELETE FROM judge_follow_up_handled_items WHERE id = @id;", id, token).ConfigureAwait(false);
+                }
+            }
+        }
+
         internal async Task VerifyTenantsAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

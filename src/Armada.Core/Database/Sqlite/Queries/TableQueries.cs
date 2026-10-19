@@ -1663,7 +1663,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(111, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.SqliteStatements),
                 new SchemaMigration(112, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.SqliteStatements),
                 new SchemaMigration(113, "Persist the workflow profile failed-test line pattern and isolated re-run command", WorkflowProfileIsolatedRerunPersistence.SqliteStatements),
-                new SchemaMigration(114, "Persist who promoted a memory proposal and the AI-Memory commit that holds it", MemoryProposalPromotionPersistence.SqliteStatements)
+                new SchemaMigration(114, "Persist who promoted a memory proposal and the AI-Memory commit that holds it", MemoryProposalPromotionPersistence.SqliteStatements),
+                new SchemaMigration(115, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.SqliteStatements)
             };
         }
 

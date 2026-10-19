@@ -235,6 +235,11 @@ namespace Armada.Core.Database
         public IJudgeFollowUpMethods JudgeFollowUps { get; protected set; } = null!;
 
         /// <summary>
+        /// Judge follow-up handled-item marker operations.
+        /// </summary>
+        public IJudgeFollowUpHandledItemMethods JudgeFollowUpHandledItems { get; protected set; } = null!;
+
+        /// <summary>
         /// Project profile operations. A provider that does not assign this leaves it null, and the
         /// first caller then fails with a NullReferenceException naming nothing useful; see
         /// <see cref="FindUnwiredMethodSets"/> for the check that reports the gap instead.

@@ -23,7 +23,8 @@ namespace Armada.Core.Database
         };
 
         // SQL Server names the column's default constraint itself, and a column cannot be dropped while its
-        // default constraint exists, so the constraint is found by catalog and dropped first.
+        // default constraint exists, so the constraint is found by catalog and dropped first. EXEC accepts a
+        // variable or a literal, not an expression, so the drop statement is built in a variable.
         internal static readonly string[] SqlServerStatements =
         {
             @"DECLARE @constraint sysname;
@@ -31,7 +32,7 @@ SELECT @constraint = dc.name
 FROM sys.default_constraints dc
 JOIN sys.columns c ON c.default_object_id = dc.object_id
 WHERE dc.parent_object_id = OBJECT_ID('pipeline_stages') AND c.name = 'is_optional';
-IF @constraint IS NOT NULL EXEC('ALTER TABLE pipeline_stages DROP CONSTRAINT ' + QUOTENAME(@constraint));
+IF @constraint IS NOT NULL BEGIN DECLARE @ddl nvarchar(max) = N'ALTER TABLE pipeline_stages DROP CONSTRAINT ' + QUOTENAME(@constraint); EXEC(@ddl); END;
 IF COL_LENGTH('pipeline_stages', 'is_optional') IS NOT NULL EXEC('ALTER TABLE pipeline_stages DROP COLUMN is_optional');"
         };
     }

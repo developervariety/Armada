@@ -9,6 +9,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- `armada_record_judge_followup_handled` records that one Judge follow-up item
+  has a home: a fix objective, an owner decision, or a note, with who handled it
+  and when. `armada_list_judge_followups` numbers each item, leaves handled
+  items out by default, reports `OpenItems` and `HandledItemsOmitted`, and lists
+  them again with `includeHandled`. An unknown follow-up, item number, kind or
+  objective is refused with a named reason. Migration SQLite 115, PostgreSQL
+  119, MySQL 108, SQL Server 111 adds the `judge_follow_up_handled_items` table.
 - `armada_list_judge_followups` lists the follow-ups Judge reviews suggested,
   newest first, split into one item per bullet, with vessel, time-window and
   paging filters. An explicit "none" counts as no follow-up.
@@ -123,6 +130,9 @@ upstream integrations and excludes changes already present at that baseline.
   SHA-256. A section that holds only its heading is no longer indexed or staged,
   and the slimmed memory section names only the dock-local memory folder, not
   the host memory root that a dock cannot resolve.
+- A fresh SQL Server database migrates past v108. The statement that drops the
+  pipeline stage optional flag's default constraint builds its `ALTER TABLE` in
+  a variable, because `EXEC` does not accept an expression.
 - A captain can omit the id on `armada_mission_status`, `armada_mission_output`
   and `get_objective`. They read the captain's own mission, or the objective that
   authorizes it, instead of failing with a null-id error. A caller with no

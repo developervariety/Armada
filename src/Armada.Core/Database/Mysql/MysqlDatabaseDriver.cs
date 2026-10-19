@@ -122,6 +122,7 @@ namespace Armada.Core.Database.Mysql
             Releases = new ReleaseMethods(_Stored);
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(_ConnectionString);
+            JudgeFollowUpHandledItems = new JudgeFollowUpHandledItemMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             ProjectProfiles = new ProjectProfileMethods(_Stored);
             Skills = new SkillMethods(_Stored);
             CoordinationLeases = new CoordinationLeaseMethods(_ConnectionString);
@@ -179,6 +180,8 @@ namespace Armada.Core.Database.Mysql
                             await HarborRunnerSchemaGuard.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                         if (migration.Version == 96)
                             await MemoryProposalSchema.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
+                        if (migration.Version == 108)
+                            await JudgeFollowUpHandledItemSchema.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                         await runner.ApplyAsync(migration, token).ConfigureAwait(false);
                         applied++;
                     }
@@ -696,7 +699,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(104, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.MysqlStatements),
                 new SchemaMigration(105, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.MysqlStatements),
                 new SchemaMigration(106, "Persist the workflow profile failed-test line pattern and isolated re-run command", WorkflowProfileIsolatedRerunPersistence.MysqlStatements),
-                new SchemaMigration(107, "Persist who promoted a memory proposal and the AI-Memory commit that holds it", MemoryProposalPromotionPersistence.MysqlStatements)
+                new SchemaMigration(107, "Persist who promoted a memory proposal and the AI-Memory commit that holds it", MemoryProposalPromotionPersistence.MysqlStatements),
+                new SchemaMigration(108, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.MysqlStatements)
             };
         }
 

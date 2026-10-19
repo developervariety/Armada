@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server.Mcp;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
@@ -108,6 +109,112 @@ namespace Armada.Test.Unit.Suites.Services
                     string paged = System.Text.Json.JsonSerializer.Serialize(await list(System.Text.Json.JsonSerializer.SerializeToElement(new { vesselId = "vsl_list-a", limit = 1, offset = 1 })).ConfigureAwait(false));
                     AssertContains("msn_judge-older", paged, "offset reaches the second review");
                     AssertContains("\"HasMore\":false", paged);
+                }
+            });
+
+            await RunTest("All providers register the follow-up handled-item migration", () =>
+            {
+                AssertHandledItemMigration(SqliteTableQueries.GetMigrations(), 115, "SQLite");
+                AssertHandledItemMigration(PostgresqlTableQueries.GetMigrations(), 119, "PostgreSQL");
+                AssertHandledItemMigration(SqlServerTableQueries.GetMigrations(), 111, "SQL Server");
+                System.Reflection.MethodInfo? mysqlGetMigrations = typeof(MysqlDatabaseDriver).GetMethod(
+                    "GetMigrations",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                AssertHandledItemMigration((List<SchemaMigration>)mysqlGetMigrations!.Invoke(null, Array.Empty<object>())!, 108, "MySQL");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("A handled marker hides its item from the follow-up listing, survives a restart, and the listing counts what it omitted", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DateTime now = DateTime.UtcNow;
+                    JudgeFollowUp twoItems = await StoreFollowUpAsync(testDb.Driver, "msn_judge-two", "vsl_handled", "- First handled item.\n- Second open item.", now.AddHours(-3)).ConfigureAwait(false);
+                    JudgeFollowUp oneItem = await StoreFollowUpAsync(testDb.Driver, "msn_judge-one", "vsl_handled", "- Only item, decided.", now.AddHours(-2)).ConfigureAwait(false);
+
+                    Func<System.Text.Json.JsonElement?, Task<object>>? list = null;
+                    Func<System.Text.Json.JsonElement?, Task<object>>? record = null;
+                    Armada.Server.Mcp.Tools.McpAuditTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == Armada.Server.Mcp.Tools.McpAuditTools.ListJudgeFollowUpsToolName) list = McpTestCaller.Wrap(handler);
+                        if (name == Armada.Server.Mcp.Tools.McpAuditTools.RecordJudgeFollowUpHandledToolName) record = McpTestCaller.Wrap(handler);
+                    }, testDb.Driver);
+                    AssertNotNull(record, "the handled-marker tool is registered");
+
+                    object first = await record!(System.Text.Json.JsonSerializer.SerializeToElement(new { followUpId = twoItems.Id, itemNumber = 1, kind = "Note", disposition = "covered by the retry fix" })).ConfigureAwait(false);
+                    AssertTrue(first is JudgeFollowUpHandledItem, "a valid marker is recorded: " + System.Text.Json.JsonSerializer.Serialize(first));
+                    object second = await record(System.Text.Json.JsonSerializer.SerializeToElement(new { followUpId = oneItem.Id, itemNumber = 1, kind = "Decision", disposition = "owner declined" })).ConfigureAwait(false);
+                    AssertTrue(second is JudgeFollowUpHandledItem, "a decision marker is recorded");
+
+                    string open = System.Text.Json.JsonSerializer.Serialize(await list!(System.Text.Json.JsonSerializer.SerializeToElement(new { vesselId = "vsl_handled" })).ConfigureAwait(false));
+                    AssertContains("\"HandledItemsOmitted\":2", open, "the listing counts the handled items it left out");
+                    AssertContains("\"OpenItems\":1", open);
+                    AssertContains("Second open item.", open, "an open item of a partly handled review stays listed");
+                    AssertFalse(open.Contains("First handled item.", StringComparison.Ordinal), "a handled item is hidden by default");
+                    AssertFalse(open.Contains("msn_judge-one", StringComparison.Ordinal), "a review whose items are all handled is hidden");
+                    AssertContains("\"Number\":2", open, "an open item keeps its original item number");
+
+                    string all = System.Text.Json.JsonSerializer.Serialize(await list(System.Text.Json.JsonSerializer.SerializeToElement(new { vesselId = "vsl_handled", includeHandled = true })).ConfigureAwait(false));
+                    AssertContains("First handled item.", all, "includeHandled lists handled items");
+                    AssertContains("covered by the retry fix", all, "a listed handled item carries its disposition");
+                    AssertContains("msn_judge-one", all);
+                    AssertContains("\"HandledItemsOmitted\":0", all);
+
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    using (Armada.Core.Database.Sqlite.SqliteDatabaseDriver restarted = new Armada.Core.Database.Sqlite.SqliteDatabaseDriver(testDb.ConnectionString, logging))
+                    {
+                        await restarted.InitializeAsync().ConfigureAwait(false);
+                        JudgeFollowUpHandledItem? stored = await restarted.JudgeFollowUpHandledItems.ReadAsync(twoItems.Id, 1).ConfigureAwait(false);
+                        AssertNotNull(stored, "the marker persists across a restart");
+                        AssertEqual(Armada.Core.Enums.JudgeFollowUpDispositionKindEnum.Note, stored!.Kind);
+                        AssertEqual("covered by the retry fix", stored.Disposition);
+                        AssertEqual("Test operator", stored.HandledBy, "the marker records who handled the item");
+                        AssertNull(await restarted.JudgeFollowUpHandledItems.ReadAsync(twoItems.Id, 2).ConfigureAwait(false), "an unmarked item has no marker");
+                    }
+                }
+            });
+
+            await RunTest("Recording a handled marker refuses an unknown follow-up, item number, kind or objective with a named reason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    JudgeFollowUp followUp = await StoreFollowUpAsync(testDb.Driver, "msn_judge-refuse", "vsl_refuse", "- One.\n- Two.", DateTime.UtcNow.AddHours(-1)).ConfigureAwait(false);
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "fix home" }).ConfigureAwait(false);
+                    Func<System.Text.Json.JsonElement?, Task<object>>? raw = null;
+                    Armada.Server.Mcp.Tools.McpAuditTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == Armada.Server.Mcp.Tools.McpAuditTools.RecordJudgeFollowUpHandledToolName) raw = handler;
+                    }, testDb.Driver);
+                    AssertNotNull(raw, "the handled-marker tool is registered");
+                    Func<System.Text.Json.JsonElement?, Task<object>> record = McpTestCaller.Wrap(raw!);
+                    async Task<string> CallAsync(object args)
+                    {
+                        return System.Text.Json.JsonSerializer.Serialize(await record(System.Text.Json.JsonSerializer.SerializeToElement(args)).ConfigureAwait(false));
+                    }
+
+                    AssertContains("follow_up_not_found", await CallAsync(new { followUpId = "jfu_missing", itemNumber = 1, kind = "Note", disposition = "x" }).ConfigureAwait(false));
+                    AssertContains("item_out_of_range", await CallAsync(new { followUpId = followUp.Id, itemNumber = 3, kind = "Note", disposition = "x" }).ConfigureAwait(false), "the review has two items");
+                    AssertContains("item_out_of_range", await CallAsync(new { followUpId = followUp.Id, itemNumber = 0, kind = "Note", disposition = "x" }).ConfigureAwait(false), "item numbers start at one");
+                    AssertContains("kind_invalid", await CallAsync(new { followUpId = followUp.Id, itemNumber = 1, kind = "Maybe", disposition = "x" }).ConfigureAwait(false));
+                    AssertContains("disposition_required", await CallAsync(new { followUpId = followUp.Id, itemNumber = 1, kind = "Note", disposition = " " }).ConfigureAwait(false));
+                    AssertContains("objective_not_found", await CallAsync(new { followUpId = followUp.Id, itemNumber = 1, kind = "Objective", disposition = "obj_missing" }).ConfigureAwait(false));
+
+                    string recorded = await CallAsync(new { followUpId = followUp.Id, itemNumber = 1, kind = "Objective", disposition = objective.Id }).ConfigureAwait(false);
+                    AssertContains(objective.Id, recorded, "an existing objective is a valid home");
+                    AssertContains("item_already_handled", await CallAsync(new { followUpId = followUp.Id, itemNumber = 1, kind = "Note", disposition = "again" }).ConfigureAwait(false), "a second marker for one item is refused");
+                    string replaced = await CallAsync(new { followUpId = followUp.Id, itemNumber = 1, kind = "Note", disposition = "superseded by a note", replace = true }).ConfigureAwait(false);
+                    AssertContains("superseded by a note", replaced, "replace records the corrected disposition");
+                    JudgeFollowUpHandledItem? stored = await testDb.Driver.JudgeFollowUpHandledItems.ReadAsync(followUp.Id, 1).ConfigureAwait(false);
+                    AssertEqual("superseded by a note", stored!.Disposition, "the replacement is the one stored");
+
+                    AuthContext captain = McpTestCaller.Operator;
+                    captain.MissionId = "msn_captain";
+                    using (McpCallerContext.Begin(captain))
+                    {
+                        string refused = System.Text.Json.JsonSerializer.Serialize(await raw!(System.Text.Json.JsonSerializer.SerializeToElement(new { followUpId = followUp.Id, itemNumber = 2, kind = "Note", disposition = "x" })).ConfigureAwait(false));
+                        AssertContains("operator_required", refused, "a mission credential cannot record a marker");
+                    }
                 }
             });
 
@@ -435,6 +542,14 @@ namespace Armada.Test.Unit.Suites.Services
             AssertNotNull(migration, provider + " must register the durable follow-up migration");
             AssertTrue(migration!.Statements.Any(statement => statement.Contains("judge_follow_ups", StringComparison.Ordinal)),
                 provider + " migration must create the durable follow-up table");
+        }
+
+        private void AssertHandledItemMigration(List<SchemaMigration> migrations, int version, string provider)
+        {
+            SchemaMigration? migration = migrations.Find(candidate => candidate.Version == version);
+            AssertNotNull(migration, provider + " must register the follow-up handled-item migration at v" + version);
+            AssertTrue(migration!.Statements.Any(statement => statement.Contains("judge_follow_up_handled_items", StringComparison.Ordinal)),
+                provider + " migration must create the handled-item table");
         }
 
         private static Mission BuildJudgeMission(string reviewedMissionId, string vesselId)

@@ -6,6 +6,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -13,6 +14,7 @@ namespace Armada.Server.Mcp.Tools
     /// <summary>
     /// MCP tools exposing the auto-land safety-net audit queue and verdict recording.
     /// armada_list_judge_followups: orchestrator lists the follow-ups Judge reviews suggested.
+    /// armada_record_judge_followup_handled: orchestrator records that one follow-up item has a home.
     /// armada_drain_audit_queue: orchestrator pulls Pending entries flagged for deep review.
     /// armada_record_audit_verdict: orchestrator records the subagent's Pass/Concern/Critical verdict.
     /// </summary>
@@ -20,6 +22,30 @@ namespace Armada.Server.Mcp.Tools
     {
         /// <summary>Registered name of the Judge follow-up listing tool.</summary>
         public const string ListJudgeFollowUpsToolName = "armada_list_judge_followups";
+
+        /// <summary>Registered name of the tool that records a handled marker for one follow-up item.</summary>
+        public const string RecordJudgeFollowUpHandledToolName = "armada_record_judge_followup_handled";
+
+        /// <summary>Refusal reason: the caller holds a mission credential.</summary>
+        public const string HandledOperatorRequiredReason = "operator_required";
+
+        /// <summary>Refusal reason: no Judge follow-up has the given id.</summary>
+        public const string HandledFollowUpNotFoundReason = "follow_up_not_found";
+
+        /// <summary>Refusal reason: the item number is not one of the follow-up's items.</summary>
+        public const string HandledItemOutOfRangeReason = "item_out_of_range";
+
+        /// <summary>Refusal reason: the kind is not Objective, Decision or Note.</summary>
+        public const string HandledKindInvalidReason = "kind_invalid";
+
+        /// <summary>Refusal reason: the disposition is blank.</summary>
+        public const string HandledDispositionRequiredReason = "disposition_required";
+
+        /// <summary>Refusal reason: an Objective disposition names no stored objective.</summary>
+        public const string HandledObjectiveNotFoundReason = "objective_not_found";
+
+        /// <summary>Refusal reason: the item already holds a marker and replace was not requested.</summary>
+        public const string HandledItemAlreadyHandledReason = "item_already_handled";
 
         private static readonly JsonSerializerOptions _ListJsonOptions = new JsonSerializerOptions
         {
@@ -35,6 +61,32 @@ namespace Armada.Server.Mcp.Tools
             public int? Limit { get; set; }
 
             public int? Offset { get; set; }
+
+            public bool? IncludeHandled { get; set; }
+        }
+
+        private sealed class RecordJudgeFollowUpHandledArgs
+        {
+            public string? FollowUpId { get; set; }
+
+            public int? ItemNumber { get; set; }
+
+            public string? Kind { get; set; }
+
+            public string? Disposition { get; set; }
+
+            public string? Operator { get; set; }
+
+            public bool? Replace { get; set; }
+        }
+
+        private sealed class JudgeFollowUpItemView
+        {
+            public int Number { get; set; }
+
+            public string Text { get; set; } = "";
+
+            public JudgeFollowUpHandledItem? Handled { get; set; }
         }
 
         private sealed class JudgeFollowUpListItem
@@ -53,7 +105,7 @@ namespace Armada.Server.Mcp.Tools
 
             public DateTime CreatedUtc { get; set; }
 
-            public List<string> Items { get; set; } = new List<string>();
+            public List<JudgeFollowUpItemView> Items { get; set; } = new List<JudgeFollowUpItemView>();
         }
 
         private class AuditQueueItem
@@ -61,6 +113,16 @@ namespace Armada.Server.Mcp.Tools
             public DateTime CreatedUtc { get; set; }
             public MergeEntry? MergeEntry { get; set; }
             public JudgeFollowUp? JudgeFollowUp { get; set; }
+        }
+
+        private static string MarkerKey(string followUpId, int itemNumber)
+        {
+            return followUpId + "#" + itemNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private static object Refusal(string reason, string message)
+        {
+            return new { Error = message, Reason = reason };
         }
 
         /// <summary>
@@ -129,7 +191,7 @@ namespace Armada.Server.Mcp.Tools
                 });
             register(
                 ListJudgeFollowUpsToolName,
-                "List the follow-ups Judge reviews suggested, newest first: each stored Judge review with at least one suggested follow-up, split into items. Use it to sweep follow-ups the same way as papercuts, so each item gets a home (a fix objective, an owner decision, or a recorded note). Read-only.",
+                "List the follow-ups Judge reviews suggested, newest first: each stored Judge review with at least one open suggested follow-up, split into numbered items. Items an operator marked handled with " + RecordJudgeFollowUpHandledToolName + " are left out and counted in HandledItemsOmitted unless includeHandled is true. Use it to sweep follow-ups the same way as papercuts, so each item gets a home (a fix objective, an owner decision, or a recorded note). Read-only.",
                 new
                 {
                     type = "object",
@@ -138,7 +200,8 @@ namespace Armada.Server.Mcp.Tools
                         vesselId = new { type = "string", description = "Optional: filter to one vessel (vsl_ prefix)" },
                         sinceHours = new { type = "integer", description = "Only reviews newer than this many hours (default 168, maximum 2160)" },
                         limit = new { type = "integer", description = "Maximum reviews returned (default 25, maximum 200)" },
-                        offset = new { type = "integer", description = "Reviews to skip, for the next page (default 0)" }
+                        offset = new { type = "integer", description = "Reviews to skip, for the next page (default 0)" },
+                        includeHandled = new { type = "boolean", description = "Also list items already marked handled, each with its marker (default false)" }
                     }
                 },
                 async (args) =>
@@ -152,14 +215,37 @@ namespace Armada.Server.Mcp.Tools
                     DateTime sinceUtc = DateTime.UtcNow.AddHours(-sinceHours);
                     string? vesselId = String.IsNullOrWhiteSpace(request.VesselId) ? null : request.VesselId!.Trim();
 
+                    bool includeHandled = request.IncludeHandled ?? false;
+
                     List<JudgeFollowUp> rows = await database.JudgeFollowUps.EnumerateCreatedSinceAsync(sinceUtc, vesselId).ConfigureAwait(false);
+                    Dictionary<string, JudgeFollowUpHandledItem> markers = new Dictionary<string, JudgeFollowUpHandledItem>(StringComparer.Ordinal);
+                    foreach (JudgeFollowUpHandledItem marker in await database.JudgeFollowUpHandledItems
+                        .EnumerateForFollowUpsAsync(rows.Select(row => row.Id).ToList()).ConfigureAwait(false))
+                        markers[MarkerKey(marker.FollowUpId, marker.ItemNumber)] = marker;
+
                     List<JudgeFollowUpListItem> withItems = new List<JudgeFollowUpListItem>();
                     int totalItems = 0;
+                    int openItems = 0;
+                    int handledOmitted = 0;
                     foreach (JudgeFollowUp row in rows)
                     {
-                        List<string> items = JudgeFollowUpItems.Split(row.SuggestedFollowUps);
+                        List<string> texts = JudgeFollowUpItems.Split(row.SuggestedFollowUps);
+                        if (texts.Count == 0) continue;
+                        totalItems += texts.Count;
+                        List<JudgeFollowUpItemView> items = new List<JudgeFollowUpItemView>();
+                        for (int index = 0; index < texts.Count; index++)
+                        {
+                            int number = index + 1;
+                            markers.TryGetValue(MarkerKey(row.Id, number), out JudgeFollowUpHandledItem? handled);
+                            if (handled == null) openItems++;
+                            else if (!includeHandled)
+                            {
+                                handledOmitted++;
+                                continue;
+                            }
+                            items.Add(new JudgeFollowUpItemView { Number = number, Text = texts[index], Handled = handled });
+                        }
                         if (items.Count == 0) continue;
-                        totalItems += items.Count;
                         withItems.Add(new JudgeFollowUpListItem
                         {
                             Id = row.Id,
@@ -180,11 +266,90 @@ namespace Armada.Server.Mcp.Tools
                         ReviewsScanned = rows.Count,
                         ReviewsWithFollowUps = withItems.Count,
                         TotalItems = totalItems,
+                        OpenItems = openItems,
+                        HandledItemsOmitted = handledOmitted,
                         Offset = offset,
                         Count = page.Count,
                         HasMore = offset + page.Count < withItems.Count,
                         FollowUps = page
                     };
+                });
+            register(
+                RecordJudgeFollowUpHandledToolName,
+                "Record that one Judge follow-up item has a home, so " + ListJudgeFollowUpsToolName + " stops listing it. Address the item by its follow-up id and its item number from the listing. kind is Objective (disposition = the fix objective id), Decision (disposition = the owner decision) or Note (disposition = the note). An item holds one marker; pass replace=true to correct it. Operator only.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        followUpId = new { type = "string", description = "Judge follow-up id (jfu_ prefix)" },
+                        itemNumber = new { type = "integer", description = "One-based item number, as listed" },
+                        kind = new { type = "string", description = "Objective | Decision | Note" },
+                        disposition = new { type = "string", description = "The objective id, the decision, or the note" },
+                        @operator = new { type = "string", description = "Who handled the item; defaults to the caller" },
+                        replace = new { type = "boolean", description = "Replace an existing marker for this item (default false)" }
+                    },
+                    required = new[] { "followUpId", "itemNumber", "kind", "disposition" }
+                },
+                async (args) =>
+                {
+                    AuthContext caller = Armada.Server.Mcp.McpCallerContext.Require();
+                    if (!String.IsNullOrEmpty(caller.MissionId))
+                        return Refusal(HandledOperatorRequiredReason, "only an operator can record a handled marker");
+
+                    RecordJudgeFollowUpHandledArgs request = args.HasValue
+                        ? JsonSerializer.Deserialize<RecordJudgeFollowUpHandledArgs>(args.Value, _ListJsonOptions) ?? new RecordJudgeFollowUpHandledArgs()
+                        : new RecordJudgeFollowUpHandledArgs();
+                    string followUpId = request.FollowUpId?.Trim() ?? String.Empty;
+                    if (followUpId.Length == 0) return Refusal(HandledFollowUpNotFoundReason, "followUpId is required");
+                    JudgeFollowUp? followUp = await database.JudgeFollowUps.ReadAsync(followUpId).ConfigureAwait(false);
+                    if (followUp == null) return Refusal(HandledFollowUpNotFoundReason, "judge follow-up not found: " + followUpId);
+
+                    int itemCount = JudgeFollowUpItems.Split(followUp.SuggestedFollowUps).Count;
+                    int itemNumber = request.ItemNumber ?? 0;
+                    if (itemNumber < 1 || itemNumber > itemCount)
+                        return Refusal(HandledItemOutOfRangeReason, "item " + itemNumber + " is out of range: follow-up " + followUp.Id + " has " + itemCount + " item(s), numbered from 1");
+
+                    if (String.IsNullOrWhiteSpace(request.Kind) || !Enum.TryParse(request.Kind.Trim(), true, out JudgeFollowUpDispositionKindEnum kind) || !Enum.IsDefined(kind))
+                        return Refusal(HandledKindInvalidReason, "kind must be Objective, Decision or Note");
+                    string disposition = request.Disposition?.Trim() ?? String.Empty;
+                    if (disposition.Length == 0) return Refusal(HandledDispositionRequiredReason, "disposition is required");
+                    if (kind == JudgeFollowUpDispositionKindEnum.Objective
+                        && await database.Objectives.ReadAsync(disposition).ConfigureAwait(false) == null)
+                        return Refusal(HandledObjectiveNotFoundReason, "objective not found: " + disposition);
+
+                    string handledBy = !String.IsNullOrWhiteSpace(request.Operator)
+                        ? request.Operator.Trim()
+                        : caller.PrincipalDisplay ?? caller.UserId ?? "operator";
+                    JudgeFollowUpHandledItem marker = new JudgeFollowUpHandledItem
+                    {
+                        TenantId = followUp.TenantId,
+                        UserId = followUp.UserId,
+                        FollowUpId = followUp.Id,
+                        ItemNumber = itemNumber,
+                        Kind = kind,
+                        Disposition = disposition,
+                        HandledBy = handledBy,
+                        HandledUtc = DateTime.UtcNow
+                    };
+
+                    if (request.Replace ?? false)
+                    {
+                        await database.JudgeFollowUpHandledItems.ReplaceAsync(marker).ConfigureAwait(false);
+                    }
+                    else if (!await database.JudgeFollowUpHandledItems.CreateAsync(marker).ConfigureAwait(false))
+                    {
+                        JudgeFollowUpHandledItem? existing = await database.JudgeFollowUpHandledItems.ReadAsync(followUp.Id, itemNumber).ConfigureAwait(false);
+                        return (object)new
+                        {
+                            Error = "item " + itemNumber + " of follow-up " + followUp.Id + " is already handled; pass replace=true to correct it",
+                            Reason = HandledItemAlreadyHandledReason,
+                            Existing = existing
+                        };
+                    }
+
+                    JudgeFollowUpHandledItem? stored = await database.JudgeFollowUpHandledItems.ReadAsync(followUp.Id, itemNumber).ConfigureAwait(false);
+                    return (object)(stored ?? marker);
                 });
             register(
                 "armada_drain_audit_queue",

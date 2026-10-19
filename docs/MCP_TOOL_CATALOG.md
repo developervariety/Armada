@@ -277,7 +277,7 @@ for the complete record, or `outputTailLines` to widen the tail.
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_get_merge_entry`, `armada_drain_audit_queue`, `armada_list_judge_followups` |
-| Write | `armada_enqueue_merge`, `armada_record_audit_verdict`, `armada_backfill_judge_followups` |
+| Write | `armada_enqueue_merge`, `armada_record_audit_verdict`, `armada_backfill_judge_followups`, `armada_record_judge_followup_handled` |
 | Execute | `armada_process_merge_entry`, `armada_process_merge_queue` |
 | Interrupt | `armada_cancel_merge` |
 | Destructive | `armada_delete_merge`, `armada_purge_merge_queue`, `armada_purge_merge_entry`, `armada_purge_merge_entries` |
@@ -288,11 +288,31 @@ write fault. Pass an explicit `fromUtc` (and optional `toUtc`), run with
 with `dryRun: false`. A second write pass must report zero `created` rows.
 
 `armada_list_judge_followups` lists the stored Judge reviews that suggested at
-least one follow-up, newest first, with each review's text split into items (one
-bullet is one item; an explicit "none" has no items). Filters: `vesselId`,
-`sinceHours` (default 168, maximum 2160), `limit` (default 25, maximum 200) and
-`offset`. It is read-only. Sweep it like papercuts, so every item gets a home: a
-fix objective, an owner decision, or a recorded note.
+least one open follow-up, newest first, with each review's text split into
+numbered items (one bullet is one item, numbered from 1; an explicit "none" has
+no items). Filters: `vesselId`, `sinceHours` (default 168, maximum 2160),
+`limit` (default 25, maximum 200), `offset` and `includeHandled`. It is
+read-only. Sweep it like papercuts, so every item gets a home: a fix objective,
+an owner decision, or a recorded note.
+
+`armada_record_judge_followup_handled` records that home for one item, so the
+next sweep does not re-read it. Address the item by `followUpId` and the
+`itemNumber` the listing shows, and pass `kind` (`Objective`, `Decision` or
+`Note`) with its `disposition`: the fix objective id, the owner decision, or the
+note. `operator` names who handled it and defaults to the caller. The marker
+stores the handler and the time and persists on every database provider. An item
+holds one marker; pass `replace: true` to correct it. The tool refuses, with a
+named `Reason`, a mission caller (`operator_required`), an unknown follow-up
+(`follow_up_not_found`), an item number outside the follow-up's items
+(`item_out_of_range`), an unknown kind (`kind_invalid`), a blank disposition
+(`disposition_required`), an `Objective` disposition that names no objective
+(`objective_not_found`), and a second marker without `replace`
+(`item_already_handled`).
+
+The listing leaves handled items out by default and reports `OpenItems` and
+`HandledItemsOmitted`; a review whose items are all handled is left out too.
+Pass `includeHandled: true` to list every item, each with its `Handled` marker
+(null for an open item).
 
 ### 8.9 Docks, Signals, And Events
 

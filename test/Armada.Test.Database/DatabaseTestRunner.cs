@@ -187,6 +187,7 @@ namespace Armada.Test.Database
             await RunTest("Playbook_Create_Read_Empty_Text_Reads_As_Null_And_Snapshot_Reopen", "Operational", () => roundTrips.VerifyPlaybookEmptyTextAsync(token), token);
             await RunTest("LandingJob_Create_Read_Update_Reopen_State_Delete", "Operational", () => roundTrips.VerifyLandingJobsAsync(token), token);
             await RunTest("JudgeFollowUp_Upsert_Associate_Audit_Update_Reopen", "Operational", () => roundTrips.VerifyJudgeFollowUpsAsync(token), token);
+            await RunTest("JudgeFollowUpHandledItem_Create_Refuse_Replace_Reopen", "Operational", () => roundTrips.VerifyJudgeFollowUpHandledItemsAsync(token), token);
             await RunTest("Tenant_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyTenantsAsync(token), token);
             await RunTest("User_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyUsersAsync(token), token);
             await RunTest("Credential_Every_Property_Create_Update_Reopen", "Operational", () => roundTrips.VerifyCredentialsAsync(token), token);

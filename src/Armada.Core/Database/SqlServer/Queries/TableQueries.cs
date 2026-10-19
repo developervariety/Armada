@@ -1002,7 +1002,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(107, "Persist the assignment hold reason on missions", MissionAssignmentHoldPersistence.SqlServerStatements),
                 new SchemaMigration(108, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.SqlServerStatements),
                 new SchemaMigration(109, "Persist the workflow profile failed-test line pattern and isolated re-run command", WorkflowProfileIsolatedRerunPersistence.SqlServerStatements),
-                new SchemaMigration(110, "Persist who promoted a memory proposal and the AI-Memory commit that holds it", MemoryProposalPromotionPersistence.SqlServerStatements)
+                new SchemaMigration(110, "Persist who promoted a memory proposal and the AI-Memory commit that holds it", MemoryProposalPromotionPersistence.SqlServerStatements),
+                new SchemaMigration(111, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.SqlServerStatements)
             };
         }
 

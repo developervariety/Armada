@@ -56,6 +56,7 @@ namespace Armada.Core.Database.SqlServer
                 { "harbor_runner_enrollments.created_utc", StoredTimestampEnum.Timestamp },
                 { "harbor_runner_enrollments.last_update_utc", StoredTimestampEnum.Timestamp },
                 { "harbor_runner_enrollments.revoked_utc", StoredTimestampEnum.Timestamp },
+                { "judge_follow_up_handled_items.handled_utc", StoredTimestampEnum.Timestamp },
                 { "lane_state_transitions.created_utc", StoredTimestampEnum.Timestamp },
                 { "memory_proposals.created_utc", StoredTimestampEnum.Timestamp },
                 { "memory_proposals.dismissed_utc", StoredTimestampEnum.Timestamp },
@@ -150,6 +151,7 @@ namespace Armada.Core.Database.SqlServer
             Releases = new ReleaseMethods(_Stored);
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(this);
+            JudgeFollowUpHandledItems = new JudgeFollowUpHandledItemMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             ProjectProfiles = new ProjectProfileMethods(_Stored);
             Skills = new SkillMethods(_Stored);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
@@ -210,6 +212,8 @@ namespace Armada.Core.Database.SqlServer
                                 await HarborRunnerSchemaGuard.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                             if (migration.Version == 99)
                                 await MemoryProposalSchema.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
+                            if (migration.Version == 111)
+                                await JudgeFollowUpHandledItemSchema.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                             for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                             {
                                 string sql = migration.Statements[statementOrdinal];
