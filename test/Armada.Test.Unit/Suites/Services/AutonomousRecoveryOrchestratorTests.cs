@@ -221,6 +221,82 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A compile failure is the work's own defect; a rescue can fix it.");
             }).ConfigureAwait(false);
 
+            // The gate runs a consumer's suite only after this vessel's own build and tests pass, so a
+            // TestFail on the consumer's suite is a failure in the consumer's repository. A rescue in this
+            // vessel cannot fix it; the same failing tests in this vessel's own suite are still rescued.
+            await RunTest("Gate failure on a consumer's test suite blocks the producer rescue and names the consumer and its tests", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_gate_consumer", "usr_gate_consumer").ConfigureAwait(false);
+                Vessel producer = await CreateVesselAsync(testDb, "ten_gate_consumer", "usr_gate_consumer").ConfigureAwait(false);
+                Vessel consumer = await testDb.Driver.Vessels.CreateAsync(new Vessel
+                {
+                    TenantId = "ten_gate_consumer",
+                    UserId = "usr_gate_consumer",
+                    Name = "ExampleConsumer",
+                    RepoUrl = "file:///tmp/example-consumer.git",
+                    LocalPath = "C:\\tmp\\example-consumer",
+                    WorkingDirectory = "C:\\tmp\\example-consumer",
+                    DefaultBranch = "main"
+                }).ConfigureAwait(false);
+                await SeedEligibleRecoveryRosterAsync(testDb, producer).ConfigureAwait(false);
+
+                string consumerReason = BuildGateFailureReason("TestFail", "consumer_tests_failed: ExampleConsumer", 1,
+                    "  Failed Consumer.Data.RowCitesPastEndOfFile [3 ms]\nFailed: 1, Passed: 640");
+                Mission consumerFailed = await CreateFailedMissionAsync(testDb, producer, consumerReason).ConfigureAwait(false);
+                consumerFailed.Persona = "Worker";
+                await testDb.Driver.Missions.UpdateAsync(consumerFailed).ConfigureAwait(false);
+                await WriteTestFailEvaluationAsync(testDb, consumerFailed.Id, false, "Consumer.Data.RowCitesPastEndOfFile").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(consumerFailed, false).ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "A failure in a consumer's tests must not dispatch a rescue in the producer.");
+                AuthContext auth = AuthContext.Authenticated("ten_gate_consumer", "usr_gate_consumer", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = consumerFailed.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, incidentPage.Objects.Count, "The operator needs an incident to act on.");
+                Incident incident = incidentPage.Objects[0];
+                string summary = incident.Summary ?? String.Empty;
+                string notes = incident.RecoveryNotes ?? String.Empty;
+                AssertContains("Policy: block", summary, "The incident records the blocked policy.");
+                AssertContains(AutonomousRecoveryOrchestrator.ConsumerTestFailureReason, summary, "The incident carries the stable consumer-failure reason.");
+                AssertContains("ExampleConsumer", notes, "The incident names the consumer vessel.");
+                AssertContains(consumer.Id, notes, "The incident names the consumer vessel's id.");
+                AssertContains("Consumer.Data.RowCitesPastEndOfFile", notes, "The incident names the failing consumer test.");
+
+                EnumerationResult<ArmadaEvent> blocked = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = consumerFailed.Id,
+                    EventType = "autonomous_recovery.blocked",
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, blocked.Objects.Count, "A blocked event records the consumer-failure decision.");
+                AssertContains(AutonomousRecoveryOrchestrator.ConsumerTestFailureReason + ":", blocked.Objects[0].Message ?? String.Empty,
+                    "The event carries the stable consumer-failure reason.");
+
+                string ownReason = BuildGateFailureReason("TestFail", "unit-test", 1,
+                    "  Failed Consumer.Data.RowCitesPastEndOfFile [3 ms]\nFailed: 1, Passed: 640");
+                Mission ownFailed = await CreateFailedMissionAsync(testDb, producer, ownReason).ConfigureAwait(false);
+                ownFailed.Persona = "Worker";
+                await testDb.Driver.Missions.UpdateAsync(ownFailed).ConfigureAwait(false);
+                await WriteTestFailEvaluationAsync(testDb, ownFailed.Id, false, "Consumer.Data.RowCitesPastEndOfFile").ConfigureAwait(false);
+
+                await orchestrator.HandleMissionOutcomeAsync(ownFailed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A failure in the producer's own suite is still rescued.");
+                AssertEqual(ownFailed.Id, admiral.DispatchedMissions[0].ParentMissionId, "The rescue is for the producer's own failure.");
+            }).ConfigureAwait(false);
+
             // A test failure keeps the rescue whatever the failing tests are named or assert: the
             // marker rules read the gate's own head line, never the output of the work under test.
             await RunTest("Gate failure class TestFail with authorization, quota or approval words in the test output still dispatches a rescue", async () =>
@@ -3212,7 +3288,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = VoyageStatusEnum.InProgress
                 }).ConfigureAwait(false);
                 Mission failed = await CreateFailedMissionAsync(testDb, vessel,
-                    "DoD gate failed: classification=TestFail; consumer_tests_failed: ExampleConsumer command exited 1").ConfigureAwait(false);
+                    "DoD gate failed: classification=TestFail; unit-test command exited 1").ConfigureAwait(false);
                 failed.Persona = "Linter";
                 failed.VoyageId = parent.Id;
                 await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);

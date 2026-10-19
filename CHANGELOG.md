@@ -150,6 +150,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Autonomous recovery dispatches no rescue in the producer for a
+  definition-of-done `TestFail` on a declared consumer's test suite
+  (`consumer_tests_failed: <consumer>`). The gate runs a consumer's suite only
+  after the producer's own build and tests pass, so those tests live in the
+  consumer's repository, and a producer rescue could only weaken the producer
+  change. The decision reason is `consumer_test_failure_not_rescuable`, and the
+  incident names the consumer vessel, its id and the failing consumer tests. A
+  failure in the producer's own suite is still rescued.
 - A voyage-armed Check waits while a stage that reports Testing or Review is
   still running. A captain reports those statuses as progress and can still
   commit, so a Check that ran then measured a commit the stage replaced, was

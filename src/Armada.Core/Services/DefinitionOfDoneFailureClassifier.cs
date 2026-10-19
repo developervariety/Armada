@@ -67,6 +67,14 @@ namespace Armada.Core.Services
         /// </summary>
         public const string RecordedReasonPrefix = "DoD gate failed: ";
 
+        /// <summary>
+        /// Opening of the command label the gate records when a declared consumer's test suite fails
+        /// against the change. The consumer vessel's name follows it. The gate verifies consumers only
+        /// after the vessel's own build and tests pass, so this label means the failing tests are in
+        /// the consumer's repository.
+        /// </summary>
+        public const string ConsumerTestsFailedLabelPrefix = "consumer_tests_failed: ";
+
         #endregion
 
         #region Public-Methods
@@ -101,6 +109,40 @@ namespace Armada.Core.Services
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Read the consumer vessel whose test suite failed a definition-of-done gate, from a recorded
+        /// mission failure reason. Only a <see cref="DefinitionOfDoneFailureClassEnum.TestFail"/> gate
+        /// reason whose command label opens with <see cref="ConsumerTestsFailedLabelPrefix"/> counts;
+        /// the label is read from the reason's first line, so a consumer name printed in the output
+        /// tail is never read as the failing command.
+        /// </summary>
+        /// <param name="failureReason">Recorded mission failure reason.</param>
+        /// <param name="consumerName">The consumer vessel's name when one is found; otherwise empty.</param>
+        /// <returns>True when the gate failed only on a consumer's test suite.</returns>
+        public static bool TryReadConsumerTestFailure(string? failureReason, out string consumerName)
+        {
+            consumerName = String.Empty;
+            if (!TryReadRecordedClass(failureReason, out DefinitionOfDoneFailureClassEnum failureClass)) return false;
+            if (failureClass != DefinitionOfDoneFailureClassEnum.TestFail) return false;
+
+            string trimmed = failureReason!.TrimStart();
+            int newline = trimmed.IndexOfAny(new[] { '\r', '\n' });
+            string firstLine = newline < 0 ? trimmed : trimmed.Substring(0, newline);
+            int separator = firstLine.IndexOf(';');
+            if (separator < 0) return false;
+
+            string label = firstLine.Substring(separator + 1).TrimStart();
+            if (!label.StartsWith(ConsumerTestsFailedLabelPrefix, StringComparison.Ordinal)) return false;
+
+            string rest = label.Substring(ConsumerTestsFailedLabelPrefix.Length);
+            int exited = rest.LastIndexOf(" command exited ", StringComparison.Ordinal);
+            string name = (exited < 0 ? rest : rest.Substring(0, exited)).Trim();
+            if (name.Length == 0) return false;
+
+            consumerName = name;
+            return true;
         }
 
         /// <summary>

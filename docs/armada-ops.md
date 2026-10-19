@@ -104,6 +104,17 @@ failure, and records `mission.definition_of_done_load_rerun` with the load
 readings (see `docs/reference/backend-dod.md`). A `Timeout` that reaches this
 block with that event beside it timed out on both runs.
 
+A `TestFail` on a declared consumer's test suite (command label
+`consumer_tests_failed: <consumer>`) also blocks the rescue. The gate runs a
+consumer's suite only after the vessel's own build and tests pass, so the
+failing tests are in the consumer's repository, and a rescue in the producer
+cannot change them. The blocked event and the incident summary carry the reason
+`consumer_test_failure_not_rescuable:`. The incident recovery notes name the
+consumer vessel, its id, and the failing consumer tests. The operator fixes the
+consumer repository, or corrects the producer change when the consumer failure
+is shown to come from it, and reruns the gate. A `TestFail` in the vessel's own
+suite stays eligible for rescue.
+
 ## Check rules on a split voyage
 
 A voyage splits into lanes when two or more stages depend on the same stage,

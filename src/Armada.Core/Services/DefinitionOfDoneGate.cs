@@ -1094,7 +1094,7 @@ namespace Armada.Core.Services
             if (!result.Passed)
             {
                 _Logging.Warn(_Header + "consumer " + consumer.Name + " test suite failed against this change");
-                result.CommandLabel = "consumer_tests_failed: " + consumer.Name;
+                result.CommandLabel = DefinitionOfDoneFailureClassifier.ConsumerTestsFailedLabelPrefix + consumer.Name;
             }
 
             return result;

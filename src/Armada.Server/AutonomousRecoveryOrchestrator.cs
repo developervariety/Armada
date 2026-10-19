@@ -38,6 +38,13 @@ namespace Armada.Server
         internal const string RepeatedIdenticalTestFailureReason = "repeated_identical_test_failure";
 
         /// <summary>
+        /// Decision reason recorded when a definition-of-done gate failed only on a declared consumer's
+        /// test suite. The vessel's own build and tests passed, so the failing tests live in the
+        /// consumer's repository, which a rescue in this vessel cannot change.
+        /// </summary>
+        internal const string ConsumerTestFailureReason = "consumer_test_failure_not_rescuable";
+
+        /// <summary>
         /// Decision reason recorded when the failed stage ended with <c>[ARMADA:RESULT] BLOCKED</c>: it waits on
         /// an owner answer, and a rescue would re-run it without one.
         /// </summary>
@@ -1112,6 +1119,15 @@ namespace Armada.Server
                 Incident incident = await EnsureIncidentAsync(auth, latest, decision, token).ConfigureAwait(false);
                 await LinkIncidentToOwningObjectivesAsync(auth, latest, incident, token).ConfigureAwait(false);
 
+                // A failure whose tests live in a consumer repository names that consumer and its failing
+                // tests on the incident, so the operator acts in the repository that owns the fix.
+                if (!decision.DispatchRescue
+                    && decision.Reason.StartsWith(ConsumerTestFailureReason, StringComparison.Ordinal)
+                    && DefinitionOfDoneFailureClassifier.TryReadConsumerTestFailure(latest.FailureReason, out string failedConsumerName))
+                {
+                    incident = await RecordConsumerTestFailureAsync(auth, latest, incident, failedConsumerName, token).ConfigureAwait(false);
+                }
+
                 // When the rescue repeated its parent's exact test failure, name the repeated tests on
                 // the incident so an operator sees the failure did not change, rather than the generic
                 // auto-rescue block. Only complete, identical sets reach here.
@@ -1289,6 +1305,12 @@ namespace Armada.Server
             // operator landing; hold the rescue here.
             if (reason.Contains(MissionService.RevisionCommentOnlyRescueBlockMarker, StringComparison.Ordinal))
                 return RecoveryDecision.Blocked("revision_comment_only: every NEEDS_REVISION item is comment, documentation, or boundary wording; this is an operator landing, not a rescue");
+            // The gate verifies consumers only after this vessel's own build and tests pass, so a gate that
+            // failed on a consumer's suite failed on tests in the consumer's repository. A rescue here
+            // cannot change those tests and could only weaken this change to satisfy them.
+            if (DefinitionOfDoneFailureClassifier.TryReadConsumerTestFailure(reason, out string consumerName))
+                return RecoveryDecision.Blocked(ConsumerTestFailureReason + ": this vessel's own build and tests passed and the failing tests are in consumer vessel '"
+                    + consumerName + "'. A rescue in this vessel cannot change the consumer's tests. Fix the consumer repository, or correct this change once the consumer's failure is shown to be caused by it, and rerun the gate");
             if (IsAutoRescueMission(mission))
             {
                 // The deterministic repeated-failure guard: a rescue that failed its gate on the very
@@ -1691,6 +1713,44 @@ namespace Armada.Server
                 "Autonomous recovery opened incident " + created.Id + " for mission " + mission.Id,
                 mission, created.Id, token).ConfigureAwait(false);
             return created;
+        }
+
+        private async Task<Incident> RecordConsumerTestFailureAsync(
+            AuthContext auth,
+            Mission mission,
+            Incident incident,
+            string consumerName,
+            CancellationToken token)
+        {
+            Vessel? consumer = null;
+            try
+            {
+                consumer = !String.IsNullOrWhiteSpace(mission.TenantId)
+                    ? await _Database.Vessels.ReadByNameAsync(mission.TenantId!, consumerName, token).ConfigureAwait(false)
+                    : await _Database.Vessels.ReadByNameAsync(consumerName, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                _Logging.Warn(_Header + "could not read consumer vessel '" + consumerName + "' for mission " + mission.Id + ": " + ex.Message);
+            }
+
+            StoredFailedTestSet? failedTests = await ReadLatestFailedTestSetAsync(mission.Id, token).ConfigureAwait(false);
+            string testsText;
+            if (failedTests == null || failedTests.Value.Names.Count == 0)
+                testsText = "The failing test names were not recorded; read them in the gate output of the failure reason.";
+            else
+                testsText = "Failing consumer test(s): " + FormatRepeatedTests(failedTests.Value.Names)
+                    + (failedTests.Value.Overflow ? " (the list is incomplete)." : ".");
+
+            string note = "Consumer test failure: this vessel's own build and tests passed, and the gate failed on the test suite of consumer vessel "
+                + consumerName + (consumer != null ? " (" + consumer.Id + ")" : " (no vessel with that name was found)")
+                + ". " + testsText
+                + " No rescue was dispatched in this vessel, because the failing tests are in the consumer's repository.";
+
+            return await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+            {
+                RecoveryNotes = AppendNote(incident.RecoveryNotes, note)
+            }, token).ConfigureAwait(false);
         }
 
         private async Task DeferRescueForUnassignableConfigurationAsync(
