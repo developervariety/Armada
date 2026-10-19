@@ -301,6 +301,31 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            string? simulation = Environment.GetEnvironmentVariable("ARMADA_MODEL_PROVIDER_SIMULATION");
+            if (!String.IsNullOrWhiteSpace(simulation))
+            {
+                cases.Add(CaseAsync("xai_native_http_tool_loop", "API captain executes a native xAI tool call and replays provider state over HTTP", TestTags.Positive, async () =>
+                {
+                    string dir = NewTempDir();
+                    try
+                    {
+                        ModelEndpoint endpoint = new ModelEndpoint { Name = "xAI HTTP", Provider = ModelProviderEnum.XAI, Kind = ModelEndpointKindEnum.Inference, Model = "test-model", BaseUrl = simulation };
+                        endpoint.ApiKey = "test-token";
+                        ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 5);
+                        int? exitCode = null;
+                        using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                        runtime.OnProcessExited += (pid, code) => { exitCode = code; exited.Set(); };
+                        string finalPath = Path.Combine(dir, "final.txt");
+                        await runtime.StartAsync(dir, "Write provider-test.txt", finalMessageFilePath: finalPath).ConfigureAwait(false);
+                        AssertTrue(exited.Wait(TimeSpan.FromSeconds(15)), "Expected HTTP tool loop to finish.");
+                        AssertEqual(0, exitCode ?? -1);
+                        AssertEqual("native xAI tool loop", File.ReadAllText(Path.Combine(dir, "provider-test.txt")));
+                        AssertEqual("pong", File.ReadAllText(finalPath).Trim());
+                    }
+                    finally { Cleanup(dir); }
+                }));
+            }
+
             return new TestSuiteDescriptor(
                 suiteId: "Runtimes.ApiAgentRuntime",
                 displayName: "API Agent Runtime",

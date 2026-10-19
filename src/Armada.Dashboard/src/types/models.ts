@@ -2725,7 +2725,7 @@ export interface HarborMetrics {
 }
 
 export type ModelEndpointKind = 'Embedding' | 'Inference';
-export type ModelProvider = 'Ollama' | 'OpenAI' | 'OpenAICompatible' | 'Anthropic' | 'Gemini' | 'VoyageAI' | 'AzureOpenAI' | 'VertexAI' | 'Bedrock';
+export type ModelProvider = 'Ollama' | 'OpenAI' | 'OpenAICompatible' | 'Anthropic' | 'Gemini' | 'VoyageAI' | 'AzureOpenAI' | 'VertexAI' | 'Bedrock' | 'OllamaCloud' | 'XAI';
 export type EndpointHealthStatus = 'Unknown' | 'Healthy' | 'Unhealthy';
 
 /**

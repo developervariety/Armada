@@ -106,7 +106,7 @@ export const MEMORY_TYPES: MemoryType[] = ['Episodic', 'Semantic', 'Procedural']
 
 // ---------------------------------------------------------------- Model endpoints
 
-export const MODEL_PROVIDERS: ModelProvider[] = ['Ollama', 'OpenAI', 'OpenAICompatible', 'Anthropic', 'Gemini', 'VoyageAI', 'AzureOpenAI', 'VertexAI', 'Bedrock'];
+export const MODEL_PROVIDERS: ModelProvider[] = ['Ollama', 'OpenAI', 'OpenAICompatible', 'Anthropic', 'Gemini', 'VoyageAI', 'AzureOpenAI', 'VertexAI', 'Bedrock', 'OllamaCloud', 'XAI'];
 export const MODEL_ENDPOINT_KINDS: ModelEndpointKind[] = ['Embedding', 'Inference'];
 
 /** Humanize the span between the earliest retained probe and now, for the health view. */

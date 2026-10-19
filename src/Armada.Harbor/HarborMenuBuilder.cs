@@ -97,7 +97,7 @@ namespace Armada.Harbor
                 if (item.IsEnabled != enabled) item.IsEnabled = enabled;
                 string? tip = enabled ? null : _Host.DisabledReason(command);
                 if (!String.Equals(item.ToolTip, tip, StringComparison.Ordinal)) item.ToolTip = tip;
-                if (item.ToggleType == NativeMenuItemToggleType.Radio)
+                if (item.ToggleType == MenuItemToggleType.Radio)
                 {
                     bool isChecked = _Host.IsChecked(command);
                     if (item.IsChecked != isChecked) item.IsChecked = isChecked;
@@ -140,7 +140,7 @@ namespace Armada.Harbor
                     NativeMenuItem item = Item(entry.Header, entry.Command.Value, tray ? HarborMenuKeyEnum.None : entry.Key, entry.Shift);
                     if (entry.IsRadio)
                     {
-                        item.ToggleType = NativeMenuItemToggleType.Radio;
+                        item.ToggleType = MenuItemToggleType.Radio;
                         item.IsChecked = _Host.IsChecked(entry.Command.Value);
                     }
 

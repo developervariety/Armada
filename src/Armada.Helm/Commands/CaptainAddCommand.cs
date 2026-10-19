@@ -32,6 +32,12 @@ namespace Armada.Helm.Commands
                 return 1;
             }
 
+            if (runtime == AgentRuntimeEnum.ApiEndpoint && String.IsNullOrWhiteSpace(settings.ModelEndpointId))
+            {
+                AnsiConsole.MarkupLine("[red]API captains require --model-endpoint <endpoint-id>.[/]");
+                return 1;
+            }
+
             string? runtimeOptionsJson = runtime == AgentRuntimeEnum.Mux
                 ? CaptainRuntimeOptions.Serialize(new MuxCaptainOptions
                 {
@@ -50,6 +56,7 @@ namespace Armada.Helm.Commands
             {
                 Name = settings.Name,
                 Runtime = runtime,
+                ModelEndpointId = runtime == AgentRuntimeEnum.ApiEndpoint ? settings.ModelEndpointId?.Trim() : null,
                 Model = String.IsNullOrWhiteSpace(settings.Model) ? null : settings.Model.Trim(),
                 RuntimeOptionsJson = runtimeOptionsJson
             };

@@ -6,6 +6,13 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Model providers and dependencies
+- Upgrade PolyPrompt to 3.4.0 and SyslogLogging to 2.4.1.
+- Add OllamaCloud and XAI inference/embedding providers across REST, MCP, the .NET client, dashboard, mobile, and TUI. Ollama Cloud uses its fixed hosted URL; xAI uses native Responses. Both require bearer credentials; cloud embedding availability depends on the provider's model catalog.
+- Let CLI API captains select an inference endpoint with `--model-endpoint`, and preserve that binding on updates.
+- Update every NuGet reference to the latest stable release, including Avalonia 12.1.4, Voltaic 2.4.0, Watson 7.3.1, Radiant 0.1.3, Microsoft.Data.Sqlite 10.0.13, PrettyId 2.0.2, Touchstone 0.2.1, and the test SDK/adapters. Use the patched PKCS 10.0.13 package on both .NET targets.
+- Migrate Harbor to Avalonia 12: import the clipboard extension methods and use the shared menu toggle enum for native radio items.
+
 ### Ask Armada: CLI permission cards
 - **Allow for this conversation.** A permission card now offers a fourth choice next to Allow once, Allow and remember, and Deny: allow this call and every later CLI tool call in the conversation without asking. After the Bypass warning, the call runs, the conversation's CLI tool policy becomes Bypass (change it back in the conversation header), other waiting requests from the conversation are allowed, and later prompts from the turn already running are allowed at once (`DecisionSource` `ConversationBypass`). Only the conversation's owner, when an admin, can choose it, the same rule as setting Bypass on a conversation. Available in the dashboard, the TUI (`b` on the card, in the Approvals center, and on CLI Tool Permissions > Requests), the mobile app, REST, WebSocket, and MCP (`decision: AllowForConversation`).
 - **Decided cards collapse.** Once allowed, denied, expired, or cancelled, a permission card in an Ask conversation collapses to its title row and command; click the title (Enter in the TUI, tap on mobile) to expand or collapse it.

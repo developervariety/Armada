@@ -84,6 +84,14 @@ namespace Armada.Core.Services
             CompletionClientBase client;
             switch (endpoint.Provider)
             {
+                case ModelProviderEnum.OllamaCloud:
+                    ModelEndpointAuth.Validate(endpoint);
+                    client = new OllamaCloudCompletionClient(endpoint.ApiKey!, logging, http);
+                    break;
+                case ModelProviderEnum.XAI:
+                    ModelEndpointAuth.Validate(endpoint);
+                    client = new XAiCompletionClient(endpoint.ApiKey!, (String.IsNullOrWhiteSpace(baseUrl) ? "https://api.x.ai" : baseUrl), logging, http);
+                    break;
                 case ModelProviderEnum.Ollama:
                     client = new OllamaCompletionClient(baseUrl, apiKey, logging, http);
                     break;
@@ -140,6 +148,14 @@ namespace Armada.Core.Services
             EmbeddingClientBase client;
             switch (endpoint.Provider)
             {
+                case ModelProviderEnum.OllamaCloud:
+                    ModelEndpointAuth.Validate(endpoint);
+                    client = new OllamaCloudEmbeddingClient(endpoint.ApiKey!, logging, http);
+                    break;
+                case ModelProviderEnum.XAI:
+                    ModelEndpointAuth.Validate(endpoint);
+                    client = new XAiEmbeddingClient(endpoint.ApiKey!, (String.IsNullOrWhiteSpace(baseUrl) ? "https://api.x.ai" : baseUrl), logging, http);
+                    break;
                 case ModelProviderEnum.Ollama:
                     client = new OllamaEmbeddingClient(baseUrl, apiKey, logging, http);
                     break;

@@ -50,6 +50,24 @@ async function openEdit() {
 }
 
 describe('Endpoints authentication', () => {
+  it.each(['OllamaCloud', 'XAI'])('saves %s with bearer credentials and its URL rules', async (provider) => {
+    await openEdit();
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: provider } });
+    const auth = screen.getByLabelText('Authentication type');
+    expect(Array.from(auth.querySelectorAll('option')).map(o => o.value)).toEqual(['ProviderDefault', 'Bearer']);
+    if (provider === 'OllamaCloud') {
+      expect(screen.getByLabelText('Base URL')).toBeDisabled();
+      expect(screen.getByLabelText('Base URL')).toHaveValue('https://ollama.com:443');
+    } else {
+      fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: '' } });
+      expect(screen.getByLabelText('Base URL')).not.toBeRequired();
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(client.updateModelEndpoint).toHaveBeenCalled());
+    expect(vi.mocked(client.updateModelEndpoint).mock.calls[0][1]).toMatchObject({ provider, authType: 'Bearer', baseUrl: provider === 'OllamaCloud' ? 'https://ollama.com:443' : '' });
+    expect(vi.mocked(client.updateModelEndpoint).mock.calls[0][1]).not.toHaveProperty('apiKey');
+  });
+
   it('summarizes the credential in the list', async () => {
     render(<MemoryRouter><Endpoints /></MemoryRouter>);
     expect(await screen.findByText('Bearer token, secret stored, 2 extra headers')).toBeInTheDocument();

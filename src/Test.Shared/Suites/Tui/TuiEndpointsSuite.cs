@@ -102,6 +102,30 @@ namespace Test.Shared.Suites.Tui
                 }
             }));
 
+            foreach (string providerName in new[] { "OllamaCloud", "XAI" })
+            {
+                cases.Add(TuiCase.Sync(Suite, "cloud_form_" + providerName, "Endpoint form saves " + providerName + " with provider URL rules", () =>
+                {
+                    StubHttpHandler stub = Server();
+                    TuiConfigBody box = new TuiConfigBody();
+                    TuiConfigTestHelpers.Capture(stub, "PUT", "/api/v1/model-endpoints/mep_1", Endpoint("mep_1", "openai-chat", "Inference", "Healthy", true), box);
+                    using TuiTestHost host = TuiEntityFixtures.Open(stub, "/configuration?tab=endpoints");
+                    EndpointsScreen screen = TuiEntityFixtures.Screen<EndpointsScreen>(host);
+                    TuiEntityFixtures.WaitFor(host, () => screen.Grid.Rows.Count == 2, "rows");
+                    host.Press("e");
+                    FormDialog dialog = TuiConfigTestHelpers.Dialog(host, "Edit Endpoint");
+                    SelectField<string> provider = TuiConfigTestHelpers.Field<SelectField<string>>(dialog, "Provider");
+                    provider.Choose(provider.Options.First(o => o.Value == providerName));
+                    TuiConfigTestHelpers.Input(dialog, "Base URL").Value = "";
+                    TuiConfigTestHelpers.Input(dialog, "Secret").Value = "test-token";
+                    host.Press("ctrl+s");
+                    TuiEntityFixtures.WaitFor(host, () => box.Body != null && !host.App.Modals.IsActive, "saved cloud endpoint");
+                    ModelEndpoint body = box.As<ModelEndpoint>();
+                    AssertEqual(providerName, body.Provider.ToString());
+                    AssertEqual(providerName == "OllamaCloud" ? "https://ollama.com:443" : "", body.BaseUrl);
+                }));
+            }
+
             cases.Add(TuiCase.Sync(Suite, "health_and_validate", "Health shows uptime and history; v validates and shows the probe", () =>
             {
                 StubHttpHandler stub = Server();

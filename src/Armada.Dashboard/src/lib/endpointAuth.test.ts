@@ -22,6 +22,11 @@ function form(patch: Partial<EndpointAuthForm> = {}): EndpointAuthForm {
 }
 
 describe('endpoint auth types per provider', () => {
+  it.each(['OllamaCloud', 'XAI'] as ModelProvider[])('%s requires bearer authentication', (provider) => {
+    expect(allowedAuthTypes(provider)).toEqual(['ProviderDefault', 'Bearer']);
+    expect(effectiveAuthType(provider, 'Basic')).toBe('ProviderDefault');
+    expect(authSentAs(provider, 'ProviderDefault', form()).params?.wire).toBe('Authorization: Bearer <secret>');
+  });
   it('signing providers accept only the provider default', () => {
     expect(allowedAuthTypes('VertexAI')).toEqual(['ProviderDefault']);
     expect(allowedAuthTypes('Bedrock')).toEqual(['ProviderDefault']);

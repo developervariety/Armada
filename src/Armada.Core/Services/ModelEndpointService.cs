@@ -354,6 +354,16 @@ namespace Armada.Core.Services
             // endpoint from the region, so they require region/project/credential-identifier fields instead.
             switch (endpoint.Provider)
             {
+                case ModelProviderEnum.OllamaCloud:
+                    if (!String.IsNullOrWhiteSpace(endpoint.BaseUrl)
+                        && !String.Equals(endpoint.BaseUrl.TrimEnd('/'), "https://ollama.com", StringComparison.OrdinalIgnoreCase)
+                        && !String.Equals(endpoint.BaseUrl.TrimEnd('/'), "https://ollama.com:443", StringComparison.OrdinalIgnoreCase))
+                        throw new ArgumentException("Ollama Cloud uses the fixed base URL https://ollama.com:443.");
+                    endpoint.BaseUrl = "https://ollama.com:443";
+                    break;
+                case ModelProviderEnum.XAI:
+                    if (String.IsNullOrWhiteSpace(endpoint.BaseUrl)) endpoint.BaseUrl = "https://api.x.ai";
+                    break;
                 case ModelProviderEnum.AzureOpenAI:
                     if (String.IsNullOrWhiteSpace(endpoint.BaseUrl)) throw new ArgumentException("Azure OpenAI requires a base URL (the resource endpoint).");
                     if (String.IsNullOrWhiteSpace(endpoint.Model)) throw new ArgumentException("Azure OpenAI requires a model, which is the deployment name.");

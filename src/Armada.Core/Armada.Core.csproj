@@ -14,19 +14,18 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
     <PackageReference Include="MySqlConnector" Version="2.6.2" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
-    <PackageReference Include="PolyPrompt" Version="3.1.0" />
-    <PackageReference Include="PrettyId" Version="2.0.1" />
-    <PackageReference Include="SyslogLogging" Version="2.3.1" />
+    <PackageReference Include="PolyPrompt" Version="3.4.0" />
+    <PackageReference Include="PrettyId" Version="2.0.2" />
+    <PackageReference Include="SyslogLogging" Version="2.4.1" />
   </ItemGroup>
 
-  <!-- Microsoft.Data.SqlClient pulls System.Security.Cryptography.Pkcs 8.0.1 (net8.0) and 9.0.18 (net10.0), both
-       affected by CVE-2026-84008 and CVE-2026-70162 (NU1902/NU1903); pin the patched releases until SqlClient does. -->
+  <!-- Keep SqlClient's PKCS dependency on the latest patched release for both target frameworks. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="8.0.2" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">

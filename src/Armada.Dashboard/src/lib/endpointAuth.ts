@@ -51,12 +51,13 @@ export function providerSignsRequests(provider: ModelProvider): boolean {
 
 /** The auth types the provider accepts. */
 export function allowedAuthTypes(provider: ModelProvider): ModelEndpointAuthType[] {
+  if (provider === 'OllamaCloud' || provider === 'XAI') return ['ProviderDefault', 'Bearer'];
   return providerSignsRequests(provider) ? ['ProviderDefault'] : ENDPOINT_AUTH_TYPES;
 }
 
 /** The auth type that will actually apply (an older server may omit it; signing providers force the default). */
 export function effectiveAuthType(provider: ModelProvider, authType: ModelEndpointAuthType | null | undefined): ModelEndpointAuthType {
-  if (providerSignsRequests(provider)) return 'ProviderDefault';
+  if (!allowedAuthTypes(provider).includes(authType ?? 'ProviderDefault')) return 'ProviderDefault';
   return authType && ENDPOINT_AUTH_TYPES.includes(authType) ? authType : 'ProviderDefault';
 }
 

@@ -1,0 +1,5 @@
+simulation: armada-model-providers
+routing: path
+mocks:
+  - routeKey: xai
+    path: ../mocks/model-providers/config.yaml

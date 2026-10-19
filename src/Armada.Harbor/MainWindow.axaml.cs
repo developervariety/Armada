@@ -15,6 +15,7 @@ namespace Armada.Harbor
     using Armada.Core.Storage;
     using Avalonia;
     using Avalonia.Controls;
+    using Avalonia.Input.Platform;
     using Avalonia.Interactivity;
     using Avalonia.Media;
     using Avalonia.Threading;

@@ -7411,7 +7411,7 @@
           "required": false
         }
       ],
-      "description": "Create a managed model endpoint. Kind must be one of Embedding, Inference; Provider is one of Ollama, OpenAI, OpenAICompatible, Anthropic, Gemini, VoyageAI, AzureOpenAI, VertexAI, Bedrock. Anthropic cannot be used for Embedding and VoyageAI cannot be used for Inference.",
+      "description": "Create a managed model endpoint. Kind must be one of Embedding, Inference; Provider is one of Ollama, OpenAI, OpenAICompatible, Anthropic, Gemini, VoyageAI, AzureOpenAI, VertexAI, Bedrock, OllamaCloud, XAI. Anthropic cannot be used for Embedding and VoyageAI cannot be used for Inference.",
       "experimental": false
     },
     {
@@ -13733,6 +13733,14 @@
         },
         {
           "kind": "option",
+          "name": "model-endpoint",
+          "short": null,
+          "valueKind": "scalar",
+          "type": "String",
+          "required": false
+        },
+        {
+          "kind": "option",
           "name": "mux-adapter-type",
           "short": null,
           "valueKind": "scalar",
@@ -14141,6 +14149,14 @@
           "kind": "option",
           "name": "model",
           "short": "m",
+          "valueKind": "scalar",
+          "type": "String",
+          "required": false
+        },
+        {
+          "kind": "option",
+          "name": "model-endpoint",
+          "short": null,
           "valueKind": "scalar",
           "type": "String",
           "required": false

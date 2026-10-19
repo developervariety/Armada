@@ -40,6 +40,8 @@ namespace Armada.Core.Services
         /// <returns>True when supported.</returns>
         public static bool Supports(ModelProviderEnum provider, ModelEndpointAuthTypeEnum authType)
         {
+            if (provider == ModelProviderEnum.OllamaCloud || provider == ModelProviderEnum.XAI)
+                return authType == ModelEndpointAuthTypeEnum.ProviderDefault || authType == ModelEndpointAuthTypeEnum.Bearer;
             if (provider == ModelProviderEnum.VertexAI || provider == ModelProviderEnum.Bedrock)
                 return authType == ModelEndpointAuthTypeEnum.ProviderDefault;
             return true;
@@ -57,7 +59,15 @@ namespace Armada.Core.Services
             if (endpoint == null) throw new ArgumentNullException(nameof(endpoint));
 
             if (!Supports(endpoint.Provider, endpoint.AuthType))
-                throw new ArgumentException(endpoint.Provider + " signs requests with its own credentials; its authentication type must be ProviderDefault.");
+                throw new ArgumentException(endpoint.Provider + " does not support this authentication type.");
+
+            if (endpoint.Provider == ModelProviderEnum.OllamaCloud || endpoint.Provider == ModelProviderEnum.XAI)
+            {
+                if (String.IsNullOrWhiteSpace(endpoint.ApiKey))
+                    throw new ArgumentException(endpoint.Provider + " requires a bearer API key.");
+                if (endpoint.Headers.Exists(h => h != null && String.Equals(h.Name, "Authorization", StringComparison.OrdinalIgnoreCase)))
+                    throw new ArgumentException("Extra Authorization headers cannot override the provider bearer token.");
+            }
 
             switch (endpoint.AuthType)
             {

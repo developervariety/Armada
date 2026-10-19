@@ -134,15 +134,16 @@ export default function Endpoints() {
   const isAzure = form.provider === 'AzureOpenAI';
   const isVertex = form.provider === 'VertexAI';
   const isBedrock = form.provider === 'Bedrock';
-  // Vertex AI and Bedrock derive their endpoint from the region, so a base URL is optional (override only).
-  const baseUrlRequired = !isVertex && !isBedrock;
+  // Regional and hosted providers can supply their own default URL.
+  const isCloud = form.provider === 'OllamaCloud';
+  const baseUrlRequired = !isVertex && !isBedrock && !isCloud && form.provider !== 'XAI';
   const signsRequests = providerSignsRequests(form.provider);
   const formAuthType = effectiveAuthType(form.provider, form.authType);
   const secretLabelKey = authSecretLabel(form.provider, formAuthType);
   const hasStoredSecret = !!editing && editing.hasApiKey;
   const sentAs = authSentAs(form.provider, formAuthType, form);
   const lt = (text: LocalizedText) => t(text.key, text.params);
-  const baseUrlTip = isVertex || isBedrock
+  const baseUrlTip = isCloud ? 'Fixed URL: https://ollama.com:443. Requires an Ollama API key and a cloud model.' : form.provider === 'XAI' ? 'Defaults to https://api.x.ai. Uses the native xAI Responses API; requires an API key.' : isVertex || isBedrock
     ? 'Optional. Leave blank to use the provider\'s regional address; set it only to send requests through a proxy or private endpoint.'
     : isAzure
       ? 'Your Azure OpenAI resource address, for example https://my-resource.openai.azure.com. Required.'
@@ -209,7 +210,7 @@ export default function Endpoints() {
         name: form.name,
         kind: form.kind,
         provider: form.provider,
-        baseUrl: form.baseUrl,
+        baseUrl: isCloud ? 'https://ollama.com:443' : form.baseUrl,
         model: form.model.trim() || null,
         region: form.region.trim() || null,
         project: form.project.trim() || null,
@@ -473,7 +474,8 @@ export default function Endpoints() {
               <input
                 type="text"
                 title={t(baseUrlTip)}
-                value={form.baseUrl}
+                value={isCloud ? 'https://ollama.com:443' : form.baseUrl}
+                disabled={isCloud}
                 onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
                 placeholder={isAzure ? 'https://my-resource.openai.azure.com' : 'https://api.openai.com'}
                 required={baseUrlRequired}
@@ -533,6 +535,7 @@ export default function Endpoints() {
                     <input
                       type="password"
                       title={t(secretTip)}
+                      required={(isCloud || form.provider === 'XAI') && !hasStoredSecret}
                       value={form.apiKey}
                       onChange={(e) => setForm({ ...form, apiKey: e.target.value, apiKeyTouched: true })}
                       placeholder={t(authSecretPlaceholder(form.provider, formAuthType, hasStoredSecret))}

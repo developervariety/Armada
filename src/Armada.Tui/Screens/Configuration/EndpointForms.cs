@@ -116,7 +116,7 @@ namespace Armada.Tui.Screens.Configuration
             InputField region = form.Text("Region", existing?.Region, "us-east-1 / us-central1", false, "Required for Vertex AI and Bedrock.");
             InputField project = form.Text("Project", existing?.Project, "my-gcp-project", false, "Required for Vertex AI.");
             InputField accessKeyId = form.Text("Access Key ID", existing?.AccessKeyId, "AKIA...", false, "Required for Bedrock.");
-            InputField baseUrl = form.Text("Base URL", existing?.BaseUrl, "https://api.openai.com", false, "Optional override for Vertex AI and Bedrock; the resource endpoint for Azure OpenAI.");
+            InputField baseUrl = form.Text("Base URL", existing?.BaseUrl, "https://api.openai.com", false, "OllamaCloud uses https://ollama.com:443 (fixed); XAI defaults to https://api.x.ai. Optional override for Vertex AI and Bedrock; the resource endpoint for Azure OpenAI.");
             InputField model = form.Text("Model", existing?.Model, "gpt-4o-mini", false, "Deployment name for Azure OpenAI; Bedrock model id for Bedrock.");
             InputField apiVersion = form.Text("API Version", existing?.ApiVersion, "2024-10-21 (default)", false, "Azure OpenAI only.");
             SelectField<string> authType = form.Enum("Authentication", existing != null ? existing.AuthType : ModelEndpointAuthTypeEnum.ProviderDefault,
@@ -135,6 +135,7 @@ namespace Armada.Tui.Screens.Configuration
             {
                 ModelProviderEnum pr = EntityForm.EnumValue(provider, ModelProviderEnum.OpenAI);
                 ModelEndpointAuthTypeEnum at = EntityForm.EnumValue(authType, ModelEndpointAuthTypeEnum.ProviderDefault);
+                baseUrl.Visible = pr != ModelProviderEnum.OllamaCloud;
                 authUsername.Visible = at == ModelEndpointAuthTypeEnum.Basic;
                 authHeaderName.Visible = at == ModelEndpointAuthTypeEnum.Header;
                 authQueryParameter.Visible = at == ModelEndpointAuthTypeEnum.QueryParameter;
@@ -164,10 +165,15 @@ namespace Armada.Tui.Screens.Configuration
                 if ((vertex || bedrock) && String.IsNullOrWhiteSpace(region.Value)) return "Region is required for Vertex AI and Bedrock.";
                 if (vertex && String.IsNullOrWhiteSpace(project.Value)) return "Project is required for Vertex AI.";
                 if (bedrock && String.IsNullOrWhiteSpace(accessKeyId.Value)) return "Access Key ID is required for Bedrock.";
-                if (!vertex && !bedrock && String.IsNullOrWhiteSpace(baseUrl.Value)) return "Base URL is required.";
+                if (!vertex && !bedrock && p != ModelProviderEnum.OllamaCloud && p != ModelProviderEnum.XAI && String.IsNullOrWhiteSpace(baseUrl.Value)) return "Base URL is required.";
                 if (azure && String.IsNullOrWhiteSpace(model.Value)) return "Deployment name is required for Azure OpenAI.";
                 ModelEndpointAuthTypeEnum at = EntityForm.EnumValue(authType, ModelEndpointAuthTypeEnum.ProviderDefault);
                 if ((vertex || bedrock) && at != ModelEndpointAuthTypeEnum.ProviderDefault) return "Vertex AI and Bedrock support only the provider default authentication.";
+                if (p == ModelProviderEnum.OllamaCloud || p == ModelProviderEnum.XAI)
+                {
+                    if (at != ModelEndpointAuthTypeEnum.ProviderDefault && at != ModelEndpointAuthTypeEnum.Bearer) return "This provider requires bearer authentication.";
+                    if (String.IsNullOrWhiteSpace(apiKey.Value) && existing?.HasApiKey != true) return "API key is required.";
+                }
                 if (at == ModelEndpointAuthTypeEnum.Basic && String.IsNullOrWhiteSpace(authUsername.Value)) return "Basic authentication needs a username.";
                 if (at == ModelEndpointAuthTypeEnum.Header && String.IsNullOrWhiteSpace(authHeaderName.Value)) return "Header authentication needs a header name.";
                 if (at == ModelEndpointAuthTypeEnum.QueryParameter && String.IsNullOrWhiteSpace(authQueryParameter.Value)) return "Query parameter authentication needs a parameter name.";
@@ -178,7 +184,7 @@ namespace Armada.Tui.Screens.Configuration
                 payload.Name = name.Value.Trim();
                 payload.Kind = k;
                 payload.Provider = p;
-                payload.BaseUrl = baseUrl.Value.Trim();
+                payload.BaseUrl = p == ModelProviderEnum.OllamaCloud ? "https://ollama.com:443" : baseUrl.Value.Trim();
                 payload.Model = EntityUi.Blank(model.Value);
                 payload.Region = EntityUi.Blank(region.Value);
                 payload.Project = EntityUi.Blank(project.Value);

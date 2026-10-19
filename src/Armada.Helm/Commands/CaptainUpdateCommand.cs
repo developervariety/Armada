@@ -63,6 +63,14 @@ namespace Armada.Helm.Commands
                 }
             }
 
+            string? modelEndpointId = runtime == AgentRuntimeEnum.ApiEndpoint
+                ? (settings.ModelEndpointId ?? current.ModelEndpointId)?.Trim() : null;
+            if (runtime == AgentRuntimeEnum.ApiEndpoint && String.IsNullOrWhiteSpace(modelEndpointId))
+            {
+                AnsiConsole.MarkupLine("[red]API captains require --model-endpoint <endpoint-id>.[/]");
+                return 1;
+            }
+
             object body = new
             {
                 Id = current.Id,
@@ -70,6 +78,7 @@ namespace Armada.Helm.Commands
                 UserId = current.UserId,
                 Name = String.IsNullOrWhiteSpace(settings.Name) ? current.Name : settings.Name.Trim(),
                 Runtime = runtime,
+                ModelEndpointId = modelEndpointId,
                 Model = settings.Model != null ? (String.IsNullOrWhiteSpace(settings.Model) ? null : settings.Model.Trim()) : current.Model,
                 SystemInstructions = current.SystemInstructions,
                 AllowedPersonas = current.AllowedPersonas,

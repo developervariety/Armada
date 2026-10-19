@@ -36,6 +36,11 @@ namespace Armada.Helm.Commands
         [CommandOption("--model|-m")]
         public string? Model { get; set; }
 
+        /// <summary>Managed inference endpoint for an API captain.</summary>
+        [Description("Managed inference endpoint ID for an API captain")]
+        [CommandOption("--model-endpoint")]
+        public string? ModelEndpointId { get; set; }
+
         /// <summary>
         /// Optional Mux config directory override.
         /// </summary>

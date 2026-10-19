@@ -4804,6 +4804,16 @@ Get details of a specific model endpoint (managed embedding or inference provide
 
 ---
 
+**Ollama Cloud and xAI endpoints**
+
+`OllamaCloud` and `XAI` support both `Inference` and `Embedding` through PolyPrompt 3.4.0. Both require an API key and accept only `ProviderDefault` or `Bearer` authentication. Credentials are write-only; omit the API key on update to preserve it.
+
+Ollama Cloud uses the fixed URL `https://ollama.com:443` (omit the base URL or supply that address). Choose a hosted model; embedding availability depends on the cloud catalog. xAI defaults to `https://api.x.ai` when the base URL is omitted, uses the native Responses API for inference, and requires an explicit accessible embedding model for embeddings.
+
+To use either for a captain, create an `Inference` endpoint, set the captain runtime to `ApiEndpoint`, and set `ModelEndpointId` to the endpoint ID. The chosen model must support tool calling for agent work.
+
+CLI example: `armada captain add grok-worker --runtime api --model-endpoint <endpoint-id>`.
+
 ### create_model_endpoint
 
 Create a model endpoint. Supply `apiKey` to store a provider key; it is write-only and is never returned on reads.
@@ -4817,7 +4827,7 @@ Create a model endpoint. Supply `apiKey` to store a provider key; it is write-on
     "name": { "type": "string", "description": "Display name" },
     "baseUrl": { "type": "string", "description": "Provider API base URL" },
     "kind": { "type": "string", "description": "Embedding or Inference (default Inference)" },
-    "provider": { "type": "string", "description": "Ollama, OpenAI, OpenAICompatible, Anthropic, Gemini, VoyageAI, AzureOpenAI, VertexAI, or Bedrock" },
+    "provider": { "type": "string", "description": "Ollama, OpenAI, OpenAICompatible, Anthropic, Gemini, VoyageAI, AzureOpenAI, VertexAI, Bedrock, OllamaCloud, or XAI" },
     "model": { "type": "string", "description": "Model name to target" },
     "apiKey": { "type": "string", "description": "Provider API key. Write-only: accepted here, never returned on reads." },
     "dimensionality": { "type": "integer", "description": "Embedding dimensionality (default 0)" },
@@ -4833,7 +4843,7 @@ Create a model endpoint. Supply `apiKey` to store a provider key; it is write-on
 | `name` | string | Yes | Display name |
 | `baseUrl` | string | Yes | Provider API base URL |
 | `kind` | string | No | `Embedding` or `Inference` (default `Inference`) |
-| `provider` | string | No | `Ollama`, `OpenAI` (default), `OpenAICompatible`, `Anthropic`, `Gemini`, `VoyageAI`, `AzureOpenAI`, `VertexAI`, or `Bedrock` |
+| `provider` | string | No | `Ollama`, `OpenAI` (default), `OpenAICompatible`, `Anthropic`, `Gemini`, `VoyageAI`, `AzureOpenAI`, `VertexAI`, `Bedrock`, `OllamaCloud`, or `XAI` |
 | `model` | string | No | Model name to target |
 | `apiKey` | string | No | Provider API key. Write-only: accepted here, never returned on reads. |
 | `dimensionality` | integer | No | Embedding dimensionality (default 0) |
@@ -4875,7 +4885,7 @@ Update an existing model endpoint. Omit `apiKey` to keep the stored key; send `a
     "endpointId": { "type": "string", "description": "Model endpoint ID (mep_ prefix)" },
     "name": { "type": "string", "description": "New display name" },
     "kind": { "type": "string", "description": "Embedding or Inference" },
-    "provider": { "type": "string", "description": "Ollama, OpenAI, OpenAICompatible, Anthropic, Gemini, VoyageAI, AzureOpenAI, VertexAI, or Bedrock" },
+    "provider": { "type": "string", "description": "Ollama, OpenAI, OpenAICompatible, Anthropic, Gemini, VoyageAI, AzureOpenAI, VertexAI, Bedrock, OllamaCloud, or XAI" },
     "baseUrl": { "type": "string", "description": "New provider API base URL" },
     "model": { "type": "string", "description": "New model name to target" },
     "apiKey": { "type": "string", "description": "New provider API key. Omit to keep the stored key." },
@@ -4892,7 +4902,7 @@ Update an existing model endpoint. Omit `apiKey` to keep the stored key; send `a
 | `endpointId` | string | Yes | Model endpoint ID (prefix `mep_`) |
 | `name` | string | No | New display name |
 | `kind` | string | No | `Embedding` or `Inference` |
-| `provider` | string | No | `Ollama`, `OpenAI` (default), `OpenAICompatible`, `Anthropic`, `Gemini`, `VoyageAI`, `AzureOpenAI`, `VertexAI`, or `Bedrock` |
+| `provider` | string | No | `Ollama`, `OpenAI` (default), `OpenAICompatible`, `Anthropic`, `Gemini`, `VoyageAI`, `AzureOpenAI`, `VertexAI`, `Bedrock`, `OllamaCloud`, or `XAI` |
 | `baseUrl` | string | No | New provider API base URL |
 | `model` | string | No | New model name to target |
 | `apiKey` | string | No | New provider API key. Omit to keep the stored key. |
@@ -5549,7 +5559,7 @@ A managed reference to an external embedding or inference model behind a provide
 | `UserId` | string \| null | Owning user ID |
 | `Name` | string | Display name |
 | `Kind` | string | `Embedding` or `Inference` |
-| `Provider` | string | `Ollama`, `OpenAI`, `OpenAICompatible`, `Anthropic`, `Gemini`, `VoyageAI`, `AzureOpenAI`, `VertexAI`, or `Bedrock` |
+| `Provider` | string | `Ollama`, `OpenAI`, `OpenAICompatible`, `Anthropic`, `Gemini`, `VoyageAI`, `AzureOpenAI`, `VertexAI`, `Bedrock`, `OllamaCloud`, or `XAI` |
 | `BaseUrl` | string | Provider API base URL. For Azure OpenAI this is the resource endpoint; for Vertex AI and Bedrock it is an optional override (the endpoint is derived from `region`). |
 | `Model` | string \| null | Model name to target. For Azure OpenAI this is the deployment name; for Bedrock, the Bedrock model id. |
 | `Region` | string \| null | Cloud region. Required for `VertexAI` and `Bedrock`. |

@@ -10,6 +10,7 @@ namespace Armada.Harbor
     using Avalonia;
     using Avalonia.Controls;
     using Avalonia.Controls.Templates;
+    using Avalonia.Input.Platform;
     using Avalonia.Layout;
     using Avalonia.Media;
     using Avalonia.Threading;

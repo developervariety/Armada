@@ -6142,6 +6142,16 @@ Two capability constraints are enforced:
 
 Requests that violate either constraint are rejected with `400 Bad Request`.
 
+**Ollama Cloud and xAI endpoints**
+
+`OllamaCloud` and `XAI` support both `Inference` and `Embedding` through PolyPrompt 3.4.0. Both require an API key and accept only `ProviderDefault` or `Bearer` authentication. Credentials are write-only; omit the API key on update to preserve it.
+
+Ollama Cloud uses the fixed URL `https://ollama.com:443` (omit the base URL or supply that address). Choose a hosted model; embedding availability depends on the cloud catalog. xAI defaults to `https://api.x.ai` when the base URL is omitted, uses the native Responses API for inference, and requires an explicit accessible embedding model for embeddings.
+
+To use either for a captain, create an `Inference` endpoint, set the captain runtime to `ApiEndpoint`, and set `ModelEndpointId` to the endpoint ID. The chosen model must support tool calling for agent work.
+
+CLI example: `armada captain add grok-worker --runtime api --model-endpoint <endpoint-id>`.
+
 #### GET /api/v1/model-endpoints
 
 List all model endpoints in the caller scope. This route returns a plain array, **not** a paginated `EnumerationResult` envelope.
@@ -6192,9 +6202,9 @@ Create a model endpoint. Supply `ApiKey` to store a provider key; it is write-on
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `Name` | string | yes | Display name |
-| `BaseUrl` | string | yes | Provider API base URL |
+| `BaseUrl` | string | conditional | Provider API base URL. Omit for OllamaCloud (fixed) or XAI (hosted default); optional override for VertexAI and Bedrock. |
 | `Kind` | string | no | `Embedding` (default) or `Inference` |
-| `Provider` | string | no | `Ollama`, `OpenAI`, `OpenAICompatible`, `Anthropic`, `Gemini`, `VoyageAI`, `AzureOpenAI`, `VertexAI`, or `Bedrock` |
+| `Provider` | string | no | `Ollama`, `OpenAI`, `OpenAICompatible`, `Anthropic`, `Gemini`, `VoyageAI`, `AzureOpenAI`, `VertexAI`, `Bedrock`, `OllamaCloud`, or `XAI` |
 | `Model` | string | no | Model name to target (Azure OpenAI: deployment name; Bedrock: Bedrock model id) |
 | `Region` | string | no | Cloud region. Required for `VertexAI` and `Bedrock`. |
 | `Project` | string | no | GCP project id. Required for `VertexAI`. |
@@ -8893,8 +8903,8 @@ A managed reference to an external embedding or inference model behind a provide
 | `Scope` | [ScopeEnum](#scopeenum) | `TenantWide` | Ownership scope: `TenantWide` or `UserSpecific`. See [Data Scoping](#data-scoping-who-sees-and-edits-what). |
 | `Name` | string | required | Display name |
 | `Kind` | string | `Embedding` | `Embedding` or `Inference` |
-| `Provider` | string | `Ollama` | `Ollama`, `OpenAI`, `OpenAICompatible`, `Anthropic`, `Gemini`, `VoyageAI`, `AzureOpenAI`, `VertexAI`, or `Bedrock` |
-| `BaseUrl` | string | required | Provider API base URL. Azure OpenAI: resource endpoint. Vertex AI / Bedrock: optional override (endpoint is derived from `Region`). |
+| `Provider` | string | `Ollama` | `Ollama`, `OpenAI`, `OpenAICompatible`, `Anthropic`, `Gemini`, `VoyageAI`, `AzureOpenAI`, `VertexAI`, `Bedrock`, `OllamaCloud`, or `XAI` |
+| `BaseUrl` | string | required | Provider API base URL. Azure OpenAI: resource endpoint. Vertex AI / Bedrock: optional override (endpoint is derived from `Region`). OllamaCloud: fixed `https://ollama.com:443`. XAI: defaults to `https://api.x.ai`. |
 | `Model` | string? | null | Model name to target. Azure OpenAI: deployment name. Bedrock: Bedrock model id. |
 | `Region` | string? | null | Cloud region. Required for `VertexAI` and `Bedrock`. |
 | `Project` | string? | null | GCP project id. Required for `VertexAI`. |

@@ -483,6 +483,31 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(RestartWaitResultEnum.NeverWentDown, neverDown);
             }));
 
+            cases.Add(CaseAsync("api_captain_endpoint_binding", "CLI creates API captains and preserves endpoint binding on update", TestTags.Positive, async () =>
+            {
+                using SecurityTestServer server = await SecurityTestServer.PrepareAsync("127.0.0.1", null).ConfigureAwait(false);
+                await server.StartAsync().ConfigureAwait(false);
+                using HttpClient admin = server.CreateRestClient(true);
+                JsonSerializerOptions json = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                json.Converters.Add(new JsonStringEnumConverter());
+                HttpResponseMessage credentialReply = await admin.PostAsJsonAsync("/api/v1/credentials", new Credential("default", "default") { Name = "api-cli", Active = true }).ConfigureAwait(false);
+                Credential credential = JsonSerializer.Deserialize<Credential>(await credentialReply.Content.ReadAsStringAsync().ConfigureAwait(false), json)!;
+                foreach (string provider in new[] { "OllamaCloud", "XAI" })
+                {
+                    HttpResponseMessage endpointReply = await admin.PostAsJsonAsync("/api/v1/model-endpoints", new { Name = provider, Kind = "Inference", Provider = provider, Model = "test-model", ApiKey = "test-token" }).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, endpointReply.StatusCode);
+                    ModelEndpoint endpoint = JsonSerializer.Deserialize<ModelEndpoint>(await endpointReply.Content.ReadAsStringAsync().ConfigureAwait(false), json)!;
+                    AssertEqual(0, await RunCliAsync("captain", "add", "cli-" + provider, "--runtime", "api", "--model-endpoint", endpoint.Id, "--server", server.BaseUrl, "--token", credential.BearerToken!).ConfigureAwait(false));
+                    string list = await admin.GetStringAsync("/api/v1/captains").ConfigureAwait(false);
+                    Captain captain = JsonSerializer.Deserialize<EnumerationResult<Captain>>(list, json)!.Objects!.First(c => c.Name == "cli-" + provider);
+                    AssertEqual(endpoint.Id, captain.ModelEndpointId);
+                    AssertEqual(0, await RunCliAsync("captain", "update", captain.Id, "--model", "override-model", "--server", server.BaseUrl, "--token", credential.BearerToken!).ConfigureAwait(false));
+                    Captain updated = JsonSerializer.Deserialize<Captain>(await admin.GetStringAsync("/api/v1/captains/" + captain.Id).ConfigureAwait(false), json)!;
+                    AssertEqual(endpoint.Id, updated.ModelEndpointId);
+                    AssertEqual("override-model", updated.Model);
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Helm Remote Target",

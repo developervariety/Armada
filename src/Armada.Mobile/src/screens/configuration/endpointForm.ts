@@ -38,7 +38,7 @@ const headerValueKey = (i: number) => `headerValue${i}`;
 
 /** Providers whose credential has a fixed shape (service-account JSON, AWS secret): only ProviderDefault applies. */
 export function providerAllowsAuthChoice(provider: string): boolean {
-  return provider !== 'VertexAI' && provider !== 'Bedrock';
+  return provider !== 'VertexAI' && provider !== 'Bedrock' && provider !== 'OllamaCloud' && provider !== 'XAI';
 }
 
 /** The effective auth type for the current values (ProviderDefault when the provider has no choice). */
@@ -170,6 +170,7 @@ export function endpointValidate(t: Translate, v: FormValues, existing: ModelEnd
   const reason = endpointReason(t, v);
   if (reason) return reason;
   const type = endpointAuthType(v);
+  if (['OllamaCloud', 'XAI'].includes(str(v, 'provider')) && !str(v, 'apiKey').trim() && !existing?.hasApiKey) return t('API key is required.');
   if (type === 'Basic' && !str(v, 'authUsername').trim()) return t('Basic authentication needs a username.');
   if (type === 'Header' && !str(v, 'authHeaderName').trim()) return t('Header authentication needs a header name.');
   if (type === 'QueryParameter' && !str(v, 'authQueryParameter').trim()) return t('Query parameter authentication needs a parameter name.');
@@ -199,7 +200,7 @@ export function endpointPayload(viewer: ScopeViewer, v: FormValues, existing: Mo
     name: str(v, 'name'),
     kind: str(v, 'kind') as ModelEndpointKind,
     provider: str(v, 'provider') as ModelProvider,
-    baseUrl: str(v, 'baseUrl'),
+    baseUrl: str(v, 'provider') === 'OllamaCloud' ? 'https://ollama.com:443' : str(v, 'baseUrl'),
     model: str(v, 'model').trim() || null,
     region: str(v, 'region').trim() || null,
     project: str(v, 'project').trim() || null,
@@ -257,11 +258,11 @@ export function endpointFields(t: Translate, viewer: ScopeViewer, v: FormValues,
     ...(isVertex || isBedrock ? [{ kind: 'text' as const, key: 'region', label: t('Region'), required: true, placeholder: isBedrock ? 'us-east-1' : 'us-central1' }] : []),
     ...(isVertex ? [{ kind: 'text' as const, key: 'project', label: t('Project') }] : []),
     ...(isBedrock ? [{ kind: 'text' as const, key: 'accessKeyId', label: t('Access Key ID') }] : []),
-    {
-      kind: 'text', key: 'baseUrl', required: !isVertex && !isBedrock,
+    ...(provider === 'OllamaCloud' ? [{ kind: 'note' as const, key: 'cloudUrl', label: 'https://ollama.com:443' }] : [{
+      kind: 'text' as const, key: 'baseUrl', required: !isVertex && !isBedrock && provider !== 'OllamaCloud' && provider !== 'XAI',
       label: isVertex || isBedrock ? t('Base URL (optional override)') : isAzure ? t('Base URL (resource endpoint)') : t('Base URL'),
-      placeholder: isAzure ? 'https://my-resource.openai.azure.com' : 'https://api.openai.com',
-    },
+      placeholder: provider === 'OllamaCloud' ? 'https://ollama.com:443 (fixed)' : provider === 'XAI' ? 'https://api.x.ai (default)' : isAzure ? 'https://my-resource.openai.azure.com' : 'https://api.openai.com',
+    }]),
     {
       kind: 'text', key: 'model', required: isAzure,
       label: isAzure ? t('Deployment name') : isBedrock ? t('Bedrock model id') : t('Model'),

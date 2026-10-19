@@ -522,6 +522,81 @@ namespace Test.Shared.Suites.Services
                 }).ConfigureAwait(false);
             }));
 
+            foreach (ModelProviderEnum provider in new[] { ModelProviderEnum.OllamaCloud, ModelProviderEnum.XAI })
+            {
+                foreach (ModelEndpointKindEnum kind in new[] { ModelEndpointKindEnum.Inference, ModelEndpointKindEnum.Embedding })
+                {
+                    cases.Add(CaseAsync("cloud_" + provider + "_" + kind, "Cloud provider round trip and capability client: " + provider + " " + kind, TestTags.Positive, async () =>
+                    {
+                        using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                        ModelEndpointService service = new ModelEndpointService(testDb.Driver, CreateLogging());
+                        AuthContext auth = AuthContext.Authenticated("ten_cloud", "usr_cloud", false, true, "UnitTest");
+                        ModelEndpoint endpoint = new ModelEndpoint { Name = "Cloud", Provider = provider, Kind = kind, BaseUrl = "", Model = "catalog-model", TimeoutMs = 34567 };
+                        endpoint.ApiKey = "test-token";
+                        ModelEndpoint created = await service.CreateAsync(auth, endpoint).ConfigureAwait(false);
+                        AssertEqual(provider == ModelProviderEnum.OllamaCloud ? "https://ollama.com:443" : "https://api.x.ai", created.BaseUrl);
+                        ModelEndpoint stored = (await service.ReadAsync(auth, created.Id).ConfigureAwait(false))!;
+                        AssertEqual(provider, stored.Provider);
+                        using (ClientBase client = ModelEndpointClientFactory.Create(stored, CreateLogging()))
+                        {
+                            string expected = provider == ModelProviderEnum.OllamaCloud ? "OllamaCloud" : "XAi";
+                            AssertEqual(expected + (kind == ModelEndpointKindEnum.Inference ? "CompletionClient" : "EmbeddingClient"), client.GetType().Name);
+                            AssertEqual(34567, client.TimeoutMs);
+                            if (client is CompletionClientBase completion) AssertEqual("catalog-model", completion.Model);
+                            if (client is EmbeddingClientBase embedding) AssertEqual("catalog-model", embedding.Model);
+                        }
+                        stored.ApiKey = null;
+                        ModelEndpoint updated = await service.UpdateAsync(auth, stored).ConfigureAwait(false);
+                        AssertTrue(updated.HasApiKey, "An unchanged edit must preserve the bearer token.");
+                    }));
+                }
+
+                cases.Add(CaseAsync("cloud_auth_" + provider, "Cloud provider requires bearer authentication: " + provider, TestTags.Negative, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    ModelEndpointService service = new ModelEndpointService(testDb.Driver, CreateLogging());
+                    AuthContext auth = AuthContext.Authenticated("ten_cloud", "usr_cloud", false, true, "UnitTest");
+                    ModelEndpoint endpoint = new ModelEndpoint { Name = "Cloud", Provider = provider, Kind = ModelEndpointKindEnum.Inference, BaseUrl = "" };
+                    await AssertThrowsAsync<ArgumentException>(() => service.CreateAsync(auth, endpoint)).ConfigureAwait(false);
+                    endpoint.ApiKey = "test-token";
+                    endpoint.AuthType = ModelEndpointAuthTypeEnum.None;
+                    await AssertThrowsAsync<ArgumentException>(() => service.CreateAsync(auth, endpoint)).ConfigureAwait(false);
+                    endpoint.AuthType = ModelEndpointAuthTypeEnum.Bearer;
+                    ModelEndpoint created = await service.CreateAsync(auth, endpoint).ConfigureAwait(false);
+                    using ClientBase client = ModelEndpointClientFactory.Create(created, CreateLogging());
+                }));
+            }
+
+            cases.Add(CaseAsync("cloud_fixed_url", "Ollama Cloud rejects an endpoint override", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ModelEndpointService service = new ModelEndpointService(testDb.Driver, CreateLogging());
+                ModelEndpoint endpoint = new ModelEndpoint { Name = "Cloud", Provider = ModelProviderEnum.OllamaCloud, BaseUrl = "https://example.com" };
+                endpoint.ApiKey = "test-token";
+                await AssertThrowsAsync<ArgumentException>(() => service.CreateAsync(AuthContext.Authenticated("ten_cloud", "usr_cloud", false, true, "UnitTest"), endpoint)).ConfigureAwait(false);
+            }));
+
+            string? simulation = Environment.GetEnvironmentVariable("ARMADA_MODEL_PROVIDER_SIMULATION");
+            if (!String.IsNullOrWhiteSpace(simulation))
+            {
+                cases.Add(CaseAsync("xai_http_validation", "xAI inference and embeddings validate through the native HTTP contract", TestTags.Positive, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    ModelEndpointService service = new ModelEndpointService(testDb.Driver, CreateLogging());
+                    AuthContext auth = AuthContext.Authenticated("ten_http", "usr_http", false, true, "UnitTest");
+                    foreach (ModelEndpointKindEnum kind in new[] { ModelEndpointKindEnum.Inference, ModelEndpointKindEnum.Embedding })
+                    {
+                        ModelEndpoint endpoint = new ModelEndpoint { Name = "HTTP " + kind, Provider = ModelProviderEnum.XAI, Kind = kind, BaseUrl = simulation, Model = "test-model" };
+                        endpoint.ApiKey = "test-token";
+                        ModelEndpoint created = await service.CreateAsync(auth, endpoint).ConfigureAwait(false);
+                        ModelEndpointProbeResult result = await service.ValidateAsync(auth, created.Id).ConfigureAwait(false);
+                        AssertTrue(result.Success, "Native xAI validation failed: " + result.Error);
+                        if (kind == ModelEndpointKindEnum.Inference) AssertEqual("pong", result.SampleText);
+                        else AssertEqual(3, result.EmbeddingDimensions ?? 0);
+                    }
+                }));
+            }
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.ModelEndpointService",
                 displayName: "Model Endpoint Service",

@@ -65,6 +65,14 @@ namespace Armada.Core.Enums
         /// requests are SigV4-signed.
         /// </summary>
         [EnumMember(Value = "Bedrock")]
-        Bedrock
+        Bedrock,
+
+        /// <summary>Ollama Cloud native API at https://ollama.com:443; bearer token required.</summary>
+        [EnumMember(Value = "OllamaCloud")]
+        OllamaCloud,
+
+        /// <summary>xAI Grok native Responses and embeddings APIs; bearer token required.</summary>
+        [EnumMember(Value = "XAI")]
+        XAI
     }
 }

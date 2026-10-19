@@ -12,6 +12,19 @@ const ADMIN: ScopeViewer = { isAdmin: false, isTenantAdmin: true, tenantId: 'ten
 const USER: ScopeViewer = { isAdmin: false, isTenantAdmin: false, tenantId: 'ten_1', userId: 'usr_1' };
 
 describe('configuration form logic', () => {
+  it.each(['OllamaCloud', 'XAI'])('%s is selectable and requires credentials', (provider) => {
+    const t = ((key: string) => key) as Parameters<typeof endpointValidate>[0];
+    const values: ReturnType<typeof endpointValues> = { ...endpointValues(ADMIN, null), provider };
+    expect(endpointValidate(t, values, null)).toBe('API key is required.');
+    values.apiKey = 'test-token';
+    expect(endpointValidate(t, values, null)).toBeNull();
+    const fields = endpointFields(t, ADMIN, values, null);
+    const providerField = fields.find(f => f.key === 'provider');
+    expect(providerField?.kind === 'select' && providerField.options.some(o => o.value === provider)).toBe(true);
+    const payload = endpointPayload(ADMIN, values, null);
+    expect(payload.authType).toBe('ProviderDefault');
+    if (provider === 'OllamaCloud') expect(payload.baseUrl).toBe('https://ollama.com:443');
+  });
   it('scope: admins choose, users create personal and keep the record scope on edit', () => {
     expect(scopeValue(ADMIN, { scope: 'UserSpecific' })).toBe('UserSpecific');
     expect(scopeValue(ADMIN, {})).toBe('TenantWide');

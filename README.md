@@ -181,7 +181,7 @@ Armada does not replace your agent. It runs it. The comparison is with the work 
 **Models and runtimes**
 - CLI runtimes: Claude Code, Codex, Gemini, Cursor, Mux, and OpenCode, plus a `Custom` runtime, behind one pluggable `IAgentRuntime` interface.
 - `ApiEndpoint` captains: an in-process tool-calling loop against a registered inference endpoint, also usable for Ask Armada.
-- Managed model endpoints for inference and embeddings (Ollama, OpenAI, OpenAI-compatible, Azure OpenAI, Anthropic, Gemini, Vertex AI, Bedrock, VoyageAI) with health checks and write-only API keys.
+- Managed model endpoints for inference and embeddings (Ollama, OpenAI, OpenAI-compatible, Azure OpenAI, Anthropic, Gemini, Vertex AI, Bedrock, VoyageAI, Ollama Cloud, xAI Grok) with health checks and write-only API keys.
 
 **Many repositories**
 - [Vessel import](#working-across-many-repositories) from a directory tree, with optional captain-suggested fleet grouping.
@@ -965,7 +965,7 @@ armada mission retry msn_abc123
 armada voyage retry "API Hardening"
 ```
 
-`--runtime` (on `captain add`, `captain update`, and `config set DefaultRuntime`) also accepts the enum names such as `ClaudeCode`; an unknown value is an error. An `api` captain needs an inference endpoint, chosen in the dashboard, the TUI, or the REST and MCP captain APIs. Mux captains require a named endpoint, validated through `mux probe --require-tools`, and can target a non-default Mux config directory with `--mux-config-dir`. See [docs/CAPTAINS.md](docs/CAPTAINS.md) for what each runtime supports.
+`--runtime` (on `captain add`, `captain update`, and `config set DefaultRuntime`) also accepts the enum names such as `ClaudeCode`; an unknown value is an error. An `api` captain needs an inference endpoint, chosen with `--model-endpoint <endpoint-id>`, in the dashboard or TUI, or through the REST and MCP captain APIs. Mux captains require a named endpoint, validated through `mux probe --require-tools`, and can target a non-default Mux config directory with `--mux-config-dir`. See [docs/CAPTAINS.md](docs/CAPTAINS.md) for what each runtime supports.
 
 ## Configuration
 
