@@ -45,6 +45,24 @@ namespace Armada.Server.Mcp
         }
 
         /// <summary>
+        /// Return the mission a tool call acts for. A captain credential names the mission it was issued
+        /// to, and that mission wins over any mission id the call supplies, so a captain cannot attribute
+        /// its call to another mission. Without such a credential the supplied id is used.
+        /// </summary>
+        /// <param name="supplied">The mission id the call supplied, or null.</param>
+        /// <param name="ignoredSupplied">The supplied id when it named a different mission and was ignored; otherwise null.</param>
+        /// <returns>The mission id the call acts for, or null when there is none.</returns>
+        public static string? ResolveMissionId(string? supplied, out string? ignoredSupplied)
+        {
+            ignoredSupplied = null;
+            string? own = _Current.Value?.MissionId;
+            if (String.IsNullOrWhiteSpace(own)) return String.IsNullOrWhiteSpace(supplied) ? null : supplied!.Trim();
+            if (!String.IsNullOrWhiteSpace(supplied) && !String.Equals(supplied!.Trim(), own, StringComparison.Ordinal))
+                ignoredSupplied = supplied!.Trim();
+            return own;
+        }
+
+        /// <summary>
         /// Set the caller for the current async flow until the returned scope is disposed.
         /// </summary>
         /// <param name="caller">Authenticated caller.</param>

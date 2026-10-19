@@ -64,6 +64,30 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A captain's call is recorded on its own mission even when it names another mission", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    client.NextResult = ChoiceResult("provider", 0.93);
+                    Harness harness = Harness.Create(testDb, client, enabled: true);
+                    string ownMission = await harness.SeedMissionAsync(testDb).ConfigureAwait(false);
+                    string otherMission = await harness.SeedMissionAsync(testDb).ConfigureAwait(false);
+
+                    await harness.CallAsMissionAsync("armada_typed_decision", new
+                    {
+                        state = "test state",
+                        questions = new { cause = new { type = "choice", instructions = "Cause", criteria = new { provider = "provider" } } },
+                        missionId = otherMission
+                    }, ownMission).ConfigureAwait(false);
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeCaptain).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "one call records one event");
+                    AssertEqual(ownMission, events[0].MissionId, "the event is stored on the credential's mission");
+                    AssertFalse((events[0].Payload ?? "").Contains(otherMission, StringComparison.Ordinal), "the other mission's id is not recorded");
+                }
+            });
+
             await RunTest("The captain tools are registered and mission-scoped", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1013,10 +1037,23 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }
 
+            public async Task<string> CallAsMissionAsync(string tool, object args, string missionId)
+            {
+                JsonElement element = JsonSerializer.SerializeToElement(args, _JsonOptions);
+                // A captain connection: the mission owner's credential, naming the mission it was issued to.
+                AuthContext caller = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Session");
+                caller.MissionId = missionId;
+                using (McpCallerContext.Begin(caller))
+                {
+                    object result = await Handlers[tool](element).ConfigureAwait(false);
+                    return JsonSerializer.Serialize(result, _JsonOptions);
+                }
+            }
+
             public async Task<string> SeedMissionAsync(TestDatabase testDb)
             {
                 Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                    new Vessel("typed-decision-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    new Vessel("typed-decision-vessel-" + Guid.NewGuid().ToString("N"), "https://github.com/test/repo.git")).ConfigureAwait(false);
 
                 Mission mission = new Mission();
                 mission.TenantId = Constants.DefaultTenantId;

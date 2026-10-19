@@ -71,6 +71,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A captain's typed-decision tool call is recorded on the mission its credential
+  names. A `missionId` argument that names another mission, such as the
+  Architect of the same voyage, is ignored and logged, so the call is no longer
+  stored on that other mission.
+
 - A PortingReferenceAnalyst stage holds the mission branch in its dock, because
   it commits parity fixes; it no longer starts detached and leaves its captain
   to move the branch by hand. The no-push mission rules tell a captain in a

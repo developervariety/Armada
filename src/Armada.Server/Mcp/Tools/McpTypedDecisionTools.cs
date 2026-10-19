@@ -396,7 +396,7 @@ namespace Armada.Server.Mcp.Tools
                 if (context.Count == 0)
                     return Unavailable("invalid", "A non-empty 'context' object is required.");
 
-                string? missionId = ReadOptionalString(root, "missionId");
+                string? missionId = ResolveCallMissionId(root, RunCustomToolName, logging);
                 Mission? mission = null;
                 if (!String.IsNullOrWhiteSpace(missionId))
                 {
@@ -502,12 +502,12 @@ namespace Armada.Server.Mcp.Tools
 
                 JsonElement root = args.Value;
 
-                // Resolve the calling mission for event scope. A supplied id that resolves scopes the
-                // event; an absent or unresolved id falls back to the participant key, so a captain
-                // that does not pass its id is still observable. Resolved
-                // first because an async builder (prior art) uses the mission to know which vessel to
-                // search.
-                string? missionId = ReadOptionalString(root, "missionId");
+                // Resolve the calling mission for event scope. A captain credential's own mission wins
+                // over a supplied id; otherwise a supplied id that resolves scopes the event, and an
+                // absent or unresolved id falls back to the participant key, so a captain that does not
+                // pass its id is still observable. Resolved first because an async builder (prior art)
+                // uses the mission to know which vessel to search.
+                string? missionId = ResolveCallMissionId(root, toolName, logging);
                 Mission? mission = null;
                 if (!String.IsNullOrWhiteSpace(missionId))
                 {
@@ -1239,6 +1239,18 @@ namespace Armada.Server.Mcp.Tools
                 list.Add(item.ValueKind == JsonValueKind.String ? item.GetString() ?? String.Empty : item.GetRawText());
             }
             return list;
+        }
+
+        // The mission a call is recorded against: the captain credential's own mission, or the supplied
+        // id when the caller holds no mission credential. A supplied id naming another mission is
+        // ignored and logged, so one stage's call is never stored on another stage's mission.
+        private static string? ResolveCallMissionId(JsonElement root, string toolName, LoggingModule? logging)
+        {
+            string? missionId = McpCallerContext.ResolveMissionId(ReadOptionalString(root, "missionId"), out string? ignored);
+            if (ignored != null)
+                logging?.Warn("[McpTypedDecisionTools] " + toolName + " ignored missionId " + ignored
+                    + ": the caller's credential is scoped to mission " + missionId);
+            return missionId;
         }
 
         private static string? ReadOptionalString(JsonElement parent, string name)

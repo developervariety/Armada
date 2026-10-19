@@ -852,6 +852,12 @@ unavailable result whose reason is one of `disabled`, `invalid`, or a client
 reason (`timeout`,
 `http_401`, `http_429`, `parse`, `exception`, ...).
 
+Every typed-decision tool records its call on one mission. A captain's
+credential names the mission it was issued to, and that mission is used even when
+the call passes a different `missionId`; the ignored id is logged. A caller
+without a mission credential, such as an operator session, is recorded against the
+`missionId` it passes, or against its participant key when it passes none.
+
 When several independent judgements share the same state, send them in this one
 call. When the judgement is a list of real items, use `armada_score_items`
 instead of asking the model to count.
