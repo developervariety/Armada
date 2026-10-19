@@ -114,6 +114,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The `SlotWait.Guidance` text on an unresolved Check no longer claims the host runs one
+  suite at a time. It says the host runs a limited number of full build or test suites at
+  once, which holds for any `definitionOfDone.hostCommandSlots` value.
+
 - Autonomous recovery writes `autonomous_recovery.capacity_deferred` and its
   `rescue_capacity_deferred:` incident note once per change of refusal code or
   limit, instead of once per sweep while capacity stays full; each refusal is

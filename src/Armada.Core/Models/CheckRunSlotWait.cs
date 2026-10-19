@@ -15,7 +15,7 @@ namespace Armada.Core.Models
         /// Guidance for a captain or Judge reading a check that has not finished.
         /// </summary>
         public const string WaitGuidance =
-            "This check has not finished because the host runs one full build or test suite at a time. "
+            "This check has not finished because the host runs a limited number of full build or test suites at once. "
             + "The wait is an environment condition: it is not a code defect and not a question for the owner, "
             + "so do not end the stage BLOCKED or return NEEDS_REVISION because of it. The check runs by itself; "
             + "read it again with get_check_run. A Judge PASS given while a Check is unresolved is held until the "
