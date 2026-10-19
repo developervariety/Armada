@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   listModelEndpoints,
   createModelEndpoint,
+  createCaptain,
   updateModelEndpoint,
   deleteModelEndpoint,
   validateModelEndpoint,
@@ -131,6 +132,8 @@ export default function Endpoints() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<ModelEndpoint | null>(null);
   const [duplicateSource, setDuplicateSource] = useState<ModelEndpoint | null>(null);
+  const [createLinkedCaptain, setCreateLinkedCaptain] = useState(false);
+  const [captainName, setCaptainName] = useState('');
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<EndpointForm>(EMPTY_FORM);
 
@@ -181,6 +184,8 @@ export default function Endpoints() {
   }
 
   function openCreate() {
+    setCreateLinkedCaptain(false);
+    setCaptainName('');
     setEditing(null);
     setDuplicateSource(null);
     setForm({ ...EMPTY_FORM, scope: resolveCreateScope(viewer) });
@@ -188,6 +193,8 @@ export default function Endpoints() {
   }
 
   function openEdit(endpoint: ModelEndpoint) {
+    setCreateLinkedCaptain(false);
+    setCaptainName('');
     setDuplicateSource(null);
     setEditing(endpoint);
     setForm({
@@ -250,15 +257,25 @@ export default function Endpoints() {
       // Only send apiKey when the operator actually typed one, so an unchanged edit keeps the stored key.
       if (form.apiKeyTouched && formAuthType !== 'None') payload.apiKey = form.apiKey;
 
-      if (editing) {
-        const updated = await updateModelEndpoint(editing.id, payload);
-        setShowForm(false);
-        pushToast('success', t('Endpoint "{{name}}" saved.', { name: updated.name }));
-      } else {
-        const created = duplicateSource ? await duplicateModelEndpoint(duplicateSource.id, payload) : await createModelEndpoint(payload);
-        setShowForm(false);
-        pushToast('success', t('Endpoint "{{name}}" created.', { name: created.name }));
+      const saved = editing
+        ? await updateModelEndpoint(editing.id, payload)
+        : duplicateSource ? await duplicateModelEndpoint(duplicateSource.id, payload) : await createModelEndpoint(payload);
+      if (form.kind === 'Inference' && createLinkedCaptain) {
+        // Keep the saved identity if the second request fails, so retrying cannot duplicate the endpoint.
+        setEditing(saved);
+        setDuplicateSource(null);
+        try {
+          await createCaptain({ name: captainName.trim() || saved.name, runtime: 'ApiEndpoint', modelEndpointId: saved.id });
+        } catch (err: unknown) {
+          await load();
+          setError(t('Endpoint saved, but captain creation failed: {{error}}. Save again to retry, or uncheck captain creation to finish.', { error: err instanceof Error ? err.message : t('Unknown error') }));
+          return;
+        }
       }
+      setShowForm(false);
+      pushToast('success', createLinkedCaptain && form.kind === 'Inference'
+        ? t('Endpoint "{{name}}" saved and captain created.', { name: saved.name })
+        : t('Endpoint "{{name}}" saved.', { name: saved.name }));
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Save failed.'));
@@ -643,6 +660,17 @@ export default function Endpoints() {
                   value={form.inferenceOptions[key] ?? ''} onChange={e => setForm({ ...form, inferenceOptions: { ...form.inferenceOptions, [key]: e.target.value === '' ? null : Number(e.target.value) } })} />
               </label>)}
               </div>
+            </fieldset>}
+            {form.kind === 'Inference' && <fieldset className="endpoint-auth-section endpoint-inference-section">
+              <legend>{t('Captain')}</legend>
+              <label className="checkbox-row" style={{ display: 'flex' }}>
+                <input type="checkbox" checked={createLinkedCaptain} onChange={e => setCreateLinkedCaptain(e.target.checked)} />
+                <span>{t('Create a captain for this endpoint')}</span>
+              </label>
+              <p className="text-dim">{t('Create an API Endpoint captain when saving, ready to select in Ask Armada and persona priorities.')}</p>
+              {createLinkedCaptain && <label>{t('Captain name')}
+                <input value={captainName} placeholder={form.name} onChange={e => setCaptainName(e.target.value)} />
+              </label>}
             </fieldset>}
             <ScopeSelect viewer={viewer} value={form.scope} onChange={(scope) => setForm({ ...form, scope })} />
             <label className="checkbox-row" title={t(EP_ENABLED_TIP)}>

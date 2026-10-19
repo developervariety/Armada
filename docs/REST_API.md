@@ -6177,6 +6177,8 @@ The result is 201 with a fresh endpoint ID, caller ownership, normal create-scop
 
 The dashboard row menu's **Duplicate** opens an unsaved, prefilled endpoint form. Edit the model, name or settings, then **Save Copy**; leaving the credential field blank inherits the source credential. Cancel creates nothing. The .NET SDK exposes `DuplicateModelEndpointAsync(sourceId, editedConfiguration, apiKey: null)`. MCP exposes `duplicate_model_endpoint` with `endpointId` and `configuration` arguments.
 
+In the dashboard's create/edit inference endpoint form, select **Create a captain for this endpoint** to create an `ApiEndpoint` captain after saving. The optional captain name defaults to the endpoint name. This also works when duplicating an inference endpoint. The captain references the saved endpoint ID and inherits its model and inference settings; credentials remain on the endpoint. The option is off by default and unavailable for embedding endpoints. If captain creation fails, the saved endpoint is retained and the form offers a retry without creating another endpoint.
+
 #### Dashboard duplication coverage
 
 Reusable configuration tables offer Duplicate: fleets, vessels, captains, endpoints, skills, project profiles, workflow profiles, personas, pipelines, prompt templates, playbooks, fleet actions, environments and runbooks. Harbors can copy their editable registration settings; the new registration does not reuse the source machine identity or link. Existing duplication flows open the copied record's editor. Newly added endpoint, skill, profile and Harbor actions prefill the create form for review before saving.

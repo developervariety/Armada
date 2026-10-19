@@ -6,7 +6,7 @@ import { translateTemplate } from '../i18n/runtime';
 import Endpoints from './Endpoints';
 
 vi.mock('../api/client', () => ({
-  listModelEndpoints: vi.fn(), duplicateModelEndpoint: vi.fn(), createModelEndpoint: vi.fn(), updateModelEndpoint: vi.fn(), deleteModelEndpoint: vi.fn(),
+  createCaptain: vi.fn(), listModelEndpoints: vi.fn(), duplicateModelEndpoint: vi.fn(), createModelEndpoint: vi.fn(), updateModelEndpoint: vi.fn(), deleteModelEndpoint: vi.fn(),
   validateModelEndpoint: vi.fn(), healthCheckModelEndpoints: vi.fn(),
 }));
 
@@ -239,5 +239,50 @@ describe('Endpoint duplication', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(client.duplicateModelEndpoint).not.toHaveBeenCalled();
     expect(client.createModelEndpoint).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('Endpoint linked captain creation', () => {
+  it('offers optional captain creation and uses the saved endpoint identity and custom name', async () => {
+    await openEdit();
+    expect(screen.queryByLabelText('Captain name')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Create a captain for this endpoint'));
+    fireEvent.change(screen.getByLabelText('Captain name'), { target: { value: 'Cloud Captain' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(client.createCaptain).toHaveBeenCalledWith({ name: 'Cloud Captain', runtime: 'ApiEndpoint', modelEndpointId: STORED.id }));
+  });
+
+  it('preserves a newly saved endpoint when captain creation fails, and retries without creating another endpoint', async () => {
+    vi.mocked(client.createCaptain).mockRejectedValueOnce(new Error('Capacity reached')).mockResolvedValueOnce({} as never);
+    render(<MemoryRouter><Endpoints /></MemoryRouter>);
+    await screen.findByText('tunnel-ollama', { selector: 'strong' });
+    fireEvent.click(screen.getByRole('button', { name: '+ Endpoint' }));
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://example.com' } });
+    fireEvent.click(screen.getByLabelText('Create a captain for this endpoint'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Endpoint' }));
+    await screen.findByText(/Endpoint saved, but captain creation failed:/);
+    expect(client.createModelEndpoint).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(client.createCaptain).toHaveBeenCalledTimes(2));
+    expect(client.createModelEndpoint).toHaveBeenCalledTimes(1);
+    expect(client.createCaptain).toHaveBeenLastCalledWith({ name: STORED.name, runtime: 'ApiEndpoint', modelEndpointId: STORED.id });
+  });
+
+  it('hides captain creation for embedding endpoints', async () => {
+    await openEdit();
+    fireEvent.click(screen.getByLabelText('Create a captain for this endpoint'));
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'Embedding' } });
+    expect(screen.queryByLabelText('Create a captain for this endpoint')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(client.updateModelEndpoint).toHaveBeenCalled());
+    expect(client.createCaptain).not.toHaveBeenCalled();
+  });
+
+  it('does not create a captain unless requested', async () => {
+    await openEdit();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(client.updateModelEndpoint).toHaveBeenCalled());
+    expect(client.createCaptain).not.toHaveBeenCalled();
   });
 });
