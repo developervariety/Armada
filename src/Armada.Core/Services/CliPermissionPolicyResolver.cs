@@ -162,18 +162,24 @@ namespace Armada.Core.Services
         /// <param name="vessel">Mission vessel, or null.</param>
         /// <param name="hasSessionToken">Whether the launch carries a mission-scoped MCP token.</param>
         /// <param name="remoteHarbor">Whether the launch runs on a Harbor.</param>
+        /// <param name="approvalOptions">Optional per-run approval override.</param>
         /// <param name="harborCanPrompt">With <paramref name="remoteHarbor"/>, whether that Harbor can send the runtime's
         /// permission prompts to Armada.</param>
         /// <returns>The resolution; never null.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="settings"/> or <paramref name="captain"/> is null.</exception>
-        public static CliPermissionResolution ResolveForMission(ArmadaSettings settings, Captain captain, Vessel? vessel, bool hasSessionToken, bool remoteHarbor, bool harborCanPrompt)
+        public static CliPermissionResolution ResolveForMission(ArmadaSettings settings, Captain captain, Vessel? vessel, bool hasSessionToken, bool remoteHarbor, bool harborCanPrompt, RunApprovalOptions? approvalOptions = null)
         {
             if (settings == null) throw new ArgumentNullException(nameof(settings));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
 
             CliPermissionResolution resolution = new CliPermissionResolution();
             bool? legacy = CaptainRuntimeOptions.GetExplicitAutoApprove(captain.RuntimeOptionsJson);
-            if (vessel != null && vessel.AutoApprove == true)
+            if (approvalOptions?.ApproveAll == true)
+            {
+                resolution.Requested = CliPermissionPolicyEnum.Bypass;
+                resolution.Source = CliPermissionPolicySourceEnum.RunApproval;
+            }
+            else if (vessel != null && vessel.AutoApprove == true)
             {
                 resolution.Requested = CliPermissionPolicyEnum.Bypass;
                 resolution.Source = CliPermissionPolicySourceEnum.VesselAutoApprove;
@@ -194,7 +200,7 @@ namespace Armada.Core.Services
                 resolution.Source = CliPermissionPolicySourceEnum.ServerDefault;
             }
 
-            if (vessel != null && vessel.AutoApprove == false && resolution.Requested == CliPermissionPolicyEnum.Bypass)
+            if (approvalOptions?.ApproveAll != true && vessel != null && vessel.AutoApprove == false && resolution.Requested == CliPermissionPolicyEnum.Bypass)
             {
                 resolution.Requested = CliPermissionPolicyEnum.Refuse;
                 resolution.Source = CliPermissionPolicySourceEnum.VesselAutoApprove;
@@ -253,6 +259,7 @@ namespace Armada.Core.Services
             string from;
             switch (resolution.Source)
             {
+                case CliPermissionPolicySourceEnum.RunApproval: from = "this run's Approve all override"; break;
                 case CliPermissionPolicySourceEnum.AskThread: from = "this conversation's CLI tools setting"; break;
                 case CliPermissionPolicySourceEnum.VesselAutoApprove: from = "the vessel's auto-approve override"; break;
                 case CliPermissionPolicySourceEnum.Captain: from = "the captain's CLI tool permission policy"; break;

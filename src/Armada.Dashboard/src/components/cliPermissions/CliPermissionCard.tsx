@@ -84,7 +84,7 @@ export default function CliPermissionCard({ request, onDecided, highlighted, sho
                       : undefined
           }>{requestStatusLabel(t, status)}</span>
         </span>
-        <CliPermissionCountdown expiresUtc={request.expiresUtc} active={pending} />
+        <CliPermissionCountdown expiresUtc={request.expiresUtc} active={pending} timeoutDecision={request.timeoutDecision} />
       </div>
 
       {collapsed && summary && <code className="cli-perm-summary-line" title={summary}>{summary}</code>}

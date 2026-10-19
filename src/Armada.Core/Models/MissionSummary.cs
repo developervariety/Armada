@@ -130,6 +130,9 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime? ReviewRequestedUtc { get; set; } = null;
 
+        /// <summary>Server-side review countdown deadline.</summary>
+        public DateTime? ReviewDeadlineUtc { get; set; } = null;
+
         /// <summary>
         /// Timestamp when the most recent review was decided.
         /// </summary>

@@ -244,6 +244,7 @@ namespace Armada.Tui.Approvals
         {
             switch (source)
             {
+                case CliPermissionPolicySourceEnum.RunApproval: return L(loc, "this run");
                 case CliPermissionPolicySourceEnum.AskThread: return L(loc, "this conversation");
                 case CliPermissionPolicySourceEnum.VesselAutoApprove: return L(loc, "the vessel's auto-approve setting");
                 case CliPermissionPolicySourceEnum.Captain: return L(loc, "the captain");

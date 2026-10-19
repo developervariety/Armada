@@ -1,3 +1,4 @@
+import RunApprovalFields, { DEFAULT_RUN_APPROVALS } from '../shared/RunApprovalFields';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -68,6 +69,7 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
   const { pushToast } = useNotifications();
   const navigate = useNavigate();
 
+  const [approvalOptions, setApprovalOptions] = useState({ ...DEFAULT_RUN_APPROVALS });
   const [mode, setMode] = useState<Mode>(initialDefinition ? 'adhoc' : 'saved');
   const [step, setStep] = useState<Step>('configure');
   const [actions, setActions] = useState<FleetAction[]>([]);
@@ -87,6 +89,7 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
   useEffect(() => {
     if (!open) return;
     setStep('configure');
+    setApprovalOptions({ ...DEFAULT_RUN_APPROVALS });
     setSubmitted(false);
     setServerError('');
     setCleanTreeOverride(null);
@@ -159,7 +162,7 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
 
   function goToConfirm() {
     setSubmitted(true);
-    if (hasErrors) return;
+    if (hasErrors || !Number.isInteger(approvalOptions.timeoutSeconds) || approvalOptions.timeoutSeconds < 10 || approvalOptions.timeoutSeconds > 3600) return;
     setServerError('');
     setStep('confirm');
   }
@@ -172,10 +175,11 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
       let result: FleetActionRunStartResult;
       if (mode === 'saved' && selectedAction) {
         const request: FleetActionRunRequest = buildSavedRunRequest(vesselIds, c, selectedAction, cleanTreeOverride);
+        if (effectiveKind === 'Mission') request.Overrides = { ...request.Overrides, ApprovalOptions: approvalOptions };
         result = await runFleetAction(selectedAction.id, request);
       } else {
         const definition: FleetActionUpsertRequest = buildAdHocDefinition(adHoc);
-        result = await runAdHocFleetAction({ VesselIds: vesselIds, Concurrency: c, Definition: definition });
+        result = await runAdHocFleetAction({ VesselIds: vesselIds, Concurrency: c, Definition: definition, ...(effectiveKind === 'Mission' ? { Overrides: { ApprovalOptions: approvalOptions } } : {}) });
       }
       pushToast('success', t('{count, plural, one {Fleet action started on # vessel.} other {Fleet action started on # vessels.}}', { count: result.targetCount }));
       onClose();
@@ -234,6 +238,7 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
             </label>
           </div>
 
+          {effectiveKind === 'Mission' && <RunApprovalFields value={approvalOptions} onChange={setApprovalOptions} disabled={submitting} />}
           {mode === 'saved' && (
             <div className="form-stack">
               {actionsError && (
@@ -381,6 +386,9 @@ export default function RunActionModal({ open, vesselIds, onClose, initialAction
           )}
           <pre className="code-block" data-i18n-skip="true">{bodyText}</pre>
           <dl className="run-action-confirm-facts">
+            {effectiveKind === 'Mission' && <><dt>{t('Approve all')}</dt><dd>{approvalOptions.approveAll ? t('Yes') : t('No')}</dd>
+              {!approvalOptions.approveAll && <><dt>{t('Approval timeout (seconds)')}</dt><dd>{approvalOptions.timeoutSeconds}</dd><dt>{t('Default answer on timeout')}</dt><dd>{t(approvalOptions.timeoutDecision)}</dd></>}
+            </>}
             <dt title={t('Number of vessels this run will act on.')}>{t('Vessels')}</dt><dd>{count.toLocaleString()}</dd>
             <dt title={t('How many vessels are worked on at once.')}>{t('Concurrency')}</dt><dd>{concurrencyNumber.toLocaleString()}</dd>
           </dl>

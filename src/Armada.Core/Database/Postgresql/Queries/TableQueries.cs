@@ -1764,7 +1764,12 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE model_endpoints ADD COLUMN IF NOT EXISTS auth_headers_json TEXT;"),
                 new SchemaMigration(85, "Add source_template to workflow_profiles for profiles Armada creates from its built-in templates",
                     @"ALTER TABLE workflow_profiles ADD COLUMN IF NOT EXISTS source_template TEXT;"),
-                new SchemaMigration(86, "Add inference settings to model endpoints", @"ALTER TABLE model_endpoints ADD COLUMN IF NOT EXISTS inference_options_json TEXT NULL;")
+                new SchemaMigration(86, "Add inference settings to model endpoints", @"ALTER TABLE model_endpoints ADD COLUMN IF NOT EXISTS inference_options_json TEXT NULL;"),
+                new SchemaMigration(87, "Add per-run approval choices and timeout decisions",
+                    @"ALTER TABLE voyages ADD COLUMN IF NOT EXISTS approval_options_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN IF NOT EXISTS approval_options_json TEXT NULL;",
+                    @"ALTER TABLE cli_permission_requests ADD COLUMN IF NOT EXISTS timeout_decision VARCHAR(32) NOT NULL DEFAULT 'Deny';")
+
 
             };
         }

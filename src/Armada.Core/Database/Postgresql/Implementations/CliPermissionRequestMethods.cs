@@ -22,9 +22,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #region Private-Members
 
         private static readonly string _Insert = @"INSERT INTO cli_permission_requests
-            (id, tenant_id, user_id, captain_id, mission_id, voyage_id, vessel_id, thread_id, message_id, runtime, tool_name, input_text, summary_text, suggested_rule, status, decision_source, rule_id, decided_by_user_id, decision_message, expires_utc, decided_utc, created_utc, last_update_utc)
+            (id, tenant_id, user_id, captain_id, mission_id, voyage_id, vessel_id, thread_id, message_id, runtime, tool_name, input_text, summary_text, suggested_rule, status, decision_source, rule_id, decided_by_user_id, decision_message, expires_utc, decided_utc, created_utc, last_update_utc, timeout_decision)
             VALUES
-            (@id, @tenant_id, @user_id, @captain_id, @mission_id, @voyage_id, @vessel_id, @thread_id, @message_id, @runtime, @tool_name, @input_text, @summary_text, @suggested_rule, @status, @decision_source, @rule_id, @decided_by_user_id, @decision_message, @expires_utc, @decided_utc, @created_utc, @last_update_utc);";
+            (@id, @tenant_id, @user_id, @captain_id, @mission_id, @voyage_id, @vessel_id, @thread_id, @message_id, @runtime, @tool_name, @input_text, @summary_text, @suggested_rule, @status, @decision_source, @rule_id, @decided_by_user_id, @decision_message, @expires_utc, @decided_utc, @created_utc, @last_update_utc, @timeout_decision);";
 
         private readonly string _ConnectionString;
         private readonly SemaphoreSlim? _WriteLock;
@@ -179,6 +179,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             PostgresqlCommandHelper.Add(cmd, "@message_id", request.MessageId);
             PostgresqlCommandHelper.Add(cmd, "@runtime", request.Runtime.ToString());
             PostgresqlCommandHelper.Add(cmd, "@tool_name", request.ToolName);
+            PostgresqlCommandHelper.Add(cmd, "@timeout_decision", request.TimeoutDecision.ToString());
             PostgresqlCommandHelper.Add(cmd, "@input_text", request.InputText);
             PostgresqlCommandHelper.Add(cmd, "@summary_text", request.SummaryText);
             PostgresqlCommandHelper.Add(cmd, "@suggested_rule", request.SuggestedRule);
@@ -197,6 +198,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         {
             CliPermissionRequest request = new CliPermissionRequest();
             request.Id = reader["id"].ToString()!;
+            request.TimeoutDecision = PostgresqlCommandHelper.ReadEnum(reader["timeout_decision"], ApprovalTimeoutDecisionEnum.Deny);
             request.TenantId = PostgresqlCommandHelper.ReadString(reader["tenant_id"]);
             request.UserId = PostgresqlCommandHelper.ReadString(reader["user_id"]);
             request.CaptainId = PostgresqlCommandHelper.ReadString(reader["captain_id"]);

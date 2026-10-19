@@ -22,9 +22,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
         #region Private-Members
 
         private static readonly string _Insert = @"INSERT INTO cli_permission_requests
-            (id, tenant_id, user_id, captain_id, mission_id, voyage_id, vessel_id, thread_id, message_id, runtime, tool_name, input_text, summary_text, suggested_rule, status, decision_source, rule_id, decided_by_user_id, decision_message, expires_utc, decided_utc, created_utc, last_update_utc)
+            (id, tenant_id, user_id, captain_id, mission_id, voyage_id, vessel_id, thread_id, message_id, runtime, tool_name, input_text, summary_text, suggested_rule, status, decision_source, rule_id, decided_by_user_id, decision_message, expires_utc, decided_utc, created_utc, last_update_utc, timeout_decision)
             VALUES
-            (@id, @tenant_id, @user_id, @captain_id, @mission_id, @voyage_id, @vessel_id, @thread_id, @message_id, @runtime, @tool_name, @input_text, @summary_text, @suggested_rule, @status, @decision_source, @rule_id, @decided_by_user_id, @decision_message, @expires_utc, @decided_utc, @created_utc, @last_update_utc);";
+            (@id, @tenant_id, @user_id, @captain_id, @mission_id, @voyage_id, @vessel_id, @thread_id, @message_id, @runtime, @tool_name, @input_text, @summary_text, @suggested_rule, @status, @decision_source, @rule_id, @decided_by_user_id, @decision_message, @expires_utc, @decided_utc, @created_utc, @last_update_utc, @timeout_decision);";
 
         private readonly string _ConnectionString;
         private readonly SemaphoreSlim? _WriteLock;
@@ -179,6 +179,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             SqlServerCommandHelper.Add(cmd, "@message_id", request.MessageId);
             SqlServerCommandHelper.Add(cmd, "@runtime", request.Runtime.ToString());
             SqlServerCommandHelper.Add(cmd, "@tool_name", request.ToolName);
+            SqlServerCommandHelper.Add(cmd, "@timeout_decision", request.TimeoutDecision.ToString());
             SqlServerCommandHelper.Add(cmd, "@input_text", request.InputText);
             SqlServerCommandHelper.Add(cmd, "@summary_text", request.SummaryText);
             SqlServerCommandHelper.Add(cmd, "@suggested_rule", request.SuggestedRule);
@@ -197,6 +198,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
         {
             CliPermissionRequest request = new CliPermissionRequest();
             request.Id = reader["id"].ToString()!;
+            request.TimeoutDecision = SqlServerCommandHelper.ReadEnum(reader["timeout_decision"], ApprovalTimeoutDecisionEnum.Deny);
             request.TenantId = SqlServerCommandHelper.ReadString(reader["tenant_id"]);
             request.UserId = SqlServerCommandHelper.ReadString(reader["user_id"]);
             request.CaptainId = SqlServerCommandHelper.ReadString(reader["captain_id"]);

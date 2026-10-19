@@ -20,9 +20,9 @@ namespace Armada.Core.Database.Mysql.Implementations
         #region Private-Members
 
         private static readonly string _Insert = @"INSERT INTO cli_permission_requests
-            (id, tenant_id, user_id, captain_id, mission_id, voyage_id, vessel_id, thread_id, message_id, runtime, tool_name, input_text, summary_text, suggested_rule, status, decision_source, rule_id, decided_by_user_id, decision_message, expires_utc, decided_utc, created_utc, last_update_utc)
+            (id, tenant_id, user_id, captain_id, mission_id, voyage_id, vessel_id, thread_id, message_id, runtime, tool_name, input_text, summary_text, suggested_rule, status, decision_source, rule_id, decided_by_user_id, decision_message, expires_utc, decided_utc, created_utc, last_update_utc, timeout_decision)
             VALUES
-            (@id, @tenant_id, @user_id, @captain_id, @mission_id, @voyage_id, @vessel_id, @thread_id, @message_id, @runtime, @tool_name, @input_text, @summary_text, @suggested_rule, @status, @decision_source, @rule_id, @decided_by_user_id, @decision_message, @expires_utc, @decided_utc, @created_utc, @last_update_utc);";
+            (@id, @tenant_id, @user_id, @captain_id, @mission_id, @voyage_id, @vessel_id, @thread_id, @message_id, @runtime, @tool_name, @input_text, @summary_text, @suggested_rule, @status, @decision_source, @rule_id, @decided_by_user_id, @decision_message, @expires_utc, @decided_utc, @created_utc, @last_update_utc, @timeout_decision);";
 
         private readonly string _ConnectionString;
         private readonly SemaphoreSlim? _WriteLock;
@@ -172,6 +172,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             MysqlCommandHelper.Add(cmd, "@message_id", request.MessageId);
             MysqlCommandHelper.Add(cmd, "@runtime", request.Runtime.ToString());
             MysqlCommandHelper.Add(cmd, "@tool_name", request.ToolName);
+            MysqlCommandHelper.Add(cmd, "@timeout_decision", request.TimeoutDecision.ToString());
             MysqlCommandHelper.Add(cmd, "@input_text", request.InputText);
             MysqlCommandHelper.Add(cmd, "@summary_text", request.SummaryText);
             MysqlCommandHelper.Add(cmd, "@suggested_rule", request.SuggestedRule);
@@ -190,6 +191,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         {
             CliPermissionRequest request = new CliPermissionRequest();
             request.Id = reader["id"].ToString()!;
+            request.TimeoutDecision = MysqlCommandHelper.ReadEnum(reader["timeout_decision"], ApprovalTimeoutDecisionEnum.Deny);
             request.TenantId = MysqlCommandHelper.ReadString(reader["tenant_id"]);
             request.UserId = MysqlCommandHelper.ReadString(reader["user_id"]);
             request.CaptainId = MysqlCommandHelper.ReadString(reader["captain_id"]);

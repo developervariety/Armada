@@ -129,6 +129,8 @@ namespace Armada.Server.Routes
                 }
                 VoyageRequest voyageReq = JsonSerializer.Deserialize<VoyageRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as VoyageRequest.");
+                try { voyageReq.ApprovalOptions?.ValidateFor(ctx); }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex)) { return RouteErrorMapper.ToResponse(req, ex); }
                 List<MissionDescription> missions = new List<MissionDescription>();
                 if (voyageReq.Missions != null)
                 {
@@ -160,6 +162,7 @@ namespace Armada.Server.Routes
                     voyage.TenantId = ctx.TenantId;
                     voyage.UserId = ctx.UserId;
                     voyage.LandingMode = voyageReq.LandingMode;
+                    voyage.ApprovalOptions = voyageReq.ApprovalOptions?.Snapshot();
                     voyage = await _database.Voyages.CreateAsync(voyage).ConfigureAwait(false);
                     voyage.SelectedPlaybooks = voyageReq.SelectedPlaybooks ?? new List<SelectedPlaybook>();
                     if (voyage.SelectedPlaybooks.Count > 0)
@@ -187,7 +190,7 @@ namespace Armada.Server.Routes
                         pipelineId,
                         voyageReq.SelectedPlaybooks,
                         overridesJson,
-                        voyageReq.LandingMode).ConfigureAwait(false);
+                        voyageReq.LandingMode, approvalOptions: voyageReq.ApprovalOptions).ConfigureAwait(false);
                 }
 
                 if (!String.IsNullOrWhiteSpace(voyageReq.ObjectiveId))

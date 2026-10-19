@@ -73,6 +73,9 @@ namespace Armada.Tui.Services
         /// </summary>
         public DateTime? ExpiresUtc { get; set; } = null;
 
+        /// <summary>Default answer applied when a tool or review countdown expires.</summary>
+        public Armada.Core.Enums.ApprovalTimeoutDecisionEnum? TimeoutDecision { get; set; } = null;
+
         /// <summary>
         /// Display name of the entity (mission title, captain name, deployment title), or null.
         /// </summary>

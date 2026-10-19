@@ -53,9 +53,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
             await SqlServerCommandHelper.WriteAsync(_ConnectionString, _WriteLock, async (SqlConnection conn, SqlTransaction tx) =>
             {
                 await SqlServerCommandHelper.ExecuteAsync(conn, tx, @"INSERT INTO fleet_action_runs
-                    (id, tenant_id, user_id, action_id, action_name, kind, command_text, prompt_template, pipeline_id, persona, timeout_seconds, requires_clean_working_tree, concurrency, status, target_count, succeeded_count, failed_count, skipped_count, cancelled_count, started_utc, completed_utc, created_utc, last_update_utc)
+                    (id, tenant_id, user_id, action_id, action_name, kind, command_text, prompt_template, pipeline_id, persona, timeout_seconds, requires_clean_working_tree, concurrency, status, target_count, succeeded_count, failed_count, skipped_count, cancelled_count, started_utc, completed_utc, created_utc, last_update_utc, approval_options_json)
                     VALUES
-                    (@id, @tenant_id, @user_id, @action_id, @action_name, @kind, @command_text, @prompt_template, @pipeline_id, @persona, @timeout_seconds, @requires_clean_working_tree, @concurrency, @status, @target_count, @succeeded_count, @failed_count, @skipped_count, @cancelled_count, @started_utc, @completed_utc, @created_utc, @last_update_utc);",
+                    (@id, @tenant_id, @user_id, @action_id, @action_name, @kind, @command_text, @prompt_template, @pipeline_id, @persona, @timeout_seconds, @requires_clean_working_tree, @concurrency, @status, @target_count, @succeeded_count, @failed_count, @skipped_count, @cancelled_count, @started_utc, @completed_utc, @created_utc, @last_update_utc, @approval_options_json);",
                     cmd => Bind(cmd, run), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -106,7 +106,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     status = @status, target_count = @target_count, succeeded_count = @succeeded_count,
                     failed_count = @failed_count, skipped_count = @skipped_count, cancelled_count = @cancelled_count,
                     started_utc = @started_utc, completed_utc = @completed_utc, created_utc = @created_utc,
-                    last_update_utc = @last_update_utc
+                    last_update_utc = @last_update_utc, approval_options_json = @approval_options_json
                     WHERE id = @id;", cmd => Bind(cmd, run), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -207,6 +207,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             SqlServerCommandHelper.Add(cmd, "@command_text", run.CommandText);
             SqlServerCommandHelper.Add(cmd, "@prompt_template", run.PromptTemplate);
             SqlServerCommandHelper.Add(cmd, "@pipeline_id", run.PipelineId);
+            SqlServerCommandHelper.Add(cmd, "@approval_options_json", RunApprovalOptions.ToJson(run.ApprovalOptions));
             SqlServerCommandHelper.Add(cmd, "@persona", run.Persona);
             SqlServerCommandHelper.Add(cmd, "@timeout_seconds", run.TimeoutSeconds);
             SqlServerCommandHelper.Add(cmd, "@requires_clean_working_tree", run.RequiresCleanWorkingTree);
@@ -235,6 +236,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             run.CommandText = SqlServerCommandHelper.ReadString(reader["command_text"]);
             run.PromptTemplate = SqlServerCommandHelper.ReadString(reader["prompt_template"]);
             run.PipelineId = SqlServerCommandHelper.ReadString(reader["pipeline_id"]);
+            run.ApprovalOptions = RunApprovalOptions.FromJson(SqlServerCommandHelper.ReadString(reader["approval_options_json"]));
             run.Persona = SqlServerCommandHelper.ReadString(reader["persona"]);
             run.TimeoutSeconds = SqlServerCommandHelper.ReadInt(reader["timeout_seconds"], 300);
             run.RequiresCleanWorkingTree = SqlServerCommandHelper.ReadBool(reader["requires_clean_working_tree"], true);

@@ -33,6 +33,16 @@ namespace Test.Shared.Suites.Client
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(Case("voyage_approval_options", "SDK persists per-run approval choices on bare voyages and rejects invalid countdowns", async (c, fx) =>
+            {
+                Voyage voyage = (await c.CreateVoyageAsync(new VoyageCreateRequest { Title = "Approval contract " + ClientContract.Suffix(), ApprovalOptions = new RunApprovalOptions { ApproveAll = true, TimeoutSeconds = 45, TimeoutDecision = ApprovalTimeoutDecisionEnum.Approve } }))!;
+                Voyage detail = (await c.GetVoyageDetailAsync(voyage.Id))!.Voyage!;
+                AssertTrue(detail.ApprovalOptions!.ApproveAll);
+                AssertEqual(45, detail.ApprovalOptions.TimeoutSeconds);
+                AssertEqual(ApprovalTimeoutDecisionEnum.Approve, detail.ApprovalOptions.TimeoutDecision);
+                await AssertThrowsAsync<ArmadaApiException>(() => c.CreateVoyageAsync(new VoyageCreateRequest { Title = "Bad countdown", ApprovalOptions = new RunApprovalOptions { TimeoutSeconds = 1 } }));
+            }));
+
             cases.Add(Case("personas_pipelines_prompts", "Persona, pipeline, and prompt template create, get, update, reset, delete", async (c, fx) =>
             {
                 string s = ClientContract.Suffix();

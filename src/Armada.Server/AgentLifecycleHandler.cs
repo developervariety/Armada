@@ -787,7 +787,8 @@ namespace Armada.Server
                 // unless that Harbor advertises the prompt capability for the runtime).
                 RemoteAgentRuntime? remoteLaunch = runtime as RemoteAgentRuntime;
                 bool harborCanPrompt = remoteLaunch != null && _HarborConnections != null && _HarborConnections.CanPrompt(remoteLaunch.HarborId, captain.Runtime);
-                CliPermissionResolution permission = CliPermissionPolicyResolver.ResolveForMission(_Settings, captain, vessel, missionToken != null, remoteLaunch != null, harborCanPrompt);
+                Voyage? approvalVoyage = String.IsNullOrEmpty(mission.VoyageId) ? null : await _Database.Voyages.ReadAsync(mission.VoyageId).ConfigureAwait(false);
+                CliPermissionResolution permission = CliPermissionPolicyResolver.ResolveForMission(_Settings, captain, vessel, missionToken != null, remoteLaunch != null, harborCanPrompt, approvalVoyage?.ApprovalOptions);
                 Captain launchCaptain = CaptainRuntimeOptions.WithEffectiveAutoApprove(captain, permission.Effective == CliPermissionPolicyEnum.Bypass);
                 CliPermissionService? permissions = _CliPermissions;
                 Func<string, string, CancellationToken, Task<CliPermissionPromptOutcome>>? inProcessPrompt = null;
@@ -807,7 +808,7 @@ namespace Armada.Server
                     inProcessPrompt = (tool, input, cancel) => permissions.PromptAsync(promptContext, tool, input, cancel);
                 }
 
-                CliPermissionLaunch.Apply(runtime, permission.Effective, _Settings.Permissions.PromptTimeoutSeconds, inProcessPrompt);
+                CliPermissionLaunch.Apply(runtime, permission.Effective, approvalVoyage?.ApprovalOptions?.TimeoutSeconds ?? _Settings.Permissions.PromptTimeoutSeconds, inProcessPrompt);
 
                 WriteMissionLogNote(logFilePath, permission.Note);
                 _Logging.Info(_Header + "mission " + mission.Id + " " + permission.Note);

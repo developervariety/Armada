@@ -56,6 +56,14 @@ afterEach(() => {
 });
 
 describe('CliPermissionCard', () => {
+  it('shows automatic approval as the timeout default without sending a decision from the browser', () => {
+    renderCard(request({ timeoutDecision: 'Approve' }));
+    expect(screen.getByText('Default: Approve')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(126000));
+    expect(screen.getByText('Expiring now')).toBeInTheDocument();
+    expect(decideCliPermissionRequest).not.toHaveBeenCalled();
+  });
+
   it('shows the tool, command, captain, vessel, mission, expandable input, and a live countdown', () => {
     renderCard(request());
     const card = screen.getByRole('group', { name: 'CLI permission: Bash' });

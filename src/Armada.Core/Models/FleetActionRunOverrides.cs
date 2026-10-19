@@ -8,6 +8,9 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Per-run tool permission and mission review approval choices.</summary>
+        public Armada.Core.Models.RunApprovalOptions? ApprovalOptions { get; set; } = null;
+
         /// <summary>
         /// Per-target timeout in seconds; clamped 5 to 7200.
         /// </summary>

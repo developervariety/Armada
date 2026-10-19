@@ -59,5 +59,19 @@ namespace Armada.Helm.Commands
         [Description("Landing mode for this voyage: LocalMerge, MergeAndPush, PullRequest, MergeQueue, or None (default: the vessel's, then the global default)")]
         [CommandOption("--landing-mode")]
         public string? LandingMode { get; set; }
+        /// <summary>Approve tool prompts and human mission reviews for this run.</summary>
+        [Description("Approve all tool prompts and mission reviews for this run (admin only)")]
+        [CommandOption("--approve-all")]
+        public bool ApproveAll { get; set; }
+
+        /// <summary>Per-run approval countdown.</summary>
+        [Description("Approval countdown in seconds (10-3600)")]
+        [CommandOption("--approval-timeout")]
+        public int? ApprovalTimeoutSeconds { get; set; }
+
+        /// <summary>Decision applied when the countdown expires.</summary>
+        [Description("Default answer on timeout: Deny or Approve (Approve requires admin)")]
+        [CommandOption("--approval-default")]
+        public string? ApprovalDefault { get; set; }
     }
 }

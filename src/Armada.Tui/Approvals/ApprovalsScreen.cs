@@ -441,7 +441,8 @@ namespace Armada.Tui.Approvals
             if (item.ExpiresUtc != null)
             {
                 string expires = T("Expires") + ": " + Context.Loc.FormatDateTime(item.ExpiresUtc.Value);
-                if (item.Kind == ApprovalKindEnum.CliPermission) expires += "  (" + CliPermissionText.ExpiresIn(Context.Loc, item.ExpiresUtc.Value, Context.Clock.UtcNow) + ")";
+                if (item.Kind == ApprovalKindEnum.CliPermission || item.TimeoutDecision.HasValue) expires += "  (" + CliPermissionText.ExpiresIn(Context.Loc, item.ExpiresUtc.Value, Context.Clock.UtcNow) + ")";
+                if (item.TimeoutDecision.HasValue) expires += "  " + T("Default answer on timeout") + ": " + T(item.TimeoutDecision.Value.ToString());
                 SurfaceText.Draw(surface, 1, y++, expires, Theme.Muted, width - 2);
             }
 

@@ -47,7 +47,8 @@ namespace Armada.Helm.Commands
             FleetActionRunRequest request = new FleetActionRunRequest
             {
                 VesselIds = vesselIds,
-                Concurrency = settings.Concurrency
+                Concurrency = settings.Concurrency,
+                Overrides = new FleetActionRunOverrides { ApprovalOptions = RunApprovalArguments.Build(settings.ApproveAll, settings.ApprovalTimeoutSeconds, settings.ApprovalDefault) }
             };
 
             FleetActionRunStartResult? result = await PostAsync<FleetActionRunStartResult>("/api/v1/fleet-actions/" + actionId + "/run", request).ConfigureAwait(false);

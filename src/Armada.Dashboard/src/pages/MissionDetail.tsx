@@ -1,9 +1,12 @@
+import { splitVoyageResponse } from '../lib/voyageDetail';
+import CliPermissionCountdown from '../components/cliPermissions/CliPermissionCountdown';
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useNotifications } from '../context/NotificationContext';
 import { useLiveRefresh } from '../lib/useLiveRefresh';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   getMission,
+  getVoyage,
   updateMission,
   deleteMission,
   purgeMission,
@@ -74,6 +77,20 @@ export default function MissionDetail() {
   // Transition
   const [showTransition, setShowTransition] = useState(false);
   const [transitionStatus, setTransitionStatus] = useState('');
+  const [reviewApproval, setReviewApproval] = useState<import('../types/models').RunApprovalOptions | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setReviewApproval(null);
+    if (mission?.voyageId) void (async () => {
+      try {
+        const raw = await getVoyage(mission.voyageId!);
+        const voyage = splitVoyageResponse(raw).voyage;
+        if (!cancelled) setReviewApproval(voyage.approvalOptions ?? null);
+      } catch { /* Mission details remain available if the voyage is unavailable. */ }
+    })();
+    return () => { cancelled = true; };
+  }, [mission?.voyageId]);
+
   const [reviewDecision, setReviewDecision] = useState<{ comment: string } | null>(null);
 
   // Edit form
@@ -421,6 +438,7 @@ export default function MissionDetail() {
         title={mission.title}
         actions={
           <>
+            {canResolveReview && reviewApproval && <CliPermissionCountdown expiresUtc={mission.reviewDeadlineUtc} active={!!mission.reviewDeadlineUtc} timeoutDecision={reviewApproval.timeoutDecision} />}
             {canResolveReview && (
               <button className="btn btn-sm btn-primary" onClick={() => setReviewDecision({ comment: mission.reviewComment || '' })} title={t('Decide this review gate: approve, conditionally approve, request more work, or deny (which fails the pipeline).')}>{t('Resolve Review')}</button>
             )}
@@ -612,6 +630,7 @@ export default function MissionDetail() {
         <div className="modal-overlay" onClick={() => setReviewDecision(null)}>
           <div className="modal review-verdict-modal" onClick={e => e.stopPropagation()}>
             <h3>{t('Resolve Review')}</h3>
+            <CliPermissionCountdown expiresUtc={mission.reviewDeadlineUtc} active={!!reviewApproval && !!mission.reviewDeadlineUtc} timeoutDecision={reviewApproval?.timeoutDecision} />
             <p className="text-dim">
               {t('Choose how to resolve this review gate. Your feedback is carried into the next step or the re-run.')}
             </p>

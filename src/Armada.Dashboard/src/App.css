@@ -9293,3 +9293,8 @@ details.readiness-issue-collapsible > summary > strong::before {
 details.readiness-issue-collapsible[open] > summary > strong::before { transform: rotate(45deg); }
 details.readiness-issue-collapsible[open] > summary { margin-bottom: 0.3rem; }
 details.readiness-issue-collapsible { padding-top: 0.45rem; padding-bottom: 0.45rem; }
+
+/* Shared per-run approval settings. */
+.run-approval-fields { margin-top: 1rem; }
+.run-approval-fields .checkbox-row { display: flex; align-items: center; margin: 0.4rem 0 0.75rem; }
+.run-approval-fields > p { font-size: 0.8rem; line-height: 1.5; margin: 0 0 0.85rem; }

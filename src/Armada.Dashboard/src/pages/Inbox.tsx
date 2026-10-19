@@ -86,8 +86,8 @@ export default function Inbox() {
             >
               {t(item.severity)}
             </span>
-            {item.kind === CLI_PERMISSION_KIND && (
-              <CliPermissionCountdown expiresUtc={item.expiresUtc ?? cli?.expiresUtc} active={!cli || isPendingRequest(cli)} />
+            {(item.kind === CLI_PERMISSION_KIND || item.timeoutDecision) && (
+              <CliPermissionCountdown expiresUtc={item.expiresUtc ?? cli?.expiresUtc} active={!cli || isPendingRequest(cli)} timeoutDecision={cli?.timeoutDecision ?? item.timeoutDecision ?? undefined} />
             )}
             {decidable && cli && (
               <CliPermissionDecisionControls request={cli} onDecided={() => { void load(); }} />

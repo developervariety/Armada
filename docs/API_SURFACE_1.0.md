@@ -30,7 +30,7 @@ administrator).
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
-| Settings keys | 195 | 12 |
+| Settings keys | 196 | 12 |
 
 ## REST API
 
@@ -483,7 +483,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `delete_voyages` | TenantAdmin | `ids*: array<string>` |  |
 | `deny_mission_review` | TenantAdmin | `action: string`, `comment: string`, `missionId*: string` |  |
 | `discover_vessels` | TenantAdmin | `directories: array<string>`, `maxDepth: integer`, `roots: array<string>`, `runInBackground: boolean` |  |
-| `dispatch` | TenantAdmin | `captainAssignments: array<object>`, `description: string`, `landingMode: string`, `missions: array<object>`, `objectiveId: string`, `pipeline: string`, `pipelineId: string`, `selectedPlaybooks: array<object>`, `title*: string`, `vesselId: string` |  |
+| `dispatch` | TenantAdmin | `approvalOptions: object`, `captainAssignments: array<object>`, `description: string`, `landingMode: string`, `missions: array<object>`, `objectiveId: string`, `pipeline: string`, `pipelineId: string`, `selectedPlaybooks: array<object>`, `title*: string`, `vesselId: string` |  |
 | `dispatch_backlog_planning_session` | TenantAdmin | `description: string`, `messageId: string`, `sessionId*: string`, `title: string` |  |
 | `duplicate_model_endpoint` | Authenticated | `configuration*: object`, `endpointId*: string` |  |
 | `enqueue_merge` | TenantAdmin | `branchName*: string`, `missionId: string`, `priority: integer`, `targetBranch: string`, `testCommand: string`, `vesselId*: string` |  |
@@ -556,7 +556,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `rollback_deployment` | TenantAdmin | `deploymentId*: string` |  |
 | `run_ask_quick_action` | Authenticated | `arguments: object`, `threadId*: string`, `toolName*: string` |  |
 | `run_check` | TenantAdmin | `branchName: string`, `commandOverride: string`, `commitHash: string`, `environmentName: string`, `label: string`, `missionId: string`, `type*: string`, `vesselId*: string`, `voyageId: string`, `workflowProfileId: string` |  |
-| `run_fleet_action` | TenantAdmin | `actionId: string`, `commandText: string`, `concurrency: integer`, `kind: string`, `name: string`, `pipelineId: string`, `promptTemplate: string`, `requiresCleanWorkingTree: boolean`, `timeoutSeconds: integer`, `vesselIds*: array<string>` |  |
+| `run_fleet_action` | TenantAdmin | `actionId: string`, `approvalOptions: object`, `commandText: string`, `concurrency: integer`, `kind: string`, `name: string`, `pipelineId: string`, `promptTemplate: string`, `requiresCleanWorkingTree: boolean`, `timeoutSeconds: integer`, `vesselIds*: array<string>` |  |
 | `search_memory` | Authenticated | `pageNumber: integer`, `pageSize: integer`, `search: string`, `topic: string`, `type: string`, `vesselId: string` |  |
 | `send_ask_message` | Authenticated | `content*: string`, `showThinking: boolean`, `threadId*: string`, `waitSeconds: integer` |  |
 | `send_backlog_refinement_message` | TenantAdmin | `content*: string`, `sessionId*: string` |  |
@@ -704,7 +704,7 @@ Commands of the `armada` CLI (Helm). `*` marks a required argument or option. Gl
 |---|---|---|
 | `armada action cancel` | `<run>*` | `--json`, `--page`, `--page-size`, `--profile`, `--server`, `--token`, `--verbose` |
 | `armada action list` |  | `--include-inactive`, `--json`, `--page`, `--page-size`, `--profile`, `--runs`, `--server`, `--token`, `--verbose` |
-| `armada action run` | `<action>*` | `--concurrency\|-c`, `--fleet\|-f`, `--json`, `--page`, `--page-size`, `--profile`, `--server`, `--token`, `--verbose`, `--vessel\|-v` |
+| `armada action run` | `<action>*` | `--approval-default`, `--approval-timeout`, `--approve-all`, `--concurrency\|-c`, `--fleet\|-f`, `--json`, `--page`, `--page-size`, `--profile`, `--server`, `--token`, `--verbose`, `--vessel\|-v` |
 | `armada action status` | `<run>*` | `--json`, `--page`, `--page-size`, `--profile`, `--server`, `--token`, `--verbose` |
 | `armada backlog create` |  | `--acceptance`, `--backlog-state`, `--blocked-by`, `--category`, `--constraint`, `--description\|-d`, `--due-utc`, `--effort`, `--evidence`, `--fleet`, `--json`, `--kind`, `--non-goal`, `--owner`, `--page`, `--page-size`, `--parent`, `--pipeline`, `--priority`, `--profile`, `--rank`, `--server`, `--status`, `--summary`, `--tag`, `--target-version`, `--title\|-t`, `--token`, `--verbose`, `--vessel` |
 | `armada backlog delete` | `<backlog>*` | `--json`, `--page`, `--page-size`, `--profile`, `--server`, `--token`, `--verbose` |
@@ -726,7 +726,7 @@ Commands of the `armada` CLI (Helm). `*` marks a required argument or option. Gl
 | `armada fleet add` | `<name>*` | `--description\|-d`, `--json`, `--page`, `--page-size`, `--profile`, `--server`, `--token`, `--verbose` |
 | `armada fleet list` |  | `--json`, `--page`, `--page-size`, `--profile`, `--server`, `--token`, `--verbose` |
 | `armada fleet remove` | `<fleet>*` | `--json`, `--page`, `--page-size`, `--profile`, `--server`, `--token`, `--verbose` |
-| `armada go` | `<prompt>*` | `--json`, `--landing-mode`, `--log\|-l`, `--page`, `--page-size`, `--profile`, `--repo\|-r`, `--server`, `--task\|-t`, `--token`, `--verbose`, `--vessel\|-v` |
+| `armada go` | `<prompt>*` | `--approval-default`, `--approval-timeout`, `--approve-all`, `--json`, `--landing-mode`, `--log\|-l`, `--page`, `--page-size`, `--profile`, `--repo\|-r`, `--server`, `--task\|-t`, `--token`, `--verbose`, `--vessel\|-v` |
 | `armada health` |  | `--evaluate\|-e`, `--fleet\|-f`, `--json`, `--page`, `--page-size`, `--profile`, `--server`, `--status\|-s`, `--token`, `--verbose` |
 | `armada inbox` |  | `--critical`, `--json`, `--page`, `--page-size`, `--profile`, `--server`, `--token`, `--verbose` |
 | `armada log` | `<identifier>*` | `--follow\|-f`, `--json`, `--lines\|-n`, `--page`, `--page-size`, `--profile`, `--server`, `--token`, `--verbose` |
@@ -890,6 +890,7 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `permissions.askDefaultPolicy` | enum CliPermissionPolicyEnum (Refuse\|ApproveInArmada\|Bypass) | `"ApproveInArmada"` |  |
 | `permissions.missionDefaultPolicy` | enum CliPermissionPolicyEnum (Refuse\|ApproveInArmada\|Bypass) | `"Bypass"` |  |
 | `permissions.promptTimeoutSeconds` | int | `600` |  |
+| `permissions.timeoutDecision` | enum ApprovalTimeoutDecisionEnum (Deny\|Approve) | `"Deny"` |  |
 | `planningSessionAbandonmentTimeoutMinutes` | int | `240` |  |
 | `planningSessionInactivityTimeoutMinutes` | int | `60` |  |
 | `planningSessionRetentionDays` | int | `0` |  |

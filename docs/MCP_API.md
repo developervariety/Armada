@@ -902,6 +902,8 @@ Built-in actions are soft-deleted and never re-seeded. **Response:** `{ "Deleted
 
 ### run_fleet_action
 
+Optional `approvalOptions` uses the same fields as `dispatch`: `approveAll`, `timeoutSeconds`, and `timeoutDecision`. It applies to saved and ad hoc Mission actions and is forwarded to each target voyage. Automatic approval requires a presented administrator credential; unauthenticated loopback and scoped captain identities cannot enable it. REST/SDK callers use `Overrides.ApprovalOptions` instead of this MCP argument.
+
 Start a run. Pass `actionId` for a saved action, or the inline definition fields for an ad hoc run.
 
 | Parameter | Type | Required | Description |
@@ -1013,7 +1015,7 @@ vessel, and dock) and evaluates the applicable rules (the tenant's `Global` rule
 mission's `Vessel` rules, the captain's `Captain` rules). A matching deny rule denies and a matching allow rule allows
 at once; both are recorded. Otherwise a `Pending` request is stored (input redacted), a `CliPermission` card is posted
 when the session is an Ask thread, `cli_permission.requested` is announced, and the call waits until an approver
-decides, `Permissions.PromptTimeoutSeconds` passes (`Expired`), the turn or mission ends (`Cancelled`), or the caller
+decides, the countdown expires (its snapshotted `timeoutDecision` applies: `Deny` expires it, `Approve` allows it), the turn or mission ends (`Cancelled`), or the caller
 cancels the call (`Cancelled` at once: the server cancels the tool's handler when the client sends
 `notifications/cancelled` for it, as Claude Code does when a tool call is interrupted). A connection that drops without a
 cancel is resolved when the turn or mission ends, or by the timeout.
@@ -1307,6 +1309,8 @@ The proposed tool never runs. **Response:** the rejected proposal.
 ### dispatch
 
 Dispatch a new voyage with missions to a vessel. This is the primary way to assign work to the Armada system.
+
+Optional `approvalOptions` has `approveAll` (default false), `timeoutSeconds` (10–3600, default 600), and `timeoutDecision` (`Deny` by default, or `Approve`). It persists per voyage and applies to tool permissions and human mission reviews, including later pipeline stages and rework. It leaves automated checks, endpoint restrictions, merge and deployment policies intact. `approveAll` and timeout `Approve` require an administrator's own credentials; captain session tokens cannot enable them. Omitting the object preserves existing behavior. See [per-run approvals](REST_API.md#per-run-approvals) for timeout and cancellation semantics.
 
 **Input Schema:**
 

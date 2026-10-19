@@ -785,6 +785,7 @@ namespace Armada.Core.Database.Sqlite
             try { voyage.SourcePlanningSessionId = NullableString(reader["source_planning_session_id"]); } catch { }
             try { voyage.SourcePlanningMessageId = NullableString(reader["source_planning_message_id"]); } catch { }
             try { voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]); } catch { }
+            voyage.ApprovalOptions = RunApprovalOptions.FromJson(NullableString(reader["approval_options_json"]));
             return voyage;
         }
 

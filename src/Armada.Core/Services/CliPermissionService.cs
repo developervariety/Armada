@@ -161,7 +161,10 @@ namespace Armada.Core.Services
             request.SummaryText = SecretRedactor.Redact(CliPermissionRuleMatcher.Summarize(trimmedTool, input));
             request.SuggestedRule = SecretRedactor.Redact(CliPermissionRuleMatcher.SuggestRule(trimmedTool, input));
             request.CreatedUtc = DateTime.UtcNow;
-            TimeSpan timeout = PromptTimeoutOverride ?? TimeSpan.FromSeconds(_Settings.Permissions.PromptTimeoutSeconds);
+            Voyage? approvalVoyage = String.IsNullOrEmpty(context.VoyageId) ? null : await _Database.Voyages.ReadAsync(context.VoyageId, token).ConfigureAwait(false);
+            RunApprovalOptions? approvalOptions = approvalVoyage?.ApprovalOptions;
+            request.TimeoutDecision = approvalOptions?.TimeoutDecision ?? _Settings.Permissions.TimeoutDecision;
+            TimeSpan timeout = PromptTimeoutOverride ?? TimeSpan.FromSeconds(approvalOptions?.TimeoutSeconds ?? _Settings.Permissions.PromptTimeoutSeconds);
             request.ExpiresUtc = request.CreatedUtc.Add(timeout);
 
             CliPermissionPromptProgress progress = new CliPermissionPromptProgress
@@ -252,14 +255,12 @@ namespace Armada.Core.Services
                         if (finished != waiter.Task)
                         {
                             bool cancelled = token.IsCancellationRequested;
-                            string message = cancelled
-                                ? "The permission request was cancelled before an approver decided."
-                                : "No approver decided within " + (int)Math.Ceiling(timeout.TotalSeconds) + " seconds; Armada denied the request. Ask an approver to allow it, or add an allow rule.";
-                            await _Database.CliPermissionRequests.TryDecideAsync(
-                                request.Id,
-                                cancelled ? CliPermissionRequestStatusEnum.Cancelled : CliPermissionRequestStatusEnum.Expired,
-                                cancelled ? CliPermissionDecisionSourceEnum.Cancelled : CliPermissionDecisionSourceEnum.Timeout,
-                                null, null, message, CancellationToken.None).ConfigureAwait(false);
+                            if (cancelled)
+                            {
+                                await _Database.CliPermissionRequests.TryDecideAsync(request.Id, CliPermissionRequestStatusEnum.Cancelled,
+                                    CliPermissionDecisionSourceEnum.Cancelled, null, null, "The permission request was cancelled before an approver decided.", CancellationToken.None).ConfigureAwait(false);
+                            }
+                            else await ApplyTimeoutAsync(request, CancellationToken.None).ConfigureAwait(false);
                         }
                     }
                 }
@@ -271,7 +272,7 @@ namespace Armada.Core.Services
                 if (undelivered != null) return undelivered;
 
                 CliPermissionRequest final = await _Database.CliPermissionRequests.ReadAsync(request.Id, CancellationToken.None).ConfigureAwait(false) ?? request;
-                if (final.Status == CliPermissionRequestStatusEnum.Expired || final.Status == CliPermissionRequestStatusEnum.Cancelled)
+                if (final.DecisionSource == CliPermissionDecisionSourceEnum.Timeout || final.Status == CliPermissionRequestStatusEnum.Cancelled)
                 {
                     Announce(ResolvedEvent, final);
                     await RefreshCardAsync(final).ConfigureAwait(false);
@@ -328,6 +329,13 @@ namespace Armada.Core.Services
                 throw new UnauthorizedAccessException("Only an admin can decide this CLI permission request" + (_Settings.Permissions.AllowOwnerApproval ? "." : " (Permissions.AllowOwnerApproval is off)."));
             if (request.Status != CliPermissionRequestStatusEnum.Pending)
                 throw new InvalidOperationException("The CLI permission request " + request.Id + " is no longer pending (" + request.Status + ").");
+
+            if (request.ExpiresUtc <= DateTime.UtcNow)
+            {
+                await ApplyTimeoutAsync(request, token).ConfigureAwait(false);
+                if (_Waiters.TryGetValue(request.Id, out TaskCompletionSource<bool>? expiredWaiter)) expiredWaiter.TrySetResult(false);
+                throw new InvalidOperationException("The approval timer has expired; its configured default answer applies.");
+            }
 
             AskThread? bypassThread = null;
             if (decision.Decision == CliPermissionDecisionEnum.AllowForConversation)
@@ -497,7 +505,12 @@ namespace Armada.Core.Services
                     // The waiting call resolves its own expiry; only signal a waiter that outlived its expiry.
                     if (request.ExpiresUtc.AddSeconds(30) < now && _Waiters.TryGetValue(request.Id, out TaskCompletionSource<bool>? stuck))
                     {
-                        if (await CancelOneAsync(request, "No approver decided in time; Armada denied the request.", CliPermissionRequestStatusEnum.Expired).ConfigureAwait(false)) resolved++;
+                        if (await ApplyTimeoutAsync(request, token).ConfigureAwait(false))
+                        {
+                            resolved++;
+                            CliPermissionRequest? decided = await _Database.CliPermissionRequests.ReadAsync(request.Id, token).ConfigureAwait(false);
+                            if (decided != null) { Announce(ResolvedEvent, decided); await RefreshCardAsync(decided).ConfigureAwait(false); }
+                        }
                         stuck.TrySetResult(false);
                     }
 
@@ -696,6 +709,15 @@ namespace Armada.Core.Services
             }
 
             return await _Database.AskThreads.ReadByIdAsync(thread.Id, token).ConfigureAwait(false) ?? thread;
+        }
+
+        private Task<bool> ApplyTimeoutAsync(CliPermissionRequest request, CancellationToken token)
+        {
+            bool allow = request.TimeoutDecision == ApprovalTimeoutDecisionEnum.Approve;
+            return _Database.CliPermissionRequests.TryDecideAsync(request.Id,
+                allow ? CliPermissionRequestStatusEnum.Allowed : CliPermissionRequestStatusEnum.Expired,
+                CliPermissionDecisionSourceEnum.Timeout, null, null,
+                "Approval timer expired; Armada applied the configured default: " + (allow ? "Approve (approved)." : "Deny (denied)."), token);
         }
 
         private async Task<bool> IsThreadBypassedAsync(string? threadId, CancellationToken token)

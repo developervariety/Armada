@@ -43,6 +43,41 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("approve_all_skips_human_gate", "Approve all skips reviewed stages without changing their pipeline template", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                ReviewScenario scenario = await CreateScenarioAsync(testDb.Driver, true, approvalOptions: new RunApprovalOptions { ApproveAll = true }).ConfigureAwait(false);
+                await scenario.Missions.HandleCompletionAsync(scenario.WorkerCaptain, scenario.WorkerMission.Id).ConfigureAwait(false);
+                Mission reviewed = (await testDb.Driver.Missions.ReadAsync(scenario.WorkerMission.Id).ConfigureAwait(false))!;
+                AssertEqual(MissionStatusEnum.WorkProduced, reviewed.Status);
+                AssertFalse(reviewed.RequiresReview);
+                Mission downstream = (await testDb.Driver.Missions.ReadAsync(scenario.DownstreamMission!.Id).ConfigureAwait(false))!;
+                AssertNotNull(downstream.CaptainId, "The next automated stage must still run.");
+                Voyage persisted = (await testDb.Driver.Voyages.ReadAsync(scenario.Voyage.Id).ConfigureAwait(false))!;
+                AssertTrue(persisted.ApprovalOptions!.ApproveAll);
+            }));
+
+            cases.Add(CaseAsync("review_timeout_applies_configured_default", "Review deadlines apply Approve or Deny and settle downstream stages", TestTags.Positive, async () =>
+            {
+                foreach (ApprovalTimeoutDecisionEnum decision in new[] { ApprovalTimeoutDecisionEnum.Approve, ApprovalTimeoutDecisionEnum.Deny })
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                    ReviewScenario scenario = await CreateScenarioAsync(testDb.Driver, true, approvalOptions: new RunApprovalOptions { TimeoutSeconds = 30, TimeoutDecision = decision }).ConfigureAwait(false);
+                    await scenario.Missions.HandleCompletionAsync(scenario.WorkerCaptain, scenario.WorkerMission.Id).ConfigureAwait(false);
+                    Mission pending = (await testDb.Driver.Missions.ReadAsync(scenario.WorkerMission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Review, pending.Status);
+                    AssertTrue(Math.Abs((pending.ReviewDeadlineUtc!.Value - pending.ReviewRequestedUtc!.Value).TotalSeconds - 30) < 2, "Review uses the run countdown.");
+                    pending.ReviewDeadlineUtc = DateTime.UtcNow.AddSeconds(-1);
+                    await testDb.Driver.Missions.UpdateAsync(pending).ConfigureAwait(false);
+                    System.Reflection.MethodInfo sweep = typeof(AdmiralService).GetMethod("RecoverOverdueReviewsAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                    await ((Task)sweep.Invoke(scenario.Admiral, new object[] { CancellationToken.None })!).ConfigureAwait(false);
+                    Mission resolved = (await testDb.Driver.Missions.ReadAsync(pending.Id).ConfigureAwait(false))!;
+                    AssertEqual(decision == ApprovalTimeoutDecisionEnum.Approve ? MissionStatusEnum.Complete : MissionStatusEnum.Failed, resolved.Status);
+                    AssertContains("Approval timer expired", resolved.ReviewComment!);
+                    AssertNull(resolved.ReviewedByUserId);
+                }
+            }));
+
             cases.Add(CaseAsync("reviewed_stage_enters_review_and_blocks_downstream_dispatch", "Reviewed stage enters Review and blocks downstream dispatch", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -223,7 +258,8 @@ namespace Test.Shared.Suites.Services
         private static async Task<ReviewScenario> CreateScenarioAsync(
             DatabaseDriver db,
             bool includeDownstreamStage,
-            ReviewDenyActionEnum firstStageDenyAction = ReviewDenyActionEnum.RetryStage)
+            ReviewDenyActionEnum firstStageDenyAction = ReviewDenyActionEnum.RetryStage,
+            RunApprovalOptions? approvalOptions = null)
         {
             LoggingModule logging = CreateLogging();
             ArmadaSettings settings = CreateSettings();
@@ -286,7 +322,7 @@ namespace Test.Shared.Suites.Services
                 {
                     new MissionDescription("Implement review gate", "Implement the requested change.")
                 },
-                pipeline.Id).ConfigureAwait(false);
+                pipeline.Id, null, approvalOptions: approvalOptions).ConfigureAwait(false);
 
             List<Mission> voyageMissions = await db.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
             Mission workerMission = voyageMissions.First(m => String.Equals(m.Persona ?? "Worker", "Worker", StringComparison.OrdinalIgnoreCase));
@@ -305,6 +341,7 @@ namespace Test.Shared.Suites.Services
 
             return new ReviewScenario
             {
+                Admiral = admiralService,
                 Missions = missionService,
                 Vessel = vessel,
                 Voyage = voyage,
@@ -331,6 +368,7 @@ namespace Test.Shared.Suites.Services
 
         private sealed class ReviewScenario
         {
+            public AdmiralService Admiral { get; set; } = null!;
             public MissionService Missions { get; set; } = null!;
             public Vessel Vessel { get; set; } = null!;
             public Voyage Voyage { get; set; } = null!;

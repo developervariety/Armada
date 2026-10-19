@@ -42,6 +42,44 @@ namespace Test.Shared.Suites.E2E
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("dispatch_approval_snapshot_and_authorization", "MCP dispatch retains timed approvals and REST forbids unattended approval for regular users", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                using HttpClient mcp = new HttpClient { BaseAddress = fx.McpClient.BaseAddress };
+                mcp.DefaultRequestHeaders.Add("X-Api-Key", fx.ApiKey);
+                string session = await InitMcpSessionAsync(mcp).ConfigureAwait(false);
+                string anonymousSession = await InitMcpSessionAsync(fx.McpClient).ConfigureAwait(false);
+                JsonElement deniedAnonymous = await CallToolAsync(fx.McpClient, anonymousSession, "dispatch", new { title = "No credential", approvalOptions = new { approveAll = true } }).ConfigureAwait(false);
+                AssertContains("credential", GetToolResultText(deniedAnonymous));
+                JsonElement deniedFleet = await CallToolAsync(fx.McpClient, anonymousSession, "run_fleet_action", new { vesselIds = new string[0], approvalOptions = new { approveAll = true } }).ConfigureAwait(false);
+                AssertContains("credential", GetToolResultText(deniedFleet));
+                JsonElement result = await CallToolAsync(mcp, session, "dispatch", new { title = "Timed bare voyage", approvalOptions = new { approveAll = true, timeoutSeconds = 40, timeoutDecision = "Approve" } }).ConfigureAwait(false);
+                AssertToolResultValid(result);
+                Voyage voyage = JsonHelper.Deserialize<Voyage>(GetToolResultText(result));
+                JsonElement status = await CallToolAsync(mcp, session, "voyage_status", new { voyageId = voyage.Id }).ConfigureAwait(false);
+                Voyage persisted = JsonHelper.Deserialize<VoyageDetailResponse>(GetToolResultText(status)).Voyage!;
+                AssertTrue(persisted.ApprovalOptions!.ApproveAll);
+                AssertEqual(40, persisted.ApprovalOptions.TimeoutSeconds);
+                string fleetId = await RestCreateFleetAsync(mcp, session, "ApprovalFleet").ConfigureAwait(false);
+                string vesselId = await RestCreateVesselAsync(mcp, session, fleetId, "ApprovalVessel").ConfigureAwait(false);
+                JsonElement run = await CallToolAsync(mcp, session, "run_fleet_action", new { name = "Timed MCP action", kind = "Mission", promptTemplate = "Check the vessel", vesselIds = new[] { vesselId }, approvalOptions = new { timeoutSeconds = 35, timeoutDecision = "Approve" } }).ConfigureAwait(false);
+                AssertToolResultValid(run);
+                string runId = JsonHelper.Deserialize<FleetActionRunStartResult>(GetToolResultText(run)).RunId;
+                JsonElement runStatus = await CallToolAsync(mcp, session, "fleet_action_run_status", new { runId }).ConfigureAwait(false);
+                FleetActionRunDetail runDetail = JsonHelper.Deserialize<FleetActionRunDetail>(GetToolResultText(runStatus));
+                AssertEqual(35, runDetail.Run.ApprovalOptions!.TimeoutSeconds);
+                AssertEqual(ApprovalTimeoutDecisionEnum.Approve, runDetail.Run.ApprovalOptions.TimeoutDecision);
+                E2ETenantUser regular = await E2ETenantUser.CreateAsync(fx.AuthClient, "approval-regular", false).ConfigureAwait(false);
+                using HttpClient client = regular.CreateClient(fx.BaseUrl);
+                foreach (object options in new object[] { new { approveAll = true }, new { timeoutDecision = "Approve" } })
+                {
+                    using HttpResponseMessage denied = await client.PostAsync("/api/v1/voyages", JsonHelper.ToJsonContent(new { title = "Not allowed", approvalOptions = options })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Forbidden, denied.StatusCode);
+                }
+                using HttpResponseMessage allowed = await fx.AuthClient.PostAsync("/api/v1/voyages", JsonHelper.ToJsonContent(new { title = "Timed denial", approvalOptions = new { timeoutSeconds = 25, timeoutDecision = "Deny" } })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, allowed.StatusCode);
+            }));
+
             cases.Add(CaseAsync("endpoint_duplicate_rest_authorization", "REST duplicate authenticates regular owners, refuses shared readers and hides other-tenant sources", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);

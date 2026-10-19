@@ -53,9 +53,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
             await SqliteCommandHelper.WriteAsync(_ConnectionString, _WriteGate, async (SqliteConnection conn, SqliteTransaction tx) =>
             {
                 await SqliteCommandHelper.ExecuteAsync(conn, tx, @"INSERT INTO fleet_action_runs
-                    (id, tenant_id, user_id, action_id, action_name, kind, command_text, prompt_template, pipeline_id, persona, timeout_seconds, requires_clean_working_tree, concurrency, status, target_count, succeeded_count, failed_count, skipped_count, cancelled_count, started_utc, completed_utc, created_utc, last_update_utc)
+                    (id, tenant_id, user_id, action_id, action_name, kind, command_text, prompt_template, pipeline_id, persona, timeout_seconds, requires_clean_working_tree, concurrency, status, target_count, succeeded_count, failed_count, skipped_count, cancelled_count, started_utc, completed_utc, created_utc, last_update_utc, approval_options_json)
                     VALUES
-                    (@id, @tenant_id, @user_id, @action_id, @action_name, @kind, @command_text, @prompt_template, @pipeline_id, @persona, @timeout_seconds, @requires_clean_working_tree, @concurrency, @status, @target_count, @succeeded_count, @failed_count, @skipped_count, @cancelled_count, @started_utc, @completed_utc, @created_utc, @last_update_utc);",
+                    (@id, @tenant_id, @user_id, @action_id, @action_name, @kind, @command_text, @prompt_template, @pipeline_id, @persona, @timeout_seconds, @requires_clean_working_tree, @concurrency, @status, @target_count, @succeeded_count, @failed_count, @skipped_count, @cancelled_count, @started_utc, @completed_utc, @created_utc, @last_update_utc, @approval_options_json);",
                     cmd => Bind(cmd, run), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -106,7 +106,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     status = @status, target_count = @target_count, succeeded_count = @succeeded_count,
                     failed_count = @failed_count, skipped_count = @skipped_count, cancelled_count = @cancelled_count,
                     started_utc = @started_utc, completed_utc = @completed_utc, created_utc = @created_utc,
-                    last_update_utc = @last_update_utc
+                    last_update_utc = @last_update_utc, approval_options_json = @approval_options_json
                     WHERE id = @id;", cmd => Bind(cmd, run), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -207,6 +207,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             SqliteCommandHelper.Add(cmd, "@command_text", run.CommandText);
             SqliteCommandHelper.Add(cmd, "@prompt_template", run.PromptTemplate);
             SqliteCommandHelper.Add(cmd, "@pipeline_id", run.PipelineId);
+            SqliteCommandHelper.Add(cmd, "@approval_options_json", RunApprovalOptions.ToJson(run.ApprovalOptions));
             SqliteCommandHelper.Add(cmd, "@persona", run.Persona);
             SqliteCommandHelper.Add(cmd, "@timeout_seconds", run.TimeoutSeconds);
             SqliteCommandHelper.Add(cmd, "@requires_clean_working_tree", run.RequiresCleanWorkingTree);
@@ -235,6 +236,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             run.CommandText = SqliteCommandHelper.ReadString(reader["command_text"]);
             run.PromptTemplate = SqliteCommandHelper.ReadString(reader["prompt_template"]);
             run.PipelineId = SqliteCommandHelper.ReadString(reader["pipeline_id"]);
+            run.ApprovalOptions = RunApprovalOptions.FromJson(SqliteCommandHelper.ReadString(reader["approval_options_json"]));
             run.Persona = SqliteCommandHelper.ReadString(reader["persona"]);
             run.TimeoutSeconds = SqliteCommandHelper.ReadInt(reader["timeout_seconds"], 300);
             run.RequiresCleanWorkingTree = SqliteCommandHelper.ReadBool(reader["requires_clean_working_tree"], true);

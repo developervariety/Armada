@@ -14,6 +14,9 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Decision snapshotted when this prompt was created, used only on timeout.</summary>
+        public ApprovalTimeoutDecisionEnum TimeoutDecision { get; set; } = ApprovalTimeoutDecisionEnum.Deny;
+
         /// <summary>
         /// Unique identifier (cpr_ prefix).
         /// </summary>

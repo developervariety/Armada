@@ -317,6 +317,24 @@ namespace Test.Shared.Suites.Services
                 AssertContains("resumed", resumed.OutputText ?? "");
             }));
 
+            cases.Add(CaseAsync("mission_run_approval_snapshot", "Fleet-action run persists and forwards approval choices without changing the action definition", TestTags.Positive, async () =>
+            {
+                using FleetActionTestHarness h = await FleetActionTestHarness.CreateAsync().ConfigureAwait(false);
+                Vessel vessel = await h.CreateVesselAsync("approve-run", null).ConfigureAwait(false);
+                FleetActionRun run = await h.Service.StartRunAsync(h.Admin, null, new FleetActionRunRequest {
+                    VesselIds = new List<string> { vessel.Id },
+                    Definition = new FleetActionUpsertRequest { Name = "Timed mission", Kind = FleetActionKindEnum.Mission, PromptTemplate = "Do work" },
+                    Overrides = new FleetActionRunOverrides { ApprovalOptions = new RunApprovalOptions { ApproveAll = true, TimeoutSeconds = 55, TimeoutDecision = ApprovalTimeoutDecisionEnum.Approve } }
+                }).ConfigureAwait(false);
+                await h.Runner.SyncMissionRunsAsync().ConfigureAwait(false);
+                FleetActionRun persisted = (await h.Db.Driver.FleetActionRuns.ReadAsync(run.Id).ConfigureAwait(false))!;
+                AssertTrue(persisted.ApprovalOptions!.ApproveAll);
+                AssertEqual(55, h.Dispatcher.ApprovalsByVessel[vessel.Id]!.TimeoutSeconds);
+                AssertEqual(ApprovalTimeoutDecisionEnum.Approve, h.Dispatcher.ApprovalsByVessel[vessel.Id]!.TimeoutDecision);
+                foreach (string voyageId in h.Dispatcher.RunningVoyages()) h.Dispatcher.SetOutcome(voyageId, FleetActionVoyageOutcomeEnum.Succeeded);
+                await h.Runner.SyncMissionRunsAsync().ConfigureAwait(false);
+            }));
+
             cases.Add(CaseAsync("mission_fanout_paced", "Mission fan-out never exceeds run concurrency and follows voyages to completion", TestTags.Positive, async () =>
             {
                 using FleetActionTestHarness h = await FleetActionTestHarness.CreateAsync().ConfigureAwait(false);

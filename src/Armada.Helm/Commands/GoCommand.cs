@@ -78,7 +78,8 @@ namespace Armada.Helm.Commands
                 Title = String.IsNullOrWhiteSpace(settings.Prompt) ? tasks[0] : settings.Prompt.Trim(),
                 VesselId = vesselId,
                 Missions = missions,
-                LandingMode = landingMode
+                LandingMode = landingMode,
+                ApprovalOptions = RunApprovalArguments.Build(settings.ApproveAll, settings.ApprovalTimeoutSeconds, settings.ApprovalDefault)
             };
 
             Voyage? voyage = await PostAsync<Voyage>("/api/v1/voyages", body).ConfigureAwait(false);

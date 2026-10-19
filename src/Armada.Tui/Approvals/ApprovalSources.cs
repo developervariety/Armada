@@ -141,6 +141,8 @@ namespace Armada.Tui.Approvals
             item.Detail = inbox.Detail;
             item.Route = String.IsNullOrEmpty(inbox.Href) ? null : inbox.Href;
             item.Urgency = inbox.Severity == InboxSeverityEnum.Critical ? 2 : 1;
+            item.ExpiresUtc = inbox.ExpiresUtc;
+            item.TimeoutDecision = inbox.TimeoutDecision;
             item.Source = "Needs You";
             return item;
         }
@@ -165,6 +167,7 @@ namespace Armada.Tui.Approvals
             item.ToolName = request.ToolName;
             item.Arguments = request.InputText;
             item.ExpiresUtc = request.ExpiresUtc;
+            item.TimeoutDecision = request.TimeoutDecision;
             item.ParentId = request.ThreadId;
             string where = CliPermissionText.Where(loc, request);
             string admin = request.CanDecide ? "" : (loc == null ? "An admin must decide this request." : loc.T("An admin must decide this request."));

@@ -1,3 +1,4 @@
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ isAdmin: true, isTenantAdmin: false }) }));
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -53,7 +54,7 @@ describe('VoyageCreate landing mode', () => {
     expect(screen.queryByText('Auto-Push')).toBeNull();
     expect(screen.queryByText('Auto-Create PRs')).toBeNull();
     expect(screen.queryByText('Auto-Merge PRs')).toBeNull();
-    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(screen.getByRole('checkbox', { name: 'Approve all' })).not.toBeChecked();
     const landing = selectFor('Landing Mode');
     expect(Array.from(landing.options).map((o) => o.value)).toEqual(['', 'LocalMerge', 'MergeAndPush', 'PullRequest', 'MergeQueue', 'None']);
     expect(within(landing).getByRole('option', { name: 'Default (use vessel or global setting)' })).toHaveValue('');
@@ -64,6 +65,15 @@ describe('VoyageCreate landing mode', () => {
     await fillForm();
     fireEvent.click(screen.getByRole('button', { name: 'Create Voyage' }));
     await waitFor(() => expect(createVoyage).toHaveBeenCalledTimes(1));
+    expect(onlyCallArgs(vi.mocked(createVoyage))[0]).not.toHaveProperty('landingMode');
+  });
+
+  it('sends run approval choices without changing the landing policy', async () => {
+    await fillForm();
+    fireEvent.click(screen.getByLabelText('Approve all'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Voyage' }));
+    await waitFor(() => expect(createVoyage).toHaveBeenCalledTimes(1));
+    expect(onlyCallArgs(vi.mocked(createVoyage))[0].approvalOptions).toEqual({ approveAll: true, timeoutSeconds: 600, timeoutDecision: 'Deny' });
     expect(onlyCallArgs(vi.mocked(createVoyage))[0]).not.toHaveProperty('landingMode');
   });
 

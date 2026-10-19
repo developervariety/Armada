@@ -81,6 +81,9 @@ namespace Armada.Server.Mcp.Tools
                                 required = new[] { "playbookId", "deliveryMode" }
                             }
                         },
+                        approvalOptions = new { type = "object", description = "Per-run tool and review approvals; ApproveAll and timeout Approve require admin.", properties = new {
+                            approveAll = new { type = "boolean" }, timeoutSeconds = new { type = "integer", minimum = 10, maximum = 3600 }, timeoutDecision = new { type = "string", @enum = new[] { "Deny", "Approve" } }
+                        } },
                         captainAssignments = new
                         {
                             type = "array",
@@ -104,6 +107,10 @@ namespace Armada.Server.Mcp.Tools
                 {
                     VoyageDispatchArgs request = JsonSerializer.Deserialize<VoyageDispatchArgs>(args!.Value, _JsonOptions)!;
                     AuthContext caller = McpToolHelpers.ResolveCallerContext();
+                    if (request.ApprovalOptions != null && (request.ApprovalOptions.ApproveAll || request.ApprovalOptions.TimeoutDecision == ApprovalTimeoutDecisionEnum.Approve)
+                        && !McpToolHelpers.HasPresentedCredential())
+                        return (object)McpToolError.Forbidden("Automatic approval requires an administrator's credential; unauthenticated loopback callers cannot enable it.");
+                    request.ApprovalOptions?.ValidateFor(caller);
                     if (!String.IsNullOrEmpty(request.VesselId) && await McpCallerScope.ReadVesselAsync(database, caller, request.VesselId).ConfigureAwait(false) == null)
                         return (object)McpToolError.NotFound("Vessel not found");
                     if (!String.IsNullOrWhiteSpace(request.ObjectiveId) && await McpCallerScope.ReadObjectiveAsync(database, caller, request.ObjectiveId).ConfigureAwait(false) == null)
@@ -134,6 +141,7 @@ namespace Armada.Server.Mcp.Tools
                         voyage = new Voyage(title, description);
                         voyage.TenantId = String.IsNullOrEmpty(caller.TenantId) ? ArmadaConstants.DefaultTenantId : caller.TenantId;
                         voyage.UserId = caller.UserId;
+                        voyage.ApprovalOptions = request.ApprovalOptions?.Snapshot();
                         voyage = await database.Voyages.CreateAsync(voyage).ConfigureAwait(false);
                         if (selectedPlaybooks.Count > 0)
                         {
@@ -148,7 +156,7 @@ namespace Armada.Server.Mcp.Tools
                         string? overridesJson = request.CaptainAssignments != null && request.CaptainAssignments.Count > 0
                             ? Armada.Core.Services.MissionService.SerializeCaptainOverrides(request.CaptainAssignments)
                             : null;
-                        voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, selectedPlaybooks, overridesJson, request.LandingMode).ConfigureAwait(false);
+                        voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, selectedPlaybooks, overridesJson, request.LandingMode, approvalOptions: request.ApprovalOptions).ConfigureAwait(false);
                     }
 
                     // A bare voyage has no missions yet: keep its overrides for the missions added to it later.
@@ -203,7 +211,7 @@ namespace Armada.Server.Mcp.Tools
                             .ToDictionary(g => g.Key, g => g.Count());
                         return (object)new
                         {
-                            Voyage = new { voyage.Id, voyage.Title, voyage.Description, voyage.Status, voyage.CreatedUtc, voyage.LastUpdateUtc },
+                            Voyage = new { voyage.Id, voyage.Title, voyage.Description, voyage.Status, voyage.CreatedUtc, voyage.LastUpdateUtc, voyage.ApprovalOptions },
                             TotalMissions = missionSummaries.Count,
                             MissionCountsByStatus = counts
                         };

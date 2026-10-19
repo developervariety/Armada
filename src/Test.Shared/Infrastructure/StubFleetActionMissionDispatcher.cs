@@ -97,6 +97,9 @@ namespace Test.Shared.Infrastructure
 
         #endregion
 
+        /// <summary>Approval snapshots received by the dispatcher.</summary>
+        public Dictionary<string, RunApprovalOptions?> ApprovalsByVessel { get; } = new Dictionary<string, RunApprovalOptions?>();
+
         #region Private-Members
 
         private readonly object _Lock = new object();
@@ -141,6 +144,13 @@ namespace Test.Shared.Infrastructure
                 if (active > _MaxActive) _MaxActive = active;
                 return Task.FromResult(id);
             }
+        }
+
+        /// <inheritdoc />
+        public Task<string> DispatchAsync(Vessel vessel, string title, string prompt, string? pipelineId, string? persona, RunApprovalOptions? approvalOptions, CancellationToken token = default)
+        {
+            lock (_Lock) ApprovalsByVessel[vessel.Id] = approvalOptions?.Snapshot();
+            return DispatchAsync(vessel, title, prompt, pipelineId, persona, token);
         }
 
         /// <inheritdoc />

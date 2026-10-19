@@ -26,6 +26,9 @@ namespace Armada.Server
     /// </summary>
     public class VoyageRequest
     {
+        /// <summary>Per-run tool permission and mission review approval choices.</summary>
+        public Armada.Core.Models.RunApprovalOptions? ApprovalOptions { get; set; } = null;
+
         /// <summary>
         /// Voyage title.
         /// </summary>

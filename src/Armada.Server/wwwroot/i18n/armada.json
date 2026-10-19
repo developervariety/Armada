@@ -5993,7 +5993,17 @@
         "storage.Partial": "Parcial",
         "storage.Unavailable": "No disponible",
         "storage.Pending": "Pendiente",
-        "storage.Stale": "Desactualizado o sin conexión"
+        "storage.Stale": "Desactualizado o sin conexión",
+        "Default answer on timeout": "Respuesta predeterminada al agotarse el tiempo",
+        "Default answer: {{decision}}. Expires at {{time}}.": "Respuesta predeterminada: {{decision}}. Vence a las {{time}}.",
+        "Default: {{decision}}": "Predeterminado: {{decision}}",
+        "How long a request waits for a decision before its default answer is applied (10-3600, default 600).": "Tiempo que una solicitud espera una decisión antes de aplicar la respuesta predeterminada (10-3600, por defecto 600).",
+        "Seconds a permission request waits for a decision before its default answer is applied (10-3600, default 600). Applies to new requests.": "Segundos que una solicitud de permiso espera antes de aplicar la respuesta predeterminada (10-3600, por defecto 600). Se aplica a solicitudes nuevas.",
+        "Approve all": "Aprobar todo",
+        "Approvals for this run": "Aprobaciones para esta ejecución",
+        "Approval timeout (seconds)": "Tiempo de espera de aprobación (segundos)",
+        "Automatic approval requires an administrator.": "La aprobación automática requiere un administrador.",
+        "this run": "esta ejecución"
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -10923,7 +10933,17 @@
         "storage.Partial": "部分",
         "storage.Unavailable": "不可用",
         "storage.Pending": "待处理",
-        "storage.Stale": "已过期或离线"
+        "storage.Stale": "已过期或离线",
+        "Default answer on timeout": "超时默认答复",
+        "Default answer: {{decision}}. Expires at {{time}}.": "默认答复：{{decision}}。到期时间：{{time}}。",
+        "Default: {{decision}}": "默认：{{decision}}",
+        "How long a request waits for a decision before its default answer is applied (10-3600, default 600).": "请求等待决定后应用默认答复的时间（10-3600 秒，默认 600 秒）。",
+        "Seconds a permission request waits for a decision before its default answer is applied (10-3600, default 600). Applies to new requests.": "权限请求等待默认答复的秒数（10-3600，默认 600）。适用于新请求。",
+        "Approve all": "全部批准",
+        "Approvals for this run": "本次运行的批准设置",
+        "Approval timeout (seconds)": "批准超时（秒）",
+        "Automatic approval requires an administrator.": "自动批准需要管理员权限。",
+        "this run": "本次运行"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -15816,7 +15836,17 @@
         "storage.Partial": "部分",
         "storage.Unavailable": "無法取得",
         "storage.Pending": "待處理",
-        "storage.Stale": "已過期或離線"
+        "storage.Stale": "已過期或離線",
+        "Default answer on timeout": "逾時預設答覆",
+        "Default answer: {{decision}}. Expires at {{time}}.": "預設答覆：{{decision}}。到期時間：{{time}}。",
+        "Default: {{decision}}": "預設：{{decision}}",
+        "How long a request waits for a decision before its default answer is applied (10-3600, default 600).": "請求等待決定後套用預設答覆的時間（10-3600 秒，預設 600 秒）。",
+        "Seconds a permission request waits for a decision before its default answer is applied (10-3600, default 600). Applies to new requests.": "權限請求等待預設答覆的秒數（10-3600，預設 600）。適用於新請求。",
+        "Approve all": "全部核准",
+        "Approvals for this run": "本次執行的核准設定",
+        "Approval timeout (seconds)": "核准逾時（秒）",
+        "Automatic approval requires an administrator.": "自動核准需要管理員權限。",
+        "this run": "本次執行"
       },
       "sections": {}
     },
@@ -20669,7 +20699,17 @@
         "storage.Partial": "部分",
         "storage.Unavailable": "無法取得",
         "storage.Pending": "等候中",
-        "storage.Stale": "資料過時或離線"
+        "storage.Stale": "資料過時或離線",
+        "Default answer on timeout": "逾時預設回覆",
+        "Default answer: {{decision}}. Expires at {{time}}.": "預設回覆：{{decision}}。到期時間：{{time}}。",
+        "Default: {{decision}}": "預設：{{decision}}",
+        "How long a request waits for a decision before its default answer is applied (10-3600, default 600).": "請求等候決定後套用預設回覆嘅時間（10-3600 秒，預設 600 秒）。",
+        "Seconds a permission request waits for a decision before its default answer is applied (10-3600, default 600). Applies to new requests.": "權限請求等候預設回覆嘅秒數（10-3600，預設 600）。適用於新請求。",
+        "Approve all": "全部批准",
+        "Approvals for this run": "今次執行嘅批准設定",
+        "Approval timeout (seconds)": "批准逾時（秒）",
+        "Automatic approval requires an administrator.": "自動批准需要管理員權限。",
+        "this run": "今次執行"
       },
       "sections": {}
     },
@@ -25538,7 +25578,17 @@
         "storage.Partial": "一部のみ",
         "storage.Unavailable": "取得不可",
         "storage.Pending": "待機中",
-        "storage.Stale": "古い情報またはオフライン"
+        "storage.Stale": "古い情報またはオフライン",
+        "Default answer on timeout": "タイムアウト時の既定の回答",
+        "Default answer: {{decision}}. Expires at {{time}}.": "既定の回答：{{decision}}。期限：{{time}}。",
+        "Default: {{decision}}": "既定：{{decision}}",
+        "How long a request waits for a decision before its default answer is applied (10-3600, default 600).": "既定の回答を適用するまで決定を待つ時間（10～3600秒、既定600秒）。",
+        "Seconds a permission request waits for a decision before its default answer is applied (10-3600, default 600). Applies to new requests.": "権限要求に既定の回答を適用するまでの秒数（10～3600、既定600）。新しい要求に適用します。",
+        "Approve all": "すべて承認",
+        "Approvals for this run": "この実行の承認設定",
+        "Approval timeout (seconds)": "承認タイムアウト（秒）",
+        "Automatic approval requires an administrator.": "自動承認には管理者権限が必要です。",
+        "this run": "この実行"
       },
       "sections": {}
     },
@@ -30398,7 +30448,17 @@
         "storage.Partial": "Teilweise",
         "storage.Unavailable": "Nicht verfügbar",
         "storage.Pending": "Ausstehend",
-        "storage.Stale": "Veraltet oder offline"
+        "storage.Stale": "Veraltet oder offline",
+        "Default answer on timeout": "Standardantwort bei Zeitüberschreitung",
+        "Default answer: {{decision}}. Expires at {{time}}.": "Standardantwort: {{decision}}. Ablauf: {{time}}.",
+        "Default: {{decision}}": "Standard: {{decision}}",
+        "How long a request waits for a decision before its default answer is applied (10-3600, default 600).": "Wartezeit auf eine Entscheidung, bevor die Standardantwort angewendet wird (10–3600 Sekunden, Standard 600).",
+        "Seconds a permission request waits for a decision before its default answer is applied (10-3600, default 600). Applies to new requests.": "Sekunden bis zur Anwendung der Standardantwort auf eine Berechtigungsanfrage (10–3600, Standard 600). Gilt für neue Anfragen.",
+        "Approve all": "Alles genehmigen",
+        "Approvals for this run": "Genehmigungen für diesen Lauf",
+        "Approval timeout (seconds)": "Genehmigungsfrist (Sekunden)",
+        "Automatic approval requires an administrator.": "Automatische Genehmigungen erfordern Administratorrechte.",
+        "this run": "diesem Lauf"
       },
       "sections": {}
     },
@@ -35258,7 +35318,17 @@
         "storage.Partial": "Partiel",
         "storage.Unavailable": "Indisponible",
         "storage.Pending": "En attente",
-        "storage.Stale": "Périmé ou hors ligne"
+        "storage.Stale": "Périmé ou hors ligne",
+        "Default answer on timeout": "Réponse par défaut à expiration",
+        "Default answer: {{decision}}. Expires at {{time}}.": "Réponse par défaut : {{decision}}. Expiration : {{time}}.",
+        "Default: {{decision}}": "Par défaut : {{decision}}",
+        "How long a request waits for a decision before its default answer is applied (10-3600, default 600).": "Durée d’attente d’une décision avant application de la réponse par défaut (10–3600 secondes, 600 par défaut).",
+        "Seconds a permission request waits for a decision before its default answer is applied (10-3600, default 600). Applies to new requests.": "Secondes d’attente avant application de la réponse par défaut à une demande d’autorisation (10–3600, 600 par défaut). Pour les nouvelles demandes.",
+        "Approve all": "Tout approuver",
+        "Approvals for this run": "Approbations pour cette exécution",
+        "Approval timeout (seconds)": "Délai d’approbation (secondes)",
+        "Automatic approval requires an administrator.": "L’approbation automatique nécessite un administrateur.",
+        "this run": "cette exécution"
       },
       "sections": {}
     },
@@ -40118,7 +40188,17 @@
         "storage.Partial": "Parziale",
         "storage.Unavailable": "Non disponibile",
         "storage.Pending": "In attesa",
-        "storage.Stale": "Obsoleto o non in linea"
+        "storage.Stale": "Obsoleto o non in linea",
+        "Default answer on timeout": "Risposta predefinita alla scadenza",
+        "Default answer: {{decision}}. Expires at {{time}}.": "Risposta predefinita: {{decision}}. Scadenza: {{time}}.",
+        "Default: {{decision}}": "Predefinito: {{decision}}",
+        "How long a request waits for a decision before its default answer is applied (10-3600, default 600).": "Tempo di attesa di una decisione prima di applicare la risposta predefinita (10–3600 secondi, 600 predefiniti).",
+        "Seconds a permission request waits for a decision before its default answer is applied (10-3600, default 600). Applies to new requests.": "Secondi di attesa prima di applicare la risposta predefinita a una richiesta di autorizzazione (10–3600, 600 predefiniti). Si applica alle nuove richieste.",
+        "Approve all": "Approva tutto",
+        "Approvals for this run": "Approvazioni per questa esecuzione",
+        "Approval timeout (seconds)": "Timeout approvazione (secondi)",
+        "Automatic approval requires an administrator.": "L’approvazione automatica richiede un amministratore.",
+        "this run": "questa esecuzione"
       },
       "sections": {}
     }

@@ -687,6 +687,7 @@ namespace Armada.Core.Database.SqlServer
             if (!String.IsNullOrEmpty(voyageLandingModeStr) && Enum.TryParse<LandingModeEnum>(voyageLandingModeStr, out LandingModeEnum vlm))
                 voyage.LandingMode = vlm;
             try { voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]); } catch { }
+            voyage.ApprovalOptions = RunApprovalOptions.FromJson(NullableString(reader["approval_options_json"]));
             return voyage;
         }
 

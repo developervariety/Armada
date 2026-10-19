@@ -70,5 +70,8 @@ namespace Armada.Core.Models
         /// When the item stops waiting (for CLI permission items, the request expiry), or null.
         /// </summary>
         public DateTime? ExpiresUtc { get; set; } = null;
+
+        /// <summary>Default answer at expiry for timed tool or mission review approvals.</summary>
+        public ApprovalTimeoutDecisionEnum? TimeoutDecision { get; set; } = null;
     }
 }

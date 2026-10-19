@@ -47,6 +47,10 @@ namespace Armada.Core.Services.Interfaces
         /// <returns>The dispatched voyage identifier.</returns>
         Task<string> DispatchAsync(Vessel vessel, string title, string prompt, string? pipelineId, string? persona, CancellationToken token = default);
 
+        /// <summary>Dispatch with the run's approval snapshot.</summary>
+        Task<string> DispatchAsync(Vessel vessel, string title, string prompt, string? pipelineId, string? persona, RunApprovalOptions? approvalOptions, CancellationToken token = default)
+            => DispatchAsync(vessel, title, prompt, pipelineId, persona, token);
+
         /// <summary>
         /// Read the outcome of a dispatched voyage.
         /// </summary>

@@ -210,6 +210,7 @@ namespace Armada.Core.Services
             }
 
             RequireKindPermission(auth, definition.Kind);
+            request.Overrides?.ApprovalOptions?.ValidateFor(auth);
 
             List<string> vesselIds = request.VesselIds
                 .Where(v => !String.IsNullOrWhiteSpace(v))
@@ -242,6 +243,7 @@ namespace Armada.Core.Services
                 RequiresCleanWorkingTree = definition.Kind == FleetActionKindEnum.Command && definition.RequiresCleanWorkingTree,
                 Concurrency = request.Concurrency ?? definition.DefaultConcurrency,
                 Status = FleetActionRunStatusEnum.Pending,
+                ApprovalOptions = request.Overrides?.ApprovalOptions?.Snapshot(),
                 TargetCount = vessels.Count
             };
 

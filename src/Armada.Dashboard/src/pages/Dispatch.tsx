@@ -1,3 +1,4 @@
+import RunApprovalFields, { DEFAULT_RUN_APPROVALS } from '../components/shared/RunApprovalFields';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
@@ -42,6 +43,7 @@ export default function Dispatch() {
   const [objectiveId, setObjectiveId] = useState('');
   const [prompt, setPrompt] = useState('');
   const [priority, setPriority] = useState(100);
+  const [approvalOptions, setApprovalOptions] = useState({ ...DEFAULT_RUN_APPROVALS });
   const [selectedPlaybooks, setSelectedPlaybooks] = useState<SelectedPlaybook[]>([]);
   const [dispatching, setDispatching] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -121,6 +123,10 @@ export default function Dispatch() {
 
   const handleDispatch = async () => {
     if (!prompt.trim()) return;
+    if (!Number.isInteger(approvalOptions.timeoutSeconds) || approvalOptions.timeoutSeconds < 10 || approvalOptions.timeoutSeconds > 3600) {
+      setResult({ ok: false, message: t('Approval timeout must be a whole number between 10 and 3600 seconds.') });
+      return;
+    }
     if (!vesselId) {
       setResult({ ok: false, message: t('Please select a vessel.') });
       return;
@@ -143,7 +149,7 @@ export default function Dispatch() {
         multiTaskTitle: t('Multi-task voyage'),
       });
       const missions = request.missions;
-      const voyage = await createVoyage(request);
+      const voyage = await createVoyage({ ...request, approvalOptions });
       const missionCount = isMultiStage
         ? t('{{count}} pipeline stages', { count: selectedPipelineObj!.stages.length })
         : t('{{count}} mission(s)', { count: missions.length });
@@ -265,6 +271,7 @@ Armada will dispatch this request as a voyage on the selected vessel.`)}
             />
           </div>
 
+          <RunApprovalFields value={approvalOptions} onChange={setApprovalOptions} />
           <PlaybookSelector value={selectedPlaybooks} onChange={setSelectedPlaybooks} disabled={dispatching} />
 
           {effectivePersonas.length > 0 && (

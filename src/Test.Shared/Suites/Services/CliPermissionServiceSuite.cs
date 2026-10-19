@@ -231,6 +231,56 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(0, await svc.SweepAsync().ConfigureAwait(false), "nothing left for the sweep");
             }));
 
+            cases.Add(Case("timeout_approve_is_snapshotted", "Timeout approval is persisted and changing settings cannot alter a pending decision", async () =>
+            {
+                using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);
+                h.Settings.Permissions.TimeoutDecision = ApprovalTimeoutDecisionEnum.Approve;
+                CliPermissionService svc = Service(h);
+                svc.PromptTimeoutOverride = TimeSpan.FromMilliseconds(300);
+                AskThread thread = await NewThreadAsync(h, "usr_timeout_approve").ConfigureAwait(false);
+                Task<CliPermissionPromptOutcome> prompt = svc.PromptAsync(ThreadContext(thread, null), "Bash", BashInput);
+                CliPermissionRequest pending = await WaitForPendingAsync(h, thread.Id).ConfigureAwait(false);
+                AssertEqual(ApprovalTimeoutDecisionEnum.Approve, pending.TimeoutDecision);
+                h.Settings.Permissions.TimeoutDecision = ApprovalTimeoutDecisionEnum.Deny;
+                CliPermissionPromptOutcome outcome = await prompt.ConfigureAwait(false);
+                AssertTrue(outcome.Allowed, "The snapshot approves on timeout.");
+                AssertEqual(CliPermissionDecisionSourceEnum.Timeout, outcome.Request!.DecisionSource);
+                AssertNull(outcome.Request.DecidedByUserId, "Automatic decisions do not impersonate a reviewer.");
+            }));
+
+            cases.Add(Case("run_timeout_overrides_default_and_manual_denial_wins", "Run approval choices survive persistence and a manual denial wins before timeout", async () =>
+            {
+                using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);
+                Voyage voyage = await h.Db.Driver.Voyages.CreateAsync(new Voyage("Timed voyage") { ApprovalOptions = new RunApprovalOptions { TimeoutDecision = ApprovalTimeoutDecisionEnum.Approve, TimeoutSeconds = 25 } }).ConfigureAwait(false);
+                CliPermissionService svc = Service(h);
+                AskThread thread = await NewThreadAsync(h, "usr_run_timeout").ConfigureAwait(false);
+                CliPermissionPromptContext context = ThreadContext(thread, null);
+                context.VoyageId = voyage.Id;
+                Task<CliPermissionPromptOutcome> prompt = svc.PromptAsync(context, "Bash", BashInput);
+                CliPermissionRequest pending = await WaitForPendingAsync(h, thread.Id).ConfigureAwait(false);
+                AssertEqual(ApprovalTimeoutDecisionEnum.Approve, pending.TimeoutDecision);
+                AssertTrue(Math.Abs((pending.ExpiresUtc - pending.CreatedUtc).TotalSeconds - 25) < 1, "Run timeout must override global timeout.");
+                await svc.DecideAsync(TenantAdmin("usr_timeout_admin"), pending.Id, new CliPermissionDecisionRequest { Decision = CliPermissionDecisionEnum.Deny }).ConfigureAwait(false);
+                CliPermissionPromptOutcome outcome = await prompt.ConfigureAwait(false);
+                AssertFalse(outcome.Allowed);
+                AssertEqual(CliPermissionDecisionSourceEnum.Approver, outcome.Request!.DecisionSource);
+            }));
+
+            cases.Add(Case("cancellation_never_uses_timeout_approval", "Cancelling a prompt with Approve as its timeout default still denies it", async () =>
+            {
+                using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);
+                h.Settings.Permissions.TimeoutDecision = ApprovalTimeoutDecisionEnum.Approve;
+                CliPermissionService svc = Service(h);
+                AskThread thread = await NewThreadAsync(h, "usr_cancel_approve").ConfigureAwait(false);
+                using CancellationTokenSource cancel = new CancellationTokenSource();
+                Task<CliPermissionPromptOutcome> prompt = svc.PromptAsync(ThreadContext(thread, null), "Bash", BashInput, cancel.Token);
+                await WaitForPendingAsync(h, thread.Id).ConfigureAwait(false);
+                cancel.Cancel();
+                CliPermissionPromptOutcome outcome = await prompt.ConfigureAwait(false);
+                AssertFalse(outcome.Allowed);
+                AssertEqual(CliPermissionRequestStatusEnum.Cancelled, outcome.Request!.Status);
+            }));
+
             cases.Add(Case("timeout_denies","With no decision before the timeout the prompt is denied as Expired", async () =>
             {
                 using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);

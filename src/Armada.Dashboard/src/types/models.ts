@@ -1,3 +1,9 @@
+export interface RunApprovalOptions {
+  approveAll: boolean;
+  timeoutSeconds: number;
+  timeoutDecision: 'Deny' | 'Approve';
+}
+
 export interface TenantMetadata {
   id: string;
   name: string;
@@ -308,6 +314,7 @@ export interface Mission {
   reviewComment: string | null;
   reviewedByUserId: string | null;
   reviewRequestedUtc: string | null;
+  reviewDeadlineUtc?: string | null;
   reviewedUtc: string | null;
   branchName: string | null;
   dockId: string | null;
@@ -388,6 +395,7 @@ export interface MissionSummary {
   reviewComment: string | null;
   reviewedByUserId: string | null;
   reviewRequestedUtc: string | null;
+  reviewDeadlineUtc?: string | null;
   reviewedUtc: string | null;
   descriptionLength: number;
   diffSnapshotLength: number;
@@ -452,6 +460,7 @@ export interface TokenUsageSummaryResult {
 }
 
 export interface Voyage {
+  approvalOptions?: RunApprovalOptions | null;
   id: string;
   tenantId: string | null;
   title: string;
@@ -1339,6 +1348,7 @@ export interface WorkspaceDiffResult {
 export type InboxSeverity = 'Info' | 'Warning' | 'Critical';
 
 export interface InboxItem {
+  timeoutDecision?: 'Deny' | 'Approve' | null;
   kind: string;
   severity: InboxSeverity;
   title: string;
@@ -2459,6 +2469,7 @@ export interface PlanningSessionDispatchRequest {
 }
 
 export interface VoyageCreateRequest {
+  approvalOptions?: RunApprovalOptions | null;
   title: string;
   description?: string;
   vesselId?: string;
@@ -3067,6 +3078,7 @@ export interface FleetActionUpsertRequest {
 }
 
 export interface FleetActionRunOverrides {
+  ApprovalOptions?: RunApprovalOptions | null;
   TimeoutSeconds?: number | null;
   RequiresCleanWorkingTree?: boolean | null;
   PipelineId?: string | null;
@@ -3089,6 +3101,7 @@ export interface FleetActionRunStartResult {
 }
 
 export interface FleetActionRun {
+  approvalOptions?: RunApprovalOptions | null;
   id: string;
   tenantId: string | null;
   userId: string | null;
@@ -3437,7 +3450,7 @@ export interface AskQuickAction {
 /** Wire values of CliPermissionPolicyEnum. */
 export type CliPermissionPolicy = 'Refuse' | 'ApproveInArmada' | 'Bypass';
 /** Wire values of CliPermissionPolicySourceEnum: where the effective policy came from. */
-export type CliPermissionPolicySource = 'AskThread' | 'VesselAutoApprove' | 'Captain' | 'CaptainAutoApprove' | 'ServerDefault';
+export type CliPermissionPolicySource = 'RunApproval' | 'AskThread' | 'VesselAutoApprove' | 'Captain' | 'CaptainAutoApprove' | 'ServerDefault';
 /** Wire values of CliPermissionFallbackReasonEnum: why ApproveInArmada fell back to Refuse. */
 export type CliPermissionFallbackReason = 'RuntimeUnsupported' | 'NoSessionToken' | 'RemoteHarbor';
 /** Wire values of CliPermissionRequestStatusEnum. */
@@ -3463,6 +3476,7 @@ export interface CliPermissionResolution {
 
 /** A CLI tool call waiting on (or decided by) an approver in Armada. */
 export interface CliPermissionRequest {
+  timeoutDecision?: 'Deny' | 'Approve';
   id: string;
   tenantId?: string | null;
   userId?: string | null;
@@ -3547,6 +3561,7 @@ export interface CliPermissionRuleCreateRequest {
 
 /** Server `Permissions` settings group (global admin only). */
 export interface CliPermissionSettingsData {
+  timeoutDecision?: 'Deny' | 'Approve';
   askDefaultPolicy: CliPermissionPolicy;
   missionDefaultPolicy: CliPermissionPolicy;
   allowOwnerApproval: boolean;

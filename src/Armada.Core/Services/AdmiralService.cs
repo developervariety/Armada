@@ -181,7 +181,7 @@ namespace Armada.Core.Services
             List<SelectedPlaybook>? selectedPlaybooks,
             CancellationToken token = default)
         {
-            return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, null, null, token).ConfigureAwait(false);
+            return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, null, null, null, token).ConfigureAwait(false);
         }
 
         private async Task<Voyage> DispatchStandardVoyageAsync(
@@ -193,6 +193,7 @@ namespace Armada.Core.Services
             PipelineStage? singleStagePolicy,
             string? captainOverridesJson,
             LandingModeEnum? landingMode,
+            RunApprovalOptions? approvalOptions,
             CancellationToken token)
         {
             if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
@@ -215,6 +216,7 @@ namespace Armada.Core.Services
             voyage.UserId = vessel.UserId;
             voyage.Status = VoyageStatusEnum.Open;
             voyage.CaptainOverridesJson = captainOverridesJson;
+            voyage.ApprovalOptions = approvalOptions?.Snapshot();
             voyage.LandingMode = landingMode;
             voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
             voyage.SelectedPlaybooks = ClonePlaybookSelections(selectedPlaybooks);
@@ -290,7 +292,8 @@ namespace Armada.Core.Services
             List<SelectedPlaybook>? selectedPlaybooks,
             string? captainOverridesJson = null,
             LandingModeEnum? landingMode = null,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            RunApprovalOptions? approvalOptions = null)
         {
             if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
@@ -315,12 +318,12 @@ namespace Armada.Core.Services
             // If pipeline is single-stage Worker (or null), use the standard dispatch path
             if (pipeline == null)
             {
-                return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, captainOverridesJson, landingMode, token).ConfigureAwait(false);
+                return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, captainOverridesJson, landingMode, approvalOptions, token).ConfigureAwait(false);
             }
 
             if (pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker")
             {
-                return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, pipeline.Stages[0], captainOverridesJson, landingMode, token).ConfigureAwait(false);
+                return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, pipeline.Stages[0], captainOverridesJson, landingMode, approvalOptions, token).ConfigureAwait(false);
             }
 
             // Multi-stage pipeline: create voyage, then for each mission create a chain of persona stages.
@@ -331,6 +334,7 @@ namespace Armada.Core.Services
             voyage.UserId = vessel.UserId;
             voyage.Status = VoyageStatusEnum.Open;
             voyage.CaptainOverridesJson = captainOverridesJson;
+            voyage.ApprovalOptions = approvalOptions?.Snapshot();
             voyage.LandingMode = landingMode;
             voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
             voyage.SelectedPlaybooks = ClonePlaybookSelections(selectedPlaybooks);
@@ -1576,8 +1580,6 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task RecoverOverdueReviewsAsync(CancellationToken token)
         {
-            if (_Settings.ReviewTimeoutMinutes <= 0) return;
-
             try
             {
                 List<Mission> reviews = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
@@ -1586,6 +1588,24 @@ namespace Armada.Core.Services
                 foreach (Mission mission in reviews)
                 {
                     if (!mission.ReviewDeadlineUtc.HasValue || mission.ReviewDeadlineUtc.Value > now) continue;
+
+                    Voyage? approvalVoyage = String.IsNullOrEmpty(mission.VoyageId) ? null : await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
+                    RunApprovalOptions? options = approvalVoyage?.ApprovalOptions;
+                    if (options == null && _Settings.ReviewTimeoutMinutes <= 0) continue;
+                    if (options != null && mission.RequiresReview)
+                    {
+                        // Re-read through the review service so a human decision that already won is preserved.
+                        try
+                        {
+                            string comment = "Approval timer expired; applied run default: " + options.TimeoutDecision + ".";
+                            if (options.TimeoutDecision == ApprovalTimeoutDecisionEnum.Approve)
+                                await _Missions.ApproveReviewAsync(mission.Id, null, comment, token: token).ConfigureAwait(false);
+                            else
+                                await _Missions.DenyReviewAsync(mission.Id, null, comment, ReviewDenyActionEnum.FailPipeline, token).ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException) { /* A concurrent reviewer already resolved it. */ }
+                        continue;
+                    }
 
                     _Logging.Warn(_Header + "review overdue for mission " + mission.Id +
                         " -- releasing held captain (mission and dock preserved for the reviewer)");

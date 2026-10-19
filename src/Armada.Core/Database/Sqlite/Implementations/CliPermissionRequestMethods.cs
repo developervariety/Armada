@@ -22,9 +22,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
         #region Private-Members
 
         private static readonly string _Insert = @"INSERT INTO cli_permission_requests
-            (id, tenant_id, user_id, captain_id, mission_id, voyage_id, vessel_id, thread_id, message_id, runtime, tool_name, input_text, summary_text, suggested_rule, status, decision_source, rule_id, decided_by_user_id, decision_message, expires_utc, decided_utc, created_utc, last_update_utc)
+            (id, tenant_id, user_id, captain_id, mission_id, voyage_id, vessel_id, thread_id, message_id, runtime, tool_name, input_text, summary_text, suggested_rule, status, decision_source, rule_id, decided_by_user_id, decision_message, expires_utc, decided_utc, created_utc, last_update_utc, timeout_decision)
             VALUES
-            (@id, @tenant_id, @user_id, @captain_id, @mission_id, @voyage_id, @vessel_id, @thread_id, @message_id, @runtime, @tool_name, @input_text, @summary_text, @suggested_rule, @status, @decision_source, @rule_id, @decided_by_user_id, @decision_message, @expires_utc, @decided_utc, @created_utc, @last_update_utc);";
+            (@id, @tenant_id, @user_id, @captain_id, @mission_id, @voyage_id, @vessel_id, @thread_id, @message_id, @runtime, @tool_name, @input_text, @summary_text, @suggested_rule, @status, @decision_source, @rule_id, @decided_by_user_id, @decision_message, @expires_utc, @decided_utc, @created_utc, @last_update_utc, @timeout_decision);";
 
         private readonly string _ConnectionString;
         private readonly SqliteWriteGate _WriteGate;
@@ -179,6 +179,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             SqliteCommandHelper.Add(cmd, "@message_id", request.MessageId);
             SqliteCommandHelper.Add(cmd, "@runtime", request.Runtime.ToString());
             SqliteCommandHelper.Add(cmd, "@tool_name", request.ToolName);
+            SqliteCommandHelper.Add(cmd, "@timeout_decision", request.TimeoutDecision.ToString());
             SqliteCommandHelper.Add(cmd, "@input_text", request.InputText);
             SqliteCommandHelper.Add(cmd, "@summary_text", request.SummaryText);
             SqliteCommandHelper.Add(cmd, "@suggested_rule", request.SuggestedRule);
@@ -197,6 +198,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
         {
             CliPermissionRequest request = new CliPermissionRequest();
             request.Id = reader["id"].ToString()!;
+            request.TimeoutDecision = SqliteCommandHelper.ReadEnum(reader["timeout_decision"], ApprovalTimeoutDecisionEnum.Deny);
             request.TenantId = SqliteCommandHelper.ReadString(reader["tenant_id"]);
             request.UserId = SqliteCommandHelper.ReadString(reader["user_id"]);
             request.CaptainId = SqliteCommandHelper.ReadString(reader["captain_id"]);

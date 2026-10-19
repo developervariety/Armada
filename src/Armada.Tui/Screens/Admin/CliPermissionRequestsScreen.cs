@@ -300,6 +300,7 @@ namespace Armada.Tui.Screens.Admin
             sb.Append('\n');
             sb.Append(loc.T("Status")).Append(": ").Append(CliPermissionText.Status(loc, request.Status)).Append('\n');
             if (request.Status == CliPermissionRequestStatusEnum.Pending) sb.Append(CliPermissionText.ExpiresIn(loc, request.ExpiresUtc, Context.Clock.UtcNow)).Append('\n');
+            if (request.Status == CliPermissionRequestStatusEnum.Pending) sb.Append(loc.T("Default answer on timeout")).Append(": ").Append(loc.T(request.TimeoutDecision.ToString())).Append('\n');
             if (request.DecidedUtc.HasValue) sb.Append(loc.T("Decided")).Append(": ").Append(loc.FormatDateTime(request.DecidedUtc.Value)).Append('\n');
             if (!String.IsNullOrWhiteSpace(request.DecisionMessage)) sb.Append(request.DecisionMessage).Append('\n');
             if (!String.IsNullOrWhiteSpace(request.SuggestedRule)) sb.Append(loc.T("Suggested rule")).Append(": ").Append(request.SuggestedRule).Append('\n');

@@ -53,9 +53,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
             await PostgresqlCommandHelper.WriteAsync(_ConnectionString, _WriteLock, async (NpgsqlConnection conn, NpgsqlTransaction tx) =>
             {
                 await PostgresqlCommandHelper.ExecuteAsync(conn, tx, @"INSERT INTO fleet_action_runs
-                    (id, tenant_id, user_id, action_id, action_name, kind, command_text, prompt_template, pipeline_id, persona, timeout_seconds, requires_clean_working_tree, concurrency, status, target_count, succeeded_count, failed_count, skipped_count, cancelled_count, started_utc, completed_utc, created_utc, last_update_utc)
+                    (id, tenant_id, user_id, action_id, action_name, kind, command_text, prompt_template, pipeline_id, persona, timeout_seconds, requires_clean_working_tree, concurrency, status, target_count, succeeded_count, failed_count, skipped_count, cancelled_count, started_utc, completed_utc, created_utc, last_update_utc, approval_options_json)
                     VALUES
-                    (@id, @tenant_id, @user_id, @action_id, @action_name, @kind, @command_text, @prompt_template, @pipeline_id, @persona, @timeout_seconds, @requires_clean_working_tree, @concurrency, @status, @target_count, @succeeded_count, @failed_count, @skipped_count, @cancelled_count, @started_utc, @completed_utc, @created_utc, @last_update_utc);",
+                    (@id, @tenant_id, @user_id, @action_id, @action_name, @kind, @command_text, @prompt_template, @pipeline_id, @persona, @timeout_seconds, @requires_clean_working_tree, @concurrency, @status, @target_count, @succeeded_count, @failed_count, @skipped_count, @cancelled_count, @started_utc, @completed_utc, @created_utc, @last_update_utc, @approval_options_json);",
                     cmd => Bind(cmd, run), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -106,7 +106,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     status = @status, target_count = @target_count, succeeded_count = @succeeded_count,
                     failed_count = @failed_count, skipped_count = @skipped_count, cancelled_count = @cancelled_count,
                     started_utc = @started_utc, completed_utc = @completed_utc, created_utc = @created_utc,
-                    last_update_utc = @last_update_utc
+                    last_update_utc = @last_update_utc, approval_options_json = @approval_options_json
                     WHERE id = @id;", cmd => Bind(cmd, run), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -207,6 +207,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             PostgresqlCommandHelper.Add(cmd, "@command_text", run.CommandText);
             PostgresqlCommandHelper.Add(cmd, "@prompt_template", run.PromptTemplate);
             PostgresqlCommandHelper.Add(cmd, "@pipeline_id", run.PipelineId);
+            PostgresqlCommandHelper.Add(cmd, "@approval_options_json", RunApprovalOptions.ToJson(run.ApprovalOptions));
             PostgresqlCommandHelper.Add(cmd, "@persona", run.Persona);
             PostgresqlCommandHelper.Add(cmd, "@timeout_seconds", run.TimeoutSeconds);
             PostgresqlCommandHelper.Add(cmd, "@requires_clean_working_tree", run.RequiresCleanWorkingTree);
@@ -235,6 +236,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
             run.CommandText = PostgresqlCommandHelper.ReadString(reader["command_text"]);
             run.PromptTemplate = PostgresqlCommandHelper.ReadString(reader["prompt_template"]);
             run.PipelineId = PostgresqlCommandHelper.ReadString(reader["pipeline_id"]);
+            run.ApprovalOptions = RunApprovalOptions.FromJson(PostgresqlCommandHelper.ReadString(reader["approval_options_json"]));
             run.Persona = PostgresqlCommandHelper.ReadString(reader["persona"]);
             run.TimeoutSeconds = PostgresqlCommandHelper.ReadInt(reader["timeout_seconds"], 300);
             run.RequiresCleanWorkingTree = PostgresqlCommandHelper.ReadBool(reader["requires_clean_working_tree"], true);

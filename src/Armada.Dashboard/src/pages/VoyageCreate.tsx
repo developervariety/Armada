@@ -1,3 +1,4 @@
+import RunApprovalFields, { DEFAULT_RUN_APPROVALS } from '../components/shared/RunApprovalFields';
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { listVessels, listPipelines, createVoyage } from '../api/client';
@@ -25,6 +26,7 @@ export default function VoyageCreate() {
   const [description, setDescription] = useState('');
   const [vesselId, setVesselId] = useState('');
   const [landingMode, setLandingMode] = useState('');
+  const [approvalOptions, setApprovalOptions] = useState({ ...DEFAULT_RUN_APPROVALS });
   const [selectedPlaybooks, setSelectedPlaybooks] = useState<SelectedPlaybook[]>([]);
 
   // Mission rows
@@ -60,7 +62,7 @@ export default function VoyageCreate() {
 
     setSubmitting(true);
     try {
-      const voyage = await createVoyage(buildVoyageCreateRequest(form));
+      const voyage = await createVoyage({ ...buildVoyageCreateRequest(form), approvalOptions });
 
       pushToast('success', t('Voyage "{{title}}" created.', { title: title.trim() }));
       navigate(`/voyages/${voyage.id}`);
@@ -130,6 +132,7 @@ export default function VoyageCreate() {
           </label>
         </div>
 
+        <RunApprovalFields value={approvalOptions} onChange={setApprovalOptions} disabled={submitting} />
         <PlaybookSelector value={selectedPlaybooks} onChange={setSelectedPlaybooks} disabled={submitting} />
 
         {/* Mission rows */}

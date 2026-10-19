@@ -13,6 +13,15 @@ namespace Armada.Core.Settings
     {
         #region Public-Members
 
+        /// <summary>Default decision on tool approval timeout; snapshotted per request.</summary>
+        public ApprovalTimeoutDecisionEnum TimeoutDecision
+        {
+            get => _TimeoutDecision;
+            set => _TimeoutDecision = Enum.IsDefined(typeof(ApprovalTimeoutDecisionEnum), value) ? value : throw new ArgumentException("Unknown approval timeout decision.");
+        }
+
+        private ApprovalTimeoutDecisionEnum _TimeoutDecision = ApprovalTimeoutDecisionEnum.Deny;
+
         /// <summary>
         /// Server default for Ask turns and milestone narrations. Default ApproveInArmada: the CLI's permission prompts
         /// become CLI permission requests that an approver decides in Armada (runtimes without a prompt hook run as

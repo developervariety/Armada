@@ -115,6 +115,7 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="selectedPlaybooks">Ordered playbooks to apply to every mission in the voyage.</param>
         /// <param name="captainOverridesJson">Serialized per-persona captain overrides, persisted on the voyage
         /// before any mission is created and dispatched so assignment can honor the preferred captain.</param>
+        /// <param name="approvalOptions">Per-run approval snapshot.</param>
         /// <param name="landingMode">Optional per-voyage landing mode, persisted before any mission is created; null
         /// inherits the vessel's or the global landing mode.</param>
         /// <param name="token">Cancellation token.</param>
@@ -128,7 +129,8 @@ namespace Armada.Core.Services.Interfaces
             List<SelectedPlaybook>? selectedPlaybooks,
             string? captainOverridesJson = null,
             LandingModeEnum? landingMode = null,
-            CancellationToken token = default);
+            CancellationToken token = default,
+            RunApprovalOptions? approvalOptions = null);
 
         /// <summary>
         /// Dispatch a single mission.

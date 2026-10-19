@@ -37,6 +37,7 @@ export function policyLabel(t: Translate, policy: CliPermissionPolicy | string |
 /** Where an effective policy came from, phrased to follow "from". */
 export function policySourceLabel(t: Translate, source: CliPermissionPolicySource | string | null | undefined): string {
   switch (source) {
+    case 'RunApproval': return t('this run');
     case 'AskThread': return t('this conversation');
     case 'VesselAutoApprove': return t('the vessel\'s auto-approve setting');
     case 'Captain': return t('the captain');

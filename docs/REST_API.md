@@ -1271,7 +1271,8 @@ CLI tool permission settings (see [CLI Permissions](#cli-permissions) and [CAPTA
 | `AskDefaultPolicy` | `ApproveInArmada` | Policy for Ask turns when neither the thread nor the captain sets one (`Refuse`, `ApproveInArmada`, or `Bypass`). Narrations and summaries run `ApproveInArmada` as `Refuse`. |
 | `MissionDefaultPolicy` | `Bypass` | Policy for missions when neither the vessel's `AutoApprove` override nor the captain (policy or explicit `autoApprove`) sets one. `Bypass` is the behavior before CLI tool permissions. |
 | `AllowOwnerApproval` | `false` | When true, the owner of the Ask thread or mission may allow once or deny its requests. Global admins and the tenant's tenant admins can always decide; remembering a decision as a rule always needs an admin. |
-| `PromptTimeoutSeconds` | 600 | Seconds a permission request waits before it expires and is denied. Clamped to 10..3600. |
+| `PromptTimeoutSeconds` | 600 | Seconds a permission request waits before its default answer applies. Clamped to 10..3600. |
+| `TimeoutDecision` | `Deny` | Default answer on expiry: `Deny` or `Approve`, snapshotted on each new tool request. Per-run options take precedence. |
 
 Ask Armada settings (see [Ask Armada threads](#ask-armada-threads) and [ASK_ARMADA_HOME_BASE.md](ASK_ARMADA_HOME_BASE.md#settings-armadasettingsask)): `GET /api/v1/settings` returns an `Ask` object, and when `Ask` is supplied on PUT it replaces the whole object (omitted fields take their defaults, so send back `CaptainAutoApprove` as returned to keep it). Out-of-range values are clamped, and every value applies live.
 
@@ -2826,6 +2827,37 @@ Findings carry a stable `DetailCode` plus two integers, `ValueA` and `ValueB`, s
 
 A voyage is a batch of related missions tracked together.
 
+#### Per-run approvals
+
+Dispatch and Apply Fleet Action offer **Approve all**, an approval countdown (10–3600 seconds, initially 600), and a default answer (**Deny** initially, or **Approve**). These cover tool permissions and human mission reviews. Automated checks, endpoint tool restrictions, tenant boundaries, landing modes, merge policies, and deployment approvals continue to apply.
+
+Pass this optional object as `ApprovalOptions` in `POST /api/v1/voyages`, or as `Overrides.ApprovalOptions` when starting a saved/ad hoc fleet action:
+
+```json
+{
+  "ApproveAll": false,
+  "TimeoutSeconds": 600,
+  "TimeoutDecision": "Deny"
+}
+```
+
+`ApproveAll: true` takes precedence over vessel/captain tool permission defaults for that run and skips human mission review gates. It does not mutate saved captains, vessels, pipelines, or actions. The snapshot is persisted before the first mission is assigned and applies to pipeline stages, fan-out, retries, and rework in the same voyage. Fleet action targets inherit the run snapshot. Command actions already execute their configured commands without captain approval prompts; these choices govern Mission actions.
+
+Only global/tenant administrators using their own credentials can choose `ApproveAll` or timeout `Approve`; scoped captain tokens cannot authorize either. Existing dispatch authorization remains in force: REST voyage creation requires a tenant/global administrator, and selecting a timeout does not grant additional dispatch privileges. Unauthorized elevated choices return 403; invalid countdowns return 400. Omitting `ApprovalOptions` retains existing behavior.
+
+The server applies each pending tool request's snapshotted default at expiry. A manual decision before the deadline wins; cancellation, failed delivery, and abandoned tool sessions still deny/cancel regardless of the timeout default. Timeout decisions record `DecisionSource: Timeout` and never impersonate a reviewer. Timed mission review `Approve` continues through the normal review lifecycle; timed `Deny` fails the pipeline. The dashboard shows the server deadline and default answer in Needs You, tool-permission cards, and mission review dialogs. Countdown zero can precede the mission watchdog's next sweep by one heartbeat.
+
+For tool requests outside a run override (including Ask Armada), `Permissions.PromptTimeoutSeconds` and `Permissions.TimeoutDecision` supply defaults; settings changes affect new requests only. `TimeoutDecision` defaults to `Deny`. Existing reviews without run approval options retain their previous overdue-review behavior.
+
+The C# SDK exposes `VoyageCreateRequest.ApprovalOptions` and `FleetActionRunOverrides.ApprovalOptions`. CLI equivalents:
+
+```bash
+armada go "Update dependencies" --approve-all
+armada go "Update dependencies" --approval-timeout 600 --approval-default Deny
+armada action run <action> --vessel <vessel> --approval-timeout 60 --approval-default Approve
+```
+
+
 #### GET /api/v1/voyages
 
 List all voyages with pagination.
@@ -4130,7 +4162,7 @@ Who may act (`CliPermissionAccess`, the same on REST, MCP, WebSocket, and the in
 
 Captain sessions (mission- and thread-scoped tokens) can never decide; REST already refuses thread-scoped tokens.
 Request inputs are stored redacted (`InputText`, `SummaryText`, `SuggestedRule`); the original input is held only in
-memory by the waiting call. A request no approver decides within `Permissions.PromptTimeoutSeconds` becomes `Expired`;
+memory by the waiting call. A request no approver decides within its countdown applies its snapshotted `TimeoutDecision`: `Deny` becomes `Expired`, while `Approve` becomes `Allowed`;
 one whose Ask turn or mission process ends first becomes `Cancelled`. Both are denials for the captain.
 
 **Rules** use Claude Code permission rule syntax:
@@ -9032,7 +9064,8 @@ A permission prompt a CLI captain raised for one of its own tools (see [CLI Perm
 | `RuleId` | string? | Rule (`cpl_`) that decided it, or that `AllowAndRemember` created |
 | `DecidedByUserId` | string? | Approver |
 | `DecisionMessage` | string? | Message returned to the captain with a denial, or the approver's note |
-| `ExpiresUtc` | datetime | When a pending request expires (`Permissions.PromptTimeoutSeconds` after creation) |
+| `ExpiresUtc` | datetime | Server deadline for applying the pending request’s default answer |
+| `TimeoutDecision` | string | Snapshotted `Deny` or `Approve` answer at expiry |
 | `DecidedUtc`, `CreatedUtc`, `LastUpdateUtc` | datetime | Timestamps (UTC) |
 | `CaptainName`, `VesselName`, `MissionTitle` | string? | Filled on read |
 | `ThreadTitle` | string? | Filled on read for the thread owner only |
@@ -9336,7 +9369,7 @@ Ownership scope for Category B configuration entities (see [Data Scoping](#data-
 | `Pending` | Waiting for an approver |
 | `Allowed` | Allowed by an approver or an allow rule; the tool ran with its original input |
 | `Denied` | Denied by an approver or a deny rule |
-| `Expired` | Not decided within `Permissions.PromptTimeoutSeconds`; denied |
+| `Expired` | Timer expired with `TimeoutDecision: Deny`; denied |
 | `Cancelled` | The turn or mission ended (or the Admiral restarted) before a decision; denied |
 
 ---

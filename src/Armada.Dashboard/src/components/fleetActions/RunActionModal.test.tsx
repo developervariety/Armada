@@ -1,3 +1,4 @@
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ isAdmin: true, isTenantAdmin: false }) }));
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import RunActionModal, { validateRunInputs } from './RunActionModal';
@@ -93,6 +94,18 @@ describe('RunActionModal', () => {
     );
     return onClose;
   }
+
+  it('sends timeout choices for a mission fleet action and shows them before confirmation', async () => {
+    vi.mocked(enumerateFleetActions).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 500, totalPages: 1, totalRecords: 1, totalMs: 1, objects: [{ ...commandAction, kind: 'Mission', promptTemplate: 'Fix the vessel', commandText: null }] });
+    renderModal();
+    const timeout = await screen.findByLabelText('Approval timeout (seconds)');
+    fireEvent.change(timeout, { target: { value: '45' } });
+    fireEvent.change(screen.getByLabelText('Default answer on timeout'), { target: { value: 'Approve' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Review and run' }));
+    expect(screen.getByText('45')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Run on 2 vessels' }));
+    await waitFor(() => expect(runFleetAction).toHaveBeenCalledWith('fac_1', { VesselIds: ['vsl_1', 'vsl_2'], Concurrency: 4, Overrides: { ApprovalOptions: { approveAll: false, timeoutSeconds: 45, timeoutDecision: 'Approve' } } }));
+  });
 
   it('previews the rendered command for the first vessel and confirms a saved Command run', async () => {
     renderModal();

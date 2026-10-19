@@ -8,6 +8,9 @@ namespace Armada.Server.Mcp
     /// </summary>
     public class FleetActionRunArgs : FleetActionUpsertArgs
     {
+        /// <summary>Approval choices for this run's tool calls and human mission reviews.</summary>
+        public Armada.Core.Models.RunApprovalOptions? ApprovalOptions { get; set; } = null;
+
         /// <summary>
         /// Target vessel IDs (vsl_ prefix) in the caller's tenant.
         /// </summary>

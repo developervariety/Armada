@@ -53,8 +53,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode, captain_overrides_json)
-                        VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode, @captain_overrides_json);";
+                    cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode, captain_overrides_json, approval_options_json)
+                        VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode, @captain_overrides_json, @approval_options_json);";
                     cmd.Parameters.AddWithValue("@id", voyage.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)voyage.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)voyage.UserId ?? DBNull.Value);
@@ -69,6 +69,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)(voyage.AutoMergePullRequests.Value ? 1 : 0) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@landing_mode", voyage.LandingMode.HasValue ? voyage.LandingMode.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@captain_overrides_json", (object?)voyage.CaptainOverridesJson ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@approval_options_json", (object?)RunApprovalOptions.ToJson(voyage.ApprovalOptions) ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -132,7 +133,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         auto_create_pull_requests = @auto_create_pull_requests,
                         auto_merge_pull_requests = @auto_merge_pull_requests,
                         landing_mode = @landing_mode,
-                        captain_overrides_json = @captain_overrides_json
+                        captain_overrides_json = @captain_overrides_json, approval_options_json = @approval_options_json
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", voyage.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)voyage.TenantId ?? DBNull.Value);
@@ -147,6 +148,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)(voyage.AutoMergePullRequests.Value ? 1 : 0) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@landing_mode", voyage.LandingMode.HasValue ? voyage.LandingMode.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@captain_overrides_json", (object?)voyage.CaptainOverridesJson ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@approval_options_json", (object?)RunApprovalOptions.ToJson(voyage.ApprovalOptions) ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -688,6 +690,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (!string.IsNullOrEmpty(landingModeStr) && Enum.TryParse<LandingModeEnum>(landingModeStr, out LandingModeEnum lm))
                 voyage.LandingMode = lm;
             try { voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]); } catch { }
+            voyage.ApprovalOptions = RunApprovalOptions.FromJson(NullableString(reader["approval_options_json"]));
             return voyage;
         }
 

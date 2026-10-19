@@ -8,6 +8,9 @@ namespace Armada.Server.Mcp
     /// </summary>
     public class VoyageDispatchArgs
     {
+        /// <summary>Per-run tool permission and mission review approval choices.</summary>
+        public Armada.Core.Models.RunApprovalOptions? ApprovalOptions { get; set; } = null;
+
         /// <summary>
         /// Voyage title.
         /// </summary>

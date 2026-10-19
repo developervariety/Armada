@@ -24,7 +24,7 @@ describe('CliPermissionSettings', () => {
   beforeEach(() => { vi.mocked(updateSettings).mockReset(); });
 
   it('shows the server values and saves the whole Permissions group', async () => {
-    const saved = { permissions: { askDefaultPolicy: 'Refuse', missionDefaultPolicy: 'Bypass', allowOwnerApproval: true, promptTimeoutSeconds: 120 } };
+    const saved = { permissions: { timeoutDecision: 'Deny', askDefaultPolicy: 'Refuse', missionDefaultPolicy: 'Bypass', allowOwnerApproval: true, promptTimeoutSeconds: 120 } };
     vi.mocked(updateSettings).mockResolvedValue(saved);
     const onSaved = vi.fn();
     const notify = vi.fn();
@@ -45,7 +45,7 @@ describe('CliPermissionSettings', () => {
     fireEvent.click(save);
 
     await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({
-      permissions: { askDefaultPolicy: 'Refuse', missionDefaultPolicy: 'Bypass', allowOwnerApproval: true, promptTimeoutSeconds: 120 },
+      permissions: { timeoutDecision: 'Deny', askDefaultPolicy: 'Refuse', missionDefaultPolicy: 'Bypass', allowOwnerApproval: true, promptTimeoutSeconds: 120 },
     }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
     expect(notify).toHaveBeenCalledWith('success', 'CLI tool permission settings saved.');

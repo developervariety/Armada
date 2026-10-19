@@ -37,6 +37,8 @@ namespace Armada.Core.Enums
         /// The server default (Permissions.AskDefaultPolicy or Permissions.MissionDefaultPolicy).
         /// </summary>
         [EnumMember(Value = "ServerDefault")]
-        ServerDefault
+        ServerDefault,
+        /// <summary>Explicit per-dispatch unattended approval choice.</summary>
+        RunApproval
     }
 }

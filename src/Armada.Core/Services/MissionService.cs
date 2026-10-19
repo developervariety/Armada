@@ -61,6 +61,8 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
+        private readonly SemaphoreSlim _ReviewDecisionGate = new SemaphoreSlim(1, 1);
+
         private const int _MaxLaunchFailuresBeforeFail = 6;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, MissionLaunchFailure> _LaunchFailures = new System.Collections.Concurrent.ConcurrentDictionary<string, MissionLaunchFailure>(StringComparer.Ordinal);
 
@@ -891,9 +893,18 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, bool conditional = false, CancellationToken token = default)
         {
+            await _ReviewDecisionGate.WaitAsync(token).ConfigureAwait(false);
+            try { return await ApproveReviewCoreAsync(missionId, reviewedByUserId, comment, conditional, token).ConfigureAwait(false); }
+            finally { _ReviewDecisionGate.Release(); }
+        }
+
+        private async Task<Mission> ApproveReviewCoreAsync(string missionId, string? reviewedByUserId, string? comment = null, bool conditional = false, CancellationToken token = default)
+        {
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
             Mission mission = await RequireReviewMissionAsync(missionId, token).ConfigureAwait(false);
+            if (reviewedByUserId != null && mission.ReviewDeadlineUtc <= DateTime.UtcNow && await ReadApprovalOptionsAsync(mission, token).ConfigureAwait(false) != null)
+                throw new InvalidOperationException("The approval timer has expired; its configured default answer applies.");
             bool hasDependentPipelineStages = await HasDependentPipelineStages(mission.VoyageId, mission.Id, token).ConfigureAwait(false);
 
             mission.ReviewComment = NormalizeReviewComment(comment);
@@ -1045,9 +1056,18 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, ReviewDenyActionEnum? actionOverride = null, CancellationToken token = default)
         {
+            await _ReviewDecisionGate.WaitAsync(token).ConfigureAwait(false);
+            try { return await DenyReviewCoreAsync(missionId, reviewedByUserId, comment, actionOverride, token).ConfigureAwait(false); }
+            finally { _ReviewDecisionGate.Release(); }
+        }
+
+        private async Task<Mission> DenyReviewCoreAsync(string missionId, string? reviewedByUserId, string? comment = null, ReviewDenyActionEnum? actionOverride = null, CancellationToken token = default)
+        {
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
             Mission mission = await RequireReviewMissionAsync(missionId, token).ConfigureAwait(false);
+            if (reviewedByUserId != null && mission.ReviewDeadlineUtc <= DateTime.UtcNow && await ReadApprovalOptionsAsync(mission, token).ConfigureAwait(false) != null)
+                throw new InvalidOperationException("The approval timer has expired; its configured default answer applies.");
             Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
             string reviewComment = NormalizeReviewComment(comment) ?? "Review denied. Rework is required before this stage can continue.";
 
@@ -1260,8 +1280,23 @@ namespace Armada.Core.Services
             return AutoLandPredicate.Evaluate(changes.FileCount, changes.ChangedLineCount, changes.ChangedPaths, policy);
         }
 
+        private async Task<RunApprovalOptions?> ReadApprovalOptionsAsync(Mission mission, CancellationToken token)
+        {
+            Voyage? voyage = String.IsNullOrEmpty(mission.VoyageId) ? null : await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
+            return voyage?.ApprovalOptions;
+        }
+
+        private async Task<DateTime?> ReviewDeadlineAsync(Mission mission, CancellationToken token)
+        {
+            RunApprovalOptions? options = await ReadApprovalOptionsAsync(mission, token).ConfigureAwait(false);
+            return options != null ? DateTime.UtcNow.AddSeconds(options.TimeoutSeconds)
+                : _Settings.ReviewTimeoutMinutes > 0 ? DateTime.UtcNow.AddMinutes(_Settings.ReviewTimeoutMinutes) : (DateTime?)null;
+        }
+
         private async Task<bool> TryHoldForAutoLandAsync(Mission mission, Dock? dock, CancellationToken token)
         {
+            RunApprovalOptions? holdApproval = await ReadApprovalOptionsAsync(mission, token).ConfigureAwait(false);
+            if (holdApproval?.ApproveAll == true) return false;
             if (String.IsNullOrEmpty(mission.VesselId)) return false;
             Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
             if (vessel == null || !vessel.AutoLandEnabled) return false;
@@ -1286,9 +1321,8 @@ namespace Armada.Core.Services
             mission.Status = MissionStatusEnum.Review;
             mission.CompletedUtc = DateTime.UtcNow;
             mission.ReviewRequestedUtc = DateTime.UtcNow;
-            mission.ReviewDeadlineUtc = _Settings.ReviewTimeoutMinutes > 0
-                ? DateTime.UtcNow.AddMinutes(_Settings.ReviewTimeoutMinutes)
-                : (DateTime?)null;
+            mission.ReviewDeadlineUtc = await ReviewDeadlineAsync(mission, token).ConfigureAwait(false);
+            if (holdApproval != null) mission.RequiresReview = true;
             mission.ReviewComment = "Auto-land held: " + (decision.HoldReason ?? "change exceeds auto-land rules");
             mission.ReviewedByUserId = null;
             mission.ReviewedUtc = null;
@@ -1384,6 +1418,9 @@ namespace Armada.Core.Services
                 _Logging.Debug(_Header + "mission " + missionId + " already in post-work state " + mission.Status + " -- skipping completion handler");
                 return;
             }
+
+            RunApprovalOptions? completionApproval = await ReadApprovalOptionsAsync(mission, token).ConfigureAwait(false);
+            if (completionApproval?.ApproveAll == true) mission.RequiresReview = false;
 
             // Read-only modes (Audit/Research) produce a written report, not a commit. Their empty diff is a
             // successful outcome, so they skip no-op rejection and never attempt landing.
@@ -1590,9 +1627,7 @@ namespace Armada.Core.Services
                 mission.Status = MissionStatusEnum.Review;
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.ReviewRequestedUtc = DateTime.UtcNow;
-                mission.ReviewDeadlineUtc = _Settings.ReviewTimeoutMinutes > 0
-                    ? DateTime.UtcNow.AddMinutes(_Settings.ReviewTimeoutMinutes)
-                    : (DateTime?)null;
+                mission.ReviewDeadlineUtc = await ReviewDeadlineAsync(mission, token).ConfigureAwait(false);
                 mission.ReviewComment = judgeBlockReason != null
                     ? "Judge blocked landing: " + judgeBlockReason + ". Approve to land the work anyway, or deny: FailPipeline stops the pipeline, RetryStage runs the Judge again."
                     : null;

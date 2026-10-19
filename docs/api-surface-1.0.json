@@ -8254,6 +8254,11 @@
       "resource": "Voyage:Execute",
       "arguments": [
         {
+          "name": "approvalOptions",
+          "type": "object",
+          "required": false
+        },
+        {
           "name": "captainAssignments",
           "type": "array<object>",
           "required": false
@@ -9869,6 +9874,11 @@
         {
           "name": "actionId",
           "type": "string",
+          "required": false
+        },
+        {
+          "name": "approvalOptions",
+          "type": "object",
           "required": false
         },
         {
@@ -12741,6 +12751,30 @@
         },
         {
           "kind": "option",
+          "name": "approval-default",
+          "short": null,
+          "valueKind": "scalar",
+          "type": "String",
+          "required": false
+        },
+        {
+          "kind": "option",
+          "name": "approval-timeout",
+          "short": null,
+          "valueKind": "scalar",
+          "type": "Int32?",
+          "required": false
+        },
+        {
+          "kind": "option",
+          "name": "approve-all",
+          "short": null,
+          "valueKind": "flag",
+          "type": "Boolean",
+          "required": false
+        },
+        {
+          "kind": "option",
           "name": "concurrency",
           "short": "c",
           "valueKind": "scalar",
@@ -14894,6 +14928,30 @@
           "valueKind": "scalar",
           "type": "String",
           "required": true
+        },
+        {
+          "kind": "option",
+          "name": "approval-default",
+          "short": null,
+          "valueKind": "scalar",
+          "type": "String",
+          "required": false
+        },
+        {
+          "kind": "option",
+          "name": "approval-timeout",
+          "short": null,
+          "valueKind": "scalar",
+          "type": "Int32?",
+          "required": false
+        },
+        {
+          "kind": "option",
+          "name": "approve-all",
+          "short": null,
+          "valueKind": "flag",
+          "type": "Boolean",
+          "required": false
         },
         {
           "kind": "option",
@@ -18458,6 +18516,17 @@
       "type": "int",
       "default": "600",
       "experimental": false
+    },
+    {
+      "key": "permissions.timeoutDecision",
+      "type": "enum ApprovalTimeoutDecisionEnum (Deny|Approve)",
+      "default": "\"Deny\"",
+      "experimental": false,
+      "enumName": "ApprovalTimeoutDecisionEnum",
+      "enumValues": [
+        "Deny",
+        "Approve"
+      ]
     },
     {
       "key": "planningSessionAbandonmentTimeoutMinutes",

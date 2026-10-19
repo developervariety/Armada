@@ -5,16 +5,17 @@ interface CliPermissionCountdownProps {
   expiresUtc: string | null | undefined;
   /** Tick only while the request is pending. */
   active: boolean;
+  timeoutDecision?: 'Approve' | 'Deny';
 }
 
 /** "Expires in 4:59" for a pending CLI permission request, ticking every second; "Expiring now" at zero. */
-export default function CliPermissionCountdown({ expiresUtc, active }: CliPermissionCountdownProps) {
+export default function CliPermissionCountdown({ expiresUtc, active, timeoutDecision = 'Deny' }: CliPermissionCountdownProps) {
   const { t, formatDateTime } = useLocale();
   const remaining = useCountdown(expiresUtc, active);
   if (!active || remaining === null || !expiresUtc) return null;
   return (
-    <span className={`cli-perm-countdown${remaining <= 60 ? ' is-urgent' : ''}`} title={t('Time left before this request expires and is denied automatically. Expires at {{time}}.', { time: formatDateTime(expiresUtc) })}>
-      {remaining > 0 ? t('Expires in {{time}}', { time: formatCountdown(remaining) }) : t('Expiring now')}
+    <span className={`cli-perm-countdown${remaining <= 60 ? ' is-urgent' : ''}`} title={t('Default answer: {{decision}}. Expires at {{time}}.', { decision: t(timeoutDecision), time: formatDateTime(expiresUtc) })}>
+      <span>{remaining > 0 ? t('Expires in {{time}}', { time: formatCountdown(remaining) }) : t('Expiring now')}</span> · <span>{t('Default: {{decision}}', { decision: t(timeoutDecision) })}</span>
     </span>
   );
 }

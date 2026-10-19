@@ -12,6 +12,9 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Per-run tool permission and mission review approval choices.</summary>
+        public Armada.Core.Models.RunApprovalOptions? ApprovalOptions { get; set; } = null;
+
         /// <summary>
         /// Unique identifier (far_ prefix). Defaults to a new identifier; a create backfills an empty value.
         /// </summary>

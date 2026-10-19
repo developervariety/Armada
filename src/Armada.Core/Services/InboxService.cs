@@ -106,10 +106,14 @@ namespace Armada.Core.Services
                 List<Mission> reviews = await MissionsByStatusAsync(auth, MissionStatusEnum.Review, token).ConfigureAwait(false);
                 foreach (Mission mission in reviews)
                 {
+                    Voyage? approvalVoyage = String.IsNullOrEmpty(mission.VoyageId) ? null : await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
+                    RunApprovalOptions? approvalOptions = approvalVoyage?.ApprovalOptions;
                     bool overdue = mission.ReviewDeadlineUtc.HasValue && mission.ReviewDeadlineUtc.Value < DateTime.UtcNow;
                     items.Add(new InboxItem
                     {
                         Kind = InboxItemKinds.Review,
+                        ExpiresUtc = approvalOptions == null ? null : mission.ReviewDeadlineUtc,
+                        TimeoutDecision = approvalOptions?.TimeoutDecision,
                         Severity = overdue ? InboxSeverityEnum.Critical : InboxSeverityEnum.Warning,
                         Title = "Review: " + mission.Title,
                         EntityName = mission.Title,

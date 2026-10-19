@@ -23,6 +23,7 @@ interface Draft {
   missionDefaultPolicy: CliPermissionPolicy;
   allowOwnerApproval: boolean;
   promptTimeoutSeconds: string;
+  timeoutDecision: 'Deny' | 'Approve';
 }
 
 function toDraft(s: CliPermissionSettingsData | null | undefined): Draft {
@@ -32,6 +33,7 @@ function toDraft(s: CliPermissionSettingsData | null | undefined): Draft {
     missionDefaultPolicy: v.missionDefaultPolicy,
     allowOwnerApproval: !!v.allowOwnerApproval,
     promptTimeoutSeconds: String(v.promptTimeoutSeconds),
+    timeoutDecision: v.timeoutDecision ?? 'Deny',
   };
 }
 
@@ -65,6 +67,7 @@ export default function CliPermissionSettings({ permissions, locked, onSaved, no
           missionDefaultPolicy: draft.missionDefaultPolicy,
           allowOwnerApproval: draft.allowOwnerApproval,
           promptTimeoutSeconds: Number(draft.promptTimeoutSeconds),
+          timeoutDecision: draft.timeoutDecision,
         },
       });
       setDirty(false);
@@ -114,7 +117,7 @@ export default function CliPermissionSettings({ permissions, locked, onSaved, no
             <span id="cli-perm-mission-default-help" className="text-dim form-help">{t('Used by missions (default Bypass, the previous behavior). A vessel with auto-approve off caps missions at Refuse.')}</span>
           </div>
           <div className="form-group">
-            <label htmlFor="cli-perm-timeout" title={t('Seconds a permission request waits for a decision before it expires and the call is denied (10-3600, default 600). Applies to new requests.')}>{t('Prompt timeout (seconds)')}</label>
+            <label htmlFor="cli-perm-timeout" title={t('Seconds a permission request waits for a decision before its default answer is applied (10-3600, default 600). Applies to new requests.')}>{t('Prompt timeout (seconds)')}</label>
             <input
               id="cli-perm-timeout"
               type="number"
@@ -124,13 +127,20 @@ export default function CliPermissionSettings({ permissions, locked, onSaved, no
               onChange={(e) => set('promptTimeoutSeconds', e.target.value)}
               aria-invalid={!timeoutValid}
               aria-describedby="cli-perm-timeout-help"
-              title={t('Seconds a permission request waits for a decision before it expires and the call is denied (10-3600, default 600). Applies to new requests.')}
+              title={t('Seconds a permission request waits for a decision before its default answer is applied (10-3600, default 600). Applies to new requests.')}
             />
             <span id="cli-perm-timeout-help" className={timeoutValid ? 'text-dim form-help' : 'field-error'}>
               {timeoutValid
-                ? t('How long a request waits for a decision before it expires and is denied (10-3600, default 600).')
+                ? t('How long a request waits for a decision before its default answer is applied (10-3600, default 600).')
                 : t('Must be a whole number from {{min}} to {{max}}.', { min: PROMPT_TIMEOUT_RANGE.min, max: PROMPT_TIMEOUT_RANGE.max.toLocaleString() })}
             </span>
+          </div>
+          <div className="form-group">
+            <label htmlFor="cli-perm-timeout-answer">{t('Default answer on timeout')}</label>
+            <select id="cli-perm-timeout-answer" value={draft.timeoutDecision} onChange={e => set('timeoutDecision', e.target.value as 'Deny' | 'Approve')}>
+              <option value="Deny">{t('Deny')}</option>
+              <option value="Approve">{t('Approve')}</option>
+            </select>
           </div>
           <div className="form-group">
             <label className="settings-checkbox" title={t('When on, the owner of a conversation or mission may allow once or deny its own requests. Admins can always decide; only admins can save rules.')}>

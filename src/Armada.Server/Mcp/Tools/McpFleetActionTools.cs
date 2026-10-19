@@ -114,6 +114,9 @@ namespace Armada.Server.Mcp.Tools
                     FleetActionRunArgs request = Parse<FleetActionRunArgs>(args) ?? new FleetActionRunArgs();
                     return await InvokeAsync(async () =>
                     {
+                        if (request.ApprovalOptions != null && (request.ApprovalOptions.ApproveAll || request.ApprovalOptions.TimeoutDecision == ApprovalTimeoutDecisionEnum.Approve)
+                            && !McpToolHelpers.HasPresentedCredential())
+                            return (object)McpToolError.Forbidden("Automatic approval requires an administrator's credential.");
                         FleetActionRunRequest body = new FleetActionRunRequest
                         {
                             VesselIds = request.VesselIds ?? new List<string>(),
@@ -134,6 +137,8 @@ namespace Armada.Server.Mcp.Tools
                             };
                         }
 
+                        body.Overrides ??= new FleetActionRunOverrides();
+                        body.Overrides.ApprovalOptions = request.ApprovalOptions;
                         FleetActionRun run = await service.StartRunAsync(McpToolHelpers.ResolveCallerContext(), request.ActionId, body).ConfigureAwait(false);
                         return FleetActionRunStartResult.FromRun(run);
                     }).ConfigureAwait(false);
@@ -291,6 +296,9 @@ namespace Armada.Server.Mcp.Tools
         {
             return new
             {
+                approvalOptions = new { type = "object", description = "Per-run tool/review approvals; automatic approval requires an administrator credential.", properties = new {
+                    approveAll = new { type = "boolean" }, timeoutSeconds = new { type = "integer", minimum = 10, maximum = 3600 }, timeoutDecision = new { type = "string", @enum = new[] { "Deny", "Approve" } }
+                } },
                 actionId = new { type = "string", description = "Saved fleet action ID (fac_ prefix). Omit for an ad hoc run." },
                 vesselIds = new { type = "array", items = new { type = "string" }, description = "Target vessel IDs (vsl_ prefix), 1-500" },
                 concurrency = new { type = "integer", description = "Concurrency for this run (1-32); defaults to the action's default" },

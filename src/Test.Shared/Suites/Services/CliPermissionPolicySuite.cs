@@ -42,6 +42,21 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(Case("run_approve_all_precedes_vessel_and_captain", "Explicit run approval bypasses vessel/captain defaults without modifying either", () =>
+            {
+                ArmadaSettings settings = new ArmadaSettings();
+                Captain captain = new Captain("configured-refuse") { CliPermissionPolicy = CliPermissionPolicyEnum.Refuse, Runtime = AgentRuntimeEnum.ApiEndpoint };
+                Vessel vessel = new Vessel("vessel", "https://example.com/repo.git") { AutoApprove = false };
+                CliPermissionResolution result = CliPermissionPolicyResolver.ResolveForMission(settings, captain, vessel, true, true, false, new RunApprovalOptions { ApproveAll = true });
+                AssertEqual(CliPermissionPolicyEnum.Bypass, result.Effective);
+                AssertEqual(CliPermissionPolicySourceEnum.RunApproval, result.Source);
+                AssertEqual(CliPermissionPolicyEnum.Refuse, captain.CliPermissionPolicy!.Value);
+                AssertFalse(vessel.AutoApprove!.Value);
+                AssertThrows<UnauthorizedAccessException>(() => new RunApprovalOptions { ApproveAll = true }.ValidateFor(new AuthContext { IsAuthenticated = true }));
+                AssertThrows<UnauthorizedAccessException>(() => new RunApprovalOptions { TimeoutDecision = ApprovalTimeoutDecisionEnum.Approve }.ValidateFor(new AuthContext { IsAuthenticated = true }));
+                AssertThrows<ArgumentException>(() => new RunApprovalOptions { TimeoutSeconds = 0 }.Snapshot());
+            }));
+
             cases.Add(Case("ask_defaults_to_approve_in_armada", "With no overrides an Ask turn uses Permissions.AskDefaultPolicy (ApproveInArmada)", () =>
             {
                 ArmadaSettings settings = new ArmadaSettings();
