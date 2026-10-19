@@ -2919,7 +2919,9 @@ namespace Armada.Core.Services
                             "`## Verdict` sections. To block (FAIL or NEEDS_REVISION) you MUST add a `## Affected Case` " +
                             "section exhibiting one concrete affected case (a `File: <path>[:line]` or `Scenario: ...` line); a block " +
                             "without a concrete affected case is not accepted. End with a standalone line " +
-                            "`[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
+                            "`[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. " +
+                            "In a fresh worktree restore dependencies before building or testing. For .NET, omit --no-restore unless restore has already succeeded in this worktree. " +
+                            "Missing dependency assets are an unverified check, not evidence of a source defect.\n\n";
                         break;
                 }
 
@@ -4226,11 +4228,18 @@ namespace Armada.Core.Services
 
         private async Task<bool> IsAnyCaptainEligibleAsync(List<Captain> idleCaptains, Mission mission, CancellationToken token)
         {
+            if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) && !String.IsNullOrEmpty(mission.DependsOnMissionId))
+            {
+                Mission? reviewedWorker = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
+                if (reviewedWorker != null) idleCaptains = idleCaptains.Where(c => c.Id != reviewedWorker.CaptainId).ToList();
+            }
             // Mirrors FindAvailableCaptainAsync: a requested (dictated) captain that is idle is always eligible;
             // otherwise the persona fence and the tier floor apply.
             if (!String.IsNullOrEmpty(mission.RequestedCaptainId) && idleCaptains.Any(c => c.Id == mission.RequestedCaptainId && CaptainVisibleToMission(c, mission) &&
                 (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)))
                 return true;
+            if (!String.IsNullOrEmpty(mission.RequestedCaptainId) && (mission.Title.Contains(_EscalatedMarker, StringComparison.Ordinal)
+                || (mission.Description ?? "").Contains("## Escalated to ", StringComparison.Ordinal))) return false;
 
             IEnumerable<Captain> eligible = idleCaptains.Where(c => CaptainVisibleToMission(c, mission) &&
                 (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow));
@@ -4333,6 +4342,11 @@ namespace Armada.Core.Services
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
             idleCaptains = idleCaptains.Where(c => CaptainVisibleToMission(c, mission) &&
                 (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)).ToList();
+            if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) && !String.IsNullOrEmpty(mission.DependsOnMissionId))
+            {
+                Mission? reviewedWorker = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
+                if (reviewedWorker != null) idleCaptains.RemoveAll(c => c.Id == reviewedWorker.CaptainId);
+            }
             if (idleCaptains.Count == 0)
                 return null;
 
@@ -4345,6 +4359,8 @@ namespace Armada.Core.Services
                 if (preferred != null)
                     return preferred;
 
+                // Recovery must wait for its chosen alternative, never silently rerun the failed captain.
+                if (mission.Title.Contains(_EscalatedMarker, StringComparison.Ordinal) || (mission.Description ?? "").Contains("## Escalated to ", StringComparison.Ordinal)) return null;
                 Captain? requested = await _Database.Captains.ReadAsync(requestedCaptainId, token).ConfigureAwait(false);
                 if (requested == null)
                     _Logging.Warn(_Header + "requested captain " + requestedCaptainId + " not found; falling back to normal persona/tier routing");
@@ -4742,19 +4758,20 @@ namespace Armada.Core.Services
 
             if (worker == null) return false;
 
-            // The Worker persona (often a local model) gets _MaxJudgeReworkRounds tries. After that, one escalated
-            // round goes to the frontier captain that planned this voyage (its Architect, else Product Manager), so
-            // a fix the local model could not get past review still lands. Then the chain fails.
+            // Give the Worker bounded rework, then try one different captain. Unchanged rejected work
+            // switches earlier. Escalation also works in voyages with no planning stage.
             bool escalated = voyageMissions.Any(m => m.Title.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal)
                 && m.Title.Contains(_EscalatedMarker, StringComparison.Ordinal) && IsAncestorOf(m, judge, byId));
             if (escalated || rounds > _MaxJudgeReworkRounds) return false;
             string? escalateTo = null;
-            if (rounds == _MaxJudgeReworkRounds)
+            Mission? previousWorker = voyageMissions.FirstOrDefault(m => m.Id != worker.Id && PersonaCatalog.Matches(m.Persona, PersonaCatalog.Worker)
+                && IsAncestorOf(m, worker, byId) && !String.IsNullOrEmpty(m.CommitHash) && m.CommitHash == worker.CommitHash);
+            bool stagnant = previousWorker != null && !MissionModeContract.IsReadOnly(worker.Mode);
+            if (rounds == _MaxJudgeReworkRounds || stagnant)
             {
-                Mission? planner = voyageMissions.FirstOrDefault(m => PersonaCatalog.Matches(m.Persona, PersonaCatalog.Architect) && !String.IsNullOrEmpty(m.CaptainId))
-                    ?? voyageMissions.FirstOrDefault(m => PersonaCatalog.Matches(m.Persona, PersonaCatalog.ProductManager) && !String.IsNullOrEmpty(m.CaptainId));
-                if (planner == null) return false;
-                escalateTo = planner.CaptainId;
+                Captain? alternative = await CaptainEscalationSelector.SelectAsync(_Database, worker, worker.CaptainId, voyageMissions, token).ConfigureAwait(false);
+                if (alternative == null) return false;
+                escalateTo = alternative.Id;
             }
 
             int round = rounds + 1;
@@ -4801,7 +4818,8 @@ namespace Armada.Core.Services
                 await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
             }
 
-            _Logging.Info(_Header + "judge " + judge.Id + ": rework round " + round + " as Worker mission " + rework.Id + ", re-review " + nextJudge.Id);
+            _Logging.Info(_Header + "judge " + judge.Id + ": rework round " + round + " as Worker mission " + rework.Id + ", re-review " + nextJudge.Id
+                + (escalateTo != null ? "; escalating to " + escalateTo + (stagnant ? " after unchanged work" : " after the rework budget") : ""));
             return true;
         }
 
@@ -4886,8 +4904,8 @@ namespace Armada.Core.Services
                     }, token).ConfigureAwait(false);
                     if (result.TimedOut)
                     {
-                        _Logging.Warn(_Header + "stage check for mission " + mission.Id + " timed out running " + command + "; not blocking the stage");
-                        return null;
+                        _Logging.Warn(_Header + "stage check for mission " + mission.Id + " timed out running " + command);
+                        return "The stage check timed out: " + command + ". Its success has not been verified. Investigate and rerun the check.";
                     }
 
                     if (result.ExitCode != 0)
@@ -4905,7 +4923,7 @@ namespace Armada.Core.Services
             catch (Exception ex) when (ex is InvalidOperationException || ex is IOException || ex is TimeoutException)
             {
                 _Logging.Warn(_Header + "stage check for mission " + mission.Id + " could not run: " + ex.Message);
-                return null;
+                return "The stage verification could not run: " + ex.Message + ". Restore dependencies and rerun the configured checks.";
             }
         }
 

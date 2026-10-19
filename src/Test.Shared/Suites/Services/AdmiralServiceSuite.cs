@@ -536,6 +536,16 @@ namespace Test.Shared.Suites.Services
                     Mission? passed = await db.Missions.ReadAsync(passing.Id).ConfigureAwait(false);
                     AssertNotEqual(MissionStatusEnum.InProgress, passed!.Status, "a passing check proceeds");
                     AssertEqual(1, relaunches);
+
+                    profile.BuildCommand = "exit 3";
+                    await db.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                    Captain exhaustedCaptain = new Captain("exhausted", AgentRuntimeEnum.ApiEndpoint) { RecoveryAttempts = settings.MaxRecoveryAttempts };
+                    Mission exhausted = await RunningAsync(exhaustedCaptain).ConfigureAwait(false);
+                    exhausted.VoyageId = null;
+                    await db.Missions.UpdateAsync(exhausted).ConfigureAwait(false);
+                    await service.HandleProcessExitAsync(4242, 0, exhaustedCaptain.Id, exhausted.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, (await db.Missions.ReadAsync(exhausted.Id).ConfigureAwait(false))!.Status, "A failed check cannot advance when recovery is exhausted");
+                    AssertEqual(1, relaunches);
                 }
             }));
 

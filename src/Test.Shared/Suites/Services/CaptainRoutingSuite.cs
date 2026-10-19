@@ -205,6 +205,40 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("escalated_busy_waits_for_alternative", "An escalated mission cannot fall back to the original captain while its alternative is busy", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                Captain failed = await AddCaptainAsync(testDb.Driver, "failed", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
+                Captain alternative = await AddCaptainAsync(testDb.Driver, "alternative", CaptainStateEnum.Working, null, null).ConfigureAwait(false);
+                Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, "Worker", alternative.Id, null).ConfigureAwait(false);
+                mission.Title = "[Worker] Rework 3 (escalated): Finish";
+                await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                AssertFalse(await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false), "Wait for the alternative instead of redispatching the failed captain");
+                alternative.State = CaptainStateEnum.Idle;
+                await testDb.Driver.Captains.UpdateAsync(alternative).ConfigureAwait(false);
+                AssertTrue(await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false), "The chosen alternative becomes assignable when idle");
+                AssertEqual(alternative.Id, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.CaptainId);
+            }));
+
+            cases.Add(CaseAsync("judge_cannot_review_own_escalated_work", "Judge routing excludes the preceding implementation captain even when explicitly requested", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                Captain author = await AddCaptainAsync(testDb.Driver, "author", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
+                Mission worker = await AddMissionAsync(testDb.Driver, harness.Vessel, "Worker", null, null).ConfigureAwait(false);
+                worker.Status = MissionStatusEnum.WorkProduced;
+                worker.CaptainId = author.Id;
+                await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                Mission judge = await AddMissionAsync(testDb.Driver, harness.Vessel, "Judge", author.Id, null).ConfigureAwait(false);
+                judge.DependsOnMissionId = worker.Id;
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                AssertFalse(await harness.Missions.TryAssignAsync(judge, harness.Vessel).ConfigureAwait(false), "A captain cannot approve its own implementation");
+                Captain reviewer = await AddCaptainAsync(testDb.Driver, "independent reviewer", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
+                AssertTrue(await harness.Missions.TryAssignAsync(judge, harness.Vessel).ConfigureAwait(false), "An independent captain can review the work");
+                AssertEqual(reviewer.Id, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.CaptainId);
+            }));
+
             cases.Add(CaseAsync("preferred_busy_falls_back_by_tier", "A busy preferred captain falls back to an idle captain at or above the fallback tier", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

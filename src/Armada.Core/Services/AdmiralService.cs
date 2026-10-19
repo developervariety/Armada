@@ -911,7 +911,8 @@ namespace Armada.Core.Services
                             return;
                         }
 
-                        _Logging.Warn(_Header + "mission " + missionId + " still fails its stage check with no resumes or escalation left; handing it on for review");
+                        await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, checkFailure, RuntimeFailureKindEnum.TaskFailure, token).ConfigureAwait(false);
+                        return;
                     }
                 }
 
@@ -1982,10 +1983,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(mission.VoyageId) || (mission.Description ?? String.Empty).Contains(_EscalatedHeading, StringComparison.Ordinal)) return false;
 
             List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId!, token).ConfigureAwait(false);
-            Mission? planner = voyageMissions.FirstOrDefault(m => PersonaCatalog.Matches(m.Persona, PersonaCatalog.Architect) && !String.IsNullOrEmpty(m.CaptainId) && m.CaptainId != captain.Id)
-                ?? voyageMissions.FirstOrDefault(m => PersonaCatalog.Matches(m.Persona, PersonaCatalog.ProductManager) && !String.IsNullOrEmpty(m.CaptainId) && m.CaptainId != captain.Id);
-            if (planner == null) return false;
-            Captain? plannerCaptain = await _Database.Captains.ReadAsync(planner.CaptainId!, token).ConfigureAwait(false);
+            Captain? plannerCaptain = await CaptainEscalationSelector.SelectAsync(_Database, mission, captain.Id, voyageMissions, token).ConfigureAwait(false);
             if (plannerCaptain == null) return false;
 
             // Keep the work so far on the branch before the dock goes.
@@ -2084,7 +2082,7 @@ namespace Armada.Core.Services
                 MissionStatusEnum observedStatus = mission.Status;
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = failureReason;
-                mission.FailureKind = MissionFailureKindEnum.Crash;
+                mission.FailureKind = runtimeFailureKind == RuntimeFailureKindEnum.TaskFailure ? MissionFailureKindEnum.InvalidOutput : MissionFailureKindEnum.Crash;
                 mission.ProcessId = null;
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;

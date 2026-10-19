@@ -36,6 +36,9 @@ namespace Armada.Runtimes
         /// <summary>
         /// The run was cancelled.
         /// </summary>
-        Cancelled
+        Cancelled,
+
+        /// <summary>Inference turn metadata, including finish reason and token usage; contains no prompt or credentials.</summary>
+        Inference
     }
 }

@@ -203,7 +203,7 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("judge_revision_sends_work_back", "An ungated Judge asking for concrete revisions sends the work back to a Worker on the same branch, then to a new Judge, and the rest of the pipeline follows the new Judge; after two rounds the chain fails", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("judge_revision_sends_work_back", "An ungated Judge asking for concrete revisions sends the work back to a Worker on the same branch, then to a new Judge, and the rest of the pipeline follows the new Judge; after two rounds it escalates to an alternative captain even without a planner", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Harness h = new Harness(testDb, new DirCreatingGitService());
@@ -236,7 +236,7 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(nextJudge.Id, movedRecorder!.DependsOnMissionId, "the Recorder now waits for the new Judge");
                 AssertEqual(0, landingCalls, "nothing lands before the work passes");
 
-                // Two rework rounds already in the chain: the next block fails it.
+                // Two rework rounds already in the chain: try one different captain even without a planner.
                 Mission round2 = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Rework 2: Add the CLI [Worker]", "x") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, DependsOnMissionId = nextJudge.Id, BranchName = "armada/flow/judge" }).ConfigureAwait(false);
                 rework.Status = MissionStatusEnum.WorkProduced;
                 await testDb.Driver.Missions.UpdateAsync(rework).ConfigureAwait(false);
@@ -246,7 +246,42 @@ namespace Test.Shared.Suites.Services
                 await testDb.Driver.Missions.UpdateAsync(lastJudge).ConfigureAwait(false);
                 await h.Missions.HandleCompletionAsync(codex2, lastJudge.Id).ConfigureAwait(false);
                 Mission? exhausted = await testDb.Driver.Missions.ReadAsync(lastJudge.Id).ConfigureAwait(false);
-                AssertEqual(MissionStatusEnum.Failed, exhausted!.Status, "after two rework rounds the chain fails");
+                AssertNotEqual(MissionStatusEnum.Failed, exhausted!.Status, "a Worker > Judge pipeline can recover without a planner");
+                all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                Mission? alternative = all.Find(m => m.DependsOnMissionId == lastJudge.Id && m.Persona == "Worker");
+                AssertNotNull(alternative, "one bounded escalation is created");
+                AssertEqual(codex2.Id, alternative.RequestedCaptainId, "the known reviewer is an alternative when no planner exists");
+                AssertContains("(escalated)", alternative.Title);
+                alternative.Status = MissionStatusEnum.WorkProduced;
+                await testDb.Driver.Missions.UpdateAsync(alternative).ConfigureAwait(false);
+                Captain finalReviewer = await CreateCaptainAsync(testDb, "Final reviewer", AgentRuntimeEnum.ClaudeCode, CaptainStateEnum.Working).ConfigureAwait(false);
+                Mission finalJudge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, finalReviewer, "Judge", false).ConfigureAwait(false);
+                finalJudge.DependsOnMissionId = alternative.Id;
+                await testDb.Driver.Missions.UpdateAsync(finalJudge).ConfigureAwait(false);
+                await h.Missions.HandleCompletionAsync(finalReviewer, finalJudge.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Failed, (await testDb.Driver.Missions.ReadAsync(finalJudge.Id).ConfigureAwait(false))!.Status, "A rejected escalated attempt cannot create an infinite recovery chain");
+            }));
+
+            cases.Add(CaseAsync("unchanged_rework_escalates_early", "A rejected rework that preserves the previous worker commit switches captain before exhausting ordinary retries", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                h.Missions.OnGetMissionOutput = _ => "## Affected Case\nFile: a.py:1\nThe implementation is still missing.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("stagnation") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                Captain deepseek = await CreateCaptainAsync(testDb, "Deepseek", AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                Mission initial = await testDb.Driver.Missions.CreateAsync(new Mission("Implement", "Implement it") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CaptainId = deepseek.Id, CommitHash = "same-commit", BranchName = "b" }).ConfigureAwait(false);
+                Mission rework = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Rework 1: Implement", "Implement it") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CaptainId = deepseek.Id, CommitHash = "same-commit", BranchName = "b", DependsOnMissionId = initial.Id }).ConfigureAwait(false);
+                Captain codex = await CreateCaptainAsync(testDb, "Reviewer", AgentRuntimeEnum.Codex, CaptainStateEnum.Working).ConfigureAwait(false);
+                Mission judge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, codex, "Judge", false).ConfigureAwait(false);
+                judge.DependsOnMissionId = rework.Id;
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                await h.Missions.HandleCompletionAsync(codex, judge.Id).ConfigureAwait(false);
+                List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                Mission? escalated = all.Find(m => m.DependsOnMissionId == judge.Id && m.Persona == "Worker");
+                AssertNotNull(escalated, "A stagnant rework switches captain immediately");
+                AssertEqual(codex.Id, escalated.RequestedCaptainId);
+                AssertContains("(escalated)", escalated.Title);
             }));
 
             cases.Add(CaseAsync("judge_rework_escalates_to_planner", "When the Worker's rework rounds are used up, one escalated round goes to the captain that planned the voyage; after it the chain fails", TestTags.Positive, async () =>
@@ -273,6 +308,42 @@ namespace Test.Shared.Suites.Services
                 AssertContains("(escalated)", escalated.Title);
                 AssertEqual(claude.Id, escalated.RequestedCaptainId, "the planner's captain takes the last round");
                 AssertNotEqual(MissionStatusEnum.Failed, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.Status);
+            }));
+
+            cases.Add(CaseAsync("escalation_respects_scope_and_availability", "Recovery excludes failed, quarantined, wrong-owner, disallowed and insufficient-tier captains and honors alternative Worker priorities", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Captain failed = await CreateCaptainAsync(testDb, "Failed", AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                Captain quarantined = await CreateCaptainAsync(testDb, "Quarantined", AgentRuntimeEnum.Codex, CaptainStateEnum.Quarantined).ConfigureAwait(false);
+                Captain disallowed = await CreateCaptainAsync(testDb, "Judge only", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                disallowed.AllowedPersonas = "[\"Judge\"]";
+                await testDb.Driver.Captains.UpdateAsync(disallowed).ConfigureAwait(false);
+                Captain foreign = await CreateCaptainAsync(testDb, "Foreign owner", AgentRuntimeEnum.Codex).ConfigureAwait(false);
+                TenantMetadata foreignTenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Escalation ownership fence")).ConfigureAwait(false);
+                UserMaster foreignUser = await testDb.Driver.Users.CreateAsync(new UserMaster(foreignTenant.Id, "escalation-other@example.com", "password")).ConfigureAwait(false);
+                foreign.UserId = foreignUser.Id;
+                await testDb.Driver.Captains.UpdateAsync(foreign).ConfigureAwait(false);
+                Mission mission = new Mission("Recover", "Finish") { CaptainId = failed.Id };
+                AssertNull(await CaptainEscalationSelector.SelectAsync(testDb.Driver, mission, failed.Id, new List<Mission>()).ConfigureAwait(false), "No unauthorized fallback is selected");
+                Captain alternative = await CreateCaptainAsync(testDb, "Alternative", AgentRuntimeEnum.Codex).ConfigureAwait(false);
+                alternative.Tier = CaptainTierEnum.Standard;
+                await testDb.Driver.Captains.UpdateAsync(alternative).ConfigureAwait(false);
+                mission.Tier = CaptainTierEnum.Premium;
+                AssertNull(await CaptainEscalationSelector.SelectAsync(testDb.Driver, mission, failed.Id, new List<Mission>()).ConfigureAwait(false), "The mission tier floor applies");
+                mission.Tier = null;
+                Persona worker = await testDb.Driver.Personas.CreateAsync(new Persona("Worker", "persona.worker") { CaptainPriorities = new List<PersonaCaptainPriority> { new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ApiEndpoint }, new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex } } }).ConfigureAwait(false);
+                Captain? selected = await CaptainEscalationSelector.SelectAsync(testDb.Driver, mission, failed.Id, new List<Mission>()).ConfigureAwait(false);
+                AssertEqual(alternative.Id, selected!.Id, "Worker priorities select the next eligible captain instead of retrying the failed endpoint");
+                worker.CaptainPriorities = new List<PersonaCaptainPriority> { new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ApiEndpoint } };
+                worker.PriorityExhaustion = PersonaPriorityExhaustionEnum.Wait;
+                await testDb.Driver.Personas.UpdateAsync(worker).ConfigureAwait(false);
+                Mission pendingJudge = new Mission("Review", "Review the implementation") { Persona = "Judge", RequestedCaptainId = alternative.Id };
+                selected = await CaptainEscalationSelector.SelectAsync(testDb.Driver, mission, failed.Id, new List<Mission> { pendingJudge }).ConfigureAwait(false);
+                AssertEqual(alternative.Id, selected!.Id, "The explicitly selected pending Judge can recover work before the first review runs");
+                pendingJudge.RequestedCaptainId = null;
+                await testDb.Driver.Personas.CreateAsync(new Persona("Judge", "persona.judge") { DefaultCaptainId = alternative.Id }).ConfigureAwait(false);
+                selected = await CaptainEscalationSelector.SelectAsync(testDb.Driver, mission, failed.Id, new List<Mission> { pendingJudge }).ConfigureAwait(false);
+                AssertEqual(alternative.Id, selected!.Id, "The pending Judge's configured default can also recover an early worker failure");
             }));
 
             cases.Add(CaseAsync("finished_voyage_settles_intermediate_stages", "When a voyage completes, handed-off intermediate stages become Complete; a final WorkProduced result is left alone", TestTags.Positive, async () =>

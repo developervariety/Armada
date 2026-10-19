@@ -289,6 +289,7 @@ namespace Armada.Runtimes
                 {
                     completionOptions.SystemPrompt = BuildSystemPrompt(workingDirectory);
                     ChatResponse reply = await client.ChatAsync(prompt, completionOptions, token).ConfigureAwait(false);
+                    EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[inference] " + JsonSerializer.Serialize(new { iteration = 1, reply.Success, reply.FinishReason, reply.Usage, textLength = reply.Text?.Length ?? 0, toolCalls = 0 }));
                     if (!reply.Success)
                     {
                         exitCode = 1;
@@ -296,6 +297,11 @@ namespace Armada.Runtimes
                         if (reply.StatusCode.HasValue) RaiseProviderError(processId, RuntimeProviderErrorParser.FromHttpStatus(reply.StatusCode.Value, reply.Error));
                     }
                     finalText = reply.Text ?? String.Empty;
+                    if (!IsCompleteResponse(finalText, reply.FinishReason, prompt.Contains("[ARMADA:RESULT] COMPLETE", StringComparison.Ordinal)))
+                    {
+                        exitCode = 1;
+                        RaiseProviderError(processId, new RuntimeProviderError { ErrorType = "incomplete_completion", Reason = "Plain inference did not produce a valid mission completion." });
+                    }
                     if (finalText.Length > 0) Emit(processId, finalText);
                     WriteFinalMessage(finalMessageFilePath, finalText);
                 }
@@ -361,6 +367,8 @@ namespace Armada.Runtimes
 
                 HashSet<string> permittedTools = tools.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
                 int maxIterations = Math.Min(_MaxIterations, settings.MaxIterations);
+                int incompleteResponses = 0;
+                bool requiresCompletion = prompt.Contains("[ARMADA:RESULT] COMPLETE", StringComparison.Ordinal);
                 for (int iteration = 0; iteration < maxIterations; iteration++)
                 {
                     token.ThrowIfCancellationRequested();
@@ -371,6 +379,8 @@ namespace Armada.Runtimes
                     request.Options = completionOptions;
 
                     ToolChatResponse response = await client.ToolChatAsync(request, token).ConfigureAwait(false);
+
+                    EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[inference] " + JsonSerializer.Serialize(new { iteration = iteration + 1, maxIterations, response.Success, response.ResponseId, response.FinishReason, response.Usage, reasoningLength = response.Reasoning?.Length ?? 0, textLength = response.Text?.Length ?? 0, toolCalls = response.ToolCalls?.Count ?? 0 }));
 
                     if (!response.Success)
                     {
@@ -391,10 +401,24 @@ namespace Armada.Runtimes
 
                     if (response.ToolCalls == null || response.ToolCalls.Count == 0)
                     {
-                        // No more tool calls: the model has finished.
+                        // Only this terminal response can finish the run; earlier narration is not a result.
+                        finalText = response.Text ?? String.Empty;
+                        bool complete = IsCompleteResponse(finalText, response.FinishReason, requiresCompletion);
+                        if (complete) break;
+                        incompleteResponses++;
+                        if (incompleteResponses <= 2 && iteration + 1 < maxIterations)
+                        {
+                            EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Warning, "[warning] incomplete terminal response; asking the captain to continue (" + incompleteResponses + "/2).");
+                            messages.Add(ChatMessage.User("Your last response did not complete the task. Continue implementing and validating the mission using tools. Do not repeat an introductory plan. When finished, provide a substantive summary" + (requiresCompletion ? " and the required standalone [ARMADA:RESULT] COMPLETE line." : ".")));
+                            continue;
+                        }
+                        exitCode = 1;
+                        RaiseProviderError(processId, new RuntimeProviderError { ErrorType = "incomplete_completion", Reason = "The endpoint stopped without a nonempty final response and the required mission completion marker after bounded continuation attempts." });
+                        EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, "[error] incomplete completion; the mission is not finished.");
                         break;
                     }
 
+                    finalText = String.Empty;
                     foreach (ToolCall call in response.ToolCalls)
                     {
                         token.ThrowIfCancellationRequested();
@@ -675,9 +699,19 @@ namespace Armada.Runtimes
             }
         }
 
+        private static bool IsCompleteResponse(string text, string? finishReason, bool requiresCompletion)
+        {
+            if (String.IsNullOrWhiteSpace(text) || String.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase)
+                || String.Equals(finishReason, "max_tokens", StringComparison.OrdinalIgnoreCase)) return false;
+            if (!requiresCompletion) return true;
+            string[] lines = text.Replace("\r", "").Split('\n');
+            return lines.Any(line => line.Trim() == "[ARMADA:RESULT] COMPLETE")
+                && lines.Any(line => !String.IsNullOrWhiteSpace(line) && line.Trim() != "[ARMADA:RESULT] COMPLETE");
+        }
+
         private void WriteFinalMessage(string? finalMessageFilePath, string finalText)
         {
-            if (String.IsNullOrEmpty(finalMessageFilePath) || String.IsNullOrEmpty(finalText)) return;
+            if (String.IsNullOrEmpty(finalMessageFilePath)) return;
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(finalMessageFilePath)!);

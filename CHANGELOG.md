@@ -6,6 +6,12 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Worker completion and recovery
+- API captains continue after incomplete terminal replies within a bounded budget, reject missing required completion markers, clear stale final artifacts, and log per-turn finish reason, token usage, text length and tool counts.
+- Worker > Judge pipelines can escalate without an Architect or Product Manager. Unchanged rejected reworks switch captain early; recovery stays pinned to its alternative and the implementation captain cannot review its own work.
+- Failed or unavailable stage checks no longer advance as successful work. Judge instructions cover dependency restore in fresh worktrees. Unix built-in process tools use Bash with pipeline failure propagation when available and explain portable timeouts.
+
+
 ### Persona endpoint priorities and validation progress
 - Persona create/edit priority pickers in dashboard, mobile, and TUI list individual inference endpoints alongside CLI harnesses. REST, MCP, and SDK priorities accept `Runtime: ApiEndpoint` with the exact inference endpoint ID in `Endpoint`; dispatch matches `Captain.ModelEndpointId`, preserving order and fallback policies. Existing broad API runtime priorities and Mux endpoint names remain supported.
 - Endpoint Validate opens its modal immediately with progress, then shows the result or request error in place. The action menu label stays Validate.

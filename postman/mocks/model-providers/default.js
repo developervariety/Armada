@@ -15,6 +15,12 @@ http.createServer(async (req, res) => {
     if (req.method !== 'POST' || req.url !== '/v1/responses') return send(501, { error: { message: 'Outside fixture contract' } });
     if (!body.input || body.messages || body.max_tokens) return send(400, { error: { message: 'Expected native Responses request' } });
     const input = Array.isArray(body.input) ? body.input : [];
+    if (body.model === 'recover-incomplete' || body.model === 'always-incomplete') {
+      const continued = JSON.stringify(input).includes('Your last response did not complete the task');
+      const text = body.model === 'recover-incomplete' && continued ? '[ARMADA:RESULT] COMPLETE\nRecovered after an empty terminal response.' : null;
+      const output = text ? [{ type: 'message', id: 'msg_recovery', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] }] : [];
+      return send(200, { id: 'resp_recovery', object: 'response', model: body.model, status: 'completed', output, usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } });
+    }
     const results = input.filter(item => item.type === 'function_call_output');
     const agent = (body.tools || []).some(tool => tool.name === 'write_file');
     if (agent && results.length && !input.some(item => item.type === 'reasoning' && item.encrypted_content === 'fixture-state'))

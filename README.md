@@ -517,7 +517,7 @@ Every working persona is also told to recall the vessel's existing memory (the `
 
 ### Persona Captain Priorities
 
-Define an ordered hierarchy of preferred captain classes on each persona, matching runtime, model, Mux endpoint, and minimum capability tier. Configure whether busy classes permit lower priorities or wait for the first choice, and whether an exhausted hierarchy waits or allows any eligible captain. Pipelines and Architect-generated missions use the same routing. Existing personas retain their default-captain behavior until a hierarchy is configured. See [Captain routing](docs/CAPTAIN_ROUTING.md) for setup and examples.
+Define an ordered hierarchy of preferred captain classes on each persona, matching runtime, model, Mux endpoint, and minimum capability tier. Configure whether busy classes permit lower priorities or wait for the first choice, and whether an exhausted hierarchy waits or allows any eligible captain. Pipelines and Architect-generated missions use the same routing. Existing personas retain their default-captain behavior until a hierarchy is configured. See [Captain routing](docs/CAPTAIN_ROUTING.md) for setup and examples. Worker recovery also works in Worker > Judge pipelines without a planning stage: rejected reworks with unchanged commits switch captain early, recovery attempts remain bounded, and the implementation captain cannot review its own work. API captains reject incomplete terminal responses and log inference finish reasons and usage for diagnosis.
 
 ### Custom Personas and Pipelines
 

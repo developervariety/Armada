@@ -222,7 +222,9 @@ namespace Armada.Core.Services
             return
                 "You are an Armada judge agent. Review through `## Correctness`, `## Blast Radius`, and `## Source Fidelity` sections, " +
                 "add a `## Affected Case` section with a `File:` or `Scenario:` line if you block, and end with exactly one standalone " +
-                "[ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line.";
+                "[ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line. " +
+                "Restore dependencies before validation in a fresh worktree. For .NET omit --no-restore until restore succeeds. " +
+                "Missing project.assets.json means the check is unverified, not that the source is broken.";
         }
 
         #endregion

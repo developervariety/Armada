@@ -38,6 +38,22 @@ namespace Test.Shared.Suites.Runtimes
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("shell_pipelines_preserve_failure", "Bash pipelines report upstream failures and support process substitution on Unix", TestTags.Negative, async () =>
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || !File.Exists("/bin/bash")) return;
+                string dir = NewTempDir();
+                try
+                {
+                    BuiltInToolRegistry registry = new BuiltInToolRegistry(new TaskPlan());
+                    ToolResult failed = await registry.ExecuteAsync("pipeline", "run_process", JsonSerializer.SerializeToElement(new { command = "exit 7 | cat" }), dir, CancellationToken.None).ConfigureAwait(false);
+                    AssertFalse(failed.Success, "A successful final pipeline command must not mask upstream failure.");
+                    ToolResult bash = await registry.ExecuteAsync("bash", "run_process", JsonSerializer.SerializeToElement(new { command = "cat <(printf hello)" }), dir, CancellationToken.None).ConfigureAwait(false);
+                    AssertTrue(bash.Success, bash.Content);
+                    AssertContains("hello", bash.Content);
+                }
+                finally { Cleanup(dir); }
+            }));
+
             cases.Add(CaseAsync("wrong_typed_arguments_rejected", "Wrong-typed arguments return invalid_parameter instead of being ignored or defaulted", TestTags.Negative, async () =>
             {
                 string dir = NewTempDir();

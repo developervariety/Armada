@@ -15,7 +15,7 @@ namespace Armada.Runtimes.Tools
     /// Spawns a process and captures its stdout, stderr, and exit code.
     /// When an args array is supplied, the command is started directly as the executable with those
     /// arguments and no shell. Otherwise the command line runs through cmd.exe /c on Windows or
-    /// /bin/sh -c on other platforms.
+    /// Bash with pipefail when available on Unix, otherwise /bin/sh -c.
     /// </summary>
     public class RunProcessTool : IToolExecutor
     {
@@ -40,7 +40,7 @@ namespace Armada.Runtimes.Tools
             + $"Current runtime: {GetOperatingSystemLabel()} using shell {GetShellProgram()} {GetShellInvocationArgsHint()}. "
             + "Use commands that are valid for that shell and operating system. "
             + "When args is supplied, command is run directly as the executable with args as its argument vector, without a shell. "
-            + "Returns stdout, stderr, exit code, and whether the process timed out.";
+            + "Use timeout_ms instead of an external timeout command (which may not be installed). Returns stdout, stderr, exit code, and whether the process timed out.";
 
         /// <summary>
         /// The JSON Schema object describing the tool's input parameters.
@@ -250,7 +250,12 @@ namespace Armada.Runtimes.Tools
             }
             else
             {
-                startInfo.FileName = "/bin/sh";
+                startInfo.FileName = GetShellProgram();
+                if (startInfo.FileName == "/bin/bash")
+                {
+                    startInfo.ArgumentList.Add("-o");
+                    startInfo.ArgumentList.Add("pipefail");
+                }
                 startInfo.ArgumentList.Add("-c");
                 startInfo.ArgumentList.Add(command);
             }
@@ -291,17 +296,17 @@ namespace Armada.Runtimes.Tools
 
         private static string GetShellProgram()
         {
-            return _IsWindows ? "cmd.exe" : "/bin/sh";
+            return _IsWindows ? "cmd.exe" : File.Exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
         }
 
         private static string GetShellInvocation()
         {
-            return _IsWindows ? "cmd.exe /c <command>" : "/bin/sh -c <command>";
+            return _IsWindows ? "cmd.exe /c <command>" : GetShellProgram() + (GetShellProgram() == "/bin/bash" ? " -o pipefail -c <command>" : " -c <command>");
         }
 
         private static string GetShellInvocationArgsHint()
         {
-            return _IsWindows ? "/c" : "-c";
+            return _IsWindows ? "/c" : GetShellProgram() == "/bin/bash" ? "-o pipefail -c" : "-c";
         }
 
         #endregion

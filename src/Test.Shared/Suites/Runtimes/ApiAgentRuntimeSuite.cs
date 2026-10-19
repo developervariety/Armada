@@ -99,6 +99,43 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(CaseAsync("incomplete_terminal_responses_are_not_success", "Empty or introductory terminal replies cannot reuse earlier narration as a mission result", TestTags.Negative, async () =>
+            {
+                foreach (bool recover in new[] { false, true })
+                foreach (string? terminal in new string?[] { null, "I will start by reading instructions.", "[ARMADA:RESULT] COMPLETE", "[ARMADA:RESULT] COMPLETE\nTruncated summary" })
+                {
+                    string dir = NewTempDir();
+                    try
+                    {
+                        Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                        script.Enqueue(new ToolChatResponse { Success = true, Text = "I will start by reading instructions.", ToolCalls = new List<ToolCall> { new ToolCall { Id = "read", Name = "list_directory", ArgumentsJson = "{}" } } });
+                        script.Enqueue(new ToolChatResponse { Success = true, Text = terminal, FinishReason = terminal?.Contains("Truncated") == true ? "length" : "stop" });
+                        if (recover) script.Enqueue(new ToolChatResponse { Success = true, Text = "[ARMADA:RESULT] COMPLETE\nImplemented and tested.", FinishReason = "stop", Usage = new TokenUsage { PromptTokens = 42, CompletionTokens = 7 } });
+                        ModelEndpoint endpoint = new ModelEndpoint { Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.OpenAICompatible, BaseUrl = "http://localhost:1", InferenceOptions = new InferenceOptions { McpToolsEnabled = false } };
+                        ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 10, (ep, log) => new ScriptedClient(script, log));
+                        using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                        int code = -1; RuntimeProviderError? failure = null;
+                        List<ApiRuntimeDiagnostic> diagnostics = new List<ApiRuntimeDiagnostic>();
+                        runtime.OnProviderError += (pid, error) => failure = error;
+                        runtime.OnDiagnostic += (pid, diagnostic) => diagnostics.Add(diagnostic);
+                        runtime.OnProcessExited += (pid, value) => { code = value ?? -1; exited.Set(); };
+                        string finalPath = Path.Combine(dir, "result.txt");
+                        await runtime.StartAsync(dir, "Implement the mission. End with [ARMADA:RESULT] COMPLETE", finalMessageFilePath: finalPath).ConfigureAwait(false);
+                        AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "Incomplete responses must terminate or recover within the bounded budget.");
+                        AssertEqual(recover ? 0 : 1, code);
+                        AssertFalse(File.ReadAllText(finalPath).Contains("I will start"), "The final failed empty response clears earlier narration.");
+                        AssertTrue(diagnostics.Exists(d => d.Kind == ApiRuntimeDiagnosticKindEnum.Inference), "Provider turn metadata must be recorded.");
+                        if (recover)
+                        {
+                            AssertContains("Implemented and tested", File.ReadAllText(finalPath));
+                            AssertTrue(diagnostics.Exists(d => d.Kind == ApiRuntimeDiagnosticKindEnum.Inference && d.Message.Contains("\"PromptTokens\":42") && d.Message.Contains("\"FinishReason\":\"stop\"")), "Finish reason and actual usage must survive into turn diagnostics.");
+                        }
+                        else AssertEqual(RuntimeFailureKindEnum.TaskFailure, Armada.Core.Services.RuntimeFailureClassifier.Classify(code, failure));
+                    }
+                    finally { Cleanup(dir); }
+                }
+            }));
+
             cases.Add(CaseAsync("endpoint_turn_budget_exits_failure", "Tool loop budget exhaustion fails the mission rather than reporting success", TestTags.Negative, async () =>
             {
                 string dir = NewTempDir();
@@ -388,6 +425,34 @@ namespace Test.Shared.Suites.Runtimes
             string? simulation = Environment.GetEnvironmentVariable("ARMADA_MODEL_PROVIDER_SIMULATION");
             if (!String.IsNullOrWhiteSpace(simulation))
             {
+                cases.Add(CaseAsync("incomplete_completion_native_http", "Real PolyPrompt HTTP parsing preserves empty-terminal recovery and bounded task failure", TestTags.Negative, async () =>
+                {
+                    foreach (bool recover in new[] { true, false })
+                    {
+                        string dir = NewTempDir();
+                        try
+                        {
+                            ModelEndpoint endpoint = new ModelEndpoint { Provider = ModelProviderEnum.XAI, Kind = ModelEndpointKindEnum.Inference, Model = recover ? "recover-incomplete" : "always-incomplete", BaseUrl = simulation,
+                                InferenceOptions = new InferenceOptions { McpToolsEnabled = false } };
+                            endpoint.ApiKey = "test-token";
+                            ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging());
+                            int code = -1; RuntimeProviderError? failure = null;
+                            using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                            runtime.OnProviderError += (pid, error) => failure = error;
+                            runtime.OnProcessExited += (pid, value) => { code = value ?? -1; exited.Set(); };
+                            string finalPath = Path.Combine(dir, "final.txt");
+                            File.WriteAllText(finalPath, "stale result from an earlier run");
+                            await runtime.StartAsync(dir, "Finish the task with [ARMADA:RESULT] COMPLETE", finalMessageFilePath: finalPath).ConfigureAwait(false);
+                            AssertTrue(exited.Wait(TimeSpan.FromSeconds(20)), "Native HTTP continuation must be bounded.");
+                            AssertEqual(recover ? 0 : 1, code);
+                            AssertFalse(File.ReadAllText(finalPath).Contains("stale result"), "The terminal result replaces earlier output even when empty.");
+                            if (recover) AssertContains("Recovered", File.ReadAllText(finalPath));
+                            else AssertEqual(RuntimeFailureKindEnum.TaskFailure, Armada.Core.Services.RuntimeFailureClassifier.Classify(code, failure));
+                        }
+                        finally { Cleanup(dir); }
+                    }
+                }));
+
                 cases.Add(CaseAsync("harbor_endpoint_policy_native_http", "Harbor API captain executes file tools in its worktree and enforces transported endpoint restrictions", TestTags.Positive, async () =>
                 {
                     foreach (bool readOnly in new[] { false, true })

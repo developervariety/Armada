@@ -60,6 +60,8 @@ namespace Test.Shared.Suites.Services
                 AssertContains("Blast Radius", contract);
                 AssertContains("Source Fidelity", contract);
                 AssertContains("Affected Case", contract);
+                AssertContains("Restore dependencies", JudgeContract.RoleSummary());
+                AssertContains("--no-restore", JudgeContract.RoleSummary());
             }));
 
             cases.Add(Case("block_with_affected_case_file_ref", "A block that exhibits a file reference is a valid block", TestTags.Positive, () =>
