@@ -71,6 +71,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Two unit tests no longer fail on a loaded host. The stale-job reap test waits
+  for its operation to start instead of sleeping a fixed 30 ms, and the relaunch
+  test accepts a heartbeat stamp that the new process records after the launch.
 - A finished Test Engineer or Product Manager report that lacks a section its
   persona template requires, such as a progress note in place of the report, is
   no longer a complete output artifact. `armada_mission_output` reports

@@ -1553,10 +1553,14 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertTrue(markers.TryGet(mission.Id, out _), "the earlier process's marker is recorded");
 
                         Dock dock = new Dock { BranchName = "feature/relaunch-state", WorktreePath = worktreePath };
+                        DateTime launchStartUtc = DateTime.UtcNow;
                         await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
 
                         AssertFalse(markers.TryGet(mission.Id, out _), "a launch never inherits an earlier process's terminal marker");
-                        AssertFalse(HasMissionHeartbeatThrottle(handler, mission.Id), "a launch never inherits an earlier process's heartbeat throttle");
+                        // The launched shim prints a line, which may stamp a fresh throttle for the new process
+                        // before this read; only a stamp older than the launch is inherited.
+                        DateTime? throttle = MissionHeartbeatThrottle(handler, mission.Id);
+                        AssertTrue(throttle == null || throttle.Value >= launchStartUtc, "a launch never inherits an earlier process's heartbeat throttle");
                         string output = handler.GetAndClearMissionOutput(mission.Id) ?? "";
                         AssertFalse(output.Contains("earlier process output", StringComparison.Ordinal), "a launch never inherits an earlier process's output");
                     }
@@ -2234,6 +2238,15 @@ namespace Armada.Test.Unit.Suites.Services
             MissionService missions = new MissionService(logging, database, settings, docks, captains, git: git);
             return new AdmiralService(logging, database, settings, captains, missions, new VoyageService(logging, database), docks,
                 git: git, intentionalStops: stops);
+        }
+
+        private static DateTime? MissionHeartbeatThrottle(AgentLifecycleHandler handler, string missionId)
+        {
+            FieldInfo field = typeof(AgentLifecycleHandler).GetField("_MissionHeartbeatWrites", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find _MissionHeartbeatWrites field");
+            ConcurrentDictionary<string, DateTime> writes = (ConcurrentDictionary<string, DateTime>)(field.GetValue(handler)
+                ?? throw new InvalidOperationException("Mission heartbeat map was null"));
+            return writes.TryGetValue(missionId, out DateTime stamp) ? stamp : null;
         }
 
         private static bool HasMissionHeartbeatThrottle(AgentLifecycleHandler handler, string missionId)

@@ -58,10 +58,15 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("ReapStaleJobsAsync fails a Running job past the threshold", () =>
             {
                 LongRunningJobService service = new LongRunningJobService();
-                LongRunningJob job = service.Start("stale-running", token => HangForeverAsync(token));
+                ManualResetEventSlim started = new ManualResetEventSlim(false);
+                LongRunningJob job = service.Start("stale-running", token =>
+                {
+                    started.Set();
+                    return HangForeverAsync(token);
+                });
 
-                // Wait for background execution to begin so the job moves to Running.
-                Thread.Sleep(30);
+                // Wait for the operation itself to start, so the job is Running however loaded the host is.
+                AssertTrue(started.Wait(TimeSpan.FromSeconds(30)), "background execution must begin");
                 AssertTrue(service.TryGetStatus(job.JobId, out LongRunningJob? running), "the job must be queryable");
                 AssertEqual(LongRunningJobStatusEnum.Running, running!.Status, "the job must be Running once execution begins");
 
