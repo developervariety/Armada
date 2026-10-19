@@ -49,6 +49,10 @@ namespace Armada.Core.Services
         private const int MaxIsolatedRerunClasses = 3;
 
         private readonly string _Header = "[DefinitionOfDoneGate] ";
+
+        // The host slot the running evaluation holds. A gate takes the slot at its first command and keeps it
+        // across its build, tests and consumer commands until the evaluation ends. See HostWideCommandLock.
+        private static readonly AsyncLocal<GateSlot?> _GateSlot = new AsyncLocal<GateSlot?>();
         private readonly DefinitionOfDoneSettings _Settings;
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
@@ -141,6 +145,8 @@ namespace Armada.Core.Services
             // run's token, which the cancel trips, and every wait and command below honors that token.
             using (DefinitionOfDoneGateRun run = DefinitionOfDoneGateRuns.Start(mission.Id, token))
             {
+                GateSlot slot = new GateSlot(mission.Id);
+                _GateSlot.Value = slot;
                 DefinitionOfDoneResult result;
                 try
                 {
@@ -150,6 +156,11 @@ namespace Armada.Core.Services
                 {
                     _Logging.Info(_Header + "gate for mission " + mission.Id + " stopped: the mission was cancelled");
                     throw new DefinitionOfDoneGateCancelledException(mission.Id);
+                }
+                finally
+                {
+                    slot.Release();
+                    _GateSlot.Value = null;
                 }
 
                 // A cancel can surface as an ordinary result, such as an interrupted command read as a failure.
@@ -217,10 +228,11 @@ namespace Armada.Core.Services
             // WorkProduced would deadlock every vessel holding a stranded WorkProduced mission.
             // The contended resource is the host, not the vessel, so the lock belongs here.
             //
-            // Each command takes the host-wide slot for itself (RunCommandAsync), so a check that
-            // asked for the slot while this gate builds runs before the gate's tests and consumer
-            // suites instead of waiting for the whole sequence. Check runs and merge-queue test runs
-            // share the slot, so a gate command never overlaps a check or a merge-queue test.
+            // The gate takes the host-wide slot at its first command and keeps it until the evaluation
+            // ends (RunCommandAsync), so its tests and consumer suites follow its build without
+            // re-queueing; a check that asks while the gate runs waits for the rest of it. Check runs
+            // and merge-queue test runs share the slot, so a gate command never overlaps a check or a
+            // merge-queue test.
             //
             // A gate must keep its dock alive for the whole sequence, including each wait for the
             // slot: dock reclamation would delete the worktree in between. The lease is held across
@@ -1376,9 +1388,23 @@ namespace Armada.Core.Services
             };
 
             // More full build or test commands at once than the host can carry fail in ways that look like broken
-            // code, so every command waits for the host-wide slot. See HostWideCommandLock.
+            // code, so every command runs under the host-wide slot. An evaluation takes the slot at its first
+            // command and keeps it until it ends: releasing between commands would send the gate to the back of
+            // the queue for each of its build, test and consumer commands. A command outside an evaluation takes
+            // the slot for that command alone.
+            GateSlot? gateSlot = _GateSlot.Value;
+            IDisposable? commandLease = null;
+            if (gateSlot != null)
+            {
+                await gateSlot.EnsureHeldAsync(token).ConfigureAwait(false);
+            }
+            else
+            {
+                commandLease = await HostWideCommandLock.AcquireAsync(null, "definition-of-done " + label, token).ConfigureAwait(false);
+            }
+
             BoundedProcessResult result;
-            using (await HostWideCommandLock.AcquireAsync(null, "definition-of-done " + label, token).ConfigureAwait(false))
+            using (commandLease)
             {
                 try
                 {
@@ -1617,6 +1643,37 @@ namespace Armada.Core.Services
         {
             if (OperatingSystem.IsWindows()) return "cmd.exe";
             return "/bin/sh";
+        }
+
+        #endregion
+
+        #region Private-Classes
+
+        /// <summary>
+        /// The host slot one gate evaluation holds from its first command until it ends.
+        /// </summary>
+        private sealed class GateSlot
+        {
+            private readonly string _MissionId;
+            private IDisposable? _Lease = null;
+
+            public GateSlot(string missionId)
+            {
+                _MissionId = missionId;
+            }
+
+            public async Task EnsureHeldAsync(CancellationToken token)
+            {
+                if (_Lease != null) return;
+                _Lease = await HostWideCommandLock.AcquireAsync(_MissionId, "definition-of-done gate for mission " + _MissionId, token).ConfigureAwait(false);
+            }
+
+            public void Release()
+            {
+                IDisposable? lease = _Lease;
+                _Lease = null;
+                lease?.Dispose();
+            }
         }
 
         #endregion

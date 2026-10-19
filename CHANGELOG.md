@@ -85,6 +85,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A definition-of-done gate holds the host command slot from its first command
+  until it ends. Its unit tests and each consumer build and test follow its
+  build directly instead of going to the back of the queue for every command,
+  which made one gate wait behind all newer work once per command. A Check or
+  merge-queue test that asked before the gate began still runs first; one that
+  asks while the gate runs waits for the rest of the gate.
 - A brief whose runtime cannot widen its workspace roots names
   `grep -rn <pattern> <sibling path>` for a sibling search; the captain image
   ships `grep`, not `rg`.

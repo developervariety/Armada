@@ -128,9 +128,10 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            // A gate takes the host slot per command. A check that asks for the slot while the gate builds
-            // runs before the gate's unit tests, instead of waiting behind the gate's whole sequence.
-            await RunTest("A check that asks for the host slot during a gate build runs before the gate's tests", async () =>
+            // A gate takes the host slot at its first command and keeps it until it ends. A check that asks while
+            // the gate builds therefore runs after the gate's unit tests, instead of splitting the gate and
+            // sending it to the back of the queue for each command.
+            await RunTest("A check that asks for the host slot during a gate build runs after the gate's tests", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
@@ -150,9 +151,9 @@ namespace Armada.Test.Unit.Suites.Services
                         new Dock { WorktreePath = worktreePath });
 
                     DateTime deadline = DateTime.UtcNow.AddSeconds(30);
-                    while ((HostWideCommandLock.Snapshot().HolderDescription ?? String.Empty).IndexOf("build", StringComparison.Ordinal) < 0)
+                    while ((HostWideCommandLock.Snapshot().HolderDescription ?? String.Empty).IndexOf("definition-of-done gate", StringComparison.Ordinal) < 0)
                     {
-                        AssertTrue(DateTime.UtcNow < deadline, "the gate build never took the host slot");
+                        AssertTrue(DateTime.UtcNow < deadline, "the gate never took the host slot");
                         await Task.Delay(10).ConfigureAwait(false);
                     }
 
@@ -164,7 +165,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     DefinitionOfDoneResult result = await gateRun.ConfigureAwait(false);
                     AssertTrue(result.Passed, "the gate passes");
-                    AssertFalse(testsRanFirst, "the waiting check must get the slot before the gate's unit tests run");
+                    AssertTrue(testsRanFirst, "the gate keeps the slot through its unit tests, ahead of a check that asked later");
                     AssertTrue(File.Exists(Path.Combine(worktreePath, "tests-ran.txt")), "the gate's unit tests still run");
                 }
                 finally

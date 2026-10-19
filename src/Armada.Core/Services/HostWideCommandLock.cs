@@ -20,9 +20,10 @@ namespace Armada.Core.Services
     /// other liveness guarantee across the wait, because a request can sit behind other callers'
     /// full build and test runs.
     ///
-    /// Slots are granted strictly in request order, and a caller holds one for one command, not for a
-    /// sequence of them, so a check that asked first is never passed over by a later phase of another
-    /// vessel's gate. Raising the slot count grants waiting requests at once, in order; lowering it
+    /// Slots are granted strictly in request order. A check or merge-queue test holds a slot for one
+    /// command; a definition-of-done gate takes one at its first command and holds it until the gate
+    /// ends, so it is never sent to the back of the queue between its build, tests and consumer
+    /// commands. A request that asked before a gate's first command is still granted first. Raising the slot count grants waiting requests at once, in order; lowering it
     /// takes no slot from a holder and grants nothing new until the holders drop below the new count.
     /// Every request names its owner, so <see cref="Snapshot"/> can say who holds each slot and where
     /// each waiter stands.

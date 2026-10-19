@@ -53,9 +53,11 @@ host-wide command slot, which it shares with check runs and merge-queue test
 runs. `DefinitionOfDone.HostCommandSlots` (`definitionOfDone.hostCommandSlots`
 in `settings.json`) sets how many slots the host grants at once: default 1,
 clamped to 1-8, applied at startup and on every settings reload. Slots are
-granted in request order. A count above 1 lets several full suites run at once,
-which risks false `Timeout` failures on a host without the CPU, memory and disk
-to run them inside `CommandTimeoutSeconds`.
+granted in request order. A gate takes a slot at its first command and holds
+it until the gate ends, so its commands run back to back; work that asked
+before the gate began runs first. A count above 1 lets several full suites run
+at once, which risks false `Timeout` failures on a host without the CPU, memory
+and disk to run them inside `CommandTimeoutSeconds`.
 
 ## Handoff requires a recorded result
 

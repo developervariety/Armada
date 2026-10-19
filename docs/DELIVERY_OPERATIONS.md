@@ -261,12 +261,14 @@ share host-wide command slots. `definitionOfDone.hostCommandSlots` in
 `settings.json` sets how many slots there are: default 1, clamped to 1-8. With
 the default, the host runs one full build or test suite at a time, so a Check
 never runs concurrently with a gate command or a merge-queue test run. Slots
-are granted in request order, and a gate holds a slot for one command at a time
-(its build, its unit tests, each consumer build and test), so a Check that asks
-while a gate builds runs before the gate's next command instead of after the
-whole gate. The count is applied at startup and on every settings reload. A
-raised count grants waiting requests at once; a lowered count takes no slot
-from a running command and grants nothing new until the holders drop below it.
+are granted in request order. A Check or merge-queue test holds a slot for one
+command. A gate takes a slot at its first command and holds it until it ends
+(its build, its unit tests, each consumer build and test), so a Check that
+asked before the gate began runs first, and a Check that asks while a gate runs
+waits for the rest of the gate instead of splitting it. The count is applied
+at startup and on every settings reload. A raised count grants waiting
+requests at once; a lowered count takes no slot from a running command and
+grants nothing new until the holders drop below it.
 
 Raising the count above 1 risks false failures. Concurrent full suites contend
 for the same CPU, memory and disk, and on a host without the capacity for them
