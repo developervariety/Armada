@@ -149,7 +149,17 @@
 
             if (!IsGitOnPath())
             {
-                Console.WriteLine("  SKIP  GitServiceCommitCountTests (git-backed cases) -- git not found on PATH");
+                // Every case below drives a real repository. Report each one as a named skip, so a host without git
+                // shows 8 skips instead of a passing suite with no git-backed cases.
+                const string reason = "git not found on PATH";
+                SkipTest("EnsureLocalBranchAsync_BareAheadOfUpstream_DoesNotDiscardLocalCommits", reason);
+                SkipTest("EnsureLocalBranchAsync_BareBehindUpstream_StillFastForwards", reason);
+                SkipTest("GetCommitCountBetweenAsync_AtoC_Returns2", reason);
+                SkipTest("GetCommitCountBetweenAsync_SameRef_Returns0", reason);
+                SkipTest("GetCommitCountBetweenAsync_InvalidRef_Returns0WithoutThrowing", reason);
+                SkipTest("GetCommitCountBetweenAsync_BtoC_Returns1", reason);
+                SkipTest("GetCommitCountBetweenAsync_ReverseDirection_Returns0", reason);
+                SkipTest("GetCommitCountBetweenAsync_NonRepoPath_Returns0WithoutThrowing", reason);
                 return;
             }
 

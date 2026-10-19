@@ -114,6 +114,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The isolated-checkout, commit-count and Slop-execution suites report each of
+  their git-backed cases as a named skip when git is not on the path, so the
+  runner counts the skips instead of reporting suites that ran nothing.
 - An operator's `run_check` or `retry_check_run` runs to completion even when
   its voyage has ended; the automatic Check runner neither discards nor runs a
   Check an operator is executing. Every discarded Check writes its reason into

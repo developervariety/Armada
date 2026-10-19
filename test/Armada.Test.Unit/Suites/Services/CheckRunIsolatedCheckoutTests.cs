@@ -131,7 +131,22 @@ namespace Armada.Test.Unit.Suites.Services
 
             if (!IsGitOnPath())
             {
-                Console.WriteLine("  SKIP  CheckRunIsolatedCheckoutTests (git-backed cases) -- git not found on PATH");
+                // Every case below drives a real repository. Report each one as a named skip, so a host without git
+                // shows 13 skips instead of a passing suite with no git-backed cases.
+                const string reason = "git not found on PATH";
+                SkipTest("Build check fails with real output when command fails in isolated checkout", reason);
+                SkipTest("Build check executes in isolated temp checkout, not the live working directory", reason);
+                SkipTest("Locked file in live working directory does not fail the Build check", reason);
+                SkipTest("Executed isolated command strips --no-restore but stored command is unchanged", reason);
+                SkipTest("Non-isolated check type runs in live working directory even with a repo source", reason);
+                SkipTest("Build check targeting a non-default BranchName runs against that branch's content", reason);
+                SkipTest("Build check targeting a non-default CommitHash runs against that commit's content", reason);
+                SkipTest("Build check fails before the command when explicit CommitHash is unreachable", reason);
+                SkipTest("Build check fails before the command when clone commit and branch are unavailable", reason);
+                SkipTest("Isolated checkout matches dock-worktree bytes when the repo config sets core.autocrlf", reason);
+                SkipTest("Isolated checkout removes its worktree registration after the check completes", reason);
+                SkipTest("git worktree prune drops an unlocked worktree it cannot see and keeps a locked one", reason);
+                SkipTest("Isolated checkout worktree is locked while the check command runs and named for its check", reason);
                 return;
             }
 

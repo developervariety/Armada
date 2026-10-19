@@ -47,7 +47,16 @@ namespace Armada.Test.Unit.Suites.Services
 
             if (!IsGitOnPath())
             {
-                Console.WriteLine("  SKIP  SlopCheckExecutionTests (git-backed cases) -- git not found on PATH");
+                // Every case below drives a real repository. Report each one as a named skip, so a host without git
+                // shows 7 skips instead of a passing suite with no git-backed cases.
+                const string reason = "git not found on PATH";
+                SkipTest("Slop check fails a reviewed diff that skips a test", reason);
+                SkipTest("Slop check passes a WARN-only diff and surfaces the finding", reason);
+                SkipTest("Slop check reads central package management from the reviewed commit", reason);
+                SkipTest("Slop check fails loudly when there is no commit or branch to classify", reason);
+                SkipTest("Slop check fails loudly when the reviewed branch does not exist", reason);
+                SkipTest("An armed Slop record measures the voyage's work under review", reason);
+                SkipTest("An armed Slop record on a voyage that ended with no reviewable work is cancelled, and on a live voyage it waits", reason);
                 return;
             }
 
