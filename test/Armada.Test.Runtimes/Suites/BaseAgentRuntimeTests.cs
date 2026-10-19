@@ -405,14 +405,20 @@ namespace Armada.Test.Runtimes.Suites
 
             await RunTest("StartAsync Without Stdin Redirect Does Not Configure StdinEncoding", async () =>
             {
+                TestAgentRuntime captured = new TestAgentRuntime(CreateLogging());
+                captured.RedirectStdinOverride = false;
+                captured.CaptureStartInfoAndThrow = true;
+                try { await captured.StartAsync(Path.GetTempPath(), "test prompt"); } catch (InvalidOperationException) { }
+                AssertNotNull(captured.CapturedStartInfo, "the start info is captured");
+                AssertFalse(captured.CapturedStartInfo!.RedirectStandardInput, "stdin is not redirected");
+                AssertNull(captured.CapturedStartInfo.StandardInputEncoding, "a launch that does not redirect stdin names no stdin encoding");
+
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
                 runtime.RedirectStdinOverride = false;
-                string tempDir = Path.GetTempPath();
-
-                int pid = await runtime.StartAsync(tempDir, "test prompt");
-                AssertTrue(pid > 0);
-
-                await Task.Delay(1000);
+                Task exited = WatchExitAsync(runtime);
+                int pid = await runtime.StartAsync(Path.GetTempPath(), "test prompt");
+                AssertTrue(pid > 0, "a launch without stdin redirect starts the agent");
+                await AwaitExitHandledAsync(exited).ConfigureAwait(false);
             });
 
             await RunTest("WriteStderrToLogFile False Suppresses Log File But Preserves OnOutputReceived", async () =>

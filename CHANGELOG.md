@@ -102,6 +102,8 @@ upstream integrations and excludes changes already present at that baseline.
   agent's exit (output drained, final message written, log closed) instead of
   a fixed 2.5-second pause, so a log assertion never reads a half-written file
   and the tests no longer wait when the agent exits at once.
+- The runtime test named for stdin encoding asserts it: a launch that does not
+  redirect stdin carries no stdin encoding, and the agent still starts.
 - A definition-of-done gate holds the host command slot from its first command
   until it ends. Its unit tests and each consumer build and test follow its
   build directly instead of going to the back of the queue for every command,
