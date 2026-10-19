@@ -283,7 +283,10 @@ namespace Armada.Server
                 VesselId = incident.VesselId ?? failed?.VesselId,
                 Type = failed?.Type,
                 PageNumber = 1,
-                PageSize = 500
+                PageSize = 500,
+                // This sweep runs every few seconds and matches on ids, status and times; the output
+                // logs of up to 500 runs are never read here.
+                IncludeOutput = false
             };
 
             EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);

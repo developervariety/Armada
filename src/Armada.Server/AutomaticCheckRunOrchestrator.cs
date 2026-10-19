@@ -645,7 +645,9 @@ namespace Armada.Server
                 Status = CheckRunStatusEnum.Failed,
                 FromUtc = DateTime.UtcNow.AddDays(-30),
                 PageNumber = 1,
-                PageSize = 500
+                // Only the total is used, and the total comes from a separate count.
+                PageSize = 1,
+                IncludeOutput = false
             };
 
             EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);

@@ -148,6 +148,9 @@ upstream integrations and excludes changes already present at that baseline.
   each tick instead of every mission of the vessel, which kept the database
   busy with large reads several times a second. The mission recovery report
   uses the same lookup.
+- The incident-lifecycle sweep reads matching check runs without their output
+  logs, and the failed-check count reads one row and the total instead of up to
+  500 runs with their logs.
 
 - The `SlotWait.Guidance` text on an unresolved Check no longer claims the host runs one
   suite at a time. It says the host runs a limited number of full build or test suites at
