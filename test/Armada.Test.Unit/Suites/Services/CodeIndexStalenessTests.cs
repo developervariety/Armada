@@ -29,7 +29,13 @@ namespace Armada.Test.Unit.Suites.Services
         {
             if (!IsGitOnPath())
             {
-                Console.WriteLine("  SKIP  CodeIndexStalenessTests (git-backed cases) -- git not found on PATH");
+                // Every case drives a real repository. Report each one as a named skip, so a host without git shows
+                // four skips instead of a passing suite with no cases.
+                const string reason = "git not found on PATH";
+                SkipTest("Summary_ReportsOnlyStaleVessels_FromPersistedMetadata", reason);
+                SkipTest("Summary_SkipsVesselWithoutLocalRepository", reason);
+                SkipTest("Sweep_SchedulesReindex_ForHeadChangeOutsideLanding", reason);
+                SkipTest("A failed update keeps the last indexed commit so the sweep still compares it", reason);
                 return;
             }
 

@@ -104,6 +104,9 @@ upstream integrations and excludes changes already present at that baseline.
   and the tests no longer wait when the agent exits at once.
 - The runtime test named for stdin encoding asserts it: a launch that does not
   redirect stdin carries no stdin encoding, and the agent still starts.
+- The code-index staleness suite reports each of its cases as a named skip when
+  git is not on the path, so the runner counts the skips instead of reporting a
+  passing suite that ran nothing.
 - A definition-of-done gate holds the host command slot from its first command
   until it ends. Its unit tests and each consumer build and test follow its
   build directly instead of going to the back of the queue for every command,
