@@ -145,7 +145,7 @@ namespace Armada.Core.Services
 
             sb.Append(workspaceRootsRegistered
                 ? "\nBuilt-in search reaches these checkouts by the paths above.\n"
-                : "\nBuilt-in search stays inside this checkout; search a sibling with `rg <pattern> <sibling path>`.\n");
+                : "\nBuilt-in search stays inside this checkout; search a sibling with `grep -rn <pattern> <sibling path>`.\n");
             return sb.ToString();
         }
 

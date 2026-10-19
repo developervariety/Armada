@@ -565,7 +565,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("## Sibling Checkouts", brief, "a vessel that declares siblings gets the sibling section");
                         AssertContains("`../present` HEAD `0123456789ab`, with uncommitted changes", brief, "the provisioned HEAD and its uncommitted changes are named");
                         AssertContains("`../absent` is absent", brief, "a sibling provisioning did not produce is named as absent");
-                        AssertContains("`rg <pattern> <sibling path>`", brief, "a launch without workspace roots names the shell search");
+                        AssertContains("`grep -rn <pattern> <sibling path>`", brief, "a launch without workspace roots names the shell search");
 
                         Captain claude = new Captain("sibling-claude", AgentRuntimeEnum.ClaudeCode);
                         File.Delete(Path.Combine(worktree, "CLAUDE.md"));
