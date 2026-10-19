@@ -175,7 +175,7 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new AuthApiTests(authClient, unauthClient, baseUrl, apiKey));
                 runner.AddSuite(new CrossTenantApiTests(authClient, unauthClient, baseUrl, apiKey, dbSettings.Type));
                 runner.AddSuite(new McpToolTests(mcpClient));
-                runner.AddSuite(new WebSocketTests(authClient, unauthClient, restPort, apiKey));
+                runner.AddSuite(new WebSocketTests(authClient, unauthClient, restPort, apiKey, server));
                 runner.AddSuite(new PipelineParityTests(surfaces));
                 runner.AddSuite(new ObjectiveParityTests(surfaces));
                 runner.AddSuite(new PersonaParityTests(surfaces));

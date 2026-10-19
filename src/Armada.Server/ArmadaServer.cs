@@ -97,6 +97,22 @@ namespace Armada.Server
         /// </summary>
         internal TimeSpan BackgroundLoopStopTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
+        /// <summary>
+        /// How long a new WebSocket session may stay unauthenticated before the hub closes it. Defaults to
+        /// 15 seconds. A change applies to sessions that connect after it.
+        /// </summary>
+        internal TimeSpan WebSocketAuthenticationWindow
+        {
+            get => _WebSocketAuthenticationWindow;
+            set
+            {
+                _WebSocketAuthenticationWindow = value;
+                if (_WebSocketHub != null) _WebSocketHub.AuthenticationWindow = value;
+            }
+        }
+
+        private TimeSpan _WebSocketAuthenticationWindow = TimeSpan.FromSeconds(15);
+
         private ArmadaMcpHttpServer _McpServer = null!;
         private Armada.Core.Services.HarborJobService? _HarborJobService = null;
         private ArmadaWebSocketHub _WebSocketHub = null!;
@@ -700,6 +716,7 @@ namespace Armada.Server
                 _Database, _Admiral, _MissionService, _Git, _AgentLifecycle.IsMissionProcessActiveAsync,
                 _MissionLanding.HandleMissionCompleteAsync, EmitEventAsync, _Logging);
             _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Admiral, _Database, _MergeQueue, _AuthenticationService, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); }, _StatusTransitions);
+            _WebSocketHub.AuthenticationWindow = _WebSocketAuthenticationWindow;
             _StatusTransitions.SetWebSocketHub(_WebSocketHub);
             _AgentLifecycle.SetWebSocketHub(_WebSocketHub);
             _MissionLanding.SetWebSocketHub(_WebSocketHub);

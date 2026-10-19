@@ -35,7 +35,7 @@ namespace Armada.Server.WebSocket
         private readonly IAuthenticationService _Authentication;
         private WebSocketCommandHandler _CommandHandler;
         private const int ClientOutputQueueCapacity = 256;
-        private const int AuthenticationWindowSeconds = 15;
+        private static readonly TimeSpan _DefaultAuthenticationWindow = TimeSpan.FromSeconds(15);
         private ConcurrentDictionary<Guid, ClientConnection> _Sessions = new ConcurrentDictionary<Guid, ClientConnection>();
         private readonly object _BroadcastLock = new object();
         private readonly WebSocketReplayBuffer _ReplayBuffer = new WebSocketReplayBuffer();
@@ -48,6 +48,16 @@ namespace Armada.Server.WebSocket
             WriteIndented = false,
             Converters = { new JsonStringEnumConverter() }
         };
+
+        #endregion
+
+        #region Internal-Members
+
+        /// <summary>
+        /// How long a new session may stay unauthenticated before the hub refuses and closes it. Read when each
+        /// session connects, so a change applies to later sessions only.
+        /// </summary>
+        internal TimeSpan AuthenticationWindow { get; set; } = _DefaultAuthenticationWindow;
 
         #endregion
 
@@ -845,9 +855,10 @@ namespace Armada.Server.WebSocket
         /// </summary>
         private async Task CloseIfUnauthenticatedAsync(Guid sessionId, ClientConnection connection, CancellationToken token)
         {
+            TimeSpan window = AuthenticationWindow;
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(AuthenticationWindowSeconds), token).ConfigureAwait(false);
+                await Task.Delay(window, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -861,7 +872,7 @@ namespace Armada.Server.WebSocket
                 sessionId,
                 connection,
                 "auth.required",
-                "Authenticate within " + AuthenticationWindowSeconds + " seconds of connecting.").ConfigureAwait(false);
+                "Authenticate within " + window.TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture) + " seconds of connecting.").ConfigureAwait(false);
         }
 
         private async Task AuthenticateSessionAsync(Guid sessionId, ClientConnection connection, string body)

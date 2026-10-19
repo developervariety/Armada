@@ -94,6 +94,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The WebSocket idle-session test runs in under a second. It gives its own
+  server a 300 ms authentication window and asserts that the refusal arrives no
+  earlier than that window and well before the 15-second production window,
+  which stays the default for every other session.
 - A definition-of-done gate holds the host command slot from its first command
   until it ends. Its unit tests and each consumer build and test follow its
   build directly instead of going to the back of the queue for every command,

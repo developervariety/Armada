@@ -2,6 +2,7 @@ namespace Armada.Test.Automated.Suites
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Net.Http;
     using System.Net.WebSockets;
     using System.Text;
@@ -10,6 +11,7 @@ namespace Armada.Test.Automated.Suites
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Server;
     using Armada.Test.Common;
 
     /// <summary>
@@ -32,6 +34,8 @@ namespace Armada.Test.Automated.Suites
         private HttpClient _UnauthClient;
         private int _RestPort;
         private string _ApiKey;
+        private ArmadaServer _Server;
+        private static readonly TimeSpan _ShortAuthenticationWindow = TimeSpan.FromMilliseconds(300);
 
         #endregion
 
@@ -40,12 +44,18 @@ namespace Armada.Test.Automated.Suites
         /// <summary>
         /// Create a new WebSocket test suite.
         /// </summary>
-        public WebSocketTests(HttpClient authClient, HttpClient unauthClient, int restPort, string apiKey)
+        /// <param name="authClient">Authenticated HTTP client.</param>
+        /// <param name="unauthClient">Unauthenticated HTTP client.</param>
+        /// <param name="restPort">REST port of the server under test.</param>
+        /// <param name="apiKey">API key that authenticates a WebSocket session.</param>
+        /// <param name="server">Server under test; the idle-session case shortens its authentication window.</param>
+        public WebSocketTests(HttpClient authClient, HttpClient unauthClient, int restPort, string apiKey, ArmadaServer server)
         {
             _AuthClient = authClient ?? throw new ArgumentNullException(nameof(authClient));
             _UnauthClient = unauthClient ?? throw new ArgumentNullException(nameof(unauthClient));
             _RestPort = restPort;
             _ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
+            _Server = server ?? throw new ArgumentNullException(nameof(server));
         }
 
         #endregion
@@ -84,14 +94,32 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("Anonymous_IdleSession_IsClosedAfterAuthenticationWindow", async () =>
             {
-                using (ClientWebSocket ws = await ConnectAnonymousAsync().ConfigureAwait(false))
+                // The window is read when a session connects, so a short window here does not reach the other cases.
+                TimeSpan previousWindow = _Server.WebSocketAuthenticationWindow;
+                _Server.WebSocketAuthenticationWindow = _ShortAuthenticationWindow;
+                try
                 {
-                    // Send nothing. The server must not hold an unauthenticated socket open forever.
-                    JsonElement? frame = await ReceiveFrameOrCloseAsync(ws, 30).ConfigureAwait(false);
-                    AssertTrue(frame.HasValue, "Expected an auth.required frame when the authentication window ends");
-                    AssertEqual("auth.required", frame!.Value.GetProperty("type").GetString());
-                    JsonElement? after = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
-                    AssertFalse(after.HasValue, "Expected the server to close the idle unauthenticated session");
+                    Stopwatch elapsed = Stopwatch.StartNew();
+                    using (ClientWebSocket ws = await ConnectAnonymousAsync().ConfigureAwait(false))
+                    {
+                        // Send nothing. The server must not hold an unauthenticated socket open forever.
+                        JsonElement? frame = await ReceiveFrameOrCloseAsync(ws, 30).ConfigureAwait(false);
+                        elapsed.Stop();
+                        AssertTrue(frame.HasValue, "Expected an auth.required frame when the authentication window ends");
+                        AssertEqual("auth.required", frame!.Value.GetProperty("type").GetString());
+                        AssertTrue(
+                            elapsed.Elapsed >= _ShortAuthenticationWindow - TimeSpan.FromMilliseconds(50),
+                            "Expected the refusal no earlier than the authentication window, got " + elapsed.ElapsedMilliseconds + " ms");
+                        AssertTrue(
+                            elapsed.Elapsed < TimeSpan.FromSeconds(10),
+                            "Expected the configured authentication window to decide the close, got " + elapsed.ElapsedMilliseconds + " ms");
+                        JsonElement? after = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
+                        AssertFalse(after.HasValue, "Expected the server to close the idle unauthenticated session");
+                    }
+                }
+                finally
+                {
+                    _Server.WebSocketAuthenticationWindow = previousWindow;
                 }
             }).ConfigureAwait(false);
 
