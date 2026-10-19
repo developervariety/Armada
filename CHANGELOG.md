@@ -9,6 +9,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Both mission-rules templates tell a captain to delete a temporary file with
+  `rm <path>`, without `-f`, or to write to a fresh path, and to hash a file
+  with `sha256sum <path>` instead of hand-written hashing code. The lines reach
+  the embedded defaults and existing built-in rows through the append-if-missing
+  upgrader, so operator edits are kept.
 - The Linter template carries a `## Test Check` section. For each test the
   mission adds or changes, the Linter reports duplicate or low-value proof
   under `## Residual Issues` as `TEST: <path:line> - <problem>`, and it never
@@ -118,6 +123,10 @@ upstream integrations and excludes changes already present at that baseline.
   suite at a time. It says the host runs a limited number of full build or test suites at
   once, which holds for any `definitionOfDone.hostCommandSlots` value.
 
+- The brief byte-budget backstop keeps the role text at the head of a mission
+  description it shrinks. A description already bounded with its pinned
+  acceptance criteria is shortened in its narrative only, so the criteria no
+  longer take the head position and push the role text out.
 - Autonomous recovery writes `autonomous_recovery.capacity_deferred` and its
   `rescue_capacity_deferred:` incident note once per change of refusal code or
   limit, instead of once per sweep while capacity stays full; each refusal is

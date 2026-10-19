@@ -92,6 +92,20 @@ namespace Armada.Core.Services
             "- " + _DetachedCheckoutMarker + " and leave branch refs alone; Armada moves the branch.\n";
 
         /// <summary>
+        /// Marker meaning a mission-rules template already carries the shell file-work rules.
+        /// </summary>
+        private const string _ShellFileRulesMarker = "Delete a temporary file with `rm <path>`";
+
+        /// <summary>
+        /// Rules appended to every mission-rules template: some runtimes refuse a forced delete, and
+        /// some script sandboxes have no hashing API, so a captain uses the plain shell tools instead
+        /// of retrying the refused form or writing its own hash code.
+        /// </summary>
+        private const string _ShellFileRules =
+            "- " + _ShellFileRulesMarker + " (no `-f`; ignore a missing file), or write to a fresh temporary path instead.\n" +
+            "- Hash a file with `sha256sum <path>`; never write your own hashing code.\n";
+
+        /// <summary>
         /// Heading of the blocked-path section. Presence means a template already carries the guidance.
         /// </summary>
         private const string _BlockedPathMarker = "## When You Cannot Finish";
@@ -252,6 +266,7 @@ namespace Armada.Core.Services
             AddMemoryRecallGuidance();
             AddFleetGuardRules();
             AddDetachedCheckoutRule();
+            AddShellFileRules();
             AddBlockedPathGuidance();
             AddTestCoverageEvidence();
             AddLintFindingFormat();
@@ -364,6 +379,8 @@ namespace Armada.Core.Services
             await UpgradeBuiltInPersonaMemoryRecallAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInMissionRuleFleetGuardsAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "mission.rules_no_push", _DetachedCheckoutMarker, _DetachedCheckoutRule, "detached-checkout").ConfigureAwait(false);
+            await UpgradeBuiltInPersonaSectionAsync(token, "mission.rules", _ShellFileRulesMarker, _ShellFileRules, "shell-file").ConfigureAwait(false);
+            await UpgradeBuiltInPersonaSectionAsync(token, "mission.rules_no_push", _ShellFileRulesMarker, _ShellFileRules, "shell-file").ConfigureAwait(false);
             await UpgradeBuiltInPersonaBlockedPathAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.test_engineer", _TestCoverageEvidenceMarker, _TestCoverageEvidence, "coverage-evidence").ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.linter", _LintFindingFormatMarker, _LintFindingFormat, "finding-format").ConfigureAwait(false);
@@ -509,6 +526,16 @@ namespace Armada.Core.Services
         private void AddDetachedCheckoutRule()
         {
             AddSectionToEmbedded("mission.rules_no_push", _DetachedCheckoutMarker, _DetachedCheckoutRule);
+        }
+
+        /// <summary>
+        /// Append the shell file-work rules to both embedded mission-rules defaults, so seeding, fallback
+        /// resolution and reset all deliver the same text.
+        /// </summary>
+        private void AddShellFileRules()
+        {
+            AddSectionToEmbedded("mission.rules", _ShellFileRulesMarker, _ShellFileRules);
+            AddSectionToEmbedded("mission.rules_no_push", _ShellFileRulesMarker, _ShellFileRules);
         }
 
         /// <summary>Whether a template takes the blocked path: a working persona, but not the Recorder or the Judge.</summary>

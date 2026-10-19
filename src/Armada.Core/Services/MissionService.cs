@@ -8855,12 +8855,21 @@ namespace Armada.Core.Services
             // smaller than these required lines cannot be met safely; retain them and let the brief budget
             // report the excess rather than silently removing the only route to a full stage report.
             const string contextHeading = "\n## Mission Context\n";
+
+            // A description bounded before already holds the pinned lines ahead of its narrative. Bound only
+            // that narrative, or the pinned lines become the head again and push out the role text.
+            string narrative = description;
+            string boundedPrefix = pinned.ToString() + contextHeading;
+            if (description.StartsWith(boundedPrefix, StringComparison.Ordinal))
+                narrative = description.Substring(boundedPrefix.Length);
+
             int contextBudget = maxChars - pinned.Length - marker.Length - contextHeading.Length;
             if (contextBudget < minContextChars) contextBudget = minContextChars;
             if (contextBudget <= 0) return pinned.ToString() + marker;
-            string bounded = BuildBoundedDescription(description, contextBudget + marker.Length,
+            if (narrative.Length <= contextBudget) return boundedPrefix + narrative;
+            string bounded = BuildBoundedDescription(narrative, contextBudget + marker.Length,
                 Math.Min(headChars, contextBudget / 3), marker);
-            return pinned.ToString() + contextHeading + bounded;
+            return boundedPrefix + bounded;
         }
 
         private static List<string> ExtractReportReferences(string description)

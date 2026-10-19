@@ -235,7 +235,9 @@ section instead, behind `contextRetrieval.briefSlimmingEnabled`:
   same bounded files; the elision marker names them. Acceptance criteria and
   report references are pinned whole beside it, and at least 8,000 characters
   of that head and tail stay with them even when the pinned lines alone reach
-  the cap, so large criteria never leave the captain without its role text. A copy is kept under
+  the cap, so large criteria never leave the captain without its role text.
+  When the byte budget shrinks that bounded copy further, it shortens only the
+  head and tail beside the pinned lines, so the role text stays at the head. A copy is kept under
   `<mission id>.mission/`. Neither counts against the instruction-file byte
   budget (`captainInstructionByteBudget`, default 65,536), so the budget
   bounds the brief itself; `docs/PERSONAS.md` describes its warning event.

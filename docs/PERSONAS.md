@@ -45,6 +45,12 @@ run together. A commit made on a detached checkout still reaches the branch:
 Armada moves the mission branch to the dock's commit at handoff, and landing uses
 the commit captured from the dock. The no-push mission rules, which LocalMerge
 vessels use, tell the captain to leave branch refs alone in a detached checkout.
+Both mission-rules templates also tell the captain to delete a temporary file
+with `rm <path>`, without `-f`, or to write to a fresh path, because some
+runtimes refuse a forced delete. They tell it to hash a file with
+`sha256sum <path>` instead of writing its own hashing code, because some script
+sandboxes have no hashing API. Existing built-in rows receive these lines
+through the append-if-missing upgrader, so operator edits are kept.
 
 The seed service reconciles built-in definitions. Built-in personas cannot be
 deleted. Custom personas can be created, updated, or deleted.

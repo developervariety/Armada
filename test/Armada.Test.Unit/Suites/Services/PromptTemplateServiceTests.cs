@@ -410,6 +410,40 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Both mission rules name rm without -f and sha256sum for shell file work, once, on an existing row", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    foreach (string name in new[] { "mission.rules", "mission.rules_no_push" })
+                    {
+                        PromptTemplate existing = new PromptTemplate(name, "## Rules\n- Operator custom rule\n");
+                        existing.Category = "mission";
+                        existing.IsBuiltIn = true;
+                        await testDb.Driver.PromptTemplates.CreateAsync(existing).ConfigureAwait(false);
+                    }
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    PromptTemplateService fresh = new PromptTemplateService(testDb.Driver, logging);
+
+                    foreach (string name in new[] { "mission.rules", "mission.rules_no_push" })
+                    {
+                        PromptTemplate? edited = await service.ResolveAsync(name).ConfigureAwait(false);
+                        AssertNotNull(edited, name + " should resolve");
+                        AssertEqual(1, edited!.Content.Split(new[] { "Delete a temporary file with `rm <path>`" }, StringSplitOptions.None).Length - 1, name + " carries the rm rule exactly once");
+                        AssertContains("`sha256sum <path>`", edited.Content, name + " names sha256sum");
+                        AssertContains("- Operator custom rule", edited.Content, name + " keeps the operator edit");
+                        string embedded = fresh.GetEmbeddedDefault(name) ?? String.Empty;
+                        AssertContains("Delete a temporary file with `rm <path>`", embedded, "a fresh " + name + " default carries the rm rule");
+                        AssertContains("`sha256sum <path>`", embedded, "a fresh " + name + " default names sha256sum");
+                    }
+                }
+            });
+
             await RunTest("Fresh-seeded mission.rules carries the fleet guard rules", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
