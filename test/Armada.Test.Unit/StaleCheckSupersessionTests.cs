@@ -77,6 +77,20 @@ namespace Armada.Test.Unit
             return page.Objects.OrderBy(run => run.CreatedUtc).ToList();
         }
 
+        private static Mission LaneStage(string id, string? dependsOn, int? stageOrder, int minute, string? commit = null, string? branch = null)
+        {
+            Mission mission = new Mission("[Stage] " + id, "description");
+            mission.Id = id;
+            mission.Persona = "Worker";
+            mission.Status = MissionStatusEnum.WorkProduced;
+            mission.DependsOnMissionId = dependsOn;
+            mission.StageOrder = stageOrder;
+            mission.CommitHash = commit;
+            mission.BranchName = branch;
+            mission.CreatedUtc = new DateTime(2020, 1, 1, 0, minute, 0, DateTimeKind.Utc);
+            return mission;
+        }
+
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
@@ -273,6 +287,146 @@ namespace Armada.Test.Unit
                     AssertEqual(0, await svc.SupersedeForVoyageAsync(voyage).ConfigureAwait(false), "even when asked directly");
                     List<CheckRun> after = await ReadChecksAsync(testDb, voyage).ConfigureAwait(false);
                     AssertEqual(CheckRunStatusEnum.Passed, after[0].Status, "the record is untouched");
+                }
+            }).ConfigureAwait(false);
+            // A planner that splits its plan runs one line of work per branch. A green measured on
+            // one lane is current for that lane even when another lane committed later, so the sweep
+            // must not move records from lane to lane.
+            await RunTest("FanOut_EachLaneKeepsItsOwnGreen", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FanOutVoyageFixture fx = await FanOutVoyageFixture.CreateAsync(testDb).ConfigureAwait(false);
+                    await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneABranch, FanOutVoyageFixture.LaneACommit).ConfigureAwait(false);
+                    await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneABranch, FanOutVoyageFixture.LaneACommit).ConfigureAwait(false);
+                    await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneBBranch, FanOutVoyageFixture.LaneBCommit).ConfigureAwait(false);
+                    await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneBBranch, FanOutVoyageFixture.LaneBCommit).ConfigureAwait(false);
+
+                    StaleCheckSupersessionService svc = new StaleCheckSupersessionService(testDb.Driver, CreateLogging());
+                    AssertEqual(0, await svc.SupersedeForVoyageAsync(fx.Voyage).ConfigureAwait(false), "no lane's green is stale for its own lane");
+                    AssertEqual(0, await svc.SupersedeForVoyageAsync(fx.Voyage).ConfigureAwait(false), "a second sweep changes nothing either");
+
+                    List<CheckRun> after = await ReadChecksAsync(testDb, fx.Voyage).ConfigureAwait(false);
+                    AssertEqual(4, after.Count, "no record is re-armed");
+                    AssertTrue(after.All(run => run.Status == CheckRunStatusEnum.Passed), "every lane keeps its green");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("FanOut_PlannerCommitRecordIsRetiredOnceEveryLaneIsCovered", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FanOutVoyageFixture fx = await FanOutVoyageFixture.CreateAsync(testDb).ConfigureAwait(false);
+                    CheckRun plan = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, FanOutVoyageFixture.PlanBranch, FanOutVoyageFixture.PlanCommit).ConfigureAwait(false);
+                    CheckRun laneA = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneABranch, FanOutVoyageFixture.LaneACommit).ConfigureAwait(false);
+                    CheckRun laneB = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneBBranch, FanOutVoyageFixture.LaneBCommit).ConfigureAwait(false);
+
+                    StaleCheckSupersessionService svc = new StaleCheckSupersessionService(testDb.Driver, CreateLogging());
+                    AssertEqual(1, await svc.SupersedeForVoyageAsync(fx.Voyage).ConfigureAwait(false), "only the planner-commit record is retired");
+
+                    List<CheckRun> after = await ReadChecksAsync(testDb, fx.Voyage).ConfigureAwait(false);
+                    AssertEqual(3, after.Count, "no replacement: both lanes already have a verdict of their own");
+                    AssertEqual(CheckRunStatusEnum.Canceled, after.Single(run => run.Id == plan.Id).Status, "a record above the split decides no lane");
+                    AssertEqual(CheckRunStatusEnum.Passed, after.Single(run => run.Id == laneA.Id).Status, "lane A keeps its green");
+                    AssertEqual(CheckRunStatusEnum.Passed, after.Single(run => run.Id == laneB.Id).Status, "lane B keeps its green");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("VoyageLanes_OnlyAStepWithSeveralDependentsSplitsTheVoyage", () =>
+            {
+                Mission plan = LaneStage("msn_plan", null, null, 0);
+                Mission worker = LaneStage("msn_worker", "msn_plan", null, 1);
+                Mission judge = LaneStage("msn_judge", "msn_worker", null, 2);
+                IReadOnlyList<VoyageLane> chain = VoyageLanes.Resolve(new List<Mission> { judge, plan, worker });
+                AssertEqual(1, chain.Count, "a chain is one lane");
+                AssertTrue(chain[0].Owns("msn_plan") && chain[0].Owns("msn_judge"), "the one lane owns every stage");
+                AssertFalse(VoyageLanes.IsFanOut(chain), "a chain is not a fan-out");
+
+                Mission laneA = LaneStage("msn_a", "msn_plan", null, 1, "a1a1a1a1a1a1", "lane-a");
+                Mission laneAJudge = LaneStage("msn_a_judge", "msn_a", null, 3);
+                Mission laneB = LaneStage("msn_b", "msn_plan", null, 2, "b1b1b1b1b1b1", "lane-b");
+                IReadOnlyList<VoyageLane> fan = VoyageLanes.Resolve(new List<Mission> { plan, laneA, laneAJudge, laneB });
+                AssertEqual(2, fan.Count, "two stages that depend on the planner make two lanes");
+                VoyageLane fanA = fan.Single(lane => lane.Contains("msn_a"));
+                VoyageLane fanB = fan.Single(lane => lane.Contains("msn_b"));
+                AssertTrue(fanA.Contains("msn_plan") && fanB.Contains("msn_plan"), "the planner is in both lanes");
+                AssertFalse(fanA.Owns("msn_plan") || fanB.Owns("msn_plan"), "and owned by neither");
+                AssertTrue(fanA.Owns("msn_a") && fanA.Owns("msn_a_judge") && !fanA.Contains("msn_b"), "lane A holds its Worker and its Judge only");
+                AssertTrue(fanB.Owns("msn_b") && !fanB.Contains("msn_a"), "lane B holds its Worker only");
+                AssertTrue(ReferenceEquals(fanA, VoyageLanes.LaneOfMission(fan, laneAJudge)), "a Judge's lane is its dependency chain");
+                AssertEqual(null, VoyageLanes.LaneOfMission(fan, plan), "the planner belongs to no single lane");
+
+                Mission groupOne = LaneStage("msn_g1", "msn_plan", 1, 1);
+                Mission groupTwo = LaneStage("msn_g2", "msn_plan", 1, 2);
+                Mission next = LaneStage("msn_next", "msn_g2", 2, 3);
+                AssertEqual(1, VoyageLanes.Resolve(new List<Mission> { plan, groupOne, groupTwo, next }).Count,
+                    "members of one parallel stage group are one step of one lane");
+
+                Mission loneOne = LaneStage("msn_l1", null, null, 0);
+                Mission loneTwo = LaneStage("msn_l2", null, null, 1);
+                AssertEqual(1, VoyageLanes.Resolve(new List<Mission> { loneOne, loneTwo }).Count,
+                    "stages with no dependency at all keep the single-lane behaviour");
+
+                CheckRun byCommit = new CheckRun { CommitHash = "b1b1b1b1b1b1" };
+                CheckRun byBranch = new CheckRun { BranchName = "LANE-A" };
+                CheckRun unstamped = new CheckRun();
+                CheckRun above = new CheckRun { MissionId = "msn_plan" };
+                AssertTrue(ReferenceEquals(fanB, VoyageLanes.SingleLaneOfRecord(fan, byCommit)), "a record measured at a lane's commit belongs to that lane");
+                AssertTrue(ReferenceEquals(fanA, VoyageLanes.SingleLaneOfRecord(fan, byBranch)), "a record on a lane's branch belongs to that lane");
+                AssertEqual(2, VoyageLanes.LanesOfRecord(fan, unstamped).Count, "an unstamped record belongs to every lane");
+                AssertEqual(2, VoyageLanes.LanesOfRecord(fan, above).Count, "a record of the planner belongs to every lane");
+                AssertEqual(null, VoyageLanes.SingleLaneOfRecord(fan, unstamped), "so it decides no lane");
+                AssertTrue(ReferenceEquals(chain[0], VoyageLanes.SingleLaneOfRecord(chain, unstamped)), "on a single lane every record decides the one lane");
+            }).ConfigureAwait(false);
+            // The Judge gate, the executor's eligibility and stamping, and the supersession all ask
+            // the same question about a record: which lane does it measure? Compared record by
+            // record, they must give the same answer, and on a voyage that has not split they must
+            // give the answer they gave before lanes existed.
+            await RunTest("FanOut_EveryEntryPointAgreesOnARecordsLane", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FanOutVoyageFixture fx = await FanOutVoyageFixture.CreateAsync(testDb, laneATester: true).ConfigureAwait(false);
+                    List<CheckRun> records = new List<CheckRun>
+                    {
+                        new CheckRun { Id = "chk_lane_a", BranchName = FanOutVoyageFixture.LaneABranch, CommitHash = FanOutVoyageFixture.LaneACommit },
+                        new CheckRun { Id = "chk_lane_a_old", BranchName = FanOutVoyageFixture.LaneABranch, CommitHash = FanOutVoyageFixture.LaneAWorkerCommit },
+                        new CheckRun { Id = "chk_lane_a_branch", BranchName = FanOutVoyageFixture.LaneABranch },
+                        new CheckRun { Id = "chk_lane_b", BranchName = FanOutVoyageFixture.LaneBBranch, CommitHash = FanOutVoyageFixture.LaneBCommit },
+                        new CheckRun { Id = "chk_plan", BranchName = FanOutVoyageFixture.PlanBranch, CommitHash = FanOutVoyageFixture.PlanCommit },
+                        new CheckRun { Id = "chk_unstamped" }
+                    };
+                    foreach (CheckRun run in records) run.VoyageId = fx.Voyage.Id;
+
+                    List<Mission> missions = await testDb.Driver.Missions.EnumerateByVoyageAsync(fx.Voyage.Id).ConfigureAwait(false);
+                    int decided = 0;
+                    foreach (CheckRun run in records)
+                    {
+                        bool judgeA = VoyageLanes.ChecksForLaneOf(fx.LaneAJudge, missions, new List<CheckRun> { run }).Count == 1;
+                        bool judgeB = VoyageLanes.ChecksForLaneOf(fx.LaneBJudge, missions, new List<CheckRun> { run }).Count == 1;
+                        Mission? work = StaleCheckSupersessionService.SelectWorkUnderReviewFor(run, missions);
+                        Mission? final = StaleCheckSupersessionService.SelectFinalWorkUnderReviewFor(run, missions);
+
+                        AssertFalse(judgeA && judgeB, run.Id + " decides at most one Judge");
+                        AssertEqual(judgeA, work?.Id == fx.LaneATester!.Id, run.Id + ": lane A's Judge reads it exactly when it measures lane A's work");
+                        AssertEqual(judgeB, work?.Id == fx.LaneBWorker.Id, run.Id + ": lane B's Judge reads it exactly when it measures lane B's work");
+                        AssertEqual(work?.Id, final?.Id, run.Id + ": with every lane done, eligibility and stamping name the same work");
+                        if (judgeA || judgeB) decided++;
+                    }
+                    AssertEqual(4, decided, "the four lane records decide a lane; the planner and unstamped records decide none");
+
+                    List<Mission> chain = missions.Where(mission => mission.Id != fx.LaneBWorker.Id && mission.Id != fx.LaneBJudge.Id).ToList();
+                    foreach (CheckRun run in records)
+                    {
+                        AssertEqual(1, VoyageLanes.ChecksForLaneOf(fx.LaneAJudge, chain, new List<CheckRun> { run }).Count,
+                            run.Id + ": on a voyage that has not split the Judge reads every record");
+                        AssertEqual(StaleCheckSupersessionService.SelectWorkUnderReview(chain)?.Id,
+                            StaleCheckSupersessionService.SelectWorkUnderReviewFor(run, chain)?.Id,
+                            run.Id + ": on a voyage that has not split the record measures the voyage's work");
+                        AssertEqual(StaleCheckSupersessionService.SelectFinalWorkUnderReview(chain)?.Id,
+                            StaleCheckSupersessionService.SelectFinalWorkUnderReviewFor(run, chain)?.Id,
+                            run.Id + ": on a voyage that has not split eligibility is unchanged");
+                    }
                 }
             }).ConfigureAwait(false);
         }

@@ -200,6 +200,30 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            // Each lane of a split voyage is final on its own: a lane whose stages are done is
+            // reviewed by its own Judge while another lane is still working, and that Judge needs a
+            // verdict on its lane's commit, not one deferred until every lane is finished.
+            await RunTest("A lane's armed check runs while another lane is still working", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FanOutVoyageFixture fx = await FanOutVoyageFixture.CreateAsync(testDb, laneBWorkerStatus: MissionStatusEnum.InProgress).ConfigureAwait(false);
+                    CheckRun laneA = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Pending,
+                        FanOutVoyageFixture.LaneABranch, FanOutVoyageFixture.LaneACommit).ConfigureAwait(false);
+                    CheckRun laneB = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Pending,
+                        FanOutVoyageFixture.LaneBBranch, null).ConfigureAwait(false);
+                    CheckRun shared = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Pending, null, null).ConfigureAwait(false);
+
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    AssertTrue(await orchestrator.IsEligibleAsync(laneA, default).ConfigureAwait(false),
+                        "lane A's work is final, so its check runs although lane B can still commit");
+                    AssertFalse(await orchestrator.IsEligibleAsync(laneB, default).ConfigureAwait(false),
+                        "lane B's Worker can still commit, so lane B's check waits");
+                    AssertFalse(await orchestrator.IsEligibleAsync(shared, default).ConfigureAwait(false),
+                        "an unstamped record shared by both lanes measures no lane, so it never runs");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Armed check of a single committed and completed stage is eligible", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

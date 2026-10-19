@@ -9910,14 +9910,28 @@ namespace Armada.Core.Services
 
         internal async Task<JudgeCheckGate> EvaluateJudgeCheckGateAsync(Mission judgeMission, CancellationToken token)
         {
+            List<Mission>? voyageMissions = null;
             if (!String.IsNullOrEmpty(judgeMission.VoyageId))
             {
-                List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(judgeMission.VoyageId, token).ConfigureAwait(false);
+                voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(judgeMission.VoyageId, token).ConfigureAwait(false);
                 if (VoyageReportOnlyClassifier.IsFullyReportOnly(voyageMissions))
                 {
                     _LastJudgeGateChecks = new List<CheckRun>();
                     _LastJudgeReviewedCommit = judgeMission.CommitHash;
                     return JudgeCheckGate.GreenChecks;
+                }
+
+                // On a voyage that has split into lanes, bring every lane's records up to date first:
+                // a lane with no verdict of its own is armed at its own commit here, so this Judge
+                // waits for it instead of reading another lane's records.
+                if (VoyageLanes.IsFanOut(VoyageLanes.Resolve(voyageMissions)))
+                {
+                    Voyage? voyage = await _Database.Voyages.ReadAsync(judgeMission.VoyageId, token).ConfigureAwait(false);
+                    if (voyage != null)
+                    {
+                        StaleCheckSupersessionService supersession = new StaleCheckSupersessionService(_Database, _Logging);
+                        await supersession.SupersedeForVoyageAsync(voyage, token).ConfigureAwait(false);
+                    }
                 }
             }
 
@@ -9930,7 +9944,8 @@ namespace Armada.Core.Services
             Dictionary<string, CheckRun> checks = await CheckRunEnumeration
                 .ReadAllAsync(_Database, judgeMission.TenantId, queries, token).ConfigureAwait(false);
 
-            List<CheckRun> collected = checks.Values.ToList();
+            // The records of this Judge's lane only; on a voyage that has not split, every record.
+            List<CheckRun> collected = VoyageLanes.ChecksForLaneOf(judgeMission, voyageMissions, checks.Values);
             await StampArmedChecksAtReviewedCommitAsync(collected, judgeMission, token).ConfigureAwait(false);
             _LastJudgeGateChecks = CheckRunGateRules.SelectLatestPerCheck(collected);
             _LastJudgeReviewedCommit = judgeMission.CommitHash;

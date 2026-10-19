@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Linq;
     using System.Text.Json;
@@ -31,6 +32,13 @@ namespace Armada.Core.Services
     /// is ignored by every gate. That is the same rule an operator follows by hand when a flake is
     /// retried to green.
     /// </para>
+    /// <para>
+    /// A voyage that splits into several lanes (<see cref="VoyageLanes"/>) is decided lane by lane.
+    /// Each record is compared with the work of the one lane it measures, a lane whose work is final
+    /// gets its own records stamped at its own commit, and a record that measures several lanes at
+    /// once (armed at dispatch before the split, or run at a planner commit above it) is retired once
+    /// every lane it spans has a verdict of its own.
+    /// </para>
     /// </remarks>
     public class StaleCheckSupersessionService
     {
@@ -40,6 +48,7 @@ namespace Armada.Core.Services
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule? _Logging;
         private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Web;
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _VoyageLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
 
         #endregion
 
@@ -134,6 +143,48 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// The mission whose commit a particular voyage-armed record should measure.
+        /// </summary>
+        /// <remarks>
+        /// On a voyage that has not split this is <see cref="SelectWorkUnderReview"/>. On a voyage
+        /// that has split it is the work of the one lane the record measures
+        /// (<see cref="VoyageLanes.SingleLaneOfRecord"/>), and null for a record that measures
+        /// several lanes or a lane that has committed nothing of its own yet.
+        /// </remarks>
+        /// <param name="run">The record.</param>
+        /// <param name="missions">The voyage's missions, in any order.</param>
+        /// <returns>The mission carrying the work the record measures, or null.</returns>
+        public static Mission? SelectWorkUnderReviewFor(CheckRun? run, IEnumerable<Mission>? missions)
+        {
+            List<Mission> list = missions?.Where(mission => mission != null).ToList() ?? new List<Mission>();
+            IReadOnlyList<VoyageLane> lanes = VoyageLanes.Resolve(list);
+            if (!VoyageLanes.IsFanOut(lanes)) return SelectWorkUnderReview(list);
+            VoyageLane? lane = VoyageLanes.SingleLaneOfRecord(lanes, run);
+            return lane == null ? null : SelectLaneWork(lane);
+        }
+
+        /// <summary>
+        /// The final work a particular voyage-armed record would measure if it ran now, or null while
+        /// the work it measures can still change.
+        /// </summary>
+        /// <remarks>
+        /// On a voyage that has not split this is <see cref="SelectFinalWorkUnderReview"/>. On a voyage
+        /// that has split only the stages of the record's own lane can hold it back, so a lane whose
+        /// stages are done runs its Checks while another lane is still working.
+        /// </remarks>
+        /// <param name="run">The record.</param>
+        /// <param name="missions">The voyage's missions, in any order.</param>
+        /// <returns>The mission carrying final work, or null.</returns>
+        public static Mission? SelectFinalWorkUnderReviewFor(CheckRun? run, IEnumerable<Mission>? missions)
+        {
+            List<Mission> list = missions?.Where(mission => mission != null).ToList() ?? new List<Mission>();
+            IReadOnlyList<VoyageLane> lanes = VoyageLanes.Resolve(list);
+            if (!VoyageLanes.IsFanOut(lanes)) return SelectFinalWorkUnderReview(list);
+            VoyageLane? lane = VoyageLanes.SingleLaneOfRecord(lanes, run);
+            return lane == null ? null : SelectFinalLaneWork(lane);
+        }
+
+        /// <summary>
         /// Decide whether a fresh record is needed once a stale green has been ruled out. None is
         /// needed when a sibling of the same type already covers the work: one still queued or
         /// running (it is stamped at execution and will measure the current work), or one that
@@ -206,6 +257,9 @@ namespace Armada.Core.Services
             if (!IsLiveVoyageStatus(voyage.Status)) return 0;
 
             List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+            IReadOnlyList<VoyageLane> lanes = VoyageLanes.Resolve(missions);
+            if (VoyageLanes.IsFanOut(lanes)) return await SupersedeForLanesAsync(voyage, lanes, token).ConfigureAwait(false);
+
             Mission? work = SelectWorkUnderReview(missions);
             if (work == null) return 0;
 
@@ -259,6 +313,173 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static Mission? SelectLaneWork(VoyageLane lane)
+        {
+            // Work above the split is not a lane's own: a record stamped there would measure every
+            // lane at once and decide none of them.
+            Mission? work = SelectWorkUnderReview(lane.Missions);
+            return work != null && lane.Owns(work.Id) ? work : null;
+        }
+
+        private static Mission? SelectFinalLaneWork(VoyageLane lane)
+        {
+            if (lane.Missions.Any(MayStillCommit)) return null;
+            return SelectLaneWork(lane);
+        }
+
+        private static bool IsVoyageGateType(CheckRun run)
+        {
+            return String.IsNullOrWhiteSpace(run.MissionId)
+                && String.IsNullOrWhiteSpace(run.DeploymentId)
+                && run.Type != CheckRunTypeEnum.Deploy
+                && run.Type != CheckRunTypeEnum.Rollback
+                && run.Type != CheckRunTypeEnum.RollbackVerification;
+        }
+
+        private static bool LaneCovers(
+            IReadOnlyList<VoyageLane> lanes, VoyageLane lane, IEnumerable<CheckRun> records, CheckRunTypeEnum type, string? workCommit, string? excludeId)
+        {
+            foreach (CheckRun run in records)
+            {
+                if (run == null || run.Type != type) continue;
+                if (excludeId != null && String.Equals(run.Id, excludeId, StringComparison.Ordinal)) continue;
+                if (!ReferenceEquals(VoyageLanes.SingleLaneOfRecord(lanes, run), lane)) continue;
+                if (run.Status == CheckRunStatusEnum.Pending || run.Status == CheckRunStatusEnum.Running) return true;
+                // A red at the lane's commit is a verdict too: arming another record would bury it.
+                if ((run.Status == CheckRunStatusEnum.Passed || run.Status == CheckRunStatusEnum.Failed)
+                    && CheckRunGateRules.SameCommit(run.CommitHash, workCommit)) return true;
+            }
+
+            return false;
+        }
+
+        private async Task<CheckRun> ArmLaneRecordAsync(Voyage voyage, CheckRun template, Mission work, string label, CancellationToken token)
+        {
+            CheckRun armed = new CheckRun
+            {
+                TenantId = template.TenantId ?? voyage.TenantId,
+                UserId = template.UserId,
+                VesselId = template.VesselId ?? work.VesselId,
+                VoyageId = voyage.Id,
+                WorkflowProfileId = template.WorkflowProfileId,
+                Type = template.Type,
+                Source = template.Source,
+                Status = CheckRunStatusEnum.Pending,
+                Label = label,
+                BranchName = work.BranchName,
+                CommitHash = work.CommitHash
+            };
+            return await _Database.CheckRuns.CreateAsync(armed, token).ConfigureAwait(false);
+        }
+
+        private async Task<int> SupersedeForLanesAsync(Voyage voyage, IReadOnlyList<VoyageLane> lanes, CancellationToken token)
+        {
+            // The Judge gate and the fleet sweep both call this; one at a time per voyage, so two
+            // callers never arm the same lane twice.
+            SemaphoreSlim voyageLock = _VoyageLocks.GetOrAdd(voyage.Id, _ => new SemaphoreSlim(1, 1));
+            await voyageLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                EnumerationResult<CheckRun> attached = await _Database.CheckRuns
+                    .EnumerateAsync(new CheckRunQuery { TenantId = voyage.TenantId, VoyageId = voyage.Id, PageNumber = 1, PageSize = 200 }, token)
+                    .ConfigureAwait(false);
+                List<CheckRun> records = attached.Objects.Where(run => run != null).ToList();
+                int changed = 0;
+
+                // A record of one lane that measured older work of that lane.
+                foreach (CheckRun stale in records.ToList())
+                {
+                    VoyageLane? lane = VoyageLanes.SingleLaneOfRecord(lanes, stale);
+                    if (lane == null) continue;
+                    Mission? work = SelectLaneWork(lane);
+                    if (work == null || !CheckRunGateRules.IsStale(stale, work.CommitHash)) continue;
+
+                    CheckRunStatusEnum priorStatus = stale.Status;
+                    CheckRun? replacement = null;
+                    if (SelectFinalLaneWork(lane) != null && !LaneCovers(lanes, lane, records, stale.Type, work.CommitHash, stale.Id))
+                    {
+                        replacement = await ArmLaneRecordAsync(voyage, stale, work,
+                            stale.Type.ToString() + " (re-armed: lane work moved to " + Abbreviate(work.CommitHash) + ")", token).ConfigureAwait(false);
+                        records.Add(replacement);
+                    }
+
+                    stale.Status = CheckRunStatusEnum.Canceled;
+                    stale.Summary = "Superseded"
+                        + (replacement == null ? String.Empty : " by " + replacement.Id)
+                        + ": this record " + (priorStatus == CheckRunStatusEnum.Failed ? "failed" : "passed") + " at " + Abbreviate(stale.CommitHash)
+                        + " but the work of its lane (ending in mission " + lane.LeafMissionId + ") moved to " + Abbreviate(work.CommitHash)
+                        + " (mission " + work.Id + "). A verdict for older work does not decide newer work.";
+                    stale.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.CheckRuns.UpdateAsync(stale, token).ConfigureAwait(false);
+                    await WriteEventAsync(stale, replacement, work, priorStatus, token).ConfigureAwait(false);
+                    _Logging?.Info(_Header + "superseded check " + stale.Id + " on voyage " + voyage.Id + " lane " + lane.LeafMissionId
+                        + "; lane work is " + Abbreviate(work.CommitHash)
+                        + (replacement == null ? String.Empty : "; re-armed as " + replacement.Id));
+                    changed++;
+                }
+
+                // A lane whose work is final and that has no record of an armed type gets one stamped
+                // at its own commit, so its Judge waits for a verdict instead of reading another lane's.
+                List<CheckRun> templates = records
+                    .Where(IsVoyageGateType)
+                    .OrderBy(run => run.CreatedUtc)
+                    .GroupBy(run => run.Type)
+                    .Select(group => group.First())
+                    .ToList();
+                foreach (VoyageLane lane in lanes)
+                {
+                    Mission? work = SelectFinalLaneWork(lane);
+                    if (work == null) continue;
+                    foreach (CheckRun template in templates)
+                    {
+                        if (LaneCovers(lanes, lane, records, template.Type, work.CommitHash, null)) continue;
+                        CheckRun armed = await ArmLaneRecordAsync(voyage, template, work,
+                            template.Type.ToString() + " (armed for lane ending in " + lane.LeafMissionId + ")", token).ConfigureAwait(false);
+                        records.Add(armed);
+                        _Logging?.Info(_Header + "armed check " + armed.Id + " on voyage " + voyage.Id + " for lane " + lane.LeafMissionId
+                            + " at " + Abbreviate(work.CommitHash));
+                    }
+                }
+
+                // A record that measures several lanes decides none of them; once every lane it spans
+                // has a verdict of its own it is retired.
+                foreach (CheckRun shared in records.ToList())
+                {
+                    if (shared.Status == CheckRunStatusEnum.Canceled || shared.Status == CheckRunStatusEnum.Running) continue;
+                    if (!IsVoyageGateType(shared)) continue;
+                    IReadOnlyList<VoyageLane> spans = VoyageLanes.LanesOfRecord(lanes, shared);
+                    if (spans.Count < 2) continue;
+                    bool covered = true;
+                    foreach (VoyageLane lane in spans)
+                    {
+                        Mission? work = SelectFinalLaneWork(lane);
+                        if (work == null || !LaneCovers(lanes, lane, records, shared.Type, work.CommitHash, null))
+                        {
+                            covered = false;
+                            break;
+                        }
+                    }
+                    if (!covered) continue;
+
+                    CheckRunStatusEnum priorStatus = shared.Status;
+                    shared.Status = CheckRunStatusEnum.Canceled;
+                    shared.Summary = "Superseded: this record measures " + spans.Count + " lanes of a split voyage"
+                        + (String.IsNullOrWhiteSpace(shared.CommitHash) ? String.Empty : " (at " + Abbreviate(shared.CommitHash) + ")")
+                        + ", and each lane has a record of its own. A record shared by several lanes decides none of them.";
+                    shared.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.CheckRuns.UpdateAsync(shared, token).ConfigureAwait(false);
+                    _Logging?.Info(_Header + "retired shared check " + shared.Id + " (" + priorStatus + ") on voyage " + voyage.Id);
+                    changed++;
+                }
+
+                return changed;
+            }
+            finally
+            {
+                voyageLock.Release();
+            }
+        }
 
         private static string Abbreviate(string? commit)
         {

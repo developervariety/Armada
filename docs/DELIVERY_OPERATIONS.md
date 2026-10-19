@@ -248,6 +248,12 @@ commit hash and the full hash name the same commit. A run of a different command
 such as a filtered test run, is a different Check and does not clear the full
 command's failure.
 
+On a voyage that splits into lanes (two or more stages depend on one stage),
+each Judge reads only the records of its own lane, a record is stale only
+against its own lane's work, and a done lane with no record of an armed Check
+type gets one stamped at its own commit. A record that spans several lanes
+decides none of them. See [Check rules on a split voyage](armada-ops.md#check-rules-on-a-split-voyage).
+
 These three return a BOUNDED view: status, exit code, parsed test and coverage
 totals, artifacts, the last lines of output, and `testOutcomes`: every failing
 test with its first exception line and the skipped tests, read from the whole
@@ -303,7 +309,8 @@ sweep: a voyage-armed Check once a stage has committed work to a branch and
 no stage that can still commit remains (a Pending, Assigned or InProgress stage
 other than the Judge, a persona whose normal result is an empty diff, or a
 read-only mission), so the Check measures the commit the Judge reviews instead
-of an intermediate one a later stage replaces; a mission-linked Check after its mission completes, a release-linked Check when
+of an intermediate one a later stage replaces (on a split voyage, only the
+stages of the record's own lane count); a mission-linked Check after its mission completes, a release-linked Check when
 the release is ready, and an unlinked Check when its vessel is idle. A Pending
 Check of a voyage that ended without completing is cancelled with its reason.
 Cancellation, execution and source stamping re-read the current Check under a

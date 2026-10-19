@@ -449,7 +449,9 @@ namespace Armada.Test.Unit.Suites.Services
                         "The work is complete and correctly scoped.\n" +
                         "tokens used\n" +
                         "48,676";
-                    await AddGreenVoyageCheckAsync(testDb, voyage.Id).ConfigureAwait(false);
+                    // The voyage has split into two lanes, so the green must measure this lane's branch to
+                    // decide this lane's Judge.
+                    await AddGreenVoyageCheckAsync(testDb, voyage.Id, apiWorker.BranchName).ConfigureAwait(false);
                     await missionService.HandleCompletionAsync(judgeCaptain!, apiJudge.Id).ConfigureAwait(false);
 
                     apiJudge = await testDb.Driver.Missions.ReadAsync(apiJudge.Id).ConfigureAwait(false);
@@ -1837,11 +1839,12 @@ namespace Armada.Test.Unit.Suites.Services
             return (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
         }
 
-        private static async Task AddGreenVoyageCheckAsync(TestDatabase testDb, string voyageId)
+        private static async Task AddGreenVoyageCheckAsync(TestDatabase testDb, string voyageId, string? branchName = null)
         {
             CheckRun run = new CheckRun
             {
                 VoyageId = voyageId,
+                BranchName = branchName,
                 Label = "Build",
                 Type = CheckRunTypeEnum.Build,
                 Source = CheckRunSourceEnum.Armada,

@@ -348,16 +348,17 @@ namespace Armada.Server
 
         /// <summary>
         /// The mission carrying the work a voyage-armed Check should measure: a stage that has
-        /// committed to a branch. Returns null while no stage has produced measurable work.
+        /// committed to a branch, in the record's own lane when the voyage has split. Returns null
+        /// while no stage has produced measurable work for the record.
         /// </summary>
-        private async Task<Mission?> ResolveWorkUnderReviewAsync(string voyageId, CancellationToken token)
+        private async Task<Mission?> ResolveWorkUnderReviewAsync(CheckRun run, CancellationToken token)
         {
-            List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
+            List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(run.VoyageId!, token).ConfigureAwait(false);
 
-            // One definition, shared with the supersession service: the executor stamps from it and
-            // the supersession compares against it, so they cannot disagree about which commit a
-            // record ought to carry.
-            return StaleCheckSupersessionService.SelectWorkUnderReview(missions);
+            // One definition, shared with the supersession service and the Judge gate: the executor
+            // stamps from it and the supersession compares against it, so they cannot disagree about
+            // which commit a record ought to carry.
+            return StaleCheckSupersessionService.SelectWorkUnderReviewFor(run, missions);
         }
 
         /// <summary>
@@ -379,7 +380,7 @@ namespace Armada.Server
             Voyage? voyage = await _Database.Voyages.ReadAsync(run.VoyageId, token).ConfigureAwait(false);
             if (voyage == null || voyage.Status == VoyageStatusEnum.Complete) return run;
 
-            Mission? work = await ResolveWorkUnderReviewAsync(run.VoyageId!, token).ConfigureAwait(false);
+            Mission? work = await ResolveWorkUnderReviewAsync(run, token).ConfigureAwait(false);
             if (work == null) return run;
 
             CheckRun? stamped = await CheckRunService.StampPendingSourceAsync(
@@ -463,7 +464,8 @@ namespace Armada.Server
                 // is the point the gate actually needs an answer. Running before then measures a commit
                 // a later stage replaces, and that green is superseded without deciding anything.
                 List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(run.VoyageId!, token).ConfigureAwait(false);
-                return StaleCheckSupersessionService.SelectFinalWorkUnderReview(missions) != null;
+                // On a voyage that has split, only the record's own lane decides when its work is final.
+                return StaleCheckSupersessionService.SelectFinalWorkUnderReviewFor(run, missions) != null;
             }
 
             if (!String.IsNullOrWhiteSpace(run.MissionId))

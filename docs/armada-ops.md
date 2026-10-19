@@ -89,6 +89,37 @@ class and the original diagnostics. The operator corrects the host or workflow
 configuration and reruns the gate. `Compile` and `TestFail` remain eligible for
 rescue under the other recovery rules.
 
+## Check rules on a split voyage
+
+A voyage splits into lanes when two or more stages depend on the same stage,
+as when an Architect plans several lines of work. A lane is a leaf of the
+voyage's `DependsOnMissionId` graph plus every stage above it. The members of
+one parallel stage group are one step of one lane. A voyage in which no stage
+has more than one dependent has a single lane, and its Checks follow the
+ordinary rules unchanged.
+
+On a split voyage each lane is decided by its own Check records:
+
+- A record belongs to the lane whose stages hold its mission, else its
+  commit, else its branch. A record that matches several lanes or none (an
+  unstamped record armed at dispatch, or one run at the planner's commit)
+  decides no lane.
+- A Judge's gate reads only the records of its own lane and the records
+  attached to the Judge itself. Another lane's green is not stale for it, and
+  another lane's red does not reject it.
+- A record is stale only against the work of its own lane. The supersession
+  re-arms it stamped at its lane's commit, never at another lane's.
+- A lane whose stages are done runs its Checks while another lane still
+  works. Once a lane is done, every Check type armed for the voyage that the
+  lane has no record of is armed for it, stamped at its commit. A lane with no
+  record of its own is therefore held for a verdict, not read as green.
+- A record that spans several lanes is cancelled once every lane it spans has
+  a record of its own for that Check type.
+
+The Judge gate, Check eligibility and stamping, and the supersession all
+resolve lanes through one rule (`VoyageLanes`), so they cannot disagree about
+which lane a record measures.
+
 ## Chapters
 
 These links open the tracked templates. On an installed deployment, read the

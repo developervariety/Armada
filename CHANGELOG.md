@@ -131,6 +131,13 @@ upstream integrations and excludes changes already present at that baseline.
   mission and voyage listings match what the status reads return. An undeclared
   argument is refused by name instead of being ignored, so a misspelled filter
   never returns an unfiltered listing.
+- On a voyage that splits into lanes, each Judge's Check gate reads only its own
+  lane's records. Another lane's green no longer reads as stale, and another
+  lane's red no longer rejects it. The supersession re-arms a stale record at
+  its own lane's commit instead of moving records between lanes. A done lane
+  runs its Checks while another lane still works, and a lane with no record of
+  an armed Check type gets one stamped at its own commit. Voyages that do not
+  split behave as before.
 - A definition-of-done gate holds the host command slot from its first command
   until it ends. Its unit tests and each consumer build and test follow its
   build directly instead of going to the back of the queue for every command,

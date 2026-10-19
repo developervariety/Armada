@@ -27,6 +27,16 @@ namespace Armada.Test.Unit
             return logging;
         }
 
+        private MissionService CreateGateService(TestDatabase testDb)
+        {
+            LoggingModule logging = CreateLogging();
+            ArmadaSettings settings = CreateSettings();
+            StubGitService git = new StubGitService();
+            IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+            ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+            return new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+        }
+
         private ArmadaSettings CreateSettings()
         {
             ArmadaSettings settings = new ArmadaSettings();
@@ -979,6 +989,71 @@ namespace Armada.Test.Unit
                         MissionService.JudgeCheckGate.HasPending,
                         await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
                         "a Check with a real command is genuine queued work and still holds the PASS");
+                }
+            }).ConfigureAwait(false);
+
+            // A planner that splits its plan runs several lines of work in one voyage, each with its
+            // own branch and its own Judge. A record that measured another lane is not a verdict on
+            // this lane's commit, so it must neither hold nor reject this lane's Judge.
+            await RunTest("JudgeGate_FanOut_AnotherLanesRecordsNeitherHoldNorReject", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    MissionService svc = CreateGateService(testDb);
+                    FanOutVoyageFixture fx = await FanOutVoyageFixture.CreateAsync(testDb).ConfigureAwait(false);
+                    await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneABranch, FanOutVoyageFixture.LaneACommit).ConfigureAwait(false);
+                    await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneABranch, FanOutVoyageFixture.LaneACommit).ConfigureAwait(false);
+                    await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneBBranch, FanOutVoyageFixture.LaneBCommit).ConfigureAwait(false);
+                    await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Failed, FanOutVoyageFixture.LaneBBranch, FanOutVoyageFixture.LaneBCommit).ConfigureAwait(false);
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.GreenChecks,
+                        await svc.EvaluateJudgeCheckGateAsync(fx.LaneAJudge, CancellationToken.None).ConfigureAwait(false),
+                        "lane A's own greens decide lane A's Judge; lane B's green is not stale for it and lane B's red does not reject it");
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.HasFailed,
+                        await svc.EvaluateJudgeCheckGateAsync(fx.LaneBJudge, CancellationToken.None).ConfigureAwait(false),
+                        "lane B's own red still rejects lane B's Judge");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("JudgeGate_FanOut_StaleRecordOfTheSameLaneStillHolds", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    MissionService svc = CreateGateService(testDb);
+                    FanOutVoyageFixture fx = await FanOutVoyageFixture.CreateAsync(testDb, laneATester: true).ConfigureAwait(false);
+                    await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneABranch, FanOutVoyageFixture.LaneAWorkerCommit).ConfigureAwait(false);
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.HasPending,
+                        await svc.EvaluateJudgeCheckGateAsync(fx.LaneAJudge, CancellationToken.None).ConfigureAwait(false),
+                        "a green that measured lane A's Worker commit is stale for the TestEngineer commit lane A's Judge reviews");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("JudgeGate_FanOut_LaneWithNoRecordsIsArmedAtItsOwnCommit", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    MissionService svc = CreateGateService(testDb);
+                    FanOutVoyageFixture fx = await FanOutVoyageFixture.CreateAsync(testDb).ConfigureAwait(false);
+                    CheckRun laneBBuild = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneBBranch, FanOutVoyageFixture.LaneBCommit).ConfigureAwait(false);
+                    CheckRun laneBTests = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneBBranch, FanOutVoyageFixture.LaneBCommit).ConfigureAwait(false);
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.HasPending,
+                        await svc.EvaluateJudgeCheckGateAsync(fx.LaneAJudge, CancellationToken.None).ConfigureAwait(false),
+                        "lane A has no verdict of its own yet, so its Judge waits");
+
+                    List<CheckRun> records = (await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery { VoyageId = fx.Voyage.Id, PageSize = 100 }).ConfigureAwait(false)).Objects;
+                    List<CheckRun> laneA = records.Where(r => r.Status == CheckRunStatusEnum.Pending
+                        && String.Equals(r.CommitHash, FanOutVoyageFixture.LaneACommit, StringComparison.Ordinal)
+                        && String.Equals(r.BranchName, FanOutVoyageFixture.LaneABranch, StringComparison.Ordinal)).ToList();
+                    AssertTrue(laneA.Any(r => r.Type == CheckRunTypeEnum.Build), "lane A gets a Build record stamped at its own commit");
+                    AssertTrue(laneA.Any(r => r.Type == CheckRunTypeEnum.UnitTest), "lane A gets a UnitTest record stamped at its own commit");
+                    AssertEqual(CheckRunStatusEnum.Passed, records.Single(r => r.Id == laneBBuild.Id).Status, "lane B's Build green stays");
+                    AssertEqual(CheckRunStatusEnum.Passed, records.Single(r => r.Id == laneBTests.Id).Status, "lane B's UnitTest green stays");
                 }
             }).ConfigureAwait(false);
 

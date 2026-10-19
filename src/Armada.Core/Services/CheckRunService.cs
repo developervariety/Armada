@@ -887,7 +887,7 @@ namespace Armada.Core.Services
                 && !String.IsNullOrWhiteSpace(run.VoyageId))
             {
                 List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(run.VoyageId!, token).ConfigureAwait(false);
-                Mission? work = StaleCheckSupersessionService.SelectWorkUnderReview(missions);
+                Mission? work = StaleCheckSupersessionService.SelectWorkUnderReviewFor(run, missions);
                 if (work != null)
                 {
                     run.BranchName = work.BranchName;
