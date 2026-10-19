@@ -502,6 +502,22 @@ clients. Adding them takes a rebuild; there is no runtime switch.
 
 Restore replaces the database only on SQLite; see `docs/REST_API.md`.
 
+## Captain Study Tools
+
+Captains run inside the admiral container, so the tools a study needs must be
+in the image. `src/Armada.Server/Dockerfile` installs:
+
+| Tool | Use | Package |
+| --- | --- | --- |
+| `pdftotext` | Read text from PDF sources | `poppler-utils` |
+| `monodis` | Disassemble .NET IL | `mono-utils` |
+| `dnfile` (Python) | Walk .NET metadata tables, for example custom attributes | pip `dnfile`, pinned by the `DNFILE_VERSION` build argument |
+| `sha256sum` | Hash an artifact | `coreutils` (in the base image) |
+
+An image built without them takes a rebuild (see "Rebuilding a local image with
+rollback retention"). Verify with
+`docker exec armada-admiral bash -lc 'pdftotext -v; command -v monodis; python3 -c "import dnfile"'`.
+
 ## Ports Reference
 
 | Port | Protocol | Service | Description |

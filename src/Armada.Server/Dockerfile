@@ -106,10 +106,19 @@ WORKDIR /app
 # Server's ODBC 18 sqlcmd is not installed: it needs Microsoft's apt repository
 # and an in-image EULA acceptance. Install mssql-tools18 in a derived image
 # when the admiral uses SQL Server.
+#
+# Captain study tools: pdftotext (poppler-utils) reads PDF sources, monodis
+# (mono-utils) disassembles .NET IL, and the dnfile Python package walks .NET
+# metadata tables. sha256sum ships with coreutils. dnfile is pinned so a rebuild
+# installs the version these tools were checked against; the base image's
+# Python is externally managed, so pip installs it system-wide explicitly.
 ARG CLI_REFRESH=0
+ARG DNFILE_VERSION=0.18.0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl default-jdk-headless gh git glab gnupg iproute2 \
         postgresql-client-16 mysql-client-8.0 \
+        poppler-utils mono-utils python3-pip \
+    && pip3 install --no-cache-dir --break-system-packages "dnfile==${DNFILE_VERSION}" \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
         | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
