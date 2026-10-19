@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import Memories from './Memories';
-import { listMemories } from '../api/client';
+import { listMemories, createMemory } from '../api/client';
 import type { Memory } from '../types/models';
 
 const translate = (text: string, params?: Record<string, string | number | null | undefined>) => {
@@ -15,8 +15,10 @@ const notifications = { pushToast: vi.fn() };
 
 vi.mock('../api/client', () => ({
   listMemories: vi.fn(),
+  createMemory: vi.fn(),
   deleteMemory: vi.fn(),
 }));
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ isAdmin: true, isTenantAdmin: true, user: { user: { id: 'usr_1', tenantId: 'ten_1' } } }) }));
 vi.mock('../context/LocaleContext', () => ({ useLocale: () => localeValue }));
 vi.mock('../context/NotificationContext', () => ({ useNotifications: () => notifications }));
 
@@ -30,6 +32,7 @@ const memory = {
 describe('Memories table', () => {
   beforeEach(() => {
     localStorage.clear();
+    vi.clearAllMocks();
     vi.mocked(listMemories).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 25, totalPages: 1, totalRecords: 1, totalMs: 1, objects: [memory] } as never);
   });
 
@@ -52,4 +55,23 @@ describe('Memories table', () => {
     expect(within(menu).getByRole('menuitemcheckbox', { name: /^Summary/ })).toHaveAttribute('aria-disabled', 'true');
     expect(within(menu).getByRole('menuitemcheckbox', { name: /^Salience/ })).not.toHaveAttribute('aria-disabled');
   });
+});
+
+
+it('duplicates an editable memory draft without reusing its upsert key or identity', async () => {
+  vi.mocked(listMemories).mockResolvedValue({ objects: [{ ...memory, key: 'canonical-key' }], totalRecords: 1, totalPages: 1 } as never);
+  vi.mocked(createMemory).mockResolvedValue(memory);
+  render(<Memories />);
+  await screen.findByText(CONTENT);
+  fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+  const dialog = screen.getByRole('dialog', { name: 'Duplicate Memory' });
+  expect(createMemory).not.toHaveBeenCalled();
+  fireEvent.change(within(dialog).getByLabelText('Content'), { target: { value: 'A new fact' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save Copy' }));
+  await vi.waitFor(() => expect(createMemory).toHaveBeenCalledWith(expect.objectContaining({ content: 'A new fact', type: 'Semantic', sourceKind: 'Manual' })));
+  const payload = vi.mocked(createMemory).mock.calls[0][0];
+  expect(payload).not.toHaveProperty('id');
+  expect(payload).not.toHaveProperty('key');
+  expect(payload).not.toHaveProperty('version');
 });

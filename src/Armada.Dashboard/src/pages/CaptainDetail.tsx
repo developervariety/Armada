@@ -640,6 +640,10 @@ export default function CaptainDetail() {
             recordCount={null}
             onRowClick={(m) => navigate(`/missions/${m.id}`)}
             columns={[
+              { key: 'actions', label: t('Actions'), fixed: true, interactive: true, render: m => <ActionMenu id={`captain-mission-${m.id}`} items={[
+                { label: 'Open', onClick: () => navigate(`/missions/${m.id}`) },
+                { label: 'Duplicate', onClick: () => navigate(`/missions?duplicate=${encodeURIComponent(m.id)}`) },
+              ]} /> },
               {
                 key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'),
                 render: (m) => <strong className="cell-one-line" title={m.title}>{m.title}</strong>,

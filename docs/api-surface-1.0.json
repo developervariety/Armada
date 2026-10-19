@@ -2958,6 +2958,25 @@
     },
     {
       "method": "POST",
+      "route": "/api/v1/model-endpoints/{id}/duplicate",
+      "auth": "Authenticated",
+      "resource": "ModelEndpoint:Create",
+      "requestType": "ModelEndpoint",
+      "requestRequired": true,
+      "responses": {
+        "201": "ModelEndpoint",
+        "400": "",
+        "403": "",
+        "404": ""
+      },
+      "tags": [
+        "Model Endpoints"
+      ],
+      "summary": "Duplicate a model endpoint",
+      "experimental": false
+    },
+    {
+      "method": "POST",
       "route": "/api/v1/model-endpoints/{id}/validate",
       "auth": "Authenticated",
       "resource": "ModelEndpoint:Read",
@@ -8315,6 +8334,25 @@
         }
       ],
       "description": "Dispatch a voyage from a planning session and keep the linked backlog item associated with the resulting voyage.",
+      "experimental": false
+    },
+    {
+      "name": "duplicate_model_endpoint",
+      "auth": "Authenticated",
+      "resource": "ModelEndpoint:Create",
+      "arguments": [
+        {
+          "name": "configuration",
+          "type": "object",
+          "required": true
+        },
+        {
+          "name": "endpointId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Create an edited copy of an editable endpoint. Omitted apiKey and null extra-header values inherit stored secrets server-side; secrets are never returned. Does not call the provider.",
       "experimental": false
     },
     {

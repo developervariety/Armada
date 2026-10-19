@@ -1,0 +1,1 @@
+import{l as e,o as t}from"./LocaleContext-BjxjQebo.js";import{St as n}from"./index-CTLWdxji.js";var r=e(t(),1);function i(e,t){let[i,a]=n(),o=i.get(`duplicate`),s=(0,r.useRef)(null);(0,r.useEffect)(()=>{if(!o){s.current=null;return}if(s.current===o)return;s.current=o;let n=new URLSearchParams(i);n.delete(`duplicate`),a(n,{replace:!0}),e(o).catch(t)},[o,i,a,e,t])}export{i as t};

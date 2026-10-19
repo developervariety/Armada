@@ -1,3 +1,4 @@
+import { duplicateDisplayName } from '../lib/duplicates';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createProjectProfile, deleteProjectProfile, listFleets, listProjectProfiles, listVessels, updateProjectProfile } from '../api/client';
@@ -101,13 +102,17 @@ export default function ProjectProfiles() {
     void listAll(listVessels).then((r) => setVessels(r.objects || [])).catch(() => {});
   }, []);
 
+  const [duplicateSource, setDuplicateSource] = useState<ProjectProfile | null>(null);
+
   function openCreate() {
+    setDuplicateSource(null);
     setEditing(null);
     setCreateForm(EMPTY_CREATE_FORM);
     setShowCreate(true);
   }
 
   function openEdit(profile: ProjectProfile) {
+    setDuplicateSource(null);
     setEditing(profile);
     setCreateForm({
       name: profile.name,
@@ -123,6 +128,13 @@ export default function ProjectProfiles() {
       skills: (profile.skills || []).join('\n'),
     });
     setShowCreate(true);
+  }
+
+  function openDuplicate(profile: ProjectProfile) {
+    openEdit(profile);
+    setEditing(null);
+    setDuplicateSource(profile);
+    setCreateForm(current => ({ ...current, name: duplicateDisplayName(profile.name), isDefault: false, ownershipScope: resolveCreateScope(viewer) }));
   }
 
   async function handleCreate(event: React.FormEvent) {
@@ -141,7 +153,7 @@ export default function ProjectProfiles() {
         active: createForm.active,
         defaultPipelineId: createForm.defaultPipelineId || null,
         workflowProfileId: createForm.workflowProfileId || null,
-        personaOverrides: editing ? (editing.personaOverrides || []) : [],
+        personaOverrides: (editing ?? duplicateSource)?.personaOverrides || [],
         skills: splitList(createForm.skills),
       };
       if (editing) {
@@ -254,6 +266,7 @@ export default function ProjectProfiles() {
             id={`project-profile-${profile.id}`}
             items={[
               { label: 'Open', title: 'Open the full editor, including persona overrides.', onClick: () => navigate(`/project-profiles/${profile.id}`) },
+              { label: 'Duplicate', title: 'Edit a new copy before saving, including its persona overrides.', onClick: () => openDuplicate(profile) },
               ...(canEditRow ? [{ label: 'Edit', title: 'Quick edit of the name, scope, pipeline, workflow profile and skills. Use Open for persona overrides.', onClick: () => openEdit(profile) }] : []),
               { label: 'View JSON', title: 'Show this profile\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: profile.name, data: profile }) },
               ...(canEditRow ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this profile. Vessels using it fall back to their fleet or global profile. You confirm first.', onClick: () => handleDelete(profile) }] : []),

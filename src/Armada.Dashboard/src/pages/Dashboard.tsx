@@ -543,6 +543,7 @@ export default function Dashboard() {
                   <ActionMenu
                     id={`mission-action-${m.id}`}
                     items={[
+                      { label: 'Duplicate', title: 'Edit a fresh mission before saving.', onClick: () => navigate(`/missions?duplicate=${encodeURIComponent(m.id)}`) },
                       {
                         label: 'View Detail',
                         title: 'Open the mission page with its description, captain activity, diff and log.',

@@ -1,3 +1,4 @@
+import { duplicateDisplayName } from '../lib/duplicates';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import PageHeader from '../components/shared/PageHeader';
@@ -120,6 +121,13 @@ export default function Incidents() {
       summary: typeof prefill.summary === 'string' ? prefill.summary : '',
       impact: typeof prefill.impact === 'string' ? prefill.impact : '',
     });
+    setShowCreate(true);
+  }
+
+  function openDuplicate(incident: Incident) {
+    setCreateForm({ title: duplicateDisplayName(incident.title), status: 'Open', severity: incident.severity,
+      vesselId: incident.vesselId || '', environmentId: incident.environmentId || '', deploymentId: incident.deploymentId || '',
+      releaseId: incident.releaseId || '', summary: incident.summary || '', impact: incident.impact || '' });
     setShowCreate(true);
   }
 
@@ -268,6 +276,7 @@ export default function Incidents() {
         <ActionMenu
           id={`incident-${incident.id}`}
           items={[
+            ...(canManage ? [{ label: 'Duplicate', title: 'Edit a fresh incident with the same context. Timeline and resolution are not copied.', onClick: () => openDuplicate(incident) }] : []),
             { label: 'Open', title: 'Open the incident detail page to edit root cause, recovery, and postmortem notes or start a hotfix.', onClick: () => navigate(`/incidents/${incident.id}`, { state: carryState }) },
             { label: 'View JSON', title: 'Show the raw incident record as returned by the API.', onClick: () => setJsonData({ open: true, title: incident.title, data: incident }) },
             ...(canManage ? [{ label: 'Delete', title: 'Delete this incident and its saved history. Deployments, checks, and releases are not affected. Cannot be undone.', danger: true as const, onClick: () => handleDelete(incident) }] : []),

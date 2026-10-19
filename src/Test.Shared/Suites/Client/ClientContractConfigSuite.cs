@@ -179,6 +179,13 @@ namespace Test.Shared.Suites.Client
                 AssertEqual(false, preservedPolicy.InferenceOptions.ToolsEnabled, "SDK omitted policy cannot re-enable tools");
                 createdEndpoint.Model = "contract-model-2";
                 AssertEqual("contract-model-2", (await c.UpdateModelEndpointAsync(createdEndpoint.Id, createdEndpoint))?.Model, "update endpoint");
+                ModelEndpoint copyInput = new ModelEndpoint { Name = "copied-endpoint-" + s, Kind = endpoint.Kind, Provider = endpoint.Provider, BaseUrl = endpoint.BaseUrl, Model = "copied-model" };
+                ModelEndpoint copy = (await c.DuplicateModelEndpointAsync(createdEndpoint.Id, copyInput))!;
+                AssertTrue(copy.Id != createdEndpoint.Id, "SDK duplicate creates a fresh identity");
+                AssertTrue(copy.HasApiKey, "SDK duplicate inherits credentials"); AssertNull(copy.ApiKey, "SDK duplicate response hides credentials");
+                AssertEqual(7, copy.InferenceOptions.MaxIterations, "SDK duplicate inherits omitted policy");
+                AssertEqual("copied-model", copy.Model, "SDK duplicate saves edited model");
+                await c.DeleteModelEndpointAsync(copy.Id);
                 ModelEndpointProbeResult? probe = await c.ValidateModelEndpointAsync(createdEndpoint.Id);
                 AssertFalse(probe?.Success ?? true, "nothing listens on port 9");
                 AssertNotNull(await c.HealthCheckModelEndpointsAsync(), "health sweep");

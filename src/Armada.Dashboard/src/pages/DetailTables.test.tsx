@@ -13,6 +13,7 @@ import {
   getDoctor,
   getFleet,
   getPipeline,
+  updatePipeline,
   getStatus,
   listCaptains,
   listFleets,
@@ -226,3 +227,20 @@ describe('Dashboard (home) recent missions filters', () => {
   });
 });
 
+
+
+it('pipeline stage Duplicate opens an editable stage copy and cancel performs no write', async () => {
+  vi.clearAllMocks();
+  vi.mocked(listPersonas).mockResolvedValue(page([{ name: 'Worker' }]) as never);
+  vi.mocked(getPipeline).mockResolvedValue({ id: 'ppl_1', name: 'Reviewed', stages: [{ id: 's1', order: 1, personaName: 'Worker', description: 'Repeatable work', isOptional: false, requiresReview: true, reviewDenyAction: 'FailPipeline' }] } as never);
+  renderAt('/pipelines/Reviewed', '/pipelines/:name', <PipelineDetail />);
+  await screen.findByText('Repeatable work');
+  const table = document.querySelector('[data-table="pipeline-detail-stages"]') as HTMLElement;
+  fireEvent.click(within(table).getByRole('button', { name: 'Actions' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+  expect(screen.getAllByRole('combobox', { name: 'Select persona...' })).toHaveLength(2);
+  expect(screen.getAllByRole('checkbox', { name: /review/i }).filter(el => (el as HTMLInputElement).checked)).toHaveLength(2);
+  expect(updatePipeline).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(updatePipeline).not.toHaveBeenCalled();
+});

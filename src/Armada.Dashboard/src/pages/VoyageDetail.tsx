@@ -1,3 +1,4 @@
+import ActionMenu from '../components/shared/ActionMenu';
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
@@ -426,11 +427,12 @@ export default function VoyageDetail() {
             {
               key: 'actions', label: t('Actions'), headerTitle: t('View the mission\'s diff or log, or open the mission.'), fixed: true, interactive: true, cellClassName: 'cell-nowrap',
               render: (m) => (
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn-sm" onClick={() => handleMissionDiff(m.id, m.title)} title={t('Show the code changes this mission made, from its worktree or the snapshot saved when it finished.')}>{t('Diff')}</button>
-                  <button className="btn-sm" onClick={() => handleMissionLog(m.id, m.title)} title={t('Show the captain\'s session log for this mission, newest 200 lines by default.')}>{t('Log')}</button>
-                  <button className="btn-sm" onClick={() => nav(`/missions/${m.id}`)} title={t('Open the mission page with its description, status, landing preview and review controls.')}>{t('Detail')}</button>
-                </div>
+                <ActionMenu id={`voyage-mission-${m.id}`} items={[
+                  { label: 'Duplicate', onClick: () => nav(`/missions?duplicate=${encodeURIComponent(m.id)}`) },
+                  { label: 'Diff', onClick: () => handleMissionDiff(m.id, m.title) },
+                  { label: 'Log', onClick: () => handleMissionLog(m.id, m.title) },
+                  { label: 'Detail', onClick: () => nav(`/missions/${m.id}`) },
+                ]} />
               ),
             },
           ]}

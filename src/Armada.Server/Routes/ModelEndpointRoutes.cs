@@ -88,6 +88,30 @@ namespace Armada.Server.Routes
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/model-endpoints/{id}/duplicate", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+                try
+                {
+                    ModelEndpoint edited = JsonSerializer.Deserialize<ModelEndpoint>(req.Http.Request.DataAsString, _BodyJsonOptions)
+                        ?? throw new ArgumentException("An edited endpoint configuration is required.");
+                    ModelEndpoint created = await _Endpoints.DuplicateAsync(ctx, req.Parameters["id"], edited).ConfigureAwait(false);
+                    req.Http.Response.StatusCode = 201;
+                    return created;
+                }
+                catch (KeyNotFoundException ex) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = ex.Message }; }
+                catch (UnauthorizedAccessException ex) { req.Http.Response.StatusCode = 403; return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = ex.Message }; }
+                catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is JsonException)
+                { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message }; }
+            }, api => api.WithTag("Model Endpoints").WithSummary("Duplicate a model endpoint")
+                .WithDescription("Create an edited copy with a new ID and fresh health state. Requires edit permission on the source. Omitted apiKey and null extra-header values inherit stored secrets server-side; reads never expose them. No inference request is made.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Source model endpoint ID"))
+                .WithRequestBody(OpenApiJson.BodyFor<ModelEndpoint>("Complete edited endpoint configuration", true))
+                .WithResponse(201, OpenApiJson.For<ModelEndpoint>("Created copy"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest()).WithResponse(403, OpenApiResponseMetadata.Forbidden())
+                .WithResponse(404, OpenApiResponseMetadata.NotFound()).WithSecurity("ApiKey"));
+
             app.Get("/api/v1/model-endpoints/{id}", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);

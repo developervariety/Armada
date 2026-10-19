@@ -1,3 +1,5 @@
+import { duplicateModelEndpoint } from '../api/client';
+import { duplicateDisplayName } from '../lib/duplicates';
 import { defaultInferenceOptions, parseAllowedTools, validateInferenceOptions } from '../lib/inferenceOptions';
 import type { InferenceOptions } from '../types/models';
 import { useEffect, useMemo, useState } from 'react';
@@ -128,6 +130,7 @@ export default function Endpoints() {
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<ModelEndpoint | null>(null);
+  const [duplicateSource, setDuplicateSource] = useState<ModelEndpoint | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<EndpointForm>(EMPTY_FORM);
 
@@ -148,7 +151,7 @@ export default function Endpoints() {
   const signsRequests = providerSignsRequests(form.provider);
   const formAuthType = effectiveAuthType(form.provider, form.authType);
   const secretLabelKey = authSecretLabel(form.provider, formAuthType);
-  const hasStoredSecret = !!editing && editing.hasApiKey;
+  const hasStoredSecret = !!(editing ?? duplicateSource)?.hasApiKey;
   const sentAs = authSentAs(form.provider, formAuthType, form);
   const lt = (text: LocalizedText) => t(text.key, text.params);
   const baseUrlTip = isCloud ? 'Fixed URL: https://ollama.com:443. Requires an Ollama API key and a cloud model.' : form.provider === 'XAI' ? 'Defaults to https://api.x.ai. Uses the native xAI Responses API; requires an API key.' : isVertex || isBedrock
@@ -179,11 +182,13 @@ export default function Endpoints() {
 
   function openCreate() {
     setEditing(null);
+    setDuplicateSource(null);
     setForm({ ...EMPTY_FORM, scope: resolveCreateScope(viewer) });
     setShowForm(true);
   }
 
   function openEdit(endpoint: ModelEndpoint) {
+    setDuplicateSource(null);
     setEditing(endpoint);
     setForm({
       inferenceOptions: { ...defaultInferenceOptions, ...endpoint.inferenceOptions },
@@ -206,6 +211,13 @@ export default function Endpoints() {
       ...authFormFromEndpoint(endpoint),
     });
     setShowForm(true);
+  }
+
+  function openDuplicate(endpoint: ModelEndpoint) {
+    openEdit(endpoint);
+    setEditing(null);
+    setDuplicateSource(endpoint);
+    setForm(current => ({ ...current, name: duplicateDisplayName(endpoint.name), scope: resolveCreateScope(viewer) }));
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -243,7 +255,7 @@ export default function Endpoints() {
         setShowForm(false);
         pushToast('success', t('Endpoint "{{name}}" saved.', { name: updated.name }));
       } else {
-        const created = await createModelEndpoint(payload);
+        const created = duplicateSource ? await duplicateModelEndpoint(duplicateSource.id, payload) : await createModelEndpoint(payload);
         setShowForm(false);
         pushToast('success', t('Endpoint "{{name}}" created.', { name: created.name }));
       }
@@ -410,6 +422,7 @@ export default function Endpoints() {
             items={[
               { label: 'Health', title: 'Show this endpoint\'s uptime, recent check history, latency and last error.', onClick: () => setHealth({ open: true, endpoint }) },
               ...(canEditRow ? [{ label: 'Validate', disabled: validating !== null, title: 'Send a real request to the configured model with the stored credentials. The provider may bill for it.', onClick: () => handleValidate(endpoint) }] : []),
+              ...(canEditRow ? [{ label: 'Duplicate', title: 'Edit a new copy before saving. Stored credentials are copied securely on save.', onClick: () => openDuplicate(endpoint) }] : []),
               ...(canEditRow ? [{ label: 'Edit', title: 'Change this endpoint\'s address, model, credentials, headers and limits.', onClick: () => openEdit(endpoint) }] : []),
               { label: 'View JSON', title: 'Show this endpoint\'s record as JSON. Stored secrets are never included.', onClick: () => setJsonData({ open: true, title: endpoint.name, data: endpoint }) },
               ...(canEditRow ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this endpoint, its stored secrets and its health history. Anything configured to use it needs another endpoint.', onClick: () => handleDelete(endpoint) }] : []),
@@ -452,7 +465,7 @@ export default function Endpoints() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal modal-large" onClick={(e) => e.stopPropagation()} onSubmit={handleSave}>
-            <h3>{editing ? t('Edit Endpoint') : t('Create Endpoint')}</h3>
+            <h3>{editing ? t('Edit Endpoint') : duplicateSource ? t('Duplicate Endpoint') : t('Create Endpoint')}</h3>
             <label title={t(EP_NAME_TIP)}>{t('Name')}
               <input type="text" title={t(EP_NAME_TIP)} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </label>
@@ -607,17 +620,19 @@ export default function Endpoints() {
                 <input type="number" min={1000} max={600000} title={t(EP_TIMEOUT_TIP)} value={form.timeoutMs} onChange={(e) => setForm({ ...form, timeoutMs: e.target.value })} />
               </label>
             </div>
-            {form.kind === 'Inference' && <fieldset>
+            {form.kind === 'Inference' && <fieldset className="endpoint-auth-section endpoint-inference-section">
               <legend>{t('Inference and captain execution')}</legend>
+              <div className="endpoint-inference-toggles">
               {([
                 ['toolsEnabled', 'Enable tool calls'], ['readOnlyTools', 'Read-only built-in tools'],
                 ['mcpToolsEnabled', 'Enable scoped MCP tools'], ['requireHarbor', 'Require Harbor execution'],
               ] as const).map(([key, label]) => <label key={key} className="checkbox-row">
-                <input type="checkbox" checked={form.inferenceOptions[key]} onChange={e => setForm({ ...form, inferenceOptions: { ...form.inferenceOptions, [key]: e.target.checked } })} />{t(label)}
+                <input type="checkbox" checked={form.inferenceOptions[key]} onChange={e => setForm({ ...form, inferenceOptions: { ...form.inferenceOptions, [key]: e.target.checked } })} /><span>{t(label)}</span>
               </label>)}
+              </div>
               <p className="text-dim">{t('Read-only excludes shell, file changes and MCP tools. Require Harbor prevents fallback to Admiral execution.')}</p>
               <label>{t('Allowed tool names (one per line; blank allows all)')}
-                <textarea value={form.allowedToolsText} onChange={e => setForm({ ...form, allowedToolsText: e.target.value, inferenceOptions: { ...form.inferenceOptions, allowedTools: parseAllowedTools(e.target.value) } })} />
+                <textarea rows={3} value={form.allowedToolsText} onChange={e => setForm({ ...form, allowedToolsText: e.target.value, inferenceOptions: { ...form.inferenceOptions, allowedTools: parseAllowedTools(e.target.value) } })} />
               </label>
               <div className="detail-form-grid">
               {([
@@ -635,7 +650,7 @@ export default function Endpoints() {
               <span>{t('Enabled')}</span>
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" disabled={saving || !!formReason} title={editing ? t('Save changes to this endpoint. Use Validate afterward to check it with a real request.') : t('Create this endpoint. Use Validate afterward to check it with a real request.')}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Endpoint')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving || !!formReason} title={editing ? t('Save changes to this endpoint. Use Validate afterward to check it with a real request.') : t('Create this endpoint. Use Validate afterward to check it with a real request.')}>{saving ? t('Saving...') : editing ? t('Save Changes') : duplicateSource ? t('Save Copy') : t('Create Endpoint')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>

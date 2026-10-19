@@ -1,3 +1,4 @@
+import { duplicateDisplayName } from '../lib/duplicates';
 import { useEffect, useMemo, useState } from 'react';
 import {
   listHarbors,
@@ -74,6 +75,12 @@ export default function Harbors() {
     setEditing(harbor);
     setForm({ name: harbor.name, maxConcurrentJobs: String(harbor.maxConcurrentJobs ?? 4), enabled: harbor.enabled });
     setShowForm(true);
+  }
+
+  function openDuplicate(harbor: Harbor) {
+    openEdit(harbor);
+    setEditing(null);
+    setForm(current => ({ ...current, name: duplicateDisplayName(harbor.name) }));
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -207,7 +214,8 @@ export default function Harbors() {
           id={`harbor-${harbor.id}`}
           items={[
             { label: 'Details', title: 'Show this Harbor\'s platform, capabilities and activity charts.', onClick: () => setDetail({ open: true, harbor }) },
-            ...(canManage ? [{ label: 'Edit', title: 'Change this Harbor\'s name, capacity and whether it gets new missions.', onClick: () => openEdit(harbor) }] : []),
+            ...(canManage ? [{ label: 'Duplicate', title: 'Edit a new copy before saving.', onClick: () => openDuplicate(harbor) }] : []),
+              ...(canManage ? [{ label: 'Edit', title: 'Change this Harbor\'s name, capacity and whether it gets new missions.', onClick: () => openEdit(harbor) }] : []),
             ...(canManage ? [{ label: harbor.enabled ? 'Disable' : 'Enable', title: harbor.enabled ? 'Stop sending new missions to this Harbor. Running work and existing docks are kept.' : 'Let this Harbor receive new missions again.', onClick: () => handleToggle(harbor) }] : []),
             { label: 'View JSON', title: 'Show this Harbor\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: harbor.name, data: harbor }) },
             ...(canManage ? [{ label: 'Delete', danger: true as const, title: 'Remove this Harbor\'s registration. If the Harbor app connects again it registers itself anew. You confirm first.', onClick: () => handleDelete(harbor) }] : []),

@@ -1,5 +1,6 @@
 import type {
   Captain,
+  Mission,
   DeploymentEnvironment,
   DeploymentEnvironmentUpsertRequest,
   Fleet,
@@ -294,4 +295,11 @@ export function buildObjectiveDuplicatePayload(objective: Objective): ObjectiveU
     deploymentIds: [],
     incidentIds: [],
   };
+}
+
+/** Copy reusable mission configuration while excluding execution state and old dependency links. */
+export function buildMissionDuplicatePayload(mission: Mission): Partial<Mission> {
+  return { title: duplicateDisplayName(mission.title), description: mission.description, vesselId: mission.vesselId,
+    mode: mission.mode, priority: mission.priority, persona: mission.persona, requestedCaptainId: mission.requestedCaptainId, requiresReview: mission.requiresReview,
+    reviewDenyAction: mission.reviewDenyAction, selectedPlaybooks: mission.selectedPlaybooks?.map(p => ({ ...p })) };
 }

@@ -1153,6 +1153,8 @@ export const getHarborMetrics = (id: string, range: HarborMetricsRange = '24h') 
 
 // Model endpoints (embedding/inference)
 export const listModelEndpoints = () => get<ModelEndpoint[]>('/api/v1/model-endpoints');
+export const duplicateModelEndpoint = (sourceId: string, data: Partial<ModelEndpoint> & { apiKey?: string | null }) =>
+  post<ModelEndpoint>(`/api/v1/model-endpoints/${encodeURIComponent(sourceId)}/duplicate`, data);
 export const getModelEndpoint = (id: string) => get<ModelEndpoint>(`/api/v1/model-endpoints/${encodeURIComponent(id)}`);
 export const createModelEndpoint = (data: Partial<ModelEndpoint> & { apiKey?: string | null }) =>
   post<ModelEndpoint>('/api/v1/model-endpoints', data);

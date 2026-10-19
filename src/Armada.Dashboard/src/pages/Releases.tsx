@@ -1,3 +1,4 @@
+import { duplicateDisplayName } from '../lib/duplicates';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createRelease, deleteRelease, listReleases, listVessels, listWorkflowProfiles, updateRelease } from '../api/client';
@@ -97,6 +98,12 @@ export default function Releases() {
       checkRunIds: (release.checkRunIds || []).join('\n'),
     });
     setShowCreate(true);
+  }
+
+  function openDuplicate(release: Release) {
+    openEdit(release);
+    setEditing(null);
+    setCreateForm(current => ({ ...current, title: duplicateDisplayName(release.title), version: '', tagName: '', status: 'Draft' }));
   }
 
   async function handleCreate(event: React.FormEvent) {
@@ -258,7 +265,8 @@ export default function Releases() {
           id={`release-${release.id}`}
           items={[
             { label: 'Open', title: 'Open the release detail page with its notes, linked work, artifacts, and deployments.', onClick: () => navigate(`/releases/${release.id}`) },
-            ...(canManage ? [{ label: 'Edit', title: 'Change the release\'s version, status, notes, and linked work.', onClick: () => openEdit(release) }] : []),
+            ...(canManage ? [{ label: 'Duplicate', title: 'Edit a new copy before saving.', onClick: () => openDuplicate(release) }] : []),
+              ...(canManage ? [{ label: 'Edit', title: 'Change the release\'s version, status, notes, and linked work.', onClick: () => openEdit(release) }] : []),
             { label: 'View JSON', title: 'Show the raw release record as returned by the API.', onClick: () => setJsonData({ open: true, title: release.title, data: release }) },
             ...(canManage ? [{ label: 'Delete', title: 'Delete this release record. Linked work, checks, and artifacts on disk are kept. Cannot be undone.', danger: true as const, onClick: () => handleDelete(release) }] : []),
           ]}

@@ -199,3 +199,41 @@ describe('Batch C tables on the shared DataTable', () => {
     await expectTableChrome(container, 'Name');
   });
 });
+
+describe('Delivery record duplication drafts', () => {
+  it('deployment copies remain unexecuted drafts until reviewed and saved', async () => {
+    vi.mocked(client.listDeployments).mockResolvedValue(page([{ id: 'dpl_copy_source', title: 'Production rollout', sourceRef: 'release/1', status: 'Succeeded', verificationStatus: 'NotRun', approvalRequired: true, environmentName: 'prod', lastUpdateUtc: NOW, checkRunIds: [] }]));
+    await renderPage(<Deployments />, 'Production rollout');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    expect(screen.getByLabelText('Title')).toHaveValue('Production rollout (Copy)');
+    expect(client.createDeployment).not.toHaveBeenCalled();
+    const autoExecute = screen.getByRole('checkbox', { name: /execute/i });
+    expect(autoExecute).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(client.createDeployment).not.toHaveBeenCalled();
+  });
+
+  it('release copies reset publication identity and status', async () => {
+    vi.mocked(client.listReleases).mockResolvedValue(page([{ id: 'rel_source', title: 'Published release', version: '1.0.0', tagName: 'v1.0.0', status: 'Published', voyageIds: ['vyg_1'], missionIds: [], checkRunIds: [], artifacts: [], lastUpdateUtc: NOW }]));
+    await renderPage(<Releases />, 'Published release');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    expect(screen.getByLabelText('Title')).toHaveValue('Published release (Copy)');
+    expect(screen.getByLabelText('Version')).toHaveValue('');
+    expect(screen.getByLabelText('Tag Name')).toHaveValue('');
+    expect(screen.getAllByLabelText('Status').some(el => (el as HTMLSelectElement).value === 'Draft')).toBe(true);
+    expect(client.createRelease).not.toHaveBeenCalled();
+  });
+
+  it('incident copies start open and preserve the selected context', async () => {
+    vi.mocked(client.listIncidents).mockResolvedValue(page([{ id: 'inc_source', title: 'Old outage', status: 'Resolved', severity: 'High', summary: 'Root symptom', impact: 'Service unavailable', lastUpdateUtc: NOW }]));
+    await renderPage(<Incidents />, 'Old outage');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    expect(screen.getByLabelText('Title')).toHaveValue('Old outage (Copy)');
+    expect(screen.getByLabelText('Summary')).toHaveValue('Root symptom');
+    expect(screen.getAllByLabelText('Status').some(el => (el as HTMLSelectElement).value === 'Open')).toBe(true);
+    expect(client.createIncident).not.toHaveBeenCalled();
+  });
+});

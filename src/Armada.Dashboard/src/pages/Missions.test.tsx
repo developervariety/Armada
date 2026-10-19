@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Missions from './Missions';
-import { listCaptains, listMissionSummaries, listVessels, listVoyages } from '../api/client';
+import { getMission, createMission, listCaptains, listMissionSummaries, listVessels, listVoyages } from '../api/client';
 import type { MissionSummary } from '../types/models';
 
 const translate = (text: string, params?: Record<string, string | number | null | undefined>) => {
@@ -16,6 +16,7 @@ const notifications = { pushToast: vi.fn() };
 
 vi.mock('../api/client', () => ({
   listMissionSummaries: vi.fn(),
+  getMission: vi.fn(),
   listVessels: vi.fn(),
   listCaptains: vi.fn(),
   listVoyages: vi.fn(),
@@ -79,5 +80,41 @@ describe('Missions table', () => {
     expect(branch).toHaveClass('url-value');
     expect(branch.closest('td')).toHaveClass('table-url-cell');
     expect(branch.closest('td')).toHaveAttribute('title', BRANCH);
+  });
+});
+
+
+describe('Mission duplication', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listMissionSummaries).mockResolvedValue(page([mission]));
+    vi.mocked(listVessels).mockResolvedValue(page([{ id: 'vsl_1', name: 'Vessel' }]));
+    vi.mocked(listCaptains).mockResolvedValue(page([]));
+    vi.mocked(listVoyages).mockResolvedValue(page([]));
+    vi.mocked(getMission).mockResolvedValue({ ...mission, vesselId: 'vsl_1', mode: 'Audit', description: 'Complete untruncated instructions', persona: 'Judge', requiresReview: true, reviewDenyAction: 'FailPipeline' } as never);
+    vi.mocked(createMission).mockResolvedValue({ ...mission, id: 'msn_copy' } as never);
+  });
+
+  it('loads full instructions and creates an edited copy without modifying the original execution', async () => {
+    render(<MemoryRouter><Missions /></MemoryRouter>);
+    await screen.findByText(mission.title);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    await screen.findByRole('heading', { name: 'Duplicate Mission' });
+    expect(screen.getByLabelText('Description')).toHaveValue('Complete untruncated instructions');
+    expect(createMission).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Independent audit' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Copy' }));
+    await vi.waitFor(() => expect(createMission).toHaveBeenCalledWith(expect.objectContaining({ title: 'Independent audit', description: 'Complete untruncated instructions', mode: 'Audit', persona: 'Judge' })));
+    const payload = vi.mocked(createMission).mock.calls[0][0];
+    expect(payload).not.toHaveProperty('id'); expect(payload).not.toHaveProperty('branchName'); expect(payload).not.toHaveProperty('voyageId');
+  });
+
+  it('related-table links open a cancellable draft without creating anything', async () => {
+    render(<MemoryRouter initialEntries={['/missions?duplicate=msn_1']}><Missions /></MemoryRouter>);
+    await screen.findByRole('heading', { name: 'Duplicate Mission' });
+    expect(getMission).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(createMission).not.toHaveBeenCalled();
   });
 });

@@ -32,6 +32,70 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("duplicate_inherits_secrets_and_resets_identity_health", "Edited endpoint copies credentials server-side with fresh identity and health, leaving source unchanged", TestTags.Positive, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ModelEndpointService service = new ModelEndpointService(db.Driver, CreateLogging());
+                AuthContext auth = AuthContext.Authenticated("ten_copy", "usr_owner", false, true, "Test");
+                ModelEndpoint source = NewInference("source", "https://ollama.com:443");
+                source.Provider = ModelProviderEnum.OllamaCloud; source.Model = "first-model"; source.AuthType = ModelEndpointAuthTypeEnum.Bearer; source.ApiKey = "copy-secret";
+                source.Headers = new List<ModelEndpointHeader> { new ModelEndpointHeader("X-Org", "org-secret"), new ModelEndpointHeader("X-Remove", "remove-secret") };
+                source.InferenceOptions = new InferenceOptions { MaxIterations = 7, ReadOnlyTools = true };
+                source = await service.CreateAsync(auth, source).ConfigureAwait(false);
+                source.HealthHistory.Add(new ModelEndpointHealthRecord { TimestampUtc = DateTime.UtcNow, Success = true });
+                await db.Driver.ModelEndpoints.UpdateAsync(source).ConfigureAwait(false);
+                ModelEndpoint edited = NewInference("copy", source.BaseUrl); edited.Provider = source.Provider; edited.AuthType = source.AuthType; edited.Model = "second-model";
+                edited.Headers = new List<ModelEndpointHeader> { new ModelEndpointHeader("x-org", null), new ModelEndpointHeader("X-New", "new-value") };
+                edited.Id = source.Id; edited.HealthHistory.Add(new ModelEndpointHealthRecord { TimestampUtc = DateTime.UtcNow, Success = false });
+                ModelEndpoint copy = await service.DuplicateAsync(auth, source.Id, edited).ConfigureAwait(false);
+                AssertTrue(copy.Id != source.Id, "Copied endpoint must have an independent ID.");
+                AssertEqual("copy-secret", copy.ApiKey); AssertEqual("org-secret", copy.Headers[0].Value); AssertEqual(2, copy.Headers.Count);
+                AssertEqual("second-model", copy.Model); AssertEqual(7, copy.InferenceOptions.MaxIterations);
+                AssertEqual(0, copy.HealthHistory.Count); AssertEqual(EndpointHealthStatusEnum.Unknown, copy.HealthStatus);
+                AssertNull(copy.LastHealthCheckUtc);
+                string response = System.Text.Json.JsonSerializer.Serialize(copy);
+                AssertFalse(response.Contains("copy-secret") || response.Contains("org-secret") || response.Contains("new-value"), "Copy response must never disclose credentials.");
+                ModelEndpoint original = (await db.Driver.ModelEndpoints.ReadAsync(source.Id).ConfigureAwait(false))!;
+                AssertEqual("source", original.Name); AssertEqual("first-model", original.Model); AssertEqual(1, original.HealthHistory.Count); AssertEqual("X-Remove", original.Headers[1].Name);
+            }));
+
+            cases.Add(CaseAsync("duplicate_requires_source_edit_permission", "Readers cannot copy shared credentials and invisible sources are not disclosed", TestTags.Negative, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ModelEndpointService service = new ModelEndpointService(db.Driver, CreateLogging());
+                AuthContext admin = AuthContext.Authenticated("ten_copy", "usr_admin", false, true, "Test");
+                ModelEndpoint source = await service.CreateAsync(admin, NewInference("shared", "http://localhost:1")).ConfigureAwait(false);
+                AuthContext reader = AuthContext.Authenticated("ten_copy", "usr_reader", false, false, "Test");
+                bool denied = false;
+                try { await service.DuplicateAsync(reader, source.Id, NewInference("copy", "http://elsewhere:1")).ConfigureAwait(false); } catch (UnauthorizedAccessException) { denied = true; }
+                AssertTrue(denied, "Read access does not authorize exporting a stored credential.");
+                bool hidden = false;
+                try { await service.DuplicateAsync(AuthContext.Authenticated("ten_other", "usr_other", false, true, "Test"), source.Id, NewInference("copy", "http://localhost:1")).ConfigureAwait(false); } catch (KeyNotFoundException) { hidden = true; }
+                AssertTrue(hidden, "An invisible source returns not found.");
+                AssertEqual(1, (await service.EnumerateAsync(admin).ConfigureAwait(false)).Count);
+            }));
+
+            cases.Add(CaseAsync("duplicate_replacements_and_validation", "Copied credentials can be replaced or cleared and invalid copies create no record", TestTags.Positive, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ModelEndpointService service = new ModelEndpointService(db.Driver, CreateLogging());
+                AuthContext auth = AuthContext.Authenticated("ten_copy", "usr_owner", false, true, "Test");
+                ModelEndpoint source = NewInference("source", "http://localhost:1"); source.ApiKey = "old-key";
+                source.Headers = new List<ModelEndpointHeader> { new ModelEndpointHeader("X-Org", "old-value") };
+                source = await service.CreateAsync(auth, source).ConfigureAwait(false);
+                ModelEndpoint replacement = NewInference("replacement", "http://localhost:2"); replacement.ApiKeyInput = "new-key";
+                replacement.Headers = new List<ModelEndpointHeader>();
+                ModelEndpoint copy = await service.DuplicateAsync(auth, source.Id, replacement).ConfigureAwait(false);
+                AssertEqual("new-key", copy.ApiKey); AssertEqual(0, copy.Headers.Count);
+                ModelEndpoint cleared = NewInference("cleared", "http://localhost:3"); cleared.ApiKeyInput = null;
+                AssertNull((await service.DuplicateAsync(auth, source.Id, cleared).ConfigureAwait(false)).ApiKey);
+                bool rejected = false;
+                ModelEndpoint invalid = NewInference("invalid", "http://localhost:4"); invalid.InferenceOptions = new InferenceOptions { MaxIterations = 0 };
+                try { await service.DuplicateAsync(auth, source.Id, invalid).ConfigureAwait(false); } catch (ArgumentException) { rejected = true; }
+                AssertTrue(rejected, "Copied endpoint is validated normally.");
+                AssertEqual(3, (await service.EnumerateAsync(auth).ConfigureAwait(false)).Count);
+            }));
+
             cases.Add(CaseAsync("inference_policy_roundtrip_preserve_and_reset", "Inference policy persists, omitted updates preserve it and explicit null resets defaults", TestTags.Positive, async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

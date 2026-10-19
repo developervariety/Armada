@@ -128,6 +128,10 @@ export default function PipelineDetail() {
     setShowForm(true);
   }
 
+  function duplicateStage(index: number) {
+    setForm(current => ({ ...current, stages: current.stages.flatMap((stage, i) => i === index ? [stage, { ...stage }] : [stage]) }));
+  }
+
   function addStage() {
     setForm(f => ({ ...f, stages: [...f.stages, { personaName: '', isOptional: false, description: '', requiresReview: false, reviewDenyAction: 'RetryStage' }] }));
   }
@@ -309,6 +313,7 @@ export default function PipelineDetail() {
                   </select>
                   <span style={{ width: '0.75rem', flexShrink: 0 }} />
                   <button type="button" className="btn btn-sm" onClick={() => moveStage(i, -1)} disabled={i === 0} title={t('Move this stage one place earlier in the run order.')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25B2'}</button>
+                  <button type="button" className="btn btn-sm" onClick={() => duplicateStage(i)} title={t('Copy this stage immediately after it. Save the pipeline to apply the change.')}>{t('Duplicate')}</button>
                   <button type="button" className="btn btn-sm" onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1} title={t('Move this stage one place later in the run order.')} style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}>{'\u25BC'}</button>
                   <span style={{ width: '0.5rem', flexShrink: 0 }} />
                   <button type="button" className="btn btn-sm btn-danger" onClick={() => removeStage(i)} title={t('Remove this stage from the pipeline. Nothing changes until you save.')} style={{ flexShrink: 0 }}>X</button>
@@ -388,6 +393,9 @@ export default function PipelineDetail() {
             rowKey={(stage) => stage.id}
             recordCount={null}
             columns={[
+              { key: 'actions', label: t('Actions'), fixed: true, interactive: true, render: stage => canManage ? <ActionMenu id={`pipeline-stage-${stage.id}`} items={[
+                { label: 'Duplicate', title: 'Copy this stage into the pipeline editor. Review and save to apply it.', onClick: () => { openEdit(); duplicateStage(pipeline.stages.findIndex(item => item.id === stage.id)); } },
+              ]} /> : null },
               { key: 'order', label: t('Order'), required: true, headerTitle: t('Run order. Stage 1 runs first; each later stage waits for the one before it.'), cellClassName: 'cell-nowrap', render: (stage) => stage.order },
               { key: 'persona', label: t('Persona Name'), required: true, headerTitle: t('The persona (role) this stage\'s mission is given, which decides its instructions and which captains can take it.'), cellClassName: 'cell-ident', render: (stage) => <strong>{stage.personaName}</strong> },
               {

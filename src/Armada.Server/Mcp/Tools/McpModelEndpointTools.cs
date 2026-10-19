@@ -1,6 +1,7 @@
 namespace Armada.Server.Mcp.Tools
 {
     using System;
+    using System.Collections.Generic;
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
@@ -190,6 +191,22 @@ namespace Armada.Server.Mcp.Tools
                     {
                         return (object)McpToolError.FromException(ex);
                     }
+                });
+
+            register("duplicate_model_endpoint", "Create an edited copy of an editable endpoint. Omitted apiKey and null extra-header values inherit stored secrets server-side; secrets are never returned. Does not call the provider.",
+                new { type = "object", properties = new {
+                    endpointId = new { type = "string", description = "Editable source endpoint ID" },
+                    configuration = new { type = "object", description = "Complete edited configuration as accepted by create_model_endpoint: name, provider, kind, baseUrl, model, authentication, headers, inferenceOptions, scope and enabled. Omit apiKey to inherit; null header values inherit by name." }
+                }, required = new[] { "endpointId", "configuration" } }, async args =>
+                {
+                    try
+                    {
+                        ModelEndpointDuplicateArgs request = JsonSerializer.Deserialize<ModelEndpointDuplicateArgs>(args!.Value, _JsonOptions)
+                            ?? throw new ArgumentException("Source and configuration are required.");
+                        return (object)await endpoints.DuplicateAsync(McpToolHelpers.ResolveCallerContext(), request.EndpointId, request.Configuration).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is UnauthorizedAccessException || ex is KeyNotFoundException || ex is JsonException)
+                    { return (object)McpToolError.FromException(ex); }
                 });
 
             register(

@@ -198,6 +198,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [get_model_endpoint](#get_model_endpoint)
     - [create_model_endpoint](#create_model_endpoint)
     - [update_model_endpoint](#update_model_endpoint)
+    - [duplicate_model_endpoint](#duplicate_model_endpoint)
     - [delete_model_endpoint](#delete_model_endpoint)
     - [validate_model_endpoint](#validate_model_endpoint)
     - [health_check_model_endpoints](#health_check_model_endpoints)
@@ -4872,6 +4873,26 @@ Create a model endpoint. Supply `apiKey` to store a provider key; it is write-on
 **Provider-specific fields** (accepted on create and update): `AzureOpenAI` uses `baseUrl` (resource endpoint), `model` (deployment name), `apiKey`, and optional `apiVersion`. `VertexAI` requires `project` and `region`, with the service-account JSON supplied write-only as `apiKey`; `baseUrl` is an optional override. `Bedrock` requires `region` and `accessKeyId`, with the AWS secret access key supplied write-only as `apiKey`; `model` is the Bedrock model id and `baseUrl` is an optional override.
 
 ---
+
+### duplicate_model_endpoint
+
+Create a new endpoint using an edited configuration while inheriting stored credentials server-side. Requires edit permission on the source. Read-only access to a shared endpoint is insufficient. No provider request is performed; the source is unchanged and the copy receives fresh identity, ownership and health state. Credentials remain write-only.
+
+```json
+{
+  "endpointId": "mep_source",
+  "configuration": {
+    "name": "Second cloud model",
+    "kind": "Inference",
+    "provider": "OllamaCloud",
+    "baseUrl": "https://ollama.com:443",
+    "model": "your-second-model",
+    "authType": "Bearer"
+  }
+}
+```
+
+`endpointId` and `configuration` are required. Configuration accepts the create endpoint fields. Omit `apiKey` to inherit, send a string to replace or explicit null to clear. Omitted headers copy all; provided header lists replace the list and null values inherit by name. Omitted inference settings preserve the source policy. Invalid configuration, forbidden access and invisible sources produce the standard MCP errors. See [REST duplication semantics](REST_API.md#duplicate-an-endpoint-without-re-entering-credentials).
 
 ### update_model_endpoint
 

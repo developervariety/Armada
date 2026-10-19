@@ -121,6 +121,32 @@ namespace Armada.Core.Services
             return await _Database.ModelEndpoints.CreateAsync(endpoint, token).ConfigureAwait(false);
         }
 
+        /// <summary>Create an edited copy of an editable endpoint, inheriting omitted secrets without returning them.</summary>
+        /// <param name="auth">Caller.</param>
+        /// <param name="sourceId">Endpoint to copy credentials from. Caller must be able to edit it.</param>
+        /// <param name="edited">Complete configuration for the new endpoint. Omitted key and null header values inherit.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A new endpoint with fresh identity, ownership and health state.</returns>
+        public async Task<ModelEndpoint> DuplicateAsync(AuthContext auth, string sourceId, ModelEndpoint edited, CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (edited == null) throw new ArgumentNullException(nameof(edited));
+            ModelEndpoint? source = await ReadAsync(auth, sourceId, token).ConfigureAwait(false);
+            if (source == null) throw new KeyNotFoundException("Model endpoint not found: " + sourceId);
+            // Reading a shared endpoint is not authority to export its credentials to a different address.
+            if (!ScopedVisibility.CanEdit(auth, source.Scope, source.TenantId, source.UserId))
+                throw new UnauthorizedAccessException("Not permitted to copy credentials from endpoint " + sourceId);
+            if (!edited.ApiKeySpecified) edited.ApiKey = source.ApiKey;
+            ModelEndpoint headerValues = new ModelEndpoint { Headers = source.Headers.Select(h => new ModelEndpointHeader(h.Name, h.Value)).ToList() };
+            if (edited.HeadersSpecified) ModelEndpointAuth.MergeHeaders(headerValues, edited);
+            edited.Headers = headerValues.Headers;
+            if (!edited.InferenceOptionsSpecified)
+                edited.InferenceOptions = System.Text.Json.JsonSerializer.Deserialize<InferenceOptions>(System.Text.Json.JsonSerializer.Serialize(source.InferenceOptions))!;
+            edited.Id = new ModelEndpoint().Id;
+            edited.HealthHistory.Clear();
+            return await CreateAsync(auth, edited, token).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Update a model endpoint. Editable fields are copied from the supplied instance onto the stored
         /// record. The API key is preserved unless the caller explicitly supplied a new value.

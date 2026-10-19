@@ -189,6 +189,10 @@ export default function FleetDetail() {
             recordCount={null}
             onRowClick={(v) => navigate(`/vessels/${v.id}`)}
             columns={[
+              { key: 'actions', label: t('Actions'), fixed: true, interactive: true, render: v => <ActionMenu id={`fleet-vessel-${v.id}`} items={[
+                { label: 'Open', onClick: () => navigate(`/vessels/${v.id}`) },
+                { label: 'Duplicate', onClick: () => navigate(`/vessels?duplicate=${encodeURIComponent(v.id)}`) },
+              ]} /> },
               { key: 'name', label: t('Name'), required: true, headerTitle: t('Vessel name. Click a row to open the vessel.'), render: (v) => <strong>{v.name}</strong> },
               {
                 key: 'id', label: t('ID'), headerTitle: t('Vessel ID (vsl_...), used by the CLI, API and MCP tools.'), required: true, cellClassName: 'mono text-dim table-id-cell',

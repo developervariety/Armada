@@ -242,6 +242,7 @@ namespace Armada.Core.Authorization
             // ModelEndpointRoutes
             Add("GET", "/api/v1/model-endpoints", "ModelEndpoint", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/model-endpoints", "ModelEndpoint", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/model-endpoints/{id}/duplicate", "ModelEndpoint", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/model-endpoints/{id}", "ModelEndpoint", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("PUT", "/api/v1/model-endpoints/{id}", "ModelEndpoint", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("DELETE", "/api/v1/model-endpoints/{id}", "ModelEndpoint", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);

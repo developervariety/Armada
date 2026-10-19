@@ -6158,6 +6158,35 @@ Endpoint create/update accepts `inferenceOptions`, returned on reads and shared 
 
 Omit `inferenceOptions` on PUT to preserve the stored policy. Supplying an object replaces the policy; explicit null resets defaults. Invalid limits or duplicate/blank allowlist names return 400. The policy is snapshotted at launch and travels to the Harbor alongside the resolved endpoint. Nondefault settings require a policy-capable Harbor; `requireHarbor` prevents local fallback.
 
+#### Duplicate an endpoint without re-entering credentials
+
+`POST /api/v1/model-endpoints/{id}/duplicate` creates an edited copy when the caller can **edit** the source endpoint. Send the complete configuration for the new endpoint (the same fields as create). Omit `apiKey` to copy the source credential server-side, supply a string to replace it, or explicit null to clear it. Omit `headers` to copy all source headers; send a list to replace it, with null values inheriting by case-insensitive header name and `[]` removing all headers. Omitted `inferenceOptions` inherit the source policy. The source remains unchanged.
+
+The result is 201 with a fresh endpoint ID, caller ownership, normal create-scope rules and fresh health state. Credentials remain write-only. The operation performs no inference request. A visible source the caller cannot edit returns 403; an invisible or missing source returns 404; malformed or invalid edited configuration returns 400; unauthenticated requests return 401. Read access to a shared endpoint does not authorize copying its secrets to a different address.
+
+```json
+{
+  "name": "Ollama Cloud second model",
+  "kind": "Inference",
+  "provider": "OllamaCloud",
+  "baseUrl": "https://ollama.com:443",
+  "model": "your-second-model",
+  "authType": "Bearer"
+}
+```
+
+The dashboard row menu's **Duplicate** opens an unsaved, prefilled endpoint form. Edit the model, name or settings, then **Save Copy**; leaving the credential field blank inherits the source credential. Cancel creates nothing. The .NET SDK exposes `DuplicateModelEndpointAsync(sourceId, editedConfiguration, apiKey: null)`. MCP exposes `duplicate_model_endpoint` with `endpointId` and `configuration` arguments.
+
+#### Dashboard duplication coverage
+
+Reusable configuration tables offer Duplicate: fleets, vessels, captains, endpoints, skills, project profiles, workflow profiles, personas, pipelines, prompt templates, playbooks, fleet actions, environments and runbooks. Harbors can copy their editable registration settings; the new registration does not reuse the source machine identity or link. Existing duplication flows open the copied record's editor. Newly added endpoint, skill, profile and Harbor actions prefill the create form for review before saving.
+
+Memories copy editable content, tags, salience and vessel context into a new Manual memory; they do not reuse an upsert key, ID, version or agent provenance. Missions copy full instructions, mode, priority, persona, explicit requested captain, review policy and playbook references into an editable standalone Pending mission. Old voyage/dependency links, actual captain, process, branch, diff, review outcomes and landing state are excluded. Mission menus are also available on the home dashboard and captain/vessel/voyage detail tables; fleet detail vessel menus link to vessel duplication. Pipeline stage tables also offer Duplicate, opening the pipeline editor with an independent stage copy that is applied only on Save.
+
+Deployment copies open the create form with immediate execution off. Release copies reset to Draft and clear version/tag identity; incident copies reset to Open and omit the old timeline and resolution. These actions never rerun a deployment, publish a release, or copy recorded outcomes merely by opening the menu.
+
+Duplication is deliberately absent from observed or historical tables: voyages (execution graphs), docks/worktrees, checks, jobs, signals/events, request/activity/history logs, merge queue entries, execution results, storage inventory, discovered runtime tools, git branch inventory, health/metrics and import results. Reuse their underlying definition, retry/run controls, or the individual mission duplication action instead. Tenant, user, credential and CLI permission-rule tables also do not clone identities, grants or credentials.
+
 #### GET /api/v1/model-endpoints
 
 List all model endpoints in the caller scope. This route returns a plain array, **not** a paginated `EnumerationResult` envelope.

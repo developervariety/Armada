@@ -26,10 +26,10 @@ namespace Armada.Harbor
         private readonly UrlTextBox _DashboardUrl = new UrlTextBox(null, "Dashboard address");
         private readonly CopyableIdText _TenantId = new CopyableIdText(null, "Tenant ID", true);
         private readonly CopyableIdText _UserId = new CopyableIdText(null, "User ID", true);
-        private readonly TextBox _AccessKey = new TextBox { PasswordChar = '\u2022', Watermark = "None: no sign-in (same-computer Admiral only)" };
-        private readonly TextBox _Secret = new TextBox { PasswordChar = '\u2022', Watermark = "None" };
+        private readonly TextBox _AccessKey = new TextBox { PasswordChar = '\u2022', PlaceholderText = "None: no sign-in (same-computer Admiral only)" };
+        private readonly TextBox _Secret = new TextBox { PasswordChar = '\u2022', PlaceholderText = "None" };
         private readonly CheckBox _ShowSecrets = new CheckBox { Content = "Show" };
-        private readonly TextBox _Capabilities = new TextBox { Watermark = "git" };
+        private readonly TextBox _Capabilities = new TextBox { PlaceholderText = "git" };
         private readonly NumericUpDown _Heartbeat = new NumericUpDown { Minimum = 0, Maximum = 600000, Increment = 1000, FormatString = "0", MinWidth = 180, HorizontalAlignment = HorizontalAlignment.Left };
         private readonly NumericUpDown _MaxJobs = new NumericUpDown { Minimum = 1, Maximum = 64, Increment = 1, FormatString = "0", MinWidth = 180, HorizontalAlignment = HorizontalAlignment.Left };
         private readonly ComboBox _Appearance = new ComboBox { ItemsSource = new string[] { "Follow the system", "Light", "Dark" }, MinWidth = 180 };
@@ -54,8 +54,8 @@ namespace Armada.Harbor
             _HarborId.HorizontalAlignment = HorizontalAlignment.Left;
             _HarborId.Margin = new Thickness(0, 2, 0, 0);
             AddField(identity, "Harbor ID", _HarborId, null, "This computer's Harbor ID (hbr_), assigned when it first registered with the Admiral. Missions and logs on the Admiral name it by this ID. Click to copy.");
-            _TenantId.Input.Watermark = "None";
-            _UserId.Input.Watermark = "None";
+            _TenantId.Input.PlaceholderText = "None";
+            _UserId.Input.PlaceholderText = "None";
 
             Grid connection = Form();
             AddField(connection, "Admiral address", _LinkUrl, "Where this computer connects to the Admiral: ws://host:7890/v1.0/harbor/connect (wss:// over TLS).");

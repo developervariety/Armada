@@ -1,3 +1,4 @@
+import { duplicateDisplayName } from '../lib/duplicates';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../components/shared/PageHeader';
@@ -151,6 +152,12 @@ export default function Deployments() {
       autoExecute: true,
     });
     setShowCreate(true);
+  }
+
+  function openDuplicate(deployment: Deployment) {
+    openEdit(deployment);
+    setEditing(null);
+    setCreateForm(current => ({ ...current, title: duplicateDisplayName(deployment.title || 'Deployment'), autoExecute: false }));
   }
 
   function handleEnvironmentChange(environmentId: string) {
@@ -331,7 +338,8 @@ export default function Deployments() {
           id={`deployment-${deployment.id}`}
           items={[
             { label: 'Open', title: 'Open the deployment detail page to approve, verify, roll back, or review evidence.', onClick: () => navigate(`/deployments/${deployment.id}`) },
-            ...(canManage ? [{ label: 'Edit', title: 'Change the deployment\'s links, source ref, title, and notes.', onClick: () => openEdit(deployment) }] : []),
+            ...(canManage ? [{ label: 'Duplicate', title: 'Edit a new copy before saving.', onClick: () => openDuplicate(deployment) }] : []),
+              ...(canManage ? [{ label: 'Edit', title: 'Change the deployment\'s links, source ref, title, and notes.', onClick: () => openEdit(deployment) }] : []),
             { label: 'View JSON', title: 'Show the raw deployment record as returned by the API.', onClick: () => setJsonData({ open: true, title: deployment.title, data: deployment }) },
             ...(canManage ? [{ label: 'Delete', title: 'Delete only this deployment record. Linked checks, releases, and environments stay. Cannot be undone.', danger: true as const, onClick: () => handleDelete(deployment) }] : []),
           ]}

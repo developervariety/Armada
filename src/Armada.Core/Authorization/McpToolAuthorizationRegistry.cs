@@ -100,6 +100,7 @@ namespace Armada.Core.Authorization
             Add("update_memory", "Memory", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("delete_memory", "Memory", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
             Add("create_model_endpoint", "ModelEndpoint", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
+            Add("duplicate_model_endpoint", "ModelEndpoint", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
             Add("update_model_endpoint", "ModelEndpoint", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("delete_model_endpoint", "ModelEndpoint", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
             Add("validate_model_endpoint", "ModelEndpoint", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);

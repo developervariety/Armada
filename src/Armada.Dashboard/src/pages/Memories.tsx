@@ -1,5 +1,10 @@
+import ActionMenu from '../components/shared/ActionMenu';
+import DialogShell from '../components/shared/DialogShell';
+import ScopeSelect from '../components/shared/ScopeSelect';
+import { useAuth } from '../context/AuthContext';
+import { resolveCreateScope } from '../lib/scoping';
 import { useCallback, useEffect, useState } from 'react';
-import { listMemories, deleteMemory } from '../api/client';
+import { listMemories, deleteMemory, createMemory } from '../api/client';
 import type { Memory, MemoryType } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -8,7 +13,6 @@ import DataTable, { type DataTableColumn } from '../components/shared/DataTable'
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import ScopeBadge from '../components/shared/ScopeBadge';
-import CopyButton from '../components/shared/CopyButton';
 import { MEMORY_TYPES } from '../lib/configuration';
 import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
@@ -28,6 +32,33 @@ const MEMORY_TYPE_TIPS: Record<string, string> = {
 export default function Memories() {
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const { isAdmin, isTenantAdmin, user } = useAuth();
+  const viewer = { isAdmin, isTenantAdmin, tenantId: user?.user?.tenantId, userId: user?.user?.id };
+  const [draft, setDraft] = useState<Partial<Memory> | null>(null);
+  const [tagsText, setTagsText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  function openDuplicate(memory: Memory) {
+    setSaveError('');
+    setTagsText(memory.tags.join(', '));
+    // No key: POST upserts by key, so reusing the source key would replace the original.
+    setDraft({ type: memory.type, topic: memory.topic, summary: memory.summary, content: memory.content,
+      salience: memory.salience, vesselId: memory.vesselId || memory.sourceVesselId, tags: [...memory.tags], scope: resolveCreateScope(viewer), sourceKind: 'Manual' });
+  }
+
+  async function saveDuplicate(event: React.FormEvent) {
+    event.preventDefault();
+    if (!draft || saving) return;
+    setSaving(true);
+    try {
+      await createMemory({ ...draft, tags: tagsText.split(',').map(tag => tag.trim()).filter(Boolean) });
+      setDraft(null);
+      pushToast('success', t('Memory duplicated.'));
+      await load();
+    } catch (error) { setSaveError(error instanceof Error ? error.message : t('Save failed.')); }
+    finally { setSaving(false); }
+  }
 
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(false);
@@ -100,10 +131,11 @@ export default function Memories() {
     {
       key: 'actions', label: t('Actions'), headerTitle: t('Copy the memory ID, or delete the memory.'), fixed: true, interactive: true, className: 'text-right',
       render: (m) => (
-        <span className="id-display">
-          <CopyButton text={m.id} />
-          <button className="btn-danger btn-sm" onClick={() => setConfirm({ open: true, id: m.id })} title={t('Permanently delete this memory so agents no longer recall it. You confirm first; this cannot be undone.')}>{t('Delete')}</button>
-        </span>
+        <ActionMenu id={`memory-${m.id}`} items={[
+          { label: 'Duplicate', title: 'Edit a new memory before saving. Its ID, key and agent history are not reused.', onClick: () => openDuplicate(m) },
+          { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Memory')}: ${m.id}`, data: m }) },
+          { label: 'Delete', danger: true, onClick: () => setConfirm({ open: true, id: m.id }) },
+        ]} />
       ),
     },
   ];
@@ -133,6 +165,20 @@ export default function Memories() {
           onChange={e => { setSearch(e.target.value); setPageNumber(1); }}
         />
       </div>
+
+      {draft && <DialogShell open title={t('Duplicate Memory')} onClose={() => setDraft(null)} dismissible={!saving}>
+        <form onSubmit={saveDuplicate}>
+          {saveError && <p role="alert" className="text-danger">{saveError}</p>}
+          <label>{t('Type')}<select value={draft.type} onChange={e => setDraft({ ...draft, type: e.target.value as MemoryType })}>{TYPES.map(type => <option key={type}>{type}</option>)}</select></label>
+          <label>{t('Topic')}<input value={draft.topic ?? ''} onChange={e => setDraft({ ...draft, topic: e.target.value })} /></label>
+          <label>{t('Summary')}<input value={draft.summary ?? ''} onChange={e => setDraft({ ...draft, summary: e.target.value })} /></label>
+          <label>{t('Content')}<textarea required value={draft.content ?? ''} onChange={e => setDraft({ ...draft, content: e.target.value })} /></label>
+          <label>{t('Salience')}<input type="number" min={0} max={1} step={0.01} required value={draft.salience} onChange={e => setDraft({ ...draft, salience: Number(e.target.value) })} /></label>
+          <label>{t('Tags')}<input value={tagsText} onChange={e => setTagsText(e.target.value)} /></label>
+          <ScopeSelect viewer={viewer} value={draft.scope ?? 'UserSpecific'} onChange={scope => setDraft({ ...draft, scope })} />
+          <div className="modal-actions"><button type="submit" className="btn btn-primary" disabled={saving}>{t('Save Copy')}</button><button type="button" className="btn" disabled={saving} onClick={() => setDraft(null)}>{t('Cancel')}</button></div>
+        </form>
+      </DialogShell>}
 
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
 

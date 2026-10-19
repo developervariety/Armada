@@ -53,6 +53,17 @@ namespace Armada.Client
             return PostAsync<ModelEndpoint>("/api/v1/model-endpoints", WithApiKey(data, apiKey), null, token);
         }
 
+        /// <summary>Create an edited copy of an endpoint, inheriting omitted credentials server-side.</summary>
+        /// <param name="sourceId">Editable source endpoint.</param>
+        /// <param name="data">Complete edited configuration for the new endpoint.</param>
+        /// <param name="apiKey">Replacement key; null inherits the source key.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Created endpoint; secret values are never returned.</returns>
+        public Task<ModelEndpoint?> DuplicateModelEndpointAsync(string sourceId, ModelEndpoint data, string? apiKey = null, CancellationToken token = default)
+        {
+            return PostAsync<ModelEndpoint>($"/api/v1/model-endpoints/{E(sourceId)}/duplicate", WithApiKey(data, apiKey), null, token);
+        }
+
         /// <summary>
         /// Dashboard <c>updateModelEndpoint</c>: PUT /api/v1/model-endpoints/{id}. A null API key keeps the stored key.
         /// </summary>

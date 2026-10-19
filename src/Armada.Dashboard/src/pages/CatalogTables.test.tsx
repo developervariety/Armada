@@ -201,3 +201,49 @@ describe('catalog list tables on the shared DataTable', () => {
     expect(screen.getByTitle('Refresh harbors')).toBeInTheDocument();
   });
 });
+
+
+describe('Editable duplication drafts', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('Skills duplicate into create mode and preserve instruction content', async () => {
+    vi.mocked(client.createSkill).mockResolvedValue({ ...skill, id: 'skl_copy' } as never);
+    renderPage(<Skills />);
+    await screen.findByText('git-hygiene', { selector: 'strong' });
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    expect(client.createSkill).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Name')).toHaveValue('git-hygiene (Copy)');
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'git-hygiene-extended' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Skill' }));
+    await vi.waitFor(() => expect(client.createSkill).toHaveBeenCalledWith(expect.objectContaining({ name: 'git-hygiene-extended', content: skill.content, category: skill.category })));
+    expect(client.updateSkill).not.toHaveBeenCalled();
+  });
+
+  it('Project profiles preserve persona overrides, reset default status and create an independent copy', async () => {
+    const source = { ...projectProfile, isDefault: true, personaOverrides: [{ personaName: 'Worker', promptTemplateName: 'worker.custom', additionalInstructions: 'test first' }] };
+    vi.mocked(client.listProjectProfiles).mockResolvedValue(page([source]) as never);
+    vi.mocked(client.createProjectProfile).mockResolvedValue({ ...source, id: 'prp_copy' } as never);
+    renderPage(<ProjectProfiles />);
+    await screen.findByText(projectProfile.name, { selector: 'strong' });
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    expect(client.createProjectProfile).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Create Project Profile' }));
+    await vi.waitFor(() => expect(client.createProjectProfile).toHaveBeenCalledWith(expect.objectContaining({
+      name: `${projectProfile.name} (Copy)`, personaOverrides: source.personaOverrides, isDefault: false,
+    })));
+    expect(client.updateProjectProfile).not.toHaveBeenCalled();
+  });
+
+  it('Harbors copy editable registration settings without reusing a connected host identity', async () => {
+    renderPage(<Harbors />);
+    await screen.findByText('laptop', { selector: 'strong' });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Actions' })[0]);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    expect(screen.getByLabelText('Name')).toHaveValue('laptop (Copy)');
+    expect(client.createHarbor).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(client.createHarbor).not.toHaveBeenCalled();
+  });
+});

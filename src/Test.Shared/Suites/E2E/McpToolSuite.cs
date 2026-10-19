@@ -42,6 +42,58 @@ namespace Test.Shared.Suites.E2E
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("endpoint_duplicate_rest_authorization", "REST duplicate authenticates regular owners, refuses shared readers and hides other-tenant sources", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                E2ETenantUser owner = await E2ETenantUser.CreateAsync(fx.AuthClient, "copy-owner", true).ConfigureAwait(false);
+                E2ETenantUser reader = await E2ETenantUser.CreateAsync(fx.AuthClient, "copy-reader", false, owner.TenantId).ConfigureAwait(false);
+                E2ETenantUser outsider = await E2ETenantUser.CreateAsync(fx.AuthClient, "copy-other", true).ConfigureAwait(false);
+                using HttpClient ownerClient = owner.CreateClient(fx.BaseUrl);
+                using HttpClient readerClient = reader.CreateClient(fx.BaseUrl);
+                using HttpClient otherClient = outsider.CreateClient(fx.BaseUrl);
+                ModelEndpoint source = await JsonHelper.DeserializeAsync<ModelEndpoint>(await ownerClient.PostAsync("/api/v1/model-endpoints", JsonHelper.ToJsonContent(new {
+                    name = "shared source", provider = "OpenAICompatible", baseUrl = "http://127.0.0.1:9", apiKey = "never-return-copy-secret", scope = "TenantWide"
+                })).ConfigureAwait(false)).ConfigureAwait(false);
+                string route = "/api/v1/model-endpoints/" + source.Id + "/duplicate";
+                object configuration = new { name = "edited copy", provider = "OpenAICompatible", baseUrl = "http://127.0.0.1:10" };
+                HttpResponseMessage forbidden = await readerClient.PostAsync(route, JsonHelper.ToJsonContent(configuration)).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, forbidden.StatusCode);
+                AssertFalse((await forbidden.Content.ReadAsStringAsync().ConfigureAwait(false)).Contains("never-return-copy-secret"));
+                AssertEqual(HttpStatusCode.NotFound, (await otherClient.PostAsync(route, JsonHelper.ToJsonContent(configuration)).ConfigureAwait(false)).StatusCode);
+                AssertEqual(HttpStatusCode.Unauthorized, (await fx.UnauthClient.PostAsync(route, JsonHelper.ToJsonContent(configuration)).ConfigureAwait(false)).StatusCode);
+                ModelEndpoint own = await JsonHelper.DeserializeAsync<ModelEndpoint>(await readerClient.PostAsync("/api/v1/model-endpoints", JsonHelper.ToJsonContent(configuration)).ConfigureAwait(false)).ConfigureAwait(false);
+                HttpResponseMessage copied = await readerClient.PostAsync("/api/v1/model-endpoints/" + own.Id + "/duplicate", JsonHelper.ToJsonContent(configuration)).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, copied.StatusCode, "An authenticated regular owner may duplicate their own endpoint.");
+                ModelEndpoint copy = await JsonHelper.DeserializeAsync<ModelEndpoint>(copied).ConfigureAwait(false);
+                AssertTrue(copy.Id != own.Id); AssertEqual(reader.UserId, copy.UserId); AssertEqual(ScopeEnum.UserSpecific, copy.Scope);
+            }));
+
+            cases.Add(CaseAsync("endpoint_duplicate_edited_copy", "MCP endpoint duplication inherits stored secrets and saves an edited independent endpoint", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                string session = await InitMcpSessionAsync(fx.McpClient).ConfigureAwait(false);
+                ModelEndpoint source = JsonHelper.Deserialize<ModelEndpoint>(GetToolResultText(await CallToolAsync(fx.McpClient, session, "create_model_endpoint", new {
+                    name = "copy-source-" + Guid.NewGuid().ToString("N"), baseUrl = "http://127.0.0.1:9", provider = "OpenAICompatible", apiKey = "test-copy-secret",
+                    headers = new[] { new { name = "X-Org", value = "test-header-secret" } }, inferenceOptions = new { maxIterations = 9 }
+                }).ConfigureAwait(false)));
+                string? copyId = null;
+                try
+                {
+                    JsonElement result = await CallToolAsync(fx.McpClient, session, "duplicate_model_endpoint", new {
+                        endpointId = source.Id, configuration = new { name = "edited-copy", provider = "OpenAICompatible", baseUrl = "http://127.0.0.1:10", model = "edited-model" }
+                    }).ConfigureAwait(false);
+                    string text = GetToolResultText(result);
+                    ModelEndpoint copy = JsonHelper.Deserialize<ModelEndpoint>(text); copyId = copy.Id;
+                    AssertTrue(copy.Id != source.Id); AssertTrue(copy.HasApiKey); AssertEqual("edited-model", copy.Model); AssertEqual(9, copy.InferenceOptions.MaxIterations);
+                    AssertFalse(text.Contains("test-copy-secret") || text.Contains("test-header-secret"), "MCP copy must never expose secrets.");
+                }
+                finally
+                {
+                    if (copyId != null) await CallToolAsync(fx.McpClient, session, "delete_model_endpoint", new { endpointId = copyId }).ConfigureAwait(false);
+                    await CallToolAsync(fx.McpClient, session, "delete_model_endpoint", new { endpointId = source.Id }).ConfigureAwait(false);
+                }
+            }));
+
             cases.Add(CaseAsync("endpoint_inference_policy_roundtrip", "MCP inference policy create, omitted update, explicit reset and invalid limit rejection", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);

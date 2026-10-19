@@ -50,7 +50,7 @@ namespace Armada.Harbor
             switch (control)
             {
                 case TextBox box:
-                    return Example(LabelFor(box), box.Watermark);
+                    return Example(LabelFor(box), box.PlaceholderText);
                 case NumericUpDown number:
                     return Combine(LabelFor(number), number.Value.HasValue ? number.Value.Value.ToString(System.Globalization.CultureInfo.CurrentCulture) : null);
                 case ComboBox combo:
@@ -87,7 +87,7 @@ namespace Armada.Harbor
             AvaloniaProperty? source = control switch
             {
                 TextBlock => TextBlock.TextProperty,
-                TextBox => TextBox.WatermarkProperty,
+                TextBox => TextBox.PlaceholderTextProperty,
                 NumericUpDown => NumericUpDown.ValueProperty,
                 ComboBox => SelectingItemsControl.SelectedItemProperty,
                 Slider => RangeBase.ValueProperty,

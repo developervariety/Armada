@@ -22,8 +22,8 @@ namespace Armada.Harbor
         private readonly HarborSession _Session;
         private readonly TextBlock _Message = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
 
-        private readonly TextBox _DocksDirectory = new TextBox { Watermark = HarborAppSettings.DefaultDocksDirectory() };
-        private readonly TextBox _ReposDirectory = new TextBox { Watermark = HarborAppSettings.DefaultReposDirectory() };
+        private readonly TextBox _DocksDirectory = new TextBox { PlaceholderText = HarborAppSettings.DefaultDocksDirectory() };
+        private readonly TextBox _ReposDirectory = new TextBox { PlaceholderText = HarborAppSettings.DefaultReposDirectory() };
         private readonly StackPanel _MappingRows = new StackPanel { Spacing = 6 };
         private readonly StackPanel _RootRows = new StackPanel { Spacing = 6 };
         private readonly List<MappingRow> _Mappings = new List<MappingRow>();
@@ -164,9 +164,9 @@ namespace Armada.Harbor
 
         private void AddMapping(string vessel, string path)
         {
-            TextBox vesselBox = new TextBox { Text = vessel, Watermark = "Vessel name or ID" };
+            TextBox vesselBox = new TextBox { Text = vessel, PlaceholderText = "Vessel name or ID" };
             ToolTip.SetTip(vesselBox, "The vessel, by its name or its vsl_ ID, whose checkout is the folder on the right");
-            TextBox pathBox = new TextBox { Text = path, Watermark = "/path/to/checkout" };
+            TextBox pathBox = new TextBox { Text = path, PlaceholderText = "/path/to/checkout" };
             ToolTip.SetTip(pathBox, "The folder of your own git checkout of that vessel on this computer. Harbor runs checks and local merges there.");
             MappingRow row = new MappingRow(vesselBox, pathBox);
 
@@ -191,7 +191,7 @@ namespace Armada.Harbor
 
         private void AddRoot(string folder)
         {
-            TextBox box = new TextBox { Text = folder, Watermark = "/path/to/your/code" };
+            TextBox box = new TextBox { Text = folder, PlaceholderText = "/path/to/your/code" };
             ToolTip.SetTip(box, "A folder that holds your code. Harbor looks up to three levels deep for checkouts of vessels not listed above.");
             Grid grid = PathRow(box);
             Button remove = HarborUi.Button("Remove", () =>

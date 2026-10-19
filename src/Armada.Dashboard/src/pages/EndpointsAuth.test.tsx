@@ -6,7 +6,7 @@ import { translateTemplate } from '../i18n/runtime';
 import Endpoints from './Endpoints';
 
 vi.mock('../api/client', () => ({
-  listModelEndpoints: vi.fn(), createModelEndpoint: vi.fn(), updateModelEndpoint: vi.fn(), deleteModelEndpoint: vi.fn(),
+  listModelEndpoints: vi.fn(), duplicateModelEndpoint: vi.fn(), createModelEndpoint: vi.fn(), updateModelEndpoint: vi.fn(), deleteModelEndpoint: vi.fn(),
   validateModelEndpoint: vi.fn(), healthCheckModelEndpoints: vi.fn(),
 }));
 
@@ -200,5 +200,44 @@ describe('Endpoint inference policy', () => {
     await openEdit();
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
     await waitFor(() => expect(client.updateModelEndpoint).toHaveBeenCalledWith('mep_1', expect.objectContaining({ inferenceOptions: expect.objectContaining({ allowedTools: [], maxIterations: 2 }) })));
+  });
+});
+
+
+describe('Endpoint duplication', () => {
+  async function openCopy() {
+    render(<MemoryRouter><Endpoints /></MemoryRouter>);
+    await screen.findByText('tunnel-ollama', { selector: 'strong' });
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    await screen.findByRole('heading', { name: 'Duplicate Endpoint' });
+  }
+
+  it.each(['Ollama', 'OllamaCloud', 'XAI'])('opens an editable %s draft, preserving write-only credentials by reference until Save Copy', async (provider) => {
+    vi.mocked(client.listModelEndpoints).mockResolvedValue([{ ...STORED, provider, baseUrl: provider === 'OllamaCloud' ? 'https://ollama.com:443' : STORED.baseUrl }] as never);
+    vi.mocked(client.duplicateModelEndpoint).mockResolvedValue({ ...STORED, id: 'mep_copy' } as never);
+    await openCopy();
+    expect(client.duplicateModelEndpoint).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Name')).toHaveValue('tunnel-ollama (Copy)');
+    expect(screen.getByLabelText('Bearer token')).toHaveValue('');
+    expect(screen.getByLabelText('Bearer token')).toHaveAttribute('placeholder', '(unchanged - leave blank to keep stored key)');
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'new cloud model' } });
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'new-model' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Copy' }));
+    await waitFor(() => expect(client.duplicateModelEndpoint).toHaveBeenCalledWith('mep_1', expect.objectContaining({
+      name: 'new cloud model', model: 'new-model', headers: [
+        { name: 'CF-Access-Client-Id', value: null }, { name: 'CF-Access-Client-Secret', value: null },
+      ],
+    })));
+    expect(vi.mocked(client.duplicateModelEndpoint).mock.calls[0][1]).not.toHaveProperty('apiKey');
+    expect(client.updateModelEndpoint).not.toHaveBeenCalled();
+    expect(client.createModelEndpoint).not.toHaveBeenCalled();
+  });
+
+  it('cancel leaves no copy behind', async () => {
+    await openCopy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(client.duplicateModelEndpoint).not.toHaveBeenCalled();
+    expect(client.createModelEndpoint).not.toHaveBeenCalled();
   });
 });

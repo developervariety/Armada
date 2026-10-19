@@ -1,13 +1,15 @@
+import { useDuplicateRequest } from '../lib/useDuplicateRequest';
+import { duplicateDisplayName, buildMissionDuplicatePayload } from '../lib/duplicates';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '../context/NotificationContext';
 import {
-  listMissionSummaries, createMission, updateMission, deleteMission, purgeMission,
+  getMission, listMissionSummaries, createMission, updateMission, deleteMission, purgeMission,
   restartMission, retryMissionLanding, transitionMission, getMissionDiff, getMissionLog,
   listVessels, listCaptains, listVoyages, apiErrorMessage,
 } from '../api/client';
 import { listAll } from '../api/paging';
-import type { MissionSummary, Vessel, Captain, Voyage, MissionMode } from '../types/models';
+import type { Mission, MissionSummary, Vessel, Captain, Voyage, MissionMode } from '../types/models';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import LoadingIndicator from '../components/shared/LoadingIndicator';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -52,6 +54,7 @@ export default function Missions() {
   const [userScope, setUserScope] = useState('');
 
   // Modal
+  const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState<{ title: string; description: string; vesselId: string; priority: number; mode: MissionMode }>({ title: '', description: '', vesselId: '', priority: 100, mode: 'Implementation' });
 
@@ -159,20 +162,37 @@ export default function Missions() {
   function selectAll() { setSelected(sorted.map(m => m.id)); }
   function clearSelection() { setSelected([]); }
 
+  const [duplicateSource, setDuplicateSource] = useState<Mission | null>(null);
+
   // Create
   function openCreate() {
+    setDuplicateSource(null);
     setFormData({ title: '', description: '', vesselId: '', priority: 100, mode: 'Implementation' });
     setShowForm(true);
   }
 
+  async function openDuplicate(summary: { id: string }) {
+    try {
+      const mission = await getMission(summary.id);
+      setDuplicateSource(mission);
+      setFormData({ title: duplicateDisplayName(mission.title), description: mission.description || '', vesselId: mission.vesselId || '', priority: mission.priority, mode: mission.mode || 'Implementation' });
+      setShowForm(true);
+    } catch (error) { setError(apiErrorMessage(error, t('Duplicate failed.'))); }
+  }
+
+  useDuplicateRequest(id => openDuplicate({ id }), error => setError(apiErrorMessage(error, t('Duplicate failed.'))));
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
     try {
-      await createMission(formData);
+      await createMission({ ...(duplicateSource ? buildMissionDuplicatePayload(duplicateSource) : {}), ...formData });
       setShowForm(false);
       pushToast('success', t('Mission "{{title}}" created.', { title: formData.title }));
       load();
     } catch (err: unknown) { setError(apiErrorMessage(err, t('Create failed.'))); }
+    finally { setSaving(false); }
   }
 
   // Actions
@@ -338,6 +358,7 @@ export default function Missions() {
       key: 'actions', label: t('Actions'), headerTitle: t('Open, restart, retry landing, view the diff or log, change status, cancel or purge a mission.'), fixed: true, interactive: true, className: 'text-right',
       render: (m) => (
         <ActionMenu id={`mission-${m.id}`} items={[
+          { label: 'Duplicate', title: 'Edit a fresh standalone mission with the same instructions. Execution state and dependencies are reset.', onClick: () => void openDuplicate(m) },
           { label: 'View Detail', title: 'Open the mission page with its description, captain activity, diff and log.', onClick: () => navigate(`/missions/${m.id}`) },
           { label: 'Edit', title: 'Open the mission page, where Edit changes its title, description and priority.', onClick: () => navigate(`/missions/${m.id}`) },
           { label: 'Restart', title: 'Reset a Failed or Cancelled mission to Pending so it is dispatched again. Clears its captain, branch, pull request and timing.', onClick: () => handleRestart(m) },
@@ -381,7 +402,7 @@ export default function Missions() {
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-            <h3>{t('Create Mission')}</h3>
+            <h3>{t(duplicateSource ? 'Duplicate Mission' : 'Create Mission')}</h3>
             <label title={t('Short name for the mission, shown in lists and notifications. Required. Example: Add retry to the webhook sender.')}>{t('Title')}<input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} required title={t('Short name for the mission, shown in lists and notifications. Required. Example: Add retry to the webhook sender.')} /></label>
             <label title={t('Instructions the captain works from: what to change, where, and how to know it is done. Markdown is fine. Optional but strongly recommended.')}>{t('Description')}<textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} title={t('Instructions the captain works from: what to change, where, and how to know it is done. Markdown is fine. Optional but strongly recommended.')} /></label>
             <label title={t('Repository the captain works in. The mission gets its own worktree and branch in this vessel. Required.')}>{t('Vessel')}
@@ -399,7 +420,7 @@ export default function Missions() {
             </label>
             <label title={t('Dispatch order. Lower numbers are assigned to a captain first; the default is 100. Example: 10 for urgent work.')}>{t('Priority')}<input type="number" value={formData.priority} onChange={e => setFormData({ ...formData, priority: Number(e.target.value) })} title={t('Dispatch order. Lower numbers are assigned to a captain first; the default is 100. Example: 10 for urgent work.')} /></label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary" title={t('Create the mission in Pending. Dispatch assigns it to an idle captain on the chosen vessel.')}>{t('Create')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving} title={t('Create the mission in Pending. Dispatch assigns it to an idle captain on the chosen vessel.')}>{t(duplicateSource ? 'Save Copy' : 'Create')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)} title={t('Close this form without creating a mission.')}>{t('Cancel')}</button>
             </div>
           </form>

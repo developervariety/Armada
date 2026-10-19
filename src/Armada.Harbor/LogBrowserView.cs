@@ -31,8 +31,8 @@ namespace Armada.Harbor
         private readonly HarborSession _Session;
         private readonly HarborLogPaths _HarborLogs = new HarborLogPaths(HarborAppSettings.LogDirectory());
         private readonly ComboBox _Category = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-        private readonly TextBox _NameFilter = new TextBox { Watermark = "Filter by name" };
-        private readonly TextBox _MissionId = new TextBox { Watermark = "msn_... or cpt_..." };
+        private readonly TextBox _NameFilter = new TextBox { PlaceholderText = "Filter by name" };
+        private readonly TextBox _MissionId = new TextBox { PlaceholderText = "msn_... or cpt_..." };
         private readonly ListBox _Files = new ListBox();
         private readonly TextBlock _ListNote = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 12 };
         private readonly TextBlock _FileTitle = new TextBlock { FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -40,7 +40,7 @@ namespace Armada.Harbor
         private readonly CopyableIdText _FileId = new CopyableIdText(null, "ID") { HorizontalAlignment = HorizontalAlignment.Left, IsVisible = false };
         private readonly CheckBox _Follow = new CheckBox { Content = "Follow", IsChecked = true };
         private readonly ComboBox _Severity = new ComboBox { ItemsSource = new string[] { "All levels", "Info and up", "Warn and up", "Error and up" }, SelectedIndex = 0, MinWidth = 130 };
-        private readonly TextBox _Find = new TextBox { Watermark = "Find", MinWidth = 160 };
+        private readonly TextBox _Find = new TextBox { PlaceholderText = "Find", MinWidth = 160 };
         private readonly TextBox _Viewer;
         private readonly DispatcherTimer _FollowTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         private readonly List<string> _Lines = new List<string>();

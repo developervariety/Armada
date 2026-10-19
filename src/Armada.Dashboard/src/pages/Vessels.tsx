@@ -1,3 +1,5 @@
+import { useDuplicateRequest } from '../lib/useDuplicateRequest';
+import { getVessel } from '../api/client';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { listVessels, listFleets, listPipelines, createVessel, deleteVessel, getVesselGitStatus, getVesselBranches } from '../api/client';
@@ -200,6 +202,8 @@ export default function Vessels() {
 
     navigate(`/backlog?${params.toString()}`);
   }
+
+  useDuplicateRequest(async id => { await handleDuplicate(await getVessel(id)); }, error => setError(error instanceof Error ? error.message : t('Duplicate failed.')));
 
   async function handleDuplicate(vessel: Vessel) {
     try {

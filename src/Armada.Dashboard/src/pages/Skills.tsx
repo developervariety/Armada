@@ -1,3 +1,4 @@
+import { duplicateDisplayName } from '../lib/duplicates';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createSkill, deleteSkill, listSkills, updateSkill } from '../api/client';
@@ -69,6 +70,12 @@ export default function Skills() {
       scope: skill.scope,
     });
     setShowCreate(true);
+  }
+
+  function openDuplicate(skill: Skill) {
+    openEdit(skill);
+    setEditing(null);
+    setCreateForm(current => ({ ...current, name: duplicateDisplayName(skill.name), scope: resolveCreateScope(viewer) }));
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -203,6 +210,7 @@ export default function Skills() {
             id={`skill-${skill.id}`}
             items={[
               { label: 'Open', title: 'Open this skill\'s page to read or edit its content.', onClick: () => navigate(`/skills/${skill.id}`) },
+              ...(canEditRow ? [{ label: 'Duplicate', title: 'Edit a new copy before saving.', onClick: () => openDuplicate(skill) }] : []),
               ...(canEditRow ? [{ label: 'Edit', title: 'Change this skill\'s name, category, description, content, visibility and active state.', onClick: () => openEdit(skill) }] : []),
               { label: 'View JSON', title: 'Show this skill\'s full record as JSON, as the API returns it.', onClick: () => setJsonData({ open: true, title: skill.name, data: skill }) },
               ...(canEditRow ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this skill. Project profiles that list it simply skip it. You confirm first.', onClick: () => handleDelete(skill) }] : []),
