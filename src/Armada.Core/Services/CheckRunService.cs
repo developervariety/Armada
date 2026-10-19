@@ -57,6 +57,23 @@ namespace Armada.Core.Services
             return _RunStateLocks.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
         }
 
+        private static readonly ConcurrentDictionary<string, byte> _OperatorRuns =
+            new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// True while an operator's run_check or retry executes this record in this process. An operator
+        /// re-runs a Check of an ended voyage to prove a commit before landing it by hand, so the voyage's
+        /// end does not discard that record and the automatic sweep does not execute it a second time.
+        /// The mark lives only as long as the execution: after a restart the record is an ordinary
+        /// Pending Check again.
+        /// </summary>
+        /// <param name="id">Check run ID.</param>
+        /// <returns>True when an operator's execution owns the record.</returns>
+        public static bool IsOperatorRun(string id)
+        {
+            return !String.IsNullOrWhiteSpace(id) && _OperatorRuns.ContainsKey(id);
+        }
+
         /// <summary>
         /// Stamp an armed source only while the durable check is still eligible and before source
         /// preparation starts. Callers may pass a row from an earlier enumeration; this method
@@ -230,7 +247,7 @@ namespace Armada.Core.Services
         /// </remarks>
         public Task<CheckRun> RunAsync(AuthContext auth, CheckRunRequest request, CancellationToken token = default)
         {
-            return RunCoreAsync(auth, request, false, token);
+            return RunCoreAsync(auth, request, false, token, operatorRun: true);
         }
 
         /// <summary>
@@ -243,10 +260,19 @@ namespace Armada.Core.Services
         /// <param name="wait">Longest time to wait for the result.</param>
         /// <param name="token">Cancellation token for the wait. The started check is not cancelled by it.</param>
         /// <returns>The finished check, or the unfinished record when the wait ends first.</returns>
-        public async Task<CheckRun> RunWithinAsync(AuthContext auth, CheckRunRequest request, TimeSpan wait, CancellationToken token = default)
+        public Task<CheckRun> RunWithinAsync(AuthContext auth, CheckRunRequest request, TimeSpan wait, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            return WaitWithinAsync(
+                onRecorded => RunCoreAsync(auth, request, false, CancellationToken.None, onRecorded, operatorRun: true),
+                wait,
+                token);
+        }
+
+        private async Task<CheckRun> WaitWithinAsync(Func<Action<CheckRun>, Task<CheckRun>> start, TimeSpan wait, CancellationToken token)
         {
             TaskCompletionSource<CheckRun> recorded = new TaskCompletionSource<CheckRun>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Task<CheckRun> execution = RunCoreAsync(auth, request, false, CancellationToken.None, created => recorded.TrySetResult(created));
+            Task<CheckRun> execution = start(created => recorded.TrySetResult(created));
             Task first = await Task.WhenAny(execution, Task.Delay(wait, token)).ConfigureAwait(false);
             if (ReferenceEquals(first, execution)) return await execution.ConfigureAwait(false);
 
@@ -270,7 +296,8 @@ namespace Armada.Core.Services
             CheckRunRequest request,
             bool allowDeploymentExecution,
             CancellationToken token,
-            Action<CheckRun>? onRecorded = null)
+            Action<CheckRun>? onRecorded = null,
+            bool operatorRun = false)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (request == null) throw new ArgumentNullException(nameof(request));
@@ -352,6 +379,8 @@ namespace Armada.Core.Services
 
             SemaphoreSlim runLock = _PendingRunLocks.GetOrAdd(run.Id, _ => new SemaphoreSlim(1, 1));
             await runLock.WaitAsync(token).ConfigureAwait(false);
+            // Mark before the record exists, so no sweep can see it Pending and unowned.
+            if (operatorRun) _OperatorRuns[run.Id] = 0;
             try
             {
                 run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
@@ -453,6 +482,7 @@ namespace Armada.Core.Services
             }
             finally
             {
+                if (operatorRun) _OperatorRuns.TryRemove(run.Id, out _);
                 runLock.Release();
             }
         }
@@ -731,7 +761,34 @@ namespace Armada.Core.Services
         /// <summary>
         /// Retry a previously completed check run.
         /// </summary>
-        public async Task<CheckRun> RetryAsync(AuthContext auth, string id, CancellationToken token = default)
+        /// <remarks>
+        /// A retry is an operator run: it executes to its end even when the Check's voyage has ended,
+        /// because an operator retries a failed voyage's Check to prove its commit before landing it by hand.
+        /// </remarks>
+        public Task<CheckRun> RetryAsync(AuthContext auth, string id, CancellationToken token = default)
+        {
+            return RetryCoreAsync(auth, id, token, null);
+        }
+
+        /// <summary>
+        /// Retry a check run and wait for it for at most <paramref name="wait"/>, with the same contract as
+        /// <see cref="RunWithinAsync"/>: a retry still waiting for the host-wide slot is returned unfinished and
+        /// finishes its own record in the background.
+        /// </summary>
+        /// <param name="auth">Caller authorization context.</param>
+        /// <param name="id">Check run ID to retry.</param>
+        /// <param name="wait">Longest time to wait for the result.</param>
+        /// <param name="token">Cancellation token for the wait. The started retry is not cancelled by it.</param>
+        /// <returns>The finished retry, or the unfinished record when the wait ends first.</returns>
+        public Task<CheckRun> RetryWithinAsync(AuthContext auth, string id, TimeSpan wait, CancellationToken token = default)
+        {
+            return WaitWithinAsync(
+                onRecorded => RetryCoreAsync(auth, id, CancellationToken.None, onRecorded),
+                wait,
+                token);
+        }
+
+        private async Task<CheckRun> RetryCoreAsync(AuthContext auth, string id, CancellationToken token, Action<CheckRun>? onRecorded)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
@@ -747,9 +804,20 @@ namespace Armada.Core.Services
             if (prior.Source == CheckRunSourceEnum.External && !auth.IsAdmin)
                 throw new UnauthorizedAccessException("Only a global administrator can re-execute an imported check; run a new check instead.");
             if (prior.Status == CheckRunStatusEnum.Pending)
-                return await RunPendingAsync(auth, prior.Id, allowDeploymentExecution: false, token).ConfigureAwait(false);
+            {
+                _OperatorRuns[prior.Id] = 0;
+                try
+                {
+                    onRecorded?.Invoke(prior);
+                    return await RunPendingAsync(auth, prior.Id, allowDeploymentExecution: false, token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _OperatorRuns.TryRemove(prior.Id, out _);
+                }
+            }
 
-            return await RunAsync(auth, new CheckRunRequest
+            return await RunCoreAsync(auth, new CheckRunRequest
             {
                 VesselId = prior.VesselId ?? String.Empty,
                 WorkflowProfileId = prior.WorkflowProfileId,
@@ -765,7 +833,7 @@ namespace Armada.Core.Services
                 RegressionObjectiveId = prior.RegressionObjectiveId,
                 RegressionLandedCommit = prior.RegressionLandedCommit,
                 CommandOverride = auth.IsAdmin ? prior.Command : null
-            }, token).ConfigureAwait(false);
+            }, false, token, onRecorded, operatorRun: true).ConfigureAwait(false);
         }
 
         private CheckRunQuery BuildScopeQuery(AuthContext auth)
@@ -1707,6 +1775,7 @@ namespace Armada.Core.Services
                 stateLock.Release();
             }
             OnCheckRunChanged?.Invoke(run);
+            await VoyageCheckDiscard.WriteDiscardedEventAsync(_Database, run, "unstamped_voyage_check (" + endedReason + ")", token).ConfigureAwait(false);
             _Logging.Warn(_Header + "cancelled unstamped check " + run.Id + " (" + endedReason + ")");
             return run;
         }

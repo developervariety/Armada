@@ -114,6 +114,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- An operator's `run_check` or `retry_check_run` runs to completion even when
+  its voyage has ended; the automatic Check runner neither discards nor runs a
+  Check an operator is executing. Every discarded Check writes its reason into
+  its summary and output and records a `check.discarded` event.
+  `retry_check_run` follows the `run_check` bounded wait: a retry still waiting
+  for the host-wide slot returns unfinished with `slotWait` instead of blocking
+  until the client's tool timeout.
 - The WebSocket idle-session test runs in under a second. It gives its own
   server a 300 ms authentication window and asserts that the refusal arrives no
   earlier than that window and well before the 15-second production window,

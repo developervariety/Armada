@@ -529,6 +529,16 @@ imported check; other callers retry with the workflow-profile command.
 `Deploy` and `Rollback` checks run only through the deployment workflow. `start_runbook_execution` creates an execution in the runbook's tenant for
 the calling user.
 
+`run_check` and `retry_check_run` wait at most two minutes for a result. A
+check still waiting for the host-wide slot by then is returned unfinished, with
+`slotWait` naming its queue position and what holds the slot, and it finishes
+its own record; read the result with `get_check_run`. Neither call blocks until
+the client's tool timeout. Both are operator runs: the check runs to completion
+even when its voyage has ended. Only the automatic Check runner discards a
+Pending check of a cancelled or failed voyage, and the discard writes its
+reason (`voyage_cancelled` or `voyage_failed`) into the check's `summary` and
+`output` and records a `check.discarded` event.
+
 What a caller may use:
 
 | Caller | Tools listed and callable |

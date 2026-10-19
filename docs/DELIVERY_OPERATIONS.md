@@ -312,10 +312,15 @@ read-only mission), so the Check measures the commit the Judge reviews instead
 of an intermediate one a later stage replaces (on a split voyage, only the
 stages of the record's own lane count); a mission-linked Check after its mission completes, a release-linked Check when
 the release is ready, and an unlinked Check when its vessel is idle. A Pending
-Check of a voyage that ended without completing is cancelled with its reason.
+Check of a voyage that ended without completing is cancelled with its reason
+(`voyage_cancelled` or `voyage_failed`), which the discard writes into the
+Check's summary and output and records as a `check.discarded` event.
 Cancellation, execution and source stamping re-read the current Check under a
 shared state lock. A discard cancels a Check only while it remains Pending; a
-started Check is left intact. A source stamp applies only before the Check claims
+started Check is left intact. A Check that an operator's `run_check` or
+`retry_check_run` is executing is never discarded and never run by the
+heartbeat: it runs to completion even when its voyage has ended, because an
+operator re-runs a failed voyage's Check to prove a commit before landing it. A source stamp applies only before the Check claims
 the host slot or begins source preparation, so a stale heartbeat cannot retag
 work already in progress. No setting turns this off. Deployment deploy, verify,
 and rollback Checks stay under the deployment action so the deployment record

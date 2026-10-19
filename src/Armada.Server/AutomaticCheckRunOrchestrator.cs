@@ -434,6 +434,9 @@ namespace Armada.Server
         internal async Task<bool> IsEligibleAsync(CheckRun run, CancellationToken token)
         {
             if (run.Status != CheckRunStatusEnum.Pending) return false;
+            // An operator's run_check or retry already executes this record; the sweep neither runs nor
+            // discards it.
+            if (CheckRunService.IsOperatorRun(run.Id)) return false;
             if (String.IsNullOrWhiteSpace(run.VesselId)) return false;
             if (run.Type == CheckRunTypeEnum.Deploy || run.Type == CheckRunTypeEnum.Rollback) return false;
 
@@ -448,9 +451,10 @@ namespace Armada.Server
                 string? endedReason = VoyageCheckDiscard.ReasonFor(voyage.Status);
                 if (endedReason != null)
                 {
-                    // Never run, never counted: a Check whose voyage ended is discarded with its reason, so it
-                    // does not sit Pending forever and inflate the required-pending count. Covers every path
-                    // that ends a voyage, including those that set the status directly.
+                    // Never run, never counted: a Check whose voyage ended is discarded with its reason (in its
+                    // Summary, its Output and a check.discarded event), so it does not sit Pending forever and
+                    // inflate the required-pending count. Covers every path that ends a voyage, including those
+                    // that set the status directly.
                     if (await VoyageCheckDiscard.DiscardAsync(_Database, run, endedReason, token).ConfigureAwait(false))
                         _Logging.Info(_Header + "discarded pending check " + run.Id + " of ended voyage " + voyage.Id + " (" + endedReason + ")");
                     return false;

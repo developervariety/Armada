@@ -22,9 +22,10 @@ namespace Armada.Server.Mcp.Tools
         private const int _DefaultOutputTailLines = 40;
 
         /// <summary>
-        /// Longest time run_check waits before it returns an unfinished check, below common client tool timeouts.
+        /// Longest time run_check and retry_check_run wait before they return an unfinished check, below common
+        /// client tool timeouts.
         /// </summary>
-        private static readonly TimeSpan _RunCheckWait = TimeSpan.FromMinutes(2);
+        private static readonly TimeSpan _DefaultCheckWait = TimeSpan.FromMinutes(2);
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -36,8 +37,13 @@ namespace Armada.Server.Mcp.Tools
         /// <summary>
         /// Registers structured check-run MCP tools.
         /// </summary>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, CheckRunService checkRunService)
+        /// <param name="register">Tool registration delegate.</param>
+        /// <param name="database">Database driver.</param>
+        /// <param name="checkRunService">Check run service.</param>
+        /// <param name="checkWait">Longest time run_check and retry_check_run wait for a result. Defaults to two minutes.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, CheckRunService checkRunService, TimeSpan? checkWait = null)
         {
+            TimeSpan wait = checkWait ?? _DefaultCheckWait;
             register(
                 "get_check_run",
                 "Inspect one structured check run: status, exit code, parsed test and coverage summaries, artifacts, and the tail of the command output. Pass includeOutput=true for the complete log, which for a build or test run is routinely megabytes and can exceed the tool output limit.",
@@ -113,7 +119,7 @@ namespace Armada.Server.Mcp.Tools
                         // A check can wait a long time for the host-wide build slot. Waiting past a client's
                         // tool timeout reads to a captain as a failed check, so the call returns the unfinished
                         // record after a bounded wait; the check keeps running and finishes its own record.
-                        CheckRun executed = await checkRunService.RunWithinAsync(auth, request, _RunCheckWait).ConfigureAwait(false);
+                        CheckRun executed = await checkRunService.RunWithinAsync(auth, request, wait).ConfigureAwait(false);
                         return (object)CheckRunSummaryView.From(executed, _DefaultOutputTailLines, HostWideCommandLock.Snapshot());
                     }
                     catch (JsonException ex)
@@ -132,7 +138,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "retry_check_run",
-                "Retry a previously completed structured check run using the same resolved scope and command context. Returns the same bounded summary as run_check.",
+                "Retry a previously completed structured check run using the same resolved scope and command context. Like run_check, it waits a bounded time: a retry still waiting for the host-wide slot returns unfinished with slotWait and keeps running. A retry runs to completion even when its voyage has ended.",
                 new
                 {
                     type = "object",
@@ -148,7 +154,9 @@ namespace Armada.Server.Mcp.Tools
                     {
                         CheckRunIdArgs request = DeserializeArgs<CheckRunIdArgs>(args, "retry_check_run");
                         AuthContext auth = McpCallerContext.Require();
-                        CheckRun retried = await checkRunService.RetryAsync(auth, request.CheckRunId).ConfigureAwait(false);
+                        // Same bounded wait as run_check: a retry waiting for the host-wide slot returns the
+                        // unfinished record with its slot wait, and finishes its own record in the background.
+                        CheckRun retried = await checkRunService.RetryWithinAsync(auth, request.CheckRunId, wait).ConfigureAwait(false);
                         return (object)CheckRunSummaryView.From(retried, _DefaultOutputTailLines, HostWideCommandLock.Snapshot());
                     }
                     catch (Exception ex) when (IsExpectedToolFailure(ex))

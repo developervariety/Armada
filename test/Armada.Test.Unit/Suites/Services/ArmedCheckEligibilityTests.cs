@@ -107,6 +107,88 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(eligible, "a check of an ended voyage never runs");
                     AssertEqual(CheckRunStatusEnum.Canceled, after!.Status, "a check of an ended voyage must not stay Pending and count as required");
                     AssertContains(VoyageCheckDiscard.VoyageCancelledReason, after.Summary ?? String.Empty, "the discard names its reason");
+                    AssertContains(VoyageCheckDiscard.VoyageCancelledReason, after.Output ?? String.Empty, "the Output a reader opens names the reason too");
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByEntityAsync("check_run", armed.Id).ConfigureAwait(false);
+                    ArmadaEvent? discardEvent = events.Find(evt => evt.EventType == VoyageCheckDiscard.DiscardedEventType);
+                    AssertNotNull(discardEvent, "the discard records an event");
+                    AssertContains(VoyageCheckDiscard.VoyageCancelledReason, discardEvent!.Message ?? String.Empty, "the event names the reason");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An operator retry of a failed voyage's Check runs to completion and is not discarded while it waits for the host slot", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string workingDirectory = CreateWorkingDirectory();
+                    IDisposable? hostSlot = null;
+                    Task<CheckRun>? retry = null;
+                    try
+                    {
+                        Vessel vessel = await CreateLiveDirectoryVesselAsync(testDb, workingDirectory).ConfigureAwait(false);
+                        Voyage voyage = new Voyage("failed-voyage");
+                        voyage.Status = VoyageStatusEnum.Failed;
+                        voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                        CheckRun prior = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                        {
+                            VesselId = vessel.Id,
+                            VoyageId = voyage.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Source = CheckRunSourceEnum.Armada,
+                            Status = CheckRunStatusEnum.Failed,
+                            Command = "echo " + _DefaultBranchMarker,
+                            WorkingDirectory = workingDirectory,
+                            BranchName = "feature/operator-proof",
+                            CommitHash = "abc123",
+                            ExitCode = 1,
+                            CompletedUtc = DateTime.UtcNow,
+                            Label = "Build (armed at dispatch)"
+                        }).ConfigureAwait(false);
+
+                        LoggingModule logging = new LoggingModule();
+                        logging.Settings.EnableConsole = false;
+                        WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                        CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, new VesselReadinessService(testDb.Driver, workflowProfiles, logging), logging);
+
+                        hostSlot = await HostWideCommandLock.AcquireAsync().ConfigureAwait(false);
+                        retry = Task.Run(() => checkRuns.RetryAsync(BuildSystemAuth(), prior.Id));
+                        CheckRun? waiting = null;
+                        bool queued = await WaitUntilAsync(async () =>
+                        {
+                            EnumerationResult<CheckRun> pending = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery
+                            {
+                                VoyageId = voyage.Id,
+                                Status = CheckRunStatusEnum.Pending,
+                                PageNumber = 1,
+                                PageSize = 10
+                            }).ConfigureAwait(false);
+                            waiting = pending.Objects.Find(run => run.SlotRequestedUtc.HasValue);
+                            return waiting != null;
+                        }).ConfigureAwait(false);
+                        AssertTrue(queued, "the retry must reach the host slot queue");
+
+                        // The sweep meets the retry as a Pending Check of an ended voyage.
+                        AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                        AssertFalse(await orchestrator.IsEligibleAsync(waiting!, default).ConfigureAwait(false), "the sweep does not execute an operator's run a second time");
+                        AssertEqual(0, await VoyageCheckDiscard.DiscardPendingAsync(testDb.Driver, voyage.Id, VoyageCheckDiscard.VoyageFailedReason).ConfigureAwait(false),
+                            "ending the voyage again does not discard an operator's run");
+                        CheckRun? afterSweep = await testDb.Driver.CheckRuns.ReadAsync(waiting!.Id).ConfigureAwait(false);
+                        AssertEqual(CheckRunStatusEnum.Pending, afterSweep!.Status, "an operator's retry of an ended voyage's Check is not discarded");
+
+                        hostSlot.Dispose();
+                        hostSlot = null;
+                        Task finished = await Task.WhenAny(retry, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+                        AssertTrue(ReferenceEquals(finished, retry), "the retry finishes once the host slot is free");
+                        CheckRun result = await retry.ConfigureAwait(false);
+                        AssertEqual(waiting.Id, result.Id, "the retry returns the record it created");
+                        AssertEqual(CheckRunStatusEnum.Passed, result.Status, "the operator's retry runs to completion");
+                        AssertFalse(CheckRunService.IsOperatorRun(result.Id), "the operator mark ends with the execution");
+                    }
+                    finally
+                    {
+                        hostSlot?.Dispose();
+                        if (retry != null) await Task.WhenAny(retry, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+                        DeleteDirectory(workingDirectory);
+                    }
                 }
             }).ConfigureAwait(false);
 

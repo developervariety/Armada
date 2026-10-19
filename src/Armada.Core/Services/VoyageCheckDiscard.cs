@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -10,7 +11,10 @@ namespace Armada.Core.Services
     /// <summary>
     /// Discards the Pending armed Checks of a voyage that ended before they ran. The executor never runs a
     /// Check whose voyage is Cancelled or Failed, so without this rule the record stays Pending forever and
-    /// is counted as a required pending Check. Every path that ends a voyage calls this one rule.
+    /// is counted as a required pending Check. Every path that ends a voyage calls this one rule. A discard
+    /// writes its reason into the Check's Summary and Output and records a <see cref="DiscardedEventType"/>
+    /// event. A Check an operator is executing (<see cref="CheckRunService.IsOperatorRun"/>) is not
+    /// discarded: the operator asked for that run after the voyage ended.
     /// </summary>
     public static class VoyageCheckDiscard
     {
@@ -25,6 +29,11 @@ namespace Armada.Core.Services
         /// Reason recorded on a Pending Check whose voyage failed.
         /// </summary>
         public const string VoyageFailedReason = "voyage_failed";
+
+        /// <summary>
+        /// Event type recorded for every Check discarded before it ran.
+        /// </summary>
+        public const string DiscardedEventType = "check.discarded";
 
         #endregion
 
@@ -66,7 +75,8 @@ namespace Armada.Core.Services
             int discarded = 0;
             for (int pass = 0; pass < _MaxPasses; pass++)
             {
-                // Always page one: each discard removes the record from the Pending filter.
+                // Always page one: each discard removes the record from the Pending filter. A pass that
+                // discards nothing (every remaining record is an operator run) ends the loop.
                 EnumerationResult<CheckRun> page = await database.CheckRuns.EnumerateAsync(new CheckRunQuery
                 {
                     VoyageId = voyageId,
@@ -76,11 +86,15 @@ namespace Armada.Core.Services
                 }, token).ConfigureAwait(false);
                 if (page.Objects.Count == 0) break;
 
+                int passDiscarded = 0;
                 foreach (CheckRun run in page.Objects)
                 {
-                    await DiscardAsync(database, run, reason, token).ConfigureAwait(false);
-                    discarded++;
+                    if (await DiscardAsync(database, run, reason, token).ConfigureAwait(false))
+                        passDiscarded++;
                 }
+
+                discarded += passDiscarded;
+                if (passDiscarded == 0) break;
             }
 
             return discarded;
@@ -98,25 +112,57 @@ namespace Armada.Core.Services
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
             if (run == null) throw new ArgumentNullException(nameof(run));
+            if (String.IsNullOrWhiteSpace(reason)) throw new ArgumentNullException(nameof(reason));
+            CheckRun discarded;
             SemaphoreSlim stateLock = CheckRunService.GetRunStateLock(run.Id);
             await stateLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
                 CheckRun? current = await database.CheckRuns.ReadAsync(run.Id, token: token).ConfigureAwait(false);
                 if (current == null || current.Status != CheckRunStatusEnum.Pending) return false;
+                if (CheckRunService.IsOperatorRun(current.Id)) return false;
 
                 DateTime now = DateTime.UtcNow;
                 current.Status = CheckRunStatusEnum.Canceled;
                 current.Summary = reason + ": the voyage ended before this Check ran.";
+                current.Output = current.Summary;
                 current.CompletedUtc = now;
                 current.LastUpdateUtc = now;
-                await database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
-                return true;
+                discarded = await database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
             }
             finally
             {
                 stateLock.Release();
             }
+
+            await WriteDiscardedEventAsync(database, discarded, reason, token).ConfigureAwait(false);
+            return true;
+        }
+
+        /// <summary>
+        /// Record the <see cref="DiscardedEventType"/> event for a Check cancelled before it ran.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="run">The cancelled Check.</param>
+        /// <param name="reason">Named reason the Check never ran.</param>
+        /// <param name="token">Cancellation token.</param>
+        public static async Task WriteDiscardedEventAsync(DatabaseDriver database, CheckRun run, string reason, CancellationToken token = default)
+        {
+            if (database == null) throw new ArgumentNullException(nameof(database));
+            if (run == null) throw new ArgumentNullException(nameof(run));
+
+            ArmadaEvent evt = new ArmadaEvent(DiscardedEventType, "Check discarded before it ran (" + reason + "): " + (run.Label ?? run.Type.ToString()))
+            {
+                TenantId = run.TenantId,
+                UserId = run.UserId,
+                EntityType = "check_run",
+                EntityId = run.Id,
+                MissionId = run.MissionId,
+                VesselId = run.VesselId,
+                VoyageId = run.VoyageId,
+                Payload = JsonSerializer.Serialize(new { run.Id, Type = run.Type.ToString(), run.Label, Reason = reason, run.Summary })
+            };
+            await database.Events.CreateAsync(evt, token).ConfigureAwait(false);
         }
 
         #endregion

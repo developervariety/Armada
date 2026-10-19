@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
@@ -55,6 +56,73 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(json.Contains("\"Error\"", StringComparison.OrdinalIgnoreCase), "Expected MCP retry result to avoid top-level Error.");
             }).ConfigureAwait(false);
 
+            // A retry can wait a long time for the host-wide slot. The call follows run_check's bounded wait,
+            // so it returns the unfinished record with its slot wait instead of blocking to the transport timeout.
+            await RunTest("retry_check_run returns a retry still waiting for the host slot with its slot wait", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-retry-within-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                IDisposable? hostSlot = null;
+                try
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel
+                    {
+                        Name = "retry-within-vessel",
+                        RepoUrl = String.Empty,
+                        LocalPath = String.Empty,
+                        WorkingDirectory = workingDirectory,
+                        DefaultBranch = "main"
+                    }).ConfigureAwait(false);
+                    CheckRun prior = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Lint,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Failed,
+                        Command = "echo retried",
+                        WorkingDirectory = workingDirectory,
+                        ExitCode = 1,
+                        CompletedUtc = DateTime.UtcNow
+                    }).ConfigureAwait(false);
+
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, TimeSpan.FromMilliseconds(500));
+                    hostSlot = await HostWideCommandLock.AcquireAsync("holder_retry_probe", "another vessel gate", CancellationToken.None).ConfigureAwait(false);
+                    Task<object> call = handlers["retry_check_run"](JsonSerializer.SerializeToElement(new { checkRunId = prior.Id }));
+                    Task first = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+                    AssertTrue(ReferenceEquals(first, call), "the retry call returns while the retry still waits for the slot");
+
+                    string json = JsonSerializer.Serialize(await call.ConfigureAwait(false));
+                    AssertContains("WaitingForSlot", json, "the unfinished retry reports its slot wait");
+                    AssertContains("another vessel gate", json, "the wait names what holds the slot");
+
+                    hostSlot.Dispose();
+                    hostSlot = null;
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(60);
+                    CheckRun? retried = null;
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        EnumerationResult<CheckRun> runs = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery
+                        {
+                            VesselId = vessel.Id,
+                            Status = CheckRunStatusEnum.Passed,
+                            PageNumber = 1,
+                            PageSize = 10
+                        }).ConfigureAwait(false);
+                        retried = runs.Objects.Count > 0 ? runs.Objects[0] : null;
+                        if (retried != null) break;
+                        await Task.Delay(50).ConfigureAwait(false);
+                    }
+
+                    AssertNotNull(retried, "the retry finishes its own record after the call returned");
+                }
+                finally
+                {
+                    hostSlot?.Dispose();
+                    try { Directory.Delete(workingDirectory, true); } catch (IOException) { }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("armada_resolve_check validation returns structured failure instead of Error object", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -74,7 +142,7 @@ namespace Armada.Test.Unit.Suites.Services
             }).ConfigureAwait(false);
         }
 
-        private static Dictionary<string, Func<JsonElement?, Task<object>>> RegisterHandlers(DatabaseDriver database)
+        private static Dictionary<string, Func<JsonElement?, Task<object>>> RegisterHandlers(DatabaseDriver database, TimeSpan? checkWait = null)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
@@ -89,7 +157,8 @@ namespace Armada.Test.Unit.Suites.Services
                     handlers[name] = McpTestCaller.Wrap(handler);
                 },
                 database,
-                checkRuns);
+                checkRuns,
+                checkWait);
             return handlers;
         }
     }
