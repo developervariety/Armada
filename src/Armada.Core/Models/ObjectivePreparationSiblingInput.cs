@@ -16,5 +16,12 @@ namespace Armada.Core.Models
 
         /// <summary>Extraction artifact paths that the sibling declaration must provision.</summary>
         public List<string> RequiredArtifactPaths { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Optional sibling commit the objective's evidence was measured at. Dispatch refuses a pin that is not an
+        /// ancestor of the branch docks provision, and the brief reports the provisioned HEAD against it; the
+        /// provisioned HEAD is the tree a captain reads.
+        /// </summary>
+        public string? PinnedCommit { get; set; } = null;
     }
 }

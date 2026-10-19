@@ -92,6 +92,15 @@ upstream integrations and excludes changes already present at that baseline.
 - The Linter verifies with the repository's check script (for example
   `scripts/check.sh`) in full when one exists, and a Codex brief names the shell
   commands the Codex runner accepts for temporary-file cleanup and digests.
+- A captain whose vessel declares siblings now sees each sibling's provisioned
+  HEAD, any uncommitted changes, required paths the checkout lacks, and a
+  sibling that provisioning did not produce, in a Sibling Checkouts brief
+  section. A sibling input can pin a commit: the brief lists the assigned paths
+  changed since an ancestor pin and states that HEAD controls, and dispatch
+  preview refuses a pin that does not resolve or is not an ancestor of the
+  branch docks provision. Claude Code, Codex and Cursor captains get each
+  provisioned sibling as an extra workspace root (`--add-dir`); other runtimes
+  get the shell search command in the brief.
 - Two unit tests no longer fail on a loaded host. The stale-job reap test waits
   for its operation to start instead of sleeping a fixed 30 ms, and the relaunch
   test accepts a heartbeat stamp that the new process records after the launch.

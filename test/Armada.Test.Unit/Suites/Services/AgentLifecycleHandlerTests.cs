@@ -5,6 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.IO;
     using System.Net.Http;
     using System.Reflection;
+    using System.Text.Json;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -218,6 +219,55 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(launched!.TenantId, inventoried!.TenantId, "the inventory probe's tenant matches the launch credential's");
                     AssertEqual(launched.UserId, inventoried.UserId, "the inventory probe's user matches the launch credential's");
                     AssertEqual(owner.Id, launched.UserId, "both resolve the objective owner carried on the voyage");
+                }
+            });
+
+            await RunTest("A launch registers each provisioned sibling checkout as a workspace root where the runtime accepts one", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    string root = Path.Combine(Path.GetTempPath(), "armada_workspace_roots_" + Guid.NewGuid().ToString("N"));
+                    string worktree = Path.Combine(root, "target");
+                    string provisioned = Path.Combine(root, "provisioned");
+                    Directory.CreateDirectory(worktree);
+                    Directory.CreateDirectory(provisioned);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("RootsVessel", "https://example.invalid/roots.git");
+                        vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                        {
+                            new SiblingRepo { RelativePath = "../provisioned" },
+                            new SiblingRepo { RelativePath = "../never-provisioned" }
+                        });
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                        Mission mission = new Mission("Roots mission")
+                        {
+                            VesselId = vessel.Id,
+                            TenantId = Armada.Core.Constants.DefaultTenantId,
+                            UserId = Armada.Core.Constants.DefaultUserId
+                        };
+                        Dock dock = new Dock(vessel.Id) { WorktreePath = worktree };
+
+                        foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Cursor })
+                        {
+                            CaptainLaunchIsolationPlan? plan = await handler.PrepareCaptainLaunchIsolationAsync(new Captain("roots-" + runtime, runtime), mission, dock).ConfigureAwait(false);
+                            AssertNotNull(plan, runtime + " launch produces a plan");
+                            int index = plan!.ExtraArguments.IndexOf("--add-dir");
+                            AssertTrue(index >= 0 && plan.ExtraArguments[index + 1] == Path.GetFullPath(provisioned),
+                                runtime + " receives the provisioned sibling as a workspace root");
+                            AssertEqual(1, plan.ExtraArguments.Count(argument => argument == "--add-dir"),
+                                runtime + " receives no root for a sibling that was not provisioned");
+                        }
+
+                        CaptainLaunchIsolationPlan? openCode = await handler.PrepareCaptainLaunchIsolationAsync(new Captain("roots-opencode", AgentRuntimeEnum.OpenCode), mission, dock).ConfigureAwait(false);
+                        AssertFalse(openCode != null && openCode.ExtraArguments.Contains("--add-dir"), "a runtime without workspace roots is left unchanged");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(root, true); } catch { }
+                    }
                 }
             });
 

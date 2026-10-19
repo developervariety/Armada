@@ -361,6 +361,54 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A pinned sibling commit off the provisioned branch refuses dispatch with a named reason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    string siblingDirectory = Path.Combine(harness.RepositoryDirectory, "pinned-source");
+                    Directory.CreateDirectory(siblingDirectory);
+                    Vessel requiredSource = await testDb.Driver.Vessels.CreateAsync(new Vessel("PinnedSource", "https://example.test/pinned-source.git")
+                    {
+                        LocalPath = siblingDirectory,
+                        WorkingDirectory = siblingDirectory
+                    }).ConfigureAwait(false);
+                    harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = requiredSource.Id, RelativePath = "../PinnedSource", DefaultBranch = "main" }
+                    });
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+                    const string pin = "1234567890abcdef1234567890abcdef12345678";
+                    Objective objective = harness.CreateReadyObjective("pinned-sibling-preview");
+                    objective.Preparation.RequiredSiblingInputs.Add(new ObjectivePreparationSiblingInput
+                    {
+                        VesselRef = requiredSource.Id,
+                        RelativePath = "../PinnedSource",
+                        PinnedCommit = pin
+                    });
+                    harness.Git.RevisionCommitShas[siblingDirectory + "|" + pin] = pin;
+                    harness.Git.RevisionCommitShas[siblingDirectory + "|refs/heads/main"] = "fedcba0987654321fedcba0987654321fedcba09";
+
+                    harness.Git.IsAncestorResult = false;
+                    ObjectiveDispatchPreview divergent = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreviewIssue? refused = divergent.Issues.FirstOrDefault(issue => issue.Code == "required_sibling_pin_not_ancestor");
+                    AssertNotNull(refused, "a pin that is not an ancestor of the provisioned branch is reported");
+                    AssertEqual(ReadinessSeverityEnum.Error, refused!.Severity, "a pin off the provisioned branch refuses dispatch");
+                    AssertContains("main", refused.Message, "the refusal names the provisioned branch");
+                    AssertFalse(divergent.IsReady);
+
+                    harness.Git.IsAncestorResult = true;
+                    ObjectiveDispatchPreview ancestor = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertFalse(ancestor.Issues.Any(issue => issue.Code.StartsWith("required_sibling_pin", StringComparison.Ordinal)),
+                        "a pin on the provisioned branch raises no pin issue");
+
+                    harness.Git.RevisionCommitShas[siblingDirectory + "|" + pin] = null;
+                    ObjectiveDispatchPreview unresolved = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertTrue(unresolved.Issues.Any(issue => issue.Code == "required_sibling_pin_unresolved" && issue.Severity == ReadinessSeverityEnum.Error),
+                        "a pin the sibling repository does not hold refuses dispatch");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Three catalogue sibling inputs are provisionable and reach the brief", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

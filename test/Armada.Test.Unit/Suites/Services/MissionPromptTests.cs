@@ -1,6 +1,8 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Diagnostics;
     using System.Text;
+    using System.Text.Json;
     using System.Text.RegularExpressions;
     using Armada.Core.Context;
     using Armada.Core.Database.Sqlite;
@@ -17,6 +19,32 @@ namespace Armada.Test.Unit.Suites.Services
     public class MissionPromptTests : TestSuite
     {
         public override string Name => "Mission Prompt (ProjectContext/StyleGuide/ModelContext)";
+
+        private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            foreach (string arg in args) startInfo.ArgumentList.Add(arg);
+            using (Process process = new Process { StartInfo = startInfo })
+            {
+                process.Start();
+                Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+                Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                string stdout = await stdoutTask.ConfigureAwait(false);
+                string stderr = await stderrTask.ConfigureAwait(false);
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException("git " + String.Join(" ", args) + " failed (exit " + process.ExitCode + "): " + stderr.Trim());
+                return stdout;
+            }
+        }
 
         private LoggingModule CreateLogging()
         {
@@ -451,6 +479,120 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         try { Directory.Delete(tempDir, true); } catch { }
                     }
+                }
+            });
+
+            await RunTest("A brief reports each declared sibling's HEAD and uncommitted changes, and names an unprovisioned sibling as absent", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    git.HeadCommitHashResult = "0123456789abcdef0123456789abcdef01234567";
+                    git.IsWorkingDirectoryCleanResult = false;
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    string root = Path.Combine(Path.GetTempPath(), "armada_sibling_brief_" + Guid.NewGuid().ToString("N"));
+                    string worktree = Path.Combine(root, "target");
+                    Directory.CreateDirectory(worktree);
+                    Directory.CreateDirectory(Path.Combine(root, "present"));
+
+                    try
+                    {
+                        await File.WriteAllTextAsync(Path.Combine(root, "present", "readme.md"), "sibling\n");
+                        Vessel vessel = new Vessel("SiblingBriefVessel", "https://github.com/test/repo");
+                        vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                        {
+                            new SiblingRepo { RelativePath = "../present" },
+                            new SiblingRepo { RelativePath = "../absent" }
+                        });
+                        Mission mission = new Mission { Title = "Read the sibling", Persona = "Worker", Description = "Compare the sibling reader." };
+
+                        await service.GenerateClaudeMdAsync(worktree, mission, vessel);
+                        string brief = await File.ReadAllTextAsync(Path.Combine(worktree, "CLAUDE.md"));
+                        AssertContains("## Sibling Checkouts", brief, "a vessel that declares siblings gets the sibling section");
+                        AssertContains("`../present` HEAD `0123456789ab`, with uncommitted changes", brief, "the provisioned HEAD and its uncommitted changes are named");
+                        AssertContains("`../absent` is absent", brief, "a sibling provisioning did not produce is named as absent");
+                        AssertContains("`rg <pattern> <sibling path>`", brief, "a launch without workspace roots names the shell search");
+
+                        Captain claude = new Captain("sibling-claude", AgentRuntimeEnum.ClaudeCode);
+                        File.Delete(Path.Combine(worktree, "CLAUDE.md"));
+                        await service.GenerateClaudeMdAsync(worktree, mission, vessel, claude);
+                        string claudeBrief = await File.ReadAllTextAsync(Path.Combine(worktree, "CLAUDE.md"));
+                        AssertContains("Built-in search reaches these checkouts", claudeBrief, "a runtime that receives workspace roots is told its search reaches the siblings");
+
+                        string plain = Path.Combine(root, "plain");
+                        Directory.CreateDirectory(plain);
+                        await service.GenerateClaudeMdAsync(plain, mission, new Vessel("NoSiblingVessel", "https://github.com/test/repo"));
+                        AssertFalse((await File.ReadAllTextAsync(Path.Combine(plain, "CLAUDE.md"))).Contains("## Sibling Checkouts"),
+                            "a vessel with no sibling declaration gets no sibling section");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(root, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("The sibling brief lists assigned paths changed since an ancestor pin and says HEAD controls over a pin that is not an ancestor", async () =>
+            {
+                LoggingModule logging = CreateLogging();
+                string root = Path.Combine(Path.GetTempPath(), "armada_sibling_pin_" + Guid.NewGuid().ToString("N"));
+                string worktree = Path.Combine(root, "target");
+                string sibling = Path.Combine(root, "source");
+                Directory.CreateDirectory(worktree);
+                Directory.CreateDirectory(Path.Combine(sibling, "assigned"));
+                Directory.CreateDirectory(Path.Combine(sibling, "other"));
+
+                try
+                {
+                    await RunGitAsync(sibling, "init", "-q", "-b", "main");
+                    await RunGitAsync(sibling, "config", "user.email", "test@example.invalid");
+                    await RunGitAsync(sibling, "config", "user.name", "Test");
+                    await File.WriteAllTextAsync(Path.Combine(sibling, "assigned", "reader.txt"), "one\n");
+                    await File.WriteAllTextAsync(Path.Combine(sibling, "other", "notes.txt"), "one\n");
+                    await RunGitAsync(sibling, "add", "-A");
+                    await RunGitAsync(sibling, "commit", "-q", "-m", "first");
+                    string pin = (await RunGitAsync(sibling, "rev-parse", "HEAD")).Trim();
+                    await RunGitAsync(sibling, "checkout", "-q", "-b", "side");
+                    await File.WriteAllTextAsync(Path.Combine(sibling, "other", "side.txt"), "side\n");
+                    await RunGitAsync(sibling, "add", "-A");
+                    await RunGitAsync(sibling, "commit", "-q", "-m", "side");
+                    string sidePin = (await RunGitAsync(sibling, "rev-parse", "HEAD")).Trim();
+                    await RunGitAsync(sibling, "checkout", "-q", "main");
+                    await File.WriteAllTextAsync(Path.Combine(sibling, "assigned", "reader.txt"), "two\n");
+                    await File.WriteAllTextAsync(Path.Combine(sibling, "other", "notes.txt"), "two\n");
+                    await RunGitAsync(sibling, "add", "-A");
+                    await RunGitAsync(sibling, "commit", "-q", "-m", "second");
+
+                    Vessel vessel = new Vessel("PinVessel", "https://github.com/test/repo");
+                    vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo> { new SiblingRepo { RelativePath = "../source" } });
+                    Objective objective = new Objective { Title = "pinned" };
+                    ObjectivePreparationSiblingInput input = new ObjectivePreparationSiblingInput
+                    {
+                        VesselRef = "source",
+                        RelativePath = "../source",
+                        RequiredArtifactPaths = new List<string> { "assigned", "missing-tree" },
+                        PinnedCommit = pin
+                    };
+                    objective.Preparation.RequiredSiblingInputs.Add(input);
+                    GitService git = new GitService(logging);
+
+                    List<SiblingCheckoutState> states = await SiblingCheckoutBrief.ReadAsync(git, vessel, worktree, objective);
+                    string section = SiblingCheckoutBrief.Render(states, false);
+                    AssertContains("an ancestor of HEAD; changed since: `assigned/reader.txt`.", section, "only the assigned paths changed since the pin are listed");
+                    AssertFalse(section.Contains("other/notes.txt"), "a changed path outside the assigned paths is not listed");
+                    AssertContains("Required paths absent: `missing-tree`", section, "a required path the checkout does not hold is named");
+
+                    input.PinnedCommit = sidePin;
+                    string divergent = SiblingCheckoutBrief.Render(await SiblingCheckoutBrief.ReadAsync(git, vessel, worktree, objective), false);
+                    AssertContains("not an ancestor of HEAD; HEAD controls.", divergent, "a pin off the provisioned history defers to HEAD");
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
                 }
             });
 

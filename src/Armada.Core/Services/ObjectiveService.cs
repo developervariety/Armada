@@ -2363,6 +2363,9 @@ namespace Armada.Core.Services
                     throw new InvalidOperationException("Objective preparation sibling input cannot contain more than " + _MaxPreparationEvidenceLinks + " required artifact paths.");
                 foreach (string artifactPath in sibling.RequiredArtifactPaths)
                     EnsureMaximumLength(artifactPath, _MaxPreparationValueChars, "Objective preparation sibling artifact path");
+                sibling.PinnedCommit = Normalize(sibling.PinnedCommit);
+                if (sibling.PinnedCommit != null)
+                    EnsureMaximumLength(sibling.PinnedCommit, _MaxPreparationAnchorChars, "Objective preparation sibling pinned commit");
             }
 
             SanitizeExecutionRequirements(objective.Preparation);

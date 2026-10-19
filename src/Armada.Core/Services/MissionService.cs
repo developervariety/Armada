@@ -3622,6 +3622,13 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
+            string siblingCheckouts = await BuildSiblingCheckoutsSectionAsync(worktreePath, mission, vessel, captain, token).ConfigureAwait(false);
+            if (!String.IsNullOrEmpty(siblingCheckouts))
+            {
+                content += ledger.Track("mission.sibling_checkouts", siblingCheckouts);
+                content += "\n";
+            }
+
             // Objective scope, supplied once when the voyage links an objective: the objective's own
             // scope, acceptance criteria, and non-goals are the definition of done. Previously a linked
             // objective never reached the captain as distinct context -- the mission description alone

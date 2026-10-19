@@ -196,7 +196,10 @@ namespace Armada.Core.Services
             string artifacts = input.RequiredArtifactPaths?.Count > 0
                 ? "; artifacts: " + String.Join(", ", input.RequiredArtifactPaths.Select(BoundItem))
                 : String.Empty;
-            return "vessel `" + BoundItem(input.VesselRef) + "` at `" + BoundItem(input.RelativePath) + "`" + artifacts;
+            string pin = !String.IsNullOrWhiteSpace(input.PinnedCommit)
+                ? "; pinned at `" + BoundItem(input.PinnedCommit) + "`"
+                : String.Empty;
+            return "vessel `" + BoundItem(input.VesselRef) + "` at `" + BoundItem(input.RelativePath) + "`" + artifacts + pin;
         }
 
         private static string ClaimHeading(ObjectivePreparationClaimKindEnum kind)

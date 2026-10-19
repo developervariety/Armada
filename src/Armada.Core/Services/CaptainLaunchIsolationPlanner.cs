@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
     using Armada.Core.Enums;
 
@@ -36,6 +37,42 @@ namespace Armada.Core.Services
     public static class CaptainLaunchIsolationPlanner
     {
         #region Public-Methods
+
+        /// <summary>
+        /// True when the runtime's CLI accepts extra workspace roots (<c>--add-dir</c>), so its built-in search
+        /// and file tools reach a sibling checkout beside the dock. Claude Code, Codex and Cursor accept it;
+        /// the other runtimes keep their tools inside the working directory.
+        /// </summary>
+        /// <param name="runtime">The captain's runtime.</param>
+        /// <returns>True when workspace roots can be added.</returns>
+        public static bool SupportsWorkspaceRoots(AgentRuntimeEnum runtime)
+        {
+            return runtime == AgentRuntimeEnum.ClaudeCode
+                || runtime == AgentRuntimeEnum.Codex
+                || runtime == AgentRuntimeEnum.Cursor;
+        }
+
+        /// <summary>
+        /// Add each directory as a workspace root for runtimes that accept one. Blank and duplicate directories
+        /// are skipped; a runtime without the option is left unchanged.
+        /// </summary>
+        /// <param name="plan">Plan to extend.</param>
+        /// <param name="runtime">The captain's runtime.</param>
+        /// <param name="directories">Absolute directories to add.</param>
+        /// <returns>The number of directories added.</returns>
+        public static int AddWorkspaceRoots(CaptainLaunchIsolationPlan plan, AgentRuntimeEnum runtime, IEnumerable<string> directories)
+        {
+            if (plan == null) throw new ArgumentNullException(nameof(plan));
+            if (directories == null || !SupportsWorkspaceRoots(runtime)) return 0;
+            HashSet<string> added = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string directory in directories)
+            {
+                if (String.IsNullOrWhiteSpace(directory) || !added.Add(directory)) continue;
+                plan.ExtraArguments.Add("--add-dir");
+                plan.ExtraArguments.Add(directory);
+            }
+            return added.Count;
+        }
 
         /// <summary>
         /// Build the isolation plan for a runtime with a chosen MCP credential. The configuration files reference

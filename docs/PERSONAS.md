@@ -193,12 +193,29 @@ A brief also matches the dock it lands in and the tools the captain has:
 - A Codex brief adds `## Codex Shell`: remove temporary files with `rm <path>`
   (the Codex runner refuses `rm -f`) or `find ... -delete`, and compute digests
   with `sha256sum`.
+- `## Sibling Checkouts` appears when the vessel declares sibling
+  repositories. The brief is generated after the siblings are provisioned, so
+  each line reports what the captain finds: the provisioned HEAD, uncommitted
+  changes, required paths the linked objective names that the checkout does not
+  hold, and a sibling provisioning did not produce, named as absent. When the
+  objective pins a sibling commit (`pinnedCommit` on a required sibling input),
+  the line says whether the pin is an ancestor of HEAD and lists the assigned
+  paths changed since it. The provisioned HEAD controls.
+- Claude Code, Codex and Cursor launches receive each provisioned sibling
+  checkout as a workspace root (`--add-dir`), so built-in search and file tools
+  reach it. Other runtimes keep their tools inside the dock, and the section
+  names the shell search to use instead.
 
 A rescue of an objective whose non-goals forbid test edits runs no TestEngineer
 stage. The skip goes through the same stage-skip rule as a dispatch and is
 recorded on the rescue voyage with the reason "the objective's non-goals forbid
 test edits". The TestEngineer still runs when the rescue itself is the
 TestEngineer, or when the failure names the TestEngineer.
+
+Dispatch preview refuses a pinned sibling commit that the sibling repository
+does not hold (`required_sibling_pin_unresolved`) or that is not an ancestor of
+the branch docks provision (`required_sibling_pin_not_ancestor`), and warns
+when the sibling cannot be read to check it.
 
 The instruction file has a byte budget, `captainInstructionByteBudget`
 (default 65,536; `0` selects the default). A brief assembled over it records a

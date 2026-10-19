@@ -844,7 +844,8 @@ namespace Armada.Server
                 {
                     CaptainLaunchIsolationPlan? launchIsolation = await PrepareCaptainLaunchIsolationAsync(
                         captain,
-                        mission).ConfigureAwait(false);
+                        mission,
+                        dock).ConfigureAwait(false);
 
                     processId = await runtime.StartAsync(
                         dock.WorktreePath ?? throw new InvalidOperationException("Dock worktree path is null"),
@@ -955,9 +956,29 @@ namespace Armada.Server
             }
         }
 
+        /// <summary>
+        /// The provisioned sibling checkouts beside a dock, as absolute directories. A sibling that was not
+        /// provisioned is left out, so a runtime is never pointed at a directory that does not exist.
+        /// </summary>
+        internal async Task<List<string>> ReadSiblingWorkspaceRootsAsync(Mission mission, Dock? dock, CancellationToken token = default)
+        {
+            List<string> roots = new List<string>();
+            if (dock == null || String.IsNullOrWhiteSpace(dock.WorktreePath) || String.IsNullOrWhiteSpace(mission.VesselId)) return roots;
+            Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null) return roots;
+            foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
+            {
+                if (sibling == null || String.IsNullOrWhiteSpace(sibling.RelativePath)) continue;
+                string path = Path.GetFullPath(Path.Combine(dock.WorktreePath, sibling.RelativePath));
+                if (Directory.Exists(path)) roots.Add(path);
+            }
+            return roots;
+        }
+
         internal async Task<CaptainLaunchIsolationPlan?> PrepareCaptainLaunchIsolationAsync(
             Captain captain,
             Mission mission,
+            Dock? dock = null,
             CancellationToken token = default)
         {
             string scopedDirectory = CaptainLaunchIsolationPlanner.MissionScopedDirectory(_Settings.LogDirectory, mission.Id, captain.Id);
@@ -983,6 +1004,11 @@ namespace Armada.Server
                 string? loginProblem = UsageRoutingService.For(_Settings).GetLoginProblem(account, DateTime.UtcNow);
                 if (loginProblem != null) throw new CaptainAccountLaunchException(loginProblem, account.Id);
             }
+
+            // Sibling checkouts sit beside the dock, outside the runtime's working directory, so built-in search
+            // and file tools never reach them unless they are registered as workspace roots.
+            CaptainLaunchIsolationPlanner.AddWorkspaceRoots(plan, captain.Runtime,
+                await ReadSiblingWorkspaceRootsAsync(mission, dock, token).ConfigureAwait(false));
             if (plan.IsEmpty) return null;
 
             Directory.CreateDirectory(scopedDirectory);

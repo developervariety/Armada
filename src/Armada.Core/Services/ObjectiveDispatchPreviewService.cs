@@ -917,6 +917,9 @@ namespace Armada.Core.Services
                             "The sibling declaration does not provision required artifact path " + artifactPath + ".",
                             required.VesselRef);
                 }
+
+                if (!String.IsNullOrWhiteSpace(required.PinnedCommit))
+                    await EvaluateSiblingPinAsync(required, declaration, requiredVessel, result, token).ConfigureAwait(false);
             }
 
             foreach (SiblingRepo sibling in declaredSiblings)
@@ -965,6 +968,67 @@ namespace Armada.Core.Services
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// A pinned sibling commit names the tree the objective's evidence was measured at, while docks provision
+        /// the sibling's branch tip. A pin that is not an ancestor of that tip describes a tree no dock receives,
+        /// so every stage would re-measure a delta that cannot be reconciled; that refuses dispatch. A pin that
+        /// is an ancestor is reported in the brief against the provisioned HEAD, which controls.
+        /// </summary>
+        private async Task EvaluateSiblingPinAsync(
+            ObjectivePreparationSiblingInput required,
+            SiblingRepo declaration,
+            Vessel requiredVessel,
+            ObjectiveDispatchPreview result,
+            CancellationToken token)
+        {
+            string pinned = required.PinnedCommit!.Trim();
+            string repositoryPath = RepositoryPath(requiredVessel);
+            string branch = !String.IsNullOrWhiteSpace(declaration.DefaultBranch)
+                ? declaration.DefaultBranch!
+                : (!String.IsNullOrWhiteSpace(requiredVessel.DefaultBranch) ? requiredVessel.DefaultBranch : "main");
+            if (!await _Git.IsRepositoryAsync(repositoryPath, token).ConfigureAwait(false))
+            {
+                AddIssue(result, "required_sibling_pin_unverified", "provisioning", ReadinessSeverityEnum.Warning,
+                    "The sibling repository cannot be read, so pinned commit " + pinned + " was not checked against branch " + branch + ".",
+                    required.VesselRef);
+                return;
+            }
+
+            string? pinCommit = await _Git.GetRevisionCommitShaAsync(repositoryPath, pinned, token).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(pinCommit))
+            {
+                AddIssue(result, "required_sibling_pin_unresolved", "provisioning", ReadinessSeverityEnum.Error,
+                    "Pinned sibling commit " + pinned + " does not exist in " + required.VesselRef
+                    + ". Pin a commit on branch " + branch + ", or clear the pin so the provisioned tip controls.",
+                    required.VesselRef);
+                return;
+            }
+
+            string? tip = await _Git.GetRevisionCommitShaAsync(repositoryPath, "refs/heads/" + branch, token).ConfigureAwait(false);
+            bool? ancestor = String.IsNullOrWhiteSpace(tip)
+                ? null
+                : await _Git.TryIsAncestorAsync(repositoryPath, pinCommit, tip, token).ConfigureAwait(false);
+            if (ancestor == false)
+            {
+                AddIssue(result, "required_sibling_pin_not_ancestor", "provisioning", ReadinessSeverityEnum.Error,
+                    "Pinned sibling commit " + ShortCommit(pinCommit) + " is not an ancestor of " + required.VesselRef + " branch "
+                    + branch + " at " + ShortCommit(tip!) + ", the tree docks provision. Re-pin to a commit on that branch, "
+                    + "or clear the pin so the provisioned tip controls.",
+                    required.VesselRef);
+            }
+            else if (ancestor == null)
+            {
+                AddIssue(result, "required_sibling_pin_unverified", "provisioning", ReadinessSeverityEnum.Warning,
+                    "Pinned sibling commit " + ShortCommit(pinCommit) + " could not be checked against branch " + branch + ".",
+                    required.VesselRef);
+            }
+        }
+
+        private static string ShortCommit(string commit)
+        {
+            return commit.Length > 12 ? commit.Substring(0, 12) : commit;
         }
 
         private async Task<Vessel?> ResolveVesselReferenceAsync(
