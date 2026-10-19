@@ -134,7 +134,8 @@ namespace Armada.Server.Mcp.Tools
                     Objective? objective = !String.IsNullOrEmpty(auth.MissionId)
                         ? await McpMissionEvidenceScope.ReadObjectiveAsync(database, auth, objectiveId).ConfigureAwait(false)
                         : await objectiveService.ReadAsync(auth, objectiveId).ConfigureAwait(false);
-                    if (objective == null) return (object)new { Error = "Objective not found" };
+                    if (objective == null)
+                        return (object)await McpMissionEvidenceScope.DenyObjectiveAsync(database, auth, objectiveId).ConfigureAwait(false);
                     return (object)objective;
                 });
 

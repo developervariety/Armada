@@ -589,9 +589,26 @@ namespace Armada.Core.Services
         /// <summary>
         /// Enumerate objectives visible to the caller.
         /// </summary>
+        public Task<EnumerationResult<Objective>> EnumerateAsync(
+            AuthContext auth,
+            ObjectiveQuery query,
+            CancellationToken token = default)
+        {
+            return EnumerateAsync(auth, query, null, token);
+        }
+
+        /// <summary>
+        /// Enumerate objectives visible to the caller, limited to the given ids before paging, so the
+        /// totals count only the objectives the caller may read.
+        /// </summary>
+        /// <param name="auth">Caller.</param>
+        /// <param name="query">Filters and paging.</param>
+        /// <param name="restrictToIds">Objective ids the result may contain, or null for no limit.</param>
+        /// <param name="token">Cancellation token.</param>
         public async Task<EnumerationResult<Objective>> EnumerateAsync(
             AuthContext auth,
             ObjectiveQuery query,
+            ISet<string>? restrictToIds,
             CancellationToken token = default)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
@@ -600,6 +617,8 @@ namespace Armada.Core.Services
             await EnsureBackfilledAsync(token).ConfigureAwait(false);
             List<Objective> objectives = await ReadAllObjectivesAsync(auth, token).ConfigureAwait(false);
             IEnumerable<Objective> filtered = objectives;
+            if (restrictToIds != null)
+                filtered = filtered.Where(item => restrictToIds.Contains(item.Id));
 
             if (!String.IsNullOrWhiteSpace(query.Owner))
                 filtered = filtered.Where(item => ContainsIgnoreCase(item.Owner, query.Owner));

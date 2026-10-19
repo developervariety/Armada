@@ -636,10 +636,37 @@ server-control actions outside mission scope.
 can read any voyage. A tenant administrator can read voyages and mission rows
 in that tenant. An ordinary user can read only its own voyages and mission
 rows. A mission token keeps user scope even when its owner is an administrator:
-it can read only the voyage assigned to that mission and same-tenant,
-same-owner mission rows in that voyage. Other owners' rows do not appear in the
-summary counts or mission details. A missing or out-of-scope voyage returns
-`Voyage not found`.
+it can read the voyages linked to its mission (see the evidence links below)
+and the same-tenant, same-owner mission rows in them. A mission row stored
+without a user counts as the default owner's. Other owners' rows do not appear
+in the summary counts or mission details. A missing or out-of-scope voyage
+returns `Voyage not found`.
+
+A mission token's evidence links are:
+
+- its own report chain: its voyage, its direct `DependsOnMissionId` and
+  `ParentMissionId` sources, and the failed parent of a marked rescue root;
+- the objectives that authorize the mission or one of those direct sources, by
+  `MissionIds`, by `VoyageIds`, or through the objective named by the voyage
+  brief;
+- the ancestor chain (`ParentObjectiveId`), the `BlockedByObjectiveIds`, and the
+  direct children of those authorizing objectives;
+- every objective, mission and voyage id that an authorizing or ancestor
+  objective cites in its description, acceptance criteria or evidence links.
+  Citations are followed one hop: an id cited by a cited objective is not
+  linked;
+- the missions and voyages that any linked objective lists, and the voyage of
+  any direct source.
+
+Every linked record must have the caller's tenant and owner. A sibling
+objective, an unrelated objective and any record of another owner stay out of
+scope.
+
+A refused read returns `Error` (`Mission not found`, `Objective not found` or
+`Voyage not found`) with `Reason` and `Detail`. `Reason` is `out_of_scope`
+when the caller's owner holds the record but no evidence link reaches it, and
+`not_found` otherwise. An absent, purged or other-owner record all read as
+`not_found`, so a denial never reveals another owner's record.
 
 `armada_mission_output` returns digest-backed pages of persisted output. A mission
 caller can read its own output, missions in the same voyage, and its direct
@@ -657,12 +684,9 @@ each missing section. A heading of any level that starts with the section name,
 in any case, counts as the section. A later autonomous rescue stage can also read the failed parent
 named by its marked rescue root, reached through the same-owner, same-voyage
 and same-vessel dependency chain. A legacy rescue title alone does not grant
-this additional read. Existing direct-parent reads remain available. A mission
-caller can also read a mission from another voyage of its own objective: one
-objective with the caller's tenant and owner must list both missions, by voyage
-in `VoyageIds` or by mission in `MissionIds`, and the target must have the same
-tenant and owner. A same-owner mission of a different objective stays out of
-scope.
+this additional read. A mission caller can also read any mission its evidence
+links reach: a mission listed or cited by a linked objective, or a mission in a
+linked voyage. A same-owner mission of an unlinked objective stays out of scope.
 
 `armada_mission_status` uses the same evidence scope before it returns mission
 metadata or context events. Its default response omits the description and
@@ -674,10 +698,10 @@ REST mission and voyage reads use these same caller scopes. A mission token
 does not gain broader reads from its owner's administrator role. Voyage
 summaries and embedded mission details exclude rows outside the caller's scope.
 
-`get_objective` returns the full objective that directly links the caller's
-mission or voyage, and its directly linked parent objective. Both must have the
-same tenant and owner. Unrelated records return not found. Operator reads retain
-their normal caller scope.
+`get_objective` returns the full record of any objective the caller's evidence
+links reach. `armada_enumerate` with `entityType=objectives` lists exactly that
+set for a mission caller, so every listed objective is readable with
+`get_objective`. Operator reads retain their normal caller scope.
 
 A captain may omit the id on these reads. `armada_mission_status` and
 `armada_mission_output` then read the captain's own mission, and `get_objective`

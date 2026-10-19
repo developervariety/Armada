@@ -84,7 +84,8 @@ namespace Armada.Server.Mcp.Tools
                     string missionId = resolvedMissionId;
                     Mission? authorized = await McpMissionEvidenceScope.ReadMissionAsync(
                         database, McpCallerContext.Require(), missionId).ConfigureAwait(false);
-                    if (authorized == null) return (object)new { Error = "Mission not found" };
+                    if (authorized == null)
+                        return (object)await McpMissionEvidenceScope.DenyMissionAsync(database, McpCallerContext.Require(), missionId).ConfigureAwait(false);
 
                     Mission? mission = await database.Missions.ReadSummaryAsync(missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
@@ -154,7 +155,8 @@ namespace Armada.Server.Mcp.Tools
                     if (outputMissionId == null) return (object)new { Error = MissingMissionIdError };
                     Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(
                         database, McpCallerContext.Require(), outputMissionId).ConfigureAwait(false);
-                    if (mission == null) return (object)new { Error = "Mission not found" };
+                    if (mission == null)
+                        return (object)await McpMissionEvidenceScope.DenyMissionAsync(database, McpCallerContext.Require(), outputMissionId).ConfigureAwait(false);
                     try
                     {
                         return MissionOutputArtifact.Build(mission, request.Offset, request.Length);
@@ -565,7 +567,8 @@ namespace Armada.Server.Mcp.Tools
                         string missionId = request.MissionId;
                         Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(
                             database, McpCallerContext.Require(), missionId).ConfigureAwait(false);
-                        if (mission == null) return (object)new { Error = "Mission not found" };
+                        if (mission == null)
+                            return (object)await McpMissionEvidenceScope.DenyMissionAsync(database, McpCallerContext.Require(), missionId).ConfigureAwait(false);
 
                         if (!String.IsNullOrWhiteSpace(request.CaptureId))
                         {

@@ -277,17 +277,20 @@ namespace Armada.Server.Mcp.Tools
                     string voyageId = request.VoyageId;
                     VoyageStatusReadScope? readScope = await ReadVoyageStatusReadScopeAsync(
                         database, caller, voyageId).ConfigureAwait(false);
-                    if (readScope == null) return (object)new { Error = "Voyage not found" };
+                    if (readScope == null)
+                    {
+                        if (!String.IsNullOrWhiteSpace(caller.MissionId))
+                            return (object)await McpMissionEvidenceScope.DenyVoyageAsync(database, caller, voyageId).ConfigureAwait(false);
+                        return (object)new { Error = "Voyage not found" };
+                    }
                     Voyage voyage = readScope.Voyage;
 
                     // Default: summary mode (returns voyage metadata + mission counts by status, no mission objects)
                     bool isSummary = request.Summary != false;
                     if (isSummary)
                     {
-                        VoyageMissionSummary missionSummary = await database.Missions.ReadVoyageMissionSummaryAsync(
-                            voyageId, tenantId: readScope.TenantId, userId: readScope.UserId).ConfigureAwait(false);
-                        Dictionary<string, long> counts = missionSummary.StatusCounts
-                            .ToDictionary(kvp => kvp.Key.ToString(), kvp => kvp.Value);
+                        Dictionary<string, long> counts = await CountVoyageMissionStatusesAsync(
+                            database, voyageId, readScope).ConfigureAwait(false);
                         Dictionary<string, int> assignmentCounts = await CountVoyageMissionAssignmentsAsync(
                             database, voyageId, readScope).ConfigureAwait(false);
                         return (object)new
@@ -299,9 +302,9 @@ namespace Armada.Server.Mcp.Tools
                         };
                     }
 
-                    VoyageMissionSummary summary = await database.Missions.ReadVoyageMissionSummaryAsync(
-                        voyageId, tenantId: readScope.TenantId, userId: readScope.UserId).ConfigureAwait(false);
-                    long totalMissions = summary.StatusCounts.Values.Sum();
+                    Dictionary<string, long> statusCounts = await CountVoyageMissionStatusesAsync(
+                        database, voyageId, readScope).ConfigureAwait(false);
+                    long totalMissions = statusCounts.Values.Sum();
 
                     // Non-summary: optionally include mission objects
                     if (request.IncludeMissions != true)
@@ -408,12 +411,7 @@ namespace Armada.Server.Mcp.Tools
             {
                 tenantId = OwnershipPolicy.TenantOf(caller);
                 userId = OwnershipPolicy.UserOf(caller);
-                Mission? anchor = await McpMissionEvidenceScope.ReadMissionAsync(database, caller, caller.MissionId).ConfigureAwait(false);
-                if (anchor == null || !String.Equals(anchor.VoyageId, voyageId, StringComparison.Ordinal))
-                    return null;
-
-                AuthContext missionOwnerScope = AuthContext.Authenticated(tenantId, userId, false, false, caller.AuthMethod ?? "Session");
-                voyage = await CallerScopedRead.ReadVoyageAsync(database, missionOwnerScope, voyageId).ConfigureAwait(false);
+                voyage = await McpMissionEvidenceScope.ReadVoyageAsync(database, caller, voyageId).ConfigureAwait(false);
                 missionCaller = caller;
             }
             else
@@ -437,6 +435,31 @@ namespace Armada.Server.Mcp.Tools
             }
 
             return voyage == null ? null : new VoyageStatusReadScope(voyage, tenantId, userId, missionCaller);
+        }
+
+        private static async Task<Dictionary<string, long>> CountVoyageMissionStatusesAsync(
+            DatabaseDriver database,
+            string voyageId,
+            VoyageStatusReadScope readScope)
+        {
+            if (readScope.MissionCaller == null)
+            {
+                VoyageMissionSummary summary = await database.Missions.ReadVoyageMissionSummaryAsync(
+                    voyageId, tenantId: readScope.TenantId, userId: readScope.UserId).ConfigureAwait(false);
+                return summary.StatusCounts.ToDictionary(kvp => kvp.Key.ToString(), kvp => kvp.Value);
+            }
+
+            // A mission caller counts rows through the owner rule, so a voyage mission stored without a user
+            // still counts toward the default owner; the scoped summary query matches stored values exactly.
+            Dictionary<string, long> counts = new Dictionary<string, long>(StringComparer.Ordinal);
+            List<Mission> missions = await ReadAllVoyageMissionsAsync(database, voyageId, readScope).ConfigureAwait(false);
+            foreach (Mission mission in missions)
+            {
+                string state = mission.Status.ToString();
+                counts.TryGetValue(state, out long count);
+                counts[state] = count + 1;
+            }
+            return counts;
         }
 
         private static async Task<Dictionary<string, int>> CountVoyageMissionAssignmentsAsync(

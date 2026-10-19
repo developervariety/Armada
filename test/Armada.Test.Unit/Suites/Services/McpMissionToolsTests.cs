@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Security.Cryptography;
     using System.Text;
     using System.Text.Json;
@@ -904,6 +905,273 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MissionEvidence_VoyagelessStageReadsMissionsOfItsObjectiveVoyage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("objective worker voyage")).ConfigureAwait(false);
+                    List<Mission> voyageMissions = new List<Mission>();
+                    for (int i = 0; i < 3; i++)
+                    {
+                        // Voyage missions are stored without a user, unlike the standalone stage and the objective.
+                        voyageMissions.Add(await testDb.Driver.Missions.CreateAsync(new Mission("voyage stage " + i)
+                        {
+                            TenantId = Armada.Core.Constants.DefaultTenantId,
+                            VoyageId = voyage.Id,
+                            AgentOutput = "voyage stage report " + i,
+                            Status = MissionStatusEnum.Complete
+                        }).ConfigureAwait(false));
+                    }
+                    Mission recorder = await testDb.Driver.Missions.CreateAsync(new Mission("voyage-less recorder")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Persona = "Recorder"
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "objective linking the recorder and the voyage",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageIds = new List<string> { voyage.Id },
+                        MissionIds = new List<string> { recorder.Id }
+                    }).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = recorder.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        foreach (Mission voyageMission in voyageMissions)
+                        {
+                            object result = await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = voyageMission.Id })).ConfigureAwait(false);
+                            AssertTrue(result is MissionOutputArtifactPage,
+                                "A voyage-less stage reads each mission of its objective's voyage; actual result: " + JsonSerializer.Serialize(result));
+                            AssertEqual(voyageMission.AgentOutput, ((MissionOutputArtifactPage)result).Content);
+                        }
+                    }
+                }
+            });
+
+            await RunTest("MissionEvidence_StageReadsFailedMissionOfAnEarlierVoyageOfItsObjective", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage earlierVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("earlier review voyage")).ConfigureAwait(false);
+                    Voyage laterVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("later review voyage")).ConfigureAwait(false);
+                    Mission failedJudge = await testDb.Driver.Missions.CreateAsync(new Mission("failed earlier judge")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        VoyageId = earlierVoyage.Id,
+                        Persona = "Judge",
+                        AgentOutput = "failed judge report",
+                        Status = MissionStatusEnum.Failed
+                    }).ConfigureAwait(false);
+                    Mission linter = await testDb.Driver.Missions.CreateAsync(new Mission("later linter")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        VoyageId = laterVoyage.Id,
+                        Persona = "Linter"
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "objective with two review voyages",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageIds = new List<string> { earlierVoyage.Id, laterVoyage.Id }
+                    }).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = linter.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        object result = await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = failedJudge.Id })).ConfigureAwait(false);
+                        AssertTrue(result is MissionOutputArtifactPage,
+                            "A Linter reads the Failed Judge of an earlier voyage of its objective; actual result: " + JsonSerializer.Serialize(result));
+                    }
+                }
+            });
+
+            await RunTest("VoyageStatus_VoyagelessStageReadsAVoyageOfItsObjective", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("objective voyage under review")).ConfigureAwait(false);
+                    for (int i = 0; i < 2; i++)
+                    {
+                        await testDb.Driver.Missions.CreateAsync(new Mission("reviewed stage " + i)
+                        {
+                            TenantId = Armada.Core.Constants.DefaultTenantId,
+                            VoyageId = voyage.Id,
+                            Status = MissionStatusEnum.Complete
+                        }).ConfigureAwait(false);
+                    }
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("voyage-less judge")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Persona = "Judge"
+                    }).ConfigureAwait(false);
+                    Voyage unrelated = await testDb.Driver.Voyages.CreateAsync(new Voyage("unrelated voyage")).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "objective linking the judge and the voyage",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VoyageIds = new List<string> { voyage.Id },
+                        MissionIds = new List<string> { judge.Id }
+                    }).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = judge.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string status = JsonSerializer.Serialize(await tools.VoyageStatus!(JsonSerializer.SerializeToElement(new { voyageId = voyage.Id })).ConfigureAwait(false));
+                        AssertFalse(status.Contains("\"Error\"", StringComparison.Ordinal), "A voyage-less Judge reads a voyage of its own objective; actual result: " + status);
+                        AssertContains("\"TotalMissions\":2", status, "missions stored without a user still count toward their owner's voyage");
+                        string denied = JsonSerializer.Serialize(await tools.VoyageStatus!(JsonSerializer.SerializeToElement(new { voyageId = unrelated.Id })).ConfigureAwait(false));
+                        AssertContains("Voyage not found", denied, "an unrelated voyage stays hidden");
+                    }
+                }
+            });
+
+            await RunTest("VoyageStatus_VoyagelessStageReadsTheVoyageOfItsDirectDependency", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("dependency voyage")).ConfigureAwait(false);
+                    Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("dependency worker")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        VoyageId = voyage.Id,
+                        AgentOutput = "worker report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission sibling = await testDb.Driver.Missions.CreateAsync(new Mission("dependency voyage sibling")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        VoyageId = voyage.Id,
+                        AgentOutput = "sibling report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("voyage-less dependent judge")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        DependsOnMissionId = worker.Id,
+                        Persona = "Judge"
+                    }).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = judge.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string status = JsonSerializer.Serialize(await tools.VoyageStatus!(JsonSerializer.SerializeToElement(new { voyageId = voyage.Id })).ConfigureAwait(false));
+                        AssertFalse(status.Contains("\"Error\"", StringComparison.Ordinal), "A Judge reads the voyage of its direct dependency; actual result: " + status);
+                        object siblingResult = await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = sibling.Id })).ConfigureAwait(false);
+                        AssertTrue(siblingResult is MissionOutputArtifactPage,
+                            "A Judge reads a mission of its dependency's voyage; actual result: " + JsonSerializer.Serialize(siblingResult));
+                    }
+                }
+            });
+
+            await RunTest("MissionEvidence_CallerReadsAncestorLinkedChildAndCitedRecordsOnly", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LinkedEvidenceFixture fixture = await LinkedEvidenceFixture.CreateAsync(testDb.Driver).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = fixture.Anchor.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        foreach (Objective readable in fixture.Readable)
+                        {
+                            object result = await tools.ReadObjective!(JsonSerializer.SerializeToElement(new { objectiveId = readable.Id })).ConfigureAwait(false);
+                            AssertTrue(result is Objective, "linked objective '" + readable.Title + "' is readable; actual result: " + JsonSerializer.Serialize(result));
+                        }
+                        foreach (Objective hidden in fixture.Hidden)
+                        {
+                            string denied = JsonSerializer.Serialize(await tools.ReadObjective!(JsonSerializer.SerializeToElement(new { objectiveId = hidden.Id })).ConfigureAwait(false));
+                            AssertContains("Objective not found", denied, "objective '" + hidden.Title + "' stays hidden");
+                        }
+                        foreach (Mission readableMission in new[] { fixture.CitedHistoricalMission, fixture.AncestorMission })
+                        {
+                            object result = await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = readableMission.Id })).ConfigureAwait(false);
+                            AssertTrue(result is MissionOutputArtifactPage,
+                                "mission '" + readableMission.Title + "' is readable; actual result: " + JsonSerializer.Serialize(result));
+                        }
+                        foreach (Mission hiddenMission in new[] { fixture.UncitedHistoricalMission, fixture.OtherOwnerCitedMission })
+                        {
+                            string denied = JsonSerializer.Serialize(await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = hiddenMission.Id })).ConfigureAwait(false));
+                            AssertContains("Mission not found", denied, "mission '" + hiddenMission.Title + "' stays hidden");
+                        }
+                    }
+                }
+            });
+
+            await RunTest("ObjectiveEnumerate_MissionCallerListsExactlyTheObjectivesItCanRead", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LinkedEvidenceFixture fixture = await LinkedEvidenceFixture.CreateAsync(testDb.Driver).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = fixture.Anchor.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        EnumerationResult<Objective> listed = (EnumerationResult<Objective>)await tools.Enumerate!(
+                            JsonSerializer.SerializeToElement(new { entityType = "objectives", pageSize = 100 })).ConfigureAwait(false);
+                        List<string> listedIds = listed.Objects.Select(objective => objective.Id).OrderBy(id => id, StringComparer.Ordinal).ToList();
+                        List<string> expected = fixture.Readable.Select(objective => objective.Id).OrderBy(id => id, StringComparer.Ordinal).ToList();
+                        AssertEqual(String.Join(",", expected), String.Join(",", listedIds), "enumerate lists exactly the objectives get_objective returns");
+                        AssertEqual((long)expected.Count, (long)listed.TotalRecords, "the total counts only readable objectives");
+                    }
+                }
+            });
+
+            await RunTest("MissionEvidence_DenialsNameTheReasonWithoutRevealingOtherOwners", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LinkedEvidenceFixture fixture = await LinkedEvidenceFixture.CreateAsync(testDb.Driver).ConfigureAwait(false);
+                    Voyage unrelatedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("unrelated same-owner voyage")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = fixture.Anchor.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        string sameOwnerMission = JsonSerializer.Serialize(await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = fixture.UncitedHistoricalMission.Id })).ConfigureAwait(false));
+                        AssertContains("\"Reason\":\"out_of_scope\"", sameOwnerMission, "a same-owner mission outside the evidence scope says so");
+                        string sameOwnerStatus = JsonSerializer.Serialize(await tools.ReadStatus!(JsonSerializer.SerializeToElement(new { missionId = fixture.UncitedHistoricalMission.Id })).ConfigureAwait(false));
+                        AssertContains("\"Reason\":\"out_of_scope\"", sameOwnerStatus, "the status read names the same reason");
+                        string otherOwnerMission = JsonSerializer.Serialize(await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = fixture.OtherOwnerCitedMission.Id })).ConfigureAwait(false));
+                        AssertContains("\"Reason\":\"not_found\"", otherOwnerMission, "another owner's mission reads as absent");
+                        string absentMission = JsonSerializer.Serialize(await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = "msn_absent" })).ConfigureAwait(false));
+                        AssertContains("\"Reason\":\"not_found\"", absentMission, "an absent mission reads as absent");
+
+                        string sameOwnerObjective = JsonSerializer.Serialize(await tools.ReadObjective!(JsonSerializer.SerializeToElement(new { objectiveId = fixture.Unrelated.Id })).ConfigureAwait(false));
+                        AssertContains("\"Reason\":\"out_of_scope\"", sameOwnerObjective, "a same-owner objective outside the evidence scope says so");
+                        string otherOwnerObjective = JsonSerializer.Serialize(await tools.ReadObjective!(JsonSerializer.SerializeToElement(new { objectiveId = fixture.OtherOwnerCited.Id })).ConfigureAwait(false));
+                        AssertContains("\"Reason\":\"not_found\"", otherOwnerObjective, "another owner's objective reads as absent");
+
+                        string sameOwnerVoyage = JsonSerializer.Serialize(await tools.VoyageStatus!(JsonSerializer.SerializeToElement(new { voyageId = unrelatedVoyage.Id })).ConfigureAwait(false));
+                        AssertContains("\"Reason\":\"out_of_scope\"", sameOwnerVoyage, "a same-owner voyage outside the evidence scope says so");
+                        AssertContains("Voyage not found", sameOwnerVoyage, "the error text stays the same");
+                    }
+                }
+            });
+
             await RunTest("TransitionMissionStatus_CallerOutsideMissionOwnerIsRefusedWithoutChange", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1255,6 +1523,96 @@ namespace Armada.Test.Unit.Suites.Services
                         "Caller deliveryMode should override default on collision");
                 }
             });
+        }
+
+        private sealed class EvidenceHandlers
+        {
+            public Func<JsonElement?, Task<object>>? ReadOutput { get; set; }
+            public Func<JsonElement?, Task<object>>? ReadStatus { get; set; }
+            public Func<JsonElement?, Task<object>>? ReadObjective { get; set; }
+            public Func<JsonElement?, Task<object>>? VoyageStatus { get; set; }
+            public Func<JsonElement?, Task<object>>? Enumerate { get; set; }
+
+            public static EvidenceHandlers Register(DatabaseDriver database)
+            {
+                EvidenceHandlers handlers = new EvidenceHandlers();
+                McpMissionTools.Register((name, _, _, handler) =>
+                {
+                    if (name == "armada_mission_output") handlers.ReadOutput = handler;
+                    if (name == "armada_mission_status") handlers.ReadStatus = handler;
+                }, database, new RecordingAdmiralDouble(), null, null);
+                McpObjectiveTools.Register((name, _, _, handler) =>
+                {
+                    if (name == "get_objective") handlers.ReadObjective = handler;
+                }, database, new ObjectiveService(database));
+                McpVoyageTools.Register((name, _, _, handler) =>
+                {
+                    if (name == "armada_voyage_status") handlers.VoyageStatus = handler;
+                }, database, new RecordingAdmiralDouble(), null);
+                McpEnumerateTools.Register((name, _, _, handler) =>
+                {
+                    if (name == "armada_enumerate") handlers.Enumerate = handler;
+                }, database);
+                return handlers;
+            }
+        }
+
+        /// <summary>
+        /// An objective tree around one voyage-less stage: its own objective, the parent and grandparent, a
+        /// blocker, a child, objectives and missions cited by id in the objective text, and records that
+        /// must stay hidden (a sibling, an unrelated objective, a second-hand citation, other-owner records).
+        /// </summary>
+        private sealed class LinkedEvidenceFixture
+        {
+            public Mission Anchor { get; set; } = new Mission();
+            public List<Objective> Readable { get; set; } = new List<Objective>();
+            public List<Objective> Hidden { get; set; } = new List<Objective>();
+            public Objective Unrelated { get; set; } = new Objective();
+            public Objective OtherOwnerCited { get; set; } = new Objective();
+            public Mission CitedHistoricalMission { get; set; } = new Mission();
+            public Mission UncitedHistoricalMission { get; set; } = new Mission();
+            public Mission AncestorMission { get; set; } = new Mission();
+            public Mission OtherOwnerCitedMission { get; set; } = new Mission();
+
+            public static async Task<LinkedEvidenceFixture> CreateAsync(DatabaseDriver database)
+            {
+                LinkedEvidenceFixture fixture = new LinkedEvidenceFixture();
+                string tenant = Armada.Core.Constants.DefaultTenantId;
+                string user = Armada.Core.Constants.DefaultUserId;
+                UserMaster otherUser = await database.Users.CreateAsync(new UserMaster(tenant, "linked-other-" + Guid.NewGuid().ToString("N") + "@example.com", "password")).ConfigureAwait(false);
+
+                fixture.Anchor = await database.Missions.CreateAsync(new Mission("voyage-less study stage") { TenantId = tenant, UserId = user, Persona = "Judge" }).ConfigureAwait(false);
+                fixture.AncestorMission = await database.Missions.CreateAsync(new Mission("grandparent study mission") { TenantId = tenant, UserId = user, AgentOutput = "grandparent report", Status = MissionStatusEnum.Complete }).ConfigureAwait(false);
+                fixture.CitedHistoricalMission = await database.Missions.CreateAsync(new Mission("cited historical judge") { TenantId = tenant, UserId = user, AgentOutput = "historical judge report", Status = MissionStatusEnum.Complete }).ConfigureAwait(false);
+                fixture.UncitedHistoricalMission = await database.Missions.CreateAsync(new Mission("uncited historical judge") { TenantId = tenant, UserId = user, AgentOutput = "uncited report", Status = MissionStatusEnum.Complete }).ConfigureAwait(false);
+                fixture.OtherOwnerCitedMission = await database.Missions.CreateAsync(new Mission("other owner cited mission") { TenantId = tenant, UserId = otherUser.Id, AgentOutput = "other owner report", Status = MissionStatusEnum.Complete }).ConfigureAwait(false);
+
+                Objective grandparent = await database.Objectives.CreateAsync(new Objective { Title = "grandparent study", TenantId = tenant, UserId = user, MissionIds = new List<string> { fixture.AncestorMission.Id } }).ConfigureAwait(false);
+                Objective parent = await database.Objectives.CreateAsync(new Objective { Title = "parent study", TenantId = tenant, UserId = user, ParentObjectiveId = grandparent.Id }).ConfigureAwait(false);
+                Objective blocker = await database.Objectives.CreateAsync(new Objective { Title = "blocking objective", TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                Objective secondHand = await database.Objectives.CreateAsync(new Objective { Title = "second-hand citation", TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                Objective cited = await database.Objectives.CreateAsync(new Objective { Title = "cited closed objective", TenantId = tenant, UserId = user, Description = "See " + secondHand.Id + " for history." }).ConfigureAwait(false);
+                Objective historical = await database.Objectives.CreateAsync(new Objective { Title = "historical objective", TenantId = tenant, UserId = user, MissionIds = new List<string> { fixture.CitedHistoricalMission.Id, fixture.UncitedHistoricalMission.Id } }).ConfigureAwait(false);
+                fixture.OtherOwnerCited = await database.Objectives.CreateAsync(new Objective { Title = "other owner cited objective", TenantId = tenant, UserId = otherUser.Id }).ConfigureAwait(false);
+                Objective own = await database.Objectives.CreateAsync(new Objective
+                {
+                    Title = "own study",
+                    TenantId = tenant,
+                    UserId = user,
+                    ParentObjectiveId = parent.Id,
+                    MissionIds = new List<string> { fixture.Anchor.Id },
+                    BlockedByObjectiveIds = new List<string> { blocker.Id },
+                    Description = "Reproduce the criteria of " + cited.Id + " and the verdict in " + fixture.CitedHistoricalMission.Id
+                        + ". Compare with " + fixture.OtherOwnerCited.Id + " and " + fixture.OtherOwnerCitedMission.Id + "."
+                }).ConfigureAwait(false);
+                Objective child = await database.Objectives.CreateAsync(new Objective { Title = "child follow-up", TenantId = tenant, UserId = user, ParentObjectiveId = own.Id }).ConfigureAwait(false);
+                Objective sibling = await database.Objectives.CreateAsync(new Objective { Title = "sibling study", TenantId = tenant, UserId = user, ParentObjectiveId = parent.Id }).ConfigureAwait(false);
+                fixture.Unrelated = await database.Objectives.CreateAsync(new Objective { Title = "unrelated objective", TenantId = tenant, UserId = user }).ConfigureAwait(false);
+
+                fixture.Readable = new List<Objective> { own, parent, grandparent, blocker, cited, child };
+                fixture.Hidden = new List<Objective> { sibling, fixture.Unrelated, secondHand, historical, fixture.OtherOwnerCited };
+                return fixture;
+            }
         }
 
         private sealed class RecordingAdmiralDouble : IAdmiralService

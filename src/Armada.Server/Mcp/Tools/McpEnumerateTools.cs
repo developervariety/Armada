@@ -315,9 +315,15 @@ namespace Armada.Server.Mcp.Tools
                         case "backlog":
                         case "backlog_items":
                             ObjectiveService objectiveService = new ObjectiveService(database);
+                            AuthContext objectiveCaller = McpCallerContext.Require();
+                            // A mission caller lists exactly the objectives get_objective lets it read.
+                            ISet<string>? readableObjectiveIds = String.IsNullOrEmpty(objectiveCaller.MissionId)
+                                ? null
+                                : await McpMissionEvidenceScope.ReadLinkedObjectiveIdsAsync(database, objectiveCaller).ConfigureAwait(false);
                             return (object)await objectiveService.EnumerateAsync(
-                                McpCallerContext.Require(),
-                                request.ToObjectiveQuery()).ConfigureAwait(false);
+                                objectiveCaller,
+                                request.ToObjectiveQuery(),
+                                readableObjectiveIds).ConfigureAwait(false);
                         case "incidents":
                         case "incident":
                             IncidentService incidentService = new IncidentService(database);

@@ -104,6 +104,15 @@ upstream integrations and excludes changes already present at that baseline.
 - Objective Scope states that a non-goal wins over a conflicting role, rescue or
   captain duty, and tells a TestEngineer whose objective forbids test edits that
   it is validate-only.
+- A captain reads the records its brief cites. Captain evidence reads follow the
+  objectives that authorize the mission or its direct sources, with their
+  ancestors, blockers and children, the ids those objectives cite, and the
+  missions and voyages they list. A voyage-less review stage can read the
+  voyages of its objective and of its direct dependency through
+  `armada_voyage_status`, whose counts include mission rows stored without a
+  user. `armada_enumerate` lists a mission caller exactly the objectives
+  `get_objective` returns. A refused read carries `Reason` (`out_of_scope` or
+  `not_found`) without revealing another owner's record.
 - A captain can omit the id on `armada_mission_status`, `armada_mission_output`
   and `get_objective`. They read the captain's own mission, or the objective that
   authorizes it, instead of failing with a null-id error. A caller with no
