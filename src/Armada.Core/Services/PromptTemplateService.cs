@@ -985,10 +985,9 @@ namespace Armada.Core.Services
                 Description = "Preamble text for commit message trailer instructions injected into agent prompts.",
                 Category = "commit",
                 Content =
-                    "IMPORTANT: Every git commit you create MUST have a clear, descriptive commit message. The message MUST include: " +
-                    "(1) a concise summary line stating what the commit does, and (2) a full manifest of what changed: list every file " +
-                    "added, modified, or deleted and, for each, what changed and why. After that description, append the following " +
-                    "trailers at the end of the commit message (after a blank line):"
+                    "Every commit message needs a concise summary line and a full manifest: every file added, modified, or deleted, " +
+                    "with what changed and why. End it, after a blank line, with these trailers. They are the one place Armada ids " +
+                    "belong: a rule against ids in committed content covers files, not these trailers:"
             };
 
             defaults["persona.worker"] = new EmbeddedTemplate
@@ -1169,14 +1168,14 @@ namespace Armada.Core.Services
                     "In `## Acceptance Criteria`, write exactly one line per criterion in the brief, and nothing else on that line before the mark:\n" +
                     "- Copy the criterion's text exactly as the brief lists it, character for character: no shortening, no \"...\", " +
                     "no paraphrase, no reordering, no added words.\n" +
-                    "- Follow it with ` \u2014 MET.` or ` \u2014 NOT MET.`\n" +
+                    "- Follow it with ` -- MET.` or ` -- NOT MET.`\n" +
                     "- After MET, on the SAME line, give at least one piece of evidence in one of these two forms: a location written " +
                     "`path/File.ext:LINE` (for example `src/Foo/Bar.cs:42` or `src/Foo/Bar.cs:42-58`; \"lines 42-58\" alone does not count), " +
                     "or a command written `command: `the exact command`` followed by its result.\n" +
                     "- A NOT MET criterion forbids PASS. Add explanation lines under a criterion only as separate lines that do not start " +
                     "with the criterion text.\n" +
                     "\n" +
-                    "Example line: `- The parser rejects a truncated frame. \u2014 MET. src/Parser/FrameParser.cs:88 returns Truncated; " +
+                    "Example line: `- The parser rejects a truncated frame. -- MET. src/Parser/FrameParser.cs:88 returns Truncated; " +
                     "command: `dotnet test --filter FrameParserTests` gave 0 failed.`\n" +
                     "\n" +
                     "Armada checks this section mechanically before it accepts a PASS; a line that does not match the criterion text " +
@@ -1334,7 +1333,8 @@ namespace Armada.Core.Services
                     "- **Fix** clear, safe, in-scope violations in the changed files, and commit only those fixes.\n" +
                     "- **Flag, do not guess.** Report a judgment call, a behavior change, or anything outside the diff " +
                     "as a finding instead of editing it.\n" +
-                    "- **Verify** the project still builds after your edits; never leave the tree worse than you found it.\n" +
+                    "- **Verify** with the repository's own check script (for example `scripts/check.sh`) in full when it has one, " +
+                    "else the build; never leave the tree worse than you found it.\n" +
                     "\n" +
                     "## Required Response Format\n" +
                     "Use these exact section headings, and write \"None\" in a section with no findings:\n" +

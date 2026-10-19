@@ -468,9 +468,9 @@ namespace Armada.Test.Unit.Suites.Services
                         string logContents = await WaitForFileContainsAsync(logFilePath, "Mission: Read-only mission").ConfigureAwait(false);
 
                         AssertTrue(processId > 0, "Launch should return a process id");
-                        AssertFalse(logContents.Contains("IMPORTANT", StringComparison.OrdinalIgnoreCase),
+                        AssertFalse(logContents.Contains("full manifest", StringComparison.OrdinalIgnoreCase),
                             "a read-only mission must not receive commit-trailer instructions");
-                        AssertFalse(logContents.Contains("append the following trailers", StringComparison.OrdinalIgnoreCase),
+                        AssertFalse(logContents.Contains("with these trailers", StringComparison.OrdinalIgnoreCase),
                             "the commit-trailer block must be absent from a read-only launch prompt");
                     }
                     finally

@@ -3580,6 +3580,9 @@ namespace Armada.Core.Services
             string? briefDescription = RetargetInstructionFileNames(mission.Description, instructionsFileName, worktreePath);
             List<ContextBriefFile> descriptionFiles = BuildMissionDescriptionFiles(briefDescription);
             await WriteBriefFilesAsync(worktreePath, MissionDescriptionFolder, descriptionFiles, token).ConfigureAwait(false);
+            // A handoff embeds a bounded preview of a long earlier-stage report; the complete report is written
+            // beside it, so the downstream stage reads every finding from its own checkout.
+            await WriteBriefFilesAsync(worktreePath, HandoffOutputFolder, await BuildHandoffOutputFilesAsync(mission, token).ConfigureAwait(false), token).ConfigureAwait(false);
             string boundedDescription = BoundMetadataDescription(briefDescription, descriptionFiles);
             templateParams["MissionDescription"] = boundedDescription;
 
@@ -3695,6 +3698,12 @@ namespace Armada.Core.Services
                 content += "\n";
                 content += ledger.Track("mission.papercuts", BuildPapercutsSection(PriorArtToolOffFor(_Settings.TypedDecisions, vessel)));
                 content += ledger.Track("mission.notes", BuildProgressNotesSection());
+            }
+
+            if (captain != null && captain.Runtime == AgentRuntimeEnum.Codex)
+            {
+                content += "\n";
+                content += ledger.Track("mission.codex_shell", CodexShellSection);
             }
 
             // If there's an existing repository instruction file, preserve it as read-only
@@ -7958,9 +7967,9 @@ namespace Armada.Core.Services
                 + "\nComplete: " + artifact.Complete
                 + (artifact.TruncationReason == null ? String.Empty : "\nTruncation reason: " + artifact.TruncationReason)
                 + (artifact.MissingReportSections.Count == 0 ? String.Empty : "\nMissing report sections: " + String.Join(", ", artifact.MissingReportSections))
-                + "\nRetrieve every page with the armada_mission_output MCP tool (missionId " + artifact.MissionId
-                + "), follow NextOffset until HasMore is false, and verify the digest before review. "
-                + "A missing page, incomplete artifact, or digest mismatch is an evidence gap and must not pass review.";
+                + "\nFull text: `" + HandoffOutputPath(artifact.MissionId) + "` in your checkout. Read it whole, or page the "
+                + "armada_mission_output MCP tool (missionId " + artifact.MissionId + ") and follow NextOffset until HasMore is false. "
+                + "Verify the digest before review; a missing page, incomplete artifact, or digest mismatch is an evidence gap and must not pass review.";
         }
 
         private static string BuildBoundedMissionOutputPreview(string output, int sectionLength)
@@ -11444,9 +11453,9 @@ namespace Armada.Core.Services
         /// </summary>
         internal const string AcceptanceCriteriaLineForm =
             "Under `## Acceptance Criteria`, write one line per criterion in the brief. Start the line with `- `, then the criterion's text copied exactly " +
-            "as the brief lists it, then ` \u2014 MET.` or ` \u2014 NOT MET.`, then on the SAME line at least one piece of evidence: a location written " +
+            "as the brief lists it, then ` -- MET.` or ` -- NOT MET.`, then on the SAME line at least one piece of evidence: a location written " +
             "`path/File.ext:LINE`, or a command written `command: `the exact command`` followed by its result. " +
-            "Example: `- The parser rejects a truncated frame. \u2014 MET. src/Parser/FrameParser.cs:88 returns Truncated; " +
+            "Example: `- The parser rejects a truncated frame. -- MET. src/Parser/FrameParser.cs:88 returns Truncated; " +
             "command: `dotnet test --filter FrameParserTests` gave 0 failed.`";
 
         // Heading of the acceptance-criteria format correction. Deliberately not prefixed with the

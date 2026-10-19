@@ -29,6 +29,40 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("A rescue of an objective whose non-goals forbid test edits runs no TestEngineer stage, unless the failure asks for it", () =>
+            {
+                List<PipelineStage> chain = new List<PipelineStage>
+                {
+                    new PipelineStage(3, "TestEngineer"),
+                    new PipelineStage(4, "Linter"),
+                    new PipelineStage(5, "Judge")
+                };
+                Objective reportOnly = new Objective
+                {
+                    Title = "Write the parity report",
+                    NonGoals = new List<string> { "Do not add, edit, or commit tests." }
+                };
+                Mission failed = new Mission("Write the parity report") { Persona = "Judge", FailureReason = "Judge NEEDS_REVISION: the report omits two rows." };
+
+                AutonomousRecoveryOrchestrator.CarriedStageSkip? skip =
+                    AutonomousRecoveryOrchestrator.ApplyNoTestObjectiveSkip(failed, "Worker", chain, reportOnly);
+                AssertNotNull(skip, "a report-only objective drops the TestEngineer from the rescue chain");
+                AssertEqual("Linter,Judge", String.Join(",", skip!.RemainingStages.Select(stage => stage.PersonaName)),
+                    "the rest of the chain runs in order");
+                AssertEqual(AutonomousRecoveryOrchestrator.NoTestObjectiveSkipReason, skip.Request.Reason, "the skip records why");
+
+                Mission askedForTests = new Mission("Write the parity report") { Persona = "Judge", FailureReason = "No TestEngineer ran on this change." };
+                AssertNull(AutonomousRecoveryOrchestrator.ApplyNoTestObjectiveSkip(askedForTests, "Worker", chain, reportOnly),
+                    "a failure that names the TestEngineer keeps that stage");
+
+                Objective withTests = new Objective { Title = "Fix the parser", NonGoals = new List<string> { "Do not change the public API." } };
+                AssertNull(AutonomousRecoveryOrchestrator.ApplyNoTestObjectiveSkip(failed, "Worker", chain, withTests),
+                    "an objective that allows test edits keeps the TestEngineer");
+                AssertNull(AutonomousRecoveryOrchestrator.ApplyNoTestObjectiveSkip(failed, "Worker", chain, null),
+                    "a rescue with no owning objective keeps the TestEngineer");
+                return Task.CompletedTask;
+            });
+
             await RunTest("IsClaudeThinkingBlockFailure ThinkingBlocks Returns True", () =>
             {
                 AssertTrue(

@@ -28,6 +28,22 @@ namespace Armada.Test.Unit.Suites.Services
         {
             // RenderCommitInstructions
 
+            await RunTest("Commit instructions name the trailers as the one place Armada ids belong", () =>
+            {
+                Dictionary<string, string> context = new Dictionary<string, string>
+                {
+                    ["MissionId"] = "msn_abc",
+                    ["VoyageId"] = "vyg_def",
+                    ["CaptainId"] = "cpt_ghi",
+                    ["VesselId"] = "vsl_jkl"
+                };
+                string result = CreateService().RenderCommitInstructions(new MessageTemplateSettings(), context);
+                AssertContains("one place Armada ids belong", result, "a brief rule against ids in committed content does not forbid the trailers");
+                AssertContains("covers files, not these trailers", result, "the id ban is scoped to committed file content");
+                AssertContains("Armada-Mission-Id: msn_abc", result, "the trailers still follow the preamble");
+                return Task.CompletedTask;
+            });
+
             await RunTest("RenderCommitInstructions requires a summary line and a full change manifest on both preamble paths", async () =>
             {
                 Dictionary<string, string> context = new Dictionary<string, string>

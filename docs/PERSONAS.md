@@ -178,6 +178,27 @@ A brief also matches the dock it lands in and the tools the captain has:
   names `armada_check_prior_art` as unavailable when the vessel is
   egress-excluded, the captain tools are disabled, or the `prior_art` decision
   is Off.
+- A handoff embeds a bounded preview of a long earlier-stage report. The
+  complete report of every stage the description cites (by its
+  `mission-output:` reference) is written to `_briefing/handoff/<mission id>.md`,
+  and the preview names that file. The file holds exactly the artifact content,
+  so its SHA-256 matches the digest the brief states. A stage of another tenant
+  or owner is never staged.
+- The Judge acceptance-line form uses ASCII (`-- MET.`, `-- NOT MET.`), so it
+  agrees with the rule that output is ASCII only. The checker still accepts an
+  em dash.
+- The Linter verifies with the repository's own check script (for example
+  `scripts/check.sh`) in full when the repository has one, and with the build
+  otherwise.
+- A Codex brief adds `## Codex Shell`: remove temporary files with `rm <path>`
+  (the Codex runner refuses `rm -f`) or `find ... -delete`, and compute digests
+  with `sha256sum`.
+
+A rescue of an objective whose non-goals forbid test edits runs no TestEngineer
+stage. The skip goes through the same stage-skip rule as a dispatch and is
+recorded on the rescue voyage with the reason "the objective's non-goals forbid
+test edits". The TestEngineer still runs when the rescue itself is the
+TestEngineer, or when the failure names the TestEngineer.
 
 The instruction file has a byte budget, `captainInstructionByteBudget`
 (default 65,536; `0` selects the default). A brief assembled over it records a

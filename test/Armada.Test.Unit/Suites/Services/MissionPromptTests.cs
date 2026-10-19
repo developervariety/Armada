@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Text;
     using System.Text.RegularExpressions;
     using Armada.Core.Context;
     using Armada.Core.Database.Sqlite;
@@ -445,6 +446,149 @@ namespace Armada.Test.Unit.Suites.Services
                         await service.GenerateClaudeMdAsync(cleanDir, mission, vessel);
                         string cleanBrief = await File.ReadAllTextAsync(Path.Combine(cleanDir, "CLAUDE.md"));
                         AssertFalse(cleanBrief.Contains(heading), "a brief naming no absent path carries no section");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A brief stages the complete output of every earlier stage it cites, and nothing from another owner", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        string report = "HEAD-SENTINEL\n" + new string('a', 20000) + "\nMIDDLE-SENTINEL\n" + new string('b', 20000) + "\nTAIL-SENTINEL";
+                        Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("Long worker report")
+                        {
+                            Persona = "Worker",
+                            AgentOutput = report,
+                            Status = MissionStatusEnum.Complete
+                        });
+                        UserMaster otherUser = await testDb.Driver.Users.CreateAsync(
+                            new UserMaster(Armada.Core.Constants.DefaultTenantId, "handoff-other@example.com", "password"));
+                        Mission foreign = await testDb.Driver.Missions.CreateAsync(new Mission("Other owner report")
+                        {
+                            Persona = "Worker",
+                            UserId = otherUser.Id,
+                            AgentOutput = "PRIVATE-SENTINEL",
+                            Status = MissionStatusEnum.Complete
+                        });
+
+                        Vessel vessel = new Vessel("HandoffOutputVessel", "https://github.com/test/repo");
+                        Mission judge = new Mission();
+                        judge.Title = "Review the long report";
+                        judge.Persona = "Judge";
+                        judge.Description = "## Prior Stage Output\nAuthoritative safe artifact: mission-output:" + worker.Id +
+                            "\nAlso cited: mission-output:" + foreign.Id + "\n";
+
+                        await service.GenerateClaudeMdAsync(tempDir, judge, vessel);
+
+                        string staged = Path.Combine(tempDir, "_briefing", "handoff", worker.Id + ".md");
+                        AssertTrue(File.Exists(staged), "the cited earlier stage's complete output is staged in the dock");
+                        string content = await File.ReadAllTextAsync(staged);
+                        AssertContains("MIDDLE-SENTINEL", content, "the staged output is not a head-and-tail preview");
+                        AssertEqual(MissionOutputArtifact.Build(worker).Sha256,
+                            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant(),
+                            "the staged file has the digest the brief states");
+                        AssertFalse(File.Exists(Path.Combine(tempDir, "_briefing", "handoff", foreign.Id + ".md")),
+                            "another owner's output is never staged");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("Judge and Worker briefs hold only ASCII, so the acceptance-line form agrees with the ASCII rule", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+
+                    try
+                    {
+                        foreach (string persona in new[] { "Judge", "Worker" })
+                        {
+                            string dir = Path.Combine(tempDir, persona);
+                            Directory.CreateDirectory(dir);
+                            Vessel vessel = new Vessel("AsciiBriefVessel", "https://github.com/test/repo");
+                            Mission mission = new Mission();
+                            mission.Title = "Review the parser change";
+                            mission.Persona = persona;
+                            mission.Description = "## Acceptance Criteria\n\n- The parser rejects a truncated frame.\n";
+
+                            await service.GenerateClaudeMdAsync(dir, mission, vessel);
+                            string brief = await File.ReadAllTextAsync(Path.Combine(dir, "CLAUDE.md"));
+                            List<string> offenders = new List<string>();
+                            foreach (string line in brief.Split('\n'))
+                            {
+                                if (line.Any(c => c > 0x7E)) offenders.Add(line.Length > 120 ? line.Substring(0, 120) : line);
+                            }
+                            AssertEqual(0, offenders.Count, "a " + persona + " brief built from ASCII input holds only ASCII: " + String.Join(" | ", offenders));
+                        }
+
+                        string asciiLine = "- The parser rejects a truncated frame. -- MET. src/Parser/FrameParser.cs:88 returns Truncated";
+                        AssertNull(JudgeAcceptanceWalk.ValidatePass("## Acceptance Criteria\n\n" + asciiLine + "\n",
+                            "## Acceptance Criteria\n\n- The parser rejects a truncated frame.\n"),
+                            "the ASCII acceptance line the contract asks for passes the mechanical check");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A Linter brief runs the repository check script, and only a Codex brief names the Codex shell commands", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("LinterVessel", "https://github.com/test/repo");
+                        Mission linter = new Mission();
+                        linter.Title = "Lint the change";
+                        linter.Persona = "Linter";
+                        linter.Description = "Lint the diff.";
+
+                        Captain codex = new Captain("codex-captain");
+                        codex.Runtime = AgentRuntimeEnum.Codex;
+                        string codexDir = Path.Combine(tempDir, "codex");
+                        Directory.CreateDirectory(codexDir);
+                        await service.GenerateClaudeMdAsync(codexDir, linter, vessel, codex);
+                        string codexBrief = await File.ReadAllTextAsync(Path.Combine(codexDir, MissionPromptBuilder.GetInstructionsFileName(codex.Runtime.ToString())));
+                        AssertContains("scripts/check.sh", codexBrief, "the Linter verifies with the repository check script");
+                        AssertContains("## Codex Shell", codexBrief, "a Codex brief names the commands its runner accepts");
+                        AssertContains("sha256sum", codexBrief, "a Codex brief names the digest command");
+
+                        Captain claude = new Captain("claude-captain");
+                        claude.Runtime = AgentRuntimeEnum.ClaudeCode;
+                        string claudeDir = Path.Combine(tempDir, "claude");
+                        Directory.CreateDirectory(claudeDir);
+                        await service.GenerateClaudeMdAsync(claudeDir, linter, vessel, claude);
+                        string claudeBrief = await File.ReadAllTextAsync(Path.Combine(claudeDir, MissionPromptBuilder.GetInstructionsFileName(claude.Runtime.ToString())));
+                        AssertFalse(claudeBrief.Contains("## Codex Shell"), "another runtime's brief carries no Codex section");
                     }
                     finally
                     {

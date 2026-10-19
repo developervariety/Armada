@@ -23,10 +23,9 @@ namespace Armada.Core.Services
         /// commit.instructions_preamble default, so every captain receives the same commit-message rule.
         /// </summary>
         private const string _DefaultCommitInstructionsPreamble =
-            "IMPORTANT: Every git commit you create MUST have a clear, descriptive commit message. The message MUST include: " +
-            "(1) a concise summary line stating what the commit does, and (2) a full manifest of what changed: list every file " +
-            "added, modified, or deleted and, for each, what changed and why. After that description, append the following " +
-            "trailers at the end of the commit message (after a blank line):";
+            "Every commit message needs a concise summary line and a full manifest: every file added, modified, or deleted, " +
+            "with what changed and why. End it, after a blank line, with these trailers. They are the one place Armada ids " +
+            "belong: a rule against ids in committed content covers files, not these trailers:";
 
         private LoggingModule _Logging;
         private IPromptTemplateService? _PromptTemplates;

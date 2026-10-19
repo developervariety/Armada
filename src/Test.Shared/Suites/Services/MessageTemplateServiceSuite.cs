@@ -155,7 +155,8 @@ namespace Test.Shared.Suites.Services
                 AssertContains("vyg_def", result);
                 AssertContains("cpt_ghi", result);
                 AssertContains("vsl_jkl", result);
-                AssertContains("IMPORTANT", result);
+                AssertContains("summary line", result);
+                AssertContains("trailers", result);
             }));
 
             cases.Add(Case("render_commit_instructions_disabled_setting_returns_empty", "RenderCommitInstructions DisabledSetting ReturnsEmpty", TestTags.Negative, () =>

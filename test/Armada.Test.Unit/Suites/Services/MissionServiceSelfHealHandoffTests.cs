@@ -318,6 +318,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("UTF-8 SHA-256:", description);
                     AssertContains("Complete: True", description);
                     AssertContains("follow NextOffset until HasMore is false", description);
+                    AssertContains("`_briefing/handoff/" + worker.Id + ".md` in your checkout", description,
+                        "the handoff names the dock file that holds the complete report");
                     AssertFalse(description.Contains("/api/v1/missions/", StringComparison.Ordinal),
                         "The handoff must not offer a REST route a captain has no host or port for.");
                     AssertContains("digest mismatch is an evidence gap", description);

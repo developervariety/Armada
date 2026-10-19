@@ -954,7 +954,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string brief = first.Description ?? String.Empty;
                     AssertContains("## Judge Format Correction", brief, "The brief carries the correction");
                     AssertContains("does not list every acceptance criterion", brief, "The correction names the check's reason");
-                    AssertContains("\u2014 MET.", brief, "The correction states the accepted line form");
+                    AssertContains("-- MET.", brief, "The correction states the accepted line form");
                     AssertContains("    | The parser rejects a truncated frame |", brief, "The previous review is carried, indented");
                     AssertEqual(2, JudgeAcceptanceWalk.ExtractCriteria(brief).Count, "The correction adds no criteria to the brief");
 

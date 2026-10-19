@@ -43,7 +43,7 @@ Armada-Captain-Id: {CaptainId}
 Armada-Vessel-Id: {VesselId}
 ```
 
-This template is rendered and included in the agent's prompt as instructions. The agent is asked to append these Git trailers to every commit message it creates.
+This template is rendered and included in the agent's prompt as instructions. The agent is asked to append these Git trailers to every commit message it creates. The instructions name the trailers as the one place Armada ids belong: a brief or playbook rule against ids in committed content covers file content, not these trailers. When no repository may carry Armada ids in its history, turn `messageTemplates.enableCommitMetadata` off.
 
 **Example commit produced by an agent:**
 ```

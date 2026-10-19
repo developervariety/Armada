@@ -117,7 +117,7 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="nonGoals">The objective's non-goals.</param>
         /// <returns>True when any non-goal forbids test edits.</returns>
-        internal static bool NonGoalsForbidTestEdits(IEnumerable<string>? nonGoals)
+        public static bool NonGoalsForbidTestEdits(IEnumerable<string>? nonGoals)
         {
             if (nonGoals == null) return false;
             foreach (string nonGoal in nonGoals)

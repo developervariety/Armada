@@ -78,6 +78,20 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A downstream stage reads the complete report of every earlier stage its brief
+  cites. The full redacted output is written to `_briefing/handoff/<mission id>.md`
+  in the dock, with the digest the brief states, and the handoff preview names
+  the file. Another owner's output is never staged.
+- Briefs no longer give two conflicting orders. The Judge acceptance-line form
+  uses ASCII (`-- MET.`), matching the ASCII-only rule, and the commit
+  instructions name the trailers as the one place Armada ids belong, so a rule
+  against ids in committed content covers files, not trailers.
+- A rescue of an objective whose non-goals forbid test edits skips its
+  TestEngineer stage and records the skip on the rescue voyage, unless the
+  failure names the TestEngineer.
+- The Linter verifies with the repository's check script (for example
+  `scripts/check.sh`) in full when one exists, and a Codex brief names the shell
+  commands the Codex runner accepts for temporary-file cleanup and digests.
 - Two unit tests no longer fail on a loaded host. The stale-job reap test waits
   for its operation to start instead of sleeping a fixed 30 ms, and the relaunch
   test accepts a heartbeat stamp that the new process records after the launch.

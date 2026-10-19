@@ -2033,6 +2033,14 @@ namespace Armada.Server
             if (carriedSkips.Count > 0)
                 stages = carriedSkips[carriedSkips.Count - 1].RemainingStages;
 
+            CarriedStageSkip? noTestSkip = ApplyNoTestObjectiveSkip(failedMission, rescue.Persona, stages, owningObjective);
+            if (noTestSkip != null)
+            {
+                _Logging.Info(_Header + "rescue of mission " + failedMission.Id + " skips TestEngineer: " + noTestSkip.Request.Reason);
+                carriedSkips.Add(noTestSkip);
+                stages = noTestSkip.RemainingStages;
+            }
+
             foreach (PipelineStage stage in stages)
             {
                 // Use the exact mission constructor used after the rescue voyage is created so
@@ -2735,6 +2743,59 @@ namespace Armada.Server
             }
 
             return applied;
+        }
+
+        /// <summary>Reason recorded when a rescue drops its TestEngineer for an objective that forbids test edits.</summary>
+        internal const string NoTestObjectiveSkipReason = "the objective's non-goals forbid test edits";
+
+        // A rescue of an objective whose non-goals forbid test edits runs no TestEngineer stage: that stage
+        // writes and commits tests, which the objective rules out, and the Judge still enforces the
+        // objective. The skip goes through PipelineStageSkip.Apply like every other skip and is recorded on
+        // the rescue voyage. It is not applied when the rescue itself is the TestEngineer, when the failure
+        // names the TestEngineer (a Judge asking for that stage gets it), or when the persona names more
+        // than one rescue stage. Null when nothing is skipped.
+        internal static CarriedStageSkip? ApplyNoTestObjectiveSkip(
+            Mission failedMission,
+            string? rescuePersona,
+            List<PipelineStage> downstreamStages,
+            Objective? owningObjective)
+        {
+            if (failedMission == null || owningObjective == null) return null;
+            if (downstreamStages == null || downstreamStages.Count == 0) return null;
+            if (!MissionService.NonGoalsForbidTestEdits(owningObjective.NonGoals)) return null;
+            if (PersonaCatalog.Matches(rescuePersona, PersonaCatalog.TestEngineer)) return null;
+
+            string failureText = (failedMission.FailureReason ?? "") + "\n" + (failedMission.ReviewComment ?? "");
+            if (FailureNamesPersona(failureText, PersonaCatalog.TestEngineer)) return null;
+            int matches = downstreamStages.Count(stage => PipelineStageSkip.NamesStage(stage.PersonaName, PersonaCatalog.TestEngineer));
+            if (matches != 1) return null;
+
+            PipelineStage anchor = new PipelineStage(
+                downstreamStages.Min(item => item.Order) - 1,
+                String.IsNullOrWhiteSpace(rescuePersona) ? PersonaCatalog.Worker : rescuePersona);
+            StageSkipRequest request = new StageSkipRequest
+            {
+                Stages = new List<string> { PersonaCatalog.TestEngineer },
+                Reason = NoTestObjectiveSkipReason,
+                ConfirmedBy = "armada",
+                ConfirmedUtc = DateTime.UtcNow
+            };
+            Pipeline chain = new Pipeline("RescueChain")
+            {
+                Stages = new List<PipelineStage> { anchor }.Concat(downstreamStages).ToList()
+            };
+            try
+            {
+                PipelineStageSkipResult result = PipelineStageSkip.Apply(chain, request);
+                List<PipelineStage> remaining = (result.Pipeline?.Stages ?? new List<PipelineStage>())
+                    .Where(stage => !ReferenceEquals(stage, anchor))
+                    .ToList();
+                return new CarriedStageSkip(result, request, remaining);
+            }
+            catch (StageSkipRefusedException)
+            {
+                return null;
+            }
         }
 
         // Read the voyage.stage_skipped events recorded on a voyage, one per persona.
