@@ -63,6 +63,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DefinitionOfDoneFailureClassifierTests());
             runner.AddSuite(new FailedTestNameExtractorTests());
             runner.AddSuite(new VesselDatabaseTests());
+            runner.AddSuite(new CheckRunOutputProjectionTests());
             runner.AddSuite(new CaptainDatabaseTests());
             runner.AddSuite(new MissionDatabaseTests());
             runner.AddSuite(new MissionAssignmentStatePersistenceTests());

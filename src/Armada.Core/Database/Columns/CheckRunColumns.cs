@@ -56,7 +56,8 @@ namespace Armada.Core.Database
             run.RegressionObjectiveId = row.TextOrNull("regression_objective_id");
             run.RegressionLandedCommit = row.TextOrNull("regression_landed_commit");
             run.ExitCode = row.NullableInt("exit_code");
-            run.Output = row.NullableText("output");
+            run.OutputOmitted = !row.Has("output");
+            run.Output = run.OutputOmitted ? null : row.NullableText("output");
             run.Summary = row.NullableText("summary");
             run.TestSummary = row.Json<CheckRunTestSummary>("test_summary_json", _Json);
             run.CoverageSummary = row.Json<CheckRunCoverageSummary>("coverage_summary_json", _Json);

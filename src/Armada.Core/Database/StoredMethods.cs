@@ -3,6 +3,7 @@ namespace Armada.Core.Database
     using System;
     using System.Collections.Generic;
     using System.Data.Common;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
@@ -170,9 +171,31 @@ namespace Armada.Core.Database
         /// <param name="pageNumber">Page number, from 1.</param>
         /// <param name="pageSize">Rows per page.</param>
         /// <param name="token">Cancellation token.</param>
-        internal async Task<EnumerationResult<TModel>> PageAsync(StoredFilter filter, string order, int pageNumber, int pageSize, CancellationToken token)
+        internal Task<EnumerationResult<TModel>> PageAsync(StoredFilter filter, string order, int pageNumber, int pageSize, CancellationToken token)
+        {
+            return PageAsync(filter, order, pageNumber, pageSize, null, token);
+        }
+
+        /// <summary>
+        /// Read one page of the rows that match a filter, selecting only the named columns, with the count of every
+        /// match. The model's reader must accept a row without the columns left out.
+        /// </summary>
+        /// <param name="filter">Conditions; none pages every row.</param>
+        /// <param name="order">Order terms, without the ORDER BY keyword.</param>
+        /// <param name="pageNumber">Page number, from 1.</param>
+        /// <param name="pageSize">Rows per page.</param>
+        /// <param name="columns">Columns to select, each a column of the table; null selects every column.</param>
+        /// <param name="token">Cancellation token.</param>
+        internal async Task<EnumerationResult<TModel>> PageAsync(StoredFilter filter, string order, int pageNumber, int pageSize, IReadOnlyList<string>? columns, CancellationToken token)
         {
             RequireSameTable(filter);
+            if (columns != null)
+            {
+                if (columns.Count == 0) throw new ArgumentException("A projection names at least one column.", nameof(columns));
+                foreach (string column in columns)
+                    if (!Table.Columns.Contains(column)) throw new ArgumentException("Unknown column " + column + " in " + Table.Name + ".", nameof(columns));
+            }
+            string select = columns == null ? "*" : String.Join(", ", columns);
             int size = pageSize <= 0 ? DefaultPageSize : pageSize;
             int offset = pageNumber <= 1 ? 0 : (pageNumber - 1) * size;
 
@@ -182,7 +205,7 @@ namespace Armada.Core.Database
                 List<TModel> rows;
                 using (DbCommand command = connection.CreateCommand())
                 {
-                    command.CommandText = "SELECT * FROM " + Table.Name + filter.Where + Dialect.OrderAndPage(order);
+                    command.CommandText = "SELECT " + select + " FROM " + Table.Name + filter.Where + Dialect.OrderAndPage(order);
                     filter.Bind(command, Dialect.Binder);
                     StoredValueBinder.Value(command, "@page_size", size);
                     StoredValueBinder.Value(command, "@offset", offset);

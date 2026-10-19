@@ -720,7 +720,8 @@ namespace Armada.Core.Services
                 FromUtc = query.FromUtc,
                 ToUtc = query.ToUtc,
                 PageNumber = 1,
-                PageSize = 500
+                PageSize = 500,
+                IncludeOutput = false
             };
 
             List<CheckRun> results = new List<CheckRun>();

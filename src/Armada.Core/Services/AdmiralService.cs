@@ -1382,7 +1382,8 @@ namespace Armada.Core.Services
                 {
                     Status = value,
                     PageNumber = 1,
-                    PageSize = 1
+                    PageSize = 1,
+                    IncludeOutput = false
                 }, token).ConfigureAwait(false);
                 if (page.TotalRecords > 0) status.CheckRunsByStatus[value.ToString()] = ClampStatusCount(page.TotalRecords);
             }

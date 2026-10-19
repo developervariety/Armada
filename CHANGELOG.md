@@ -121,6 +121,15 @@ upstream integrations and excludes changes already present at that baseline.
   operator set to `Mitigated` with a written root cause, at or after the
   failure, gets no rescue and one `autonomous_recovery.skipped_mitigated_incident`
   event; a restart or a newer failure is recovered as usual.
+- Readers that scan many Checks no longer load each Check's whole output log.
+  The history timeline, the production summary, the fleet reconciliation
+  snapshot, the status counts and the disk-lifecycle live-Check scan list
+  Checks without the `output` column, so the admiral no longer holds every
+  stored log in memory at once when the History page opens with no time bound.
+  `CheckRunQuery.IncludeOutput` (default true) selects this for any listing,
+  including `POST /api/v1/check-runs/enumerate` with `"includeOutput": false`.
+  A Check read without its output cannot be written back with an update, so a
+  listing never erases a stored log.
 - A dispatch preview whose blocker exists but whose stored row cannot be read
   (for example a backlog state that is not a defined value) reports
   `objective_dependency_unreadable` with the stored-data error naming the

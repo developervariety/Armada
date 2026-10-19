@@ -1,6 +1,8 @@
 namespace Armada.Core.Database
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database.Interfaces;
@@ -33,6 +35,11 @@ namespace Armada.Core.Database
         /// Newest first.
         /// </summary>
         internal const string Order = "created_utc DESC, id DESC";
+
+        /// <summary>
+        /// Every column except the Output log, for a listing that does not carry it.
+        /// </summary>
+        internal static readonly IReadOnlyList<string> ColumnsWithoutOutput = Table.Columns.Where(column => column != "output").ToList();
 
         #endregion
 
@@ -77,6 +84,8 @@ namespace Armada.Core.Database
         public async Task<CheckRun> UpdateAsync(CheckRun checkRun, CancellationToken token = default)
         {
             if (checkRun == null) throw new ArgumentNullException(nameof(checkRun));
+            if (checkRun.OutputOmitted)
+                throw new InvalidOperationException("Check " + checkRun.Id + " was read without its Output; read it whole before updating it, or the update would erase the stored log.");
             checkRun.LastUpdateUtc = DateTime.UtcNow;
             await _Rows.UpdateAsync(checkRun, token).ConfigureAwait(false);
             return checkRun;
@@ -93,7 +102,8 @@ namespace Armada.Core.Database
         public Task<EnumerationResult<CheckRun>> EnumerateAsync(CheckRunQuery query, CancellationToken token = default)
         {
             query ??= new CheckRunQuery();
-            return _Rows.PageAsync(Scope(Table.Filter(), query), Order, query.PageNumber, query.PageSize, token);
+            IReadOnlyList<string>? columns = query.IncludeOutput ? null : ColumnsWithoutOutput;
+            return _Rows.PageAsync(Scope(Table.Filter(), query), Order, query.PageNumber, query.PageSize, columns, token);
         }
 
         #endregion

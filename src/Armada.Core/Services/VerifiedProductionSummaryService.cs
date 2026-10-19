@@ -858,7 +858,8 @@ namespace Armada.Core.Services
                 TenantId = auth.IsAdmin ? null : auth.TenantId,
                 UserId = auth.IsAdmin || auth.IsTenantAdmin ? null : auth.UserId,
                 PageNumber = 1,
-                PageSize = _PageSize
+                PageSize = _PageSize,
+                IncludeOutput = false
             };
             List<CheckRun> values = new List<CheckRun>();
             long totalRecords = 0;

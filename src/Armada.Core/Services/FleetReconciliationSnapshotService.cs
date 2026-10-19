@@ -182,7 +182,8 @@ namespace Armada.Core.Services
                     {
                         VoyageId = voyageId,
                         PageNumber = page,
-                        PageSize = PageSize
+                        PageSize = PageSize,
+                        IncludeOutput = false
                     }, token),
                     "Check runs for voyage '" + voyageId + "'").ConfigureAwait(false);
                 foreach (CheckRun check in linked) checks.TryAdd(check.Id, check);
@@ -196,7 +197,8 @@ namespace Armada.Core.Services
                     {
                         MissionId = missionId,
                         PageNumber = page,
-                        PageSize = PageSize
+                        PageSize = PageSize,
+                        IncludeOutput = false
                     }, token),
                     "Check runs for mission '" + missionId + "'").ConfigureAwait(false);
                 foreach (CheckRun check in linked) checks.TryAdd(check.Id, check);

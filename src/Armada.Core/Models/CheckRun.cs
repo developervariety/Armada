@@ -156,6 +156,12 @@ namespace Armada.Core.Models
         public string? Summary { get; set; } = null;
 
         /// <summary>
+        /// True when this Check was read without its Output, so its null Output does not mean the run printed
+        /// nothing. An update of such a Check is refused, because it would overwrite the stored log with null.
+        /// </summary>
+        internal bool OutputOmitted { get; set; } = false;
+
+        /// <summary>
         /// Parsed test summary when the run output contained recognizable test-result totals.
         /// </summary>
         public CheckRunTestSummary? TestSummary { get; set; } = null;

@@ -616,7 +616,8 @@ namespace Armada.Core.Services
                 {
                     Status = status,
                     PageNumber = 1,
-                    PageSize = 200
+                    PageSize = 200,
+                    IncludeOutput = false
                 };
 
                 try

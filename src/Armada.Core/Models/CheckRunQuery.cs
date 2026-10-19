@@ -94,6 +94,13 @@ namespace Armada.Core.Models
         public int PageSize { get; set; } = 25;
 
         /// <summary>
+        /// Whether a listed Check carries its Output. Output is the whole command log and can run to megabytes, so
+        /// a reader that scans many Checks for status, summary or links sets this to false: the log is never
+        /// selected, each listed Check's Output is null, and such a Check cannot be written back with an update.
+        /// </summary>
+        public bool IncludeOutput { get; set; } = true;
+
+        /// <summary>
         /// Zero-based offset.
         /// </summary>
         public int Offset => PageNumber <= 1 ? 0 : (PageNumber - 1) * PageSize;
