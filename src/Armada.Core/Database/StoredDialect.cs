@@ -87,6 +87,22 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// An expression for the length in characters of a text column, computed by the database so the text itself
+        /// is never sent. Null text has a null length. SQL Server counts UTF-16 code units, as .NET strings do; the
+        /// other providers count characters.
+        /// </summary>
+        /// <param name="column">Text column, a known column name and never caller input.</param>
+        internal string TextLength(string column)
+        {
+            return Provider switch
+            {
+                DatabaseTypeEnum.SqlServer => "DATALENGTH(" + column + ") / 2",
+                DatabaseTypeEnum.Mysql => "CHAR_LENGTH(" + column + ")",
+                _ => "LENGTH(" + column + ")"
+            };
+        }
+
+        /// <summary>
         /// The ORDER BY and paging tail of a paged read. The page size binds as @page_size and the row offset as @offset.
         /// </summary>
         /// <param name="order">Order terms, without the ORDER BY keyword.</param>

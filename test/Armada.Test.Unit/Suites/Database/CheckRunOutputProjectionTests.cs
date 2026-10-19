@@ -51,6 +51,30 @@ namespace Armada.Test.Unit.Suites.Database
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("The production summary reads only the Checks inside its window and evidence lookback", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DateTime toUtc = DateTime.UtcNow.Date;
+                    DateTime fromUtc = toUtc.AddDays(-7);
+                    // The summary reads Checks created from 90 days before the window's start, the same lookback as
+                    // its other evidence; older Checks cannot be evidence for a slice that completes in the window.
+                    await CreateRunAtAsync(testDb, fromUtc.AddDays(-200)).ConfigureAwait(false);
+                    await CreateRunAtAsync(testDb, fromUtc.AddDays(-120)).ConfigureAwait(false);
+                    await CreateRunAtAsync(testDb, fromUtc.AddDays(-91)).ConfigureAwait(false);
+                    await CreateRunAtAsync(testDb, fromUtc.AddDays(-30)).ConfigureAwait(false);
+                    await CreateRunAtAsync(testDb, fromUtc.AddDays(1)).ConfigureAwait(false);
+                    await CreateRunAtAsync(testDb, fromUtc.AddDays(2)).ConfigureAwait(false);
+                    VerifiedProductionSummaryService production = new VerifiedProductionSummaryService(testDb.Driver);
+                    AuthContext admin = AuthContext.Authenticated("default", "default", true, true, "UnitTest");
+
+                    ProductionSummaryResult result = await production.SummarizeAsync(admin, new ProductionSummaryQuery { FromUtc = fromUtc, ToUtc = toUtc }).ConfigureAwait(false);
+                    ProductionSourceScan checks = result.Scan.Sources.Single(source => source.Source == "checks");
+                    AssertEqual(3, checks.RecordsRead, "only the Checks inside the lookback are read");
+                    AssertEqual(3L, checks.TotalRecords, "the database counts only the Checks inside the lookback");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("A page read without Output leaves the stored log intact and cannot be written back", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -68,6 +92,7 @@ namespace Armada.Test.Unit.Suites.Database
                         new CheckRunQuery { IncludeOutput = false }).ConfigureAwait(false);
                     CheckRun read = light.Objects.Single();
                     AssertNull(read.Output, "the page carries no Output");
+                    AssertEqual("the whole log".Length, read.OutputLength ?? -1, "the page carries the withheld log's length, computed by the database");
                     AssertEqual("summary line", read.Summary, "every other field is read");
                     AssertEqual(CheckRunStatusEnum.Passed, read.Status);
                     AssertEqual(0, read.ExitCode);
@@ -90,6 +115,7 @@ namespace Armada.Test.Unit.Suites.Database
 
                     EnumerationResult<CheckRun> whole = await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery()).ConfigureAwait(false);
                     AssertEqual("the whole log", whole.Objects.Single().Output, "a default page still carries Output");
+                    AssertNull(whole.Objects.Single().OutputLength, "a page that carries Output reports no withheld length");
                 }
             }).ConfigureAwait(false);
         }
@@ -108,6 +134,17 @@ namespace Armada.Test.Unit.Suites.Database
                     CompletedUtc = DateTime.UtcNow
                 }).ConfigureAwait(false);
             }
+        }
+
+        private static async Task CreateRunAtAsync(TestDatabase testDb, DateTime createdUtc)
+        {
+            await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+            {
+                Type = CheckRunTypeEnum.UnitTest,
+                Status = CheckRunStatusEnum.Passed,
+                Summary = "summary line",
+                CreatedUtc = createdUtc
+            }).ConfigureAwait(false);
         }
 
         private async Task<T> AssertAllocatesUnderAsync<T>(Func<Task<T>> read, string label)

@@ -86,7 +86,7 @@ namespace Armada.Core.Services
             List<MissionSummary> missions = await ReadMissionSummariesAsync(auth, result, token).ConfigureAwait(false);
             List<Voyage> voyages = await ReadVoyagesAsync(auth, result, token).ConfigureAwait(false);
             List<MergeEntry> merges = await ReadMergeEntriesAsync(auth, result, token).ConfigureAwait(false);
-            List<CheckRun> checks = await ReadChecksAsync(auth, result, token).ConfigureAwait(false);
+            List<CheckRun> checks = await ReadChecksAsync(auth, fromUtc.Subtract(_MaximumWindow), result, token).ConfigureAwait(false);
             List<ArmadaEvent> events = await ReadObjectiveSnapshotsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false);
             List<Incident> incidents = await ReadIncidentsAsync(auth, result, token).ConfigureAwait(false);
             List<PreparationClaimObservation> claimObservations = await ReadClaimObservationsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false);
@@ -851,12 +851,19 @@ namespace Armada.Core.Services
                     : await _Database.MergeEntries.EnumerateAsync(auth.TenantId!, auth.UserId!, query, token).ConfigureAwait(false), "merge_entries", report, token).ConfigureAwait(false);
         }
 
-        private async Task<List<CheckRun>> ReadChecksAsync(AuthContext auth, ProductionSummaryResult report, CancellationToken token)
+        /// <summary>
+        /// Read the Checks created on or after a lower bound, in the database query. The caller passes the window's
+        /// start less the maximum window, the same lookback as the other slice evidence: an older Check cannot be
+        /// evidence for a slice that completes inside the window. There is no upper bound, because a post-land
+        /// regression Check linked to a slice in the window counts whenever it was detected.
+        /// </summary>
+        private async Task<List<CheckRun>> ReadChecksAsync(AuthContext auth, DateTime createdFromUtc, ProductionSummaryResult report, CancellationToken token)
         {
             CheckRunQuery query = new CheckRunQuery
             {
                 TenantId = auth.IsAdmin ? null : auth.TenantId,
                 UserId = auth.IsAdmin || auth.IsTenantAdmin ? null : auth.UserId,
+                FromUtc = createdFromUtc,
                 PageNumber = 1,
                 PageSize = _PageSize,
                 IncludeOutput = false

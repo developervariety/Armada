@@ -130,6 +130,15 @@ upstream integrations and excludes changes already present at that baseline.
   including `POST /api/v1/check-runs/enumerate` with `"includeOutput": false`.
   A Check read without its output cannot be written back with an update, so a
   listing never erases a stored log.
+- `armada_enumerate` with `entityType=checks` does not read the `output`
+  column unless `includeTestOutput` is true, so a page of up to 1000 Checks no
+  longer loads every log only to drop it. `outputLength` comes from the
+  database's length of the column. `GET /api/v1/check-runs` accepts
+  `includeOutput=false`, both REST listings then return `outputLength`, and the
+  dashboard's Check lists use it.
+- The production summary reads only the Checks created from 90 days before its
+  window's start, bounded in the database query, the same lookback as its other
+  slice evidence. It no longer reads every stored Check.
 - A dispatch preview whose blocker exists but whose stored row cannot be read
   (for example a backlog state that is not a defined value) reports
   `objective_dependency_unreadable` with the stored-data error naming the

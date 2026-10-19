@@ -4,6 +4,7 @@ namespace Armada.Test.Database
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -947,6 +948,11 @@ namespace Armada.Test.Database
                 runId = created.Id;
                 CheckRunQuery scope = new CheckRunQuery { TenantId = graph.Tenant.Id, UserId = graph.User.Id };
                 DatabaseAssert.AllProperties(created, await _Driver.CheckRuns.ReadAsync(created.Id, scope, token).ConfigureAwait(false), "CheckRun");
+                EnumerationResult<CheckRun> withoutOutput = await _Driver.CheckRuns.EnumerateAsync(
+                    new CheckRunQuery { TenantId = graph.Tenant.Id, UserId = graph.User.Id, IncludeOutput = false }, token).ConfigureAwait(false);
+                CheckRun listed = withoutOutput.Objects.Single(item => item.Id == created.Id);
+                if (listed.Output != null || listed.OutputLength != run.Output.Length)
+                    throw new InvalidOperationException("CheckRun listed without Output: expected no Output and OutputLength " + run.Output.Length + ", read Output " + (listed.Output == null ? "null" : "present") + " and OutputLength " + (listed.OutputLength?.ToString() ?? "null") + ".");
 
                 created.WorkflowProfileId = null;
                 created.MissionId = null;

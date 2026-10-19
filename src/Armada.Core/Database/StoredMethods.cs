@@ -186,7 +186,24 @@ namespace Armada.Core.Database
         /// <param name="pageSize">Rows per page.</param>
         /// <param name="columns">Columns to select, each a column of the table; null selects every column.</param>
         /// <param name="token">Cancellation token.</param>
-        internal async Task<EnumerationResult<TModel>> PageAsync(StoredFilter filter, string order, int pageNumber, int pageSize, IReadOnlyList<string>? columns, CancellationToken token)
+        internal Task<EnumerationResult<TModel>> PageAsync(StoredFilter filter, string order, int pageNumber, int pageSize, IReadOnlyList<string>? columns, CancellationToken token)
+        {
+            return PageAsync(filter, order, pageNumber, pageSize, columns, null, token);
+        }
+
+        /// <summary>
+        /// Read one page of the rows that match a filter, selecting only the named columns plus computed terms, with
+        /// the count of every match. The model's reader must accept a row without the columns left out.
+        /// </summary>
+        /// <param name="filter">Conditions; none pages every row.</param>
+        /// <param name="order">Order terms, without the ORDER BY keyword.</param>
+        /// <param name="pageNumber">Page number, from 1.</param>
+        /// <param name="pageSize">Rows per page.</param>
+        /// <param name="columns">Columns to select, each a column of the table; null selects every column.</param>
+        /// <param name="computed">Extra select terms, each an expression with an alias, built from known column
+        /// names and never from caller input; null adds none.</param>
+        /// <param name="token">Cancellation token.</param>
+        internal async Task<EnumerationResult<TModel>> PageAsync(StoredFilter filter, string order, int pageNumber, int pageSize, IReadOnlyList<string>? columns, IReadOnlyList<string>? computed, CancellationToken token)
         {
             RequireSameTable(filter);
             if (columns != null)
@@ -196,6 +213,7 @@ namespace Armada.Core.Database
                     if (!Table.Columns.Contains(column)) throw new ArgumentException("Unknown column " + column + " in " + Table.Name + ".", nameof(columns));
             }
             string select = columns == null ? "*" : String.Join(", ", columns);
+            if (computed != null && computed.Count > 0) select += ", " + String.Join(", ", computed);
             int size = pageSize <= 0 ? DefaultPageSize : pageSize;
             int offset = pageNumber <= 1 ? 0 : (pageNumber - 1) * size;
 

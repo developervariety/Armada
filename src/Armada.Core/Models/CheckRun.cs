@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System;
     using System.Collections.Generic;
+    using System.Text.Json.Serialization;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -160,6 +161,13 @@ namespace Armada.Core.Models
         /// nothing. An update of such a Check is refused, because it would overwrite the stored log with null.
         /// </summary>
         internal bool OutputOmitted { get; set; } = false;
+
+        /// <summary>
+        /// Length in characters of the Output a listing withheld, computed by the database; null when the Output
+        /// was read or the run printed nothing. Never stored.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? OutputLength { get; internal set; } = null;
 
         /// <summary>
         /// Parsed test summary when the run output contained recognizable test-result totals.

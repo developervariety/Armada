@@ -41,11 +41,17 @@ namespace Armada.Core.Database
         /// </summary>
         internal static readonly IReadOnlyList<string> ColumnsWithoutOutput = Table.Columns.Where(column => column != "output").ToList();
 
+        /// <summary>
+        /// Alias of the computed length of a withheld Output.
+        /// </summary>
+        internal const string OutputLengthColumn = "output_length";
+
         #endregion
 
         #region Private-Members
 
         private readonly StoredMethods<CheckRun> _Rows;
+        private readonly IReadOnlyList<string> _OutputLength;
 
         #endregion
 
@@ -58,6 +64,7 @@ namespace Armada.Core.Database
         internal CheckRunMethods(StoredDialect dialect)
         {
             _Rows = new StoredMethods<CheckRun>(dialect, Table);
+            _OutputLength = new[] { dialect.TextLength("output") + " AS " + OutputLengthColumn };
         }
 
         #endregion
@@ -102,8 +109,11 @@ namespace Armada.Core.Database
         public Task<EnumerationResult<CheckRun>> EnumerateAsync(CheckRunQuery query, CancellationToken token = default)
         {
             query ??= new CheckRunQuery();
-            IReadOnlyList<string>? columns = query.IncludeOutput ? null : ColumnsWithoutOutput;
-            return _Rows.PageAsync(Scope(Table.Filter(), query), Order, query.PageNumber, query.PageSize, columns, token);
+            // A page without Output still says how long each withheld log is; the database computes the length,
+            // so the log is never sent.
+            if (query.IncludeOutput)
+                return _Rows.PageAsync(Scope(Table.Filter(), query), Order, query.PageNumber, query.PageSize, token);
+            return _Rows.PageAsync(Scope(Table.Filter(), query), Order, query.PageNumber, query.PageSize, ColumnsWithoutOutput, _OutputLength, token);
         }
 
         #endregion

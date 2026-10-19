@@ -109,3 +109,12 @@ test('a filtered read sends its filter with every page', async () => {
   expect(filterOf('/api/v1/runbook-executions', 'incidentId')).toEqual(['inc_1', 'inc_1', 'inc_1']);
   expect(filterOf('/api/v1/objectives', 'releaseId')).toEqual(['rel_1', 'rel_1', 'rel_1']);
 });
+
+test('check-run lists never ask for the output logs', async () => {
+  const requests = stubEnumeration(1005);
+
+  await listAllCheckRuns({ missionId: 'msn_1' });
+
+  const checkRunRequests = requests.filter((url) => url.pathname === '/api/v1/check-runs');
+  expect(checkRunRequests.map((url) => url.searchParams.get('includeOutput'))).toEqual(['false', 'false']);
+});

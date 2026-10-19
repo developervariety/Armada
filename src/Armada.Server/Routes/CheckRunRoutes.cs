@@ -82,6 +82,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("providerName", "Optional provider-name filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("externalId", "Optional provider external ID filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("environmentName", "Optional environment-name filter", false))
+                .WithParameter(OpenApiParameterMetadata.Query("includeOutput", "Include each run's output log (default true); false returns outputLength instead", false, OpenApiSchemaMetadata.Boolean()))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<CheckRun>>("Paginated check runs"))
                 .WithSecurity("ApiKey"));
 
@@ -316,6 +317,9 @@ namespace Armada.Server.Routes
                 query.FromUtc = fromUtc.ToUniversalTime();
             if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
+            // includeOutput=false leaves each Check's log unread and reports its length as outputLength instead.
+            if (bool.TryParse(QueryValueReader.Read(req, "includeOutput"), out bool includeOutput))
+                query.IncludeOutput = includeOutput;
 
             query.WorkflowProfileId = NormalizeEmpty(QueryValueReader.Read(req, "workflowProfileId")) ?? query.WorkflowProfileId;
             query.VesselId = NormalizeEmpty(QueryValueReader.Read(req, "vesselId")) ?? query.VesselId;

@@ -739,6 +739,11 @@ rights. Its `missions` and `voyages` listings return exactly the records
 `armada_mission_status` and `armada_voyage_status` let it read, and
 `totalRecords` counts only those records.
 
+`armada_enumerate` with `entityType=checks` does not read each Check's `output`
+log unless `includeTestOutput` is true. Each row carries `outputLength`, the
+log's length in characters as the database computes it, so a page of Checks
+never loads their logs. `get_check_run` returns one Check's log.
+
 `armada_enumerate` refuses an argument it does not declare. The error names
 each unknown argument and lists the accepted ones, so a misspelled filter such
 as `statuses` never returns an unfiltered listing. Use `status` to filter by

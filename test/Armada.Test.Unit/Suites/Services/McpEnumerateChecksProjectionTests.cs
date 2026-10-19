@@ -20,6 +20,9 @@ namespace Armada.Test.Unit.Suites.Services
     /// </summary>
     public class McpEnumerateChecksProjectionTests : TestSuite
     {
+        private const int _RunCount = 12;
+        private const int _OutputChars = 2_000_000;
+
         /// <summary>Suite name.</summary>
         public override string Name => "MCP enumerate checks projection";
 
@@ -47,6 +50,40 @@ namespace Armada.Test.Unit.Suites.Services
                     object whole = await handlers["armada_enumerate"](Args("{\"entityType\":\"checks\",\"pageSize\":14,\"includeTestOutput\":true}")).ConfigureAwait(false);
                     string wholeJson = JsonSerializer.Serialize(whole);
                     AssertTrue(wholeJson.Contains(marker), "the log is returned whole when the caller opts in");
+                }
+            });
+
+            await RunTest("armada_enumerate checks never loads the logs it withholds", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string log = new string('x', _OutputChars);
+                    for (int i = 0; i < _RunCount; i++)
+                    {
+                        CheckRun run = new CheckRun();
+                        run.TenantId = Constants.DefaultTenantId;
+                        run.Label = "UnitTest";
+                        run.Command = "dotnet test";
+                        run.Output = log;
+                        run.Summary = "1 failed";
+                        await testDb.Driver.CheckRuns.CreateAsync(run).ConfigureAwait(false);
+                    }
+
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                    McpEnumerateTools.Register((name, _, _, handler) => { handlers[name] = McpTestCaller.Wrap(handler); }, testDb.Driver);
+                    JsonElement args = Args("{\"entityType\":\"checks\",\"pageSize\":" + _RunCount + "}");
+
+                    // The logs total _RunCount * _OutputChars characters, two bytes each as strings. A read that loads
+                    // them allocates at least that; one that never selects the column stays far under a quarter of it.
+                    long budget = (long)_RunCount * _OutputChars * 2 / 4;
+                    await handlers["armada_enumerate"](args).ConfigureAwait(false);
+                    long before = GC.GetTotalAllocatedBytes(true);
+                    object page = await handlers["armada_enumerate"](args).ConfigureAwait(false);
+                    long allocated = GC.GetTotalAllocatedBytes(true) - before;
+                    AssertTrue(allocated < budget, "a page of checks without opt-in allocated " + allocated + " bytes; a read that never loads the logs stays under " + budget);
+
+                    string json = JsonSerializer.Serialize(page);
+                    AssertContains("\"OutputLength\":" + _OutputChars, json, "the length of each withheld log is still reported");
                 }
             });
 

@@ -58,6 +58,7 @@ namespace Armada.Core.Database
             run.ExitCode = row.NullableInt("exit_code");
             run.OutputOmitted = !row.Has("output");
             run.Output = run.OutputOmitted ? null : row.NullableText("output");
+            run.OutputLength = run.OutputOmitted && row.Has(CheckRunMethods.OutputLengthColumn) ? row.NullableInt(CheckRunMethods.OutputLengthColumn) : null;
             run.Summary = row.NullableText("summary");
             run.TestSummary = row.Json<CheckRunTestSummary>("test_summary_json", _Json);
             run.CoverageSummary = row.Json<CheckRunCoverageSummary>("coverage_summary_json", _Json);

@@ -1107,6 +1107,8 @@ export interface CheckRun {
   commitHash: string | null;
   exitCode: number | null;
   output: string | null;
+  /** Length of the output a list read withheld; present only on lists read without output. */
+  outputLength?: number | null;
   summary: string | null;
   testSummary: CheckRunTestSummary | null;
   coverageSummary: CheckRunCoverageSummary | null;

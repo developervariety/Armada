@@ -1022,9 +1022,10 @@ export const deleteRelease = (id: string) => del<void>(`/api/v1/releases/${encod
 export const getReleaseGitHubPullRequests = (id: string) => get<GitHubPullRequestDetail[]>(`/api/v1/releases/${encodeURIComponent(id)}/github/pull-requests`);
 
 // ==================== Check Runs ====================
+/** A page of check runs without their output logs; read one run with getCheckRun for its output. */
 export const listCheckRuns = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
-  get<EnumerationResult<CheckRun>>(`/api/v1/check-runs${buildQuery(params)}`);
-/** Every check run matching the filters, read page by page. Filter it: check runs carry their output. */
+  get<EnumerationResult<CheckRun>>(`/api/v1/check-runs${buildQuery({ ...params, filters: { ...params?.filters, includeOutput: 'false' } })}`);
+/** Every check run matching the filters, read page by page, without their output logs. */
 export const listAllCheckRuns = (filters?: ListFilters) =>
   listAllPages((pageNumber) => listCheckRuns({ pageNumber, pageSize: ALL_PAGES_SIZE, filters }));
 export const getCheckRun = (id: string) => get<CheckRun>(`/api/v1/check-runs/${encodeURIComponent(id)}`);

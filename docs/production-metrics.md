@@ -120,6 +120,13 @@ Both surfaces use a seven-day default window and reject windows longer than 90
 days. Optional `sourceFamily` and `workType` filters use the grouping rules in
 this document.
 
+The summary reads Checks created from 90 days before the window's start, in
+the database query, without their output logs. This is the same lookback as
+the attempt facts, claim observations and objective snapshots. A Check older
+than that is not evidence for a slice in the window. There is no upper bound,
+because a post-land regression Check linked to a slice in the window counts
+whenever it was detected.
+
 ### Fact retention
 
 The fact tables `mission_attempt_facts`, `preparation_claim_observations` and

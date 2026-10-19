@@ -400,16 +400,17 @@ namespace Armada.Server.Mcp.Tools
                             CheckRunQuery checkRunQuery = request.ToCheckRunQuery();
                             checkRunQuery.TenantId = scope.TenantId;
                             checkRunQuery.UserId = scope.UserId;
+                            // A Check's Output is a whole build or test log. The browse path does not select it
+                            // unless the caller opts in, so a page of Checks never loads their logs.
+                            checkRunQuery.IncludeOutput = request.IncludeTestOutput == true;
                             EnumerationResult<CheckRun> checkRuns = scope.Kind == CallerRecordScopeKindEnum.None
                                 ? EnumerationResult<CheckRun>.Create(query, new List<CheckRun>(), 0)
                                 : await database.CheckRuns.EnumerateAsync(checkRunQuery).ConfigureAwait(false);
                             if (request.IncludeTestOutput != true)
                             {
-                                // A Check's Output is a whole build or test log: one 14-row page measured
-                                // 26.8 MB, a single record 3.3 MB. The browse path withholds it and says
-                                // how much it withheld; get_check_run returns it whole. Summary, the
-                                // structured test and coverage summaries and the artifact list are small
-                                // and stay.
+                                // The browse path withholds the log and says how long it is, as computed by the
+                                // database; get_check_run returns it whole. Summary, the structured test and
+                                // coverage summaries and the artifact list are small and stay.
                                 object projectedChecks = new
                                 {
                                     checkRuns.Success,
@@ -423,7 +424,7 @@ namespace Armada.Server.Mcp.Tools
                                         c.Label, c.Type, c.Source, c.Status, c.ProviderName, c.ExternalId, c.ExternalUrl, c.EnvironmentName,
                                         c.Command, c.WorkingDirectory, c.BranchName, c.CommitHash, c.ExitCode, c.Summary, c.TestSummary,
                                         c.CoverageSummary, c.Artifacts, c.DurationMs, c.QueueDurationMs, c.StartedUtc, c.CompletedUtc, c.CreatedUtc, c.LastUpdateUtc,
-                                        OutputLength = c.Output?.Length ?? 0
+                                        OutputLength = c.OutputLength ?? 0
                                     }).ToList(),
                                     checkRuns.TotalMs
                                 };
