@@ -299,7 +299,8 @@ objective). Finished records are kept for 14 days. `armada_dispatch_hold`
 `status` and `engage` list `UnfinishedJobs`, the jobs a restart would lose,
 `RunningGates`, the definition-of-done gates running or waiting for the host
 command slot, `GateReruns`, the interrupted gates being re-run, and `HostSlot`,
-who holds and who waits for the host command slot. A restart kills every gate
+who holds and who waits for the host command slot, with `MemoryWaitReason`
+when free memory holds the next request. A restart kills every gate
 and check listed there; wait for `UnfinishedJobs`, `RunningGates` and
 `GateReruns` to be empty and `HostSlot` to have no holder or waiter before
 restarting the admiral.

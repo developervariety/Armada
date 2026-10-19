@@ -90,6 +90,8 @@ namespace Armada.Test.Automated
             settings.ReposDirectory = Path.Combine(tempDir, "repos");
             settings.ApiKey = apiKey;
             settings.HeartbeatIntervalSeconds = 300;
+            // Test servers share one host with the other suites; their slot grants must not wait on its free memory.
+            settings.DefinitionOfDone.HostCommandMemoryFloorMb = 0;
             // Bind the harness server's settings to its own temp file, so it neither hot-reloads the host
             // operator's live settings (whose fleet capacity limits would refuse later creates) nor writes
             // that file.

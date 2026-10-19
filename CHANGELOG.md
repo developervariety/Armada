@@ -9,6 +9,18 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- `definitionOfDone.hostCommandMemoryFloorMb` holds a free host command slot
+  until the host has that many megabytes of available memory (`MemAvailable`
+  in `/proc/meminfo`). It defaults to 6144, is clamped to 0-1048576, and 0
+  turns it off; a settings reload applies it without a restart. An unknown
+  reading never holds a command. A request held for memory keeps its place in
+  line, and Armada reads memory again every 5 seconds while it waits. When no
+  slot is held and the request has been held for memory for 15 minutes, it
+  runs anyway and is recorded as granted under the floor. The slot snapshot,
+  the check `SlotWait` and the automatic check runner's log line name the
+  memory reason, for example
+  `waiting for free memory: 4,100 MB available, floor 6,144 MB`.
+
 - Both mission-rules templates tell a captain to delete a temporary file with
   `rm <path>`, without `-f`, or to write to a fresh path, and to hash a file
   with `sha256sum <path>` instead of hand-written hashing code. The lines reach

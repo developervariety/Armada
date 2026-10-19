@@ -143,8 +143,10 @@ namespace Armada.Core.Services
                 _Settings.ApplyHotReloadableFrom(candidate);
 
                 // The host-wide command slots are process-global and hold no settings reference, so the
-                // reloaded count is pushed to them here; a raised count admits waiting commands at once.
+                // reloaded count and memory floor are pushed to them here; a raised count or a lowered floor
+                // admits waiting commands at once.
                 HostWideCommandLock.SetSlotCount(_Settings.DefinitionOfDone.HostCommandSlots);
+                HostWideCommandLock.SetMemoryFloorMb(_Settings.DefinitionOfDone.HostCommandMemoryFloorMb);
                 _LastAppliedHash = hash;
                 result.Outcome = SettingsReloadOutcomeEnum.Applied;
                 return result;

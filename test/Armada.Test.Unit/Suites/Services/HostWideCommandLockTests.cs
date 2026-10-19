@@ -355,6 +355,8 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 string directory = Path.Combine(Path.GetTempPath(), "armada-host-slots-reload-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(directory);
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
                 List<IDisposable> leases = new List<IDisposable>();
                 List<Task<IDisposable>> requests = new List<Task<IDisposable>>();
                 using (CancellationTokenSource cancel = new CancellationTokenSource())
@@ -367,15 +369,18 @@ namespace Armada.Test.Unit.Suites.Services
                         await live.SaveAsync().ConfigureAwait(false);
                         SettingsReloadService reload = new SettingsReloadService(live, _ => Task.FromResult(new List<Captain>()));
                         AssertEqual(1, HostWideCommandLock.SlotCount);
+                        HostWideCommandLock.SetMemoryReader(() => null);
 
                         ArmadaSettings edited = await ArmadaSettings.LoadAsync(path).ConfigureAwait(false);
                         edited.DefinitionOfDone.HostCommandSlots = 2;
+                        edited.DefinitionOfDone.HostCommandMemoryFloorMb = 2048;
                         await edited.SaveAsync(path).ConfigureAwait(false);
                         SettingsReloadResult result = await reload.ReloadAsync().ConfigureAwait(false);
                         AssertTrue(result.Applied, "the edited file is a valid candidate: " + result.Reason);
 
                         AssertEqual(2, live.DefinitionOfDone.HostCommandSlots, "the reloaded setting is live");
                         AssertEqual(2, HostWideCommandLock.SlotCount, "the reloaded slot count reaches the lock without a restart");
+                        AssertEqual(2048, HostWideCommandLock.MemoryFloorMb, "the reloaded memory floor reaches the lock without a restart");
                         Task<IDisposable> first = HostWideCommandLock.AcquireAsync("reload_first", "first holder", cancel.Token);
                         Task<IDisposable> second = HostWideCommandLock.AcquireAsync("reload_second", "second holder", cancel.Token);
                         requests.Add(first);
@@ -385,10 +390,272 @@ namespace Armada.Test.Unit.Suites.Services
                     finally
                     {
                         await ReleaseAllAsync(cancel, leases, requests).ConfigureAwait(false);
+                        RestoreMemory(previousReader, previousFloor);
                         try { Directory.Delete(directory, true); } catch (IOException) { }
                     }
                 }
             });
+
+            await RunTest("A request is held while memory is below the floor and granted once a re-check reads enough", async () =>
+            {
+                FakeHost host = new FakeHost { AvailableMb = 4100 };
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                List<IDisposable> leases = new List<IDisposable>();
+                List<Task<IDisposable>> requests = new List<Task<IDisposable>>();
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    try
+                    {
+                        HostWideCommandLock.SetMemoryReader(() => host.AvailableMb);
+                        HostWideCommandLock.SetMemoryFloorMb(6144);
+                        Task<IDisposable> request = HostWideCommandLock.AcquireAsync("mem_held", "memory-held request", cancel.Token);
+                        requests.Add(request);
+
+                        AssertFalse(request.IsCompleted, "a free slot is not granted while memory is below the floor");
+                        AssertTrue(Waits("mem_held"));
+                        HostSlotSnapshot held = HostWideCommandLock.Snapshot();
+                        AssertEqual(0, held.Holders.Count, "the slot stays free");
+                        AssertTrue(held.HeldForMemory, "the snapshot says memory holds the first request");
+                        AssertEqual(6144, held.MemoryFloorMb);
+                        AssertEqual(4100L, held.AvailableMemoryMb);
+                        AssertEqual("waiting for free memory: 4,100 MB available, floor 6,144 MB", held.MemoryWaitReason);
+
+                        HostWideCommandLock.RecheckMemory();
+                        AssertTrue(Waits("mem_held"), "a re-check that still reads below the floor keeps the request waiting");
+
+                        host.AvailableMb = 8000;
+                        HostWideCommandLock.RecheckMemory();
+                        AssertTrue(Holds("mem_held"), "the re-check grants the request once memory reaches the floor");
+                        HostSlotSnapshot granted = HostWideCommandLock.Snapshot();
+                        AssertFalse(granted.HeldForMemory, "nothing is held for memory after the grant");
+                        AssertNull(granted.MemoryWaitReason);
+                        AssertFalse(granted.Holders[0].GrantedUnderMemoryFloor, "a grant above the floor is not marked under the floor");
+                    }
+                    finally
+                    {
+                        await ReleaseAllAsync(cancel, leases, requests).ConfigureAwait(false);
+                        RestoreMemory(previousReader, previousFloor);
+                    }
+                }
+            });
+
+            await RunTest("A memory floor of zero grants a free slot whatever memory reads", async () =>
+            {
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                List<IDisposable> leases = new List<IDisposable>();
+                List<Task<IDisposable>> requests = new List<Task<IDisposable>>();
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    try
+                    {
+                        HostWideCommandLock.SetMemoryReader(() => 100);
+                        HostWideCommandLock.SetMemoryFloorMb(0);
+                        Task<IDisposable> request = HostWideCommandLock.AcquireAsync("mem_off", "floor off", cancel.Token);
+                        requests.Add(request);
+                        AssertTrue(request.IsCompleted, "with the floor off a free slot is granted at once");
+                        AssertFalse(HostWideCommandLock.Snapshot().HeldForMemory);
+                    }
+                    finally
+                    {
+                        await ReleaseAllAsync(cancel, leases, requests).ConfigureAwait(false);
+                        RestoreMemory(previousReader, previousFloor);
+                    }
+                }
+            });
+
+            await RunTest("An unknown memory reading grants a free slot", async () =>
+            {
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                List<IDisposable> leases = new List<IDisposable>();
+                List<Task<IDisposable>> requests = new List<Task<IDisposable>>();
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    try
+                    {
+                        HostWideCommandLock.SetMemoryReader(() => null);
+                        HostWideCommandLock.SetMemoryFloorMb(6144);
+                        Task<IDisposable> request = HostWideCommandLock.AcquireAsync("mem_unknown", "unknown reading", cancel.Token);
+                        requests.Add(request);
+                        AssertTrue(request.IsCompleted, "an unknown reading never holds a request");
+                        HostSlotSnapshot slot = HostWideCommandLock.Snapshot();
+                        AssertNull(slot.AvailableMemoryMb, "the snapshot shows the unknown reading");
+                        AssertFalse(slot.HeldForMemory);
+
+                        HostWideCommandLock.SetMemoryReader(() => throw new IOException("unreadable"));
+                        Task<IDisposable> failing = HostWideCommandLock.AcquireAsync("mem_throws", "failing reader", cancel.Token);
+                        requests.Add(failing);
+                        (await request.ConfigureAwait(false)).Dispose();
+                        AssertTrue(Holds("mem_throws"), "a reader that throws counts as unknown and grants the slot");
+                    }
+                    finally
+                    {
+                        await ReleaseAllAsync(cancel, leases, requests).ConfigureAwait(false);
+                        RestoreMemory(previousReader, previousFloor);
+                    }
+                }
+            });
+
+            await RunTest("A later request is not granted ahead of a request held for memory", async () =>
+            {
+                FakeHost host = new FakeHost { AvailableMb = 4100 };
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                List<IDisposable> leases = new List<IDisposable>();
+                List<Task<IDisposable>> requests = new List<Task<IDisposable>>();
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    try
+                    {
+                        HostWideCommandLock.SetSlotCount(2);
+                        HostWideCommandLock.SetMemoryReader(() => host.AvailableMb);
+                        HostWideCommandLock.SetMemoryFloorMb(6144);
+                        Task<IDisposable> head = HostWideCommandLock.AcquireAsync("mem_fifo_head", "first request", cancel.Token);
+                        Task<IDisposable> later = HostWideCommandLock.AcquireAsync("mem_fifo_later", "later request", cancel.Token);
+                        requests.Add(head);
+                        requests.Add(later);
+
+                        HostWideCommandLock.RecheckMemory();
+                        AssertTrue(Waits("mem_fifo_head"), "the first request is held for memory");
+                        AssertTrue(Waits("mem_fifo_later"), "the later request is not granted ahead of the held first request");
+                        HostSlotSnapshot held = HostWideCommandLock.Snapshot();
+                        AssertEqual(0, held.Holders.Count, "both slots stay free");
+                        AssertEqual(1, held.FindWaiter("mem_fifo_head")!.Position);
+                        AssertEqual(2, held.FindWaiter("mem_fifo_later")!.Position);
+
+                        host.AvailableMb = 8000;
+                        HostWideCommandLock.RecheckMemory();
+                        HostSlotSnapshot granted = HostWideCommandLock.Snapshot();
+                        AssertEqual(2, granted.Holders.Count, "enough memory grants both free slots");
+                        AssertEqual("mem_fifo_head", granted.Holders[0].Key, "the first request is granted first");
+                        AssertEqual("mem_fifo_later", granted.Holders[1].Key);
+                    }
+                    finally
+                    {
+                        await ReleaseAllAsync(cancel, leases, requests).ConfigureAwait(false);
+                        RestoreMemory(previousReader, previousFloor);
+                    }
+                }
+            });
+
+            await RunTest("A request held for memory with no slot held is granted under the floor after the maximum wait", async () =>
+            {
+                FakeHost host = new FakeHost { AvailableMb = 4100, UtcNow = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc) };
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                List<IDisposable> leases = new List<IDisposable>();
+                List<Task<IDisposable>> requests = new List<Task<IDisposable>>();
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    try
+                    {
+                        HostWideCommandLock.SetSlotCount(2);
+                        HostWideCommandLock.SetClock(() => host.UtcNow);
+                        HostWideCommandLock.SetMemoryReader(() => host.AvailableMb);
+                        HostWideCommandLock.SetMemoryFloorMb(6144);
+                        long grantsBefore = HostWideCommandLock.Snapshot().UnderFloorGrants;
+                        Task<IDisposable> starved = HostWideCommandLock.AcquireAsync("mem_starved", "starved request", cancel.Token);
+                        requests.Add(starved);
+                        AssertEqual(host.UtcNow, HostWideCommandLock.Snapshot().MemoryHeldSinceUtc, "the hold is dated from the first memory check");
+
+                        host.UtcNow = host.UtcNow.Add(HostWideCommandLock.MaximumMemoryWait).AddSeconds(-1);
+                        HostWideCommandLock.RecheckMemory();
+                        AssertTrue(Waits("mem_starved"), "the request still waits before the maximum memory wait");
+
+                        host.UtcNow = host.UtcNow.AddSeconds(1);
+                        HostWideCommandLock.RecheckMemory();
+                        AssertTrue(Holds("mem_starved"), "with no slot held the request is granted after the maximum memory wait");
+                        HostSlotSnapshot afterGrant = HostWideCommandLock.Snapshot();
+                        AssertTrue(afterGrant.FindHolder("mem_starved")!.GrantedUnderMemoryFloor, "the grant is recorded as under the floor");
+                        AssertEqual(grantsBefore + 1, afterGrant.UnderFloorGrants, "the under-floor grant is counted");
+
+                        Task<IDisposable> next = HostWideCommandLock.AcquireAsync("mem_next", "next request", cancel.Token);
+                        requests.Add(next);
+                        host.UtcNow = host.UtcNow.Add(HostWideCommandLock.MaximumMemoryWait).AddMinutes(1);
+                        HostWideCommandLock.RecheckMemory();
+                        AssertTrue(Waits("mem_next"), "while a slot is held the maximum memory wait grants nothing");
+                        AssertTrue(HostWideCommandLock.Snapshot().HeldForMemory);
+                    }
+                    finally
+                    {
+                        await ReleaseAllAsync(cancel, leases, requests).ConfigureAwait(false);
+                        RestoreMemory(previousReader, previousFloor);
+                    }
+                }
+            });
+
+            await RunTest("MemAvailable is read from meminfo text in megabytes and anything else reads as unknown", () =>
+            {
+                string meminfo = "MemTotal:       16384000 kB\nMemFree:          512000 kB\nMemAvailable:    4198400 kB\nBuffers:          100 kB\n";
+                AssertEqual(4100L, HostWideCommandLock.ParseMemAvailableMb(meminfo), "kB are converted to MB");
+                AssertNull(HostWideCommandLock.ParseMemAvailableMb("MemTotal:       16384000 kB\n"), "a missing line is unknown");
+                AssertNull(HostWideCommandLock.ParseMemAvailableMb("MemAvailable:    lots kB\n"), "a malformed value is unknown");
+                AssertNull(HostWideCommandLock.ParseMemAvailableMb("MemAvailable:\n"), "an empty value is unknown");
+                AssertNull(HostWideCommandLock.ParseMemAvailableMb(""), "empty text is unknown");
+                AssertNull(HostWideCommandLock.ParseMemAvailableMb(null), "no text is unknown");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("The memory floor setting defaults to 6144 MB, is clamped and is copied", () =>
+            {
+                DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings();
+                AssertEqual(6144, settings.HostCommandMemoryFloorMb, "the setting defaults to 6144 MB");
+                settings.HostCommandMemoryFloorMb = -5;
+                AssertEqual(0, settings.HostCommandMemoryFloorMb, "a negative floor is raised to zero");
+                settings.HostCommandMemoryFloorMb = 2000000;
+                AssertEqual(1048576, settings.HostCommandMemoryFloorMb, "a floor above the maximum is lowered to it");
+                settings.HostCommandMemoryFloorMb = 4096;
+
+                DefinitionOfDoneSettings copy = new DefinitionOfDoneSettings();
+                copy.CopyFrom(settings);
+                AssertEqual(4096, copy.HostCommandMemoryFloorMb, "an in-place settings copy carries the memory floor");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("A pending check's slot wait names the memory reason when memory holds the queue", () =>
+            {
+                CheckRun run = new CheckRun { Status = Armada.Core.Enums.CheckRunStatusEnum.Pending, SlotRequestedUtc = DateTime.UtcNow };
+                HostSlotSnapshot slot = new HostSlotSnapshot
+                {
+                    MemoryFloorMb = 6144,
+                    AvailableMemoryMb = 4100,
+                    HeldForMemory = true,
+                    MemoryWaitReason = "waiting for free memory: 4,100 MB available, floor 6,144 MB"
+                };
+                slot.Waiters.Add(new HostSlotWaiter { Position = 2, Key = run.Id, Description = "check" });
+
+                CheckRunSlotWait? wait = CheckRunSlotWait.Describe(run, slot);
+                AssertNotNull(wait);
+                AssertEqual("WaitingForSlot", wait!.State);
+                AssertEqual("waiting for free memory: 4,100 MB available, floor 6,144 MB", wait.MemoryWaitReason, "a waiter behind a memory-held request names the memory reason");
+                AssertContains("enough memory is free", wait.Guidance);
+
+                slot.HeldForMemory = false;
+                AssertNull(CheckRunSlotWait.Describe(run, slot)!.MemoryWaitReason, "no memory reason while memory holds nothing");
+                return Task.CompletedTask;
+            });
+        }
+
+        /// <summary>
+        /// Return the memory floor and reader to what they were before a test and the clock to the system clock.
+        /// </summary>
+        private static void RestoreMemory(Func<long?> previousReader, int previousFloor)
+        {
+            HostWideCommandLock.SetMemoryFloorMb(previousFloor);
+            HostWideCommandLock.SetMemoryReader(previousReader);
+            HostWideCommandLock.SetClock(null);
+        }
+
+        /// <summary>
+        /// Memory reading and clock a test controls.
+        /// </summary>
+        private sealed class FakeHost
+        {
+            public long? AvailableMb { get; set; } = null;
+
+            public DateTime UtcNow { get; set; } = DateTime.UtcNow;
         }
 
         /// <summary>

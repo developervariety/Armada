@@ -563,7 +563,8 @@ entry point answers `dispatch_hold_active` with `SetBy`, `SetByUtc` and
 `engage` return `UnfinishedJobs`: background jobs accepted before the hold and
 not yet finished; `RunningGates`: definition-of-done gates running or waiting
 for the host command slot; `GateReruns`: interrupted gates being re-run; and
-`HostSlot`: who holds and who waits for the host command slot. A restart records
+`HostSlot`: who holds and who waits for the host command slot, with
+`MemoryWaitReason` when free memory holds the next request. A restart records
 each unfinished job `Lost` and kills every running gate and check, so wait for
 `UnfinishedJobs`, `RunningGates` and `GateReruns` to be empty and `HostSlot` to
 have no holder or waiter before restarting.

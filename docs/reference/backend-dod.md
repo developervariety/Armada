@@ -58,6 +58,14 @@ it until the gate ends, so its commands run back to back; work that asked
 before the gate began runs first. A count above 1 lets several full suites run
 at once, which risks false `Timeout` failures on a host without the CPU, memory
 and disk to run them inside `CommandTimeoutSeconds`.
+`DefinitionOfDone.HostCommandMemoryFloorMb`
+(`definitionOfDone.hostCommandMemoryFloorMb`) holds a free slot until the host
+has that many megabytes of available memory (`MemAvailable` in
+`/proc/meminfo`): default 6144, clamped to 0-1048576, 0 turns it off, applied
+at startup and on every settings reload. An unknown reading never holds a
+command. The held request keeps its place in line. When no slot is held and it
+has been held for memory for 15 minutes, it runs anyway and is recorded as
+granted under the floor.
 
 ## Handoff requires a recorded result
 

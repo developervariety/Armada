@@ -583,6 +583,17 @@ namespace Armada.Test.Unit.Suites.Services
                     several.Holders.Add(new HostSlotHolder { Key = "chk_b", Description = "merge-queue test", SinceUtc = grantedUtc });
                     AssertEqual("0 check(s) running, 0 waiting for the host build slot; slot held by definition-of-done build for 0 s, merge-queue test for 0 s (2 of 3 slots in use)",
                         orchestrator.DescribeInFlight(several), "with several slots the line names every holder and the slots in use");
+
+                    HostSlotSnapshot memoryHeld = new HostSlotSnapshot
+                    {
+                        MemoryFloorMb = 6144,
+                        AvailableMemoryMb = 4100,
+                        HeldForMemory = true,
+                        MemoryWaitReason = "waiting for free memory: 4,100 MB available, floor 6,144 MB"
+                    };
+                    memoryHeld.Waiters.Add(new HostSlotWaiter { Position = 1, Key = "chk_waiting", Description = "check" });
+                    AssertEqual("0 check(s) running, 0 waiting for the host build slot; 1 other request(s) queued for the slot; next request waiting for free memory: 4,100 MB available, floor 6,144 MB",
+                        orchestrator.DescribeInFlight(memoryHeld), "a free slot held back for memory names the memory reason");
                 }
             });
 

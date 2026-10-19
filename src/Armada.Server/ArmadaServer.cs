@@ -275,7 +275,9 @@ namespace Armada.Server
             // The host-wide command slots are process-global; they take the configured count before any
             // gate, check or merge-queue test can ask for one, and the reload path keeps them current.
             HostWideCommandLock.SetSlotCount(_Settings.DefinitionOfDone.HostCommandSlots);
-            _Logging.Info(_Header + "host command slots: " + HostWideCommandLock.SlotCount);
+            HostWideCommandLock.SetMemoryFloorMb(_Settings.DefinitionOfDone.HostCommandMemoryFloorMb);
+            _Logging.Info(_Header + "host command slots: " + HostWideCommandLock.SlotCount
+                + ", memory floor: " + HostWideCommandLock.MemoryFloorMb + " MB");
 
             // Background jobs are journalled under the data directory, so an accepted job outlives
             // this process; interrupted jobs are recovered below, before any request is served.

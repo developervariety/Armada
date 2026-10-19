@@ -15,7 +15,8 @@ namespace Armada.Core.Models
         /// Guidance for a captain or Judge reading a check that has not finished.
         /// </summary>
         public const string WaitGuidance =
-            "This check has not finished because the host runs a limited number of full build or test suites at once. "
+            "This check has not finished because the host runs a limited number of full build or test suites at once, "
+            + "and starts the next one only while enough memory is free (MemoryWaitReason names a memory wait). "
             + "The wait is an environment condition: it is not a code defect and not a question for the owner, "
             + "so do not end the stage BLOCKED or return NEEDS_REVISION because of it. The check runs by itself; "
             + "read it again with get_check_run. A Judge PASS given while a Check is unresolved is held until the "
@@ -46,6 +47,13 @@ namespace Armada.Core.Models
         /// When the earliest current holder was granted its slot, or null.
         /// </summary>
         public DateTime? HolderSinceUtc { get; set; } = null;
+
+        /// <summary>
+        /// Why the queue waits although a slot is free, such as
+        /// "waiting for free memory: 4,100 MB available, floor 6,144 MB", or null when this check is not waiting
+        /// or memory holds no request.
+        /// </summary>
+        public string? MemoryWaitReason { get; set; } = null;
 
         /// <summary>
         /// Guidance for a captain or Judge; see <see cref="WaitGuidance"/>.
@@ -86,6 +94,9 @@ namespace Armada.Core.Models
                     wait.State = "WaitingForSlot";
                     wait.Position = waiter.Position;
                     wait.WaitingSinceUtc ??= waiter.RequestedUtc;
+
+                    // Every waiter stands behind the first request in line, so a memory hold on it holds this check too.
+                    if (slot.HeldForMemory) wait.MemoryWaitReason = slot.MemoryWaitReason;
                 }
 
                 bool runHoldsSlot = String.Equals(slot.HolderKey, run.Id, StringComparison.Ordinal) || slot.FindHolder(run.Id) != null;

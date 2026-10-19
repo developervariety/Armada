@@ -72,6 +72,25 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Available memory in megabytes the host must have before the next full build or test command
+        /// takes a free host command slot. Clamped to [0, 1048576]; 0 turns the check off. Defaults to
+        /// 6144. Applied at startup and on every settings reload.
+        /// </summary>
+        /// <remarks>
+        /// One full suite of a large vessel can use several gigabytes, and a host without swap answers an
+        /// overcommit by killing test processes. Memory is read from <c>MemAvailable</c> in
+        /// <c>/proc/meminfo</c>; on a host without it the reading is unknown and never holds a command.
+        /// Memory used outside Armada's commands can stay below the floor, so when no slot is held and the
+        /// next command has been held for memory for 15 minutes, it runs anyway and is recorded as granted
+        /// under the floor.
+        /// </remarks>
+        public int HostCommandMemoryFloorMb
+        {
+            get => _HostCommandMemoryFloorMb;
+            set => _HostCommandMemoryFloorMb = HostWideCommandLock.ClampMemoryFloorMb(value);
+        }
+
+        /// <summary>
         /// Maximum number of trailing output lines included in the failure reason. Clamped to
         /// [10, 500]. Defaults to 50.
         /// </summary>
@@ -204,6 +223,7 @@ namespace Armada.Core.Settings
             RunRestoreBeforeBuild = source.RunRestoreBeforeBuild;
             CommandTimeoutSeconds = source.CommandTimeoutSeconds;
             HostCommandSlots = source.HostCommandSlots;
+            HostCommandMemoryFloorMb = source.HostCommandMemoryFloorMb;
             OutputTailLines = source.OutputTailLines;
             DiagnosticLines = source.DiagnosticLines;
             VerifyDeclaredConsumers = source.VerifyDeclaredConsumers;
@@ -222,6 +242,7 @@ namespace Armada.Core.Settings
         private string _DocOnlyMarker = "[DOD:DOC-ONLY]";
         private int _CommandTimeoutSeconds = 600;
         private int _HostCommandSlots = HostWideCommandLock.MinimumSlots;
+        private int _HostCommandMemoryFloorMb = HostWideCommandLock.DefaultMemoryFloorMb;
         private int _OutputTailLines = 50;
         private int _DiagnosticLines = 20;
 

@@ -32,6 +32,45 @@ namespace Armada.Core.Models
         public DateTime? HolderSinceUtc { get; set; } = null;
 
         /// <summary>
+        /// Available memory in megabytes the host must have before the next request is granted; 0 when the
+        /// memory check is off.
+        /// </summary>
+        public int MemoryFloorMb { get; set; } = 0;
+
+        /// <summary>
+        /// The last available-memory reading in megabytes, or null when no reading was taken or it was unknown.
+        /// </summary>
+        public long? AvailableMemoryMb { get; set; } = null;
+
+        /// <summary>
+        /// When <see cref="AvailableMemoryMb"/> was read, or null when no reading was taken.
+        /// </summary>
+        public DateTime? AvailableMemoryReadUtc { get; set; } = null;
+
+        /// <summary>
+        /// True when a slot is free but the first request in line waits because available memory is below
+        /// the floor.
+        /// </summary>
+        public bool HeldForMemory { get; set; } = false;
+
+        /// <summary>
+        /// When available memory first held the first request in line, or null when memory holds no request.
+        /// </summary>
+        public DateTime? MemoryHeldSinceUtc { get; set; } = null;
+
+        /// <summary>
+        /// Why the first request in line waits although a slot is free, such as
+        /// "waiting for free memory: 4,100 MB available, floor 6,144 MB", or null when memory holds no request.
+        /// </summary>
+        public string? MemoryWaitReason { get; set; } = null;
+
+        /// <summary>
+        /// How many requests this process granted while available memory was below the floor, because they
+        /// had waited the maximum memory wait with no slot held.
+        /// </summary>
+        public long UnderFloorGrants { get; set; } = 0;
+
+        /// <summary>
         /// Every request that holds a slot now, earliest grant first.
         /// </summary>
         public List<HostSlotHolder> Holders

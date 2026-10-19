@@ -24,6 +24,12 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime? SinceUtc { get; set; } = null;
 
+        /// <summary>
+        /// True when the holder was granted its slot while available memory was below the floor, because it
+        /// had waited the maximum memory wait with no slot held.
+        /// </summary>
+        public bool GrantedUnderMemoryFloor { get; set; } = false;
+
         #endregion
     }
 }

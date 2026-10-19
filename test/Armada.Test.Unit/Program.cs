@@ -19,6 +19,10 @@ namespace Armada.Test.Unit
             TestDataDirectory.Verify();
             // Test repositories are short-lived, so git auto maintenance after commits is start-up cost only.
             global::Test.Shared.Infrastructure.TestGitEnvironment.DisableAutoMaintenance();
+            // The host-wide command slot is process-global and suites that start a server apply the default
+            // memory floor to it, so an unknown reading keeps every slot grant independent of the host's free
+            // memory. The lock's own suite injects its readings and restores this one.
+            global::Armada.Core.Services.HostWideCommandLock.SetMemoryReader(() => null);
 
             TestHostOptions options;
             try

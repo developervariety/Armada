@@ -279,6 +279,22 @@ at startup and on every settings reload. A raised count grants waiting
 requests at once; a lowered count takes no slot from a running command and
 grants nothing new until the holders drop below it.
 
+A free slot is granted only while the host has enough free memory.
+`definitionOfDone.hostCommandMemoryFloorMb` sets the floor in megabytes:
+default 6144, clamped to 0-1048576, applied at startup and on every settings
+reload. Set it to 0 to turn the check off. Armada reads `MemAvailable` from
+`/proc/meminfo`; on a host without that file, or when the value cannot be read,
+the reading is unknown and never holds a command. While the next request is
+held only for memory, Armada reads memory again every 5 seconds. The held
+request keeps its place, so no later request runs ahead of it. Memory used by
+processes outside Armada's commands can stay below the floor, so when no slot
+is held and the next request has been held for memory for 15 minutes, it runs
+anyway; its holder entry is marked `GrantedUnderMemoryFloor` and the
+`UnderFloorGrants` count rises. The slot snapshot (`HostSlot` in
+`armada_dispatch_hold`) carries `MemoryFloorMb`, the last `AvailableMemoryMb`
+reading, `HeldForMemory` and `MemoryWaitReason`, for example
+`waiting for free memory: 4,100 MB available, floor 6,144 MB`.
+
 Raising the count above 1 risks false failures. Concurrent full suites contend
 for the same CPU, memory and disk, and on a host without the capacity for them
 the contention shows as failures that look like broken code, most often a burst
@@ -291,7 +307,7 @@ still running, comes back unfinished and keeps running; read it again with
 `get_check_run`. Every unfinished Check view carries `SlotWait`: its state
 (`Queued`, `WaitingForSlot` or `Running`), its place in line, every request that
 holds a slot (in grant order) and since when the earliest holder has held it,
-and guidance that the wait is an environment condition,
+`MemoryWaitReason` when free memory holds the queue, and guidance that the wait is an environment condition,
 not a code defect or an owner question. A Judge PASS given while a Check is
 unresolved is held until the Check passes at the reviewed commit, so a stage
 never needs to fail or block because a Check has not finished. A Judge

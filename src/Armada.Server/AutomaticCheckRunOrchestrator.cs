@@ -183,8 +183,9 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Say how many started checks run and how many wait for the host-wide slot, and what holds it.
-        /// A check waiting for the slot has no process yet, so counting it as running reads like a stall.
+        /// Say how many started checks run and how many wait for the host-wide slot, what holds it, and
+        /// whether free memory holds the next request. A check waiting for the slot has no process yet, so
+        /// counting it as running reads like a stall.
         /// </summary>
         /// <param name="slot">A snapshot of the host-wide slot.</param>
         /// <returns>A one-line description.</returns>
@@ -215,6 +216,7 @@ namespace Armada.Server
             }
 
             if (slot.Waiters.Count > waiting) text += "; " + (slot.Waiters.Count - waiting) + " other request(s) queued for the slot";
+            if (slot.HeldForMemory && !String.IsNullOrEmpty(slot.MemoryWaitReason)) text += "; next request " + slot.MemoryWaitReason;
             return text;
         }
 

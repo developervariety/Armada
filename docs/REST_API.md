@@ -994,7 +994,7 @@ as a candidate first, with the same checks as `PUT /api/v1/settings`. Ports, pat
 definitions and remote-control settings are not reloaded and still require a restart. A section that a running
 service holds is updated in place: the crash-loop tracker reads the reloaded `crashLoopDetection` window and
 threshold, and the definition-of-done gate reads the reloaded `definitionOfDone` values, including `enabled`, on its
-next evaluation. The host-wide command slots take the reloaded `definitionOfDone.hostCommandSlots` at once. Of `codeIndex`, only `stalenessSweepIntervalCycles` reloads; the rest of that section needs a
+next evaluation. The host-wide command slots take the reloaded `definitionOfDone.hostCommandSlots` and `definitionOfDone.hostCommandMemoryFloorMb` at once. Of `codeIndex`, only `stalenessSweepIntervalCycles` reloads; the rest of that section needs a
 restart.
 
 **Permission:** AdminOnly

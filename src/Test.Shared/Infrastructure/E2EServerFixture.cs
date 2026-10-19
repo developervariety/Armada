@@ -360,6 +360,8 @@ namespace Test.Shared.Infrastructure
             settings.ReposDirectory = Path.Combine(TempDir, "repos");
             settings.ApiKey = ApiKey;
             settings.HeartbeatIntervalSeconds = 300;
+            // Test servers share one host with the other suites; their slot grants must not wait on its free memory.
+            settings.DefinitionOfDone.HostCommandMemoryFloorMb = 0;
             // Bind this server's settings to its own temp file. The server watches its settings file and
             // hot-reloads the runtime-tunable values from it, so a server left on the machine-wide default
             // adopts the host operator's live settings the moment anything rewrites that file -- including
