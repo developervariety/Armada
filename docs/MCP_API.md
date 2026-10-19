@@ -714,6 +714,20 @@ links reach. `armada_enumerate` with `entityType=objectives` lists exactly that
 set for a mission caller, so every listed objective is readable with
 `get_objective`. Operator reads retain their normal caller scope.
 
+`armada_enumerate` scopes every entity type by the same rule as that entity's
+per-id read. A global administrator lists every record. A tenant administrator
+lists its own tenant's records. Any other caller lists only the records it owns
+in its tenant, except playbooks, which every caller in a tenant reads and so
+lists. A mission caller lists as its owner without the owner's administrator
+rights. Its `missions` and `voyages` listings return exactly the records
+`armada_mission_status` and `armada_voyage_status` let it read, and
+`totalRecords` counts only those records.
+
+`armada_enumerate` refuses an argument it does not declare. The error names
+each unknown argument and lists the accepted ones, so a misspelled filter such
+as `statuses` never returns an unfiltered listing. Use `status` to filter by
+one status.
+
 A captain may omit the id on these reads. `armada_mission_status` and
 `armada_mission_output` then read the captain's own mission, and `get_objective`
 reads the objective that lists the captain's mission, or else its voyage. A

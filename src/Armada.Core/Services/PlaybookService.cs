@@ -50,8 +50,38 @@ namespace Armada.Core.Services
         {
             if (caller == null) throw new ArgumentNullException(nameof(caller));
             if (String.IsNullOrWhiteSpace(id)) return Task.FromResult<Playbook?>(null);
-            if (caller.IsAdmin) return _Database.Playbooks.ReadAsync(id!.Trim(), token);
-            return _Database.Playbooks.ReadAsync(OwnershipPolicy.TenantOf(caller), id!.Trim(), token);
+            string? tenantId = TenantScopeOf(caller);
+            if (tenantId == null) return _Database.Playbooks.ReadAsync(id!.Trim(), token);
+            return _Database.Playbooks.ReadAsync(tenantId, id!.Trim(), token);
+        }
+
+        /// <summary>
+        /// List one page of playbooks within the same scope <see cref="ReadForCallerAsync"/> reads.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="caller">Caller.</param>
+        /// <param name="query">Paging and filters.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page of the playbooks the caller may read.</returns>
+        public static Task<EnumerationResult<Playbook>> EnumerateForCallerAsync(DatabaseDriver database, AuthContext caller, EnumerationQuery query, CancellationToken token = default)
+        {
+            if (database == null) throw new ArgumentNullException(nameof(database));
+            if (caller == null) throw new ArgumentNullException(nameof(caller));
+            if (query == null) throw new ArgumentNullException(nameof(query));
+            string? tenantId = TenantScopeOf(caller);
+            if (tenantId == null) return database.Playbooks.EnumerateAsync(query, token);
+            return database.Playbooks.EnumerateAsync(tenantId, query, token);
+        }
+
+        /// <summary>
+        /// The tenant a caller's playbook reads are limited to, or null for a global administrator, who reads
+        /// every tenant's playbooks.
+        /// </summary>
+        /// <param name="caller">Caller.</param>
+        /// <returns>The tenant, or null for every tenant.</returns>
+        private static string? TenantScopeOf(AuthContext caller)
+        {
+            return caller.IsAdmin ? null : OwnershipPolicy.TenantOf(caller);
         }
 
         /// <summary>

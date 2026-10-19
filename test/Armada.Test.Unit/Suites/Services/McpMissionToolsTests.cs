@@ -1135,6 +1135,108 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MissionAndVoyageEnumerate_MissionCallerListsExactlyWhatStatusReadsReturn", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    TenantMetadata otherTenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("listing other tenant")).ConfigureAwait(false);
+                    UserMaster otherUser = await testDb.Driver.Users.CreateAsync(new UserMaster(Armada.Core.Constants.DefaultTenantId, "listing-other@example.com", "password")).ConfigureAwait(false);
+                    Voyage ownVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("own voyage") { TenantId = Armada.Core.Constants.DefaultTenantId }).ConfigureAwait(false);
+                    Voyage citedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("cited voyage") { TenantId = Armada.Core.Constants.DefaultTenantId }).ConfigureAwait(false);
+                    Voyage unrelatedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("unrelated voyage") { TenantId = Armada.Core.Constants.DefaultTenantId }).ConfigureAwait(false);
+                    Voyage foreignVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("foreign voyage") { TenantId = otherTenant.Id }).ConfigureAwait(false);
+                    Voyage otherOwnerVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("other owner voyage")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = otherUser.Id
+                    }).ConfigureAwait(false);
+                    Mission dependency = await testDb.Driver.Missions.CreateAsync(new Mission("dependency") { TenantId = Armada.Core.Constants.DefaultTenantId }).ConfigureAwait(false);
+                    Mission own = await testDb.Driver.Missions.CreateAsync(new Mission("reader")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        VoyageId = ownVoyage.Id,
+                        DependsOnMissionId = dependency.Id
+                    }).ConfigureAwait(false);
+                    Mission sibling = await testDb.Driver.Missions.CreateAsync(new Mission("sibling") { TenantId = Armada.Core.Constants.DefaultTenantId, VoyageId = ownVoyage.Id }).ConfigureAwait(false);
+                    Mission legacy = await testDb.Driver.Missions.CreateAsync(new Mission("legacy owner") { VoyageId = ownVoyage.Id }).ConfigureAwait(false);
+                    Mission cited = await testDb.Driver.Missions.CreateAsync(new Mission("cited voyage mission") { TenantId = Armada.Core.Constants.DefaultTenantId, VoyageId = citedVoyage.Id }).ConfigureAwait(false);
+                    Mission unrelated = await testDb.Driver.Missions.CreateAsync(new Mission("unrelated") { TenantId = Armada.Core.Constants.DefaultTenantId, VoyageId = unrelatedVoyage.Id }).ConfigureAwait(false);
+                    Mission foreign = await testDb.Driver.Missions.CreateAsync(new Mission("foreign") { TenantId = otherTenant.Id, VoyageId = ownVoyage.Id }).ConfigureAwait(false);
+                    Mission foreignVoyageMission = await testDb.Driver.Missions.CreateAsync(new Mission("foreign voyage mission") { TenantId = otherTenant.Id, VoyageId = foreignVoyage.Id }).ConfigureAwait(false);
+                    Mission otherOwner = await testDb.Driver.Missions.CreateAsync(new Mission("other owner")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = otherUser.Id,
+                        VoyageId = ownVoyage.Id
+                    }).ConfigureAwait(false);
+                    Mission otherOwnerVoyageMission = await testDb.Driver.Missions.CreateAsync(new Mission("other owner voyage mission")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = otherUser.Id,
+                        VoyageId = otherOwnerVoyage.Id
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "authorized work",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        MissionIds = new List<string> { own.Id },
+                        EvidenceLinks = new List<string> { "earlier attempt " + citedVoyage.Id }
+                    }).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = own.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        List<string> readableMissions = new List<string>();
+                        foreach (Mission mission in await testDb.Driver.Missions.EnumerateAsync().ConfigureAwait(false))
+                        {
+                            object status = await tools.ReadStatus!(JsonSerializer.SerializeToElement(new { missionId = mission.Id })).ConfigureAwait(false);
+                            if (!(status is McpScopeDenial)) readableMissions.Add(mission.Id);
+                        }
+                        readableMissions.Sort(StringComparer.Ordinal);
+                        foreach (Mission expectedReadable in new[] { own, dependency, sibling, legacy, cited })
+                            AssertTrue(readableMissions.Contains(expectedReadable.Id), "the status read returns '" + expectedReadable.Title + "'");
+                        foreach (Mission expectedHidden in new[] { unrelated, foreign, foreignVoyageMission, otherOwner, otherOwnerVoyageMission })
+                            AssertFalse(readableMissions.Contains(expectedHidden.Id), "the status read refuses '" + expectedHidden.Title + "'");
+
+                        string missionListing = JsonSerializer.Serialize(await tools.Enumerate!(
+                            JsonSerializer.SerializeToElement(new { entityType = "missions", pageSize = 1000 })).ConfigureAwait(false));
+                        List<string> listedMissions = new List<string>();
+                        foreach (Mission mission in await testDb.Driver.Missions.EnumerateAsync().ConfigureAwait(false))
+                        {
+                            if (missionListing.Contains(mission.Id, StringComparison.Ordinal)) listedMissions.Add(mission.Id);
+                        }
+                        listedMissions.Sort(StringComparer.Ordinal);
+                        AssertEqual(String.Join(",", readableMissions), String.Join(",", listedMissions),
+                            "the mission listing holds exactly the missions armada_mission_status returns");
+                        AssertContains("\"TotalRecords\":" + readableMissions.Count, missionListing, "the mission total counts only readable missions");
+
+                        string secondPage = JsonSerializer.Serialize(await tools.Enumerate!(
+                            JsonSerializer.SerializeToElement(new { entityType = "missions", pageSize = 2, pageNumber = 2 })).ConfigureAwait(false));
+                        AssertContains("\"TotalRecords\":" + readableMissions.Count, secondPage, "a later page reports the same readable total");
+
+                        List<string> readableVoyages = new List<string>();
+                        List<string> listedVoyages = new List<string>();
+                        string voyageListing = JsonSerializer.Serialize(await tools.Enumerate!(
+                            JsonSerializer.SerializeToElement(new { entityType = "voyages", pageSize = 1000 })).ConfigureAwait(false));
+                        foreach (Voyage voyage in await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false))
+                        {
+                            object status = await tools.VoyageStatus!(JsonSerializer.SerializeToElement(new { voyageId = voyage.Id })).ConfigureAwait(false);
+                            if (!(status is McpScopeDenial)) readableVoyages.Add(voyage.Id);
+                            if (voyageListing.Contains(voyage.Id, StringComparison.Ordinal)) listedVoyages.Add(voyage.Id);
+                        }
+                        readableVoyages.Sort(StringComparer.Ordinal);
+                        listedVoyages.Sort(StringComparer.Ordinal);
+                        AssertTrue(readableVoyages.Contains(ownVoyage.Id) && readableVoyages.Contains(citedVoyage.Id), "the voyage read returns the own and the cited voyage");
+                        foreach (Voyage hiddenVoyage in new[] { unrelatedVoyage, foreignVoyage, otherOwnerVoyage })
+                            AssertFalse(readableVoyages.Contains(hiddenVoyage.Id), "the voyage read refuses '" + hiddenVoyage.Title + "'");
+                        AssertEqual(String.Join(",", readableVoyages), String.Join(",", listedVoyages),
+                            "the voyage listing holds exactly the voyages armada_voyage_status returns");
+                    }
+                }
+            });
+
             await RunTest("MissionEvidence_DenialsNameTheReasonWithoutRevealingOtherOwners", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

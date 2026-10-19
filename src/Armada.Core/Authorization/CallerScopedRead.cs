@@ -1,6 +1,7 @@
 namespace Armada.Core.Authorization
 {
     using System;
+    using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -30,10 +31,10 @@ namespace Armada.Core.Authorization
         /// <returns>The vessel, or null when it is absent or outside the caller's scope.</returns>
         public static async Task<Vessel?> ReadVesselAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
         {
-            Scope scope = Resolve(database, caller, id);
-            if (scope.Kind == ScopeKindEnum.None) return null;
-            if (scope.Kind == ScopeKindEnum.Global) return await database.Vessels.ReadAsync(id!, token).ConfigureAwait(false);
-            if (scope.Kind == ScopeKindEnum.Tenant) return await database.Vessels.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
+            CallerRecordScope scope = Resolve(database, caller, id);
+            if (scope.Kind == CallerRecordScopeKindEnum.None) return null;
+            if (scope.Kind == CallerRecordScopeKindEnum.Global) return await database.Vessels.ReadAsync(id!, token).ConfigureAwait(false);
+            if (scope.Kind == CallerRecordScopeKindEnum.Tenant) return await database.Vessels.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
             return await database.Vessels.ReadAsync(scope.TenantId!, scope.UserId!, id!, token).ConfigureAwait(false);
         }
 
@@ -47,10 +48,10 @@ namespace Armada.Core.Authorization
         /// <returns>The voyage, or null when it is absent or outside the caller's scope.</returns>
         public static async Task<Voyage?> ReadVoyageAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
         {
-            Scope scope = Resolve(database, caller, id);
-            if (scope.Kind == ScopeKindEnum.None) return null;
-            if (scope.Kind == ScopeKindEnum.Global) return await database.Voyages.ReadAsync(id!, token).ConfigureAwait(false);
-            Voyage? voyage = scope.Kind == ScopeKindEnum.Tenant
+            CallerRecordScope scope = Resolve(database, caller, id);
+            if (scope.Kind == CallerRecordScopeKindEnum.None) return null;
+            if (scope.Kind == CallerRecordScopeKindEnum.Global) return await database.Voyages.ReadAsync(id!, token).ConfigureAwait(false);
+            Voyage? voyage = scope.Kind == CallerRecordScopeKindEnum.Tenant
                 ? await database.Voyages.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false)
                 : await database.Voyages.ReadAsync(scope.TenantId!, scope.UserId!, id!, token).ConfigureAwait(false);
             if (voyage != null) return voyage;
@@ -59,7 +60,7 @@ namespace Armada.Core.Authorization
             // same default ownership rule as every other caller-scoped record.
             voyage = await database.Voyages.ReadAsync(id!, token).ConfigureAwait(false);
             if (voyage == null) return null;
-            if (scope.Kind == ScopeKindEnum.Tenant)
+            if (scope.Kind == CallerRecordScopeKindEnum.Tenant)
                 return OwnershipPolicy.SameTenant(voyage.TenantId, scope.TenantId) ? voyage : null;
             return OwnershipPolicy.CanUseFor(
                 scope.TenantId,
@@ -82,10 +83,10 @@ namespace Armada.Core.Authorization
         /// <returns>The mission, or null when it is absent or outside the caller's scope.</returns>
         public static async Task<Mission?> ReadMissionAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
         {
-            Scope scope = Resolve(database, caller, id);
-            if (scope.Kind == ScopeKindEnum.None) return null;
-            if (scope.Kind == ScopeKindEnum.Global) return await database.Missions.ReadAsync(id!, token).ConfigureAwait(false);
-            if (scope.Kind == ScopeKindEnum.Tenant) return await database.Missions.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
+            CallerRecordScope scope = Resolve(database, caller, id);
+            if (scope.Kind == CallerRecordScopeKindEnum.None) return null;
+            if (scope.Kind == CallerRecordScopeKindEnum.Global) return await database.Missions.ReadAsync(id!, token).ConfigureAwait(false);
+            if (scope.Kind == CallerRecordScopeKindEnum.Tenant) return await database.Missions.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
             return await database.Missions.ReadAsync(scope.TenantId!, scope.UserId!, id!, token).ConfigureAwait(false);
         }
 
@@ -99,10 +100,10 @@ namespace Armada.Core.Authorization
         /// <returns>The captain, or null when it is absent or outside the caller's scope.</returns>
         public static async Task<Captain?> ReadCaptainAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
         {
-            Scope scope = Resolve(database, caller, id);
-            if (scope.Kind == ScopeKindEnum.None) return null;
-            if (scope.Kind == ScopeKindEnum.Global) return await database.Captains.ReadAsync(id!, token).ConfigureAwait(false);
-            if (scope.Kind == ScopeKindEnum.Tenant) return await database.Captains.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
+            CallerRecordScope scope = Resolve(database, caller, id);
+            if (scope.Kind == CallerRecordScopeKindEnum.None) return null;
+            if (scope.Kind == CallerRecordScopeKindEnum.Global) return await database.Captains.ReadAsync(id!, token).ConfigureAwait(false);
+            if (scope.Kind == CallerRecordScopeKindEnum.Tenant) return await database.Captains.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
             return await database.Captains.ReadAsync(scope.TenantId!, scope.UserId!, id!, token).ConfigureAwait(false);
         }
 
@@ -116,10 +117,10 @@ namespace Armada.Core.Authorization
         /// <returns>The fleet, or null when it is absent or outside the caller's scope.</returns>
         public static async Task<Fleet?> ReadFleetAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
         {
-            Scope scope = Resolve(database, caller, id);
-            if (scope.Kind == ScopeKindEnum.None) return null;
-            if (scope.Kind == ScopeKindEnum.Global) return await database.Fleets.ReadAsync(id!, token).ConfigureAwait(false);
-            if (scope.Kind == ScopeKindEnum.Tenant) return await database.Fleets.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
+            CallerRecordScope scope = Resolve(database, caller, id);
+            if (scope.Kind == CallerRecordScopeKindEnum.None) return null;
+            if (scope.Kind == CallerRecordScopeKindEnum.Global) return await database.Fleets.ReadAsync(id!, token).ConfigureAwait(false);
+            if (scope.Kind == CallerRecordScopeKindEnum.Tenant) return await database.Fleets.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
             return await database.Fleets.ReadAsync(scope.TenantId!, scope.UserId!, id!, token).ConfigureAwait(false);
         }
 
@@ -133,10 +134,10 @@ namespace Armada.Core.Authorization
         /// <returns>The dock, or null when it is absent or outside the caller's scope.</returns>
         public static async Task<Dock?> ReadDockAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
         {
-            Scope scope = Resolve(database, caller, id);
-            if (scope.Kind == ScopeKindEnum.None) return null;
-            if (scope.Kind == ScopeKindEnum.Global) return await database.Docks.ReadAsync(id!, token).ConfigureAwait(false);
-            if (scope.Kind == ScopeKindEnum.Tenant) return await database.Docks.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
+            CallerRecordScope scope = Resolve(database, caller, id);
+            if (scope.Kind == CallerRecordScopeKindEnum.None) return null;
+            if (scope.Kind == CallerRecordScopeKindEnum.Global) return await database.Docks.ReadAsync(id!, token).ConfigureAwait(false);
+            if (scope.Kind == CallerRecordScopeKindEnum.Tenant) return await database.Docks.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
             return await database.Docks.ReadAsync(scope.TenantId!, scope.UserId!, id!, token).ConfigureAwait(false);
         }
 
@@ -150,10 +151,10 @@ namespace Armada.Core.Authorization
         /// <returns>The objective, or null when it is absent or outside the caller's scope.</returns>
         public static async Task<Objective?> ReadObjectiveAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
         {
-            Scope scope = Resolve(database, caller, id);
-            if (scope.Kind == ScopeKindEnum.None) return null;
-            if (scope.Kind == ScopeKindEnum.Global) return await database.Objectives.ReadAsync(id!, token).ConfigureAwait(false);
-            if (scope.Kind == ScopeKindEnum.Tenant) return await database.Objectives.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
+            CallerRecordScope scope = Resolve(database, caller, id);
+            if (scope.Kind == CallerRecordScopeKindEnum.None) return null;
+            if (scope.Kind == CallerRecordScopeKindEnum.Global) return await database.Objectives.ReadAsync(id!, token).ConfigureAwait(false);
+            if (scope.Kind == CallerRecordScopeKindEnum.Tenant) return await database.Objectives.ReadAsync(scope.TenantId!, id!, token).ConfigureAwait(false);
             return await database.Objectives.ReadAsync(scope.TenantId!, scope.UserId!, id!, token).ConfigureAwait(false);
         }
 
@@ -167,8 +168,8 @@ namespace Armada.Core.Authorization
         /// <returns>The deployment, or null when it is absent or outside the caller's scope.</returns>
         public static async Task<Deployment?> ReadDeploymentAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
         {
-            Scope scope = Resolve(database, caller, id);
-            if (scope.Kind == ScopeKindEnum.None) return null;
+            CallerRecordScope scope = Resolve(database, caller, id);
+            if (scope.Kind == CallerRecordScopeKindEnum.None) return null;
             return await database.Deployments.ReadAsync(id!, new DeploymentQuery { TenantId = scope.TenantId, UserId = scope.UserId }, token).ConfigureAwait(false);
         }
 
@@ -182,8 +183,8 @@ namespace Armada.Core.Authorization
         /// <returns>The release, or null when it is absent or outside the caller's scope.</returns>
         public static async Task<Release?> ReadReleaseAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
         {
-            Scope scope = Resolve(database, caller, id);
-            if (scope.Kind == ScopeKindEnum.None) return null;
+            CallerRecordScope scope = Resolve(database, caller, id);
+            if (scope.Kind == CallerRecordScopeKindEnum.None) return null;
             return await database.Releases.ReadAsync(id!, new ReleaseQuery { TenantId = scope.TenantId, UserId = scope.UserId }, token).ConfigureAwait(false);
         }
 
@@ -197,8 +198,8 @@ namespace Armada.Core.Authorization
         /// <returns>The check run, or null when it is absent or outside the caller's scope.</returns>
         public static async Task<CheckRun?> ReadCheckRunAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
         {
-            Scope scope = Resolve(database, caller, id);
-            if (scope.Kind == ScopeKindEnum.None) return null;
+            CallerRecordScope scope = Resolve(database, caller, id);
+            if (scope.Kind == CallerRecordScopeKindEnum.None) return null;
             return await database.CheckRuns.ReadAsync(id!, new CheckRunQuery { TenantId = scope.TenantId, UserId = scope.UserId }, token).ConfigureAwait(false);
         }
 
@@ -212,53 +213,66 @@ namespace Armada.Core.Authorization
         /// <returns>The environment, or null when it is absent or outside the caller's scope.</returns>
         public static async Task<DeploymentEnvironment?> ReadEnvironmentAsync(DatabaseDriver database, AuthContext caller, string? id, CancellationToken token = default)
         {
-            Scope scope = Resolve(database, caller, id);
-            if (scope.Kind == ScopeKindEnum.None) return null;
+            CallerRecordScope scope = Resolve(database, caller, id);
+            if (scope.Kind == CallerRecordScopeKindEnum.None) return null;
             return await database.Environments.ReadAsync(id!, new DeploymentEnvironmentQuery { TenantId = scope.TenantId, UserId = scope.UserId }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resolve the records a caller may read. The per-id reads above and every caller-scoped listing
+        /// use this one rule, so a listing never shows a record its per-id read would refuse.
+        /// </summary>
+        /// <param name="caller">Authenticated caller.</param>
+        /// <returns>The caller's read scope.</returns>
+        public static CallerRecordScope ResolveScope(AuthContext caller)
+        {
+            if (caller == null) throw new ArgumentNullException(nameof(caller));
+            if (caller.IsAdmin) return new CallerRecordScope(CallerRecordScopeKindEnum.Global, null, null);
+            if (String.IsNullOrWhiteSpace(caller.TenantId)) return new CallerRecordScope(CallerRecordScopeKindEnum.None, null, null);
+            if (caller.IsTenantAdmin) return new CallerRecordScope(CallerRecordScopeKindEnum.Tenant, caller.TenantId, null);
+            if (String.IsNullOrWhiteSpace(caller.UserId)) return new CallerRecordScope(CallerRecordScopeKindEnum.None, null, null);
+            return new CallerRecordScope(CallerRecordScopeKindEnum.User, caller.TenantId, caller.UserId);
+        }
+
+        /// <summary>
+        /// List one page of records within a read scope through the store's unscoped, tenant and owner
+        /// listings. An empty scope lists nothing.
+        /// </summary>
+        /// <typeparam name="T">Record type.</typeparam>
+        /// <param name="scope">Read scope from <see cref="ResolveScope"/>.</param>
+        /// <param name="query">Paging and filters.</param>
+        /// <param name="all">Lists every record.</param>
+        /// <param name="byTenant">Lists the records of one tenant.</param>
+        /// <param name="byOwner">Lists the records one user owns in one tenant.</param>
+        /// <returns>One page of records within the scope.</returns>
+        public static async Task<EnumerationResult<T>> EnumerateAsync<T>(
+            CallerRecordScope scope,
+            EnumerationQuery query,
+            Func<EnumerationQuery, Task<EnumerationResult<T>>> all,
+            Func<string, EnumerationQuery, Task<EnumerationResult<T>>> byTenant,
+            Func<string, string, EnumerationQuery, Task<EnumerationResult<T>>> byOwner)
+        {
+            if (scope == null) throw new ArgumentNullException(nameof(scope));
+            if (query == null) throw new ArgumentNullException(nameof(query));
+            if (all == null) throw new ArgumentNullException(nameof(all));
+            if (byTenant == null) throw new ArgumentNullException(nameof(byTenant));
+            if (byOwner == null) throw new ArgumentNullException(nameof(byOwner));
+            if (scope.Kind == CallerRecordScopeKindEnum.Global) return await all(query).ConfigureAwait(false);
+            if (scope.Kind == CallerRecordScopeKindEnum.Tenant) return await byTenant(scope.TenantId!, query).ConfigureAwait(false);
+            if (scope.Kind == CallerRecordScopeKindEnum.User) return await byOwner(scope.TenantId!, scope.UserId!, query).ConfigureAwait(false);
+            return EnumerationResult<T>.Create(query, new List<T>(), 0);
         }
 
         #endregion
 
         #region Private-Methods
 
-        private static Scope Resolve(DatabaseDriver database, AuthContext caller, string? id)
+        private static CallerRecordScope Resolve(DatabaseDriver database, AuthContext caller, string? id)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
             if (caller == null) throw new ArgumentNullException(nameof(caller));
-            if (String.IsNullOrWhiteSpace(id)) return new Scope(ScopeKindEnum.None, null, null);
-            if (caller.IsAdmin) return new Scope(ScopeKindEnum.Global, null, null);
-            if (String.IsNullOrWhiteSpace(caller.TenantId)) return new Scope(ScopeKindEnum.None, null, null);
-            if (caller.IsTenantAdmin) return new Scope(ScopeKindEnum.Tenant, caller.TenantId, null);
-            if (String.IsNullOrWhiteSpace(caller.UserId)) return new Scope(ScopeKindEnum.None, null, null);
-            return new Scope(ScopeKindEnum.User, caller.TenantId, caller.UserId);
-        }
-
-        #endregion
-
-        #region Private-Types
-
-        private enum ScopeKindEnum
-        {
-            None,
-            Global,
-            Tenant,
-            User
-        }
-
-        private sealed class Scope
-        {
-            public Scope(ScopeKindEnum kind, string? tenantId, string? userId)
-            {
-                Kind = kind;
-                TenantId = tenantId;
-                UserId = userId;
-            }
-
-            public ScopeKindEnum Kind { get; }
-
-            public string? TenantId { get; }
-
-            public string? UserId { get; }
+            if (String.IsNullOrWhiteSpace(id)) return new CallerRecordScope(CallerRecordScopeKindEnum.None, null, null);
+            return ResolveScope(caller);
         }
 
         #endregion

@@ -124,6 +124,13 @@ upstream integrations and excludes changes already present at that baseline.
   handshake, and the link answers with one `harbor_handshake_duplicate` error
   after every frame it sent earlier, so the first frame back must be that
   answer.
+- `armada_enumerate` scopes every entity type by its per-id read rule: a
+  global administrator lists every record, a tenant administrator its tenant's
+  records, and any other caller its own records, with playbooks tenant-wide. A
+  mission caller lists as its owner without administrator rights, and its
+  mission and voyage listings match what the status reads return. An undeclared
+  argument is refused by name instead of being ignored, so a misspelled filter
+  never returns an unfiltered listing.
 - A definition-of-done gate holds the host command slot from its first command
   until it ends. Its unit tests and each consumer build and test follow its
   build directly instead of going to the back of the queue for every command,

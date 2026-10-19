@@ -120,8 +120,7 @@ namespace Test.Shared.Suites.E2E
                 JsonElement enumerateResult = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "releases",
-                    pageSize = 50,
-                    search = "MCP Draft Release"
+                    pageSize = 50
                 }).ConfigureAwait(false);
                 AssertToolResultValid(enumerateResult);
                 string enumerateText = GetToolResultText(enumerateResult);

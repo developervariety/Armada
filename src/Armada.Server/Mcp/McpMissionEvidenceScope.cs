@@ -39,28 +39,11 @@ namespace Armada.Server.Mcp
             if (String.IsNullOrEmpty(caller.MissionId))
                 return await CallerScopedRead.ReadMissionAsync(database, caller, id).ConfigureAwait(false);
 
-            Mission? anchor = await ReadAnchorAsync(database, caller).ConfigureAwait(false);
-            if (anchor == null) return null;
-            // ID reads allow legacy null ownership; SameOwner is mandatory before any record leaves this scope.
+            MissionReadScope? scope = await OpenAsync(database, caller).ConfigureAwait(false);
+            if (scope == null) return null;
+            // ID reads allow legacy null ownership; the scope's owner rule is mandatory before any record leaves it.
             Mission? target = await database.Missions.ReadAsync(id).ConfigureAwait(false);
-            if (target == null || !SameOwner(caller, target.TenantId, target.UserId)) return null;
-            Mission? rescueRoot = await FindRescueRootInDependencyChainAsync(database, caller, anchor).ConfigureAwait(false);
-            if (target.Id == anchor.Id
-                || (!String.IsNullOrEmpty(anchor.VoyageId) && target.VoyageId == anchor.VoyageId)
-                || target.Id == anchor.DependsOnMissionId
-                || target.Id == anchor.ParentMissionId)
-                return target;
-            if (rescueRoot != null
-                && rescueRoot.ParentMissionId == target.Id
-                && SameRescueVessel(anchor, target))
-                return target;
-
-            EvidenceLinks links = await ReadEvidenceLinksAsync(database, caller, anchor).ConfigureAwait(false);
-            if (links.MissionIds.Contains(target.Id)) return target;
-            if (!String.IsNullOrEmpty(target.VoyageId)
-                && await VoyageIsLinkedAsync(database, links, target.VoyageId).ConfigureAwait(false))
-                return target;
-            return null;
+            return target != null && await scope.CanReadMissionAsync(target).ConfigureAwait(false) ? target : null;
         }
 
         /// <summary>Read an objective linked to the caller's mission, without previewing its evidence.</summary>
@@ -80,13 +63,32 @@ namespace Armada.Server.Mcp
         /// </summary>
         public static async Task<Voyage?> ReadVoyageAsync(DatabaseDriver database, AuthContext caller, string id)
         {
-            Mission? anchor = await ReadAnchorAsync(database, caller).ConfigureAwait(false);
-            if (anchor == null || String.IsNullOrWhiteSpace(id)) return null;
+            if (String.IsNullOrWhiteSpace(id)) return null;
+            MissionReadScope? scope = await OpenAsync(database, caller).ConfigureAwait(false);
+            if (scope == null) return null;
             Voyage? voyage = await CallerScopedRead.ReadVoyageAsync(database, OwnerScopeOf(caller), id).ConfigureAwait(false);
-            if (voyage == null) return null;
-            if (String.Equals(anchor.VoyageId, voyage.Id, StringComparison.Ordinal)) return voyage;
-            EvidenceLinks links = await ReadEvidenceLinksAsync(database, caller, anchor).ConfigureAwait(false);
-            return await VoyageIsLinkedAsync(database, links, voyage.Id).ConfigureAwait(false) ? voyage : null;
+            return voyage != null && await scope.CanReadVoyageAsync(voyage).ConfigureAwait(false) ? voyage : null;
+        }
+
+        /// <summary>
+        /// Open the evidence scope of the calling mission once. The per-id mission and voyage reads ask it, and
+        /// a listing asks it for every record, so a listing shows exactly what the per-id reads return.
+        /// Null when the caller holds no mission credential or its own mission is outside its owner scope.
+        /// </summary>
+        public static async Task<MissionReadScope?> OpenAsync(DatabaseDriver database, AuthContext caller)
+        {
+            Mission? anchor = await ReadAnchorAsync(database, caller).ConfigureAwait(false);
+            return anchor == null ? null : new MissionReadScope(database, caller, anchor);
+        }
+
+        /// <summary>
+        /// The caller as its mission owner, with no administrator rights. A mission token never inherits its
+        /// owner's operator privileges, so every caller-scoped read made for a mission caller uses this identity.
+        /// </summary>
+        public static AuthContext OwnerScopeOf(AuthContext caller)
+        {
+            return AuthContext.Authenticated(
+                OwnershipPolicy.TenantOf(caller), OwnershipPolicy.UserOf(caller), false, false, caller.AuthMethod ?? "Session");
         }
 
         /// <summary>
@@ -155,17 +157,10 @@ namespace Armada.Server.Mcp
             return exists && !String.IsNullOrEmpty(caller.MissionId) && SameOwner(caller, tenantId, userId);
         }
 
-        private static AuthContext OwnerScopeOf(AuthContext caller)
+        private static bool VoyageIsLinked(EvidenceLinks links, Voyage voyage)
         {
-            return AuthContext.Authenticated(
-                OwnershipPolicy.TenantOf(caller), OwnershipPolicy.UserOf(caller), false, false, caller.AuthMethod ?? "Session");
-        }
-
-        private static async Task<bool> VoyageIsLinkedAsync(DatabaseDriver database, EvidenceLinks links, string voyageId)
-        {
-            if (links.VoyageIds.Contains(voyageId)) return true;
-            Voyage? voyage = await database.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
-            string? briefObjectiveId = VoyageObjectiveResolver.ReadBriefObjectiveId(voyage?.Description);
+            if (links.VoyageIds.Contains(voyage.Id)) return true;
+            string? briefObjectiveId = VoyageObjectiveResolver.ReadBriefObjectiveId(voyage.Description);
             return briefObjectiveId != null && links.Objectives.ContainsKey(briefObjectiveId);
         }
 
@@ -323,6 +318,111 @@ namespace Armada.Server.Mcp
         #endregion
 
         #region Private-Classes
+
+        /// <summary>
+        /// The evidence scope of one calling mission. The links are read on first need and kept, and each
+        /// voyage's link verdict is kept, so asking about many records costs one link read.
+        /// </summary>
+        internal sealed class MissionReadScope
+        {
+            private readonly DatabaseDriver _Database;
+            private readonly AuthContext _Caller;
+            private readonly Mission _Anchor;
+            private readonly Dictionary<string, bool> _LinkedVoyages = new Dictionary<string, bool>(StringComparer.Ordinal);
+            private EvidenceLinks? _Links;
+            private bool _RescueRootRead;
+            private Mission? _RescueRoot;
+
+            /// <summary>Instantiate for one caller and its own mission.</summary>
+            public MissionReadScope(DatabaseDriver database, AuthContext caller, Mission anchor)
+            {
+                _Database = database ?? throw new ArgumentNullException(nameof(database));
+                _Caller = caller ?? throw new ArgumentNullException(nameof(caller));
+                _Anchor = anchor ?? throw new ArgumentNullException(nameof(anchor));
+            }
+
+            /// <summary>True when the calling mission may read the mission.</summary>
+            public async Task<bool> CanReadMissionAsync(Mission target)
+            {
+                if (target == null || !SameOwner(_Caller, target.TenantId, target.UserId)) return false;
+                if (target.Id == _Anchor.Id
+                    || (!String.IsNullOrEmpty(_Anchor.VoyageId) && target.VoyageId == _Anchor.VoyageId)
+                    || target.Id == _Anchor.DependsOnMissionId
+                    || target.Id == _Anchor.ParentMissionId)
+                    return true;
+                Mission? rescueRoot = await ReadRescueRootAsync().ConfigureAwait(false);
+                if (rescueRoot != null
+                    && rescueRoot.ParentMissionId == target.Id
+                    && SameRescueVessel(_Anchor, target))
+                    return true;
+
+                EvidenceLinks links = await ReadLinksAsync().ConfigureAwait(false);
+                if (links.MissionIds.Contains(target.Id)) return true;
+                return !String.IsNullOrEmpty(target.VoyageId)
+                    && await IsVoyageLinkedAsync(target.VoyageId).ConfigureAwait(false);
+            }
+
+            /// <summary>True when the calling mission may read the voyage.</summary>
+            public async Task<bool> CanReadVoyageAsync(Voyage voyage)
+            {
+                if (voyage == null || !SameOwner(_Caller, voyage.TenantId, voyage.UserId)) return false;
+                if (String.Equals(_Anchor.VoyageId, voyage.Id, StringComparison.Ordinal)) return true;
+                return await IsVoyageLinkedAsync(voyage).ConfigureAwait(false);
+            }
+
+            /// <summary>
+            /// Record the link verdict of voyages a listing has already read, so asking about their missions
+            /// reads no voyage again.
+            /// </summary>
+            public async Task RememberVoyagesAsync(IEnumerable<Voyage> voyages)
+            {
+                if (voyages == null) return;
+                foreach (Voyage voyage in voyages)
+                {
+                    if (voyage != null) await IsVoyageLinkedAsync(voyage).ConfigureAwait(false);
+                }
+            }
+
+            private async Task<bool> IsVoyageLinkedAsync(Voyage voyage)
+            {
+                if (_LinkedVoyages.TryGetValue(voyage.Id, out bool known)) return known;
+                EvidenceLinks links = await ReadLinksAsync().ConfigureAwait(false);
+                bool linked = VoyageIsLinked(links, voyage);
+                _LinkedVoyages[voyage.Id] = linked;
+                return linked;
+            }
+
+            private async Task<bool> IsVoyageLinkedAsync(string voyageId)
+            {
+                if (_LinkedVoyages.TryGetValue(voyageId, out bool known)) return known;
+                EvidenceLinks links = await ReadLinksAsync().ConfigureAwait(false);
+                if (links.VoyageIds.Contains(voyageId))
+                {
+                    _LinkedVoyages[voyageId] = true;
+                    return true;
+                }
+                Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId).ConfigureAwait(false);
+                bool linked = voyage != null && VoyageIsLinked(links, voyage);
+                _LinkedVoyages[voyageId] = linked;
+                return linked;
+            }
+
+            private async Task<EvidenceLinks> ReadLinksAsync()
+            {
+                if (_Links == null) _Links = await ReadEvidenceLinksAsync(_Database, _Caller, _Anchor).ConfigureAwait(false);
+                return _Links;
+            }
+
+            private async Task<Mission?> ReadRescueRootAsync()
+            {
+                if (!_RescueRootRead)
+                {
+                    _RescueRoot = await FindRescueRootInDependencyChainAsync(_Database, _Caller, _Anchor).ConfigureAwait(false);
+                    _RescueRootRead = true;
+                }
+                return _RescueRoot;
+            }
+        }
 
         /// <summary>The records linked to one calling mission.</summary>
         private sealed class EvidenceLinks

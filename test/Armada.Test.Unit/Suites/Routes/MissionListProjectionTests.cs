@@ -111,7 +111,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     SummaryOnlyMissionMethods missions = SummaryOnlyMissionMethods.Install(testDb.Driver);
 
                     Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
-                    McpEnumerateTools.Register((name, _, _, handler) => { handlers[name] = handler; }, testDb.Driver);
+                    McpEnumerateTools.Register((name, _, _, handler) => { handlers[name] = McpTestCaller.Wrap(handler); }, testDb.Driver);
 
                     foreach (string entityType in new[] { "missions", "mission" })
                     {

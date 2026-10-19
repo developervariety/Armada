@@ -35,7 +35,7 @@ namespace Armada.Test.Unit.Suites.Services
                     int logLength = run.Output!.Length;
 
                     Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
-                    McpEnumerateTools.Register((name, _, _, handler) => { handlers[name] = handler; }, testDb.Driver);
+                    McpEnumerateTools.Register((name, _, _, handler) => { handlers[name] = McpTestCaller.Wrap(handler); }, testDb.Driver);
 
                     object page = await handlers["armada_enumerate"](Args("{\"entityType\":\"checks\",\"pageSize\":14}")).ConfigureAwait(false);
                     string json = JsonSerializer.Serialize(page);
