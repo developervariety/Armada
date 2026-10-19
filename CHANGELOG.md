@@ -101,6 +101,10 @@ upstream integrations and excludes changes already present at that baseline.
   branch docks provision. Claude Code, Codex and Cursor captains get each
   provisioned sibling as an extra workspace root (`--add-dir`); other runtimes
   get the shell search command in the brief.
+- A brief no longer names a host path a captain cannot open: the
+  `briefPathRewrites` setting (empty by default, hot-reloaded) rewrites a host
+  path prefix in the mission description and the objective scope to the path
+  the captain resolves, such as a container mount.
 - Two unit tests no longer fail on a loaded host. The stale-job reap test waits
   for its operation to start instead of sleeping a fixed 30 ms, and the relaunch
   test accepts a heartbeat stamp that the new process records after the launch.

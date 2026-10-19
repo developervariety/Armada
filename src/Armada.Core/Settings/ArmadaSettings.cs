@@ -500,6 +500,20 @@ namespace Armada.Core.Settings
         private List<string> _AvailableLicensedContexts = new List<string>();
 
         /// <summary>
+        /// Path prefix rewrites applied to operator-written text in captain briefs (the mission description and
+        /// the linked objective's scope). Each rewrite replaces a host path prefix with the path a captain resolves,
+        /// for example a host volume and its container mount. The list ships empty, so briefs are unchanged until a
+        /// deployment adds a rewrite. Hot-reloads in place.
+        /// </summary>
+        public List<BriefPathRewrite> BriefPathRewrites
+        {
+            get => _BriefPathRewrites;
+            set => _BriefPathRewrites = value ?? new List<BriefPathRewrite>();
+        }
+
+        private List<BriefPathRewrite> _BriefPathRewrites = new List<BriefPathRewrite>();
+
+        /// <summary>
         /// Absolute path to the shared AI-Memory root on the host where captains run, or null to omit
         /// the AI-Memory module from captain instructions.
         ///
@@ -1204,6 +1218,7 @@ namespace Armada.Core.Settings
                 if (rule != null) patterns.Add(rule.Clone());
             BannedDiffPatterns = patterns;
             CaptainEnvironmentScrubNames = new List<string>(source.CaptainEnvironmentScrubNames);
+            BriefPathRewrites = new List<BriefPathRewrite>(source.BriefPathRewrites);
             // The crash-loop tracker and the definition-of-done gate are constructed with a reference to
             // these sections, so both are copied in place: a replaced object would leave them reading
             // the startup values while the admiral reads the reloaded ones.

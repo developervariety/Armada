@@ -205,6 +205,9 @@ A brief also matches the dock it lands in and the tools the captain has:
   checkout as a workspace root (`--add-dir`), so built-in search and file tools
   reach it. Other runtimes keep their tools inside the dock, and the section
   names the shell search to use instead.
+- `briefPathRewrites` (a list of `{ "from", "to" }` prefixes, empty by default)
+  rewrites host paths in the mission description and the objective scope to the
+  paths a captain resolves, such as a host volume and its container mount.
 
 A rescue of an objective whose non-goals forbid test edits runs no TestEngineer
 stage. The skip goes through the same stage-skip rule as a dispatch and is

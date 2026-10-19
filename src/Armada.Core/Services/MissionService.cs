@@ -3577,7 +3577,9 @@ namespace Armada.Core.Services
             //
             // A handoff written on another runtime can name that runtime's instruction file, which this dock
             // never receives, so the copy the captain reads names this runtime's file instead.
-            string? briefDescription = RetargetInstructionFileNames(mission.Description, instructionsFileName, worktreePath);
+            string? briefDescription = RewriteBriefPaths(
+                RetargetInstructionFileNames(mission.Description, instructionsFileName, worktreePath),
+                _Settings.BriefPathRewrites);
             List<ContextBriefFile> descriptionFiles = BuildMissionDescriptionFiles(briefDescription);
             await WriteBriefFilesAsync(worktreePath, MissionDescriptionFolder, descriptionFiles, token).ConfigureAwait(false);
             // A handoff embeds a bounded preview of a long earlier-stage report; the complete report is written
@@ -3633,7 +3635,9 @@ namespace Armada.Core.Services
             // scope, acceptance criteria, and non-goals are the definition of done. Previously a linked
             // objective never reached the captain as distinct context -- the mission description alone
             // had to stand in for it -- and the Judge had no acceptance criteria to review against.
-            string objectiveScope = await BuildObjectiveScopeSectionAsync(mission, token).ConfigureAwait(false);
+            string objectiveScope = RewriteBriefPaths(
+                await BuildObjectiveScopeSectionAsync(mission, token).ConfigureAwait(false),
+                _Settings.BriefPathRewrites) ?? String.Empty;
             if (!String.IsNullOrEmpty(objectiveScope))
             {
                 content += ledger.Track("mission.objective_scope", objectiveScope);

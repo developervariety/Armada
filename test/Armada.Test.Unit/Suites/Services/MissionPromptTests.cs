@@ -596,6 +596,44 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Configured brief path rewrites turn host paths in the description into the paths a captain resolves", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.BriefPathRewrites = new List<BriefPathRewrite> { new BriefPathRewrite { From = "/host/volume/", To = "/mnt/evidence" } };
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Mission mission = new Mission
+                        {
+                            Title = "Read the packet",
+                            Persona = "Worker",
+                            Description = "Read /host/volume/packets/run-1/report.md and leave /host/volume-old/notes.md and /other/host/volume/x.md alone."
+                        };
+                        await service.GenerateClaudeMdAsync(tempDir, mission, new Vessel("RewriteVessel", "https://github.com/test/repo"));
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertContains("/mnt/evidence/packets/run-1/report.md", brief, "a host path prefix is rewritten to the captain path");
+                        AssertFalse(brief.Contains("/host/volume/packets"), "the host path no longer appears");
+                        AssertContains("/host/volume-old/notes.md", brief, "a longer directory sharing the prefix is left alone");
+                        AssertContains("/other/host/volume/x.md", brief, "a path that only contains the prefix is left alone");
+
+                        ArmadaSettings reloaded = CreateSettings();
+                        reloaded.ApplyHotReloadableFrom(settings);
+                        AssertEqual(1, reloaded.BriefPathRewrites.Count, "a settings reload carries the rewrites");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("A brief stages the complete output of every earlier stage it cites, and nothing from another owner", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
