@@ -384,6 +384,32 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("The no-push mission rules tell a captain in a detached checkout to leave branch refs alone, once", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplate existing = new PromptTemplate("mission.rules_no_push", "## Rules\n- Operator custom rule\n");
+                    existing.Category = "mission";
+                    existing.IsBuiltIn = true;
+                    await testDb.Driver.PromptTemplates.CreateAsync(existing).ConfigureAwait(false);
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    const string rule = "In a detached checkout, commit on HEAD and leave branch refs alone";
+                    PromptTemplate? edited = await service.ResolveAsync("mission.rules_no_push").ConfigureAwait(false);
+                    AssertNotNull(edited, "mission.rules_no_push should resolve");
+                    AssertEqual(1, edited!.Content.Split(new[] { rule }, StringSplitOptions.None).Length - 1, "the edited row carries the detached-checkout rule exactly once");
+                    AssertContains("- Operator custom rule", edited.Content, "the operator edit is preserved");
+                    PromptTemplateService fresh = new PromptTemplateService(testDb.Driver, logging);
+                    AssertContains(rule, fresh.GetEmbeddedDefault("mission.rules_no_push") ?? String.Empty, "a fresh no-push default carries the rule");
+                }
+            });
+
             await RunTest("Fresh-seeded mission.rules carries the fleet guard rules", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

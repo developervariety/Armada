@@ -79,6 +79,19 @@ namespace Armada.Core.Services
             "- Never write a mission, voyage, or objective id into committed content -- code, comments, tests, commit messages, or branch names.\n";
 
         /// <summary>
+        /// Marker meaning a mission-rules template already carries the detached-checkout rule.
+        /// </summary>
+        private const string _DetachedCheckoutMarker = "In a detached checkout, commit on HEAD";
+
+        /// <summary>
+        /// Rule appended to the no-push mission rules: a stage that reviews gets a detached checkout, and
+        /// Armada moves the mission branch to its commit, so the captain never moves a branch ref. The
+        /// push variant carries its own detached-checkout push rule.
+        /// </summary>
+        private const string _DetachedCheckoutRule =
+            "- " + _DetachedCheckoutMarker + " and leave branch refs alone; Armada moves the branch.\n";
+
+        /// <summary>
         /// Heading of the blocked-path section. Presence means a template already carries the guidance.
         /// </summary>
         private const string _BlockedPathMarker = "## When You Cannot Finish";
@@ -196,6 +209,7 @@ namespace Armada.Core.Services
             MergeAdditionalTemplates(additionalTemplates);
             AddMemoryRecallGuidance();
             AddFleetGuardRules();
+            AddDetachedCheckoutRule();
             AddBlockedPathGuidance();
             AddTestCoverageEvidence();
             AddLintFindingFormat();
@@ -305,6 +319,7 @@ namespace Armada.Core.Services
             await UpgradeLegacyPersonaTemplateReferencesAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInPersonaMemoryRecallAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInMissionRuleFleetGuardsAsync(token).ConfigureAwait(false);
+            await UpgradeBuiltInPersonaSectionAsync(token, "mission.rules_no_push", _DetachedCheckoutMarker, _DetachedCheckoutRule, "detached-checkout").ConfigureAwait(false);
             await UpgradeBuiltInPersonaBlockedPathAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.test_engineer", _TestCoverageEvidenceMarker, _TestCoverageEvidence, "coverage-evidence").ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.linter", _LintFindingFormatMarker, _LintFindingFormat, "finding-format").ConfigureAwait(false);
@@ -439,6 +454,15 @@ namespace Armada.Core.Services
                 await _Database.PromptTemplates.UpdateAsync(template, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "added fleet guard rules to built-in template '" + template.Name + "'");
             }
+        }
+
+        /// <summary>
+        /// Append the detached-checkout rule to the embedded no-push mission rules, so seeding, fallback
+        /// resolution and reset all deliver the same text.
+        /// </summary>
+        private void AddDetachedCheckoutRule()
+        {
+            AddSectionToEmbedded("mission.rules_no_push", _DetachedCheckoutMarker, _DetachedCheckoutRule);
         }
 
         /// <summary>Whether a template takes the blocked path: a working persona, but not the Recorder or the Judge.</summary>

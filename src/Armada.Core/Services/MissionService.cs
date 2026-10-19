@@ -5367,7 +5367,8 @@ namespace Armada.Core.Services
         /// the downstream-persona dock race. Personas that only read (Judge, Architect, the specialist
         /// reviewers, and the Recorder, which reads the finished work and writes only native memory)
         /// can run detached at the same commit instead, which is also what lets same-stage personas
-        /// such as dual-Judge run concurrently.
+        /// such as dual-Judge run concurrently. PortingReferenceAnalyst stays attached: it commits
+        /// parity fixes, and it runs alone between the Worker and the TestEngineer.
         ///
         /// Unknown or blank personas default to attached: the worst case is today's behavior, whereas
         /// wrongly detaching a committing persona would orphan its commits.
@@ -5385,7 +5386,6 @@ namespace Armada.Core.Services
                 case "usability engineer":
                 case "diagnosticprotocolreviewer":
                 case "tenantsecurityreviewer":
-                case "portingreferenceanalyst":
                 case "priorartanalyst":
                 case "recorder":
                     return false;
@@ -7870,8 +7870,8 @@ namespace Armada.Core.Services
             nextMission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
 
-            // Stage-lag hardening: a prior stage whose dock is detached (for example the
-            // PortingReferenceAnalyst persona) commits on a detached HEAD, so its produced commit
+            // Stage-lag hardening: a prior stage whose dock is detached (a reviewer persona that
+            // commits anyway) commits on a detached HEAD, so its produced commit
             // may never reach the shared mission branch ref -- it only lands in
             // refs/armada-preserved/<branch> when the dock is reclaimed. Without this, the next
             // attached stage (TestEngineer, Judge) cuts its dock from the stale branch head and
@@ -7923,7 +7923,7 @@ namespace Armada.Core.Services
         /// </summary>
         /// <remarks>
         /// A stage whose persona returns <c>false</c> from
-        /// <see cref="PersonaRequiresBranchAttachment"/> (for example PortingReferenceAnalyst) is
+        /// <see cref="PersonaRequiresBranchAttachment"/> (a reviewer persona that commits anyway) is
         /// provisioned a DETACHED worktree. Its captain commits on a detached HEAD, so a plain
         /// <c>git push origin HEAD</c> cannot advance the mission branch; the produced commit is only
         /// captured to <c>refs/armada-preserved/&lt;branch&gt;</c> when the dock is reclaimed. The

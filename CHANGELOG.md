@@ -71,6 +71,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A PortingReferenceAnalyst stage holds the mission branch in its dock, because
+  it commits parity fixes; it no longer starts detached and leaves its captain
+  to move the branch by hand. The no-push mission rules tell a captain in a
+  detached checkout to commit on HEAD and leave branch refs alone, since Armada
+  moves the mission branch to that commit when the stage ends.
+
 - Rescue briefs carry only a review's real defects. The blocking-findings list
   no longer reads "Minor, not blocking:" or "Observed but not blocking:" items
   as blocking, leaves out items that disclaim a defect, close "Reviewed and

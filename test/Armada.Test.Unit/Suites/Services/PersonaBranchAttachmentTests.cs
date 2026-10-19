@@ -25,6 +25,8 @@ namespace Armada.Test.Unit.Suites.Services
                     "Worker commits its implementation and must hold the branch");
                 AssertTrue(MissionService.PersonaRequiresBranchAttachment("TestEngineer"),
                     "TestEngineer commits tests and must hold the branch");
+                AssertTrue(MissionService.PersonaRequiresBranchAttachment("PortingReferenceAnalyst"),
+                    "PortingReferenceAnalyst commits parity fixes, so a detached dock would leave its commit off the branch");
             });
 
             await RunTest("ReadOnlyPersonas_DoNotRequireAttachment", () =>
@@ -33,8 +35,6 @@ namespace Armada.Test.Unit.Suites.Services
                     "Judge is final review only, so it can run detached alongside the branch holder");
                 AssertTrue(!MissionService.PersonaRequiresBranchAttachment("Architect"),
                     "Architect decomposes read-only");
-                AssertTrue(!MissionService.PersonaRequiresBranchAttachment("PortingReferenceAnalyst"),
-                    "specialist reviewers read the diff rather than commit");
                 AssertTrue(!MissionService.PersonaRequiresBranchAttachment("TenantSecurityReviewer"),
                     "specialist reviewers read the diff rather than commit");
                 AssertTrue(!MissionService.PersonaRequiresBranchAttachment("Recorder"),

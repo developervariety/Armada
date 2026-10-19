@@ -37,6 +37,15 @@ deleted) together with their `*Tested` pipelines; no voyage used them:
 | `Recorder` | Review the finished work of a voyage and record what is worth remembering into native captain memory. Writes memory only; never changes the repository or shared memory. When the objective forbids native memory (tag `no-native-memory`, or a rollout constraint saying the work writes no memory), the memory tools refuse with `native_memory_forbidden` and the Recorder reports only. |
 | `PriorArtAnalyst` | Read-only Research analyst that settles whether an objective’s deliverable already exists before a Worker builds it; commits nothing. Conditional stage, not in a default pipeline (see below). |
 
+A stage that commits holds the mission branch in its dock: Worker, TestEngineer,
+Linter and PortingReferenceAnalyst, which commits parity fixes. Judge, Architect,
+Product Manager, Usability Engineer, the specialist reviewers, PriorArtAnalyst and
+Recorder get a checkout detached at the same commit, so same-stage reviewers can
+run together. A commit made on a detached checkout still reaches the branch:
+Armada moves the mission branch to the dock's commit at handoff, and landing uses
+the commit captured from the dock. The no-push mission rules, which LocalMerge
+vessels use, tell the captain to leave branch refs alone in a detached checkout.
+
 The seed service reconciles built-in definitions. Built-in personas cannot be
 deleted. Custom personas can be created, updated, or deleted.
 
