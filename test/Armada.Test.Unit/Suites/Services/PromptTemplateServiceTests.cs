@@ -494,7 +494,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("The Linter duplication check reaches seeded and existing rows once, keeps operator edits and the finding headings", async () =>
+            await RunTest("The Linter duplication and test checks reach seeded and existing rows once, keep operator edits and the finding headings", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -515,16 +515,24 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("armada_mission_code_search", linter.Content, "the check names the captain search tool");
                     AssertContains("Never fix a duplicate", linter.Content, "the check is report-only");
                     AssertContains("do not report that no duplication exists", linter.Content, "an unavailable index is never read as no duplication");
+                    AssertContains("## Test Check", linter.Content, "the test check reaches an existing built-in row");
+                    AssertContains("TEST: <path:line>", linter.Content, "the test check names its finding line");
+                    AssertContains("Never delete, skip, or weaken a test", linter.Content, "the test check is report-only");
+                    AssertContains("never remove or loosen an assertion", linter.Content, "a reported test keeps every assertion");
                     AssertContains("## Residual Issues", linter.Content, "the finding-section headings are preserved");
 
                     await service.SeedDefaultsAsync().ConfigureAwait(false);
                     PromptTemplate? reseeded = await service.ResolveAsync("persona.linter").ConfigureAwait(false);
-                    int occurrences = reseeded!.Content.Split("## Duplication Check").Length - 1;
-                    AssertEqual(1, occurrences, "a second seed does not append the section again");
+                    foreach (string heading in new[] { "## Duplication Check", "## Test Check" })
+                    {
+                        int occurrences = reseeded!.Content.Split(heading).Length - 1;
+                        AssertEqual(1, occurrences, "a second seed does not append " + heading + " again");
+                    }
 
                     PromptTemplate? embedded = await new PromptTemplateService(testDb.Driver, logging, FleetRoutingSettings.CreateAdditionalPromptTemplates())
                         .ResetToDefaultAsync("persona.linter").ConfigureAwait(false);
-                    AssertContains("## Duplication Check", embedded!.Content, "the embedded default carries the check");
+                    AssertContains("## Duplication Check", embedded!.Content, "the embedded default carries the duplication check");
+                    AssertContains("## Test Check", embedded.Content, "the embedded default carries the test check");
                 }
             });
 
@@ -546,6 +554,9 @@ namespace Armada.Test.Unit.Suites.Services
                     PromptTemplate? testEngineer = await service.ResolveAsync("persona.test_engineer").ConfigureAwait(false);
                     AssertContains("## Coverage Evidence", testEngineer!.Content, "the D22 coverage-evidence ask reaches the TestEngineer");
                     AssertContains("fails without the change", testEngineer.Content, "the D22 ask names the failing-without-change requirement");
+                    AssertContains("## Test Authoring Gate", testEngineer.Content, "the authoring gate reaches the TestEngineer");
+                    AssertContains("why the existing tests miss that regression", testEngineer.Content, "the gate asks why existing coverage misses the regression");
+                    AssertContains("Never remove or weaken an existing test", testEngineer.Content, "the gate never trades an existing test for a new one");
 
                     PromptTemplate? linter = await service.ResolveAsync("persona.linter").ConfigureAwait(false);
                     AssertStartsWith("You are a linter. OPERATOR CUSTOM.", linter!.Content, "the operator edit is preserved");
@@ -558,6 +569,8 @@ namespace Armada.Test.Unit.Suites.Services
                     await service.SeedDefaultsAsync().ConfigureAwait(false);
                     PromptTemplate? again = await service.ResolveAsync("persona.linter").ConfigureAwait(false);
                     AssertEqual(1, again!.Content.Split(new[] { "## Finding Format" }, StringSplitOptions.None).Length - 1, "the finding-format section is added once");
+                    PromptTemplate? testEngineerAgain = await service.ResolveAsync("persona.test_engineer").ConfigureAwait(false);
+                    AssertEqual(1, testEngineerAgain!.Content.Split(new[] { "## Test Authoring Gate" }, StringSplitOptions.None).Length - 1, "the authoring-gate section is added once");
                 }
             });
 

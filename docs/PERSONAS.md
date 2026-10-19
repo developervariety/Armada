@@ -76,6 +76,33 @@ instead of reporting no duplication. The section is added to the embedded defaul
 and, by an append-if-missing upgrader, to an existing built-in row, so an
 operator edit is kept. The finding headings are unchanged.
 
+### Linter test check and TestEngineer authoring gate
+
+The Linter template carries a `## Test Check` section. For each test the mission
+adds or changes, the Linter reports under `## Residual Issues`, as
+`[consistency | should_fix] TEST: <path:line> - <problem>`, a test that repeats
+a contract another test owns at the same or a stronger boundary (naming that
+test), asserts source text, call shapes, a copied inventory or a value the code
+under test produced, has no real assertion or lets a mock supply the asserted
+behavior, needs a test-only seam, carries a name that does not match its
+behavior, or waits a fixed delay where a readiness signal or injected clock
+would do. A test that cannot fail for the regression its name claims is a
+`correctness` finding. The check is report-only: the Linter never deletes, skips
+or weakens a test and never removes or loosens an assertion, because a test that
+looks redundant from the diff can guard a contract the diff does not show.
+Removing a test is separate work with its own evidence, and slow or static is not
+low value on that ground alone.
+
+The TestEngineer template carries a `## Test Authoring Gate` section. Before it
+adds a test, the TestEngineer states what behavior the test protects, what
+regression makes it fail and why existing tests miss it; it gives each contract
+one primary test at the strongest boundary, extends a table-driven case or shared
+fixture instead of adding a near-copy, tests through the real boundary rather
+than a test-only seam, and never removes or weakens an existing test to make room.
+
+Both sections reach the embedded defaults and existing built-in rows through the
+append-if-missing upgrader, so an operator edit is kept.
+
 ### Prior-art analyst stage (`prior_art`)
 
 The `prior_art` typed decision does not add a persona to any pipeline by default: it is a

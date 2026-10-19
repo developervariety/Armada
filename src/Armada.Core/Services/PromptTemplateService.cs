@@ -143,6 +143,24 @@ namespace Armada.Core.Services
             "stating that it fails without the change under test. This lets the reviewer confirm the test " +
             "proves the fix rather than only that the code runs.\n";
 
+        /// <summary>Heading of the authoring-gate section on the TestEngineer template.</summary>
+        private const string _TestAuthoringGateMarker = "## Test Authoring Gate";
+
+        /// <summary>
+        /// The authoring gate added to the TestEngineer persona: justify each new test against the coverage
+        /// that already exists, so a contract has one primary test at its strongest boundary instead of a copy
+        /// at every layer.
+        /// </summary>
+        private const string _TestAuthoringGate =
+            "\n" +
+            _TestAuthoringGateMarker + "\n" +
+            "Before you add a test, answer three questions: what observable behavior or contract it protects, " +
+            "what credible regression makes it fail, and why the existing tests miss that regression. Give each " +
+            "contract one primary test at the strongest boundary, and add a test at another layer only for a risk " +
+            "the primary test cannot reach. Extend an existing table-driven case or shared fixture instead of " +
+            "adding a near-copy. Test through the real boundary, not through an export, flag, or hook that only " +
+            "tests use. Never remove or weaken an existing test to make room for a new one.\n";
+
         /// <summary>Heading of the finding-format section on the Linter template (the D24 ask).</summary>
         private const string _LintFindingFormatMarker = "## Finding Format";
 
@@ -181,6 +199,30 @@ namespace Armada.Core.Services
             "shared behavior>`. The index covers the default branch, so code this mission adds is not in it. " +
             "When the tool is absent, unavailable, or warns that the index is stale or lexical only, say so under " +
             "`## Residual Issues` and do not report that no duplication exists.\n";
+
+        /// <summary>Heading of the test-check section on the Linter template.</summary>
+        private const string _LintTestCheckMarker = "## Test Check";
+
+        /// <summary>
+        /// The test check added to the Linter persona: review each test the mission adds or changes for
+        /// duplicate or low-value proof and report it without removing anything, because a test that looks
+        /// redundant from the diff can guard a contract the diff does not show. The finding goes under
+        /// Residual Issues; the existing section headings the finding parser reads are left unchanged.
+        /// </summary>
+        private const string _LintTestCheck =
+            "\n" +
+            _LintTestCheckMarker + "\n" +
+            "For each test this mission adds or changes, report it under `## Residual Issues` as one line, " +
+            "`[consistency | should_fix] TEST: <path:line> - <problem>`, when it: repeats a contract another " +
+            "test already owns at the same or a stronger boundary (name that test as path:line); asserts source " +
+            "text, call shapes, a copied inventory, or an expected value produced by the code under test; has no " +
+            "assertion, compares a value with itself, or lets a mock supply the behavior it asserts; needs a " +
+            "test-only export, flag, wrapper, or injection hook that no production caller uses; carries a name " +
+            "that does not match the behavior it exercises; or waits a fixed real-time delay where a readiness " +
+            "signal or an injected clock would do. Use `correctness` instead of `consistency` when the test cannot " +
+            "fail for the regression its name claims. Never delete, skip, or weaken a test, and never remove or " +
+            "loosen an assertion, even one you report: removing a test is separate work that needs its own " +
+            "evidence. A test is not low value only because it is slow or static.\n";
         private DatabaseDriver _Database;
         private LoggingModule _Logging;
         private Dictionary<string, EmbeddedTemplate> _EmbeddedDefaults;
@@ -214,6 +256,8 @@ namespace Armada.Core.Services
             AddTestCoverageEvidence();
             AddLintFindingFormat();
             AddLintDuplicationCheck();
+            AddLintTestCheck();
+            AddTestAuthoringGate();
         }
 
         #endregion
@@ -324,6 +368,8 @@ namespace Armada.Core.Services
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.test_engineer", _TestCoverageEvidenceMarker, _TestCoverageEvidence, "coverage-evidence").ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.linter", _LintFindingFormatMarker, _LintFindingFormat, "finding-format").ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.linter", _LintDuplicationCheckMarker, _LintDuplicationCheck, "duplication-check").ConfigureAwait(false);
+            await UpgradeBuiltInPersonaSectionAsync(token, "persona.linter", _LintTestCheckMarker, _LintTestCheck, "test-check").ConfigureAwait(false);
+            await UpgradeBuiltInPersonaSectionAsync(token, "persona.test_engineer", _TestAuthoringGateMarker, _TestAuthoringGate, "authoring-gate").ConfigureAwait(false);
         }
 
         /// <summary>
@@ -544,6 +590,18 @@ namespace Armada.Core.Services
         private void AddLintDuplicationCheck()
         {
             AddSectionToEmbedded("persona.linter", _LintDuplicationCheckMarker, _LintDuplicationCheck);
+        }
+
+        /// <summary>Add the Linter test-check section to the embedded default.</summary>
+        private void AddLintTestCheck()
+        {
+            AddSectionToEmbedded("persona.linter", _LintTestCheckMarker, _LintTestCheck);
+        }
+
+        /// <summary>Add the TestEngineer authoring-gate section to the embedded default.</summary>
+        private void AddTestAuthoringGate()
+        {
+            AddSectionToEmbedded("persona.test_engineer", _TestAuthoringGateMarker, _TestAuthoringGate);
         }
 
         /// <summary>

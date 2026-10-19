@@ -9,6 +9,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- The Linter template carries a `## Test Check` section. For each test the
+  mission adds or changes, the Linter reports duplicate or low-value proof
+  under `## Residual Issues` as `TEST: <path:line> - <problem>`, and it never
+  deletes, skips or weakens a test or loosens an assertion. The TestEngineer
+  template carries a `## Test Authoring Gate` that asks what each new test
+  protects, what regression fails it and why existing tests miss it. Both
+  sections reach the embedded defaults and existing built-in rows through the
+  append-if-missing upgrader, so operator edits are kept.
 - `diskLifecycle.extraRetentionRoots` keeps operator directories outside
   Armada's own storage bounded. Each entry names a `path`, `retentionHours` and
   `keepNewest`; each direct child of the path is reclaimed once idle past the
