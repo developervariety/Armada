@@ -936,6 +936,153 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A gate that times out while the host is overloaded runs once more after load falls and records the re-run", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_load_rerun", "vsl_load_rerun",
+                        worktreePath, HangOnceCommand(), SuccessCommand()).ConfigureAwait(false);
+
+                    // 4 cores: overloaded above 8, fallen at or below 4. The reading at the timeout is 20; the
+                    // wait reads 10, then 6 after one recheck interval, then 3 after the second.
+                    FakeHostLoad load = new FakeHostLoad(4, 20.0, 10.0, 6.0, 3.0);
+                    DefinitionOfDoneGate gate = new FastTimeoutGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, CommandTimeoutSeconds = 30 },
+                        testDb.Driver,
+                        logging,
+                        TimeSpan.FromSeconds(1),
+                        load.Monitor);
+
+                    Mission mission = CreateWorkerMission("ten_load_rerun", "vsl_load_rerun");
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "the re-run after load fell passes, and its result stands");
+                    AssertEqual(2, CountCommandRuns(worktreePath), "the gate ran its build twice: the timed-out run and the re-run");
+                    AssertEqual(2, load.Delays.Count, "the gate waited two recheck intervals for load to fall, without a real wait");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(DefinitionOfDoneLoadRerunRecord.EventType).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "one load re-run event is recorded");
+                    AssertEqual(mission.Id, events[0].MissionId, "the event names the mission");
+                    DefinitionOfDoneLoadRerunRecord? record = JsonSerializer.Deserialize<DefinitionOfDoneLoadRerunRecord>(events[0].Payload!);
+                    AssertNotNull(record, "the event carries the re-run record");
+                    AssertEqual("build", record!.TimedOutCommandLabel, "the record names the command that timed out");
+                    AssertEqual(20.0, record.LoadAtTimeout, "the record carries the load reading that triggered the re-run");
+                    AssertEqual(3.0, record.LoadAtRerun, "the record carries the load reading when the re-run started");
+                    AssertEqual(4, record.LogicalCores, "the record carries the core count");
+                    AssertEqual(8.0, record.OverloadThreshold, "overloaded means above twice the core count");
+                    AssertTrue(record.LoadFell, "load fell before the re-run");
+                    AssertEqual(60.0, record.WaitedSeconds, "two 30-second rechecks were waited on the injected clock");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A gate that times out again on its load re-run fails with the Timeout result after the bounded wait", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_load_twice", "vsl_load_twice",
+                        worktreePath, CountedHangCommand(), SuccessCommand()).ConfigureAwait(false);
+
+                    // Load never falls, so the wait ends at its maximum and the re-run proceeds anyway.
+                    FakeHostLoad load = new FakeHostLoad(4, 20.0);
+                    DefinitionOfDoneGate gate = new FastTimeoutGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, CommandTimeoutSeconds = 30 },
+                        testDb.Driver,
+                        logging,
+                        TimeSpan.FromSeconds(1),
+                        load.Monitor);
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        CreateWorkerMission("ten_load_twice", "vsl_load_twice"), new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "a second timeout fails the gate");
+                    AssertEqual(DefinitionOfDoneFailureClassEnum.Timeout, result.FailureClass, "the failure keeps its Timeout class");
+                    AssertEqual("build", result.CommandLabel, "the failure keeps its command label");
+                    AssertContains("timed out", result.OutputTail!, "the failure keeps the timeout message");
+                    AssertEqual(2, CountCommandRuns(worktreePath), "the gate re-runs once, never twice");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(DefinitionOfDoneLoadRerunRecord.EventType).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "one load re-run event is recorded");
+                    DefinitionOfDoneLoadRerunRecord? record = JsonSerializer.Deserialize<DefinitionOfDoneLoadRerunRecord>(events[0].Payload!);
+                    AssertFalse(record!.LoadFell, "the record says load did not fall");
+                    AssertEqual(HostLoadMonitor.MaximumWait.TotalSeconds, record.WaitedSeconds, "the wait ended at its maximum");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A gate that times out at normal or unknown host load fails at once without a re-run", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                List<string> worktrees = new List<string>();
+                try
+                {
+                    // 8.0 on 4 cores is exactly twice the core count, which is not above it. Null is a host
+                    // that reports no load.
+                    double?[] readings = new double?[] { 8.0, null };
+                    for (int i = 0; i < readings.Length; i++)
+                    {
+                        string worktreePath = CreateTempDir();
+                        worktrees.Add(worktreePath);
+                        string tenantId = "ten_load_normal_" + i;
+                        string vesselId = "vsl_load_normal_" + i;
+                        await EnsureVesselWithProfileAsync(testDb, tenantId, vesselId,
+                            worktreePath, CountedHangCommand(), SuccessCommand()).ConfigureAwait(false);
+
+                        FakeHostLoad load = new FakeHostLoad(4, readings[i]);
+                        DefinitionOfDoneGate gate = new FastTimeoutGate(
+                            new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, CommandTimeoutSeconds = 30 },
+                            testDb.Driver,
+                            logging,
+                            TimeSpan.FromSeconds(1),
+                            load.Monitor);
+
+                        DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                            CreateWorkerMission(tenantId, vesselId), new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                        string at = "load " + (readings[i]?.ToString() ?? "unknown");
+                        AssertFalse(result.Passed, "the timeout fails the gate at " + at);
+                        AssertEqual(DefinitionOfDoneFailureClassEnum.Timeout, result.FailureClass, "the failure is classified Timeout at " + at);
+                        AssertEqual(1, CountCommandRuns(worktreePath), "the build ran once at " + at);
+                        AssertEqual(0, load.Delays.Count, "the gate did not wait at " + at);
+                    }
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(DefinitionOfDoneLoadRerunRecord.EventType).ConfigureAwait(false);
+                    AssertEqual(0, events.Count, "no load re-run is recorded");
+                }
+                finally
+                {
+                    foreach (string worktreePath in worktrees) TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Host load reads the 1-minute average from /proc/loadavg text and treats an unknown reading as normal load", () =>
+            {
+                AssertEqual(17.25, HostLoadMonitor.ParseLoadAverage("17.25 9.10 4.00 3/912 40211\n"), "the first field is the 1-minute average");
+                AssertNull(HostLoadMonitor.ParseLoadAverage(""), "empty text is an unknown reading");
+                AssertNull(HostLoadMonitor.ParseLoadAverage("not-a-number 1 2"), "unparseable text is an unknown reading");
+
+                HostLoadMonitor monitor = new HostLoadMonitor(() => null, () => 4);
+                HostLoadReading unknown = monitor.Read();
+                AssertFalse(monitor.IsOverloaded(unknown), "an unknown reading is never overloaded");
+                AssertTrue(monitor.HasFallen(unknown), "an unknown reading counts as fallen");
+                AssertTrue(monitor.IsOverloaded(new HostLoadReading { LoadAverage1Min = 8.01, LogicalCores = 4 }), "above twice the cores is overloaded");
+                AssertFalse(monitor.HasFallen(new HostLoadReading { LoadAverage1Min = 4.01, LogicalCores = 4 }), "above the core count has not fallen");
+                AssertTrue(monitor.HasFallen(new HostLoadReading { LoadAverage1Min = 4.0, LogicalCores = 4 }), "at the core count has fallen");
+            }).ConfigureAwait(false);
+
             await RunTest("Gate redacts secret-like lines in the failing-command output tail", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1989,8 +2136,73 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         /// <summary>
+        /// A build that records its run, hangs on its first run, and passes on every later run.
+        /// </summary>
+        private static string HangOnceCommand()
+        {
+            return "echo run >> gate-runs.log; if [ -e hang.marker ]; then echo ok; exit 0; fi; touch hang.marker; sleep 999";
+        }
+
+        /// <summary>
+        /// A build that records its run and hangs on every run.
+        /// </summary>
+        private static string CountedHangCommand()
+        {
+            return "echo run >> gate-runs.log; sleep 999";
+        }
+
+        private static int CountCommandRuns(string worktreePath)
+        {
+            string log = Path.Combine(worktreePath, "gate-runs.log");
+            if (!File.Exists(log)) return 0;
+            int runs = 0;
+            foreach (string line in File.ReadAllLines(log))
+            {
+                if (line.Trim() == "run") runs++;
+            }
+
+            return runs;
+        }
+
+        /// <summary>
+        /// Host load readings served in order, the last repeated, on a clock that only the injected delay moves,
+        /// so a wait for load to fall runs without a real wait.
+        /// </summary>
+        private sealed class FakeHostLoad
+        {
+            public HostLoadMonitor Monitor { get; }
+
+            public List<TimeSpan> Delays { get; } = new List<TimeSpan>();
+
+            private readonly double?[] _Readings;
+            private int _Next = 0;
+            private DateTime _Now = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+            public FakeHostLoad(int logicalCores, params double?[] readings)
+            {
+                _Readings = readings;
+                Monitor = new HostLoadMonitor(ReadLoad, () => logicalCores, () => _Now, Delay);
+            }
+
+            private double? ReadLoad()
+            {
+                double? reading = _Readings[Math.Min(_Next, _Readings.Length - 1)];
+                _Next++;
+                return reading;
+            }
+
+            private Task Delay(TimeSpan interval, CancellationToken token)
+            {
+                Delays.Add(interval);
+                _Now = _Now + interval;
+                return Task.CompletedTask;
+            }
+        }
+
+        /// <summary>
         /// A gate whose command timeout is shorter than the production floor, so the timeout path
-        /// can be proven without the test waiting out a real 30 seconds.
+        /// can be proven without the test waiting out a real 30 seconds. Without a supplied monitor
+        /// host load reads unknown, so a loaded test host never sends a timeout into the load wait.
         /// </summary>
         private sealed class FastTimeoutGate : DefinitionOfDoneGate
         {
@@ -2000,7 +2212,8 @@ namespace Armada.Test.Unit.Suites.Services
                 DefinitionOfDoneSettings settings,
                 DatabaseDriver database,
                 LoggingModule logging,
-                TimeSpan timeout) : base(settings, database, logging)
+                TimeSpan timeout,
+                HostLoadMonitor? hostLoad = null) : base(settings, database, logging, null, null, null, hostLoad ?? new HostLoadMonitor(() => null))
             {
                 _Timeout = timeout;
             }

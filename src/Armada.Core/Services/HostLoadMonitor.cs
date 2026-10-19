@@ -1,0 +1,246 @@
+namespace Armada.Core.Services
+{
+    using System;
+    using System.Globalization;
+    using System.IO;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Models;
+
+    /// <summary>
+    /// Reads host CPU load and decides whether the host is overloaded, so a command that timed out
+    /// because the whole host ran slowly can be told apart from one that hangs at normal load.
+    /// </summary>
+    /// <remarks>
+    /// Load is the 1-minute load average from <c>/proc/loadavg</c>, compared with the logical core count.
+    /// The host is overloaded when the load average is above <see cref="OverloadFactor"/> times the core
+    /// count. Load has fallen when the load average is at or below <see cref="RecoveredFactor"/> times the
+    /// core count. On a host without <c>/proc/loadavg</c>, or when the file cannot be read or parsed, the
+    /// reading is unknown: an unknown reading is never overloaded and always counts as fallen, so
+    /// behavior there is the same as at normal load.
+    /// </remarks>
+    public class HostLoadMonitor
+    {
+        #region Public-Members
+
+        /// <summary>
+        /// The host is overloaded when its 1-minute load average is above this many times its logical
+        /// core count.
+        /// </summary>
+        public const double OverloadFactor = 2.0;
+
+        /// <summary>
+        /// Load has fallen when the 1-minute load average is at or below this many times the logical core
+        /// count.
+        /// </summary>
+        public const double RecoveredFactor = 1.0;
+
+        /// <summary>
+        /// How often <see cref="WaitForLoadToFallAsync"/> reads the load again while it waits.
+        /// </summary>
+        public static readonly TimeSpan RecheckInterval = TimeSpan.FromSeconds(30);
+
+        /// <summary>
+        /// Longest <see cref="WaitForLoadToFallAsync"/> waits. When load has not fallen by then the wait
+        /// ends anyway.
+        /// </summary>
+        public static readonly TimeSpan MaximumWait = TimeSpan.FromMinutes(20);
+
+        #endregion
+
+        #region Private-Members
+
+        private readonly Func<double?> _LoadReader;
+        private readonly Func<int> _CoreCountReader;
+        private readonly Func<DateTime> _Clock;
+        private readonly Func<TimeSpan, CancellationToken, Task> _Delay;
+
+        #endregion
+
+        #region Constructors-and-Factories
+
+        /// <summary>
+        /// Instantiate. Every argument is optional; a null argument uses the production source.
+        /// </summary>
+        /// <param name="loadReader">Returns the 1-minute load average, or null when unknown. Defaults to
+        /// reading <c>/proc/loadavg</c> on Linux and null elsewhere.</param>
+        /// <param name="coreCountReader">Returns the logical core count. Defaults to
+        /// <see cref="Environment.ProcessorCount"/>.</param>
+        /// <param name="clock">Returns the current UTC time. Defaults to <see cref="DateTime.UtcNow"/>.</param>
+        /// <param name="delay">Waits the given interval. Defaults to <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.</param>
+        public HostLoadMonitor(
+            Func<double?>? loadReader = null,
+            Func<int>? coreCountReader = null,
+            Func<DateTime>? clock = null,
+            Func<TimeSpan, CancellationToken, Task>? delay = null)
+        {
+            _LoadReader = loadReader ?? ReadLinuxLoadAverage;
+            _CoreCountReader = coreCountReader ?? DefaultCoreCount;
+            _Clock = clock ?? DefaultClock;
+            _Delay = delay ?? DefaultDelay;
+        }
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// Read the host load now. A reader that throws gives an unknown reading.
+        /// </summary>
+        /// <returns>The reading; never null.</returns>
+        public HostLoadReading Read()
+        {
+            double? load;
+            try
+            {
+                load = _LoadReader();
+            }
+            catch (Exception)
+            {
+                // An unreadable load is an unknown reading, which counts as normal load.
+                load = null;
+            }
+
+            int cores;
+            try
+            {
+                cores = _CoreCountReader();
+            }
+            catch (Exception)
+            {
+                cores = 1;
+            }
+
+            if (load.HasValue && (Double.IsNaN(load.Value) || Double.IsInfinity(load.Value) || load.Value < 0)) load = null;
+
+            return new HostLoadReading
+            {
+                LoadAverage1Min = load,
+                LogicalCores = cores,
+                ReadUtc = _Clock()
+            };
+        }
+
+        /// <summary>
+        /// Whether a reading shows the host overloaded: a known load average above
+        /// <see cref="OverloadFactor"/> times the core count.
+        /// </summary>
+        /// <param name="reading">The reading.</param>
+        /// <returns>True when overloaded; false for normal load and for an unknown reading.</returns>
+        public bool IsOverloaded(HostLoadReading reading)
+        {
+            if (reading == null) throw new ArgumentNullException(nameof(reading));
+            if (!reading.LoadAverage1Min.HasValue) return false;
+            return reading.LoadAverage1Min.Value > OverloadThreshold(reading.LogicalCores);
+        }
+
+        /// <summary>
+        /// Whether a reading shows load has fallen: a load average at or below
+        /// <see cref="RecoveredFactor"/> times the core count, or an unknown reading.
+        /// </summary>
+        /// <param name="reading">The reading.</param>
+        /// <returns>True when load has fallen or is unknown.</returns>
+        public bool HasFallen(HostLoadReading reading)
+        {
+            if (reading == null) throw new ArgumentNullException(nameof(reading));
+            if (!reading.LoadAverage1Min.HasValue) return true;
+            return reading.LoadAverage1Min.Value <= RecoveredThreshold(reading.LogicalCores);
+        }
+
+        /// <summary>
+        /// Wait until load has fallen, reading it every <see cref="RecheckInterval"/>, for at most
+        /// <see cref="MaximumWait"/>.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The last reading taken. <see cref="HasFallen"/> on it is false when the wait ended at
+        /// the maximum.</returns>
+        public async Task<HostLoadReading> WaitForLoadToFallAsync(CancellationToken token = default)
+        {
+            HostLoadReading reading = Read();
+            DateTime deadline = reading.ReadUtc + MaximumWait;
+            while (!HasFallen(reading) && reading.ReadUtc < deadline)
+            {
+                TimeSpan remaining = deadline - reading.ReadUtc;
+                TimeSpan interval = remaining < RecheckInterval ? remaining : RecheckInterval;
+                await _Delay(interval, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                reading = Read();
+            }
+
+            return reading;
+        }
+
+        /// <summary>
+        /// Load average above which a host with the given core count is overloaded.
+        /// </summary>
+        /// <param name="logicalCores">Logical core count.</param>
+        /// <returns>The threshold.</returns>
+        public static double OverloadThreshold(int logicalCores)
+        {
+            return OverloadFactor * Math.Max(1, logicalCores);
+        }
+
+        /// <summary>
+        /// Load average at or below which load on a host with the given core count has fallen.
+        /// </summary>
+        /// <param name="logicalCores">Logical core count.</param>
+        /// <returns>The threshold.</returns>
+        public static double RecoveredThreshold(int logicalCores)
+        {
+            return RecoveredFactor * Math.Max(1, logicalCores);
+        }
+
+        /// <summary>
+        /// Read the 1-minute load average from the text of <c>/proc/loadavg</c>.
+        /// </summary>
+        /// <param name="content">The file's text, for example <c>3.52 2.10 1.07 2/1234 5678</c>.</param>
+        /// <returns>The 1-minute load average, or null when the text is empty or cannot be parsed.</returns>
+        public static double? ParseLoadAverage(string? content)
+        {
+            if (String.IsNullOrWhiteSpace(content)) return null;
+            string[] parts = content.Trim().Split(new char[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return null;
+            if (!Double.TryParse(parts[0], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double value)) return null;
+            return value;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        /// <summary>
+        /// Read the 1-minute load average from <c>/proc/loadavg</c> on Linux. Returns null on any other
+        /// platform and on any read or parse failure.
+        /// </summary>
+        private static double? ReadLinuxLoadAverage()
+        {
+            if (!OperatingSystem.IsLinux()) return null;
+            try
+            {
+                return ParseLoadAverage(File.ReadAllText("/proc/loadavg"));
+            }
+            catch (Exception)
+            {
+                // An unreadable file is an unknown reading, which counts as normal load.
+                return null;
+            }
+        }
+
+        private static int DefaultCoreCount()
+        {
+            return Environment.ProcessorCount;
+        }
+
+        private static DateTime DefaultClock()
+        {
+            return DateTime.UtcNow;
+        }
+
+        private static Task DefaultDelay(TimeSpan interval, CancellationToken token)
+        {
+            return Task.Delay(interval, token);
+        }
+
+        #endregion
+    }
+}

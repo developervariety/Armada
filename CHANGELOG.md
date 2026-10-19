@@ -9,6 +9,18 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- A definition-of-done gate that fails with a `Timeout` failure class while
+  the host is overloaded runs once more before the mission is failed. The host
+  is overloaded when the 1-minute load average in `/proc/loadavg` is above 2
+  times the logical core count. The gate releases the host command slot, reads
+  the load every 30 seconds until it is at or below the core count, for at
+  most 20 minutes, and then evaluates again. It records
+  `mission.definition_of_done_load_rerun` with the load at the timeout and at
+  the re-run, the core count, the thresholds and the seconds waited. The
+  second result stands, so a second `Timeout` fails the mission as before. A
+  `Timeout` at normal load, or on a host without `/proc/loadavg`, fails at
+  once.
+
 - `definitionOfDone.hostCommandMemoryFloorMb` holds a free host command slot
   until the host has that many megabytes of available memory (`MemAvailable`
   in `/proc/meminfo`). It defaults to 6144, is clamped to 0-1048576, and 0

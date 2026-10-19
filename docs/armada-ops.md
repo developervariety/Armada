@@ -98,6 +98,12 @@ class and the original diagnostics. The operator corrects the host or workflow
 configuration and reruns the gate. `Compile` and `TestFail` remain eligible for
 rescue under the other recovery rules.
 
+A `Timeout` recorded while the host was overloaded has already been run twice:
+the gate waits for load to fall and runs once more before it reports the
+failure, and records `mission.definition_of_done_load_rerun` with the load
+readings (see `docs/reference/backend-dod.md`). A `Timeout` that reaches this
+block with that event beside it timed out on both runs.
+
 ## Check rules on a split voyage
 
 A voyage splits into lanes when two or more stages depend on the same stage,

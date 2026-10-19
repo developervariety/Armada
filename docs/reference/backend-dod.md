@@ -48,6 +48,35 @@ cancel wrote; it is not failed, handed off or landed.
 A failed event write is logged with the outcome and exception type. It never
 changes the gate outcome or the mission decision.
 
+## Timeout under host load
+
+A whole host running several times slower than normal times out commands that
+pass at normal load, with no test failing. When an evaluation ends with a
+`Timeout` failure class, the gate reads the host load. The host is overloaded
+when the 1-minute load average (the first field of `/proc/loadavg`) is above
+2 times the logical core count. On an overloaded host the gate does not report
+that result:
+
+1. It releases the host-wide command slot and keeps its dock lease.
+2. It reads the load again every 30 seconds until the load average is at or
+   below the logical core count, for at most 20 minutes. At 20 minutes it
+   stops waiting even when load is still high.
+3. It records event `mission.definition_of_done_load_rerun`. The payload is a
+   `DefinitionOfDoneLoadRerunRecord`, schema version 1: the command that timed
+   out, the load at the timeout and at the re-run, the core count, both
+   thresholds, whether load fell, and the seconds waited.
+4. It runs the whole evaluation once more, through the host-wide slot. That
+   result is the gate outcome and is recorded as the evaluation event. A
+   second `Timeout` fails the mission with the same reason and failure class
+   as any other `Timeout`; there is no third run.
+
+A `Timeout` at normal load fails at once. A host without `/proc/loadavg`, or a
+reading that cannot be parsed, counts as normal load, so the gate behaves the
+same as without this rule. While the gate waits for load it is still a
+running gate: it shows in `RunningGates`, and cancelling the mission stops the
+wait and records `Cancelled`. The interrupted-gate re-run follows the same
+rule.
+
 Each gate command (build, unit tests, each consumer build and test) waits for a
 host-wide command slot, which it shares with check runs and merge-queue test
 runs. `DefinitionOfDone.HostCommandSlots` (`definitionOfDone.hostCommandSlots`

@@ -5,6 +5,7 @@ namespace Armada.Core.Services
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
+    using System.Text.Json;
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
@@ -59,6 +60,7 @@ namespace Armada.Core.Services
         private readonly IContainerRuntimeProbe? _ContainerRuntimeProbe;
         private readonly IGitService? _Git;
         private readonly TypedFlakeScoreAdapter? _FlakeScoreAdapter;
+        private readonly HostLoadMonitor _HostLoad;
         private readonly DefinitionOfDoneFailureClassifier _FailureClassifier = new DefinitionOfDoneFailureClassifier();
 
         private const int _CommandOutputLimitBytes = 16 * 1024 * 1024;
@@ -98,13 +100,19 @@ namespace Armada.Core.Services
         /// the re-run's real result becomes the truth. Null — the default, and the effective state
         /// whenever the decision is Off — preserves the original behavior exactly.
         /// </param>
+        /// <param name="hostLoad">
+        /// Optional host load monitor. A gate that fails with a <c>Timeout</c> classification while it reports
+        /// the host overloaded waits for load to fall and runs once more. Null uses the production monitor,
+        /// which reads <c>/proc/loadavg</c> and reports an unknown reading, never overloaded, elsewhere.
+        /// </param>
         public DefinitionOfDoneGate(
             DefinitionOfDoneSettings settings,
             DatabaseDriver database,
             LoggingModule logging,
             IContainerRuntimeProbe? containerRuntimeProbe = null,
             IGitService? gitService = null,
-            TypedFlakeScoreAdapter? flakeScoreAdapter = null)
+            TypedFlakeScoreAdapter? flakeScoreAdapter = null,
+            HostLoadMonitor? hostLoad = null)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -112,6 +120,7 @@ namespace Armada.Core.Services
             _ContainerRuntimeProbe = containerRuntimeProbe;
             _Git = gitService;
             _FlakeScoreAdapter = flakeScoreAdapter;
+            _HostLoad = hostLoad ?? new HostLoadMonitor();
         }
 
         #endregion
@@ -130,8 +139,16 @@ namespace Armada.Core.Services
         /// <param name="stageStartCommit">Commit the dock started from, when known. A stage the gate does not
         /// apply to uses it to read only its own change when deciding whether to re-verify consumers.</param>
         /// <returns>A <see cref="DefinitionOfDoneResult"/> describing the gate outcome.</returns>
-        /// <exception cref="DefinitionOfDoneGateCancelledException">The mission was cancelled while the gate ran or
-        /// waited for the host-wide command slot. The command process is stopped and the slot released first.</exception>
+        /// <remarks>
+        /// A result classified <c>Timeout</c> while the host is overloaded (see <see cref="HostLoadMonitor"/>)
+        /// does not stand on its own: the gate releases the host slot, waits until load falls or
+        /// <see cref="HostLoadMonitor.MaximumWait"/> ends, records a <see cref="DefinitionOfDoneLoadRerunRecord"/>
+        /// event, and evaluates once more. The second result stands, whatever it is. A <c>Timeout</c> at normal
+        /// or unknown load stands at once.
+        /// </remarks>
+        /// <exception cref="DefinitionOfDoneGateCancelledException">The mission was cancelled while the gate ran,
+        /// waited for the host-wide command slot, or waited for host load to fall. The command process is stopped
+        /// and the slot released first.</exception>
         public async Task<DefinitionOfDoneResult> EvaluateAsync(
             Mission mission,
             Dock dock,
@@ -145,22 +162,31 @@ namespace Armada.Core.Services
             // run's token, which the cancel trips, and every wait and command below honors that token.
             using (DefinitionOfDoneGateRun run = DefinitionOfDoneGateRuns.Start(mission.Id, token))
             {
-                GateSlot slot = new GateSlot(mission.Id);
-                _GateSlot.Value = slot;
                 DefinitionOfDoneResult result;
                 try
                 {
-                    result = await EvaluateCoreAsync(mission, dock, run.Token, stageStartCommit).ConfigureAwait(false);
+                    result = await EvaluateAttemptAsync(mission, dock, run.Token, stageStartCommit).ConfigureAwait(false);
+
+                    // A whole host running several times slower than normal times out commands that pass at
+                    // normal load, with no test failing. Such a Timeout says nothing about the change, so the
+                    // gate waits for load to fall and runs once more; the second result stands.
+                    if (!run.CancelledByMission
+                        && !result.Passed
+                        && result.FailureClass == DefinitionOfDoneFailureClassEnum.Timeout)
+                    {
+                        HostLoadReading atTimeout = _HostLoad.Read();
+                        if (_HostLoad.IsOverloaded(atTimeout))
+                        {
+                            HostLoadReading atRerun = await WaitForHostLoadToFallAsync(mission, dock, atTimeout, run.Token).ConfigureAwait(false);
+                            await RecordHostLoadRerunAsync(mission, result, atTimeout, atRerun, token).ConfigureAwait(false);
+                            result = await EvaluateAttemptAsync(mission, dock, run.Token, stageStartCommit).ConfigureAwait(false);
+                        }
+                    }
                 }
                 catch (OperationCanceledException) when (run.CancelledByMission && !token.IsCancellationRequested)
                 {
                     _Logging.Info(_Header + "gate for mission " + mission.Id + " stopped: the mission was cancelled");
                     throw new DefinitionOfDoneGateCancelledException(mission.Id);
-                }
-                finally
-                {
-                    slot.Release();
-                    _GateSlot.Value = null;
                 }
 
                 // A cancel can surface as an ordinary result, such as an interrupted command read as a failure.
@@ -173,6 +199,121 @@ namespace Armada.Core.Services
 
                 return result;
             }
+        }
+
+        /// <summary>
+        /// Run one evaluation under its own host slot, released when the evaluation ends.
+        /// </summary>
+        private async Task<DefinitionOfDoneResult> EvaluateAttemptAsync(
+            Mission mission,
+            Dock dock,
+            CancellationToken token,
+            string? stageStartCommit)
+        {
+            GateSlot slot = new GateSlot(mission.Id);
+            _GateSlot.Value = slot;
+            try
+            {
+                return await EvaluateCoreAsync(mission, dock, token, stageStartCommit).ConfigureAwait(false);
+            }
+            finally
+            {
+                slot.Release();
+                _GateSlot.Value = null;
+            }
+        }
+
+        /// <summary>
+        /// Wait for host load to fall before the re-run of a gate that timed out under load. The host slot is not
+        /// held, so other work runs meanwhile; the dock lease is held so the worktree survives the wait.
+        /// </summary>
+        private async Task<HostLoadReading> WaitForHostLoadToFallAsync(
+            Mission mission,
+            Dock dock,
+            HostLoadReading atTimeout,
+            CancellationToken token)
+        {
+            _Logging.Warn(_Header + "gate for mission " + mission.Id + " failed classification=Timeout while the host was overloaded ("
+                + DescribeLoad(atTimeout) + "); waiting up to "
+                + HostLoadMonitor.MaximumWait.TotalMinutes.ToString("0", System.Globalization.CultureInfo.InvariantCulture)
+                + " minutes for load to fall to "
+                + HostLoadMonitor.RecoveredThreshold(atTimeout.LogicalCores).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                + " before running the gate once more");
+
+            DockLeaseRegistry.Acquire(dock.Id);
+            try
+            {
+                return await _HostLoad.WaitForLoadToFallAsync(token).ConfigureAwait(false);
+            }
+            finally
+            {
+                DockLeaseRegistry.Release(dock.Id);
+            }
+        }
+
+        /// <summary>
+        /// Record the load re-run and the reading that triggered it as a scoped event. A failed write is logged and
+        /// never changes the gate outcome.
+        /// </summary>
+        private async Task RecordHostLoadRerunAsync(
+            Mission mission,
+            DefinitionOfDoneResult timedOut,
+            HostLoadReading atTimeout,
+            HostLoadReading atRerun,
+            CancellationToken token)
+        {
+            bool loadFell = _HostLoad.HasFallen(atRerun);
+            TimeSpan waited = atRerun.ReadUtc - atTimeout.ReadUtc;
+            if (waited < TimeSpan.Zero) waited = TimeSpan.Zero;
+            DefinitionOfDoneLoadRerunRecord record = new DefinitionOfDoneLoadRerunRecord
+            {
+                TimedOutCommandLabel = timedOut.CommandLabel,
+                LoadAtTimeout = atTimeout.LoadAverage1Min,
+                LogicalCores = atTimeout.LogicalCores,
+                OverloadThreshold = HostLoadMonitor.OverloadThreshold(atTimeout.LogicalCores),
+                RecoveredThreshold = HostLoadMonitor.RecoveredThreshold(atTimeout.LogicalCores),
+                LoadAtRerun = atRerun.LoadAverage1Min,
+                LoadFell = loadFell,
+                WaitedSeconds = waited.TotalSeconds,
+                MaximumWaitSeconds = HostLoadMonitor.MaximumWait.TotalSeconds,
+                RerunStartedUtc = atRerun.ReadUtc
+            };
+
+            string message = "Definition-of-done gate timed out under host load (" + DescribeLoad(atTimeout) + "); "
+                + (loadFell ? "re-running after load fell (" : "re-running after the maximum wait (") + DescribeLoad(atRerun) + ")";
+            _Logging.Info(_Header + "mission " + mission.Id + ": " + message);
+
+            try
+            {
+                ArmadaEvent rerunEvent = new ArmadaEvent(DefinitionOfDoneLoadRerunRecord.EventType, message);
+                EventOwnerScope.ApplyFromMission(rerunEvent, mission);
+                rerunEvent.EntityType = "mission";
+                rerunEvent.EntityId = mission.Id;
+                rerunEvent.CaptainId = mission.CaptainId;
+                rerunEvent.MissionId = mission.Id;
+                rerunEvent.VesselId = mission.VesselId;
+                rerunEvent.VoyageId = mission.VoyageId;
+                rerunEvent.Payload = JsonSerializer.Serialize(record);
+                await _Database.Events.CreateAsync(rerunEvent, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record the load re-run for mission " + mission.Id
+                    + " exceptionType=" + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        private static string DescribeLoad(HostLoadReading reading)
+        {
+            string load = reading.LoadAverage1Min.HasValue
+                ? reading.LoadAverage1Min.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                : "unknown";
+            return "1-minute load " + load + " on "
+                + reading.LogicalCores.ToString(System.Globalization.CultureInfo.InvariantCulture) + " logical cores";
         }
 
         private async Task<DefinitionOfDoneResult> EvaluateCoreAsync(
