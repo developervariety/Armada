@@ -175,7 +175,9 @@ A brief also matches the dock it lands in and the tools the captain has:
   names that is not in the dock. Staged inputs are written before the brief,
   so a listed path is absent when the captain starts.
 - Objective Scope names the objective id, which `get_objective` reads when
-  called with no id. When the objective has non-goals, it states that a
+  called with no id, and the stored parent objective id when there is one.
+  When the stored text calls another objective current, parent or
+  authorizing, it states that such an id does not control. When the objective has non-goals, it states that a
   non-goal wins over a conflicting role, rescue or captain duty, and a
   TestEngineer whose objective's non-goals forbid test edits is told it is
   validate-only.

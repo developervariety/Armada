@@ -280,6 +280,56 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Objective Scope names the stored parent id and says other cited objective ids do not control", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Voyage voyage = new Voyage("parent-scope-voyage");
+                        voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                        Objective parent = new Objective();
+                        parent.Title = "Widget program";
+                        parent = await testDb.Driver.Objectives.CreateAsync(parent).ConfigureAwait(false);
+
+                        Objective objective = new Objective();
+                        objective.Title = "Study the widget";
+                        objective.ParentObjectiveId = parent.Id;
+                        objective.Description = "Study the widget. The current authorizing objective is obj_cccccccc_Older.";
+                        objective.AcceptanceCriteria = new List<string> { "The widget study is complete." };
+                        objective.VoyageIds = new List<string> { voyage.Id };
+                        await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                        Vessel vessel = new Vessel("ScopeVessel", "https://github.com/test/repo");
+                        Mission mission = new Mission();
+                        mission.Title = "Study widget";
+                        mission.Description = "Study the widget per the objective.";
+                        mission.VoyageId = voyage.Id;
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertContains("**Parent objective id:** `" + parent.Id + "`", content,
+                            "the brief names the stored parent id");
+                        AssertContains("Any other objective id the text calls current, parent or authorizing does not control.", content,
+                            "a brief whose stored text names another current objective says which ids control");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("TestEngineer brief lets an objective no-test non-goal override the embedded test-writing role", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

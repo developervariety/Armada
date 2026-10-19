@@ -256,6 +256,22 @@ namespace Armada.Core.Services
                 AddIssue(result, "brief_acceptance_missing", "brief", ReadinessSeverityEnum.Error,
                     "The objective must state at least one acceptance criterion.", null);
 
+            List<string> conflictingIds = ObjectiveTextLint.FindConflictingObjectiveIds(objective);
+            if (conflictingIds.Count > 0)
+                AddIssue(result, "objective_text_conflicting_ids", "brief", ReadinessSeverityEnum.Warning,
+                    "The stored text names an objective other than this one (`" + objective.Id + "`) or its parent ("
+                    + (String.IsNullOrWhiteSpace(objective.ParentObjectiveId) ? "none" : "`" + objective.ParentObjectiveId + "`")
+                    + ") as current, parent or authorizing; reword or remove the superseded sentence: "
+                    + String.Join(" | ", conflictingIds), null);
+
+            List<string> conflictingCounts = ObjectiveTextLint.FindConflictingCriterionCounts(objective);
+            if (conflictingCounts.Count > 0)
+                AddIssue(result, "objective_text_conflicting_criterion_counts", "brief", ReadinessSeverityEnum.Warning,
+                    "The stored text states criterion counts that disagree with each other or with the "
+                    + (objective.AcceptanceCriteria ?? new List<string>()).Count(item => !String.IsNullOrWhiteSpace(item))
+                    + " acceptance criteria; reword or remove the superseded sentence: "
+                    + String.Join(" | ", conflictingCounts), null);
+
             ObjectivePreparation preparation = objective.Preparation ?? new ObjectivePreparation();
             List<ObjectivePreparationClaim> claims = preparation.Claims ?? new List<ObjectivePreparationClaim>();
             if (preparation.RequiredForDispatch)

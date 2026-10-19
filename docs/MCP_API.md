@@ -382,6 +382,17 @@ stored skip is confirmed, and surfaces the named refusal a stored skip would hit
 voyage. Captain coverage in the preview follows the effective stages, so preview
 and dispatch agree.
 
+`preview_objective_dispatch` warns, without blocking dispatch, about stored text
+that contradicts the record. `objective_text_conflicting_ids` quotes each
+sentence that calls an objective other than the record's own id or its
+`ParentObjectiveId` current, parent, authorizing, owning or controlling; a short
+`obj_` plus eight characters counts as the same objective.
+`objective_text_conflicting_criterion_counts` quotes the sentences that state
+criterion counts when they disagree with each other or with the number of
+acceptance criteria. The description, criteria, non-goals, rollout constraints
+and refinement summary are read; each warning quotes at most five sentences.
+Rewording a superseded sentence stays an operator edit.
+
 `armada_dispatch` accepts `captainAssignments`, an array of `persona`,
 `captainId` and optional `fallbackTier` entries (`persona` `*` applies to every
 stage without its own entry). The voyage row stores them when it is created,

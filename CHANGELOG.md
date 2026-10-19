@@ -9,6 +9,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- `preview_objective_dispatch` warns with `objective_text_conflicting_ids`
+  when the stored text calls an objective other than the record or its parent
+  current, parent or authorizing, and with
+  `objective_text_conflicting_criterion_counts` when stated criterion counts
+  disagree with each other or with the criteria list. The brief's Objective
+  Scope names the stored parent objective id and, when the text names another
+  controlling id, states that such an id does not control.
 - `armada_record_judge_followup_handled` records that one Judge follow-up item
   has a home: a fix objective, an owner decision, or a note, with who handled it
   and when. `armada_list_judge_followups` numbers each item, leaves handled

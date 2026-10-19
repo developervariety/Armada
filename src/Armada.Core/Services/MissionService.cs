@@ -4105,6 +4105,14 @@ namespace Armada.Core.Services
                 sb.Append("This mission belongs to a linked objective. The objective below is the definition of done; work that does not meet it is not complete, and the Judge reviews against these acceptance criteria and non-goals:\n\n");
                 sb.Append("**Title:** ").Append(linked.Title).Append("\n\n");
                 sb.Append("**Objective id:** `").Append(linked.Id).Append("` (`get_objective` with no id reads it)\n\n");
+                if (!String.IsNullOrWhiteSpace(linked.ParentObjectiveId))
+                {
+                    sb.Append("**Parent objective id:** `").Append(linked.ParentObjectiveId).Append("`\n\n");
+                }
+                if (ObjectiveTextLint.FindConflictingObjectiveIds(linked).Count > 0)
+                {
+                    sb.Append("Any other objective id the text calls current, parent or authorizing does not control.\n\n");
+                }
                 if (!String.IsNullOrWhiteSpace(linked.Description))
                 {
                     sb.Append("**Scope:** ").Append(linked.Description.Trim()).Append("\n\n");

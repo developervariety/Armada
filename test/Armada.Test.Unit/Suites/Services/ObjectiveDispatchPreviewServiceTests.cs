@@ -1325,6 +1325,39 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Preview warns about stored text that names another current objective or a conflicting criterion count", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("text-lint-preview");
+                    objective.ParentObjectiveId = "obj_bbbbbbbb_Par";
+                    objective.AcceptanceCriteria = new List<string> { "The first criterion holds.", "The second criterion holds." };
+                    objective.Description = "Its parent is obj_bbbbbbbb. Check the widget.";
+
+                    ObjectiveDispatchPreview clean = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertFalse(clean.Issues.Any(issue => issue.Code.StartsWith("objective_text_", StringComparison.Ordinal)),
+                        "text that agrees with the record raises no lint warning");
+
+                    objective.Description = "Its parent is obj_bbbbbbbb. The current authorizing objective is obj_cccccccc_Older. "
+                        + "This objective has three criteria. Check the widget.";
+                    objective.RefinementSummary = "Correction: the objective now has two criteria.";
+                    ObjectiveDispatchPreview linted = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreviewIssue ids = linted.Issues.Single(issue => issue.Code == "objective_text_conflicting_ids");
+                    AssertEqual(ReadinessSeverityEnum.Warning, ids.Severity, "a conflicting id is a warning, not a dispatch block");
+                    AssertContains("The current authorizing objective is obj_cccccccc_Older.", ids.Message,
+                        "the warning quotes the sentence that names another current objective");
+                    AssertFalse(ids.Message.Contains("Its parent is obj_bbbbbbbb."), "a sentence naming the stored parent is not quoted");
+
+                    ObjectiveDispatchPreviewIssue counts = linted.Issues.Single(issue => issue.Code == "objective_text_conflicting_criterion_counts");
+                    AssertEqual(ReadinessSeverityEnum.Warning, counts.Severity);
+                    AssertContains("This objective has three criteria.", counts.Message, "the stale count is quoted");
+                    AssertContains("Correction: the objective now has two criteria.", counts.Message, "the correction is quoted beside it");
+                    AssertTrue(linted.IsReady, "lint warnings never make a ready objective unready");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Preflight citations resolve declared sibling paths at the sibling tip", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
