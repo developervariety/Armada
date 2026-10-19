@@ -38,6 +38,29 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("Failing tests with their first exception line and every skip are read from the whole log, not the tail", () =>
+            {
+                System.Text.StringBuilder log = new System.Text.StringBuilder();
+                log.Append("  Failed X.Y.EarlyTest [1 ms]\n  Error Message:\n   System.InvalidOperationException: missing service\n");
+                for (int i = 1; i <= 17; i++) log.Append("  Skipped X.Y.SkippedTest").Append(i).Append(" [< 1 ms]\n");
+                for (int i = 0; i < 200; i++) log.Append("progress line ").Append(i).Append('\n');
+                log.Append("Failed!  - Failed: 2, Passed: 10, Skipped: 17, Total: 29\n");
+                log.Append("\n--- STDERR ---\n  Failed X.Y.StderrTest [2 ms]\n  Error Message:\n   Assert.Equal() Failure: Values differ\n");
+                for (int i = 0; i < 200; i++) log.Append("stderr progress line ").Append(i).Append('\n');
+                CheckRun run = MakeRun(log.ToString());
+                run.Status = CheckRunStatusEnum.Failed;
+
+                CheckRunSummaryView view = CheckRunSummaryView.From(run, 40);
+                string outcomes = view.TestOutcomes ?? String.Empty;
+
+                AssertFalse((view.OutputTail ?? String.Empty).Contains("X.Y.EarlyTest", StringComparison.Ordinal), "The tail alone misses the early failure");
+                AssertContains("X.Y.EarlyTest: System.InvalidOperationException: missing service", outcomes, "The early failure is named with its exception line");
+                AssertContains("X.Y.StderrTest: Assert.Equal() Failure: Values differ", outcomes, "The stderr failure is named with its exception line");
+                for (int i = 1; i <= 17; i++)
+                    AssertContains("X.Y.SkippedTest" + i + "\n", outcomes + "\n", "Skip " + i + " of 17 is listed");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("A short log is returned whole and not marked truncated", () =>
             {
                 CheckRunSummaryView view = CheckRunSummaryView.From(MakeRun("a\nb\nc"), 40);

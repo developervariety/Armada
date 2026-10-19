@@ -61,6 +61,7 @@ namespace Armada.Core.Services
         private const int _MAX_DIAGNOSTIC_TEXT_CHARS = 16000;
         private const int _MAX_SECTION_CHARS = 7800;
         private const int _MAX_LINE_CHARS = 2000;
+        private const string _FullGateOutputPointer = "armada_get_mission_log with the captureId from the definition-of-done report";
 
         private static readonly Regex _SecretLikePattern = new Regex(
             @"(?:password|passwd|secret|token|key|credential|auth|api_key|apikey|access_key|private_key)\s*[=:]\s*\S+",
@@ -1416,7 +1417,7 @@ namespace Armada.Core.Services
                 DefinitionOfDoneResult timeoutResult = DefinitionOfDoneResult.Fail(
                     label,
                     -1,
-                    BuildDiagnosticText(timedOutOutput),
+                    BuildDiagnosticText(timedOutOutput, failedTestLinePattern),
                     _FailureClassifier.Classify(label, -1, timedOutOutput, true));
                 AttachCommandOutput(timeoutResult, timedOutOutput, result);
                 return timeoutResult;
@@ -1439,7 +1440,7 @@ namespace Armada.Core.Services
             DefinitionOfDoneResult failResult = DefinitionOfDoneResult.Fail(
                 label,
                 exitCode,
-                BuildDiagnosticText(combined),
+                BuildDiagnosticText(combined, failedTestLinePattern),
                 failureClass);
             AttachCommandOutput(failResult, combined, result);
 
@@ -1484,6 +1485,28 @@ namespace Armada.Core.Services
         }
 
         private string BuildDiagnosticText(string output)
+        {
+            return BuildDiagnosticText(output, null);
+        }
+
+        // The failing and skipped tests are read from the whole output before any bounding and lead
+        // the text, because the bounded diagnostics and tail can drop a failing test that printed
+        // early or on standard error. When the whole text is over its cap, the start of the
+        // diagnostics gives way, so the digest and the end of the tail are always kept.
+        private string BuildDiagnosticText(string output, Regex? failedTestLinePattern)
+        {
+            string body = BuildBoundedDiagnosticText(output);
+            string? digest = TestOutcomeDigest.Render(output, failedTestLinePattern, _FullGateOutputPointer);
+            if (digest == null) return body;
+            string head = digest + "\n";
+            int budget = _MAX_DIAGNOSTIC_TEXT_CHARS - head.Length;
+            const string cutMarker = "...(diagnostics truncated)\n";
+            if (body.Length > budget)
+                body = cutMarker + body.Substring(body.Length - (budget - cutMarker.Length));
+            return head + body;
+        }
+
+        private string BuildBoundedDiagnosticText(string output)
         {
             string[] lines = (output ?? String.Empty).Split('\n');
             HashSet<string> retained = new HashSet<string>(StringComparer.Ordinal);

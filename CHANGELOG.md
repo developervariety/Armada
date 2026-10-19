@@ -78,6 +78,12 @@ upstream integrations and excludes changes already present at that baseline.
   handoff lists them as an evidence gap. Every page also carries `PageSha256`
   and `PageUtf8Bytes` for its own content beside the joined-content digest and
   length.
+- A failed definition-of-done command, and the rescue brief built from it, names
+  every failing test with its first exception line and every skipped test, read
+  from the whole standard output and standard error. A bounded tail used to drop
+  a failure that printed early or on standard error and named only the last few
+  skips. A skip list over 100 gives the count and where the full log is. Check
+  run views carry the same list as `testOutcomes`.
 - A captain can omit the id on `armada_mission_status`, `armada_mission_output`
   and `get_objective`. They read the captain's own mission, or the objective that
   authorizes it, instead of failing with a null-id error. A caller with no

@@ -58,6 +58,37 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("The outcome digest gives a skip count and the full-log pointer when it cannot list every skip", () =>
+            {
+                System.Text.StringBuilder output = new System.Text.StringBuilder();
+                for (int i = 0; i < TestOutcomeDigest.MaxListedSkips + 5; i++)
+                    output.Append("  Skipped Example.Tests.Skip").Append(i).Append(" [< 1 ms]\n");
+                output.Append("Passed!  - Failed:     0, Passed:  10, Skipped:   ").Append(TestOutcomeDigest.MaxListedSkips + 5).Append(", Total: 115\n");
+
+                string digest = TestOutcomeDigest.Render(output.ToString(), null, "the full log") ?? String.Empty;
+                AssertContains("--- SKIPPED TESTS (" + (TestOutcomeDigest.MaxListedSkips + 5) + ") ---", digest, "The heading carries the whole skip count.");
+                AssertContains((TestOutcomeDigest.MaxListedSkips + 5) + " skipped, " + TestOutcomeDigest.MaxListedSkips + " listed here. Full skip list: the full log", digest,
+                    "A cut list says how many it lists and where the rest is.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("The outcome digest reads a same-line failure message and ignores a build sentence that starts with Skipped", () =>
+            {
+                Regex profile = new Regex(@"^FAIL (?<name>\S+?):", RegexOptions.None, TimeSpan.FromMilliseconds(250));
+                string output =
+                    "  Skipped restore of the project because it is up to date\n" +
+                    "FAIL Example.Tests.LoadRace: timed out waiting for the worker\n" +
+                    "  SKIP  Example.Tests.NeedsDocker: no container runtime\n";
+
+                string digest = TestOutcomeDigest.Render(output, profile, "the full log") ?? String.Empty;
+                AssertContains("Example.Tests.LoadRace: timed out waiting for the worker", digest, "The message on the failure line itself is kept.");
+                AssertContains("--- SKIPPED TESTS (1) ---", digest, "Only the real skip line counts.");
+                AssertContains("Example.Tests.NeedsDocker: no container runtime", digest, "The console runner skip line is listed.");
+                AssertFalse(digest.Contains("restore of the project", StringComparison.Ordinal), "A build sentence is not a skipped test.");
+                AssertNull(TestOutcomeDigest.Render("Build succeeded.\n", null, "the full log"), "Output with no test outcome renders nothing.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("Duplicate failing lines collapse to one ordered entry", () =>
             {
                 string output =

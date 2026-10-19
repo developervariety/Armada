@@ -590,6 +590,53 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("The failure text names every failing test with its first exception line and every skip, from stdout and stderr", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    string worktreePath = CreateTempDir();
+                    try
+                    {
+                        // The early failure sits behind more diagnostics than the gate keeps, and the
+                        // stderr failure is followed by enough stderr output to push it out of the tail.
+                        string command = "i=0; while [ \"$i\" -lt 40 ]; do echo \"error CS1000: synthetic diagnostic $i\"; i=$((i+1)); done; "
+                            + "echo '  Failed X.Y.EarlyTest [1 ms]'; echo '  Error Message:'; "
+                            + "echo '   System.InvalidOperationException: Unable to resolve service for type IExampleDispatcher'; "
+                            + "i=1; while [ \"$i\" -le 17 ]; do echo \"  Skipped X.Y.SkippedTest$i [< 1 ms]\"; i=$((i+1)); done; "
+                            + "i=0; while [ \"$i\" -lt 200 ]; do echo \"progress line $i\"; i=$((i+1)); done; "
+                            + "echo 'Failed!  - Failed: 2, Passed: 10, Skipped: 17, Total: 29'; "
+                            + "echo '  Failed X.Y.StderrTest [2 ms]' >&2; echo '  Error Message:' >&2; "
+                            + "echo '   Assert.Equal() Failure: Values differ' >&2; "
+                            + "i=0; while [ \"$i\" -lt 200 ]; do echo \"stderr progress line $i\" >&2; i=$((i+1)); done; exit 1";
+                        await EnsureVesselWithProfileAsync(testDb, "ten_digest", "vsl_digest",
+                            worktreePath, SuccessCommand(), command).ConfigureAwait(false);
+
+                        DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                            new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                            testDb.Driver,
+                            logging);
+                        DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                            CreateWorkerMission("ten_digest", "vsl_digest"),
+                            new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                        string text = result.OutputTail ?? String.Empty;
+                        AssertFalse(result.Passed, "The synthetic test run fails");
+                        AssertContains("X.Y.EarlyTest: System.InvalidOperationException: Unable to resolve service for type IExampleDispatcher", text,
+                            "The early failing test is named with its first exception line");
+                        AssertContains("X.Y.StderrTest: Assert.Equal() Failure: Values differ", text,
+                            "The failing test printed on stderr is named with its first exception line");
+                        for (int i = 1; i <= 17; i++)
+                            AssertContains("X.Y.SkippedTest" + i + "\n", text + "\n", "Skip " + i + " of 17 is listed");
+                    }
+                    finally
+                    {
+                        TryDeleteDirectory(worktreePath);
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Gate leaves the failing test set null for a non-test build failure", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -117,6 +117,21 @@ namespace Armada.Core.Services
             return new FailedTestNameSet(ordered, overflow);
         }
 
+        /// <summary>
+        /// Read one output line as a failing-test line, trying the built-in matchers and then the profile's
+        /// matcher. A profile match that exceeds its timeout throws <see cref="RegexMatchTimeoutException"/>.
+        /// </summary>
+        /// <param name="line">One output line, without its line terminator.</param>
+        /// <param name="profilePattern">The profile's extra matcher, or null for the built-in matchers only.</param>
+        /// <returns>The failing test identifier, or null when the line names no failing test.</returns>
+        internal static string? MatchFailureLine(string line, Regex? profilePattern)
+        {
+            string? name = MatchLine(line);
+            if (name == null && profilePattern != null)
+                name = MatchProfileLine(profilePattern, line);
+            return name;
+        }
+
         #endregion
 
         #region Private-Methods

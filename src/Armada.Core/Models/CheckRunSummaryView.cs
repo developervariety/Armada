@@ -3,6 +3,7 @@ namespace Armada.Core.Models
     using System;
     using System.Collections.Generic;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// A bounded projection of a <see cref="CheckRun"/> that carries the verdict without the
@@ -114,6 +115,14 @@ namespace Armada.Core.Models
         public string? OutputTail { get; set; } = null;
 
         /// <summary>
+        /// Every failing test with the first exception line printed after it, and the skipped tests,
+        /// read from the complete log (standard output and standard error) rather than from the tail.
+        /// The skip list is complete, or gives the count and names where the full list is. Null when the
+        /// log names no failing or skipped test.
+        /// </summary>
+        public string? TestOutcomes { get; set; } = null;
+
+        /// <summary>
         /// How to obtain the complete log when the tail is not enough.
         /// </summary>
         public string? OutputRetrieval { get; set; } = null;
@@ -122,6 +131,12 @@ namespace Armada.Core.Models
         /// Where an unfinished check stands for the host-wide build and test slot, or null when it has finished.
         /// </summary>
         public CheckRunSlotWait? SlotWait { get; set; } = null;
+
+        #endregion
+
+        #region Private-Members
+
+        private const string _FullLogPointer = "get_check_run with includeOutput=true";
 
         #endregion
 
@@ -185,6 +200,7 @@ namespace Armada.Core.Models
                 OutputLength = output.Length,
                 OutputTruncated = tail.Length < output.Length,
                 OutputTail = tail.Length == 0 ? null : tail,
+                TestOutcomes = TestOutcomeDigest.Render(output, null, _FullLogPointer),
                 OutputRetrieval = tail.Length < output.Length
                     ? "Full log omitted (" + output.Length + " chars). Call get_check_run with includeOutput=true for the complete output."
                     : null,

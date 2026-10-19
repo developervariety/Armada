@@ -200,6 +200,16 @@ Without `isolatedTestRerunCommand`, the gate narrows a `dotnet test` command to
 the failing classes itself. Any other command is not re-run, and the failure
 text names the missing field. A consumer suite uses the consumer's own profile.
 
+A failed gate command's failure text opens with the test outcomes it read from
+the whole output, standard output and standard error together, before any
+bounding. `--- FAILING TESTS ---` lists every failing test with the first
+exception line printed after it (or the message on the failure line itself).
+`--- SKIPPED TESTS ---` lists every skipped test; when there are more than 100,
+or the run summary counts more skips than the runner named, it states the count
+and names `armada_get_mission_log` with the report's `captureId` as the place
+for the full list. The bounded diagnostics and output tail follow. The rescue
+brief carries the same text.
+
 Commands run on the dock host. Use that host's path and shell syntax. A
 Windows `.bat`, `%CD%`, or `.\\` command is invalid on a Linux Admiral host.
 
