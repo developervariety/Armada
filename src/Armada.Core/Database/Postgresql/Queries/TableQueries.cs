@@ -1213,7 +1213,8 @@ $convert$;"),
                 new SchemaMigration(116, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.PostgresqlStatements),
                 new SchemaMigration(117, "Persist the workflow profile failed-test line pattern and isolated re-run command", WorkflowProfileIsolatedRerunPersistence.PostgresqlStatements),
                 new SchemaMigration(118, "Persist who promoted a memory proposal and the AI-Memory commit that holds it", MemoryProposalPromotionPersistence.PostgresqlStatements),
-                new SchemaMigration(119, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.PostgresqlStatements)
+                new SchemaMigration(119, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.PostgresqlStatements),
+                new SchemaMigration(120, "Index signals by type, read flag and creation time", SignalTypeReadIndexSchema.PostgresqlStatements)
             };
         }
 

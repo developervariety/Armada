@@ -700,7 +700,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(105, "Drop the unread pipeline stage optional flag", PipelineStageOptionalDropSchema.MysqlStatements),
                 new SchemaMigration(106, "Persist the workflow profile failed-test line pattern and isolated re-run command", WorkflowProfileIsolatedRerunPersistence.MysqlStatements),
                 new SchemaMigration(107, "Persist who promoted a memory proposal and the AI-Memory commit that holds it", MemoryProposalPromotionPersistence.MysqlStatements),
-                new SchemaMigration(108, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.MysqlStatements)
+                new SchemaMigration(108, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.MysqlStatements),
+                new SchemaMigration(109, "Index signals by type, read flag and creation time", SignalTypeReadIndexSchema.MysqlStatements)
             };
         }
 

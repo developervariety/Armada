@@ -127,6 +127,7 @@ namespace Armada.Test.Database
                 "idx_vessels_tenant_user",
                 "idx_missions_tenant_user",
                 "idx_signals_tenant_user",
+                "idx_signals_type_read_created",
                 "idx_events_tenant_user",
                 "idx_merge_entries_tenant_user",
                 "idx_check_runs_deployment_created",

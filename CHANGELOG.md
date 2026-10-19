@@ -167,6 +167,13 @@ upstream integrations and excludes changes already present at that baseline.
 - An automatic incident close or rollback leaves `RootCause` unset when it
   holds only the text the incident opened with, so a closed incident never
   shows the opened reason as its root cause. `OpenedReason` keeps that text.
+- The signals table has an index on type, read flag and creation time
+  (`idx_signals_type_read_created`) on every provider. The mission mailbox and
+  the stored-wake reader ask for the unread signals of one type, newest first,
+  with a count. That count scanned the whole table and the page walked the
+  creation-time index past every other signal, so each poll read every signal
+  ever recorded, most of them unread Progress signals. Both now search the new
+  index and read only the unread signals of the asked type.
 - A voyage-armed Check waits while a stage that reports Testing or Review is
   still running. A captain reports those statuses as progress and can still
   commit, so a Check that ran then measured a commit the stage replaced, was
