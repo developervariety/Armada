@@ -16,6 +16,15 @@ namespace Armada.Core.Models
         /// </summary>
         public List<string> UnavailableSources { get; set; } = new List<string>();
 
+        /// <summary>
+        /// Source types that hold more records than the timeline reads from one source, for example
+        /// <c>Request</c> on a server with a long request history. Only the newest records of each named
+        /// source are in this timeline and in <see cref="EnumerationResult{T}.TotalRecords"/>; narrow the
+        /// query with <c>fromUtc</c>/<c>toUtc</c> or an entity filter to reach older ones. Empty when every
+        /// source was read in full.
+        /// </summary>
+        public List<string> TruncatedSources { get; set; } = new List<string>();
+
         #endregion
     }
 }

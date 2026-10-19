@@ -7,8 +7,9 @@ namespace Armada.Server
 
     /// <summary>
     /// Leaves evidence of how the previous admiral run ended. At start the run writes a marker file with
-    /// its start time and process id; every health tick records the time and the process and container
-    /// memory; a clean stop marks the run clean. A kill by the kernel OOM killer or by a container
+    /// its start time and process id; every health tick, and every memory-watch sample at or above the
+    /// watch threshold, records the time and the process and container memory; a clean stop marks the
+    /// run clean. A kill by the kernel OOM killer or by a container
     /// runtime runs no code, so the next start finds a marker with no clean mark and reports the last
     /// moment the run was known alive and how much memory it held then. Every file operation is
     /// best-effort: evidence must never stop the admiral.

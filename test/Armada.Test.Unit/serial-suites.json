@@ -35,6 +35,7 @@
     "Captain Stall Decision": "Process-global: registers a synthetic process in the static process supervisor.",
     "MCP Context Tools": "Process-global: resets the static tool budget.",
     "MCP Typed Decision Tools": "Process-global: resets the static tool budget.",
-    "Check Run Output Projection": "Process-global: measures GC.GetTotalAllocatedBytes across a read, which counts every thread in the process."
+    "Check Run Output Projection": "Process-global: measures GC.GetTotalAllocatedBytes across a read, which counts every thread in the process.",
+    "Historical Timeline Memory": "Process-global: measures GC.GetTotalAllocatedBytes across a read, which counts every thread in the process."
   }
 }

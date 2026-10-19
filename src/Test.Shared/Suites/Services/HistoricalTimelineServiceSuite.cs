@@ -3,6 +3,7 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
@@ -488,6 +489,114 @@ namespace Test.Shared.Suites.Services
                     "the omitted source is logged: " + String.Join(" | ", logged));
             }));
 
+            cases.Add(CaseAsync("enumerate_reads_only_the_newest_records_of_each_unbounded_source", "EnumerateAsync reads at most its per-source limit, newest first, and names each truncated source", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                string tenantId = "ten_history_bound";
+                string userId = "usr_history_bound";
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-history-bound-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, true, true, "UnitTest");
+                    Vessel vessel = CreateVessel(tenantId, userId, workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    // An incident is listed from its snapshot however many newer events the server holds.
+                    Incident incident = await new IncidentService(testDb.Driver).CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Incident older than the event limit",
+                        Status = IncidentStatusEnum.Open,
+                        Severity = IncidentSeverityEnum.High,
+                        VesselId = vessel.Id
+                    }).ConfigureAwait(false);
+
+                    DateTime baseUtc = DateTime.UtcNow.AddHours(1);
+                    List<string> missionIds = new List<string>();
+                    List<string> eventIds = new List<string>();
+                    List<string> requestIds = new List<string>();
+                    List<string> checkIds = new List<string>();
+                    for (int i = 0; i < 5; i++)
+                    {
+                        DateTime createdUtc = baseUtc.AddMinutes(i);
+                        Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission
+                        {
+                            TenantId = tenantId,
+                            UserId = userId,
+                            VesselId = vessel.Id,
+                            Title = "Bounded mission " + i,
+                            Status = MissionStatusEnum.Complete,
+                            CreatedUtc = createdUtc,
+                            LastUpdateUtc = createdUtc
+                        }).ConfigureAwait(false);
+                        missionIds.Add(mission.Id);
+
+                        ArmadaEvent armadaEvent = await testDb.Driver.Events.CreateAsync(new ArmadaEvent("history.bound", "Bounded event " + i)
+                        {
+                            TenantId = tenantId,
+                            UserId = userId,
+                            CreatedUtc = createdUtc
+                        }).ConfigureAwait(false);
+                        eventIds.Add(armadaEvent.Id);
+
+                        RequestHistoryEntry request = new RequestHistoryEntry
+                        {
+                            TenantId = tenantId,
+                            UserId = userId,
+                            Method = "GET",
+                            Route = "/api/v1/status",
+                            RouteTemplate = "/api/v1/status",
+                            StatusCode = 200,
+                            IsSuccess = true,
+                            CreatedUtc = createdUtc
+                        };
+                        await testDb.Driver.RequestHistory.CreateAsync(request, null).ConfigureAwait(false);
+                        requestIds.Add(request.Id);
+
+                        if (i < 3)
+                        {
+                            CheckRun run = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                            {
+                                TenantId = tenantId,
+                                UserId = userId,
+                                VesselId = vessel.Id,
+                                Type = CheckRunTypeEnum.Build,
+                                Status = CheckRunStatusEnum.Passed,
+                                Summary = "Bounded check " + i,
+                                CreatedUtc = createdUtc
+                            }).ConfigureAwait(false);
+                            checkIds.Add(run.Id);
+                        }
+                    }
+
+                    HistoricalTimelineService service = new HistoricalTimelineService(testDb.Driver, null, 3);
+                    HistoricalTimelineResult result = await service.EnumerateAsync(auth, new HistoricalTimelineQuery
+                    {
+                        PageNumber = 1,
+                        PageSize = 500
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(3, service.SourceRowLimit);
+                    AssertSourceHoldsNewest(result, "Mission", missionIds, 3);
+                    AssertSourceHoldsNewest(result, "Event", eventIds, 3);
+                    AssertSourceHoldsNewest(result, "Request", requestIds, 3);
+                    AssertSourceHoldsNewest(result, "CheckRun", checkIds, 3);
+                    AssertTrue(result.TruncatedSources.Contains("Mission"), "missions over the limit are named: " + String.Join(",", result.TruncatedSources));
+                    AssertTrue(result.TruncatedSources.Contains("Event"), "events over the limit are named");
+                    AssertTrue(result.TruncatedSources.Contains("Request"), "requests over the limit are named");
+                    AssertFalse(result.TruncatedSources.Contains("CheckRun"), "a source holding exactly the limit is not named");
+                    AssertTrue(result.Objects.Exists(entry => entry.SourceType == "Incident" && entry.SourceId == incident.Id),
+                        "the incident is still listed from its snapshot");
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }));
+
             // Audit addition: null auth is rejected (confirmed against source).
 
             cases.Add(CaseAsync("enumerate_null_auth_throws", "EnumerateAsync NullAuth Throws", TestTags.Negative, async () =>
@@ -555,6 +664,18 @@ namespace Test.Shared.Suites.Services
                 WorkingDirectory = workingDirectory,
                 DefaultBranch = "main"
             };
+        }
+
+        private static void AssertSourceHoldsNewest(HistoricalTimelineResult result, string sourceType, List<string> idsOldestFirst, int expected)
+        {
+            List<string> listed = result.Objects
+                .Where(entry => entry.SourceType == sourceType)
+                .Select(entry => entry.SourceId)
+                .ToList();
+            List<string> newest = idsOldestFirst.Skip(Math.Max(0, idsOldestFirst.Count - expected)).ToList();
+            AssertEqual(expected, listed.Count, sourceType + " entries listed");
+            foreach (string id in newest)
+                AssertTrue(listed.Contains(id), sourceType + " keeps its newest record " + id);
         }
 
         private static void TryDeleteDirectory(string path)

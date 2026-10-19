@@ -210,6 +210,8 @@ namespace Armada.Server
         private Task _HealthCheckTask = null!;
         private Task _ModelEndpointHealthTask = null!;
         private Task? _HarborJobExpiryTask = null;
+        private Task? _MemoryWatchTask = null;
+        private readonly InFlightRequestRegistry _InFlightRequests = new InFlightRequestRegistry();
         private int _StopRequested = 0;
         private AdmiralRunMarker? _RunMarker = null;
         private int _HealthCheckCycles = 0;
@@ -683,6 +685,7 @@ namespace Armada.Server
             {
                 ctx.Timestamp.Start = DateTime.UtcNow;
                 ctx.Response.ContentType = "application/json";
+                _InFlightRequests.Begin(ctx, ctx.Request.Method.ToString(), ctx.Request.Url.RawWithQuery ?? String.Empty, DateTime.UtcNow);
                 await Task.CompletedTask.ConfigureAwait(false);
             };
 
@@ -690,6 +693,7 @@ namespace Armada.Server
             _App.Routes.PostRouting = async (HttpContextBase ctx) =>
             {
                 ctx.Timestamp.End = DateTime.UtcNow;
+                _InFlightRequests.End(ctx);
                 _Logging.Debug(
                     _Header +
                     ctx.Request.Method + " " +
@@ -1073,6 +1077,11 @@ namespace Armada.Server
             // clean stop: a kill by the OOM killer or the container runtime runs no shutdown code.
             await StartRunMarkerAsync().ConfigureAwait(false);
 
+            // Name the memory figures and the running requests while the process is large, and keep the
+            // run marker current then, so a growth toward the OOM killer is logged before the kill.
+            AdmiralMemoryWatch memoryWatch = new AdmiralMemoryWatch(_Logging, _InFlightRequests, BeatRunMarker);
+            _MemoryWatchTask = memoryWatch.RunAsync(_TokenSource.Token);
+
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
             _ModelEndpointHealthTask = ModelEndpointHealthLoopAsync(_TokenSource.Token);
@@ -1277,6 +1286,7 @@ namespace Armada.Server
                 WaitForBackgroundLoop("health check loop", _HealthCheckTask);
                 WaitForBackgroundLoop("model endpoint health loop", _ModelEndpointHealthTask);
                 WaitForBackgroundLoop("Harbor job expiry loop", _HarborJobExpiryTask);
+                WaitForBackgroundLoop("memory watch loop", _MemoryWatchTask);
 
                 RunStopStep("objective scheduler stop", () => _ObjectiveScheduler?.Dispose());
                 RunStopStep("remote tunnel stop", () => _RemoteTunnel?.StopAsync().GetAwaiter().GetResult());

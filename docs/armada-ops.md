@@ -228,3 +228,24 @@ Keep notes in plain text and do not include absolute host paths. Notes are
 advisory records for operators and the dashboard. They do not control mission
 state and do not send messages to other captains. This path does not add
 captain access to operator coordination tools.
+
+## Admiral memory growth
+
+The admiral samples its own memory every 5 seconds. While the managed heap or
+the working set is at or above 6 GiB, it logs an `[AdmiralMemoryWatch]`
+warning. The warning gives the managed heap, the working set, the container
+memory and limit, and the REST requests still running, oldest first with
+their age. It repeats after each further 1 GiB of growth or every 60 seconds.
+The request log records a request only when it completes, so a request that
+is still running when the process is killed appears only in this warning.
+
+Every sample above the threshold also updates the run marker
+(`admiral-run.json` in the data directory). After an out-of-memory kill, the
+next start logs the last time the run was known alive, with its managed heap
+and container memory, and records an `admiral.unclean_exit` event. To find
+the cause, read the last `[AdmiralMemoryWatch]` lines before that time and
+the kernel journal (`journalctl -k`).
+
+Reads that span the whole history are bounded. The history timeline reads at
+most 2000 records from each large source, newest first, and names a source
+with more records in `TruncatedSources`.

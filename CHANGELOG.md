@@ -20,6 +20,16 @@ upstream integrations and excludes changes already present at that baseline.
   second result stands, so a second `Timeout` fails the mission as before. A
   `Timeout` at normal load, or on a host without `/proc/loadavg`, fails at
   once.
+- The admiral samples its own memory every 5 seconds. While the managed heap
+  or the working set is at or above 6 GiB it logs an `[AdmiralMemoryWatch]`
+  warning with the managed heap, working set and container memory, and the
+  REST requests still running, oldest first with their age, for example
+  `requests in flight: POST /api/v1/history/enumerate (40 s)`. The warning
+  repeats after each further 1 GiB of growth or every 60 seconds. Every sample
+  above the threshold also updates the run marker, so the unclean-exit report
+  after an out-of-memory kill carries memory figures from seconds before it.
+  The request log records a request only when it completes; this warning names
+  the request that is still running.
 
 - `definitionOfDone.hostCommandMemoryFloorMb` holds a free host command slot
   until the host has that many megabytes of available memory (`MemAvailable`
@@ -174,6 +184,19 @@ upstream integrations and excludes changes already present at that baseline.
   creation-time index past every other signal, so each poll read every signal
   ever recorded, most of them unread Progress signals. Both now search the new
   index and read only the unread signals of the asked type.
+- The history timeline (`GET /api/v1/history`, `POST /api/v1/history/enumerate`,
+  the dashboard History page) reads missions, check runs, deployments, events
+  and request history newest first, at most 2000 records from each source, and
+  reads missions without their description, diff snapshot and agent output. A
+  source holding more records is named in the new `TruncatedSources` list, and
+  only its newest records are in the page and in `TotalRecords`. Incident and
+  runbook-execution entries read only their snapshot events instead of every
+  event. A history read without a time window loaded every mission with its
+  diff, every event three times and every request-history row, and grew the
+  admiral by about 10 GB until the out-of-memory killer stopped it. A mission
+  entry's description is its failure reason. With an objective or mission
+  filter, the named missions are read by identifier, so the story stays
+  complete.
 - A voyage-armed Check waits while a stage that reports Testing or Review is
   still running. A captain reports those statuses as progress and can still
   commit, so a Check that ran then measured a commit the stage replaced, was
