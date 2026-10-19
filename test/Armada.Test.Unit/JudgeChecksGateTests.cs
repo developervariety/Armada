@@ -1430,6 +1430,63 @@ namespace Armada.Test.Unit
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("JudgeNeedsRevision_DeclaringACriterionConflict_IsHeldForCriterionReview", async () =>
+            {
+                const string conflictOutput =
+                    "## Correctness\nThe cache grows without bound.\n\n" +
+                    "## Acceptance Criteria\n" +
+                    "- Exactly one git process runs per (commit, path) per process. -- NOT MET.\n" +
+                    "- CRITERION-CONFLICT: Exactly one git process runs per (commit, path) per process. -- Bounding the cache with LRU eviction, "
+                    + "which the earlier review required, re-runs git for an evicted key.\n\n" +
+                    "## Verdict\nThe required bound and the criterion cannot both hold.\n\n" +
+                    "[ARMADA:VERDICT] NEEDS_REVISION";
+                const string ordinaryOutput =
+                    "## Correctness\nThe cache grows without bound.\n\n" +
+                    "The template's form, quoted back:\n" +
+                    "`CRITERION-CONFLICT: <criterion text exactly as the brief lists it> -- <the required fix>`\n\n" +
+                    "## Verdict\nBound the cache.\n\n" +
+                    "[ARMADA:VERDICT] NEEDS_REVISION";
+
+                foreach (bool declaresConflict in new bool[] { true, false })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        (MissionService svc, Voyage voyage, Mission judge) = await SeedVoyageWithMeasurableWorkAsync(
+                            testDb, MissionModeEnum.Implementation, MissionStatusEnum.Pending).ConfigureAwait(false);
+                        Captain captain = await StartJudgeAsync(testDb, judge, "criterion-conflict-captain").ConfigureAwait(false);
+                        svc.OnGetMissionOutput = _ => declaresConflict ? conflictOutput : ordinaryOutput;
+                        await svc.HandleCompletionAsync(captain, judge.Id).ConfigureAwait(false);
+
+                        Mission? failed = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Failed, failed!.Status, "a NEEDS_REVISION verdict blocks landing either way");
+                        string reason = failed.FailureReason ?? String.Empty;
+
+                        AuthContext auth = AuthContext.Authenticated(
+                            Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "UnitTest");
+                        List<Incident> incidents = await new IncidentService(testDb.Driver)
+                            .EnumerateActiveAsync(auth, new IncidentQuery { MissionId = judge.Id }).ConfigureAwait(false);
+                        int criterionIncidents = incidents.Count(item => String.Equals(item.RootCause, JudgeCriterionConflicts.ReasonCode, StringComparison.Ordinal));
+                        List<ArmadaEvent> held = await testDb.Driver.Events.EnumerateByTypeAsync(JudgeCriterionConflicts.HeldEventType, 10).ConfigureAwait(false);
+
+                        if (declaresConflict)
+                        {
+                            AssertContains(JudgeCriterionConflicts.RescueBlockMarker, reason, "the failure reason carries the marker recovery holds on");
+                            AssertEqual(1, criterionIncidents, "one incident asks the operator to review the criterion");
+                            Incident incident = incidents.First(item => String.Equals(item.RootCause, JudgeCriterionConflicts.ReasonCode, StringComparison.Ordinal));
+                            AssertContains("LRU eviction", incident.RecoveryNotes ?? String.Empty, "the incident names the conflict the Judge declared");
+                            AssertEqual(1, held.Count, "the hold is recorded as a named event");
+                        }
+                        else
+                        {
+                            AssertFalse(reason.Contains(JudgeCriterionConflicts.RescueBlockMarker, StringComparison.Ordinal),
+                                "an ordinary NEEDS_REVISION, or a quoted placeholder line, keeps the rescue path");
+                            AssertEqual(0, criterionIncidents, "no criterion-review incident without a declared conflict");
+                            AssertEqual(0, held.Count, "no criterion-conflict event without a declared conflict");
+                        }
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("DescribeUnresolvedChecks_NamesTheBlockingRecords", () =>
             {
                 CheckRun queued = new CheckRun

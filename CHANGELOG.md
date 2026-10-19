@@ -30,7 +30,20 @@ upstream integrations and excludes changes already present at that baseline.
   after an out-of-memory kill carries memory figures from seconds before it.
   The request log records a request only when it completes; this warning names
   the request that is still running.
-
+- A Judge declares a required fix that cannot be made without breaking a stated
+  acceptance criterion on a standalone
+  `CRITERION-CONFLICT: <criterion> -- <conflict>` line and returns
+  NEEDS_REVISION. A NEEDS_REVISION or FAIL that carries one is held for
+  operator criterion review: the failure reason gains
+  `[judge:criterion_conflict]`, one incident with root cause
+  `criterion_conflict` lists each conflict, a `mission.criterion_conflict`
+  event is recorded, and autonomous recovery dispatches no rescue, with the
+  blocked reason `criterion_conflict:`. The Judge template carries the rule in
+  a `## When A Required Fix Breaks A Criterion` section that reaches the
+  embedded default and existing built-in rows through the append-if-missing
+  upgrader, the Judge output contract states the line form, and a rescue's
+  re-verification Judge is told to check each required fix against the
+  criteria.
 - `definitionOfDone.hostCommandMemoryFloorMb` holds a free host command slot
   until the host has that many megabytes of available memory (`MemAvailable`
   in `/proc/meminfo`). It defaults to 6144, is clamped to 0-1048576, and 0

@@ -3153,6 +3153,12 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("Blocking findings from the failed Judge", judgeBrief, "The re-verification stage receives the findings it must check");
                 AssertContains("src/Example.cs:40", judgeBrief, "The finding itself is embedded, not only a pointer");
                 AssertContains("resolves each blocking finding above", judgeBrief, "The stage is told to check each finding");
+                AssertContains(AutonomousRecoveryOrchestrator.CriterionConflictReviewInstruction, judgeBrief,
+                    "The re-verification Judge is told to declare a fix that breaks a criterion instead of failing it again");
+                Mission testStage = orchestrator.BuildChainedRescueStage(
+                    failedJudge, "vyg_test_rescue", "msn_test_rescue_worker", new PipelineStage(2, "TestEngineer"), 1, new List<SelectedPlaybook>());
+                AssertFalse((testStage.Description ?? String.Empty).Contains(JudgeCriterionConflicts.LinePrefix, StringComparison.Ordinal),
+                    "Only the Judge stage receives the verdict-shaped criterion instruction");
 
                 Mission failedWorker = new Mission("Failed gate")
                 {
@@ -3166,6 +3172,8 @@ namespace Armada.Test.Unit.Suites.Services
                 string gateBrief = gateStage.Description ?? String.Empty;
                 AssertContains("Failure the revision must fix: DoD gate failed", gateBrief, "A gate failure names the failure, not reviewer feedback");
                 AssertFalse(gateBrief.Contains("reviewer feedback", StringComparison.Ordinal), "A gate failure is not described as a review");
+                AssertFalse(gateBrief.Contains(JudgeCriterionConflicts.LinePrefix, StringComparison.Ordinal),
+                    "A gate failure carries no reviewer-required fix, so no criterion instruction");
                 await Task.CompletedTask;
             }).ConfigureAwait(false);
 
@@ -3736,6 +3744,49 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 AssertEqual(1, incidentPage.Objects.Count, "Exhaustion should leave exactly one incident open.");
                 AssertEqual(IncidentSeverityEnum.High, incidentPage.Objects[0].Severity, "The incident should escalate to High only after the bounded loop is exhausted.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A Judge failure that declares a criterion conflict holds the rescue for criterion review", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_criterion", "usr_criterion").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_criterion", "usr_criterion").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel,
+                    "Judge verdict: NEEDS_REVISION " + JudgeCriterionConflicts.RescueBlockMarker).ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.ReviewComment = "Bound the cache with LRU eviction.";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, TwoAttemptSettings());
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count,
+                    "A rescue would build the fix and fail the next Judge against the unchanged criterion, so none is dispatched while budget remains.");
+
+                AuthContext auth = AuthContext.Authenticated("ten_criterion", "usr_criterion", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failed.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, incidentPage.Objects.Count, "The operator gets one incident to review the criterion.");
+
+                EnumerationResult<ArmadaEvent> blocked = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = failed.Id,
+                    EventType = "autonomous_recovery.blocked",
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, blocked.Objects.Count, "A blocked event records the decision.");
+                AssertTrue((blocked.Objects[0].Message ?? String.Empty).Contains(JudgeCriterionConflicts.ReasonCode + ":", StringComparison.Ordinal),
+                    "The blocked reason names the criterion conflict. Message: " + blocked.Objects[0].Message);
             }).ConfigureAwait(false);
 
             await RunTest("FindSuspectNoOpRescues_CompleteRescueAtTargetHead_FlaggedAndAdvancedExcluded", async () =>

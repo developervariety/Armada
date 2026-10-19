@@ -237,6 +237,26 @@ namespace Armada.Core.Services
             "fail for the regression its name claims. Never delete, skip, or weaken a test, and never remove or " +
             "loosen an assertion, even one you report: removing a test is separate work that needs its own " +
             "evidence. A test is not low value only because it is slow or static.\n";
+
+        /// <summary>Heading of the criterion-conflict section on the Judge template.</summary>
+        private const string _JudgeCriterionConflictMarker = "## When A Required Fix Breaks A Criterion";
+
+        /// <summary>
+        /// The criterion-conflict rule added to the Judge persona: a fix that cannot be made without breaking a
+        /// stated acceptance criterion is declared on a mechanically read line, and Armada holds the verdict
+        /// for operator criterion review instead of dispatching a rescue that fails the next review.
+        /// </summary>
+        private const string _JudgeCriterionConflict =
+            "\n" +
+            _JudgeCriterionConflictMarker + "\n" +
+            "Before you require a fix, check it against every acceptance criterion in the brief. When a fix you require, or a " +
+            "fix an earlier Judge required and this revision built, cannot be made without breaking a stated criterion, do not " +
+            "fail the work against that criterion. Write one standalone line per conflict, at the start of the line: " +
+            "`" + JudgeCriterionConflicts.LinePrefix + " <criterion text exactly as the brief lists it>" + JudgeCriterionConflicts.Separator +
+            "<the required fix, and why it breaks the criterion>`, and end with `[ARMADA:VERDICT] NEEDS_REVISION`. Armada " +
+            "reads these lines and holds the work for an operator to review the criterion instead of dispatching a rescue. Use " +
+            "the line only for a real conflict between a required fix and a criterion, never for an ordinary defect.\n";
+
         private DatabaseDriver _Database;
         private LoggingModule _Logging;
         private Dictionary<string, EmbeddedTemplate> _EmbeddedDefaults;
@@ -273,6 +293,7 @@ namespace Armada.Core.Services
             AddLintDuplicationCheck();
             AddLintTestCheck();
             AddTestAuthoringGate();
+            AddJudgeCriterionConflict();
         }
 
         #endregion
@@ -387,6 +408,7 @@ namespace Armada.Core.Services
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.linter", _LintDuplicationCheckMarker, _LintDuplicationCheck, "duplication-check").ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.linter", _LintTestCheckMarker, _LintTestCheck, "test-check").ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.test_engineer", _TestAuthoringGateMarker, _TestAuthoringGate, "authoring-gate").ConfigureAwait(false);
+            await UpgradeBuiltInPersonaSectionAsync(token, "persona.judge", _JudgeCriterionConflictMarker, _JudgeCriterionConflict, "criterion-conflict").ConfigureAwait(false);
         }
 
         /// <summary>
@@ -629,6 +651,12 @@ namespace Armada.Core.Services
         private void AddTestAuthoringGate()
         {
             AddSectionToEmbedded("persona.test_engineer", _TestAuthoringGateMarker, _TestAuthoringGate);
+        }
+
+        /// <summary>Add the Judge criterion-conflict section to the embedded default.</summary>
+        private void AddJudgeCriterionConflict()
+        {
+            AddSectionToEmbedded("persona.judge", _JudgeCriterionConflictMarker, _JudgeCriterionConflict);
         }
 
         /// <summary>

@@ -51,6 +51,14 @@ namespace Armada.Server
         internal const string BlockedQuestionRecoveryReason =
             "captain_blocked: the stage ended with [ARMADA:RESULT] BLOCKED on a question only the owner can answer; a rescue would re-run it without the answer";
 
+        /// <summary>
+        /// Decision reason recorded when a Judge declared that a fix it requires conflicts with a stated
+        /// acceptance criterion: an operator reviews the criterion, and a rescue would fail the next Judge.
+        /// </summary>
+        internal const string CriterionConflictRecoveryReason =
+            JudgeCriterionConflicts.ReasonCode + ": the Judge's required fix conflicts with a stated acceptance criterion; "
+            + "an operator reviews the criterion, because a rescue would build the fix and fail the next Judge against the unchanged criterion";
+
         private static readonly Regex _JudgePassLinePattern = new Regex(
             @"^\[(?:ARMADA:)?VERDICT\]\s+PASS\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -1289,6 +1297,11 @@ namespace Armada.Server
             // into a rescue.
             if (CaptainBlockedResult.IsBlockedFailure(reason))
                 return RecoveryDecision.Blocked(BlockedQuestionRecoveryReason);
+            // A Judge that declared a required fix in conflict with a stated acceptance criterion waits on an
+            // operator ruling on the criterion. A rescue would build the fix and fail the next Judge against
+            // the unchanged criterion, so no mode or budget turns it into a rescue.
+            if (reason.Contains(JudgeCriterionConflicts.RescueBlockMarker, StringComparison.Ordinal))
+                return RecoveryDecision.Blocked(CriterionConflictRecoveryReason);
             if (!_Settings.AutonomousRecovery.DispatchRescueMissions)
                 return RecoveryDecision.Blocked("autonomous rescue dispatch is disabled");
             if (String.IsNullOrWhiteSpace(mission.VesselId))
@@ -2686,7 +2699,10 @@ namespace Armada.Server
                     "Read the complete failed mission output with armada_mission_output before editing or re-verifying." + Environment.NewLine +
                     "Read the complete failed stage brief with armada_mission_status (missionId=" + failedMission.Id + ", includeDescription=true) if the description omits scope." + Environment.NewLine +
                     "Re-verification stage for the autonomous revision rescue of failed mission " + failedMission.Id + "." + Environment.NewLine +
-                    BuildChainedRescueVerification(failedMission, chainedOutput, chainedReviewFallback),
+                    BuildChainedRescueVerification(failedMission, chainedOutput, chainedReviewFallback) +
+                    (IsReviewerPersona(failedMission.Persona) && PersonaCatalog.Matches(stage.PersonaName, PersonaCatalog.Judge)
+                        ? Environment.NewLine + CriterionConflictReviewInstruction
+                        : String.Empty),
                     owningObjective)
             };
         }
@@ -2723,6 +2739,17 @@ namespace Armada.Server
                 + Environment.NewLine + blocking + Environment.NewLine
                 + "Confirm the revised branch resolves each blocking finding above, or that the revision rejected it with evidence, before it lands.";
         }
+
+        /// <summary>
+        /// The instruction a re-verification Judge receives after a reviewer rejection. The rescue built the
+        /// fixes the failed reviewer required, and the Judge measures them against the same acceptance
+        /// criteria, so a fix that necessarily breaks a criterion is declared rather than failed again.
+        /// </summary>
+        internal const string CriterionConflictReviewInstruction =
+            "Check each fix above against the acceptance criteria in this brief. When a fix the failed reviewer required cannot be kept "
+            + "without breaking a stated criterion, do not fail the revision against that criterion: write a standalone line "
+            + "`" + JudgeCriterionConflicts.LinePrefix + " <criterion text exactly as the brief lists it>" + JudgeCriterionConflicts.Separator
+            + "<the required fix, and why it breaks the criterion>` and end with NEEDS_REVISION, so an operator reviews the criterion.";
 
         // The pipeline stage a rescue takes the place of: its order, tier and review settings, and the
         // point after which the rescue chain re-runs the pipeline. A pipeline can name one persona at

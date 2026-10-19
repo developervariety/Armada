@@ -303,6 +303,13 @@ original failure. After a reviewer rejection, its brief embeds the same
 blocking findings the rescue Worker received and tells it to confirm each one
 is resolved or rejected with evidence. After any other failure, such as a
 definition-of-done gate failure, its brief names the failure reason instead.
+After a reviewer rejection, the re-verification Judge's brief also tells it to
+check each required fix against the acceptance criteria and to declare a fix
+that cannot be kept without breaking a criterion as a criterion conflict (see
+"Criterion conflicts" below), not to fail the revision against that criterion
+again. The rescue Worker and every chained stage receive the failed reviewer's
+findings, and an objective-linked rescue also receives the objective brief with
+its acceptance criteria, so the conflict is visible to the next Judge.
 
 The failed parent output is in scope for the rescue Worker and later stages in
 that rescue chain. The server follows same-owner, same-voyage and same-vessel
@@ -391,3 +398,32 @@ context. If this required content exceeds a budget, it remains intact and
 budget telemetry reports the excess.
 For `[DOD:DOC-ONLY]` missions with only non-code changes, the Judge reviews the
 document diff without running the full test suite.
+
+### Criterion conflicts
+
+A fix the Judge requires can be impossible without breaking a stated
+acceptance criterion: for example, "bound the cache with LRU eviction" against
+"exactly one git process runs per (commit, path) per process". A rescue would
+build the fix, and the next Judge would fail it against the unchanged
+criterion. The Judge declares such a conflict on a standalone line and returns
+NEEDS_REVISION:
+
+```
+CRITERION-CONFLICT: <criterion text exactly as the brief lists it> -- <the required fix, and why it breaks the criterion>
+```
+
+Armada reads the line mechanically. A line counts when it starts with the
+prefix (after an optional list bullet or code quote) and names a criterion and
+a conflict around ` -- `. A placeholder that opens with `<` is ignored. When a
+NEEDS_REVISION or FAIL verdict carries one or more such lines:
+
+- The failure reason gains the `[judge:criterion_conflict]` marker.
+- One open incident with root cause `criterion_conflict` lists each declared
+  conflict for the operator.
+- A `mission.criterion_conflict` event records the hold.
+- Autonomous recovery dispatches no rescue, whatever the remaining budget. Its
+  blocked event names the `criterion_conflict:` reason.
+
+The operator corrects the criterion on the objective, or rules the required
+fix out of scope, and dispatches the work again. The `revision_kind` decision
+is not consulted for a verdict that is already held this way.

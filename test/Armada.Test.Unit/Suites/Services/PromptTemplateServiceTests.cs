@@ -608,6 +608,40 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("The Judge criterion-conflict section reaches an edited built-in row once, and its own example is not read as a conflict", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplate judgeEdit = new PromptTemplate("persona.judge", "You are a judge. OPERATOR CUSTOM.\n## Verdict\nRun the test suite in the FOREGROUND.\n");
+                    judgeEdit.Category = "persona";
+                    judgeEdit.IsBuiltIn = true;
+                    await testDb.Driver.PromptTemplates.CreateAsync(judgeEdit).ConfigureAwait(false);
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? judge = await service.ResolveAsync("persona.judge").ConfigureAwait(false);
+                    AssertStartsWith("You are a judge. OPERATOR CUSTOM.", judge!.Content, "the operator edit is preserved");
+                    AssertContains("## When A Required Fix Breaks A Criterion", judge.Content, "the criterion-conflict section reaches an existing built-in row");
+                    AssertContains(JudgeCriterionConflicts.LinePrefix, judge.Content, "the section names the line Armada reads");
+                    AssertEqual(0, JudgeCriterionConflicts.Extract(judge.Content).Count,
+                        "the template's own placeholder line is not read as a declared conflict");
+
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    PromptTemplate? reseeded = await service.ResolveAsync("persona.judge").ConfigureAwait(false);
+                    AssertEqual(1, reseeded!.Content.Split("## When A Required Fix Breaks A Criterion").Length - 1,
+                        "a second seed does not append the criterion-conflict section again");
+
+                    string embedded = service.GetEmbeddedDefault("persona.judge") ?? String.Empty;
+                    AssertContains("## When A Required Fix Breaks A Criterion", embedded, "the embedded default carries the criterion-conflict section");
+                    AssertEqual(0, JudgeCriterionConflicts.Extract(embedded).Count,
+                        "the embedded default's placeholder line is not read as a declared conflict");
+                }
+            });
+
             await RunTest("Working persona templates carry the memory-recall note; the Recorder does not", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

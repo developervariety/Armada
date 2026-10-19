@@ -115,6 +115,14 @@ consumer repository, or corrects the producer change when the consumer failure
 is shown to come from it, and reruns the gate. A `TestFail` in the vessel's own
 suite stays eligible for rescue.
 
+A Judge NEEDS_REVISION or FAIL that declares a `CRITERION-CONFLICT:` line also
+blocks the rescue, with the reason `criterion_conflict:`. The Judge requires a
+fix that cannot be made without breaking a stated acceptance criterion, so a
+rescue would fail the next Judge. The incident with root cause
+`criterion_conflict` lists each conflict. The operator corrects the criterion
+or rules the fix out of scope, then dispatches the work again. See
+[PIPELINES.md](PIPELINES.md), "Criterion conflicts".
+
 ## Check rules on a split voyage
 
 A voyage splits into lanes when two or more stages depend on the same stage,
