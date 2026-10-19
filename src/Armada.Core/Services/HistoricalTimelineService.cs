@@ -779,14 +779,14 @@ namespace Armada.Core.Services
             {
                 List<T> page = await readPage(pageNumber, pageSize).ConfigureAwait(false);
                 results.AddRange(page);
-                if (page.Count < pageSize)
-                    break;
                 if (results.Count > _SourceRowLimit)
                 {
                     results.RemoveRange(_SourceRowLimit, results.Count - _SourceRowLimit);
                     if (!truncated.Contains(sourceType)) truncated.Add(sourceType);
                     break;
                 }
+                if (page.Count < pageSize)
+                    break;
                 pageNumber += 1;
             }
 
