@@ -63,6 +63,23 @@ namespace Armada.Test.Runtimes.Suites
         // command arguments. StartAsync echoes the joined args into the log-file header,
         // so a literal sentinel in the args would show up regardless of stderr gating.
         // Splitting it and concatenating in the shell keeps the joined string off the args.
+        /// <summary>
+        /// Completes when the runtime has handled the agent's exit: output drained, exit records and any final
+        /// message written, and the log file closed. Subscribe before the launch so a fast exit is not missed.
+        /// </summary>
+        private static Task WatchExitAsync(TestAgentRuntime runtime)
+        {
+            TaskCompletionSource exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            runtime.OnProcessExited += (pid, code) => exited.TrySetResult();
+            return exited.Task;
+        }
+
+        private async Task AwaitExitHandledAsync(Task exited)
+        {
+            Task finished = await Task.WhenAny(exited, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+            AssertTrue(ReferenceEquals(finished, exited), "the agent exited and the runtime finished handling the exit within 30 seconds");
+        }
+
         private void ConfigureStderrEmitter(TestAgentRuntime runtime, string sentinel)
         {
             int mid = sentinel.Length / 2;
@@ -416,8 +433,9 @@ namespace Armada.Test.Runtimes.Suites
 
                 try
                 {
+                    Task exited = WatchExitAsync(runtime);
                     await runtime.StartAsync(tempDir, "test prompt", logFilePath: logFilePath);
-                    await Task.Delay(2500);
+                    await AwaitExitHandledAsync(exited).ConfigureAwait(false);
 
                     AssertTrue(outputLines.Contains(sentinel), "OnOutputReceived should still receive the stderr sentinel when WriteStderrToLogFile is false");
 
@@ -443,8 +461,9 @@ namespace Armada.Test.Runtimes.Suites
 
                 try
                 {
+                    Task exited = WatchExitAsync(runtime);
                     await runtime.StartAsync(tempDir, "test prompt", logFilePath: logFilePath);
-                    await Task.Delay(2500);
+                    await AwaitExitHandledAsync(exited).ConfigureAwait(false);
 
                     string logContent = File.Exists(logFilePath) ? File.ReadAllText(logFilePath) : "";
                     AssertTrue(logContent.Contains("[stderr] " + quotaText), "Quota-signal stderr line must be preserved in log file even when WriteStderrToLogFile is false");
@@ -468,8 +487,9 @@ namespace Armada.Test.Runtimes.Suites
 
                 try
                 {
+                    Task exited = WatchExitAsync(runtime);
                     await runtime.StartAsync(tempDir, "test prompt", logFilePath: logFilePath, finalMessageFilePath: finalMessageFilePath);
-                    await Task.Delay(2500);
+                    await AwaitExitHandledAsync(exited).ConfigureAwait(false);
 
                     string logContent = File.Exists(logFilePath) ? File.ReadAllText(logFilePath) : "";
                     AssertTrue(logContent.Contains(finalMessage), "Log file should contain the echoed final message after exit");
@@ -493,8 +513,9 @@ namespace Armada.Test.Runtimes.Suites
 
                 try
                 {
+                    Task exited = WatchExitAsync(runtime);
                     await runtime.StartAsync(tempDir, "test prompt", logFilePath: logFilePath);
-                    await Task.Delay(2500);
+                    await AwaitExitHandledAsync(exited).ConfigureAwait(false);
 
                     string logContent = File.Exists(logFilePath) ? File.ReadAllText(logFilePath) : "";
                     AssertTrue(logContent.Contains(sentinel), "Log file should contain the stderr sentinel when WriteStderrToLogFile defaults to true");
@@ -517,8 +538,9 @@ namespace Armada.Test.Runtimes.Suites
 
                 try
                 {
+                    Task exited = WatchExitAsync(runtime);
                     await runtime.StartAsync(tempDir, prompt, logFilePath: logFilePath);
-                    await Task.Delay(2500);
+                    await AwaitExitHandledAsync(exited).ConfigureAwait(false);
 
                     string logContent = File.Exists(logFilePath) ? File.ReadAllText(logFilePath) : "";
                     AssertTrue(logContent.Contains(rolePreamble), "Log file must contain the role preamble when the prompt is delivered via stdin");
@@ -585,8 +607,9 @@ namespace Armada.Test.Runtimes.Suites
 
                 try
                 {
+                    Task exited = WatchExitAsync(runtime);
                     await runtime.StartAsync(tempDir, "test prompt", logFilePath: logFilePath);
-                    await Task.Delay(2500);
+                    await AwaitExitHandledAsync(exited).ConfigureAwait(false);
 
                     string logContent = File.Exists(logFilePath) ? File.ReadAllText(logFilePath) : "";
                     AssertTrue(logContent.Contains("[stderr] " + resetLine), "Standalone reset-time stderr line must be preserved in log file even when WriteStderrToLogFile is false");

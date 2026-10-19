@@ -98,6 +98,10 @@ upstream integrations and excludes changes already present at that baseline.
   server a 300 ms authentication window and asserts that the refusal arrives no
   earlier than that window and well before the 15-second production window,
   which stays the default for every other session.
+- The agent-runtime log tests wait for the runtime to finish handling the
+  agent's exit (output drained, final message written, log closed) instead of
+  a fixed 2.5-second pause, so a log assertion never reads a half-written file
+  and the tests no longer wait when the agent exits at once.
 - A definition-of-done gate holds the host command slot from its first command
   until it ends. Its unit tests and each consumer build and test follow its
   build directly instead of going to the back of the queue for every command,
