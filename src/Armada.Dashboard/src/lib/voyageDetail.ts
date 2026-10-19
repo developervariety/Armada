@@ -17,7 +17,7 @@ export function voyageProgress(missions: readonly Pick<Mission, 'status'>[]): Vo
   return { total: missions.length, completed, failed, percent };
 }
 
-/** A voyage still running can be cancelled; one that is not can be deleted (purged). */
+/** A voyage still running can be cancelled; one that is not can be deleted. */
 export function isVoyageActive(status: string | null | undefined): boolean {
   return status === 'Open' || status === 'InProgress';
 }

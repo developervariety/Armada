@@ -27,6 +27,7 @@ export default function Voyages() {
   const [voyages, setVoyages] = useState<Voyage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   // Pagination (server-side)
   const [pageNumber, setPageNumber] = useState(1);
@@ -42,7 +43,7 @@ export default function Voyages() {
   const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
 
   // Confirm dialog
-  const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   const table = useResourceTable({
     rows: voyages,
@@ -93,18 +94,20 @@ export default function Voyages() {
     });
   }
 
-  function handlePurge(id: string, title: string) {
+  function handleDelete(id: string, title: string) {
     setConfirm({
       open: true,
-      title: t('Purge Voyage'),
-      message: t('Purge voyage "{{title}}"? This will permanently remove the voyage and all associated missions. This cannot be undone.', { title }),
+      title: t('Delete Voyage'),
+      confirmLabel: 'Delete',
+      danger: true,
+      message: t('Delete voyage "{{title}}"? This will permanently remove the voyage and all associated missions. This cannot be undone.', { title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await purgeVoyage(id);
-          pushToast('warning', t('Voyage "{{title}}" purged.', { title }));
+          pushToast('warning', t('Voyage "{{title}}" deleted.', { title }));
           load();
-        } catch { setError(t('Purge failed.')); }
+        } catch { setError(t('Delete failed.')); }
       },
     });
   }
@@ -130,6 +133,38 @@ export default function Voyages() {
         }
         if (failed > 0) setError(t('Cancelled {{success}} voyages, {{failed}} failed.', { success: ids.length - failed, failed }));
         load();
+      },
+    });
+  }
+
+  function handleBulkDelete() {
+    const ids = [...table.selected];
+    setConfirm({
+      open: true,
+      title: t('Delete Multiple Voyages'),
+      message: t('Delete {{count}} selected voyages and all their associated missions? This cannot be undone. Active voyages or voyages with active missions cannot be deleted.', { count: ids.length }),
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        setConfirm(c => ({ ...c, open: false }));
+        setDeleting(true);
+        const failedIds: string[] = [];
+        try {
+          for (const id of ids) {
+            try { await purgeVoyage(id); } catch { failedIds.push(id); }
+          }
+          table.setSelected(failedIds);
+          const success = ids.length - failedIds.length;
+          if (success > 0) {
+            pushToast(failedIds.length > 0 ? 'warning' : 'success', failedIds.length > 0
+              ? t('Deleted {{success}} voyages. {{failed}} failed.', { success, failed: failedIds.length })
+              : t('Deleted {{success}} voyages.', { success }));
+          }
+          await load();
+          if (failedIds.length > 0) setError(t('Deleted {{success}} voyages, {{failed}} failed. Failed voyages remain selected.', { success, failed: failedIds.length }));
+        } finally {
+          setDeleting(false);
+        }
       },
     });
   }
@@ -174,14 +209,14 @@ export default function Voyages() {
       },
     },
     {
-      key: 'actions', label: t('Actions'), headerTitle: t('Open, view status or JSON, cancel or purge a voyage.'), fixed: true, interactive: true, className: 'text-right',
+      key: 'actions', label: t('Actions'), headerTitle: t('Open, view status or JSON, cancel or delete a voyage.'), fixed: true, interactive: true, className: 'text-right',
       render: (v) => (
         <ActionMenu id={`voyage-${v.id}`} items={[
           { label: 'View Detail', title: 'Open the voyage page with its missions, progress and landing settings.', onClick: () => navigate(`/voyages/${v.id}`) },
           { label: 'View Status', title: 'Show the voyage\'s progress summary from the server as raw JSON.', onClick: () => handleViewStatus(v.id) },
           { label: 'View JSON', title: 'Show the raw voyage record as the API returns it.', onClick: () => setJsonData({ open: true, title: `${t('Voyage')}: ${v.title}`, data: v }) },
           { label: 'Cancel', danger: true, title: 'Cancel the voyage and its pending and assigned missions. Missions already running are not stopped. The records are kept.', onClick: () => handleCancel(v.id, v.title) },
-          { label: 'Purge', danger: true, title: 'Permanently delete the voyage and all of its missions. Refused while the voyage or any mission is still active. Cannot be undone.', onClick: () => handlePurge(v.id, v.title) },
+          { label: 'Delete', danger: true, title: 'Permanently delete the voyage and all of its missions. Refused while the voyage or any mission is still active. Cannot be undone.', onClick: () => handleDelete(v.id, v.title) },
         ]} />
       ),
     },
@@ -196,8 +231,13 @@ export default function Voyages() {
           <>
             <UserScopeFilter value={userScope} onChange={(id) => { setUserScope(id); setPageNumber(1); }} />
             {table.selected.length > 0 && (
-              <button className="btn btn-sm btn-danger" onClick={handleBulkCancel} title={t('Cancel every selected voyage and its pending and assigned missions. You confirm first; the records are kept.')}>
+              <button className="btn btn-sm btn-danger" onClick={handleBulkCancel} disabled={deleting} title={t('Cancel every selected voyage and its pending and assigned missions. You confirm first; the records are kept.')}>
                 {t('Cancel Selected')} ({table.selected.length})
+              </button>
+            )}
+            {table.selected.length > 1 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} disabled={deleting} title={t('Permanently delete the selected voyages and all their missions. You confirm first; active voyages or missions cannot be deleted.')}>
+                {deleting ? t('Deleting...') : t('Delete Multiple')} ({table.selected.length})
               </button>
             )}
             <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')} title={t('Create a voyage: a named batch of missions for one vessel that are dispatched together.')}>+ {t('Voyage')}</button>
@@ -218,6 +258,7 @@ export default function Voyages() {
         editLabel={t('Open Details')}
       />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
+        confirmLabel={confirm.confirmLabel} danger={confirm.danger}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
       <DataTable
@@ -241,7 +282,7 @@ export default function Voyages() {
           allSelected: table.allSelected,
           onToggleAll: (checked) => (checked ? table.selectAll() : table.clearSelection()),
           selectAllLabel: t('Select all voyages'),
-          rowLabel: () => t('Select this voyage for Cancel Selected.'),
+          rowLabel: () => t('Select this voyage for Cancel Selected or Delete Multiple.'),
         }}
         emptyMessage={t('No voyages match the current filters.')}
         placeholder={voyages.length > 0 ? undefined : <p className="text-dim">{loading ? t('Loading...') : t('No voyages found.')}</p>}
