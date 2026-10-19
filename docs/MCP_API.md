@@ -672,6 +672,12 @@ mission or voyage, and its directly linked parent objective. Both must have the
 same tenant and owner. Unrelated records return not found. Operator reads retain
 their normal caller scope.
 
+A captain may omit the id on these reads. `armada_mission_status` and
+`armada_mission_output` then read the captain's own mission, and `get_objective`
+reads the objective that lists the captain's mission, or else its voyage. A
+caller with no mission credential must pass the id; an omitted id returns an
+error that names the missing argument (`missionId` or `objectiveId`).
+
 ### Papercut listing pages
 
 `armada_list_papercuts` returns at most 200 groups or reports per page. Pass

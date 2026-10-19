@@ -71,6 +71,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A captain can omit the id on `armada_mission_status`, `armada_mission_output`
+  and `get_objective`. They read the captain's own mission, or the objective that
+  authorizes it, instead of failing with a null-id error. A caller with no
+  mission credential gets an error that names the missing argument.
 - A captain's typed-decision tool call is recorded on the mission its credential
   names. A `missionId` argument that names another mission, such as the
   Architect of the same voyage, is ignored and logged, so the call is no longer

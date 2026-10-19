@@ -63,6 +63,20 @@ namespace Armada.Server.Mcp
         }
 
         /// <summary>
+        /// Return the supplied mission id, or the caller's own mission when none was supplied. Unlike
+        /// <see cref="ResolveMissionId"/>, a supplied id is kept, because a read tool may name a mission
+        /// the caller is allowed to read; only an omitted id defaults.
+        /// </summary>
+        /// <param name="supplied">The mission id the call supplied, or null.</param>
+        /// <returns>The mission id to read, or null when the call supplied none and the caller has no mission.</returns>
+        public static string? MissionIdOrOwn(string? supplied)
+        {
+            if (!String.IsNullOrWhiteSpace(supplied)) return supplied!.Trim();
+            string? own = _Current.Value?.MissionId;
+            return String.IsNullOrWhiteSpace(own) ? null : own;
+        }
+
+        /// <summary>
         /// Set the caller for the current async flow until the returned scope is disposed.
         /// </summary>
         /// <param name="caller">Authenticated caller.</param>

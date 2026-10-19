@@ -307,6 +307,58 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MissionReads_OmittedIdsDefaultToTheCallerOwnMissionAndObjective", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission own = await testDb.Driver.Missions.CreateAsync(new Mission("own stage")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        AgentOutput = "own stage report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "own work",
+                        MissionIds = new List<string> { own.Id }
+                    }).ConfigureAwait(false);
+                    Func<JsonElement?, Task<object>>? readStatus = null;
+                    Func<JsonElement?, Task<object>>? readOutput = null;
+                    Func<JsonElement?, Task<object>>? readObjective = null;
+                    McpMissionTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == "armada_mission_status") readStatus = handler;
+                        if (name == "armada_mission_output") readOutput = handler;
+                    }, testDb.Driver, new RecordingAdmiralDouble(), null, null);
+                    McpObjectiveTools.Register((name, _, _, handler) =>
+                    {
+                        if (name == "get_objective") readObjective = handler;
+                    }, testDb.Driver, new ObjectiveService(testDb.Driver));
+
+                    AuthContext captain = McpTestCaller.Operator;
+                    captain.MissionId = own.Id;
+                    using (McpCallerContext.Begin(captain))
+                    {
+                        string status = JsonSerializer.Serialize(await readStatus!(JsonSerializer.SerializeToElement(new { missionId = (string?)null })).ConfigureAwait(false));
+                        AssertContains(own.Id, status, "a null missionId reads the captain's own mission");
+                        MissionOutputArtifactPage page = (MissionOutputArtifactPage)await readOutput!(JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false);
+                        AssertEqual("own stage report", page.Content, "an omitted missionId reads the captain's own output");
+                        Objective read = (Objective)await readObjective!(JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false);
+                        AssertEqual(objective.Id, read.Id, "an omitted objectiveId reads the objective that authorizes the captain's mission");
+                    }
+
+                    using (McpCallerContext.Begin(McpTestCaller.Operator))
+                    {
+                        string status = JsonSerializer.Serialize(await readStatus!(JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false));
+                        AssertContains("missionId is required", status, "an operator with no mission gets an error naming the missing argument");
+                        string output = JsonSerializer.Serialize(await readOutput!(JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false));
+                        AssertContains("missionId is required", output, "the output read names the missing argument");
+                        string objectiveRead = JsonSerializer.Serialize(await readObjective!(JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false));
+                        AssertContains("objectiveId is required", objectiveRead, "the objective read names the missing argument");
+                    }
+                }
+            });
+
             await RunTest("MissionEvidence_RescueChainCanReadFailedParentOutputButKeepsOwnerBoundary", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

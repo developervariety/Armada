@@ -21,6 +21,9 @@ namespace Armada.Server.Mcp.Tools
     /// </summary>
     public static class McpMissionTools
     {
+        /// <summary>Error returned when a mission read names no mission and the caller holds no mission credential.</summary>
+        internal const string MissingMissionIdError = "missionId is required: pass a mission id (msn_ prefix). A captain may omit it to read its own mission.";
+
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -66,15 +69,19 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        missionId = new { type = "string", description = "Mission ID (msn_ prefix)" },
+                        missionId = new { type = "string", description = "Mission ID (msn_ prefix). A captain may omit it to read its own mission." },
                         includeDescription = new { type = "boolean", description = "Return the stored mission description (the full brief text). Default false." }
                     },
-                    required = new[] { "missionId" }
+                    required = Array.Empty<string>()
                 },
                 async (args) =>
                 {
-                    MissionStatusArgs request = JsonSerializer.Deserialize<MissionStatusArgs>(args!.Value, _JsonOptions)!;
-                    string missionId = request.MissionId;
+                    MissionStatusArgs request = args.HasValue
+                        ? JsonSerializer.Deserialize<MissionStatusArgs>(args.Value, _JsonOptions) ?? new MissionStatusArgs()
+                        : new MissionStatusArgs();
+                    string? resolvedMissionId = McpCallerContext.MissionIdOrOwn(request.MissionId);
+                    if (resolvedMissionId == null) return (object)new { Error = MissingMissionIdError };
+                    string missionId = resolvedMissionId;
                     Mission? authorized = await McpMissionEvidenceScope.ReadMissionAsync(
                         database, McpCallerContext.Require(), missionId).ConfigureAwait(false);
                     if (authorized == null) return (object)new { Error = "Mission not found" };
@@ -132,17 +139,21 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        missionId = new { type = "string", description = "Mission ID (msn_ prefix)" },
+                        missionId = new { type = "string", description = "Mission ID (msn_ prefix). A captain may omit it to read its own mission." },
                         offset = new { type = "integer", description = "Zero-based character offset (default 0)" },
                         length = new { type = "integer", description = "Characters to return (default 16000, maximum 64000)" }
                     },
-                    required = new[] { "missionId" }
+                    required = Array.Empty<string>()
                 },
                 async (args) =>
                 {
-                    MissionOutputArgs request = JsonSerializer.Deserialize<MissionOutputArgs>(args!.Value, _JsonOptions)!;
+                    MissionOutputArgs request = args.HasValue
+                        ? JsonSerializer.Deserialize<MissionOutputArgs>(args.Value, _JsonOptions) ?? new MissionOutputArgs()
+                        : new MissionOutputArgs();
+                    string? outputMissionId = McpCallerContext.MissionIdOrOwn(request.MissionId);
+                    if (outputMissionId == null) return (object)new { Error = MissingMissionIdError };
                     Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(
-                        database, McpCallerContext.Require(), request.MissionId).ConfigureAwait(false);
+                        database, McpCallerContext.Require(), outputMissionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
                     try
                     {

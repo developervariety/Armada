@@ -116,18 +116,24 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        objectiveId = new { type = "string", description = "Objective ID (obj_ prefix)" }
+                        objectiveId = new { type = "string", description = "Objective ID (obj_ prefix). A captain may omit it to read the objective that authorizes its mission." }
                     },
-                    required = new[] { "objectiveId" }
+                    required = Array.Empty<string>()
                 },
                 async (args) =>
                 {
-                    ObjectiveIdArgs request = JsonSerializer.Deserialize<ObjectiveIdArgs>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize ObjectiveIdArgs.");
+                    ObjectiveIdArgs request = args.HasValue
+                        ? JsonSerializer.Deserialize<ObjectiveIdArgs>(args.Value, _JsonOptions) ?? new ObjectiveIdArgs()
+                        : new ObjectiveIdArgs();
                     AuthContext auth = McpCallerContext.Require();
+                    string? objectiveId = String.IsNullOrWhiteSpace(request.ObjectiveId)
+                        ? await McpMissionEvidenceScope.FindOwnObjectiveIdAsync(database, auth).ConfigureAwait(false)
+                        : request.ObjectiveId.Trim();
+                    if (objectiveId == null)
+                        return (object)new { Error = "objectiveId is required: pass an objective id (obj_ prefix). A captain may omit it only when an objective authorizes its mission." };
                     Objective? objective = !String.IsNullOrEmpty(auth.MissionId)
-                        ? await McpMissionEvidenceScope.ReadObjectiveAsync(database, auth, request.ObjectiveId).ConfigureAwait(false)
-                        : await objectiveService.ReadAsync(auth, request.ObjectiveId).ConfigureAwait(false);
+                        ? await McpMissionEvidenceScope.ReadObjectiveAsync(database, auth, objectiveId).ConfigureAwait(false)
+                        : await objectiveService.ReadAsync(auth, objectiveId).ConfigureAwait(false);
                     if (objective == null) return (object)new { Error = "Objective not found" };
                     return (object)objective;
                 });
