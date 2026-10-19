@@ -109,6 +109,82 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Every page carries the joined digest and length and its own page digest", () =>
+            {
+                string output = "alpha🙂beta\ngamma é delta\n" + new string('z', 40);
+                Mission mission = BuildMission(output, MissionStatusEnum.Complete);
+                string joinedDigest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(output))).ToLowerInvariant();
+                StringBuilder rebuilt = new StringBuilder();
+                int offset = 0;
+                int pages = 0;
+                MissionOutputArtifactPage page;
+                do
+                {
+                    page = MissionOutputArtifact.Build(mission, offset, 9);
+                    pages++;
+                    AssertEqual(joinedDigest, page.Sha256, "every page names the digest of the joined content");
+                    AssertEqual(output.Length, page.TotalLength, "every page names the joined length");
+                    AssertEqual(Encoding.UTF8.GetByteCount(output), page.TotalUtf8Bytes, "every page names the joined UTF-8 byte count");
+                    AssertEqual(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(page.Content))).ToLowerInvariant(), page.PageSha256, "the page digest covers this page's content alone");
+                    AssertEqual(Encoding.UTF8.GetByteCount(page.Content), page.PageUtf8Bytes, "the page byte count covers this page's content alone");
+                    rebuilt.Append(page.Content);
+                    offset = page.NextOffset ?? page.TotalLength;
+                }
+                while (page.HasMore);
+                AssertTrue(pages > 1, "the output spans several pages");
+                AssertEqual(output, rebuilt.ToString());
+                return Task.CompletedTask;
+            });
+
+            await RunTest("A finished Test Engineer report without its contract sections is not a complete artifact", () =>
+            {
+                Mission progressOnly = BuildMission("Running the focused suite now; will report the matrix once it finishes.", MissionStatusEnum.Complete);
+                progressOnly.Persona = "Test Engineer";
+                MissionOutputArtifactPage page = MissionOutputArtifact.Build(progressOnly);
+                AssertTrue(page.Finalized, "the run has stopped");
+                AssertFalse(page.Complete, "a progress note is not the stage report");
+                AssertEqual("report_contract_missing", page.TruncationReason);
+                AssertEqual(3, page.MissingReportSections.Count, "every missing section is named");
+                AssertTrue(page.MissingReportSections.Contains("Coverage Added"));
+                AssertTrue(page.MissingReportSections.Contains("Negative Paths"));
+                AssertTrue(page.MissingReportSections.Contains("Residual Risks"));
+
+                Mission legacyName = BuildMission("## Coverage Added\n- one test\n## Residual Risks\nnone\n[ARMADA:RESULT] COMPLETE", MissionStatusEnum.WorkProduced);
+                legacyName.Persona = "TestEngineer";
+                MissionOutputArtifactPage partial = MissionOutputArtifact.Build(legacyName);
+                AssertFalse(partial.Complete, "the legacy persona name carries the same contract");
+                AssertEqual(1, partial.MissingReportSections.Count);
+                AssertEqual("Negative Paths", partial.MissingReportSections[0]);
+                return Task.CompletedTask;
+            });
+
+            await RunTest("A report with every contract section, a failed stage, and a persona without a contract stay as captured", () =>
+            {
+                Mission full = BuildMission("## Coverage Added\n- one\n\n### negative paths\n- one\n\n## Residual Risks\nnone\n[ARMADA:RESULT] COMPLETE", MissionStatusEnum.Complete);
+                full.Persona = "Test Engineer";
+                MissionOutputArtifactPage fullPage = MissionOutputArtifact.Build(full);
+                AssertTrue(fullPage.Complete, "headings match at any level and in any case");
+                AssertNull(fullPage.TruncationReason);
+                AssertEqual(0, fullPage.MissingReportSections.Count);
+
+                Mission failed = BuildMission("crashed while running tests", MissionStatusEnum.Failed);
+                failed.Persona = "Test Engineer";
+                MissionOutputArtifactPage failedPage = MissionOutputArtifact.Build(failed);
+                AssertTrue(failedPage.Complete, "a failed stage is not held to the success report contract");
+                AssertEqual(0, failedPage.MissingReportSections.Count);
+
+                Mission worker = BuildMission("done", MissionStatusEnum.Complete);
+                worker.Persona = "Worker";
+                AssertTrue(MissionOutputArtifact.Build(worker).Complete, "a persona without a fixed contract is unaffected");
+
+                Mission productManager = BuildMission("## Product Vision\nx\n## Use Cases\nx\n## Validation\nx", MissionStatusEnum.Complete);
+                productManager.Persona = "Product Manager";
+                MissionOutputArtifactPage pmPage = MissionOutputArtifact.Build(productManager);
+                AssertFalse(pmPage.Complete);
+                AssertEqual(2, pmPage.MissingReportSections.Count, "the Product Manager contract names its two missing sections");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Invalid page requests fail explicitly", () =>
             {
                 Mission mission = BuildMission("short", MissionStatusEnum.Complete);

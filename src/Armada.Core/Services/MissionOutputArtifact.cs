@@ -7,6 +7,9 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// Builds stable, digest-backed pages from the safe redacted projection of persisted mission output.
+    /// Every page names the digest and length of the joined content, plus the digest of its own content. A
+    /// finished, successful stage whose report lacks a section its persona's contract requires is reported
+    /// as not complete with the reason <c>report_contract_missing</c> and the missing sections named.
     /// </summary>
     public static class MissionOutputArtifact
     {
@@ -45,7 +48,12 @@ namespace Armada.Core.Services
                 : mission.AgentOutput == null
                     ? (finalized ? "output_unavailable" : "mission_not_finalized")
                     : finalized ? null : "mission_not_finalized";
+            List<string> missingSections = finalized && reason == null && IsSuccessful(mission.Status)
+                ? StageReportContract.MissingSections(mission.Persona, output)
+                : new List<string>();
+            if (missingSections.Count > 0) reason = "report_contract_missing";
             bool hasMore = safeOffset + pageLength < output.Length;
+            string content = pageLength == 0 ? String.Empty : output.Substring(safeOffset, pageLength);
 
             return new MissionOutputArtifactPage
             {
@@ -55,14 +63,24 @@ namespace Armada.Core.Services
                 Length = pageLength,
                 TotalLength = output.Length,
                 TotalUtf8Bytes = Encoding.UTF8.GetByteCount(output),
-                Content = pageLength == 0 ? String.Empty : output.Substring(safeOffset, pageLength),
+                Content = content,
                 HasMore = hasMore,
                 NextOffset = hasMore ? pageEnd : null,
                 Sha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(output))).ToLowerInvariant(),
+                PageSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant(),
+                PageUtf8Bytes = Encoding.UTF8.GetByteCount(content),
                 Finalized = finalized,
-                Complete = finalized && mission.AgentOutput != null && !captureTruncated,
-                TruncationReason = reason
+                Complete = finalized && mission.AgentOutput != null && !captureTruncated && missingSections.Count == 0,
+                TruncationReason = reason,
+                MissingReportSections = missingSections
             };
+        }
+
+        private static bool IsSuccessful(MissionStatusEnum status)
+        {
+            return status == MissionStatusEnum.Complete
+                || status == MissionStatusEnum.WorkProduced
+                || status == MissionStatusEnum.PullRequestOpen;
         }
 
         private static bool IsTerminal(MissionStatusEnum status)

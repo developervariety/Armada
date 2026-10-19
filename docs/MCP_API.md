@@ -646,8 +646,15 @@ caller can read its own output, missions in the same voyage, and its direct
 `DependsOnMissionId` or `ParentMissionId` source. Each source must have the same
 tenant and owner. Use `offset` and `length`, follow `NextOffset` while `HasMore`
 is true, and check the final reconstructed UTF-8 content against `Sha256`.
+`Sha256`, `TotalLength` and `TotalUtf8Bytes` describe the joined content and are
+the same on every page; `PageSha256` and `PageUtf8Bytes` describe the page's own
+`Content`, so each page can be checked as it arrives.
 `Complete` identifies a final artifact; it does not mean that one page contains
-all content. A later autonomous rescue stage can also read the failed parent
+all content. A finished, successful Test Engineer or Product Manager stage whose
+report lacks a section its persona template requires is not complete:
+`TruncationReason` is `report_contract_missing` and `MissingReportSections` names
+each missing section. A heading of any level that starts with the section name,
+in any case, counts as the section. A later autonomous rescue stage can also read the failed parent
 named by its marked rescue root, reached through the same-owner, same-voyage
 and same-vessel dependency chain. A legacy rescue title alone does not grant
 this additional read. Existing direct-parent reads remain available. A mission

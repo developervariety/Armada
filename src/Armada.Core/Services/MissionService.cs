@@ -7897,6 +7897,7 @@ namespace Armada.Core.Services
                 + "\nFinalized: " + artifact.Finalized
                 + "\nComplete: " + artifact.Complete
                 + (artifact.TruncationReason == null ? String.Empty : "\nTruncation reason: " + artifact.TruncationReason)
+                + (artifact.MissingReportSections.Count == 0 ? String.Empty : "\nMissing report sections: " + String.Join(", ", artifact.MissingReportSections))
                 + "\nRetrieve every page with the armada_mission_output MCP tool (missionId " + artifact.MissionId
                 + "), follow NextOffset until HasMore is false, and verify the digest before review. "
                 + "A missing page, incomplete artifact, or digest mismatch is an evidence gap and must not pass review.";

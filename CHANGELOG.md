@@ -71,6 +71,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A finished Test Engineer or Product Manager report that lacks a section its
+  persona template requires, such as a progress note in place of the report, is
+  no longer a complete output artifact. `armada_mission_output` reports
+  `report_contract_missing` and names the missing sections, and the next stage's
+  handoff lists them as an evidence gap. Every page also carries `PageSha256`
+  and `PageUtf8Bytes` for its own content beside the joined-content digest and
+  length.
 - A captain can omit the id on `armada_mission_status`, `armada_mission_output`
   and `get_objective`. They read the captain's own mission, or the objective that
   authorizes it, instead of failing with a null-id error. A caller with no
