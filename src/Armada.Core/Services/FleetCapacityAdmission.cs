@@ -66,40 +66,8 @@ namespace Armada.Core.Services
                 }
 
                 CapacitySnapshot snapshot = await ReadSnapshotAsync(tenantId, token).ConfigureAwait(false);
-                bool existingWorkUnit = !String.IsNullOrWhiteSpace(candidateVoyageId)
-                    && snapshot.VesselsByWorkUnit.ContainsKey(candidateVoyageId!);
-                string[] candidateLane = snapshot.Lanes.MembersFor(vessel.Id)
-                    .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-                HashSet<string> candidateLaneSet = candidateLane.ToHashSet(StringComparer.OrdinalIgnoreCase);
-                int globalLimit = _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages;
-                if (!existingWorkUnit && snapshot.VesselsByWorkUnit.Count >= globalLimit)
-                {
-                    throw new FleetCapacityAdmissionException(
-                        "fleet_capacity_reached",
-                        "Fleet capacity is full: " + snapshot.VesselsByWorkUnit.Count
-                            + " active work unit(s), limit " + globalLimit + ".",
-                        snapshot.VesselsByWorkUnit.Count,
-                        globalLimit,
-                        vessel.Id,
-                        candidateLane);
-                }
-
-                bool voyageAlreadyTouchesLane = existingWorkUnit
-                    && snapshot.VesselsByWorkUnit[candidateVoyageId!].Any(candidateLaneSet.Contains);
-                int activeInLane = snapshot.VesselsByWorkUnit.Count(pair => pair.Value.Any(candidateLaneSet.Contains));
-                int laneLimit = _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel;
-                if (!voyageAlreadyTouchesLane && activeInLane >= laneLimit)
-                {
-                    throw new FleetCapacityAdmissionException(
-                        "sibling_lane_capacity_reached",
-                        "Sibling lane capacity is full for vessel " + vessel.Id + ": " + activeInLane
-                            + " active work unit(s), limit " + laneLimit + ".",
-                        activeInLane,
-                        laneLimit,
-                        vessel.Id,
-                        candidateLane);
-                }
+                FleetCapacityAdmissionException? refusal = Evaluate(snapshot, vessel, candidateVoyageId);
+                if (refusal != null) throw refusal;
 
                 return new FleetCapacityReservation(
                     _Database.CoordinationLeases,
@@ -127,6 +95,22 @@ namespace Armada.Core.Services
                 }
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Read current capacity without reserving it, and return the refusal a reservation for this vessel and
+        /// voyage would meet now, or null when it would be admitted. A caller that must write records before it
+        /// reserves checks here first, so a full fleet refuses before anything is written. The answer can change
+        /// before the caller reserves, so the reservation still decides.
+        /// </summary>
+        public async Task<FleetCapacityAdmissionException?> ProbeAsync(
+            Vessel vessel,
+            string? candidateVoyageId,
+            CancellationToken token = default)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            CapacitySnapshot snapshot = await ReadSnapshotAsync(vessel.TenantId ?? String.Empty, token).ConfigureAwait(false);
+            return Evaluate(snapshot, vessel, candidateVoyageId);
         }
 
         /// <summary>
@@ -168,6 +152,48 @@ namespace Armada.Core.Services
             }
 
             return new CapacitySnapshot(lanes, vesselsByWorkUnit);
+        }
+
+        // The admission rule: a new work unit needs a global slot, and a work unit newly touching a sibling lane
+        // needs a lane slot. Returns the refusal, or null when the work is admitted.
+        private FleetCapacityAdmissionException? Evaluate(CapacitySnapshot snapshot, Vessel vessel, string? candidateVoyageId)
+        {
+            bool existingWorkUnit = !String.IsNullOrWhiteSpace(candidateVoyageId)
+                && snapshot.VesselsByWorkUnit.ContainsKey(candidateVoyageId!);
+            string[] candidateLane = snapshot.Lanes.MembersFor(vessel.Id)
+                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            HashSet<string> candidateLaneSet = candidateLane.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            int globalLimit = _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages;
+            if (!existingWorkUnit && snapshot.VesselsByWorkUnit.Count >= globalLimit)
+            {
+                return new FleetCapacityAdmissionException(
+                    "fleet_capacity_reached",
+                    "Fleet capacity is full: " + snapshot.VesselsByWorkUnit.Count
+                        + " active work unit(s), limit " + globalLimit + ".",
+                    snapshot.VesselsByWorkUnit.Count,
+                    globalLimit,
+                    vessel.Id,
+                    candidateLane);
+            }
+
+            bool voyageAlreadyTouchesLane = existingWorkUnit
+                && snapshot.VesselsByWorkUnit[candidateVoyageId!].Any(candidateLaneSet.Contains);
+            int activeInLane = snapshot.VesselsByWorkUnit.Count(pair => pair.Value.Any(candidateLaneSet.Contains));
+            int laneLimit = _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel;
+            if (!voyageAlreadyTouchesLane && activeInLane >= laneLimit)
+            {
+                return new FleetCapacityAdmissionException(
+                    "sibling_lane_capacity_reached",
+                    "Sibling lane capacity is full for vessel " + vessel.Id + ": " + activeInLane
+                        + " active work unit(s), limit " + laneLimit + ".",
+                    activeInLane,
+                    laneLimit,
+                    vessel.Id,
+                    candidateLane);
+            }
+
+            return null;
         }
 
         private sealed class CapacitySnapshot

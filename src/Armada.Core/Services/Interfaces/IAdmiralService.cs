@@ -3,6 +3,7 @@ namespace Armada.Core.Services.Interfaces
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Top-level orchestration service for coordinating missions and captains.
@@ -271,6 +272,20 @@ namespace Armada.Core.Services.Interfaces
         Task<Mission> DispatchMissionQueuedAsync(Mission mission, CancellationToken token = default)
         {
             return DispatchMissionAsync(mission, token);
+        }
+
+        /// <summary>
+        /// Return the capacity refusal that dispatching new work for this vessel and voyage would meet now, without
+        /// reserving capacity, or null when it would be admitted. A caller that writes records before it dispatches
+        /// checks here first. The dispatch still decides, because capacity can change in between.
+        /// </summary>
+        /// <param name="vessel">Vessel the work runs on.</param>
+        /// <param name="candidateVoyageId">Voyage the work joins, or null for a new voyage.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The refusal, or null.</returns>
+        Task<FleetCapacityAdmissionException?> ProbeCapacityAsync(Vessel vessel, string? candidateVoyageId, CancellationToken token = default)
+        {
+            return Task.FromResult<FleetCapacityAdmissionException?>(null);
         }
 
         /// <summary>

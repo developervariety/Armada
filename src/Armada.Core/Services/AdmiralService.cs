@@ -764,6 +764,12 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public Task<FleetCapacityAdmissionException?> ProbeCapacityAsync(Vessel vessel, string? candidateVoyageId, CancellationToken token = default)
+        {
+            return _FleetCapacityAdmission.ProbeAsync(vessel, candidateVoyageId, token);
+        }
+
+        /// <inheritdoc />
         public async Task<Mission> DispatchMissionQueuedAsync(Mission mission, CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));

@@ -79,7 +79,10 @@ skipped on the re-run releases the hold, and the handoff or landing it stood in
 front of runs. A gate that fails fails the mission with the gate's reason and
 hands it to recovery. The orphan-dock reaper keeps the dock of a produced
 mission whose gate has no result for its current launch, so the dock is there
-when the re-run starts. A mission whose dock is gone cannot be re-run: it stays
+when the re-run starts. A handoff after the hold is released, by the re-run or
+by an operator, releases the mission's dock so the next stage can check out the
+branch. While the re-run is running, `armada_review_hold` refuses `clear` with
+`gate_rerun_running`. A mission whose dock is gone cannot be re-run: it stays
 held, its activity log says why, and the operator clears the hold with
 `armada_review_hold` to accept the work as it stands, or fails it to send it to
 recovery.

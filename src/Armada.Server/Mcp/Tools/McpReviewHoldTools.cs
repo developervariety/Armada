@@ -3,6 +3,7 @@ namespace Armada.Server.Mcp.Tools
     using System;
     using System.Text.Json;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -92,7 +93,11 @@ namespace Armada.Server.Mcp.Tools
                     }
                     catch (InvalidOperationException ex)
                     {
-                        string reason = ex.Message.StartsWith("Mission not found", StringComparison.Ordinal) ? "mission_not_found" : "not_held";
+                        string reason = ex.Message.StartsWith("Mission not found", StringComparison.Ordinal)
+                            ? "mission_not_found"
+                            : ex.Message.StartsWith(MissionService.GateRerunRunningReason, StringComparison.Ordinal)
+                                ? MissionService.GateRerunRunningReason
+                                : "not_held";
                         return (object)new { Error = ex.Message, Reason = reason };
                     }
                 });

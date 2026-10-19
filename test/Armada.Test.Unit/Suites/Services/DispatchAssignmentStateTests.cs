@@ -583,6 +583,62 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A stage whose branch is held by its own earlier stage's dock waits instead of failing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
+                    string predecessorPath = Path.Combine(Path.GetTempPath(), "armada_predecessor_dock_" + Guid.NewGuid().ToString("N"));
+                    HeldDockService heldDock = new HeldDockService(realDock, predecessorPath);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, heldDock);
+                    int launches = 0;
+                    captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(12345); };
+                    IMissionService missions = new MissionService(logging, testDb.Driver, settings, heldDock, captains,
+                        resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("held-by-predecessor", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("held-by-predecessor-captain")).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("chain") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+
+                    Dock predecessorDock = new Dock(vessel.Id) { WorktreePath = predecessorPath, BranchName = "armada/chain-branch" };
+                    predecessorDock = await testDb.Driver.Docks.CreateAsync(predecessorDock).ConfigureAwait(false);
+                    Mission predecessor = await testDb.Driver.Missions.CreateAsync(new Mission("Earlier stage", "Produced the branch")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Status = MissionStatusEnum.Complete,
+                        BranchName = "armada/chain-branch",
+                        DockId = predecessorDock.Id
+                    }).ConfigureAwait(false);
+                    Mission stage = await testDb.Driver.Missions.CreateAsync(new Mission("Next stage", "Continue on the branch")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Status = MissionStatusEnum.Pending,
+                        DependsOnMissionId = predecessor.Id,
+                        BranchName = "armada/chain-branch"
+                    }).ConfigureAwait(false);
+
+                    for (int attempt = 1; attempt <= 3; attempt++)
+                    {
+                        Mission current = (await testDb.Driver.Missions.ReadAsync(stage.Id).ConfigureAwait(false))!;
+                        AssertFalse(await missions.TryAssignAsync(current, vessel).ConfigureAwait(false), "attempt " + attempt + " cannot provision yet");
+                        Mission after = (await testDb.Driver.Missions.ReadAsync(stage.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Pending, after.Status, "attempt " + attempt + ": the stage waits, it is not failed by the retry bound");
+                        AssertEqual(MissionAssignmentStateEnum.WaitingForDependency, after.AssignmentState, "attempt " + attempt + ": the stage waits on its dependency");
+                        AssertEqual(MissionAssignmentHold.PredecessorDockHeld, after.AssignmentHoldReason, "attempt " + attempt + ": the wait names its reason");
+                        AssertEqual(predecessor.Id, after.AssignmentHoldEntityId, "attempt " + attempt + ": the wait names the earlier stage");
+                        AssertEqual("armada/chain-branch", after.BranchName, "attempt " + attempt + ": the inherited branch is kept");
+                        AssertFalse((after.FailureReason ?? String.Empty).Contains("retry bound", StringComparison.Ordinal), "attempt " + attempt + ": no retry bound");
+                    }
+                    AssertEqual(3, heldDock.Calls, "each pass tries again while the earlier stage holds the branch");
+                    AssertEqual(0, launches);
+                    AssertEqual(CaptainStateEnum.Idle, (await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!.State, "the captain is released");
+                }
+            });
+
             await RunTest("Dispatch_DockProvisioningThrows_ShowsFailedThenRecoversOnRetry", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -2256,11 +2312,13 @@ namespace Armada.Test.Unit.Suites.Services
         private sealed class HeldDockService : IDockService
         {
             private readonly IDockService _Inner;
+            private readonly string _HolderPath;
             public int Calls { get; private set; }
 
-            public HeldDockService(IDockService inner)
+            public HeldDockService(IDockService inner, string holderPath = "/tmp/holding-dock")
             {
                 _Inner = inner;
+                _HolderPath = holderPath;
             }
 
             public Task<string?> PrepareBranchFromRefAsync(Vessel vessel, string branchName, string startFromRef, CancellationToken token = default) => Task.FromResult<string?>(null);
@@ -2268,7 +2326,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<Dock?> ProvisionAsync(Vessel vessel, Captain captain, string branchName, string? missionId = null, bool detachedWorktree = false, CancellationToken token = default)
             {
                 Calls++;
-                throw new InvalidOperationException("dock_worktree_held: branch held by worktree /tmp/holding-dock (pids 2147483647)");
+                throw new InvalidOperationException("dock_worktree_held: branch held by worktree " + _HolderPath + " (pids 2147483647)");
             }
 
             public Task ReclaimAsync(string dockId, string? tenantId = null, CancellationToken token = default)

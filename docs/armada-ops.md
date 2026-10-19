@@ -53,7 +53,11 @@ required pipeline persona and requested tier has configured captain coverage.
 Rescue planning checks the rescue Worker and each required re-review stage before
 it creates rescue work. An unserviceable requirement records a refusal or
 deferral; it does not treat temporary capacity pressure as missing configuration
-or spend a rescue attempt.
+or spend a rescue attempt. A rescue that re-runs its review stages checks fleet
+and sibling-lane capacity before it writes its rescue voyage, so a full lane
+records `autonomous_recovery.capacity_deferred` and writes no voyage. When
+capacity fills between that check and the admission, the rescue voyage that
+received no mission is deleted rather than left as a cancelled record.
 Later stages can read the failed mission through the same-owner rescue chain.
 The marked rescue root names the additional failed-parent grant. Existing
 direct-parent and dependency reads remain available within each caller's
@@ -169,7 +173,12 @@ fails the planner and says the attribution is unproven.
 A dock collision reports the holding worktree and detected process IDs in
 the mission failure reason. A live owner is protected from reclamation. A
 second `dock_worktree_held` failure ends the mission with `retry bound`; the
-operator can inspect the reason without reading server logs.
+operator can inspect the reason without reading server logs. A stage whose
+inherited branch is checked out in the dock of an earlier stage of its own
+chain is not a collision: it returns to Pending with the assignment hold
+`predecessor_dock_held`, naming that stage, and does not count toward the
+bound. That dock is released when the earlier stage's completion handling
+hands off, so the stage is assigned on a later pass.
 
 ## Ref cleanup evidence
 

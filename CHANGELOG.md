@@ -114,6 +114,21 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Releasing a held mission that has dependent stages, by an operator clear or by
+  a passing definition-of-done gate re-run, releases the mission's dock after the
+  handoff, as completion does, so the next stage can check out the branch.
+  `armada_review_hold` refuses `clear` with `gate_rerun_running` while the
+  mission's gate is re-running on its dock; the re-run releases or fails the
+  hold itself. A stage whose inherited branch is still checked out in the dock
+  of an earlier stage of its own chain waits with the assignment hold
+  `predecessor_dock_held` instead of failing through the held-dock retry bound.
+- An autonomous rescue that re-runs its review stages checks fleet and
+  sibling-lane capacity before it writes its rescue voyage, so a full lane no
+  longer leaves an empty cancelled voyage on every recovery sweep. The check
+  asks the admiral (`IAdmiralService.ProbeCapacityAsync`), which applies its
+  own admission rule through `FleetCapacityAdmission.ProbeAsync` without
+  reserving. A rescue voyage refused for capacity after it was written, before
+  any mission, is deleted.
 - The isolated-checkout, commit-count and Slop-execution suites report each of
   their git-backed cases as a named skip when git is not on the path, so the
   runner counts the skips instead of reporting suites that ran nothing.

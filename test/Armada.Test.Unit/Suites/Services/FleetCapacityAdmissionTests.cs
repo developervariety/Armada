@@ -128,7 +128,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Sibling-lane refusal has its own typed code", async () =>
+            await RunTest("Sibling-lane refusal has its own typed code, and a probe reports the same refusal without reserving", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
@@ -141,17 +141,29 @@ namespace Armada.Test.Unit.Suites.Services
                 });
                 await testDb.Driver.Vessels.UpdateAsync(alpha).ConfigureAwait(false);
                 await CreateWorkAsync(testDb.Driver, alpha, "occupied lane").ConfigureAwait(false);
+                Vessel gamma = await CreateVesselAsync(testDb.Driver, "vsl_lane_free").ConfigureAwait(false);
+                FleetCapacityAdmission admission = new FleetCapacityAdmission(testDb.Driver, settings, logging);
+
+                FleetCapacityAdmissionException? probed = await admission.ProbeAsync(beta, null).ConfigureAwait(false);
+                AssertNotNull(probed, "the probe reports the refusal a reservation would meet");
+                AssertEqual("sibling_lane_capacity_reached", probed!.Code, "probe refusal code");
+                AssertEqual(1, probed.ActiveCount, "probe lane active count");
+                AssertNull(await admission.ProbeAsync(gamma, null).ConfigureAwait(false), "a free lane probes as admitted");
+                await using (FleetCapacityReservation free = await admission.AcquireAsync(gamma, null).ConfigureAwait(false))
+                {
+                    AssertNotNull(free, "a probe reserves nothing, so the free lane still admits a reservation");
+                }
 
                 try
                 {
-                    await new FleetCapacityAdmission(testDb.Driver, settings, logging)
-                        .AcquireAsync(beta, null).ConfigureAwait(false);
+                    await admission.AcquireAsync(beta, null).ConfigureAwait(false);
                     throw new InvalidOperationException("Expected sibling-lane refusal.");
                 }
                 catch (FleetCapacityAdmissionException ex)
                 {
                     AssertEqual("sibling_lane_capacity_reached", ex.Code, "lane refusal code");
                     AssertEqual(1, ex.ActiveCount, "lane active count");
+                    AssertEqual(probed.Message, ex.Message, "the probe and the reservation apply one rule");
                 }
             }).ConfigureAwait(false);
 

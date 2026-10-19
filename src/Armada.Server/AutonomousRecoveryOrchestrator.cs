@@ -2344,6 +2344,27 @@ namespace Armada.Server
             // The rescue voyage is written before the admiral admits the Worker, so the hold is
             // checked first; otherwise a held dispatch leaves a created-then-cancelled voyage.
             _DispatchHold?.ThrowIfActive();
+
+            // Capacity is checked before the voyage is written too: a refusal after the insert would leave an
+            // empty voyage behind on every sweep that retries the rescue while the fleet is full.
+            if (!String.IsNullOrWhiteSpace(failedMission.VesselId))
+            {
+                Vessel? capacityVessel = await _Database.Vessels.ReadAsync(failedMission.VesselId!, token).ConfigureAwait(false);
+                FleetCapacityAdmissionException? refusal = capacityVessel == null
+                    ? null
+                    : await _Admiral.ProbeCapacityAsync(capacityVessel, null, token).ConfigureAwait(false);
+                if (refusal != null)
+                {
+                    await EmitEventAsync(
+                        "autonomous_recovery.capacity_deferred",
+                        refusal.Message,
+                        failedMission,
+                        null,
+                        token).ConfigureAwait(false);
+                    throw refusal;
+                }
+            }
+
             Voyage rescueVoyage = await _Database.Voyages.CreateAsync(new Voyage(
                 "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 80),
                 AppendCurrentObjectiveBrief(
@@ -2421,12 +2442,17 @@ namespace Armada.Server
             }
             catch (FleetCapacityAdmissionException capacity)
             {
-                await VoyageCancellation.CancelVoyageAsync(
-                    _Database,
-                    rescueVoyage,
-                    "Rescue deferred: " + capacity.Code + ".",
-                    CancellationToken.None,
-                    _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+                // Capacity filled between the check and the admission. A voyage that never received a mission is
+                // removed rather than left as an empty cancelled record; one that did is cancelled as before.
+                if (!await DeleteEmptyRescueVoyageAsync(rescueVoyage).ConfigureAwait(false))
+                {
+                    await VoyageCancellation.CancelVoyageAsync(
+                        _Database,
+                        rescueVoyage,
+                        "Rescue deferred: " + capacity.Code + ".",
+                        CancellationToken.None,
+                        _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+                }
                 await EmitEventAsync(
                     "autonomous_recovery.capacity_deferred",
                     capacity.Message,
@@ -2444,6 +2470,28 @@ namespace Armada.Server
                     CancellationToken.None,
                     _Admiral.RecallCaptainAsync).ConfigureAwait(false);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Delete a rescue voyage that holds no mission, with its playbook selections.
+        /// </summary>
+        /// <param name="rescueVoyage">The rescue voyage.</param>
+        /// <returns>True when the voyage was empty and is deleted.</returns>
+        private async Task<bool> DeleteEmptyRescueVoyageAsync(Voyage rescueVoyage)
+        {
+            try
+            {
+                List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(rescueVoyage.Id, CancellationToken.None).ConfigureAwait(false);
+                if (missions.Count > 0) return false;
+                await _Database.Playbooks.SetVoyageSelectionsAsync(rescueVoyage.Id, new List<SelectedPlaybook>(), CancellationToken.None).ConfigureAwait(false);
+                await _Database.Voyages.DeleteAsync(rescueVoyage.Id, CancellationToken.None).ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not delete empty rescue voyage " + rescueVoyage.Id + "; cancelling it instead: " + ex.Message);
+                return false;
             }
         }
 

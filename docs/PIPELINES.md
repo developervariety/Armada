@@ -175,7 +175,9 @@ record that holds it, usually the predecessor stage. `armada_mission_status`,
 `dependency_unfinished` (the predecessor has not finished), `dependency_missing`,
 `parallel_stages_running`, `cross_vessel_dependency_not_landed`,
 `architect_handoff_pending`, `architect_sequenced`, `dependency_held_for_review`,
-`dependency_gate_result_missing`, and `dependency_completion_in_flight`. The last
+`dependency_gate_result_missing`, `predecessor_dock_held` (an earlier stage of
+the chain still has the inherited branch checked out in its dock), and
+`dependency_completion_in_flight`. The last
 one is the hold after a predecessor produced work while its completion handling
 runs: the definition-of-done gate, which re-verifies every declared consumer
 repository when a later stage commits production changes, then the handoff. On a

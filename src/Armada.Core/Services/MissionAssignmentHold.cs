@@ -45,6 +45,12 @@ namespace Armada.Core.Services
         /// <summary>The predecessor produced work with no recorded definition-of-done result for its launch.</summary>
         public const string DependencyGateResultMissing = "dependency_gate_result_missing";
 
+        /// <summary>
+        /// An earlier stage of the mission's own chain still has the inherited branch checked out in its dock, so the
+        /// mission's dock cannot check it out yet.
+        /// </summary>
+        public const string PredecessorDockHeld = "predecessor_dock_held";
+
         /// <summary>The Architect plan marks this mission to run after the implementation work.</summary>
         public const string ArchitectSequenced = "architect_sequenced";
 

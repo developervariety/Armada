@@ -33,6 +33,12 @@ namespace Armada.Core.Services
         /// </summary>
         public const string DefinitionOfDoneNotRunHoldPrefix = "definition_of_done_not_run: ";
 
+        /// <summary>
+        /// Opening of the refusal when an operator clears a hold while the mission's definition-of-done gate is
+        /// re-running.
+        /// </summary>
+        public const string GateRerunRunningReason = "gate_rerun_running";
+
         /// <inheritdoc />
         public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
 
@@ -1042,6 +1048,12 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "dock provisioning threw for mission " + mission.Id + " vessel " + vessel.Id + " captain " + captain.Id + ": " + ex.Message);
+                Mission? holdingStage = await FindPredecessorHoldingBranchAsync(mission, ex.Message, token).ConfigureAwait(false);
+                if (holdingStage != null)
+                {
+                    await WaitForPredecessorDockAsync(mission, captain, holdingStage, ex.Message, token).ConfigureAwait(false);
+                    return false;
+                }
                 await FailDockProvisionAsync(mission, captain, preserveInheritedBranch, ex.Message, token).ConfigureAwait(false);
                 return false;
             }
@@ -1488,6 +1500,16 @@ namespace Armada.Core.Services
                     + "use action fail to reject it now. Hold: " + previousHold);
             }
 
+            // The gate re-run tests the mission's dock and acts on its own result: a pass releases the hold and hands
+            // off, a failure fails the mission. Clearing the hold meanwhile would hand the branch on while the re-run
+            // still holds the dock, so the next stage could not check the branch out.
+            if (_GateRerunsInFlight.ContainsKey(mission.Id) || DefinitionOfDoneGateRuns.IsRunning(mission.Id))
+            {
+                throw new InvalidOperationException(GateRerunRunningReason + ": the definition-of-done gate of mission " + missionId
+                    + " is re-running on its dock. The re-run records a result and then releases the hold (pass) or fails the "
+                    + "mission (failure) by itself; use action fail to reject the work now. Hold: " + previousHold);
+            }
+
             ClearOperatorReviewHold(mission);
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
@@ -1517,6 +1539,10 @@ namespace Armada.Core.Services
             if (hasDependentPipelineStages)
             {
                 await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
+                // The next stage checks out this branch in its own dock, which git refuses while this dock still
+                // has it checked out. Completion reclaims the dock after the handoff for the same reason.
+                if (!String.IsNullOrEmpty(mission.DockId))
+                    await ReclaimMissionDockAsync(mission.DockId!, token).ConfigureAwait(false);
                 await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
                 await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
                 Mission? handedOff = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
@@ -2051,6 +2077,71 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "failed to reclaim dock " + dock.Id +
                     " after an uncommitted assignment of mission " + mission.Id + ": " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Find the earlier stage of this mission's own chain whose active dock still has the inherited branch checked
+        /// out, when that is why provisioning was refused. The chain is followed through each stage's dependency
+        /// within the mission's voyage.
+        /// </summary>
+        /// <param name="mission">Mission whose dock could not be provisioned.</param>
+        /// <param name="cause">The provisioning failure message.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The holding stage, or null when the holder is not an earlier stage of this chain.</returns>
+        private async Task<Mission?> FindPredecessorHoldingBranchAsync(Mission mission, string cause, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(cause) || !cause.StartsWith("dock_worktree_held:", StringComparison.Ordinal)) return null;
+            if (String.IsNullOrEmpty(mission.DependsOnMissionId)) return null;
+
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal) { mission.Id };
+            string? nextId = mission.DependsOnMissionId;
+            while (!String.IsNullOrEmpty(nextId) && seen.Add(nextId!))
+            {
+                Mission? stage = await _Database.Missions.ReadAsync(nextId!, token).ConfigureAwait(false);
+                if (stage == null || !String.Equals(stage.VoyageId, mission.VoyageId, StringComparison.Ordinal)) return null;
+                if (!String.IsNullOrEmpty(stage.DockId))
+                {
+                    Dock? dock = await _Database.Docks.ReadAsync(stage.DockId!, token).ConfigureAwait(false);
+                    if (dock != null && dock.Active && !String.IsNullOrEmpty(dock.WorktreePath)
+                        && cause.IndexOf(dock.WorktreePath, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return stage;
+                    }
+                }
+                nextId = stage.DependsOnMissionId;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Return a stage to Pending to wait while an earlier stage of its own chain still holds the inherited branch
+        /// in its dock. That dock is released when the earlier stage's completion handling finishes, so this is a
+        /// wait, not a dock collision: it does not count toward the held-dock retry bound.
+        /// </summary>
+        private async Task WaitForPredecessorDockAsync(Mission mission, Captain captain, Mission holdingStage, string cause, CancellationToken token)
+        {
+            bool changed = !String.Equals(mission.AssignmentHoldReason, MissionAssignmentHold.PredecessorDockHeld, StringComparison.Ordinal)
+                || !String.Equals(mission.AssignmentHoldEntityId, holdingStage.Id, StringComparison.Ordinal);
+            string detail = "earlier stage " + holdingStage.Id + " still has branch " + (mission.BranchName ?? "(unset)")
+                + " checked out in its dock; this stage waits until that dock is released";
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.Status = MissionStatusEnum.Pending;
+            mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+            mission.AssignmentHoldReason = MissionAssignmentHold.PredecessorDockHeld;
+            mission.AssignmentHoldEntityId = holdingStage.Id;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            bool written = await WriteAssignmentAsync(mission, MissionStatusEnum.Assigned, token).ConfigureAwait(false);
+            if (written && changed)
+            {
+                await RecordAssignmentHoldEventAsync(mission, MissionAssignmentHold.HeldEventType, MissionAssignmentHold.PredecessorDockHeld,
+                    holdingStage.Id, "Mission " + mission.Id + " is held from assignment (" + MissionAssignmentHold.PredecessorDockHeld + "): " + detail,
+                    token).ConfigureAwait(false);
+            }
+            await AppendMissionActivityAsync(mission.Id, "assignment waits (" + MissionAssignmentHold.PredecessorDockHeld + "): " + detail, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "mission " + mission.Id + " waits for the dock of earlier stage " + holdingStage.Id + ": " + cause);
+            await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
         }
 
         /// <summary>

@@ -224,9 +224,15 @@ PASS held for operator review as kind `judge_pass_held`. Resolve it with
 The tool refuses any caller other than a global administrator
 (`global_administrator_required`), a missing argument (`missing_reason`,
 `missing_operator`, `missing_mission_id`, `invalid_action`), and a mission that
-is not held (`not_held`). `clear` writes `mission.hold_cleared` and `fail`
-writes `mission.hold_failed`, each naming the operator and the reason. The model
-never resolves a hold and nothing resolves one automatically.
+is not held (`not_held`). `clear` is also refused with `gate_rerun_running`
+while the mission's definition-of-done gate is re-running on its dock after an
+interrupted run: the re-run records a result and then releases the hold (pass)
+or fails the mission (failure) by itself, and `fail` stays available. `clear`
+writes `mission.hold_cleared` and `fail` writes `mission.hold_failed`, each
+naming the operator and the reason. A cleared hold that has dependent stages
+hands off to them and releases the mission's dock, so the next stage can check
+out the branch. The model never resolves a hold; the only automatic release is
+the gate re-run.
 
 When the `inbox_triage` typed decision is enabled (`Gate`), the `inbox`
 tool's items and the `armada_coordination_read` notes each carry an extra

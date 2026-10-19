@@ -1465,6 +1465,77 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("(" + rescueMissionCount + " mission", dispatched[0].Message, "The event counts every mission the rescue created");
             }).ConfigureAwait(false);
 
+            await RunTest("Rescue on a full sibling lane writes no voyage and records the deferral", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_rescue_full", "usr_rescue_full").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_rescue_full", "usr_rescue_full").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver)
+                {
+                    CapacityRefusal = new FleetCapacityAdmissionException(
+                        "sibling_lane_capacity_reached", "Sibling lane capacity is full for vessel " + vessel.Id + ": 4 active work unit(s), limit 4.",
+                        4, 4, vessel.Id, new List<string> { vessel.Id })
+                };
+                AutonomousRecoveryOrchestrator orchestrator = new AutonomousRecoveryOrchestrator(
+                    testDb.Driver, admiral, new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, logging), new ArmadaSettings(), logging);
+
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "Worker", "Judge").ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                List<Voyage> voyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                AssertEqual(0, voyages.Count, "a rescue refused for capacity writes no voyage, not even a cancelled one; found: "
+                    + String.Join(", ", voyages.Select(v => v.Title + "/" + v.Status)));
+                List<Mission> rescues = (await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false))
+                    .Where(m => m.ParentMissionId == failed.Id).ToList();
+                AssertEqual(0, rescues.Count, "no rescue mission is created while the lane is full");
+                AssertEqual(0, admiral.DispatchedMissions.Count, "nothing is dispatched while the lane is full");
+                List<ArmadaEvent> deferred = await testDb.Driver.Events.EnumerateByTypeAsync("autonomous_recovery.capacity_deferred").ConfigureAwait(false);
+                AssertTrue(deferred.Count >= 1, "the capacity deferral is recorded");
+                AssertContains("Sibling lane capacity is full", deferred[0].Message, "the deferral names the full lane");
+            }).ConfigureAwait(false);
+
+            await RunTest("Rescue refused for capacity after its voyage is written removes the empty voyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_rescue_late", "usr_rescue_late").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_rescue_late", "usr_rescue_late").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver)
+                {
+                    // Capacity fills between the check and the admission.
+                    ThrowOnDispatch = new FleetCapacityAdmissionException(
+                        "sibling_lane_capacity_reached", "Sibling lane capacity is full for vessel " + vessel.Id + ": 4 active work unit(s), limit 4.",
+                        4, 4, vessel.Id, new List<string> { vessel.Id })
+                };
+                AutonomousRecoveryOrchestrator orchestrator = new AutonomousRecoveryOrchestrator(
+                    testDb.Driver, admiral, new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, logging), new ArmadaSettings(), logging);
+
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "Worker", "Judge").ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                List<Voyage> voyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                AssertEqual(0, voyages.Count, "the rescue voyage that never received a mission is removed, not left cancelled; found: "
+                    + String.Join(", ", voyages.Select(v => v.Title + "/" + v.Status)));
+            }).ConfigureAwait(false);
+
             await RunTest("Cancelled voyage closes every active incident of the failed mission beyond one page", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -5061,6 +5132,13 @@ namespace Armada.Test.Unit.Suites.Services
 
             public string? AssignedRescueCaptainId { get; set; }
 
+            public Exception? ThrowOnDispatch { get; set; }
+
+            public FleetCapacityAdmissionException? CapacityRefusal { get; set; }
+
+            public Task<FleetCapacityAdmissionException?> ProbeCapacityAsync(Vessel vessel, string? candidateVoyageId, CancellationToken token = default)
+                => Task.FromResult(CapacityRefusal);
+
             public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
             public Func<Captain, Task>? OnStopAgent { get; set; }
             public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
@@ -5084,6 +5162,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public async Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
             {
+                if (ThrowOnDispatch != null) throw ThrowOnDispatch;
                 if (!String.IsNullOrWhiteSpace(AssignedRescueCaptainId))
                     mission.CaptainId = AssignedRescueCaptainId;
 

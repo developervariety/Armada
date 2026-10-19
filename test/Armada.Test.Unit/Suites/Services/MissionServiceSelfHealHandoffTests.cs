@@ -850,6 +850,127 @@ namespace Armada.Test.Unit.Suites.Services
 
                         Mission dependent = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
                         AssertContains(MissionService.BuildHandoffMarker(worker.Id), dependent.Description ?? "", "The released upstream is handed off to its dependent");
+                        Dock afterHandoff = (await testDb.Driver.Docks.ReadAsync(dock.Id).ConfigureAwait(false))!;
+                        AssertFalse(afterHandoff.Active, "The handoff releases the upstream dock, so the next stage can check the branch out");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktree, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("InterruptedGate_OperatorClear_HandsOffAndReleasesTheDock", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    WireDefinitionOfDoneGate(missions, testDb.Driver);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    Mission worker = await CreateProducedWorkerAsync(testDb.Driver, vessel, "armada/worker-cleared").ConfigureAwait(false);
+                    string worktree = Path.Combine(Path.GetTempPath(), "armada_cleared_dock_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktree);
+                    try
+                    {
+                        Dock dock = new Dock(vessel.Id);
+                        dock.WorktreePath = worktree;
+                        dock.BranchName = "armada/worker-cleared";
+                        dock = await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("cleared voyage") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                        worker.DockId = dock.Id;
+                        worker.VoyageId = voyage.Id;
+                        worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+
+                        Mission testEngineer = await CreateDependentAsync(
+                            testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
+                        testEngineer.VoyageId = voyage.Id;
+                        testEngineer = await testDb.Driver.Missions.UpdateAsync(testEngineer).ConfigureAwait(false);
+                        await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+                        AssertTrue(MissionService.IsDefinitionOfDoneNotRunHold((await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!),
+                            "The missing gate result holds the upstream first");
+
+                        await missions.ClearOperatorReviewHoldAsync(worker.Id, "operator-a", "accept as it stands").ConfigureAwait(false);
+
+                        Mission dependent = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                        AssertContains(MissionService.BuildHandoffMarker(worker.Id), dependent.Description ?? "", "The cleared upstream is handed off to its dependent");
+                        Dock afterClear = (await testDb.Driver.Docks.ReadAsync(dock.Id).ConfigureAwait(false))!;
+                        AssertFalse(afterClear.Active, "Clearing the hold releases the upstream dock, so the next stage can check the branch out");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktree, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("InterruptedGate_ClearWhileRerunRuns_IsRefusedAndTheRerunReleasesTheHold", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    WireDefinitionOfDoneGate(missions, testDb.Driver);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                    {
+                        Name = "Slow Passing Profile",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "sleep 3",
+                        UnitTestCommand = "exit 0",
+                        IsDefault = true,
+                        Active = true
+                    }).ConfigureAwait(false);
+                    Mission worker = await CreateProducedWorkerAsync(testDb.Driver, vessel, "armada/worker-rerun-slow").ConfigureAwait(false);
+                    string worktree = Path.Combine(Path.GetTempPath(), "armada_rerun_slow_dock_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktree);
+                    try
+                    {
+                        Dock dock = new Dock(vessel.Id);
+                        dock.WorktreePath = worktree;
+                        dock.BranchName = "armada/worker-rerun-slow";
+                        dock = await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("slow rerun voyage") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                        worker.DockId = dock.Id;
+                        worker.VoyageId = voyage.Id;
+                        worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+
+                        Mission testEngineer = await CreateDependentAsync(
+                            testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
+                        testEngineer.VoyageId = voyage.Id;
+                        testEngineer = await testDb.Driver.Missions.UpdateAsync(testEngineer).ConfigureAwait(false);
+                        await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+
+                        AssertEqual(1, await missions.StartInterruptedDefinitionOfDoneGateRerunsAsync().ConfigureAwait(false), "The held mission gets one re-run");
+                        AssertTrue(MissionService.GateRerunsInFlight().Contains(worker.Id), "The re-run is in flight");
+
+                        InvalidOperationException? refused = null;
+                        try
+                        {
+                            await missions.ClearOperatorReviewHoldAsync(worker.Id, "operator-b", "accept as it stands").ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            refused = ex;
+                        }
+                        AssertNotNull(refused, "Clearing the hold while its gate re-runs on the dock is refused");
+                        AssertStartsWith(MissionService.GateRerunRunningReason, refused!.Message, "The refusal names its reason");
+                        Mission stillHeld = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                        AssertTrue(stillHeld.HeldForOperatorReview, "The refused clear leaves the hold in place");
+                        Mission notHandedOff = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                        AssertNull(notHandedOff.BranchName, "Nothing is handed off while the re-run holds the dock");
+
+                        for (int i = 0; i < 300 && MissionService.GateRerunsInFlight().Contains(worker.Id); i++)
+                            await Task.Delay(100).ConfigureAwait(false);
+                        AssertFalse(MissionService.GateRerunsInFlight().Contains(worker.Id), "The re-run finishes");
+
+                        Mission released = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                        AssertFalse(released.HeldForOperatorReview, "The passing re-run releases the hold itself");
+                        Mission dependent = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                        AssertContains(MissionService.BuildHandoffMarker(worker.Id), dependent.Description ?? "", "The re-run hands off to the dependent");
                     }
                     finally
                     {
