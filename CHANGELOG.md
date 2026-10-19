@@ -251,7 +251,9 @@ upstream integrations and excludes changes already present at that baseline.
   its summary and output and records a `check.discarded` event.
   `retry_check_run` follows the `run_check` bounded wait: a retry still waiting
   for the host-wide slot returns unfinished with `slotWait` instead of blocking
-  until the client's tool timeout.
+  until the client's tool timeout. A retry that ends Canceled returns at once
+  with the record and the cancel reason in its summary; the MCP Check Run Tools
+  suite covers it.
 - The WebSocket idle-session test runs in under a second. It gives its own
   server a 300 ms authentication window and asserts that the refusal arrives no
   earlier than that window and well before the 15-second production window,

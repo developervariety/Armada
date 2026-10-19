@@ -123,6 +123,63 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            // A retry the unstamped-record rule cancels ends at once. The call returns the Canceled record with the
+            // reason in its summary, so the operator sees why the retry did not run instead of a bare cancel.
+            await RunTest("retry_check_run returns a retry that ends Canceled with its reason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-retry-canceled-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(workingDirectory);
+                    try
+                    {
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel
+                        {
+                            Name = "retry-canceled-vessel",
+                            RepoUrl = String.Empty,
+                            LocalPath = String.Empty,
+                            WorkingDirectory = workingDirectory,
+                            DefaultBranch = "main"
+                        }).ConfigureAwait(false);
+                        Voyage voyage = new Voyage("ended-voyage");
+                        voyage.Status = VoyageStatusEnum.Failed;
+                        voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                        CheckRun prior = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                        {
+                            VesselId = vessel.Id,
+                            VoyageId = voyage.Id,
+                            Type = CheckRunTypeEnum.Build,
+                            Source = CheckRunSourceEnum.Armada,
+                            Status = CheckRunStatusEnum.Pending,
+                            Command = "echo never-run",
+                            WorkingDirectory = workingDirectory,
+                            Label = "Build (armed at dispatch)"
+                        }).ConfigureAwait(false);
+
+                        Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, TimeSpan.FromMilliseconds(500));
+                        Task<object> call = handlers["retry_check_run"](JsonSerializer.SerializeToElement(new { checkRunId = prior.Id }));
+                        Task first = await Task.WhenAny(call, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
+                        AssertTrue(ReferenceEquals(first, call), "the retry call returns instead of waiting to the transport timeout");
+
+                        object result = await call.ConfigureAwait(false);
+                        CheckRunSummaryView? view = result as CheckRunSummaryView;
+                        AssertNotNull(view, "the retry returns the check record, not a failure: " + JsonSerializer.Serialize(result));
+                        AssertEqual(prior.Id, view!.Id, "the retry returns the record it executed");
+                        AssertEqual(CheckRunStatusEnum.Canceled, view.Status, "the retry of an unstamped Check of an ended voyage ends Canceled");
+                        AssertContains("unstamped_voyage_check", view.Summary ?? String.Empty, "the Canceled retry names why it did not run");
+
+                        CheckRun? stored = await testDb.Driver.CheckRuns.ReadAsync(prior.Id).ConfigureAwait(false);
+                        AssertNotNull(stored, "the cancelled record stays readable");
+                        AssertContains("unstamped_voyage_check", stored!.Output ?? String.Empty, "the stored output carries the reason");
+                        AssertFalse(CheckRunService.IsOperatorRun(prior.Id), "the operator mark ends with the retry");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(workingDirectory, true); } catch (IOException) { }
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("armada_resolve_check validation returns structured failure instead of Error object", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
