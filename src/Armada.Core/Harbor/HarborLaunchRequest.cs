@@ -126,10 +126,9 @@ namespace Armada.Core.Harbor
         public string? McpSessionToken { get; set; } = null;
 
         /// <summary>
-        /// The CLI tool permission policy the Admiral resolved, sent only for Approve in Armada: a Harbor that advertises
-        /// <see cref="HarborProtocol.CliPermissionPromptCapability"/> for the runtime points the CLI's permission prompts at
-        /// Armada's prompt tool on the scoped MCP server (it needs <see cref="McpSessionToken"/>). Null, any other value,
-        /// or an older Harbor leaves the launch as <see cref="AutoApprove"/> says (Refuse).
+        /// The CLI tool permission policy resolved by the Admiral. API-endpoint Harbors enforce Bypass or Refuse
+        /// explicitly; a missing policy fails closed. ApproveInArmada requires a supported prompt bridge and a scoped
+        /// MCP token. CLI runtimes also receive the corresponding AutoApprove value.
         /// </summary>
         public Armada.Core.Enums.CliPermissionPolicyEnum? CliPermissionPolicy { get; set; } = null;
 

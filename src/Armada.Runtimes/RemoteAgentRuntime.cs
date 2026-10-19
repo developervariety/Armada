@@ -63,8 +63,8 @@ namespace Armada.Runtimes
         public string? McpSessionToken { get; set; } = null;
 
         /// <summary>
-        /// The resolved CLI tool permission policy, set only for Approve in Armada on a Harbor that can send the
-        /// runtime's prompts to Armada (see <see cref="Armada.Core.Harbor.HarborLaunchRequest.CliPermissionPolicy"/>).
+        /// The resolved CLI tool permission policy, including Bypass and Refuse, sent to the Harbor
+        /// so API-endpoint execution enforces the same policy as the Admiral (see <see cref="Armada.Core.Harbor.HarborLaunchRequest.CliPermissionPolicy"/>).
         /// </summary>
         public Armada.Core.Enums.CliPermissionPolicyEnum? CliPermissionPolicy { get; set; } = null;
 

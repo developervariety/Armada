@@ -558,6 +558,12 @@ namespace Armada.Server
                         remoteRuntime.McpSessionToken = options.McpSessionToken;
                     }
 
+                    // API-endpoint Harbors require an explicit policy; omitted values fail closed there.
+                    // Approval still needs the scoped prompt bridge checked below.
+                    CliPermissionLaunch.Apply(remoteRuntime,
+                        options.CliPermissionPolicy == CliPermissionPolicyEnum.Bypass ? CliPermissionPolicyEnum.Bypass : CliPermissionPolicyEnum.Refuse,
+                        options.PermissionPromptTimeoutSeconds ?? 600);
+
                     // ApproveInArmada on a Harbor: a Harbor that advertises the prompt capability for the runtime points the
                     // CLI's permission prompts at Armada over the turn's scoped token. Otherwise it runs as Refuse there (the
                     // launched captain's auto-approve is already off for anything but Bypass).
@@ -565,8 +571,7 @@ namespace Armada.Server
                     {
                         if (!String.IsNullOrEmpty(remoteRuntime.McpSessionToken) && LaunchRouter != null && LaunchRouter.HarborCanPrompt(remoteRuntime.HarborId, captain.Runtime))
                         {
-                            remoteRuntime.CliPermissionPolicy = CliPermissionPolicyEnum.ApproveInArmada;
-                            remoteRuntime.PermissionPromptTimeoutSeconds = options.PermissionPromptTimeoutSeconds ?? 600;
+                            CliPermissionLaunch.Apply(remoteRuntime, CliPermissionPolicyEnum.ApproveInArmada, options.PermissionPromptTimeoutSeconds ?? 600);
                         }
                         else
                         {

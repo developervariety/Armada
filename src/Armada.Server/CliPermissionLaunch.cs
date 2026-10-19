@@ -44,6 +44,13 @@ namespace Armada.Server
         public static bool Apply(IAgentRuntime runtime, CliPermissionPolicyEnum effective, int promptTimeoutSeconds, Func<string, string, CancellationToken, Task<CliPermissionPromptOutcome>>? inProcessPrompt)
         {
             if (runtime == null) throw new ArgumentNullException(nameof(runtime));
+            if (runtime is RemoteAgentRuntime remote)
+            {
+                remote.CliPermissionPolicy = effective;
+                remote.PermissionPromptTimeoutSeconds = effective == CliPermissionPolicyEnum.ApproveInArmada ? promptTimeoutSeconds : null;
+                return effective == CliPermissionPolicyEnum.ApproveInArmada;
+            }
+
             if (runtime is ApiAgentRuntime api)
             {
                 api.ShellPolicy = effective;

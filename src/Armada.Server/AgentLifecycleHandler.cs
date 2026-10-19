@@ -854,10 +854,8 @@ namespace Armada.Server
                         environment = null;
                     }
 
-                    // Approve in Armada on a Harbor that can prompt: the Harbor points the CLI's prompts at Armada.
-                    bool remotePrompts = permission.Effective == CliPermissionPolicyEnum.ApproveInArmada;
-                    remoteRuntime.CliPermissionPolicy = remotePrompts ? CliPermissionPolicyEnum.ApproveInArmada : null;
-                    remoteRuntime.PermissionPromptTimeoutSeconds = remotePrompts ? _Settings.Permissions.PromptTimeoutSeconds : null;
+                    // CliPermissionLaunch.Apply already carries every resolved policy, including Bypass and Refuse,
+                    // so the Harbor's API runtime enforces the policy reported in this mission's log.
                 }
 
                 processId = await runtime.StartAsync(

@@ -34,6 +34,37 @@ namespace Test.Shared.Suites.Runtimes
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("permission_policy_survives_harbor_launch", "Resolved permissions survive API and CLI Harbor launches, including Bypass", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                HarborService harbors = new HarborService(testDb.Driver, CreateLogging());
+                HarborConnectionManager manager = new HarborConnectionManager(harbors, CreateLogging(), null);
+                HarborLaunchRequest? captured = null;
+                HarborSendDelegate simulated = async (message, cancellation) =>
+                {
+                    if (message is HarborLaunchRequest launch)
+                    {
+                        captured = System.Text.Json.JsonSerializer.Deserialize<HarborLaunchRequest>(System.Text.Json.JsonSerializer.Serialize(launch));
+                        await manager.OnMessageAsync("hbr_policy", new HarborStarted { JobId = launch.JobId, ProcessId = 4243 }, cancellation).ConfigureAwait(false);
+                        await manager.OnMessageAsync("hbr_policy", new HarborExited { JobId = launch.JobId, ExitCode = 0 }, cancellation).ConfigureAwait(false);
+                    }
+                };
+                await manager.OnHandshakeAsync(new HarborHandshake { HarborId = "hbr_policy", Name = "Policy Harbor", ProtocolVersion = "1.0" }, "t", "u", simulated).ConfigureAwait(false);
+                foreach (AgentRuntimeEnum runtimeType in new[] { AgentRuntimeEnum.ApiEndpoint, AgentRuntimeEnum.ClaudeCode })
+                foreach (CliPermissionPolicyEnum policy in new[] { CliPermissionPolicyEnum.Bypass, CliPermissionPolicyEnum.Refuse, CliPermissionPolicyEnum.ApproveInArmada })
+                {
+                    ModelEndpoint endpoint = new ModelEndpoint { Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.OpenAICompatible, BaseUrl = "http://localhost:1", Model = "test-model" };
+                    RemoteAgentRuntime runtime = new RemoteAgentRuntime(manager, "hbr_policy", runtimeType, _ => endpoint);
+                    Armada.Server.CliPermissionLaunch.Apply(runtime, policy, 321);
+                    Captain captain = CaptainRuntimeOptions.WithEffectiveAutoApprove(new Captain("policy") { Runtime = runtimeType, ModelEndpointId = endpoint.Id }, policy == CliPermissionPolicyEnum.Bypass);
+                    await runtime.StartAsync("/repo", "test policy", captain: captain).ConfigureAwait(false);
+                    AssertNotNull(captured);
+                    AssertEqual(policy, captured!.CliPermissionPolicy!.Value, "Harbor must receive the same effective policy as the Admiral.");
+                    AssertEqual(policy == CliPermissionPolicyEnum.Bypass, captured.AutoApprove!.Value);
+                    AssertEqual(policy == CliPermissionPolicyEnum.ApproveInArmada ? (int?)321 : null, captured.PermissionPromptTimeoutSeconds);
+                }
+            }));
+
             cases.Add(CaseAsync("delegated_launch_raises_lifecycle_events", "Delegated launch raises started/output/exited", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
