@@ -1039,7 +1039,8 @@ namespace Armada.Test.Unit.Suites.Services
                         string tenantId = "ten_load_normal_" + i;
                         string vesselId = "vsl_load_normal_" + i;
                         await EnsureVesselWithProfileAsync(testDb, tenantId, vesselId,
-                            worktreePath, CountedHangCommand(), SuccessCommand()).ConfigureAwait(false);
+                            worktreePath, CountedHangCommand(), SuccessCommand(),
+                            vesselName: "Load Normal Vessel " + i).ConfigureAwait(false);
 
                         FakeHostLoad load = new FakeHostLoad(4, readings[i]);
                         DefinitionOfDoneGate gate = new FastTimeoutGate(
