@@ -113,6 +113,12 @@ upstream integrations and excludes changes already present at that baseline.
   user. `armada_enumerate` lists a mission caller exactly the objectives
   `get_objective` returns. A refused read carries `Reason` (`out_of_scope` or
   `not_found`) without revealing another owner's record.
+- Staged AI-Memory files are stable for a whole voyage. The first slimmed brief
+  in a voyage pins its memory files, and every later stage receives the same
+  bytes, with `_briefing/memory/manifest.json` giving each file's bytes and
+  SHA-256. A section that holds only its heading is no longer indexed or staged,
+  and the slimmed memory section names only the dock-local memory folder, not
+  the host memory root that a dock cannot resolve.
 - A captain can omit the id on `armada_mission_status`, `armada_mission_output`
   and `get_objective`. They read the captain's own mission, or the objective that
   authorizes it, instead of failing with a null-id error. A caller with no

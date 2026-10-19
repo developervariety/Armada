@@ -48,7 +48,9 @@ For each source file:
    load-bearing rule is a small, individually retrievable leaf. A small file, or
    a file with no section headings, stays one chunk; a `core` chunk is never
    sub-chunked. Each section leaf inherits the file's `applies_to` and
-   `must_retrieve`.
+   `must_retrieve`. A leaf section that holds only its heading (a parent heading
+   whose content sits in its sub-sections, or a title with no preamble) carries
+   nothing to read and is not indexed.
 
 Output is deterministic: text is normalized to LF, chunks are ordered by topic,
 the core bundle is ordered by the allowlist sequence then topic, and neither
@@ -213,8 +215,20 @@ section instead, behind `contextRetrieval.briefSlimmingEnabled`:
   (leaves the `memory_relevance` typed decision judged not to apply to the
   mission's work; still delivered in full). The section ends with a one-line
   pointer to `armada_fetch_context` for anything else by topic. It never tells
-  the captain to read every file under `shared/`. A copy of the delivered files
-  is kept beside the instruction snapshot, under `<mission id>.memory/`.
+  the captain to read every file under `shared/`, and it names only the
+  dock-local `_briefing/memory/` folder, never the configured memory root, which
+  is a host path that does not resolve inside a dock. A chunk that holds only its
+  heading is never staged. A copy of the delivered files is kept beside the
+  instruction snapshot, under `<mission id>.memory/`.
+- **Memory is pinned per voyage.** The first slimmed brief in a voyage pins its
+  section and files under `memory-pins/` in the data directory, and every later
+  stage of that voyage receives the same bytes, across an Admiral restart too.
+  Only a healthy slimmed delivery is pinned; a fallback to the full section is
+  not, so a later stage retries retrieval. Pins older than 30 days are pruned
+  when a new pin is written. `_briefing/memory/manifest.json` lists each staged
+  file's path, bytes and SHA-256, and names the voyage and the mission that first
+  staged it, so a later stage verifies its files against an earlier stage's
+  report. Telemetry marks a pinned delivery with `PinnedFromVoyage`.
 - **The mission description follows the same rule.** A description longer than
   the metadata cap (12,000 characters) is embedded as its head and newest
   handoff block, and the full text is written under `_briefing/mission/` in the

@@ -59,5 +59,24 @@ namespace Armada.Core.Context
         /// the default and never enter the bundle.
         /// </summary>
         public int CoreOrder { get; set; } = int.MaxValue;
+
+        /// <summary>
+        /// True when the text carries no body: every non-blank line is a markdown heading. A section that
+        /// holds only its own heading (a parent heading whose content lives in its sub-sections, or a
+        /// title with no preamble) tells a reader nothing, so it is never indexed as a leaf or staged.
+        /// </summary>
+        /// <param name="text">Chunk body text.</param>
+        /// <returns>True when the text is empty or holds only headings.</returns>
+        public static bool IsHeadingOnly(string? text)
+        {
+            if (String.IsNullOrWhiteSpace(text)) return true;
+            foreach (string line in text.Split('\n'))
+            {
+                string trimmed = line.Trim();
+                if (trimmed.Length == 0) continue;
+                if (!trimmed.StartsWith("#", StringComparison.Ordinal)) return false;
+            }
+            return true;
+        }
     }
 }

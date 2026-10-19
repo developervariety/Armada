@@ -465,6 +465,32 @@ namespace Armada.Test.Unit.Suites.Context
                 finally { SafeDelete(root); SafeDeleteFile(sidecar); }
             });
 
+            await RunTest("Build_HeadingOnlySections_AreNotIndexedAsLeaves", () =>
+            {
+                string root = NewTempDir("ctxstub");
+                Directory.CreateDirectory(Path.Combine(root, "repos", "stubleaf"));
+                try
+                {
+                    // An oversized group section whose content lives only in its sub-sections, in a file
+                    // with no preamble: both the title section and the group heading carry no body.
+                    string big = "# Stub Leaf\n\n## Group Review\n";
+                    for (int i = 1; i <= 4; i++)
+                        big += "\n### Part " + i + "\n\n" + new String('x', 3000) + "\n";
+                    big += "\n## Closing\n\nClosing body.\n";
+                    File.WriteAllText(Path.Combine(root, "repos", "stubleaf", "README.md"), big);
+
+                    ContextIndex index = new ContextIndexGenerator().Build(root, null);
+                    List<ContextChunk> chunks = index.Chunks
+                        .Where(c => c.Path.StartsWith("AI-Memory/repos/stubleaf/README.md", StringComparison.Ordinal)).ToList();
+
+                    AssertTrue(chunks.Count >= 5, "the parts and the closing section are indexed (got " + chunks.Count + ")");
+                    foreach (ContextChunk c in chunks)
+                        AssertFalse(ContextChunk.IsHeadingOnly(c.Text), c.Topic + " holds only a heading");
+                    return Task.CompletedTask;
+                }
+                finally { SafeDelete(root); }
+            });
+
             // ---- Large-leaf sub-chunking: an oversized plain leaf becomes multiple section leaves;
             //      a small one stays single; the core count is unaffected. ----
             await RunTest("Build_LargeLeafFile_SubChunksAtSections_SmallStaysSingle_CoreCountUnchanged", () =>

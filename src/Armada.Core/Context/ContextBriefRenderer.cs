@@ -23,8 +23,10 @@ namespace Armada.Core.Context
     /// It deliberately does NOT tell the captain to read every file under <c>shared/</c>. The memory the
     /// mission needs is in the delivered files, and the captain pulls anything else by topic on demand.
     /// The chunk rendering matches the always-on core bundle shape (<see cref="ContextIndexGenerator"/>):
-    /// a rule, its one-line summary, and its logical source path. It never emits a host-absolute path
-    /// (chunk paths are already root-relative), so the files are safe to ship.
+    /// a rule, its one-line summary, and its logical source path. It never emits a host-absolute path:
+    /// chunk paths are already root-relative, and the section names only the dock-local memory folder,
+    /// because the configured memory root is a host path that does not resolve inside a dock. A chunk
+    /// that holds only its heading is never staged.
     /// </summary>
     public static class ContextBriefRenderer
     {
@@ -51,7 +53,7 @@ namespace Armada.Core.Context
         /// section that lists them.
         /// </summary>
         /// <param name="result">The retrieval result: core, must-retrieve, and ranked leaves.</param>
-        /// <param name="memoryRoot">The configured AI-Memory root, for the durable-memory pointer.</param>
+        /// <param name="memoryRoot">The configured AI-Memory root. It is a host path that does not resolve in a dock, so the section never names it.</param>
         /// <param name="repoFolder">This vessel's folder name under <c>repos/</c>, or null.</param>
         /// <param name="fetchToolEnabled">Whether to emit the on-demand fetch-tool pointer.</param>
         /// <param name="referenceTopics">Ranked-leaf topics to deliver as reference material; null or empty delivers every leaf as read-first.</param>
@@ -64,7 +66,6 @@ namespace Armada.Core.Context
             ISet<string>? referenceTopics = null)
         {
             if (result == null) throw new ArgumentNullException(nameof(result));
-            string root = (memoryRoot ?? "").TrimEnd('/', '\\');
 
             List<ContextChunk> core = result.Core ?? new List<ContextChunk>();
             List<ContextChunk> safety = result.MustRetrieve ?? new List<ContextChunk>();
@@ -74,7 +75,7 @@ namespace Armada.Core.Context
             List<ContextChunk> referenceLeaves = new List<ContextChunk>();
             foreach (ContextChunk leaf in leaves)
             {
-                if (leaf == null) continue;
+                if (leaf == null || ContextChunk.IsHeadingOnly(leaf.Text)) continue;
                 if (referenceTopics != null && referenceTopics.Contains(leaf.Topic)) referenceLeaves.Add(leaf);
                 else missionLeaves.Add(leaf);
             }
@@ -86,7 +87,7 @@ namespace Armada.Core.Context
             List<string> missionRenders = new List<string>();
             foreach (ContextChunk c in safety)
             {
-                if (c == null) continue;
+                if (c == null || ContextChunk.IsHeadingOnly(c.Text)) continue;
                 missionChunks.Add(c);
                 missionRenders.Add(RenderChunk(c, true));
             }
@@ -101,7 +102,7 @@ namespace Armada.Core.Context
 
             ContextBriefDelivery delivery = new ContextBriefDelivery();
             delivery.Files = files;
-            delivery.Section = RenderSection(files, root, repoFolder, fetchToolEnabled, core.Count == 0);
+            delivery.Section = RenderSection(files, repoFolder, fetchToolEnabled, core.Count == 0);
             return delivery;
         }
 
@@ -109,19 +110,22 @@ namespace Armada.Core.Context
 
         #region Private-Methods
 
-        private static string RenderSection(List<ContextBriefFile> files, string root, string? repoFolder, bool fetchToolEnabled, bool noCore)
+        private static string RenderSection(List<ContextBriefFile> files, string? repoFolder, bool fetchToolEnabled, bool noCore)
         {
             StringBuilder sb = new StringBuilder();
             sb.Append("## Shared Memory\n");
-            sb.Append("Durable, cross-mission knowledge for this fleet lives at `").Append(root).Append("`.\n");
-            sb.Append("The memory for this mission is in the files below, in your working directory. ");
-            sb.Append("You do not need to read the whole memory tree: the relevant rules are in these files.\n");
+            sb.Append("Durable, cross-mission knowledge for this fleet is staged for this mission under `")
+                .Append(MemoryFolder).Append("/` in your working directory. ");
+            sb.Append("You do not need the whole memory tree: the relevant rules are in these files.\n");
 
             if (!String.IsNullOrEmpty(repoFolder))
             {
-                sb.Append("This vessel's own memory folder is `").Append(root).Append("/repos/").Append(repoFolder)
-                    .Append("/`; its relevant parts are in these files.\n");
+                sb.Append("This vessel's own memory folder (`repos/").Append(repoFolder)
+                    .Append("/`) contributes its relevant parts to these files.\n");
             }
+
+            sb.Append("`").Append(MemoryManifest.RelativePath).Append("` gives each file's bytes and SHA-256; ");
+            sb.Append("every stage of a voyage receives the same files.\n");
 
             sb.Append("AI-Memory is the authoritative durable memory for this fleet; the runtime's own file-memory ");
             sb.Append("protocol is not shared state, so do not write to it. ");

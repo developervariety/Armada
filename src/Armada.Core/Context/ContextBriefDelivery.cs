@@ -21,6 +21,15 @@ namespace Armada.Core.Context
         /// <summary>The section accounting when brief slimming was on; null when off.</summary>
         public ContextBriefTelemetry? Telemetry { get; set; }
 
+        /// <summary>The voyage whose pinned memory this delivery is, or null when it was not pinned.</summary>
+        public string? PinnedVoyageId { get; set; }
+
+        /// <summary>The mission whose brief first staged the pinned memory, or null when it was not pinned.</summary>
+        public string? PinnedByMissionId { get; set; }
+
+        /// <summary>When the pinned memory was first staged, or null when it was not pinned.</summary>
+        public DateTime? PinnedUtc { get; set; }
+
         #endregion
     }
 }

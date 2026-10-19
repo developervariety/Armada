@@ -58,5 +58,11 @@ namespace Armada.Core.Context
         /// the sorter's outcome (for example the rule's verdict, a gated decision, or unavailable).
         /// </summary>
         public string? LeafSortOutcome { get; set; }
+
+        /// <summary>
+        /// True when the files are the voyage's pinned memory, staged by an earlier stage, rather than a
+        /// fresh retrieval for this brief.
+        /// </summary>
+        public bool PinnedFromVoyage { get; set; }
     }
 }

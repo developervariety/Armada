@@ -254,6 +254,125 @@ namespace Armada.Test.Unit.Suites.Context
                 AssertTrue(on.Section.Length > 0, "the section is never empty");
             });
 
+            await RunTest("FlagOn_SectionNamesOnlyTheDockLocalMemoryPath_AndTheManifest", async () =>
+            {
+                ContextRetrievalService service = new ContextRetrievalService(SampleChunks());
+                ContextBriefDelivery on = await MissionService.BuildMemoryDeliveryAsync(
+                    slimmingEnabled: true, retrieval: service,
+                    memoryRoot: "/memory-root", repoFolder: "examplevessel", unresolvedReason: null,
+                    persona: "Worker", vesselName: "ExampleVessel", query: "alpha review task",
+                    leafBudgetBytes: 24000, fetchToolEnabled: true, sortLeaves: null, logging: null);
+
+                AssertFalse(on.Section.Contains("/memory-root"), "the slimmed section never names the host memory root");
+                AssertContains("`" + ContextBriefRenderer.MemoryFolder + "/`", on.Section, "the section names the dock-local memory folder");
+                AssertContains("`repos/examplevessel/`", on.Section, "the vessel folder is named relative to the memory tree");
+                AssertContains("`" + MemoryManifest.RelativePath + "`", on.Section, "the section names the manifest");
+            });
+
+            await RunTest("FlagOn_HeadingOnlyChunk_IsNeverStaged", async () =>
+            {
+                List<ContextChunk> chunks = SampleChunks();
+                chunks.Add(Leaf("leaf.stub.alpha", new List<string> { "all" }, null, "## Alpha stub heading\n\n### Alpha sub heading\n"));
+                chunks.Add(Leaf("leaf.stub.safety", new List<string> { "all" }, new List<string> { "vessel:ExampleVessel" }, "## Safety stub heading\n"));
+                ContextRetrievalService service = new ContextRetrievalService(chunks);
+
+                ContextBriefDelivery on = await MissionService.BuildMemoryDeliveryAsync(
+                    slimmingEnabled: true, retrieval: service,
+                    memoryRoot: "/memory-root", repoFolder: "examplevessel", unresolvedReason: null,
+                    persona: "Worker", vesselName: "ExampleVessel", query: "alpha review task",
+                    leafBudgetBytes: 24000, fetchToolEnabled: false, sortLeaves: null, logging: null);
+                string files = AllFileText(on);
+
+                AssertFalse(files.Contains("leaf.stub.alpha"), "a heading-only leaf is not staged");
+                AssertFalse(files.Contains("leaf.stub.safety"), "a heading-only safety leaf is not staged");
+                AssertFalse(on.Section.Contains("leaf.stub"), "the section lists no heading-only topic");
+                AssertContains("Alpha leaf mentioning alpha", files, "leaves with a body are still staged");
+            });
+
+            await RunTest("StagedMemoryFiles_EndWithAManifestOfEachFilesBytesAndHash", async () =>
+            {
+                ContextRetrievalService service = new ContextRetrievalService(SampleChunks());
+                ContextBriefDelivery on = await MissionService.BuildMemoryDeliveryAsync(
+                    slimmingEnabled: true, retrieval: service,
+                    memoryRoot: "/memory-root", repoFolder: "examplevessel", unresolvedReason: null,
+                    persona: "Worker", vesselName: "ExampleVessel", query: "alpha review task",
+                    leafBudgetBytes: 24000, fetchToolEnabled: false, sortLeaves: null, logging: null);
+                string dock = Path.Combine(Path.GetTempPath(), "armada-memmanifest-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    await MissionService.WriteBriefFilesAsync(dock, ContextBriefRenderer.MemoryFolder, MissionService.BuildStagedMemoryFiles(on));
+                    string manifestPath = Path.Combine(dock, MemoryManifest.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+                    AssertTrue(File.Exists(manifestPath), "the manifest is written beside the memory files");
+                    MemoryManifest? manifest = MemoryManifest.Parse(File.ReadAllText(manifestPath));
+                    AssertNotNull(manifest, "the manifest parses");
+                    AssertEqual(on.Files.Count, manifest!.Files.Count, "the manifest lists every memory file and nothing else");
+                    foreach (MemoryManifestEntry entry in manifest.Files)
+                    {
+                        byte[] bytes = File.ReadAllBytes(Path.Combine(dock, entry.Path.Replace('/', Path.DirectorySeparatorChar)));
+                        AssertEqual(bytes.Length, entry.Bytes, entry.Path + " bytes match the written file");
+                        AssertEqual(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant(), entry.Sha256,
+                            entry.Path + " hash matches the written file");
+                    }
+
+                    AssertEqual(0, MissionService.BuildStagedMemoryFiles(new ContextBriefDelivery { Section = "full" }).Count,
+                        "the full-section path stages no manifest");
+                }
+                finally
+                {
+                    if (Directory.Exists(dock)) Directory.Delete(dock, true);
+                }
+            });
+
+            await RunTest("VoyagePin_EveryStageReceivesTheFirstStagesMemory_AcrossRestart", async () =>
+            {
+                string pins = Path.Combine(Path.GetTempPath(), "armada-mempins-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    ContextRetrievalService first = new ContextRetrievalService(SampleChunks());
+                    List<ContextChunk> changed = SampleChunks();
+                    changed.Add(Leaf("leaf.later", new List<string> { "all" }, null, "Later leaf about alpha review added after the Worker."));
+                    ContextRetrievalService later = new ContextRetrievalService(changed);
+
+                    Func<ContextRetrievalService?, string, Func<Task<ContextBriefDelivery>>> builder = (svc, query) => () => MissionService.BuildMemoryDeliveryAsync(
+                        slimmingEnabled: true, retrieval: svc,
+                        memoryRoot: "/memory-root", repoFolder: "examplevessel", unresolvedReason: null,
+                        persona: "Worker", vesselName: "ExampleVessel", query: query,
+                        leafBudgetBytes: 24000, fetchToolEnabled: false, sortLeaves: null, logging: null);
+
+                    MemoryVoyagePinStore store = new MemoryVoyagePinStore(pins);
+                    ContextBriefDelivery worker = await store.ResolveAsync("vyg_example", "msn_worker", builder(first, "alpha review task"));
+                    AssertEqual("vyg_example", worker.PinnedVoyageId, "the first stage pins its memory");
+                    AssertFalse(worker.Telemetry!.PinnedFromVoyage, "the first stage retrieved its memory");
+
+                    ContextBriefDelivery judge = await store.ResolveAsync("vyg_example", "msn_judge", builder(later, "judge the alpha review"));
+                    AssertEqual(AllFileText(worker), AllFileText(judge), "a later stage receives the first stage's bytes");
+                    AssertEqual(worker.Section, judge.Section, "a later stage receives the first stage's section");
+                    AssertFalse(AllFileText(judge).Contains("leaf.later"), "a later retrieval does not replace the pin");
+                    AssertTrue(judge.Telemetry!.PinnedFromVoyage, "the later stage's telemetry records the pin");
+                    AssertEqual("msn_worker", judge.PinnedByMissionId, "the pin names the stage that staged it");
+
+                    MemoryVoyagePinStore restarted = new MemoryVoyagePinStore(pins);
+                    ContextBriefDelivery afterRestart = await restarted.ResolveAsync("vyg_example", "msn_linter", builder(later, "lint"));
+                    AssertEqual(AllFileText(worker), AllFileText(afterRestart), "the pin survives a restart");
+
+                    ContextBriefDelivery other = await store.ResolveAsync("vyg_other", "msn_other", builder(later, "alpha review task"));
+                    AssertContains("leaf.later", AllFileText(other), "another voyage retrieves its own memory");
+
+                    ContextBriefDelivery loose = await store.ResolveAsync(null, "msn_loose", builder(later, "alpha review task"));
+                    AssertNull(loose.PinnedVoyageId, "a mission outside a voyage is not pinned");
+
+                    ContextBriefDelivery fellBack = await store.ResolveAsync("vyg_fallback", "msn_a", builder(null, "task"));
+                    AssertTrue(fellBack.Telemetry!.FellBack, "no index falls back to the full section");
+                    ContextBriefDelivery retried = await store.ResolveAsync("vyg_fallback", "msn_b", builder(first, "alpha review task"));
+                    AssertFalse(retried.Telemetry!.FellBack, "a fallback is not pinned, so the next stage retries retrieval");
+                    AssertTrue(retried.Files.Count > 0, "the retry stages memory files");
+                }
+                finally
+                {
+                    if (Directory.Exists(pins)) Directory.Delete(pins, true);
+                }
+            });
+
             await RunTest("BuildMemoryRetrievalQuery_JoinsTitleAndDescription_Bounded", () =>
             {
                 Mission mission = new Mission { Title = "Port PGN64965", Description = "Reproduce the byte truncation defect." };

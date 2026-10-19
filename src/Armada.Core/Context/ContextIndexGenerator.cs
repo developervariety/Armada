@@ -114,6 +114,12 @@ namespace Armada.Core.Context
             // key matches the chunk's natural id.
             ApplySidecar(chunks, LoadSidecar(chunkMetadataPath, docsRoot));
 
+            // A leaf section that holds only its heading (a parent heading whose content lives in its
+            // sub-sections, or a title with no preamble) carries nothing to read, and staged into a
+            // brief it reads as a topic whose body is missing. It is dropped after the sidecar merge,
+            // so a sidecar key naming it is not reported as orphaned.
+            chunks.RemoveAll(c => c.Tier == ContextTierEnum.Leaf && ContextChunk.IsHeadingOnly(c.Text));
+
             // Deterministic ordering and unique topics.
             EnsureUniqueTopics(chunks);
             chunks.Sort((a, b) => String.CompareOrdinal(a.Topic, b.Topic));

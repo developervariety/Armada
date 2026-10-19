@@ -96,6 +96,7 @@ namespace Armada.Core.Services
         // falls back to the full memory section. Only consulted when brief slimming is on.
         private readonly DispatchHold? _DispatchHold;
         private readonly Func<ContextRetrievalService?>? _ContextRetrievalProvider;
+        private readonly MemoryVoyagePinStore _MemoryPins;
         private DefinitionOfDoneGate? _DefinitionOfDoneGate;
 
         /// <summary>
@@ -504,6 +505,7 @@ namespace Armada.Core.Services
             _SiblingLaneAdmission = new SiblingLaneAdmission(_Database, _Logging);
             _ContextRetrievalProvider = contextRetrievalProvider;
             _DispatchHold = dispatchHold;
+            _MemoryPins = new MemoryVoyagePinStore(Path.Combine(_Settings.DataDirectory, MemoryPinFolderName), _Logging);
         }
 
         #endregion
@@ -3503,8 +3505,9 @@ namespace Armada.Core.Services
                     Mission briefedMission = mission;
                     sortLeaves = (leaves, ct) => relevanceAdapter.SortAsync(briefedMission, leaves, ct);
                 }
-                ContextBriefDelivery memoryDelivery = await BuildMemoryDeliveryAsync(
-                    _Settings.ContextRetrieval.BriefSlimmingEnabled,
+                bool slimming = _Settings.ContextRetrieval.BriefSlimmingEnabled;
+                Func<Task<ContextBriefDelivery>> buildMemory = () => BuildMemoryDeliveryAsync(
+                    slimming,
                     _ContextRetrievalProvider?.Invoke(),
                     _Settings.AiMemoryRoot!, memoryRepoFolder, memoryFolderReason,
                     mission.Persona, vessel.Name,
@@ -3512,10 +3515,16 @@ namespace Armada.Core.Services
                     _Settings.ContextRetrieval.BriefLeafBudgetBytes,
                     _Settings.ContextRetrieval.FetchToolEnabled,
                     sortLeaves,
-                    _Logging, token).ConfigureAwait(false);
+                    _Logging, token);
+
+                // Every stage of a voyage receives the memory its first slimmed brief staged, so a later
+                // reviewer reads the bytes the Worker read; the manifest beside the files records them.
+                ContextBriefDelivery memoryDelivery = slimming
+                    ? await _MemoryPins.ResolveAsync(mission.VoyageId, mission.Id, buildMemory, token).ConfigureAwait(false)
+                    : await buildMemory().ConfigureAwait(false);
                 memorySlimming = memoryDelivery.Telemetry;
                 memoryFiles = memoryDelivery.Files;
-                await WriteBriefFilesAsync(worktreePath, ContextBriefRenderer.MemoryFolder, memoryFiles, token).ConfigureAwait(false);
+                await WriteBriefFilesAsync(worktreePath, ContextBriefRenderer.MemoryFolder, BuildStagedMemoryFiles(memoryDelivery), token).ConfigureAwait(false);
                 content += ledger.Track("mission.ai_memory", memoryDelivery.Section);
                 content += "\n";
 
@@ -4188,6 +4197,27 @@ namespace Armada.Core.Services
                 string path = Path.Combine(worktreePath, file.RelativePath.Replace('/', Path.DirectorySeparatorChar));
                 await File.WriteAllTextAsync(path, file.Content, token).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// Folder under the data directory that holds each voyage's pinned memory.
+        /// </summary>
+        internal const string MemoryPinFolderName = "memory-pins";
+
+        /// <summary>
+        /// The files written into the dock's memory folder: the delivered memory files followed by the
+        /// manifest of their bytes and SHA-256. Empty when the delivery has no files, so the full-section
+        /// path writes no manifest.
+        /// </summary>
+        /// <param name="delivery">The memory delivery.</param>
+        /// <returns>The files to write.</returns>
+        internal static List<ContextBriefFile> BuildStagedMemoryFiles(ContextBriefDelivery delivery)
+        {
+            List<ContextBriefFile> staged = new List<ContextBriefFile>();
+            if (delivery == null || delivery.Files == null || delivery.Files.Count == 0) return staged;
+            staged.AddRange(delivery.Files);
+            staged.Add(MemoryManifest.Build(delivery).ToFile());
+            return staged;
         }
 
         /// <summary>
