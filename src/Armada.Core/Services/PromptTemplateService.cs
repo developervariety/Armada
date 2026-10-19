@@ -257,6 +257,27 @@ namespace Armada.Core.Services
             "reads these lines and holds the work for an operator to review the criterion instead of dispatching a rescue. Use " +
             "the line only for a real conflict between a required fix and a criterion, never for an ordinary defect.\n";
 
+        /// <summary>Heading of the test-selection section on the Judge template.</summary>
+        private const string _JudgeTestSelectionMarker = "## Choosing Which Tests To Run";
+
+        /// <summary>
+        /// The test-selection rule added to the Judge persona: a passing independent UnitTest Check for the
+        /// exact commit under review is the suite evidence, so the Judge runs focused tests for the changed
+        /// code instead of a second full suite; it runs the full suite when no such Check exists or the diff
+        /// changes test infrastructure or build configuration. The section governs the Verdict section's test
+        /// run, so a row that keeps an operator's wording of that section still reads one rule.
+        /// </summary>
+        private const string _JudgeTestSelection =
+            "\n" +
+            _JudgeTestSelectionMarker + "\n" +
+            "This section decides which tests you run before your verdict; where this template says to run the test suite, " +
+            "run the tests this section names. When the brief's `" + JudgeCheckEvidence.Heading + "` section names a passing " +
+            "independent UnitTest Check for the exact commit under review, cite that Check by id as your test evidence and run " +
+            "only focused tests for the code the diff changes, giving each command and its result as evidence. Run the full " +
+            "test suite in the FOREGROUND and wait for it to finish when no passing UnitTest Check exists for that commit, or " +
+            "when the diff changes test infrastructure or build configuration. The [DOD:DOC-ONLY] rule still applies: a " +
+            "document-only diff runs no test suite.\n";
+
         private DatabaseDriver _Database;
         private LoggingModule _Logging;
         private Dictionary<string, EmbeddedTemplate> _EmbeddedDefaults;
@@ -294,6 +315,7 @@ namespace Armada.Core.Services
             AddLintTestCheck();
             AddTestAuthoringGate();
             AddJudgeCriterionConflict();
+            AddJudgeTestSelection();
         }
 
         #endregion
@@ -409,6 +431,7 @@ namespace Armada.Core.Services
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.linter", _LintTestCheckMarker, _LintTestCheck, "test-check").ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.test_engineer", _TestAuthoringGateMarker, _TestAuthoringGate, "authoring-gate").ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.judge", _JudgeCriterionConflictMarker, _JudgeCriterionConflict, "criterion-conflict").ConfigureAwait(false);
+            await UpgradeBuiltInPersonaSectionAsync(token, "persona.judge", _JudgeTestSelectionMarker, _JudgeTestSelection, "test-selection").ConfigureAwait(false);
         }
 
         /// <summary>
@@ -657,6 +680,12 @@ namespace Armada.Core.Services
         private void AddJudgeCriterionConflict()
         {
             AddSectionToEmbedded("persona.judge", _JudgeCriterionConflictMarker, _JudgeCriterionConflict);
+        }
+
+        /// <summary>Add the Judge test-selection section to the embedded default.</summary>
+        private void AddJudgeTestSelection()
+        {
+            AddSectionToEmbedded("persona.judge", _JudgeTestSelectionMarker, _JudgeTestSelection);
         }
 
         /// <summary>

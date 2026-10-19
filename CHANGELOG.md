@@ -30,6 +30,17 @@ upstream integrations and excludes changes already present at that baseline.
   after an out-of-memory kill carries memory figures from seconds before it.
   The request log records a request only when it completes; this warning names
   the request that is still running.
+- An implementation Judge brief carries an `## Independent Check Evidence`
+  section. When every latest UnitTest Check record at the commit under review
+  has passed, the section names that Check and commit, and the Judge cites it
+  as test evidence and runs only focused tests for the changed code, with each
+  command and its result. With no such Check, or when the diff changes test
+  infrastructure or build configuration, the Judge runs the full test suite in
+  the foreground. The Judge template carries the rule in a
+  `## Choosing Which Tests To Run` section that reaches the embedded default
+  and existing built-in rows through the append-if-missing upgrader, and the
+  Judge output contract states it. A Judge no longer repeats a full-suite run
+  that an independent Check already measured.
 - A Judge declares a required fix that cannot be made without breaking a stated
   acceptance criterion on a standalone
   `CRITERION-CONFLICT: <criterion> -- <conflict>` line and returns

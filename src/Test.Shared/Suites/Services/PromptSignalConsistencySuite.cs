@@ -304,6 +304,9 @@ namespace Test.Shared.Suites.Services
 
             AssertContains("Run the test suite in the FOREGROUND", embeddedPrompt, "judge embedded template foreground instruction");
             AssertContains("never launch tests as a background task", embeddedPrompt, "judge embedded template background prohibition");
+            AssertContains("Run the full test suite in the FOREGROUND", embeddedPrompt, "judge embedded template full-suite rule without a passing Check");
+            AssertContains(JudgeCheckEvidence.Heading, embeddedPrompt, "judge embedded template names the brief's Check evidence section");
+            AssertContains(JudgeCheckEvidence.Heading, judgeContract, "judge output contract names the brief's Check evidence section");
         }
 
         private static TestCaseDescriptor Case(string caseId, string displayName, string tag, Action body)

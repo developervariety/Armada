@@ -1982,6 +1982,132 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A Judge brief names a passing UnitTest Check at the reviewed commit, and asks for the full suite when only another commit passed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, new StubGitService());
+                    Vessel vessel = new Vessel("CheckEvidenceVessel", "https://github.com/test/repo");
+                    const string reviewedCommit = "1111111111111111111111111111111111111111";
+                    const string newerCommit = "3333333333333333333333333333333333333333";
+
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("check-evidence-voyage")).ConfigureAwait(false);
+                    Mission worker = new Mission("[Worker] Implement", "worker description");
+                    worker.VoyageId = voyage.Id;
+                    worker.Persona = "Worker";
+                    worker.Status = MissionStatusEnum.WorkProduced;
+                    worker.CommitHash = reviewedCommit;
+                    worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+
+                    Mission judge = new Mission("[Judge] Review", "Review the change.");
+                    judge.VoyageId = voyage.Id;
+                    judge.Persona = "Judge";
+                    judge.DependsOnMissionId = worker.Id;
+                    judge = await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+
+                    CheckRun passing = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        VoyageId = voyage.Id,
+                        Label = "UnitTest",
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Status = CheckRunStatusEnum.Passed,
+                        Command = "dotnet test",
+                        WorkingDirectory = "C:/temp",
+                        BranchName = "armada/worker/check-evidence",
+                        CommitHash = reviewedCommit,
+                        StartedUtc = DateTime.UtcNow,
+                        CompletedUtc = DateTime.UtcNow,
+                        ExitCode = 0
+                    }).ConfigureAwait(false);
+
+                    string firstDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    string secondDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    string workerDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(firstDir);
+                    Directory.CreateDirectory(secondDir);
+                    Directory.CreateDirectory(workerDir);
+                    try
+                    {
+                        await service.GenerateClaudeMdAsync(firstDir, judge, vessel);
+                        string evidenceBrief = await File.ReadAllTextAsync(Path.Combine(firstDir, "CLAUDE.md"));
+                        AssertContains(JudgeCheckEvidence.Heading, evidenceBrief, "the Judge brief carries the Check evidence section");
+                        AssertContains("Independent UnitTest Check `" + passing.Id + "`", evidenceBrief, "the passing Check is named by id");
+                        AssertContains("passed at commit `" + reviewedCommit + "`", evidenceBrief, "the section names the commit the Check measured");
+                        AssertContains("run only focused tests", evidenceBrief, "a measured commit asks only for focused tests");
+
+                        // The Worker committed again: the green now measures an older commit than the one under review.
+                        worker.CommitHash = newerCommit;
+                        await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                        await service.GenerateClaudeMdAsync(secondDir, judge, vessel);
+                        string staleBrief = await File.ReadAllTextAsync(Path.Combine(secondDir, "CLAUDE.md"));
+                        AssertContains("No passing independent UnitTest Check is recorded for commit `" + newerCommit + "`", staleBrief,
+                            "a green for another commit is not evidence for the commit under review");
+                        AssertContains("Run the full test suite in the FOREGROUND", staleBrief, "without evidence the Judge runs the full suite");
+                        AssertFalse(staleBrief.Contains(passing.Id, StringComparison.Ordinal), "the stale Check is not cited");
+
+                        await service.GenerateClaudeMdAsync(workerDir, worker, vessel);
+                        string workerBrief = await File.ReadAllTextAsync(Path.Combine(workerDir, "CLAUDE.md"));
+                        AssertFalse(workerBrief.Contains(JudgeCheckEvidence.Heading, StringComparison.Ordinal), "only a Judge brief carries the section");
+                    }
+                    finally
+                    {
+                        foreach (string dir in new[] { firstDir, secondDir, workerDir })
+                        {
+                            try { Directory.Delete(dir, true); } catch { }
+                        }
+                    }
+                }
+            });
+
+            await RunTest("Judge Check evidence reads only the latest record of each Check, and a later failure withdraws the evidence", () =>
+            {
+                const string commit = "1111111111111111111111111111111111111111";
+                DateTime earlier = DateTime.UtcNow.AddMinutes(-10);
+                CheckRun passed = new CheckRun
+                {
+                    Id = "chk_passed",
+                    VoyageId = "vyg_evidence",
+                    Label = "UnitTest",
+                    Type = CheckRunTypeEnum.UnitTest,
+                    Status = CheckRunStatusEnum.Passed,
+                    Command = "dotnet test",
+                    CommitHash = commit,
+                    CreatedUtc = earlier,
+                    LastUpdateUtc = earlier
+                };
+                CheckRun build = new CheckRun
+                {
+                    Id = "chk_build",
+                    VoyageId = "vyg_evidence",
+                    Type = CheckRunTypeEnum.Build,
+                    Status = CheckRunStatusEnum.Passed,
+                    Command = "dotnet build",
+                    CommitHash = commit
+                };
+                AssertEqual("chk_passed", JudgeCheckEvidence.FindPassingUnitTest(new List<CheckRun> { passed, build }, commit.Substring(0, 9))?.Id,
+                    "a passing UnitTest Check at the commit is evidence, and an abbreviated commit names the same commit");
+
+                CheckRun rerunFailed = new CheckRun
+                {
+                    Id = "chk_rerun_failed",
+                    VoyageId = "vyg_evidence",
+                    Label = "UnitTest",
+                    Type = CheckRunTypeEnum.UnitTest,
+                    Status = CheckRunStatusEnum.Failed,
+                    Command = "dotnet test",
+                    CommitHash = commit,
+                    CreatedUtc = DateTime.UtcNow,
+                    LastUpdateUtc = DateTime.UtcNow
+                };
+                AssertNull(JudgeCheckEvidence.FindPassingUnitTest(new List<CheckRun> { passed, rerunFailed }, commit),
+                    "a later failed record of the same Check is its current verdict, so there is no passing evidence");
+                AssertNull(JudgeCheckEvidence.FindPassingUnitTest(new List<CheckRun> { build }, commit),
+                    "a passing Build Check is not suite evidence");
+                return Task.CompletedTask;
+            });
+
             await RunTest("GenerateClaudeMdAsync strips stale Armada mission blocks from existing instructions", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

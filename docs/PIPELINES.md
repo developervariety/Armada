@@ -399,6 +399,29 @@ budget telemetry reports the excess.
 For `[DOD:DOC-ONLY]` missions with only non-code changes, the Judge reviews the
 document diff without running the full test suite.
 
+### Judge test evidence
+
+An implementation Judge brief carries an `## Independent Check Evidence`
+section, written when the brief is generated. The commit under review is the
+predecessor stage's commit. The section reads the Checks the Judge gate reads
+(the voyage's and the mission's, narrowed to the Judge's lane) and keeps only
+the latest record of each Check:
+
+- When every latest UnitTest record at the commit under review has passed, the
+  section names the Check id and the commit. The Judge cites that Check as its
+  test evidence and runs only focused tests for the changed code, with each
+  command and its result. It runs the full suite instead when the diff changes
+  test infrastructure or build configuration.
+- Otherwise the section says no passing UnitTest Check is recorded for that
+  commit, and the Judge runs the full test suite in the foreground.
+
+A Judge re-run in place, for example after its Checks resolve, gets a new brief
+and so reads the current Check state. The Judge template's
+`## Choosing Which Tests To Run` section and the Judge output contract state
+the same rule. The template section reaches existing built-in rows through the
+append-if-missing upgrader, and it governs a row's own wording of the test run.
+Report-only Judges do not receive the section.
+
 ### Criterion conflicts
 
 A fix the Judge requires can be impossible without breaking a stated

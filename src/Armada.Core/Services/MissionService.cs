@@ -3742,6 +3742,15 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
+            // A Judge whose commit already has a passing independent UnitTest Check cites it and runs only
+            // focused tests; without one it runs the full suite. The section states which case applies, read
+            // when the brief is written so a Judge re-run after its Checks resolve sees the current state.
+            if (!mission.IsReadOnlyMode && PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge))
+            {
+                content += ledger.Track(JudgeCheckEvidence.ModuleName, await BuildJudgeCheckEvidenceSectionAsync(mission, token).ConfigureAwait(false));
+                content += "\n";
+            }
+
             // Rules, context conservation, merge conflicts, progress signals -- from templates or hardcoded fallback.
             //
             // An Audit or Research mission gets the read-only rule set instead of the implementation
@@ -5774,6 +5783,56 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "could not resolve judge lens for mission " + mission.Id + ": " + ex.Message);
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Builds the Judge brief's independent Check evidence section. The commit under review is the
+        /// predecessor stage's commit, which the Judge's dock starts from, or the Judge's own recorded
+        /// commit when it has no predecessor. The Checks are the ones the Judge gate reads: the voyage's and
+        /// the mission's, narrowed to this Judge's lane. A brief must never fail a dispatch, so a lookup
+        /// error is logged and yields the no-evidence section, which asks for the full suite.
+        /// </summary>
+        /// <param name="mission">The Judge mission being briefed.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The section text.</returns>
+        private async Task<string> BuildJudgeCheckEvidenceSectionAsync(Mission mission, CancellationToken token)
+        {
+            string? reviewedCommit = mission.CommitHash;
+            try
+            {
+                if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
+                {
+                    Mission? dependency = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
+                    if (dependency != null && !String.IsNullOrWhiteSpace(dependency.CommitHash)) reviewedCommit = dependency.CommitHash;
+                }
+
+                if (String.IsNullOrWhiteSpace(reviewedCommit)) return JudgeCheckEvidence.BuildSection(null, null);
+
+                List<Mission>? voyageMissions = null;
+                List<CheckRunQuery> queries = new List<CheckRunQuery>();
+                if (!String.IsNullOrEmpty(mission.VoyageId))
+                {
+                    voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
+                    queries.Add(new CheckRunQuery { VoyageId = mission.VoyageId });
+                }
+                queries.Add(new CheckRunQuery { MissionId = mission.Id });
+
+                Dictionary<string, CheckRun> checks = await CheckRunEnumeration
+                    .ReadAllAsync(_Database, mission.TenantId, queries, token).ConfigureAwait(false);
+                List<CheckRun> laneChecks = VoyageLanes.ChecksForLaneOf(mission, voyageMissions, checks.Values);
+                CheckRun? passing = JudgeCheckEvidence.FindPassingUnitTest(laneChecks, reviewedCommit);
+                return JudgeCheckEvidence.BuildSection(passing, reviewedCommit);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read independent Check evidence for judge mission " + mission.Id
+                    + "; the brief asks for the full suite: " + ex.Message);
+                return JudgeCheckEvidence.BuildSection(null, reviewedCommit);
             }
         }
 
