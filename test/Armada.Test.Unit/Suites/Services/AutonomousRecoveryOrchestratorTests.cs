@@ -1500,8 +1500,69 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, rescues.Count, "no rescue mission is created while the lane is full");
                 AssertEqual(0, admiral.DispatchedMissions.Count, "nothing is dispatched while the lane is full");
                 List<ArmadaEvent> deferred = await testDb.Driver.Events.EnumerateByTypeAsync("autonomous_recovery.capacity_deferred").ConfigureAwait(false);
-                AssertTrue(deferred.Count >= 1, "the capacity deferral is recorded");
+                AssertEqual(1, deferred.Count, "three refusals for the same full lane record the deferral once");
                 AssertContains("Sibling lane capacity is full", deferred[0].Message, "the deferral names the full lane");
+                AuthContext auth = AuthContext.Authenticated("ten_rescue_full", "usr_rescue_full", false, true, "UnitTest");
+                Incident incident = (await new IncidentService(testDb.Driver).EnumerateActiveAsync(auth, new IncidentQuery { MissionId = failed.Id }).ConfigureAwait(false)).Single();
+                AssertContains("rescue_capacity_deferred: sibling_lane_capacity_reached", incident.RecoveryNotes ?? "", "the incident names the capacity deferral");
+                AssertEqual(1, (incident.RecoveryNotes ?? "").Split("rescue_capacity_deferred").Length - 1, "the incident carries the deferral once");
+                AssertEqual(0, (await testDb.Driver.Missions.ReadAsync(failed.Id).ConfigureAwait(false))!.RecoveryAttempts, "a capacity deferral spends no recovery attempt");
+
+                admiral.CapacityRefusal = new FleetCapacityAdmissionException(
+                    "sibling_lane_capacity_reached", "Sibling lane capacity is full for vessel " + vessel.Id + ": 5 active work unit(s), limit 5.",
+                    5, 5, vessel.Id, new List<string> { vessel.Id });
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                deferred = await testDb.Driver.Events.EnumerateByTypeAsync("autonomous_recovery.capacity_deferred").ConfigureAwait(false);
+                AssertEqual(2, deferred.Count, "a refusal with a changed limit is recorded again");
+            }).ConfigureAwait(false);
+
+            await RunTest("An incident an operator mitigated with a written cause stops the rescue; a lifecycle mitigation does not", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_mitigated", "usr_auto_mitigated").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_mitigated", "usr_auto_mitigated").ConfigureAwait(false);
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
+                Mission mitigatedByOperator = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                Mission mitigatedAutomatically = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                DispatchHold hold = new DispatchHold();
+                AutonomousRecoveryOrchestrator orchestrator = new AutonomousRecoveryOrchestrator(
+                    testDb.Driver, admiral, incidents, runbooks, new ArmadaSettings(), new LoggingModule(),
+                    null, null, null, null, null, null, null, null, hold);
+
+                // The held sweep opens each failure's incident without dispatching a rescue.
+                hold.Engage("redeploy window", "session-hold");
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                Incident operatorIncident = (await incidents.EnumerateActiveAsync(auth, new IncidentQuery { MissionId = mitigatedByOperator.Id }).ConfigureAwait(false)).Single();
+                await incidents.UpdateAsync(auth, operatorIncident.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Mitigated,
+                    RootCause = "The stage branch was still checked out in the previous stage's dock.",
+                    RecoveryNotes = "Operator mitigated: restart the stage once the earlier dock is released."
+                }).ConfigureAwait(false);
+                Incident automaticIncident = (await incidents.EnumerateActiveAsync(auth, new IncidentQuery { MissionId = mitigatedAutomatically.Id }).ConfigureAwait(false)).Single();
+                await incidents.UpdateAutomaticallyAsync(auth, automaticIncident.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Mitigated
+                }).ConfigureAwait(false);
+
+                hold.Clear();
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "only the failure whose incident the lifecycle mitigated is rescued");
+                AssertEqual(mitigatedAutomatically.Id, admiral.DispatchedMissions[0].ParentMissionId, "the rescue belongs to the automatically mitigated failure");
+                AssertEqual(0, (await testDb.Driver.Missions.ReadAsync(mitigatedByOperator.Id).ConfigureAwait(false))!.RecoveryAttempts,
+                    "recovery spends no budget on a failure an operator mitigated");
+                List<ArmadaEvent> skipped = await testDb.Driver.Events.EnumerateByTypeAsync("autonomous_recovery.skipped_mitigated_incident").ConfigureAwait(false);
+                AssertEqual(1, skipped.Count, "two sweeps record the skip once");
+                AssertContains(operatorIncident.Id, skipped[0].Message, "the skip names the mitigated incident");
             }).ConfigureAwait(false);
 
             await RunTest("Rescue refused for capacity after its voyage is written removes the empty voyage", async () =>

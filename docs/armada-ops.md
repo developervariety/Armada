@@ -55,9 +55,14 @@ it creates rescue work. An unserviceable requirement records a refusal or
 deferral; it does not treat temporary capacity pressure as missing configuration
 or spend a rescue attempt. A rescue that re-runs its review stages checks fleet
 and sibling-lane capacity before it writes its rescue voyage, so a full lane
-records `autonomous_recovery.capacity_deferred` and writes no voyage. When
-capacity fills between that check and the admission, the rescue voyage that
-received no mission is deleted rather than left as a cancelled record.
+writes no voyage. When capacity fills between that check and the admission, the
+rescue voyage that received no mission is deleted rather than left as a
+cancelled record. A capacity deferral spends no recovery attempt. Its
+`autonomous_recovery.capacity_deferred` event and its
+`rescue_capacity_deferred:` line on the incident's `RecoveryNotes` are written
+when the deferral first happens and again only when its refusal code or limit
+changes; each later sweep that is still refused logs the refusal with the
+number of rescues waiting for capacity.
 Later stages can read the failed mission through the same-owner rescue chain.
 The marked rescue root names the additional failed-parent grant. Existing
 direct-parent and dependency reads remain available within each caller's

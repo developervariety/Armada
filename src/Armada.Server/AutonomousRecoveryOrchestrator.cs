@@ -93,6 +93,17 @@ namespace Armada.Server
         private readonly ConcurrentDictionary<string, byte> _ClosedIncidentSkippedMissions =
             new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
+        // Missions whose operator-mitigated incident already produced a skip event, so the skip is
+        // recorded once rather than once per sweep tick.
+        private readonly ConcurrentDictionary<string, byte> _MitigatedIncidentSkippedMissions =
+            new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+
+        // Rescues refused for fleet or lane capacity, keyed by failed mission id, holding the refusal code
+        // and limit last recorded. The deferral is written to the event log and the incident when it first
+        // happens or its code or limit changes; every refusal is still counted and logged.
+        private readonly ConcurrentDictionary<string, string> _CapacityDeferredRescues =
+            new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+
         // Rescues refused by an engaged dispatch hold, keyed by failed mission id. Each entry
         // records which hold engagement refused it, so the refusal is written to the incident once
         // per engagement, and the first sweep after the hold clears re-evaluates every entry even
@@ -260,6 +271,17 @@ namespace Armada.Server
             List<MissionSummary> candidates = new List<MissionSummary>();
             candidates.AddRange(await EnumerateAllSummariesByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false));
             candidates.AddRange(await EnumerateAllSummariesByStatusAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false));
+
+            // A capacity deferral belongs to a failure that is still failed; one that was restarted, rescued or
+            // reconciled no longer waits for capacity.
+            if (!_CapacityDeferredRescues.IsEmpty)
+            {
+                HashSet<string> failedIds = new HashSet<string>(candidates.Select(item => item.Id), StringComparer.Ordinal);
+                foreach (string deferredId in _CapacityDeferredRescues.Keys)
+                {
+                    if (!failedIds.Contains(deferredId)) _CapacityDeferredRescues.TryRemove(deferredId, out string? _);
+                }
+            }
 
             // Terminal parent voyages (Cancelled / Complete) never need autonomous recovery; selecting
             // them every ~5s tick re-ran the cancelled-voyage suppression path and spammed events. Filter
@@ -1158,6 +1180,11 @@ namespace Armada.Server
                     await DeferRescueForUnassignableConfigurationAsync(auth, latest, incident, refused.Reason, token).ConfigureAwait(false);
                     return true;
                 }
+                catch (FleetCapacityAdmissionException capacity)
+                {
+                    await DeferRescueForCapacityAsync(auth, latest, incident, capacity, token).ConfigureAwait(false);
+                    return true;
+                }
                 catch (DispatchHoldActiveException held)
                 {
                     // The hold was engaged between the admission check above and the dispatch.
@@ -1168,6 +1195,7 @@ namespace Armada.Server
                     await BlockRescueForInactivePipelineAsync(auth, latest, incident, inactive, token).ConfigureAwait(false);
                     return true;
                 }
+                _CapacityDeferredRescues.TryRemove(latest.Id, out string? _);
                 await ApplyClaudeThinkingDisableAsync(latest, rescue, token).ConfigureAwait(false);
                 latest.RecoveryAttempts++;
                 latest.LastRecoveryActionUtc = DateTime.UtcNow;
@@ -1693,6 +1721,42 @@ namespace Armada.Server
             await EmitEventAsync(
                 "autonomous_recovery.rescue_deferred_unassignable",
                 "Autonomous rescue for failed mission " + mission.Id + " was deferred: " + reasonCode + ". No rescue was created and no recovery attempt was spent.",
+                mission,
+                incident.Id,
+                token).ConfigureAwait(false);
+        }
+
+        // A rescue refused because fleet or sibling-lane capacity is full is retried on a later sweep and spends no
+        // recovery attempt. The refusal is recorded on the event log and the incident when it first happens and
+        // again only when its code or limit changes, so a long wait for capacity is visible without one record per
+        // sweep; every refusal is still logged with its running count.
+        private async Task DeferRescueForCapacityAsync(
+            AuthContext auth,
+            Mission mission,
+            Incident incident,
+            FleetCapacityAdmissionException capacity,
+            CancellationToken token)
+        {
+            string signature = capacity.Code + "|" + capacity.Limit.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            bool changed = true;
+            _CapacityDeferredRescues.AddOrUpdate(mission.Id, signature, (_, previous) =>
+            {
+                changed = !String.Equals(previous, signature, StringComparison.Ordinal);
+                return signature;
+            });
+            _Logging.Info(_Header + "rescue for failed mission " + mission.Id + " deferred: " + capacity.Code + ": " + capacity.Message
+                + " (" + _CapacityDeferredRescues.Count + " rescue(s) waiting for capacity)");
+            if (!changed) return;
+
+            await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+            {
+                RecoveryNotes = AppendNote(incident.RecoveryNotes,
+                    "rescue_capacity_deferred: " + capacity.Code + ": " + capacity.Message
+                    + " No rescue was created and no recovery attempt was spent; the recovery sweep retries when capacity frees.")
+            }, token).ConfigureAwait(false);
+            await EmitEventAsync(
+                "autonomous_recovery.capacity_deferred",
+                capacity.Message,
                 mission,
                 incident.Id,
                 token).ConfigureAwait(false);
@@ -2353,16 +2417,7 @@ namespace Armada.Server
                 FleetCapacityAdmissionException? refusal = capacityVessel == null
                     ? null
                     : await _Admiral.ProbeCapacityAsync(capacityVessel, null, token).ConfigureAwait(false);
-                if (refusal != null)
-                {
-                    await EmitEventAsync(
-                        "autonomous_recovery.capacity_deferred",
-                        refusal.Message,
-                        failedMission,
-                        null,
-                        token).ConfigureAwait(false);
-                    throw refusal;
-                }
+                if (refusal != null) throw refusal;
             }
 
             Voyage rescueVoyage = await _Database.Voyages.CreateAsync(new Voyage(
@@ -2453,12 +2508,6 @@ namespace Armada.Server
                         CancellationToken.None,
                         _Admiral.RecallCaptainAsync).ConfigureAwait(false);
                 }
-                await EmitEventAsync(
-                    "autonomous_recovery.capacity_deferred",
-                    capacity.Message,
-                    failedMission,
-                    null,
-                    token).ConfigureAwait(false);
                 throw;
             }
             catch
@@ -2995,7 +3044,47 @@ namespace Armada.Server
             if (rescues.Any(rescue => !IsRetryableRescueTerminalFailure(rescue.Status)))
                 return true;
 
-            return await IsClosedIncidentDispositionAsync(failedMission, token).ConfigureAwait(false);
+            if (await IsClosedIncidentDispositionAsync(failedMission, token).ConfigureAwait(false))
+                return true;
+
+            return await IsOperatorMitigatedDispositionAsync(failedMission, token).ConfigureAwait(false);
+        }
+
+        // A Mitigated incident for this mission whose root cause a person wrote, mitigated at or after the
+        // latest failure, with no incident for the mission still Open or Monitoring, is an operator's
+        // disposition of that failure: recovery dispatches no rescue for it and records the skip once. An
+        // incident the lifecycle mitigated over an automatic cause does not stop recovery. A failure newer
+        // than the mitigation, such as one after an operator restart, is a new failure and is still recovered.
+        private async Task<bool> IsOperatorMitigatedDispositionAsync(Mission failedMission, CancellationToken token)
+        {
+            DateTime failedUtc = failedMission.CompletedUtc ?? failedMission.LastUpdateUtc;
+            List<Incident> active = await _Incidents.EnumerateActiveAsync(BuildAuth(failedMission), new IncidentQuery
+            {
+                MissionId = failedMission.Id
+            }, token).ConfigureAwait(false);
+            if (active.Count == 0) return false;
+            if (active.Any(incident => incident.Status != IncidentStatusEnum.Mitigated)) return false;
+
+            Incident? mitigation = active
+                .Where(incident => !String.IsNullOrWhiteSpace(incident.RootCauseWrittenBy)
+                    && incident.MitigatedUtc.HasValue
+                    && incident.MitigatedUtc.Value >= failedUtc)
+                .OrderByDescending(incident => incident.MitigatedUtc)
+                .FirstOrDefault();
+            if (mitigation == null) return false;
+
+            _HoldDeferredRescues.TryRemove(failedMission.Id, out HoldDeferredRescue? _);
+            _CapacityDeferredRescues.TryRemove(failedMission.Id, out string? _);
+            if (_MitigatedIncidentSkippedMissions.TryAdd(failedMission.Id, 0))
+            {
+                await EmitEventAsync("autonomous_recovery.skipped_mitigated_incident",
+                    "Autonomous recovery skipped mission " + failedMission.Id + ": incident " + mitigation.Id
+                    + " was mitigated at " + mitigation.MitigatedUtc!.Value.ToString("u") + " with a root cause written by "
+                    + mitigation.RootCauseWrittenBy + ", after the failure; no rescue was created. Restart the mission to run it again.",
+                    failedMission, mitigation.Id, token).ConfigureAwait(false);
+            }
+
+            return true;
         }
 
         // A Closed incident for this mission, closed at or after its latest failure, with no incident

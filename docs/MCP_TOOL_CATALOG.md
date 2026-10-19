@@ -583,6 +583,15 @@ restart: recovery opens no new incident, spends no attempt, and records one
 `autonomous_recovery.skipped_closed_incident` event. A failure newer than the
 closure is recovered as usual.
 
+A failure whose incident is `Mitigated` with a root cause a person wrote,
+mitigated at or after the failure, with no incident for it still `Open` or
+`Monitoring`, is treated as an operator's disposition the same way: recovery
+dispatches no rescue, spends no attempt, and records one
+`autonomous_recovery.skipped_mitigated_incident` event naming the incident. An
+incident the lifecycle mitigated over its automatic cause does not stop
+recovery. Restarting the mission runs it again, and a failure newer than the
+mitigation is recovered as usual.
+
 Automatic Checks obey the same hold. The heartbeat runs no Pending Check while
 the hold is engaged, records one `check.auto_deferred_dispatch_hold` event per
 engagement, and runs the waiting Checks on the first sweep after the hold

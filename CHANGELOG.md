@@ -114,6 +114,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Autonomous recovery writes `autonomous_recovery.capacity_deferred` and its
+  `rescue_capacity_deferred:` incident note once per change of refusal code or
+  limit, instead of once per sweep while capacity stays full; each refusal is
+  still logged with the number of rescues waiting. A failure whose incident an
+  operator set to `Mitigated` with a written root cause, at or after the
+  failure, gets no rescue and one `autonomous_recovery.skipped_mitigated_incident`
+  event; a restart or a newer failure is recovered as usual.
 - A dispatch preview whose blocker exists but whose stored row cannot be read
   (for example a backlog state that is not a defined value) reports
   `objective_dependency_unreadable` with the stored-data error naming the
