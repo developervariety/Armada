@@ -92,6 +92,18 @@ upstream integrations and excludes changes already present at that baseline.
   goal instead, read from the local index without a query embedding, graph expansion or summary.
   Every pack header now names the covered roots as well as the goal and indexed commit, and a
   summarized pack keeps the header above its summary.
+- A captain brief names the assigned runtime's instruction file even when a
+  handoff written on another runtime named `CODEX.md`, `CURSOR.md` or `MUX.md`,
+  and lists under `## Named Files Not Staged` each `_briefing/` path the
+  description names that the dock does not hold. Objective Scope names the
+  objective id.
+- A captain brief says that printing an `[ARMADA:NOTE]` line posts a board note,
+  so captains no longer look for a board tool, and that an `unavailable`
+  typed-decision answer is not a papercut. It names `armada_check_prior_art` as
+  unavailable on a vessel where the tool is off.
+- Objective Scope states that a non-goal wins over a conflicting role, rescue or
+  captain duty, and tells a TestEngineer whose objective forbids test edits that
+  it is validate-only.
 - A captain can omit the id on `armada_mission_status`, `armada_mission_output`
   and `get_objective`. They read the captain's own mission, or the objective that
   authorizes it, instead of failing with a null-id error. A caller with no

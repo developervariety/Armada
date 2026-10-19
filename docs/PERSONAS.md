@@ -157,6 +157,28 @@ A brief carries only what the mission's mode and persona can use:
   `### Persona Guidance`. Any order in the template to change, commit or run
   implementation checks is reported as a finding instead.
 
+A brief also matches the dock it lands in and the tools the captain has:
+
+- A mission description that names an Armada-only instruction file
+  (`CODEX.md`, `CURSOR.md`, `MUX.md`) renders with the assigned runtime's
+  filename, because a handoff written on one runtime otherwise names a file
+  another runtime's dock never holds. A filename the checkout itself holds is
+  repository content and is kept.
+- `## Named Files Not Staged` lists each `_briefing/` path the description
+  names that is not in the dock. Staged inputs are written before the brief,
+  so a listed path is absent when the captain starts.
+- Objective Scope names the objective id, which `get_objective` reads when
+  called with no id. When the objective has non-goals, it states that a
+  non-goal wins over a conflicting role, rescue or captain duty, and a
+  TestEngineer whose objective's non-goals forbid test edits is told it is
+  validate-only.
+- Board Notes says that printing an `[ARMADA:NOTE]` line posts the note, so no
+  board tool is needed.
+- Papercuts says an `unavailable` typed-decision answer is not a papercut. It
+  names `armada_check_prior_art` as unavailable when the vessel is
+  egress-excluded, the captain tools are disabled, or the `prior_art` decision
+  is Off.
+
 The instruction file has a byte budget, `captainInstructionByteBudget`
 (default 65,536; `0` selects the default). A brief assembled over it records a
 `mission.prompt_over_budget` warning event naming the budget, the assembled

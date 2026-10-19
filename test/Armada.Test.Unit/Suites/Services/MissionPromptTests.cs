@@ -364,6 +364,191 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A brief names the assigned runtime's instruction file, not the one a prior stage named", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    string trackedDir = Path.Combine(tempDir, "tracked");
+                    Directory.CreateDirectory(trackedDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("InstructionNameVessel", "https://github.com/test/repo");
+                        Captain captain = new Captain("cursor-captain");
+                        captain.Runtime = AgentRuntimeEnum.Cursor;
+                        Mission mission = new Mission();
+                        mission.Title = "Carry a plan written on another runtime";
+                        mission.Persona = "Worker";
+                        mission.Description = "**Reads:**\n- `CODEX.md` objective brief and Product Manager handoff\n- MUX.md stage notes\n";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CURSOR.md"));
+                        AssertContains("`CURSOR.md` objective brief", brief, "a foreign instruction filename is retargeted to the captain's own file");
+                        AssertContains("- CURSOR.md stage notes", brief, "every foreign Armada instruction filename is retargeted");
+                        AssertFalse(brief.Contains("`CODEX.md` objective brief"), "a Cursor brief must not send the captain to CODEX.md, which this dock does not hold");
+                        AssertFalse(brief.Contains("MUX.md stage notes"), "a Cursor brief must not send the captain to MUX.md, which this dock does not hold");
+
+                        await File.WriteAllTextAsync(Path.Combine(trackedDir, "CODEX.md"), "# repository notes\n");
+                        await service.GenerateClaudeMdAsync(trackedDir, mission, vessel, captain);
+                        string trackedBrief = await File.ReadAllTextAsync(Path.Combine(trackedDir, "CURSOR.md"));
+                        AssertContains("`CODEX.md` objective brief", trackedBrief, "a filename the checkout really holds is repository content and is kept");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A brief lists the _briefing paths it names that are not staged in the dock", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(Path.Combine(tempDir, "_briefing"));
+
+                    try
+                    {
+                        await File.WriteAllTextAsync(Path.Combine(tempDir, "_briefing", "context-pack.md"), "# pack\n");
+                        Vessel vessel = new Vessel("StagedPathVessel", "https://github.com/test/repo");
+                        Mission mission = new Mission();
+                        mission.Title = "Use the staged inputs";
+                        mission.Persona = "Worker";
+                        mission.Description = "Read `_briefing/context-pack.md`, then _briefing/mission/01-description.md through " +
+                            "_briefing/mission/03-description.md, and the table at _briefing/source/table.md.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        const string heading = "## Named Files Not Staged";
+                        int sectionStart = brief.IndexOf(heading, StringComparison.Ordinal);
+                        AssertTrue(sectionStart >= 0, "a brief that names unstaged _briefing paths carries the unstaged-paths section");
+                        string section = brief.Substring(sectionStart);
+                        int sectionEnd = section.IndexOf("\n## ", 3, StringComparison.Ordinal);
+                        if (sectionEnd > 0) section = section.Substring(0, sectionEnd);
+                        AssertContains("_briefing/mission/01-description.md", section, "an absent description part is listed");
+                        AssertContains("_briefing/mission/03-description.md", section, "the far end of a named range is listed");
+                        AssertContains("_briefing/source/table.md", section, "an absent source file is listed");
+                        AssertFalse(section.Contains("context-pack.md"), "a staged file is not listed as absent");
+
+                        string cleanDir = Path.Combine(tempDir, "clean");
+                        Directory.CreateDirectory(cleanDir);
+                        mission.Description = "Implement the change named in the title.";
+                        await service.GenerateClaudeMdAsync(cleanDir, mission, vessel);
+                        string cleanBrief = await File.ReadAllTextAsync(Path.Combine(cleanDir, "CLAUDE.md"));
+                        AssertFalse(cleanBrief.Contains(heading), "a brief naming no absent path carries no section");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("Objective Scope names the objective id and states that a non-goal wins over a conflicting role duty", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("rule-wins-voyage")).ConfigureAwait(false);
+                        Objective objective = new Objective();
+                        objective.Title = "Correct the audit report";
+                        objective.Description = "Rewrite the report section.";
+                        objective.NonGoals = new List<string> { "No new tests; the report is the only changed file." };
+                        objective.VoyageIds = new List<string> { voyage.Id };
+                        objective = await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                        Vessel vessel = new Vessel("RuleWinsVessel", "https://github.com/test/repo");
+                        Mission tester = new Mission();
+                        tester.Title = "Validate the report";
+                        tester.Persona = "TestEngineer";
+                        tester.Description = "Validate the report change.";
+                        tester.VoyageId = voyage.Id;
+
+                        await service.GenerateClaudeMdAsync(tempDir, tester, vessel);
+                        string testerBrief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertContains(objective.Id, testerBrief, "the brief states the own objective id");
+                        AssertContains("validate-only", testerBrief, "a TestEngineer on a no-new-test objective gets a validate-only duty");
+                        AssertContains("the non-goal wins", testerBrief, "the brief records which rule wins");
+
+                        string workerDir = Path.Combine(tempDir, "worker");
+                        Directory.CreateDirectory(workerDir);
+                        Mission worker = new Mission();
+                        worker.Title = "Rewrite the report";
+                        worker.Persona = "Worker";
+                        worker.Description = "Rewrite the report section.";
+                        worker.VoyageId = voyage.Id;
+                        await service.GenerateClaudeMdAsync(workerDir, worker, vessel);
+                        string workerBrief = await File.ReadAllTextAsync(Path.Combine(workerDir, "CLAUDE.md"));
+                        AssertContains("the non-goal wins", workerBrief, "every stage learns that a non-goal wins over a conflicting duty");
+                        AssertFalse(workerBrief.Contains("validate-only"), "the validate-only duty is for the TestEngineer only");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("Board notes say printing the marker posts the note, and prior art is skipped where it is off", async () =>
+            {
+                string notes = MissionService.BuildProgressNotesSection();
+                AssertContains("[ARMADA:NOTE]", notes);
+                AssertContains("no board tool", notes, "the brief says the marker line is the post, so a captain does not look for a board tool");
+
+                foreach (bool excluded in new[] { true, false })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        settings.TypedDecisions.Mode = TypedDecisionModeEnum.Gate;
+                        settings.TypedDecisions.Decisions["prior_art"].Mode = TypedDecisionModeEnum.Gate;
+                        Vessel vessel = new Vessel("PriorArtVessel", "https://github.com/test/repo");
+                        if (excluded) settings.TypedDecisions.EgressExcludedVesselIds = new List<string> { vessel.Id };
+                        StubGitService git = new StubGitService();
+                        MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                        string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                        Directory.CreateDirectory(tempDir);
+
+                        try
+                        {
+                            Mission mission = new Mission();
+                            mission.Title = "Add the reader";
+                            mission.Persona = "Worker";
+                            mission.Description = "Add the reader.";
+                            await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+                            string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                            if (excluded)
+                                AssertContains("`armada_check_prior_art` answers `unavailable` for this vessel", brief, "an egress-excluded vessel is told to skip prior art");
+                            else
+                                AssertFalse(brief.Contains("answers `unavailable` for this vessel"), "an enabled prior-art tool is not called off");
+                            AssertContains("that is not a papercut", brief, "an unavailable typed-decision answer is not reported as friction");
+                        }
+                        finally
+                        {
+                            try { Directory.Delete(tempDir, true); } catch { }
+                        }
+                    }
+                }
+            });
+
             await RunTest("GenerateClaudeMdAsync omits Objective Scope when the voyage links no objective", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

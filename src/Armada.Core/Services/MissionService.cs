@@ -3565,9 +3565,13 @@ namespace Armada.Core.Services
             // When the description is too long to embed whole, the full text is written into the dock as
             // bounded files and the elision marker names them, so the middle is cut from the brief but
             // never from what the captain can read.
-            List<ContextBriefFile> descriptionFiles = BuildMissionDescriptionFiles(mission.Description);
+            //
+            // A handoff written on another runtime can name that runtime's instruction file, which this dock
+            // never receives, so the copy the captain reads names this runtime's file instead.
+            string? briefDescription = RetargetInstructionFileNames(mission.Description, instructionsFileName, worktreePath);
+            List<ContextBriefFile> descriptionFiles = BuildMissionDescriptionFiles(briefDescription);
             await WriteBriefFilesAsync(worktreePath, MissionDescriptionFolder, descriptionFiles, token).ConfigureAwait(false);
-            string boundedDescription = BoundMetadataDescription(mission.Description, descriptionFiles);
+            string boundedDescription = BoundMetadataDescription(briefDescription, descriptionFiles);
             templateParams["MissionDescription"] = boundedDescription;
 
             // The output contract is stated here and nowhere else in the brief. A read-only mission's persona
@@ -3596,6 +3600,15 @@ namespace Armada.Core.Services
 
             content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false));
             content += "\n";
+
+            // Every staged input is written by now, so a _briefing path the description names that is not in
+            // the dock is absent when the captain starts. Naming those once saves a search and a report each.
+            string unstagedPaths = BuildUnstagedBriefingPathsSection(FindUnstagedBriefingPaths(briefDescription, worktreePath));
+            if (!String.IsNullOrEmpty(unstagedPaths))
+            {
+                content += ledger.Track("mission.unstaged_briefing_paths", unstagedPaths);
+                content += "\n";
+            }
 
             // Objective scope, supplied once when the voyage links an objective: the objective's own
             // scope, acceptance criteria, and non-goals are the definition of done. Previously a linked
@@ -3671,7 +3684,7 @@ namespace Armada.Core.Services
                 !PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Architect))
             {
                 content += "\n";
-                content += ledger.Track("mission.papercuts", BuildPapercutsSection());
+                content += ledger.Track("mission.papercuts", BuildPapercutsSection(PriorArtToolOffFor(_Settings.TypedDecisions, vessel)));
                 content += ledger.Track("mission.notes", BuildProgressNotesSection());
             }
 
@@ -4062,6 +4075,7 @@ namespace Armada.Core.Services
                 sb.Append("## Objective Scope (Definition of Done)\n\n");
                 sb.Append("This mission belongs to a linked objective. The objective below is the definition of done; work that does not meet it is not complete, and the Judge reviews against these acceptance criteria and non-goals:\n\n");
                 sb.Append("**Title:** ").Append(linked.Title).Append("\n\n");
+                sb.Append("**Objective id:** `").Append(linked.Id).Append("` (`get_objective` with no id reads it)\n\n");
                 if (!String.IsNullOrWhiteSpace(linked.Description))
                 {
                     sb.Append("**Scope:** ").Append(linked.Description.Trim()).Append("\n\n");
@@ -4083,6 +4097,7 @@ namespace Armada.Core.Services
                         if (!String.IsNullOrWhiteSpace(ng)) sb.Append("- ").Append(ng.Trim()).Append("\n");
                     }
                     sb.Append("\n");
+                    sb.Append(BuildNonGoalPrecedenceLines(mission.Persona, linked.NonGoals));
                 }
                 return sb.ToString();
             }
@@ -5031,6 +5046,18 @@ namespace Armada.Core.Services
         /// <returns>The papercut section.</returns>
         internal static string BuildPapercutsSection()
         {
+            return BuildPapercutsSection(false);
+        }
+
+        /// <summary>
+        /// Builds the papercut directive. An unavailable typed-decision answer is expected on some vessels and
+        /// content, so the section says it is not friction; where the prior-art tool is off for the whole vessel
+        /// it says so by name, because the role text asks for that call when the tool is available.
+        /// </summary>
+        /// <param name="priorArtOff">True when <c>armada_check_prior_art</c> answers unavailable for every call on this vessel.</param>
+        /// <returns>The papercut section.</returns>
+        internal static string BuildPapercutsSection(bool priorArtOff)
+        {
             return
                 "## Papercuts\n" +
                 "\n" +
@@ -5040,16 +5067,19 @@ namespace Armada.Core.Services
                 "\n" +
                 "- Categories: BriefContradiction, ToolFailure, MissingDoc, BrokenLink, RepoFriction, " +
                 "TestFlake, EnvSetup, PlatformBug, Other. Severity: Low, Medium, High.\n" +
-                "- Report it, do not fix it. A fix outside your mission scope is a merge conflict for another captain.\n" +
-                "- Never block on a papercut. Report it and continue the mission.\n" +
+                "- Report it, do not fix it. A fix outside your scope is a merge conflict for another captain.\n" +
+                "- Never block on a papercut. Report it and continue.\n" +
                 "- Your own assigned work is not a papercut. Report what made the work harder than it needed to be.\n" +
-                "- Include no credentials, tokens, or absolute host paths.\n" +
-                "- Ten per mission is the limit. Report the ones that cost you time.\n";
+                (priorArtOff
+                    ? "- `armada_check_prior_art` answers `unavailable` for this vessel. Skip it and search the checkout; that is not a papercut.\n"
+                    : "- A typed-decision tool can answer `unavailable` for some content. Continue without it; that is not a papercut.\n") +
+                "- No credentials, tokens, or absolute host paths. Ten per mission at most.\n";
         }
 
         /// <summary>
         /// Builds the progress-note directive. The output marker is the bounded, runtime-neutral
-        /// reporting path even when the captain also receives the local MCP connection.
+        /// reporting path even when the captain also receives the local MCP connection, so the section
+        /// says that printing the line is the post and no board tool is needed.
         /// </summary>
         /// <returns>The progress-notes section.</returns>
         internal static string BuildProgressNotesSection()
@@ -5057,15 +5087,15 @@ namespace Armada.Core.Services
             return
                 "## Board Notes\n" +
                 "\n" +
-                "Post a short claim note to the shared coordination board before you start work, then post " +
-                "an outcome note when you finish. One line each:\n" +
+                "Print a claim note before you start and an outcome note when you finish. Armada posts each " +
+                "line to the coordination board; no board tool is needed. One line each:\n" +
                 "\n" +
                 "`[ARMADA:NOTE] one-line note`\n" +
                 "\n" +
-                "- Use the claim note to state the work you take. Use the outcome note to state what changed or why work stopped.\n" +
-                "- Plain text only, one line and at most 500 characters. Credentials are redacted. Do not include absolute host paths.\n" +
-                "- The limit is twenty notes for each mission. Notes are visible to operator sessions and the dashboard.\n" +
-                "- Notes are advisory records. They do not control a mission or send private messages to other captains.\n";
+                "- The claim note states the work you take; the outcome note states what changed or why work stopped.\n" +
+                "- Plain text, one line, at most 500 characters, no absolute host paths. Credentials are redacted.\n" +
+                "- At most twenty notes per mission. Operator sessions and the dashboard see them.\n" +
+                "- Notes are advisory records. They do not control a mission or message other captains.\n";
         }
 
         /// <summary>
