@@ -155,8 +155,29 @@ namespace Armada.Core.Services
             }
             else if (dependencies.BlockingNodes.Any(node => node.IsMissing))
             {
-                AddIssue(result, "objective_dependency_missing", "admission", ReadinessSeverityEnum.Error,
-                    "One or more objective dependencies do not exist or are not accessible.", objective.Id);
+                // The snapshot leaves out a row whose stored data cannot be read, so such a blocker looks
+                // missing. A read by id raises the stored-data error instead, which names the field to repair;
+                // the blocker still blocks, because its state is unknown.
+                List<string> unreadable = new List<string>();
+                bool anyAbsent = false;
+                foreach (ObjectiveDependencyNode node in dependencies.BlockingNodes.Where(node => node.IsMissing))
+                {
+                    string? problem = await ReadStoredDataProblemAsync(auth, node.ObjectiveId, token).ConfigureAwait(false);
+                    if (problem != null) unreadable.Add(problem);
+                    else anyAbsent = true;
+                }
+
+                if (unreadable.Count > 0)
+                {
+                    AddIssue(result, "objective_dependency_unreadable", "admission", ReadinessSeverityEnum.Error,
+                        "One or more objective dependencies exist but their stored data cannot be read, so their state is unknown: "
+                        + String.Join("; ", unreadable) + ".", objective.Id);
+                }
+                if (anyAbsent)
+                {
+                    AddIssue(result, "objective_dependency_missing", "admission", ReadinessSeverityEnum.Error,
+                        "One or more objective dependencies do not exist or are not accessible.", objective.Id);
+                }
             }
             else if (!dependencies.IsDependencyReady)
             {
@@ -1587,6 +1608,27 @@ namespace Armada.Core.Services
             if (auth.IsTenantAdmin) return await _Database.Captains.EnumerateAsync(auth.TenantId, token).ConfigureAwait(false);
             if (String.IsNullOrWhiteSpace(auth.UserId)) return new List<Captain>();
             return await _Database.Captains.EnumerateAsync(auth.TenantId, auth.UserId, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Read one objective by id in the caller's scope and return its stored-data error, or null when the
+        /// row reads cleanly or is absent.
+        /// </summary>
+        private async Task<string?> ReadStoredDataProblemAsync(AuthContext auth, string objectiveId, CancellationToken token)
+        {
+            try
+            {
+                if (auth.IsAdmin) await _Database.Objectives.ReadAsync(objectiveId, token).ConfigureAwait(false);
+                else if (String.IsNullOrWhiteSpace(auth.TenantId)) return null;
+                else if (auth.IsTenantAdmin) await _Database.Objectives.ReadAsync(auth.TenantId, objectiveId, token).ConfigureAwait(false);
+                else if (String.IsNullOrWhiteSpace(auth.UserId)) return null;
+                else await _Database.Objectives.ReadAsync(auth.TenantId, auth.UserId, objectiveId, token).ConfigureAwait(false);
+                return null;
+            }
+            catch (StoredObjectiveDataException ex)
+            {
+                return ex.Message;
+            }
         }
 
         private async Task<List<Objective>> ReadObjectivesAsync(AuthContext auth, CancellationToken token)

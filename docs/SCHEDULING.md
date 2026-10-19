@@ -273,7 +273,11 @@ restart both keep the pause and its attribution. Turning
 An objective row whose stored data cannot be read is left out of the sweep and
 named in an Admiral warning. The sweep continues with the other rows. An
 objective that lists the skipped row as a blocker stays blocked, because a
-missing blocker counts as incomplete.
+blocker whose state is unknown counts as incomplete. Its dispatch preview
+reports `objective_dependency_unreadable` with the stored-data error, which
+names the blocker and the field to repair, rather than
+`objective_dependency_missing`, which is kept for a blocker that does not exist
+or is not accessible.
 
 Each scheduler-dispatched voyage passes through the same check-arming service
 as an operator dispatch. When its workflow profile defines them, Build and

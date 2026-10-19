@@ -114,6 +114,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A dispatch preview whose blocker exists but whose stored row cannot be read
+  (for example a backlog state that is not a defined value) reports
+  `objective_dependency_unreadable` with the stored-data error naming the
+  blocker and the field to repair, instead of reporting the blocker as missing.
+  The blocker still blocks, and the scheduler counts the code as
+  dependency-blocked.
 - Releasing a held mission that has dependent stages, by an operator clear or by
   a passing definition-of-done gate re-run, releases the mission's dock after the
   handoff, as completion does, so the next stage can check out the branch.

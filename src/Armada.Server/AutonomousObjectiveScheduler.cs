@@ -1208,6 +1208,7 @@ namespace Armada.Server
             return preview.Issues.Any(issue =>
                         String.Equals(issue.Code, "objective_dependencies_incomplete", StringComparison.Ordinal)
                         || String.Equals(issue.Code, "objective_dependency_missing", StringComparison.Ordinal)
+                        || String.Equals(issue.Code, "objective_dependency_unreadable", StringComparison.Ordinal)
                         || String.Equals(issue.Code, "objective_dependency_cycle", StringComparison.Ordinal));
         }
 

@@ -14,6 +14,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using Microsoft.Data.Sqlite;
     using SyslogLogging;
 
     /// <summary>
@@ -566,6 +567,41 @@ namespace Armada.Test.Unit.Suites.Services
                         "The missing artifact path has a stable code.");
                     AssertEqual(0, harness.Git.WorktreeCalls.Count, "Preview creates no worktree.");
                     AssertEqual(0, harness.Git.CloneCalls.Count, "Preview clones no repository.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A blocker whose stored row cannot be read is named as unreadable, not as missing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective blocker = harness.CreateReadyObjective("unreadable-blocker");
+                    blocker.Status = ObjectiveStatusEnum.Completed;
+                    blocker = await testDb.Driver.Objectives.CreateAsync(blocker).ConfigureAwait(false);
+                    using (SqliteConnection connection = new SqliteConnection(testDb.ConnectionString))
+                    {
+                        await connection.OpenAsync().ConfigureAwait(false);
+                        using (SqliteCommand command = connection.CreateCommand())
+                        {
+                            command.CommandText = "UPDATE objectives SET backlog_state = 'NoSuchState' WHERE id = @id;";
+                            command.Parameters.AddWithValue("@id", blocker.Id);
+                            await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                        }
+                    }
+
+                    Objective objective = harness.CreateReadyObjective("blocked-by-unreadable");
+                    objective.BlockedByObjectiveIds.Add(blocker.Id);
+                    await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertFalse(result.IsReady, "A blocker whose state cannot be read still blocks dispatch.");
+                    ObjectiveDispatchPreviewIssue? unreadable = result.Issues.FirstOrDefault(issue => issue.Code == "objective_dependency_unreadable");
+                    AssertNotNull(unreadable, "The unreadable blocker has its own code.");
+                    AssertContains(blocker.Id, unreadable!.Message, "The issue names the unreadable blocker.");
+                    AssertContains("backlog_state", unreadable.Message, "The issue names the field to repair.");
+                    AssertFalse(result.Issues.Any(issue => issue.Code == "objective_dependency_missing"),
+                        "A blocker that exists is not reported as missing.");
                 }
             }).ConfigureAwait(false);
 
