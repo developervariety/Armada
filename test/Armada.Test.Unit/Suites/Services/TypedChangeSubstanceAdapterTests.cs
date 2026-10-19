@@ -70,44 +70,6 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Off_ReturnsRule_NoCall", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(SubstanceResult("behaviour", 0.99, 0.99));
-                TypedChangeSubstanceAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Off));
-
-                ChangeSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), ChangeSubstanceVerdict.Rule(ChangeSubstanceEnum.DocumentationOnly), CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(ChangeSubstanceEnum.DocumentationOnly, result.Substance);
-                AssertEqual("rule", result.Outcome);
-                AssertEqual(0, client.CallCount);
-            }).ConfigureAwait(false);
-
-            await RunTest("Unavailable_ReturnsRule_RecordsUnavailable", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(new TypedDecisionResult { Available = false, UnavailableReason = "http_422" });
-                TypedChangeSubstanceAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-
-                ChangeSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), ChangeSubstanceVerdict.Rule(ChangeSubstanceEnum.DocumentationOnly), CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(ChangeSubstanceEnum.DocumentationOnly, result.Substance);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
-            await RunTest("ShadowMode_ReturnsRule_RecordsShadow", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(SubstanceResult("behaviour", 0.99, 0.1));
-                TypedChangeSubstanceAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Shadow));
-
-                ChangeSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), ChangeSubstanceVerdict.Rule(ChangeSubstanceEnum.DocumentationOnly), CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(ChangeSubstanceEnum.DocumentationOnly, result.Substance);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
-                AssertEqual(1, client.CallCount);
-            }).ConfigureAwait(false);
-
             await RunTest("BelowThreshold_ReturnsRule_RecordsShadow", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -120,54 +120,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, await CountEventsAsync(db, PapercutParser.EventType).ConfigureAwait(false), "no papercut below threshold");
             }).ConfigureAwait(false);
 
-            await RunTest("Off_ReturnsRule_NoCall", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(OutcomeResult("refused_policy", 0.99));
-                TypedRefusalAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Off));
-
-                CaptainRefusal result = await adapter.DecideAsync(BuildInput(), new CaptainRefusal(), CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(CaptainRefusalKindEnum.None, result.Kind, "Off must keep the rule");
-                AssertEqual(0, client.CallCount);
-            }).ConfigureAwait(false);
-
-            await RunTest("Unavailable_ReturnsRule_RecordsUnavailable", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(new TypedDecisionResult { Available = false, UnavailableReason = "http_429" });
-                TypedRefusalAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-
-                CaptainRefusal result = await adapter.DecideAsync(BuildInput(), new CaptainRefusal(), CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(CaptainRefusalKindEnum.None, result.Kind, "unavailable must keep the rule");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
-            await RunTest("ShadowMode_ReturnsRule_RecordsShadow", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(OutcomeResult("refused_policy", 0.99));
-                TypedRefusalAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Shadow));
-
-                CaptainRefusal result = await adapter.DecideAsync(BuildInput(), new CaptainRefusal(), CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(CaptainRefusalKindEnum.None, result.Kind, "Shadow must keep the rule even when the model would promote");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
-            await RunTest("GateBelowThreshold_ReturnsRule_RecordsShadow", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(OutcomeResult("refused_policy", 0.60));
-                TypedRefusalAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-
-                CaptainRefusal result = await adapter.DecideAsync(BuildInput(), new CaptainRefusal(), CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(CaptainRefusalKindEnum.None, result.Kind, "below threshold must keep the rule");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
             await RunTest("GateAbove_PromotesProseRefusal_RecordsGated", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

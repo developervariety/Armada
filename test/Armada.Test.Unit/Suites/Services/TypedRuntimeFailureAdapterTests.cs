@@ -85,54 +85,6 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Off_ReturnsRule_NoCall", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(KindResult("usage_limit", 0.99));
-                TypedRuntimeFailureAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Off));
-
-                RuntimeFailureKindEnum result = await adapter.DecideAsync(BuildInput(), RuntimeFailureKindEnum.Crash, CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(RuntimeFailureKindEnum.Crash, result, "Off must keep the rule");
-                AssertEqual(0, client.CallCount);
-            }).ConfigureAwait(false);
-
-            await RunTest("Unavailable_ReturnsRule_RecordsUnavailable", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(new TypedDecisionResult { Available = false, UnavailableReason = "parse" });
-                TypedRuntimeFailureAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-
-                RuntimeFailureKindEnum result = await adapter.DecideAsync(BuildInput(), RuntimeFailureKindEnum.Crash, CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(RuntimeFailureKindEnum.Crash, result, "unavailable must keep the rule");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
-            await RunTest("ShadowMode_ReturnsRule_RecordsShadow", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(KindResult("usage_limit", 0.99));
-                TypedRuntimeFailureAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Shadow));
-
-                RuntimeFailureKindEnum result = await adapter.DecideAsync(BuildInput(), RuntimeFailureKindEnum.Crash, CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(RuntimeFailureKindEnum.Crash, result, "Shadow must keep the rule even at high confidence");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
-            await RunTest("GateBelowThreshold_ReturnsRule_RecordsShadow", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(KindResult("usage_limit", 0.50));
-                TypedRuntimeFailureAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-
-                RuntimeFailureKindEnum result = await adapter.DecideAsync(BuildInput(), RuntimeFailureKindEnum.Crash, CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual(RuntimeFailureKindEnum.Crash, result, "below threshold must keep the rule");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
             await RunTest("GateAbove_UpgradesCrashToUsageLimit_RecordsGated", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -96,6 +96,13 @@ upstream integrations and excludes changes already present at that baseline.
   `Test.Shared` E2E suite runs with the same route, inputs and assertions; and
   two weaker `Test.Shared` voyage cases whose legacy twins assert more. Mission
   status cases stay in both suites, because the two set up different missions.
+- 23 per-adapter typed-decision tests for the refusal, flake-score,
+  change-substance, stage-necessity, review-substance, runtime-failure and
+  failure-cause adapters that only checked the Off, Unavailable, Shadow and
+  below-threshold modes. Those modes are decided by the shared adapter base,
+  which `TypedDecisionGateMatrixTests` drives across every cell; each adapter's
+  own Gate tests still prove it reads its own decision settings and builds a
+  request.
 
 ### Fixed
 

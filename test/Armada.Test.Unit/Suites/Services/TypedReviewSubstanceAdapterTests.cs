@@ -80,44 +80,6 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Off_ReturnsRule_NoCall", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(SubstanceResult(AllStrong(), 3.0, 0.99));
-                TypedReviewSubstanceAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Off));
-
-                ReviewSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), MissingSectionsRule(), CancellationToken.None).ConfigureAwait(false);
-
-                AssertTrue(!result.Validated, "Off must keep the rule (still rejected)");
-                AssertEqual("rule", result.Outcome);
-                AssertEqual(0, client.CallCount);
-            }).ConfigureAwait(false);
-
-            await RunTest("Unavailable_ReturnsRule_RecordsUnavailable", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(new TypedDecisionResult { Available = false, UnavailableReason = "http_429" });
-                TypedReviewSubstanceAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-
-                ReviewSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), MissingSectionsRule(), CancellationToken.None).ConfigureAwait(false);
-
-                AssertTrue(!result.Validated, "unavailable must keep the rule");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
-            await RunTest("ShadowMode_ReturnsRule_RecordsShadow", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(SubstanceResult(AllStrong(), 3.0, 0.99));
-                TypedReviewSubstanceAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Shadow));
-
-                ReviewSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), MissingSectionsRule(), CancellationToken.None).ConfigureAwait(false);
-
-                AssertTrue(!result.Validated, "Shadow must keep the rule even when the model would accept");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
-                AssertEqual(1, client.CallCount);
-            }).ConfigureAwait(false);
-
             await RunTest("GateBelowThreshold_OneWeakSection_ReturnsRule_RecordsShadow", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

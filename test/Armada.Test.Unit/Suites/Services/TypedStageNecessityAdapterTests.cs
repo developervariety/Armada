@@ -85,49 +85,6 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Off_ReturnsRule_NoCall", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(AddsValueResult((1, 0.03, "trivial_change"), (2, 0.03, "no_tests_in_scope")));
-                TypedStageNecessityAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Off));
-
-                StageNecessityVerdict rule = StageNecessityVerdict.Rule(BuildInput().Stages);
-                StageNecessityVerdict result = await adapter.DecideAsync(BuildInput(), rule, CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual("rule", result.Outcome);
-                AssertEqual(0, result.OptionalStages.Count);
-                AssertEqual(0, client.CallCount);
-            }).ConfigureAwait(false);
-
-            await RunTest("Unavailable_ReturnsRule_RecordsUnavailable", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Unavailable("http_429"));
-                TypedStageNecessityAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-
-                StageNecessityVerdict rule = StageNecessityVerdict.Rule(BuildInput().Stages);
-                StageNecessityVerdict result = await adapter.DecideAsync(BuildInput(), rule, CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual("rule", result.Outcome);
-                AssertEqual(0, result.OptionalStages.Count);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
-            await RunTest("ShadowMode_ReturnsRule_RecordsShadow", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(AddsValueResult((1, 0.03, "trivial_change"), (2, 0.03, "no_tests_in_scope")));
-                TypedStageNecessityAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Shadow));
-
-                StageNecessityVerdict rule = StageNecessityVerdict.Rule(BuildInput().Stages);
-                StageNecessityVerdict result = await adapter.DecideAsync(BuildInput(), rule, CancellationToken.None).ConfigureAwait(false);
-
-                AssertEqual("rule", result.Outcome);
-                AssertEqual(0, result.OptionalStages.Count);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
-                AssertEqual(1, client.CallCount);
-            }).ConfigureAwait(false);
-
             await RunTest("GateBelowThreshold_AllStagesAddValue_ReturnsRule_RecordsShadow", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -74,43 +74,6 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Off_ReturnsRule_NoCall", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FlakeResult(2.0, 0.99, 0.9));
-                TypedFlakeScoreAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Off));
-
-                FlakeScoreVerdict result = await adapter.DecideAsync(BuildInput(), FlakeScoreVerdict.NoRerun(), CancellationToken.None).ConfigureAwait(false);
-
-                AssertTrue(!result.RerunRecommended, "Off must keep the rule (no re-run recommended)");
-                AssertEqual(0, client.CallCount);
-            }).ConfigureAwait(false);
-
-            await RunTest("Unavailable_ReturnsRule_RecordsUnavailable", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(new TypedDecisionResult { Available = false, UnavailableReason = "http_429" });
-                TypedFlakeScoreAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-
-                FlakeScoreVerdict result = await adapter.DecideAsync(BuildInput(), FlakeScoreVerdict.NoRerun(), CancellationToken.None).ConfigureAwait(false);
-
-                AssertTrue(!result.RerunRecommended, "unavailable must keep the rule");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
-            await RunTest("ShadowMode_ReturnsRule_RecordsShadow", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FlakeResult(3.0, 0.99, 0.9));
-                TypedFlakeScoreAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Shadow));
-
-                FlakeScoreVerdict result = await adapter.DecideAsync(BuildInput(), FlakeScoreVerdict.NoRerun(), CancellationToken.None).ConfigureAwait(false);
-
-                AssertTrue(!result.RerunRecommended, "Shadow keeps the rule even when the model would recommend a re-run");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
-                AssertEqual(1, client.CallCount);
-            }).ConfigureAwait(false);
-
             await RunTest("Deterministic_BelowAction_ReturnsRule_RecordsShadow", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

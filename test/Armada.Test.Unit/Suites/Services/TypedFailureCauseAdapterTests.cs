@@ -98,19 +98,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
-            await RunTest("Unavailable_ReturnsRule_RecordsUnavailable", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(new TypedDecisionResult { Available = false, UnavailableReason = "timeout" });
-                TypedFailureCauseAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-
-                TypedRecoveryVerdict rule = TypedRecoveryVerdict.Rescue("recoverable mission failure");
-                TypedRecoveryVerdict result = await adapter.DecideAsync(BuildInput(), rule, CancellationToken.None).ConfigureAwait(false);
-
-                AssertTrue(result.DispatchRescue, "unavailable must keep the rule");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
             await RunTest("ClientThrows_ReturnsRule_RecordsUnavailable", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -122,34 +109,6 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(result.DispatchRescue, "a throwing client must never break the caller");
                 AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
-            await RunTest("ShadowMode_ReturnsRule_RecordsShadow", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(CauseResult("environmental", 0.99));
-                TypedFailureCauseAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Shadow));
-
-                TypedRecoveryVerdict rule = TypedRecoveryVerdict.Rescue("recoverable mission failure");
-                TypedRecoveryVerdict result = await adapter.DecideAsync(BuildInput(), rule, CancellationToken.None).ConfigureAwait(false);
-
-                AssertTrue(result.DispatchRescue, "Shadow must keep the rule even at high confidence");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
-                AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
-            }).ConfigureAwait(false);
-
-            await RunTest("GateBelowThreshold_ReturnsRule_RecordsShadow", async () =>
-            {
-                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(CauseResult("environmental", 0.50));
-                TypedFailureCauseAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
-
-                TypedRecoveryVerdict rule = TypedRecoveryVerdict.Rescue("recoverable mission failure");
-                TypedRecoveryVerdict result = await adapter.DecideAsync(BuildInput(), rule, CancellationToken.None).ConfigureAwait(false);
-
-                AssertTrue(result.DispatchRescue, "below threshold must keep the rule");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
-                AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("GateAboveThreshold_HoldsRescue_RecordsGated", async () =>
