@@ -79,8 +79,11 @@ namespace Armada.Core.Database
             if (snapshot.State == DockGitAnchorStateEnum.Complete
                 && (snapshot.Truncated || snapshot.ErrorCode != null || snapshot.Anchors.ResolutionError != null))
                 throw new InvalidOperationException("Incomplete dock anchors cannot be marked complete.");
-            if (snapshot.Anchors.Files.Count > 8 || snapshot.Anchors.PriorArt.Count > 6)
+            if (snapshot.Anchors.Files.Count > 8 || snapshot.Anchors.PriorArt.Count > 6 || snapshot.Anchors.CitationIssues.Count > 8)
                 throw new InvalidOperationException("Dock anchor count limit exceeded.");
+            foreach (string issue in snapshot.Anchors.CitationIssues)
+                if (String.IsNullOrEmpty(issue) || issue.Length > 2400)
+                    throw new InvalidOperationException("Invalid dock anchor citation issue.");
             foreach (GitAnchorFileHistory file in snapshot.Anchors.Files)
             {
                 if (file == null || !IsRelativePath(file.Path)

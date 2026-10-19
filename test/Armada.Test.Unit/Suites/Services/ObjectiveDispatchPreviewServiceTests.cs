@@ -1282,6 +1282,49 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Preflight citations flag a stale line range, a moved symbol and a case-only path miss by name", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("facts-citation-range-preview");
+                    harness.Git.PathsOnRevision.Add("Services/Foo.cs");
+                    harness.Git.FoundTermsOnRevision.Add("ParseFrame");
+                    harness.Git.FileLinesOnRevision["Services/Foo.cs"] = new List<string>
+                    {
+                        "class Foo {",
+                        "    void ParseFrame() { }",
+                        "    void Other() { }",
+                        "    void Third() { }",
+                        "}"
+                    };
+
+                    objective.Description = "`ParseFrame` (`Services/Foo.cs:2`) reads the frame.";
+                    ObjectiveDispatchPreview good = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Pass, good.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a range that holds its symbol passes");
+
+                    objective.Description = "`ParseFrame` (`Services/Foo.cs:3-4`) reads the frame; see also `Services/Foo.cs:40`.";
+                    ObjectiveDispatchPreview stale = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreflightFact staleFact = stale.Preflight.Facts.Single(fact => fact.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Fail, staleFact.Status, "a range that no longer holds its symbol fails question 1");
+                    AssertContains("`ParseFrame` is not within `Services/Foo.cs:3-4`; it is at line 2.", staleFact.Detail,
+                        "the moved symbol is named with its current line");
+                    AssertContains("`Services/Foo.cs:40` is past the end of the file (5 lines).", staleFact.Detail,
+                        "a range past the end of its file is named");
+
+                    harness.Git.FileLinesOnRevision.Clear();
+                    harness.Git.PathsOnRevision.Clear();
+                    harness.Git.TrackedPathSuffixes["services/foo.cs"] = "Services/Foo.cs";
+                    objective.Description = "Change services/foo.cs:2 to read the frame.";
+                    ObjectiveDispatchPreview misspelled = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreflightFact caseFact = misspelled.Preflight.Facts.Single(fact => fact.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Fail, caseFact.Status, "a path spelled in the wrong case fails question 1");
+                    AssertContains("`services/foo.cs` is tracked as `Services/Foo.cs`", caseFact.Detail,
+                        "the case-only miss is named with the real path");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Preflight citations resolve declared sibling paths at the sibling tip", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

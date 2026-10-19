@@ -101,6 +101,22 @@ namespace Armada.Core.Models
         public string? ResolutionError { get; set; } = null;
 
         /// <summary>
+        /// Cited line ranges that do not hold what the text says they hold: a range past the end of
+        /// its file, or a range that no longer contains its named symbol. Never null.
+        /// </summary>
+        public List<string> CitationIssues
+        {
+            get
+            {
+                return _CitationIssues;
+            }
+            set
+            {
+                _CitationIssues = value ?? new List<string>();
+            }
+        }
+
+        /// <summary>
         /// True when the block carries at least one resolved fact worth rendering.
         /// </summary>
         public bool HasContent
@@ -110,7 +126,8 @@ namespace Armada.Core.Models
                 return !String.IsNullOrEmpty(_BaseCommit)
                     || !String.IsNullOrEmpty(_TargetTip)
                     || _Files.Count > 0
-                    || _PriorArt.Count > 0;
+                    || _PriorArt.Count > 0
+                    || _CitationIssues.Count > 0;
             }
         }
 
@@ -123,6 +140,7 @@ namespace Armada.Core.Models
         private string _TargetTip = "";
         private List<GitAnchorFileHistory> _Files = new List<GitAnchorFileHistory>();
         private List<GitAnchorPriorArt> _PriorArt = new List<GitAnchorPriorArt>();
+        private List<string> _CitationIssues = new List<string>();
 
         #endregion
 

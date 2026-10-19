@@ -370,6 +370,22 @@ namespace Test.Shared.Infrastructure
             return Task.FromResult(PathsOnRevision.Contains(relativePath));
         }
 
+        /// <summary>Tracked paths ResolveTrackedPathSuffixAsync returns, keyed by the path as named.</summary>
+        public Dictionary<string, string> TrackedPathSuffixes { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        public Task<string?> ResolveTrackedPathSuffixAsync(string worktreePath, string revision, string relativePath, CancellationToken token = default)
+        {
+            return Task.FromResult<string?>(TrackedPathSuffixes.TryGetValue(relativePath, out string? tracked) ? tracked : null);
+        }
+
+        /// <summary>File lines ReadFileLinesOnRevisionAsync returns, keyed by repository-relative path.</summary>
+        public Dictionary<string, List<string>> FileLinesOnRevision { get; } = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        public Task<IReadOnlyList<string>?> ReadFileLinesOnRevisionAsync(string worktreePath, string revision, string relativePath, CancellationToken token = default)
+        {
+            return Task.FromResult<IReadOnlyList<string>?>(FileLinesOnRevision.TryGetValue(relativePath, out List<string>? lines) ? lines : null);
+        }
+
         /// <summary>Terms reported as found by SearchTrackedContentOnRevisionAsync.</summary>
         public HashSet<string> FoundTermsOnRevision { get; } = new HashSet<string>(StringComparer.Ordinal);
 

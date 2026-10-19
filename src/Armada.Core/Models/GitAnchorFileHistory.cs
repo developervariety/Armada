@@ -59,6 +59,19 @@ namespace Armada.Core.Models
         public bool IsExternalSourceTree { get; set; } = false;
 
         /// <summary>
+        /// The number of tracked paths the named path matched when it matched more than one, so it
+        /// resolves to none of them; zero otherwise. An ambiguous name is not an absent one, and the
+        /// brief must not call it new work.
+        /// </summary>
+        public int MatchingPathCount { get; set; } = 0;
+
+        /// <summary>
+        /// Whether the text cites line numbers in this path. An absent path cited with lines is a stale
+        /// citation of existing code, not a file to create.
+        /// </summary>
+        public bool CitedWithLines { get; set; } = false;
+
+        /// <summary>
         /// Recent commits that touched the path, newest first. Never null.
         /// </summary>
         public List<GitAnchorCommit> Commits

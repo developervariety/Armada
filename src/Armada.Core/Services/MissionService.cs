@@ -4715,6 +4715,8 @@ namespace Armada.Core.Services
                     anchors.Files.Add(history);
                 }
 
+                await AddCitationChecksAsync(anchors, missionText, worktreePath, "HEAD", token).ConfigureAwait(false);
+
                 foreach (string term in terms)
                 {
                     GitAnchorPriorArt priorArt = await _Git.SearchTrackedContentAsync(
@@ -4792,6 +4794,13 @@ namespace Armada.Core.Services
                 {
                     if (!file.ExistsOnRevision)
                     {
+                        if (file.MatchingPathCount > 1)
+                        {
+                            builder.Append("- `" + file.Path + "` matches " + file.MatchingPathCount +
+                                " tracked paths on this checkout; find the one meant before relying on it.\n");
+                            continue;
+                        }
+
                         if (file.IsExternalSourceTree)
                         {
                             // A read-only sibling tree is absent from every checkout by design. Calling
@@ -4799,6 +4808,14 @@ namespace Armada.Core.Services
                             builder.Append("- `" + file.Path + "` is not tracked here and reads as a path in a " +
                                 "sibling read-only source tree, which is provisioned beside the dock rather than in it. " +
                                 "Read it there; never create it in this repository.\n");
+                            continue;
+                        }
+
+                        if (file.CitedWithLines)
+                        {
+                            // Cited lines name existing code, so the citation is out of date, not a file to create.
+                            builder.Append("- `" + file.Path + "` does not exist on this checkout, but the text cites lines in it: " +
+                                "the citation is stale, so find where that code lives now.\n");
                             continue;
                         }
 
@@ -4826,6 +4843,15 @@ namespace Armada.Core.Services
                     {
                         builder.Append("  - " + commit.ToBriefLine() + "\n");
                     }
+                }
+            }
+
+            if (anchors.CitationIssues.Count > 0)
+            {
+                builder.Append("\n### Cited line ranges to recheck\n");
+                foreach (string issue in anchors.CitationIssues)
+                {
+                    builder.Append("- " + issue + "\n");
                 }
             }
 

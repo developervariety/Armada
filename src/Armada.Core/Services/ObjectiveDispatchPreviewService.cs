@@ -572,6 +572,8 @@ namespace Armada.Core.Services
             }
 
             List<string> unresolved = new List<string>();
+            List<string> issues = new List<string>();
+            Dictionary<string, string> trackedPaths = new Dictionary<string, string>(StringComparer.Ordinal);
             try
             {
                 foreach (string path in paths)
@@ -585,17 +587,38 @@ namespace Armada.Core.Services
                     }
 
                     bool exists = await _Git.PathExistsOnRevisionAsync(repositoryPath, targetRevision, path, token).ConfigureAwait(false);
-                    if (!exists)
+                    if (exists)
                     {
-                        string? suffix = await _Git.ResolveTrackedPathSuffixAsync(repositoryPath, targetRevision, path, token).ConfigureAwait(false);
-                        if (String.IsNullOrWhiteSpace(suffix)) unresolved.Add(path);
+                        trackedPaths[path] = path;
+                        continue;
                     }
+
+                    string? suffix = await _Git.ResolveTrackedPathSuffixAsync(repositoryPath, targetRevision, path, token).ConfigureAwait(false);
+                    if (String.IsNullOrWhiteSpace(suffix))
+                    {
+                        unresolved.Add(path);
+                        continue;
+                    }
+
+                    trackedPaths[path] = suffix!;
+                    // A suffix names the tracked path as a reader says it; a different spelling does not.
+                    if (!suffix!.Equals(path, StringComparison.Ordinal) && !suffix.EndsWith("/" + path, StringComparison.Ordinal))
+                        issues.Add("`" + path + "` is tracked as `" + suffix + "`.");
                 }
                 foreach (string identifier in identifiers)
                 {
                     GitAnchorPriorArt search = await _Git.SearchTrackedContentOnRevisionAsync(
                         repositoryPath, targetRevision, identifier, 1, token).ConfigureAwait(false);
                     if (!search.Found) unresolved.Add(identifier);
+                }
+                foreach (CitedLineRange range in CitedLineRangeChecker.Parse(description))
+                {
+                    if (!trackedPaths.TryGetValue(range.Path, out string? tracked)) continue;
+                    IReadOnlyList<string>? lines = await _Git.ReadFileLinesOnRevisionAsync(
+                        repositoryPath, targetRevision, tracked, token).ConfigureAwait(false);
+                    if (lines == null) continue;
+                    string? issue = CitedLineRangeChecker.Evaluate(range, lines);
+                    if (issue != null) issues.Add(issue);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -605,7 +628,7 @@ namespace Armada.Core.Services
                 return fact;
             }
 
-            if (unresolved.Count == 0)
+            if (unresolved.Count == 0 && issues.Count == 0)
             {
                 fact.Status = PreflightFactStatusEnum.Pass;
                 fact.Detail = "Every cited path:line and backticked identifier resolves at the target tip.";
@@ -613,7 +636,10 @@ namespace Armada.Core.Services
             else
             {
                 fact.Status = PreflightFactStatusEnum.Fail;
-                fact.Detail = "These citations do not resolve at the target tip: " + String.Join(", ", unresolved) + ".";
+                List<string> parts = new List<string>();
+                if (unresolved.Count > 0) parts.Add("These citations do not resolve at the target tip: " + String.Join(", ", unresolved) + ".");
+                parts.AddRange(issues);
+                fact.Detail = String.Join(" ", parts);
             }
             return fact;
         }

@@ -978,10 +978,8 @@ namespace Armada.Core.Services
                 // every bare-name resolution fails -- a file present under a nested project path but
                 // cited by its bare name is then reported absent, which costs the captain a
                 // verification round trip. List the tracked paths at the revision and match the
-                // suffix in-process instead. A bare name would match
-                // too much to be a fact, so resolution succeeds only when the repository tracks
-                // exactly one such path: an ambiguous answer is no better than no answer, and
-                // asserting one of several candidates is how a brief sends a captain to the wrong file.
+                // suffix in-process instead, through the shared matcher: files and directories,
+                // then ignoring case, and only a unique candidate resolves.
                 string output = await RunGitAsync(
                     worktreePath,
                     token,
@@ -991,18 +989,7 @@ namespace Armada.Core.Services
                     effectiveRevision).ConfigureAwait(false);
 
                 string[] lines = output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                List<string> matches = new List<string>();
-                foreach (string line in lines)
-                {
-                    string candidate = line.Trim();
-                    if (candidate.Length == 0) continue;
-                    if (!candidate.EndsWith("/" + needle, StringComparison.Ordinal)
-                        && !candidate.Equals(needle, StringComparison.Ordinal)) continue;
-                    matches.Add(candidate);
-                }
-
-                if (matches.Count != 1) return null;
-                return matches[0];
+                return TrackedPathMatcher.Match(lines, needle).Path;
             }
             catch (Exception ex)
             {

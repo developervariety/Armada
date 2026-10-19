@@ -13,19 +13,47 @@ namespace Armada.Core.Services
         public async Task<string?> ResolveAnchorPathOnRevisionAsync(string worktreePath, string revision,
             string relativePath, CancellationToken token = default)
         {
+            TrackedPathMatch match = await MatchAnchorPathOnRevisionAsync(worktreePath, revision, relativePath, token).ConfigureAwait(false);
+            if (match.CandidateCount > 1) throw new InvalidOperationException("Pinned path suffix is ambiguous.");
+            return match.Path;
+        }
+
+        /// <inheritdoc />
+        public async Task<TrackedPathMatch> MatchAnchorPathOnRevisionAsync(string worktreePath, string revision,
+            string relativePath, CancellationToken token = default)
+        {
             if (String.IsNullOrWhiteSpace(relativePath)) throw new ArgumentException("A path is required.", nameof(relativePath));
             token.ThrowIfCancellationRequested();
             string commit = await RequireAnchorRevisionAsync(worktreePath, revision, token).ConfigureAwait(false);
             string output = await RunAnchorGitAsync(worktreePath, token, "ls-tree", "-r", "-z", "--name-only", commit).ConfigureAwait(false);
-            string? suffix = null;
-            int matches = 0;
-            foreach (string candidate in output.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+            return TrackedPathMatcher.Match(output.Split('\0', StringSplitOptions.RemoveEmptyEntries), relativePath);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<string>?> ReadFileLinesOnRevisionAsync(string worktreePath, string revision,
+            string relativePath, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(worktreePath) || String.IsNullOrWhiteSpace(revision) || String.IsNullOrWhiteSpace(relativePath)) return null;
+            token.ThrowIfCancellationRequested();
+            string content;
+            try
             {
-                if (candidate == relativePath) return candidate;
-                if (candidate.EndsWith("/" + relativePath, StringComparison.Ordinal)) { suffix = candidate; matches++; }
+                string commit = await RequireAnchorRevisionAsync(worktreePath, revision, token).ConfigureAwait(false);
+                // The show output is capped by the anchor reader, so a very large blob reads as unavailable.
+                content = await RunAnchorGitAsync(worktreePath, token, "show", commit + ":" + relativePath).ConfigureAwait(false);
             }
-            if (matches > 1) throw new InvalidOperationException("Pinned path suffix is ambiguous.");
-            return matches == 1 ? suffix : null;
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+
+            List<string> lines = new List<string>(content.Replace("\r\n", "\n").Split('\n'));
+            if (lines.Count > 0 && lines[lines.Count - 1].Length == 0) lines.RemoveAt(lines.Count - 1);
+            return lines;
         }
 
         /// <inheritdoc />

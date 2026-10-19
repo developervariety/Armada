@@ -2425,6 +2425,57 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dispatch Git anchors flag a cited range that no longer holds its symbol and a stale cited path", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    git.PathsOnRevision.Add("src/Present.cs");
+                    git.FileLinesOnRevision["src/Present.cs"] = new List<string>
+                    {
+                        "namespace Example {",
+                        "    void ParseFrame() { }",
+                        "    void Unrelated() { }",
+                        "}"
+                    };
+                    string headCommit = new string('a', 40);
+                    git.HeadCommitHashResult = headCommit;
+                    git.RevisionShaResult = headCommit.Substring(0, 12);
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService,
+                        git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Mission mission = new Mission
+                        {
+                            Title = "Fix the frame parser",
+                            Description = "Change `ParseFrame` (`src/Present.cs:3-4`) and keep `src/Moved/Codec.cs:10` in step."
+                        };
+                        Vessel vessel = new Vessel("AnchorVessel", "https://github.com/test/repo");
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel).ConfigureAwait(false);
+
+                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md")).ConfigureAwait(false);
+                        AssertContains("`ParseFrame` is not within `src/Present.cs:3-4`; it is at line 2.", content,
+                            "a cited range that no longer holds its symbol is flagged with where the symbol is");
+                        AssertContains("`src/Moved/Codec.cs` does not exist on this checkout, but the text cites lines in it", content,
+                            "an absent path cited with lines is reported as a stale citation");
+                        AssertFalse(content.Contains("`src/Moved/Codec.cs` does not exist on this checkout. It is new work"),
+                            "a stale citation is never new work");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("GitAnchors Section Is Omitted When Nothing Resolved", () =>
             {
                 GitAnchors anchors = GitAnchors.Unresolved("no git service is configured on this admiral");
@@ -2527,6 +2578,36 @@ namespace Armada.Test.Unit.Suites.Services
                     "the captain must be able to tie the tracked path to the name the brief used");
                 AssertFalse(section.Contains("does not exist on this checkout"),
                     "a file named by a suffix of its tracked path is present, not absent");
+            });
+
+            await RunTest("GitAnchors Section never calls an ambiguous or stale-cited path new work, and names citation issues", () =>
+            {
+                GitAnchors anchors = new GitAnchors();
+                anchors.BaseCommit = "abc1234";
+
+                GitAnchorFileHistory ambiguous = new GitAnchorFileHistory();
+                ambiguous.Path = "Widgets/Shared.cs";
+                ambiguous.MatchingPathCount = 2;
+                anchors.Files.Add(ambiguous);
+
+                GitAnchorFileHistory stale = new GitAnchorFileHistory();
+                stale.Path = "src/Moved/Codec.cs";
+                stale.CitedWithLines = true;
+                anchors.Files.Add(stale);
+
+                anchors.CitationIssues.Add("`ParseFrame` is not within `src/Present.cs:40-42`; it is at line 2.");
+
+                string section = MissionService.BuildGitAnchorsSection(anchors);
+
+                AssertContains("`Widgets/Shared.cs` matches 2 tracked paths", section,
+                    "an ambiguous name is reported as ambiguous");
+                AssertContains("`src/Moved/Codec.cs` does not exist on this checkout, but the text cites lines in it", section,
+                    "an absent path cited with lines is a stale citation");
+                AssertFalse(section.Contains("new work, not an edit"),
+                    "neither an ambiguous name nor a stale citation is new work");
+                AssertContains("### Cited line ranges to recheck", section, "citation issues get their own heading");
+                AssertContains("`ParseFrame` is not within `src/Present.cs:40-42`; it is at line 2.", section,
+                    "each citation issue is stated as resolved");
             });
 
             await RunTest("GitAnchors Section Marks A Partial Resolution Incomplete", () =>

@@ -351,6 +351,29 @@ namespace Armada.Core.Services.Interfaces
             CancellationToken token = default) => throw new NotSupportedException("Pinned path queries are not supported.");
 
         /// <summary>
+        /// Match a named path against the files and directories an immutable revision tracks: exactly, as a
+        /// unique suffix, or, when neither matches, ignoring letter case. An ambiguous name reports how many
+        /// paths it matched instead of resolving to one. Query errors propagate.
+        /// </summary>
+        Task<TrackedPathMatch> MatchAnchorPathOnRevisionAsync(string worktreePath, string revision, string relativePath,
+            CancellationToken token = default) => throw new NotSupportedException("Pinned path queries are not supported.");
+
+        /// <summary>
+        /// Read every line of a tracked file as it exists on a revision. Returns null when the file cannot
+        /// be read there, including when it is larger than the anchor reader accepts.
+        /// </summary>
+        /// <param name="worktreePath">Path to the repository or worktree.</param>
+        /// <param name="revision">Branch, ref, or commit to read.</param>
+        /// <param name="relativePath">Repository-relative path.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The file's lines, or null when it cannot be read on that revision.</returns>
+        Task<IReadOnlyList<string>?> ReadFileLinesOnRevisionAsync(string worktreePath, string revision, string relativePath,
+            CancellationToken token = default)
+        {
+            return Task.FromResult<IReadOnlyList<string>?>(null);
+        }
+
+        /// <summary>
         /// Read up to five path-history entries from an explicit revision, using full commit IDs.
         /// Throws when the revision or query is unavailable; an empty result means verified empty history.
         /// </summary>

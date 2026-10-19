@@ -79,6 +79,14 @@ tip only when the objective requires that sibling and the target vessel
 declares the same normalized sibling path. Armada rejects paths that traverse
 above that sibling root.
 
+A cited path resolves when the revision tracks it as a file or a directory,
+exactly or as a unique suffix. A path that resolves only after ignoring letter
+case fails the question and names the tracked spelling. Question 1 also reads
+each cited line range: a range past the end of its file fails, and so does a
+range that no longer holds the symbol the text pairs with it, written as
+`` `Symbol` (`path:line`) `` or `` `Symbol` at `path:line` ``. The detail names
+the line where the symbol is now.
+
 ## Execution
 
 Armada creates missions for the first stage order. When all sibling missions

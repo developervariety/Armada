@@ -24,6 +24,49 @@ namespace Armada.Core.Services
             return paths;
         }
 
+        /// <summary>
+        /// The most citation issues one anchors block states.
+        /// </summary>
+        private const int MaxCitationIssues = 8;
+
+        /// <summary>
+        /// The longest citation issue an anchors block states.
+        /// </summary>
+        private const int MaxCitationIssueLength = 2400;
+
+        /// <summary>
+        /// Check the line ranges the mission text cites in its anchored paths against the revision the
+        /// anchors describe. A path cited with lines is marked, so an absent one reads as a stale citation
+        /// rather than as a file to create; a range past the end of its file, or one that no longer holds
+        /// its named symbol, is stated with where the symbol is now.
+        /// </summary>
+        private async Task AddCitationChecksAsync(GitAnchors anchors, string missionText, string worktreePath,
+            string revision, CancellationToken token)
+        {
+            List<CitedLineRange> ranges = CitedLineRangeChecker.Parse(missionText);
+            if (ranges.Count == 0 || _Git == null) return;
+
+            foreach (GitAnchorFileHistory file in anchors.Files)
+            {
+                string named = String.IsNullOrEmpty(file.RequestedPath) ? file.Path : file.RequestedPath;
+                file.CitedWithLines = ranges.Exists(range => String.Equals(range.Path, named, StringComparison.Ordinal));
+            }
+
+            foreach (CitedLineRange range in ranges)
+            {
+                if (anchors.CitationIssues.Count >= MaxCitationIssues) break;
+                GitAnchorFileHistory? file = anchors.Files.Find(candidate => candidate.ExistsOnRevision
+                    && String.Equals(String.IsNullOrEmpty(candidate.RequestedPath) ? candidate.Path : candidate.RequestedPath,
+                        range.Path, StringComparison.Ordinal));
+                if (file == null) continue;
+                IReadOnlyList<string>? lines = await _Git.ReadFileLinesOnRevisionAsync(worktreePath, revision, file.Path, token).ConfigureAwait(false);
+                if (lines == null) continue;
+                string? issue = CitedLineRangeChecker.Evaluate(range, lines);
+                if (issue != null && issue.Length <= MaxCitationIssueLength && RuntimeLogFormatter.RedactSecrets(issue) == issue)
+                    anchors.CitationIssues.Add(issue);
+            }
+        }
+
         internal async Task<GitAnchors> ResolveDispatchGitAnchorsAsync(string path, Mission mission,
             Vessel vessel, CancellationToken token)
         {
@@ -92,7 +135,15 @@ namespace Armada.Core.Services
                 {
                     if (!DockGitAnchorPersistence.IsRelativePath(requested) || RuntimeLogFormatter.RedactSecrets(requested) != requested) { result.Truncated = true; continue; }
                     GitAnchorFileHistory history = new GitAnchorFileHistory { Path = requested };
-                    string? resolved = await _Git.ResolveAnchorPathOnRevisionAsync(path, seed.ProvisionedCommit, requested, token).ConfigureAwait(false);
+                    TrackedPathMatch match = await _Git.MatchAnchorPathOnRevisionAsync(path, seed.ProvisionedCommit, requested, token).ConfigureAwait(false);
+                    string? resolved = match.Path;
+                    if (String.IsNullOrEmpty(resolved) && match.CandidateCount > 1)
+                    {
+                        // Several tracked paths end with this name: report it as ambiguous, never as absent.
+                        history.MatchingPathCount = match.CandidateCount;
+                        result.Anchors.Files.Add(history);
+                        continue;
+                    }
                     if (!String.IsNullOrEmpty(resolved))
                     {
                         if (!DockGitAnchorPersistence.IsRelativePath(resolved)
@@ -106,6 +157,7 @@ namespace Armada.Core.Services
                         path, seed.ProvisionedCommit, history.Path, MaxAnchorCommitsPerPath, token).ConfigureAwait(false));
                     result.Anchors.Files.Add(history);
                 }
+                await AddCitationChecksAsync(result.Anchors, text, path, seed.ProvisionedCommit, token).ConfigureAwait(false);
                 foreach (string term in MissionSubjectExtractor.ExtractTerms(text))
                 {
                     if (term.Length > 120 || RuntimeLogFormatter.RedactSecrets(term) != term)

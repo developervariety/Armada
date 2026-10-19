@@ -107,6 +107,14 @@ upstream integrations and excludes changes already present at that baseline.
   `briefPathRewrites` setting (empty by default, hot-reloaded) rewrites a host
   path prefix in the mission description and the objective scope to the path
   the captain resolves, such as a container mount.
+- Git anchors and objective preflight question 1 resolve a cited directory and
+  a path spelled in another letter case, so a present test project is no
+  longer reported absent as new work. A path written with a trailing slash
+  resolves the same way. A name that matches several tracked paths is reported
+  as ambiguous, and an absent path cited with line numbers as a stale
+  citation. Both read each cited line range and flag one past the end of its
+  file or one that no longer holds its named symbol, with the symbol's current
+  line; question 1 names a case-only miss with the tracked spelling.
 - Two unit tests no longer fail on a loaded host. The stale-job reap test waits
   for its operation to start instead of sleeping a fixed 30 ms, and the relaunch
   test accepts a heartbeat stamp that the new process records after the launch.

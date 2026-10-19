@@ -142,6 +142,13 @@ A brief carries only what the mission's mode and persona can use:
 - On a read-only mission the Git Anchors block states the same facts to report:
   an absent path is only absent, not new work, and subject terms are listed as
   tracked content, not prior art.
+- The Git Anchors block resolves a named path against the dock's start commit
+  as a file or a directory, exactly, by a unique suffix, or ignoring letter
+  case, and names the tracked path. A name that matches several paths is
+  reported as ambiguous, and an absent path the text cites with line numbers is
+  reported as a stale citation; neither reads as new work. A cited range past
+  the end of its file, or one that no longer holds its named symbol, is listed
+  under "Cited line ranges to recheck" with where the symbol is now.
 - The Runtime Signals verdict lines reach only a Judge, and the Architect
   signal rule reaches only an Architect.
 - On a read-only mission the captain's own instructions are kept, followed by

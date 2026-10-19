@@ -2050,6 +2050,61 @@ namespace Armada.Test.Unit.Suites.Services
                     try { Directory.Delete(rootDir, true); } catch { }
                 }
             });
+
+            await RunTest("A cited directory and a case-only miss resolve to the tracked path, at HEAD and on a pinned revision", async () =>
+            {
+                // A test project directory cited by name is present; reporting it absent tells a captain to
+                // create a project that already exists. A path spelled in the wrong case names a file the
+                // repository holds under another spelling, so the real spelling is the answer.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_gitsvc_dirs_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    string repoDir = Path.Combine(rootDir, "repo");
+                    Directory.CreateDirectory(repoDir);
+                    await RunGitAsync(repoDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+                    string testsDir = Path.Combine(repoDir, "tests", "Widget.Core.Tests");
+                    Directory.CreateDirectory(testsDir);
+                    await File.WriteAllTextAsync(Path.Combine(testsDir, "WidgetTests.cs"), "// tests").ConfigureAwait(false);
+                    Directory.CreateDirectory(Path.Combine(repoDir, "docs"));
+                    await File.WriteAllTextAsync(Path.Combine(repoDir, "docs", "README.md"), "# docs").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "add", ".").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "commit", "-m", "Add a test project and docs").ConfigureAwait(false);
+                    string revision = (await RunGitAsync(repoDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+
+                    GitService git = CreateService();
+
+                    AssertEqual("tests/Widget.Core.Tests",
+                        await git.ResolveTrackedPathSuffixAsync(repoDir, "HEAD", "Widget.Core.Tests").ConfigureAwait(false),
+                        "a directory cited by its own name resolves to the tracked directory");
+                    AssertEqual("tests/Widget.Core.Tests",
+                        await git.ResolveTrackedPathSuffixAsync(repoDir, "HEAD", "tests/Widget.Core.Tests/").ConfigureAwait(false),
+                        "a trailing slash does not hide a tracked directory");
+                    AssertEqual("docs/README.md",
+                        await git.ResolveTrackedPathSuffixAsync(repoDir, "HEAD", "Docs/readme.md").ConfigureAwait(false),
+                        "a case-only miss resolves to the repository's spelling");
+
+                    AssertEqual("tests/Widget.Core.Tests",
+                        await git.ResolveAnchorPathOnRevisionAsync(repoDir, revision, "tests/Widget.Core.Tests").ConfigureAwait(false),
+                        "a pinned anchor on a directory path resolves to that directory");
+                    AssertEqual("tests/Widget.Core.Tests",
+                        await git.ResolveAnchorPathOnRevisionAsync(repoDir, revision, "Widget.Core.Tests").ConfigureAwait(false),
+                        "a pinned anchor on a directory suffix resolves to that directory");
+                    AssertEqual("docs/README.md",
+                        await git.ResolveAnchorPathOnRevisionAsync(repoDir, revision, "Docs/readme.md").ConfigureAwait(false),
+                        "a pinned anchor on a case-only miss resolves to the repository's spelling");
+                    AssertEqual("absent",
+                        await git.ResolveAnchorPathOnRevisionAsync(repoDir, revision, "repo/readme.md").ConfigureAwait(false) ?? "absent",
+                        "a pinned anchor never resolves a path under a directory the repository does not hold");
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
         }
 
         internal static Task<string> RunGitAsync(string workingDirectory, params string[] args)
