@@ -527,9 +527,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
-                    string cachedPackPath = Path.Combine(Path.GetTempPath(), "rest-context-pack.md");
-                    codeIndex.CachedResponse = new ContextPackResponse();
-                    codeIndex.CachedResponse.PrestagedFiles.Add(new PrestagedFile(cachedPackPath, "_briefing/context-pack.md"));
+                    string goalPackPath = Path.Combine(Path.GetTempPath(), "rest-context-pack.md");
+                    codeIndex.BuildResponse.PrestagedFiles.Add(new PrestagedFile(goalPackPath, "_briefing/context-pack.md"));
 
                     await SeedEligibleDispatchCaptainAsync(testDb, vessel, "Worker").ConfigureAwait(false);
 
@@ -586,10 +585,11 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageDispatchResult result = await service.DispatchAsync(dispatchRequest).ConfigureAwait(false);
 
                     AssertTrue(result.Succeeded, "REST dispatch service result should succeed");
-                    AssertEqual(1, codeIndex.CacheRequests.Count, "REST dispatch should use code context orchestration");
-                    AssertEqual("custom REST query", codeIndex.CacheRequests[0].Goal);
-                    AssertEqual(1400, codeIndex.CacheRequests[0].TokenBudget);
-                    AssertEqual(4, codeIndex.CacheRequests[0].MaxResults!.Value);
+                    AssertEqual(1, codeIndex.BuildRequests.Count, "REST dispatch should use code context orchestration");
+                    AssertEqual("custom REST query", codeIndex.BuildRequests[0].Goal);
+                    AssertEqual(1400, codeIndex.BuildRequests[0].TokenBudget);
+                    AssertEqual(4, codeIndex.BuildRequests[0].MaxResults!.Value);
+                    AssertEqual(0, codeIndex.CacheRequests.Count, "dispatch never reads the vessel baseline pack");
 
                     List<Mission> missions = await testDb.Driver.Missions.EnumerateByVoyageAsync(result.Voyage!.Id).ConfigureAwait(false);
                     AssertEqual(1, missions.Count, "One mission should be created");

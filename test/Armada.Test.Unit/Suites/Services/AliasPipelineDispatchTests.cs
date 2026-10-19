@@ -620,18 +620,16 @@ namespace Armada.Test.Unit.Suites.Services
                     PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, reviewed);
 
                     string packPath = Path.Combine(Path.GetTempPath(), "context-persona-pack.md");
-                    ContextPackResponse cachedPack = new ContextPackResponse
+                    ContextPackResponse goalPack = new ContextPackResponse
                     {
                         Goal = "worker-judge context",
                         MaterializedPath = packPath,
-                        Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "sha_persona" }
+                        Metrics = new ContextPackMetrics()
                     };
-                    cachedPack.PrestagedFiles.Add(new PrestagedFile(packPath, "_briefing/context-pack.md"));
+                    goalPack.PrestagedFiles.Add(new PrestagedFile(packPath, "_briefing/context-pack.md"));
 
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
-                    {
-                        CachedResponse = cachedPack
-                    };
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.ContextPackResponse.PrestagedFiles.AddRange(goalPack.PrestagedFiles);
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
@@ -715,18 +713,16 @@ namespace Armada.Test.Unit.Suites.Services
                     PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, twoWorkers);
 
                     string packPath = Path.Combine(Path.GetTempPath(), "downstream-worker-pack.md");
-                    ContextPackResponse cachedPack = new ContextPackResponse
+                    ContextPackResponse goalPack = new ContextPackResponse
                     {
                         Goal = "two workers context",
                         MaterializedPath = packPath,
                         Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "sha_workers" }
                     };
-                    cachedPack.PrestagedFiles.Add(new PrestagedFile(packPath, "_briefing/context-pack.md"));
+                    goalPack.PrestagedFiles.Add(new PrestagedFile(packPath, "_briefing/context-pack.md"));
 
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
-                    {
-                        CachedResponse = cachedPack
-                    };
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.ContextPackResponse.PrestagedFiles.AddRange(goalPack.PrestagedFiles);
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
@@ -798,18 +794,16 @@ namespace Armada.Test.Unit.Suites.Services
                     PersistingAdmiralDouble admiralDouble = new PersistingAdmiralDouble(testDb.Driver, workerArchitect);
 
                     string packPath = Path.Combine(Path.GetTempPath(), "downstream-architect-pack.md");
-                    ContextPackResponse cachedPack = new ContextPackResponse
+                    ContextPackResponse goalPack = new ContextPackResponse
                     {
                         Goal = "worker architect context",
                         MaterializedPath = packPath,
                         Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "sha_architect" }
                     };
-                    cachedPack.PrestagedFiles.Add(new PrestagedFile(packPath, "_briefing/context-pack.md"));
+                    goalPack.PrestagedFiles.Add(new PrestagedFile(packPath, "_briefing/context-pack.md"));
 
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
-                    {
-                        CachedResponse = cachedPack
-                    };
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.ContextPackResponse.PrestagedFiles.AddRange(goalPack.PrestagedFiles);
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(

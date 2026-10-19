@@ -87,6 +87,11 @@ upstream integrations and excludes changes already present at that baseline.
   a failure that printed early or on standard error and named only the last few
   skips. A skip list over 100 gives the count and where the full log is. Check
   run views carry the same list as `testOutcomes`.
+- Dispatch no longer stages the vessel's generic baseline context pack for a mission. When the
+  pack for the mission's own goal fails or times out, dispatch stages a lexical-only pack for that
+  goal instead, read from the local index without a query embedding, graph expansion or summary.
+  Every pack header now names the covered roots as well as the goal and indexed commit, and a
+  summarized pack keeps the header above its summary.
 - A captain can omit the id on `armada_mission_status`, `armada_mission_output`
   and `get_objective`. They read the captain's own mission, or the objective that
   authorizes it, instead of failing with a null-id error. A caller with no

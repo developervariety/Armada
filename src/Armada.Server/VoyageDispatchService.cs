@@ -1141,7 +1141,8 @@ namespace Armada.Server
                 };
 
                 // The pack is built for this mission's own goal. The vessel's cached baseline pack answers a
-                // generic architecture question, so it is staged only when the goal pack cannot be built.
+                // generic architecture question for another goal, so it is never staged. When the full goal
+                // pack cannot be built, a lexical-only pack for the same goal is the fallback.
                 try
                 {
                     Stopwatch totalWatch = Stopwatch.StartNew();
@@ -1175,9 +1176,6 @@ namespace Armada.Server
 
                     if (contextPack.PrestagedFiles == null || contextPack.PrestagedFiles.Count == 0)
                     {
-                        if (await TryStageBaselineFallbackAsync(mission, contextRequest, "the goal pack returned no prestaged files").ConfigureAwait(false))
-                            continue;
-
                         if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)
                             return "code context generation returned no prestaged files for mission '" + mission.Title + "'";
 
@@ -1189,7 +1187,8 @@ namespace Armada.Server
                 }
                 catch (TimeoutException ex)
                 {
-                    if (await TryStageBaselineFallbackAsync(mission, contextRequest, "the goal pack timed out: " + ex.Message).ConfigureAwait(false))
+                    string? lexicalFailure = await TryStageLexicalGoalPackAsync(mission, contextRequest, "the goal pack timed out: " + ex.Message).ConfigureAwait(false);
+                    if (lexicalFailure == null)
                         continue;
 
                     // A stalled index/embedding backend must never block dispatch. Force/require
@@ -1198,6 +1197,7 @@ namespace Armada.Server
                     // contract callers match on -- and append the actionable timeout remedy.
                     if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)
                         return "code context generation failed for mission '" + mission.Title + "': " + ex.Message
+                            + "; " + lexicalFailure
                             + " (raise " + CodeContextTimeouts.TimeoutEnvVar + " or dispatch with codeContextMode=off)";
 
                     LogCodeContextWarning(
@@ -1206,11 +1206,12 @@ namespace Armada.Server
                 }
                 catch (Exception ex)
                 {
-                    if (await TryStageBaselineFallbackAsync(mission, contextRequest, "the goal pack failed: " + ex.Message).ConfigureAwait(false))
+                    string? lexicalFailure = await TryStageLexicalGoalPackAsync(mission, contextRequest, "the goal pack failed: " + ex.Message).ConfigureAwait(false);
+                    if (lexicalFailure == null)
                         continue;
 
                     if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)
-                        return "code context generation failed for mission '" + mission.Title + "': " + ex.Message;
+                        return "code context generation failed for mission '" + mission.Title + "': " + ex.Message + "; " + lexicalFailure;
 
                     LogCodeContextWarning("code context generation failed for mission '" + mission.Title + "': " + ex.Message);
                 }
@@ -1220,40 +1221,50 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Stage the vessel's cached baseline pack when the pack for the mission's goal could not be built.
-        /// The baseline answers a generic architecture question, so it is a degraded fallback, never the
-        /// first choice, and the fallback is logged with its reason. Dispatch never warms the baseline:
-        /// warming builds a pack, which is the step that just failed.
+        /// Stage a lexical-only pack for the mission's own goal when the full goal pack could not be built.
+        /// The lexical pack reads only the local index (no query embedding, graph expansion or summary), so it
+        /// survives a slow or failing embedding or summarizer backend. A pack built for any other goal, such as
+        /// the vessel's cached baseline, is never staged in its place.
         /// </summary>
         /// <param name="mission">Mission being prepared.</param>
-        /// <param name="contextRequest">The goal pack request.</param>
-        /// <param name="reason">Why the goal pack was not staged.</param>
-        /// <returns>True when a cached baseline pack was staged.</returns>
-        private async Task<bool> TryStageBaselineFallbackAsync(MissionDescription mission, ContextPackRequest contextRequest, string reason)
+        /// <param name="contextRequest">The full goal pack request.</param>
+        /// <param name="reason">Why the full goal pack was not staged.</param>
+        /// <returns>Null when a lexical goal pack was staged; otherwise why it was not.</returns>
+        private async Task<string?> TryStageLexicalGoalPackAsync(MissionDescription mission, ContextPackRequest contextRequest, string reason)
         {
-            if (_CodeIndexService == null) return false;
-            ContextPackResponse? cached;
+            if (_CodeIndexService == null) return "the code index service is unavailable";
+            ContextPackRequest lexicalRequest = new ContextPackRequest
+            {
+                VesselId = contextRequest.VesselId,
+                Goal = contextRequest.Goal,
+                TokenBudget = contextRequest.TokenBudget,
+                MaxResults = contextRequest.MaxResults,
+                FastPackOnly = true,
+                LexicalOnly = true
+            };
+
+            ContextPackResponse lexical;
             try
             {
-                cached = await RunCodeIndexCallWithTimeoutAsync(
-                    "code context baseline probe",
-                    cancellationToken => _CodeIndexService.TryGetCachedContextPackAsync(contextRequest, cancellationToken))
+                lexical = await RunCodeIndexCallWithTimeoutAsync(
+                    "code context lexical goal pack",
+                    cancellationToken => _CodeIndexService.BuildContextPackAsync(lexicalRequest, cancellationToken))
                     .ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                LogCodeContextWarning("code context baseline fallback for mission '" + mission.Title + "' unavailable: " + ex.Message);
-                return false;
+                LogCodeContextWarning("code context lexical goal pack for mission '" + mission.Title + "' failed: " + ex.Message);
+                return "the lexical goal pack also failed: " + ex.Message;
             }
 
-            if (cached?.PrestagedFiles == null || cached.PrestagedFiles.Count == 0) return false;
+            if (!lexical.Available || lexical.PrestagedFiles == null || lexical.PrestagedFiles.Count == 0)
+                return "the lexical goal pack staged no file";
 
             LogCodeContextWarning(
-                "code context for mission '" + mission.Title + "': baseline_fallback because " + reason
-                + "; the staged pack is the vessel's generic baseline, not a pack for this mission's goal"
-                + " cacheKey=" + (cached.Metrics?.CacheKey ?? "unknown"));
-            MergeGeneratedPrestagedFiles(mission, cached.PrestagedFiles);
-            return true;
+                "code context for mission '" + mission.Title + "': lexical_goal_pack because " + reason
+                + "; the staged pack ranks chunks by the goal's words only");
+            MergeGeneratedPrestagedFiles(mission, lexical.PrestagedFiles);
+            return null;
         }
 
         private static async Task<ContextPackResponse> BuildContextPackWithTimeoutAsync(

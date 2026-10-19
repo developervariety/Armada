@@ -326,10 +326,13 @@ Armada owns a repository code index for dispatch-time retrieval:
 - Hybrid search can combine lexical and semantic ranking when semantic search is enabled. Semantic embeddings use a Voyage AI client (`voyage-code-3`); supply the embedding key from the environment to enable live indexing.
 - Context packs can be attached automatically during MCP dispatch and architect decomposition.
   Dispatch builds each mission's pack for that mission's own goal (its code-context query, or its
-  title and description). The vessel's baseline pack, cached per indexed commit for the generic goal
-  "codebase architecture key types and responsibilities", is staged only when the goal pack fails,
-  times out, or returns no file; dispatch logs `baseline_fallback` with the reason and never warms
-  the baseline itself. The captain brief tells the captain to record a pack that misses files in the
+  title and description). When the full goal pack fails or times out, dispatch stages a lexical-only
+  pack for the same goal, which reads only the local index (no query embedding, graph expansion or
+  summary), and logs `lexical_goal_pack` with the reason. The vessel's baseline pack, cached for the
+  generic goal "codebase architecture key types and responsibilities", is never staged for a mission.
+  Every pack header names its goal, the indexed commit and the covered roots, and says that sibling
+  repositories, mounted evidence trees and changes after the indexed commit are not in the pack; a
+  summarized pack keeps that header above the summary. The captain brief tells the captain to record a pack that misses files in the
   report's `Pack:` line, not as a papercut.
 - Search and context packs never create an index. On a vessel that has never been indexed, vessel search returns `Available: false` with `UnavailableReason: not_indexed`, fleet search and fleet packs list the vessel in `NotIndexedVesselIds`, and a context pack stages no file. Nothing from that vessel reaches the embedding provider. An `auto` dispatch then proceeds without code context and logs the reason, even when `codeIndex.requireContextPackWhenEnabled` is set; a `force` dispatch fails and names the reason.
 - Only an explicit index update (`armada_index_update` or the REST update route) indexes a vessel for the first time. Automatic refresh (after a landing, from the merge queue, from a stale-index dispatch, and from the staleness sweep) refreshes an already-indexed vessel in the background and never indexes a new one.

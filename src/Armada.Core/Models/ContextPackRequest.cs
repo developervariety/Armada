@@ -32,6 +32,12 @@ namespace Armada.Core.Models
         /// </summary>
         public bool FastPackOnly { get; set; } = false;
 
+        /// <summary>
+        /// When true, build the pack from a lexical search of the local index only: no query embedding,
+        /// graph expansion or summary. Dispatch uses it when the full pack for a mission's goal cannot be built.
+        /// </summary>
+        public bool LexicalOnly { get; set; } = false;
+
         #endregion
     }
 }

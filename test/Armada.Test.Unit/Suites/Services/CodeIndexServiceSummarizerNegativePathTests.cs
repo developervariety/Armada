@@ -391,7 +391,8 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual("_briefing/context-pack.md", entry.DestPath, "Prestaged dest path must be _briefing/context-pack.md");
 
                         string sourceContents = await File.ReadAllTextAsync(entry.SourcePath).ConfigureAwait(false);
-                        AssertEqual(summary, sourceContents, "Prestaged source file must contain the summarized markdown, not the raw markdown");
+                        AssertContains(summary, sourceContents, "Prestaged source file must contain the summarized markdown");
+                        AssertFalse(sourceContents.Contains("## Evidence"), "Prestaged source file must carry the summary, not the raw evidence chunks");
                     }
                 }
                 finally

@@ -876,7 +876,7 @@ namespace Armada.Core.Services
             CodeSearchResponse search;
             try
             {
-                search = await SearchCoreAsync(searchRequest, lexicalOnly: false, budgetToken).ConfigureAwait(false);
+                search = await SearchCoreAsync(searchRequest, lexicalOnly: request.LexicalOnly, budgetToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!token.IsCancellationRequested && budgetToken.IsCancellationRequested)
             {
@@ -910,7 +910,7 @@ namespace Armada.Core.Services
             // path is preferred. A vessel over the threshold still gets the top lexical/semantic search
             // results, preserving relevance while avoiding the heavy symbol-graph traversal (ComputeImpact
             // over many seeds plus per-symbol source reads) that times out on big repositories.
-            bool fastPackFallbackUsed = request.FastPackOnly || budgetExpiredDuringSearch;
+            bool fastPackFallbackUsed = request.FastPackOnly || request.LexicalOnly || budgetExpiredDuringSearch;
             if (!fastPackFallbackUsed && search.Status.DocumentCount > _Settings.CodeIndex.FastPackFileThreshold)
             {
                 fastPackFallbackUsed = true;
@@ -940,7 +940,8 @@ namespace Armada.Core.Services
                 warnings.Add(warning);
             }
 
-            string markdown = BuildContextPackMarkdown(request.Goal, tokenBudget, search);
+            string header = BuildContextPackHeader(request.Goal, search.Status, request.LexicalOnly);
+            string markdown = BuildContextPackMarkdown(header, tokenBudget, search);
             if (graphExpansion.Used)
             {
                 markdown = markdown.TrimEnd() + "\n\n" + graphExpansion.Markdown.TrimEnd() + "\n";
@@ -950,7 +951,7 @@ namespace Armada.Core.Services
             bool isSummarized = false;
             long summarizerElapsedMs = 0;
 
-            if (_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && search.Results.Count > 0 && !budgetToken.IsCancellationRequested)
+            if (_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && !request.LexicalOnly && search.Results.Count > 0 && !budgetToken.IsCancellationRequested)
             {
                 string systemPrompt = "You are a codebase analyst. Given code chunks from a repository, produce a compact markdown summary for a software engineer who needs to understand the relevant patterns before making a change. Output: first a 3-5 sentence synthesis naming the key types, their responsibilities, and any important call chains. Then a bulleted file-by-file list of key types and their roles. Be concise. No introductory text. Output only the summary markdown.";
                 string userMessage = "Goal: " + request.Goal + "\n\n" + markdown;
@@ -1009,7 +1010,9 @@ namespace Armada.Core.Services
                 }
             }
 
-            string materializedPath = await WriteContextPackAsync(request.VesselId, isSummarized ? summarizedMarkdown! : markdown, token).ConfigureAwait(false);
+            // A summarized pack keeps the header, so the staged file still names its goal, commit and roots.
+            string staged = isSummarized ? header + "\n" + summarizedMarkdown!.Trim() + "\n" : markdown;
+            string materializedPath = await WriteContextPackAsync(request.VesselId, staged, token).ConfigureAwait(false);
 
             ContextPackResponse response = new ContextPackResponse
             {
@@ -3915,9 +3918,14 @@ namespace Armada.Core.Services
             };
         }
 
-        private string BuildContextPackMarkdown(string goal, int tokenBudget, CodeSearchResponse search)
+        /// <summary>
+        /// Build the header every single-vessel context pack starts with: the goal it was built for, the
+        /// indexed commit, and the roots it covers. Sibling repositories and mounted evidence trees are never
+        /// in a single-vessel pack, so the header says so instead of leaving their absence to be inferred.
+        /// </summary>
+        private static string BuildContextPackHeader(string goal, CodeIndexStatus status, bool lexicalOnly)
         {
-            int charBudget = Math.Max(2000, tokenBudget * 4);
+            string vesselLabel = String.IsNullOrWhiteSpace(status.VesselName) ? status.VesselId : status.VesselName;
             StringBuilder builder = new StringBuilder();
             builder.AppendLine("# Armada Code Context Pack");
             builder.AppendLine();
@@ -3925,10 +3933,21 @@ namespace Armada.Core.Services
             builder.AppendLine();
             builder.AppendLine("This is repo discovery evidence from Armada's code index. Playbooks, vessel CLAUDE.md, and project CLAUDE.md rules win on conflict.");
             builder.AppendLine();
-            builder.AppendLine("VesselId: " + search.Status.VesselId);
-            builder.AppendLine("Commit: " + (search.Status.IndexedCommitSha ?? ""));
-            builder.AppendLine("Freshness: " + search.Status.Freshness);
-            builder.AppendLine("IndexedAtUtc: " + (search.Status.IndexedAtUtc.HasValue ? search.Status.IndexedAtUtc.Value.ToString("o") : ""));
+            builder.AppendLine("VesselId: " + status.VesselId);
+            builder.AppendLine("Commit: " + (status.IndexedCommitSha ?? ""));
+            builder.AppendLine("Freshness: " + status.Freshness);
+            builder.AppendLine("IndexedAtUtc: " + (status.IndexedAtUtc.HasValue ? status.IndexedAtUtc.Value.ToString("o") : ""));
+            builder.AppendLine("Covered roots: the " + vesselLabel + " repository at the indexed commit. Sibling repositories, mounted evidence trees and changes after the indexed commit are not in this pack; read or search them directly.");
+            if (lexicalOnly)
+                builder.AppendLine("Search: lexical only. The full pack for this goal could not be built, so this pack ranks chunks by the goal's words alone.");
+            return builder.ToString();
+        }
+
+        private string BuildContextPackMarkdown(string header, int tokenBudget, CodeSearchResponse search)
+        {
+            int charBudget = Math.Max(2000, tokenBudget * 4);
+            StringBuilder builder = new StringBuilder();
+            builder.Append(header);
             builder.AppendLine();
             builder.AppendLine("## Evidence");
 

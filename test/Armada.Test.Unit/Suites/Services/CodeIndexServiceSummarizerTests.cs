@@ -120,7 +120,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual(1, inference.CallCount, "Inference client should be called once");
                         
                         string materializedContent = await File.ReadAllTextAsync(response.MaterializedPath).ConfigureAwait(false);
-                        AssertEqual(mockOutput, materializedContent, "Materialized file should contain summarized markdown");
+                        AssertContains(mockOutput, materializedContent, "Materialized file should contain summarized markdown");
                         
                         AssertTrue(response.PrestagedFiles.Count > 0, "Should have prestaged files");
                         AssertEqual("_briefing/context-pack.md", response.PrestagedFiles[0].DestPath, "DestPath should be _briefing/context-pack.md");
@@ -346,6 +346,113 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(dataRoot);
                 }
             });
+
+            await RunTest("A context pack header records its goal, indexed commit and covered roots, and a summarized pack keeps it", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync("alpha alpha", "alpha").ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-pack-header-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        string summary = "summary of the alpha chunks";
+                        CodeIndexService service = CreateService(
+                            testDb,
+                            dataRoot,
+                            inferenceClient: new RecordingInferenceClient(_ => summary),
+                            configureCodeIndex: ci =>
+                            {
+                                ci.UseSemanticSearch = false;
+                                ci.UseSummarizer = true;
+                            });
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "alpha",
+                            TokenBudget = 1000
+                        }).ConfigureAwait(false);
+
+                        string indexedCommit = response.Status.IndexedCommitSha ?? "";
+                        AssertFalse(String.IsNullOrEmpty(indexedCommit), "the index records the commit it was built at");
+                        AssertTrue(response.IsSummarized, "the summarizer ran");
+                        string staged = await File.ReadAllTextAsync(response.MaterializedPath).ConfigureAwait(false);
+                        foreach (string body in new[] { response.Markdown, staged })
+                        {
+                            AssertContains("Goal: alpha", body, "the header names the goal the pack was built for");
+                            AssertContains("Commit: " + indexedCommit, body, "the header names the indexed commit");
+                            AssertContains("Covered roots: the " + vessel.Name + " repository at the indexed commit", body, "the header names the roots the pack covers");
+                            AssertContains("not in this pack", body, "the header says sibling and evidence trees are not covered");
+                        }
+                        AssertContains(summary, staged, "the staged pack carries the summary under the header");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("A lexical-only context pack reads only the local index: no query embedding, graph expansion or summary", async () =>
+            {
+                TestRepository repository = await CreateRepositoryAsync("alpha alpha", "alpha").ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-lexical-pack-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        RecordingInferenceClient inference = new RecordingInferenceClient(_ => "summary");
+                        CountingEmbeddingClient embedding = new CountingEmbeddingClient();
+                        ArmadaSettings settings = BuildSettings(dataRoot, ci =>
+                        {
+                            ci.UseSemanticSearch = true;
+                            ci.UseSummarizer = true;
+                        });
+                        LoggingModule logging = SilentLogging();
+                        CodeIndexService service = new CodeIndexService(logging, testDb.Driver, settings, new GitService(logging), embedding, inference);
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        int embedCallsAfterIndexing = embedding.CallCount;
+
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "alpha",
+                            TokenBudget = 1000,
+                            LexicalOnly = true
+                        }).ConfigureAwait(false);
+
+                        AssertEqual(embedCallsAfterIndexing, embedding.CallCount, "a lexical pack sends no query to the embedding provider");
+                        AssertEqual(0, inference.CallCount, "a lexical pack is not summarized");
+                        AssertFalse(response.IsSummarized);
+                        AssertFalse(response.Metrics.GraphExpansionUsed, "a lexical pack skips graph expansion");
+                        AssertTrue(response.Results.Count > 0, "the lexical search still finds the goal's chunks");
+                        AssertContains("Search: lexical only", response.Markdown, "the header says the pack is lexical only");
+                        AssertEqual(1, response.PrestagedFiles.Count, "the lexical pack is staged like any other pack");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+        }
+
+        private sealed class CountingEmbeddingClient : IEmbeddingClient
+        {
+            public int CallCount { get; private set; }
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                CallCount++;
+                return Task.FromResult(new float[] { 1F, 0F, 0F });
+            }
         }
 
         private static ArmadaSettings BuildSettings(string dataRoot, Action<CodeIndexSettings>? configureCodeIndex)

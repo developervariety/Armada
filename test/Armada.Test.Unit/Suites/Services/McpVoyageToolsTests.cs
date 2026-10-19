@@ -596,7 +596,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("\"Error\"", resultJson);
                     AssertContains("code context generation failed", resultJson);
                     AssertContains("index crashed", resultJson);
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "Force mode should attempt context generation once");
+                    AssertEqual(2, codeIndex.ContextPackRequests.Count, "Force mode tries the goal pack, then the lexical goal pack");
+                    AssertTrue(codeIndex.ContextPackRequests[1].LexicalOnly, "the second attempt is the lexical goal pack");
                     AssertFalse(admiralDouble.DispatchVoyageCalled, "Force generation failure should happen before dispatch persistence");
                 }
             });
@@ -690,7 +691,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertContains("\"Error\"", resultJson);
                     AssertContains("no prestaged files", resultJson);
-                    AssertEqual(1, codeIndex.CacheRequests.Count, "An empty goal pack reads the baseline once, as the fallback");
+                    AssertEqual(0, codeIndex.CacheRequests.Count, "An empty goal pack never reads the vessel baseline");
                     AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Dispatch never warms the baseline");
                     AssertEqual(1, codeIndex.ContextPackRequests.Count, "Force must attempt generation once");
                     AssertFalse(admiralDouble.DispatchVoyageCalled, "Force empty pack must fail before dispatch persistence");
@@ -969,38 +970,42 @@ namespace Armada.Test.Unit.Suites.Services
 
             foreach (string fallbackMode in new[] { "auto", "force" })
             {
-                await RunTest("Dispatch_" + fallbackMode + "_GoalPackThrows_StagesTheCachedBaselinePack", async () =>
+                await RunTest("Dispatch_" + fallbackMode + "_GoalPackThrows_StagesTheLexicalGoalPack_NeverTheBaseline", async () =>
                 {
-                    ContextPackResponse baseline = BaselinePack(true);
+                    ContextPackResponse lexical = LexicalPack();
                     RecordingCodeIndexService codeIndex = new RecordingCodeIndexService
                     {
-                        CachedResponse = baseline,
-                        BuildException = new InvalidOperationException("search backend down")
+                        CachedResponse = BaselinePack(true),
+                        BuildException = new InvalidOperationException("search backend down"),
+                        LexicalResponse = lexical
                     };
 
                     PackDispatchOutcome outcome = await DispatchWithPackAsync(codeIndex, fallbackMode == "auto" ? null : fallbackMode, LegacyContextSettings()).ConfigureAwait(false);
 
-                    AssertFalse(outcome.ResultJson.Contains("\"Error\""), "A cached baseline keeps the dispatch going: " + outcome.ResultJson);
-                    AssertEqual(1, codeIndex.ContextPackRequests.Count, "the goal pack is tried first");
-                    AssertEqual(1, codeIndex.CacheRequests.Count, "the baseline is read once, as the fallback");
+                    AssertFalse(outcome.ResultJson.Contains("\"Error\""), "A lexical goal pack keeps the dispatch going: " + outcome.ResultJson);
+                    AssertEqual(2, codeIndex.ContextPackRequests.Count, "the full goal pack is tried first, then the lexical goal pack");
+                    AssertTrue(codeIndex.ContextPackRequests[1].LexicalOnly, "the fallback asks for a lexical-only pack");
+                    AssertContains("Pack task", codeIndex.ContextPackRequests[1].Goal, "the fallback is built for the mission's own goal");
+                    AssertEqual(0, codeIndex.CacheRequests.Count, "the vessel baseline, built for another goal, is never read");
                     AssertEqual(0, codeIndex.WarmBaselineCacheVesselIds.Count, "Dispatch never warms the baseline");
-                    AssertEqual(baseline.PrestagedFiles[0].SourcePath, outcome.Admiral.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath, "the baseline is staged as the fallback");
+                    AssertEqual(lexical.PrestagedFiles[0].SourcePath, outcome.Admiral.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath, "the lexical goal pack is staged");
                 }).ConfigureAwait(false);
             }
 
-            await RunTest("Dispatch_GoalPackTimesOut_StagesTheCachedBaselinePack", async () =>
+            await RunTest("Dispatch_GoalPackTimesOut_StagesTheLexicalGoalPack_NeverTheBaseline", async () =>
             {
                 string? priorTimeout = Environment.GetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS");
                 Environment.SetEnvironmentVariable("ARMADA_CODE_CONTEXT_TIMEOUT_MS", "100");
                 try
                 {
-                    ContextPackResponse baseline = BaselinePack(true);
-                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService { CachedResponse = baseline, NeverCompleteBuild = true };
+                    ContextPackResponse lexical = LexicalPack();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService { CachedResponse = BaselinePack(true), NeverCompleteBuild = true, LexicalResponse = lexical };
 
                     PackDispatchOutcome outcome = await DispatchWithPackAsync(codeIndex, "force", LegacyContextSettings()).ConfigureAwait(false);
 
-                    AssertFalse(outcome.ResultJson.Contains("\"Error\""), "A cached baseline covers a timed-out goal pack: " + outcome.ResultJson);
-                    AssertEqual(baseline.PrestagedFiles[0].SourcePath, outcome.Admiral.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                    AssertFalse(outcome.ResultJson.Contains("\"Error\""), "A lexical goal pack covers a timed-out goal pack: " + outcome.ResultJson);
+                    AssertEqual(0, codeIndex.CacheRequests.Count, "the vessel baseline is never read");
+                    AssertEqual(lexical.PrestagedFiles[0].SourcePath, outcome.Admiral.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
                 }
                 finally
                 {
@@ -1008,16 +1013,16 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_GoalPackReturnsNoFiles_StagesTheCachedBaselinePack", async () =>
+            await RunTest("Dispatch_GoalPackReturnsNoFiles_NeverStagesTheBaseline", async () =>
             {
-                ContextPackResponse baseline = BaselinePack(true);
-                RecordingCodeIndexService codeIndex = new RecordingCodeIndexService { CachedResponse = baseline };
+                RecordingCodeIndexService codeIndex = new RecordingCodeIndexService { CachedResponse = BaselinePack(true) };
 
                 PackDispatchOutcome outcome = await DispatchWithPackAsync(codeIndex, "force", LegacyContextSettings()).ConfigureAwait(false);
 
-                AssertFalse(outcome.ResultJson.Contains("\"Error\""), "Should not return error: " + outcome.ResultJson);
+                AssertContains("no prestaged files", outcome.ResultJson, "force with no goal pack fails rather than staging a pack built for another goal");
                 AssertEqual(1, codeIndex.ContextPackRequests.Count);
-                AssertEqual(baseline.PrestagedFiles[0].SourcePath, outcome.Admiral.LastMissionDescriptions[0].PrestagedFiles![0].SourcePath);
+                AssertEqual(0, codeIndex.CacheRequests.Count, "the vessel baseline is never read");
+                AssertFalse(outcome.Admiral.DispatchVoyageCalled);
             });
 
             foreach (bool nullFiles in new[] { false, true })
@@ -1756,6 +1761,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public bool NeverCompleteBuild { get; set; }
 
+            public ContextPackResponse? LexicalResponse { get; set; }
+
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
             {
                 Status.VesselId = vesselId;
@@ -1773,6 +1780,7 @@ namespace Armada.Test.Unit.Suites.Services
             public async Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
             {
                 ContextPackRequests.Add(request);
+                if (request.LexicalOnly && LexicalResponse != null) return LexicalResponse;
                 if (BuildException != null) throw BuildException;
                 if (NeverCompleteBuild)
                     await Task.Delay(Timeout.InfiniteTimeSpan, token).ConfigureAwait(false);
@@ -1845,6 +1853,15 @@ namespace Armada.Test.Unit.Suites.Services
                 Metrics = new ContextPackMetrics { CacheHit = true, CacheKey = "abc123" }
             };
             if (withFile) pack.PrestagedFiles.Add(new PrestagedFile(path, "_briefing/context-pack.md"));
+            return pack;
+        }
+
+        // A lexical-only goal pack with a staged file.
+        private static ContextPackResponse LexicalPack()
+        {
+            string path = Path.Combine(Path.GetTempPath(), "lexical-pack-" + Guid.NewGuid().ToString("N") + ".md");
+            ContextPackResponse pack = new ContextPackResponse { Goal = "Pack task", MaterializedPath = path };
+            pack.PrestagedFiles.Add(new PrestagedFile(path, "_briefing/context-pack.md"));
             return pack;
         }
 
