@@ -5,7 +5,7 @@ namespace Armada.Core.Models
 
     /// <summary>
     /// Matches a captain class. Non-null fields are combined with AND; list order sets priority.
-    /// At least one field is required. Model and endpoint names match exactly, ignoring case.
+    /// At least one field is required. Model and Mux endpoint names ignore case; API endpoint IDs match exactly.
     /// </summary>
     public class PersonaCaptainPriority
     {
@@ -16,7 +16,7 @@ namespace Armada.Core.Models
         [MaxLength(1024)]
         public string? Model { get; set; } = null;
 
-        /// <summary>Optional named Mux endpoint, up to 1024 characters. Requires Runtime Mux.</summary>
+        /// <summary>Optional Mux endpoint name (Runtime Mux) or managed inference endpoint ID (Runtime ApiEndpoint), up to 1024 characters. API IDs match Captain.ModelEndpointId exactly.</summary>
         [MaxLength(1024)]
         public string? Endpoint { get; set; } = null;
 

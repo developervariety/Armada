@@ -6,6 +6,10 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Persona endpoint priorities and validation progress
+- Persona create/edit priority pickers in dashboard, mobile, and TUI list individual inference endpoints alongside CLI harnesses. REST, MCP, and SDK priorities accept `Runtime: ApiEndpoint` with the exact inference endpoint ID in `Endpoint`; dispatch matches `Captain.ModelEndpointId`, preserving order and fallback policies. Existing broad API runtime priorities and Mux endpoint names remain supported.
+- Endpoint Validate opens its modal immediately with progress, then shows the result or request error in place. The action menu label stays Validate.
+
 ### Model providers and dependencies
 - Upgrade PolyPrompt to 3.4.0 and SyslogLogging to 2.4.1.
 - Add OllamaCloud and XAI inference/embedding providers across REST, MCP, the .NET client, dashboard, mobile, and TUI. Ollama Cloud uses its fixed hosted URL; xAI uses native Responses. Both require bearer credentials; cloud embedding availability depends on the provider's model catalog.

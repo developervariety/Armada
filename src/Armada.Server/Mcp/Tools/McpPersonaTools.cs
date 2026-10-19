@@ -32,7 +32,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     runtime = new { type = "string", @enum = Enum.GetNames<AgentRuntimeEnum>() },
                     model = new { type = "string", minLength = 1, maxLength = 1024 },
-                    endpoint = new { type = "string", minLength = 1, maxLength = 1024, description = "Named Mux endpoint; requires runtime Mux" },
+                    endpoint = new { type = "string", minLength = 1, maxLength = 1024, description = "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" },
                     minimumTier = new { type = "string", @enum = Enum.GetNames<CaptainTierEnum>() }
                 }
             }

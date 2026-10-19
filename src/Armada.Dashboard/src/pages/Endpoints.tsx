@@ -17,6 +17,8 @@ import { useNotifications } from '../context/NotificationContext';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
+import DialogShell from '../components/shared/DialogShell';
+import LoadingIndicator from '../components/shared/LoadingIndicator';
 import JsonViewer from '../components/shared/JsonViewer';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
@@ -125,7 +127,7 @@ export default function Endpoints() {
 
   // Validate + health modals
   const [validating, setValidating] = useState<string | null>(null);
-  const [probe, setProbe] = useState<{ open: boolean; endpoint: ModelEndpoint | null; result: ModelEndpointProbeResult | null }>({ open: false, endpoint: null, result: null });
+  const [probe, setProbe] = useState<{ open: boolean; endpoint: ModelEndpoint | null; result: ModelEndpointProbeResult | null; error: string | null }>({ open: false, endpoint: null, result: null, error: null });
   const [health, setHealth] = useState<{ open: boolean; endpoint: ModelEndpoint | null }>({ open: false, endpoint: null });
   const [sweeping, setSweeping] = useState(false);
 
@@ -270,15 +272,18 @@ export default function Endpoints() {
   }), [endpoints, search, kindFilter]);
 
   async function handleValidate(endpoint: ModelEndpoint) {
+    if (validating) return;
     setValidating(endpoint.id);
+    setProbe({ open: true, endpoint, result: null, error: null });
     try {
       const result = await validateModelEndpoint(endpoint.id);
-      setProbe({ open: true, endpoint, result });
+      setProbe(current => current.endpoint?.id === endpoint.id ? { ...current, result } : current);
       if (result.success) pushToast('success', t('Endpoint "{{name}}" validated.', { name: endpoint.name }));
       else pushToast('error', t('Endpoint "{{name}}" validation failed.', { name: endpoint.name }));
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Validation failed.'));
+      const message = err instanceof Error ? err.message : t('Validation failed.');
+      setProbe(current => current.endpoint?.id === endpoint.id ? { ...current, error: message } : current);
     } finally {
       setValidating(null);
     }
@@ -393,7 +398,7 @@ export default function Endpoints() {
             id={`endpoint-${endpoint.id}`}
             items={[
               { label: 'Health', title: 'Show this endpoint\'s uptime, recent check history, latency and last error.', onClick: () => setHealth({ open: true, endpoint }) },
-              ...(canEditRow ? [{ label: validating === endpoint.id ? 'Validating...' : 'Validate', title: 'Send a real request to the configured model with the stored credentials. The provider may bill for it.', onClick: () => handleValidate(endpoint) }] : []),
+              ...(canEditRow ? [{ label: 'Validate', disabled: validating !== null, title: 'Send a real request to the configured model with the stored credentials. The provider may bill for it.', onClick: () => handleValidate(endpoint) }] : []),
               ...(canEditRow ? [{ label: 'Edit', title: 'Change this endpoint\'s address, model, credentials, headers and limits.', onClick: () => openEdit(endpoint) }] : []),
               { label: 'View JSON', title: 'Show this endpoint\'s record as JSON. Stored secrets are never included.', onClick: () => setJsonData({ open: true, title: endpoint.name, data: endpoint }) },
               ...(canEditRow ? [{ label: 'Delete', danger: true as const, title: 'Permanently delete this endpoint, its stored secrets and its health history. Anything configured to use it needs another endpoint.', onClick: () => handleDelete(endpoint) }] : []),
@@ -605,11 +610,16 @@ export default function Endpoints() {
       )}
 
       {probe.open && probe.endpoint && (
-        <div className="modal-overlay" onClick={() => setProbe({ open: false, endpoint: null, result: null })}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{t('Validation Result')}</h3>
+        <DialogShell
+          open={probe.open}
+          title={t('Validation Result')}
+          onClose={() => setProbe({ open: false, endpoint: null, result: null, error: null })}
+          footer={<button type="button" className="btn" onClick={() => setProbe({ open: false, endpoint: null, result: null, error: null })}>{t('Close')}</button>}
+        >
             <p><strong>{probe.endpoint.name}</strong> <span className="text-dim mono" style={{ fontSize: '0.78rem' }}>{probe.endpoint.id}</span></p>
-            <dl className="detail-list">
+            {!probe.result && !probe.error && <LoadingIndicator label={t('Validating...')} />}
+            {probe.error && <p role="alert" className="text-danger">{probe.error}</p>}
+            {probe.result && <dl className="detail-list">
               <dt title={t('Whether the validation request succeeded.')}>{t('Result')}</dt>
               <dd><StatusBadge status={probe.result?.success ? 'Healthy' : 'Unhealthy'} /></dd>
               <dt title={t('How long the validation request took, in milliseconds.')}>{t('Latency')}</dt>
@@ -618,12 +628,8 @@ export default function Endpoints() {
               {probe.result?.embeddingDimensions != null && (<><dt title={t('Length of the vector the embedding endpoint returned.')}>{t('Dimensions')}</dt><dd>{probe.result.embeddingDimensions}</dd></>)}
               {probe.result?.sampleText && (<><dt title={t('The start of the text the model returned.')}>{t('Sample')}</dt><dd className="mono" style={{ whiteSpace: 'pre-wrap' }}>{probe.result.sampleText}</dd></>)}
               {probe.result?.error && (<><dt>{t('Error')}</dt><dd className="text-danger">{probe.result.error}</dd></>)}
-            </dl>
-            <div className="modal-actions">
-              <button type="button" className="btn" onClick={() => setProbe({ open: false, endpoint: null, result: null })}>{t('Close')}</button>
-            </div>
-          </div>
-        </div>
+            </dl>}
+        </DialogShell>
       )}
 
       {health.open && health.endpoint && (

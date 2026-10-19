@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as client from '../api/client';
@@ -48,6 +48,52 @@ async function openEdit() {
   fireEvent.click(await screen.findByText('tunnel-ollama', { selector: 'strong' }));
   return await screen.findByRole('heading', { name: 'Edit Endpoint' });
 }
+
+const PROBE = { success: true, baseUrl: STORED.baseUrl, latencyMs: 42, statusCode: 200, error: null, embeddingDimensions: null, sampleText: 'pong', timestampUtc: '2026-10-19T00:00:00Z' };
+
+async function startValidation() {
+  render(<MemoryRouter><Endpoints /></MemoryRouter>);
+  await screen.findByText('tunnel-ollama', { selector: 'strong' });
+  fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Validate' }));
+  return screen.getByRole('dialog', { name: 'Validation Result' });
+}
+
+describe('Endpoint validation progress', () => {
+  it('opens immediately with progress and replaces it with the result', async () => {
+    let resolve!: (result: typeof PROBE) => void;
+    vi.mocked(client.validateModelEndpoint).mockImplementation(() => new Promise(done => { resolve = done; }));
+    const dialog = await startValidation();
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Validating...');
+    expect(within(dialog).queryByText('Unhealthy')).not.toBeInTheDocument();
+    expect(client.validateModelEndpoint).toHaveBeenCalledWith('mep_1');
+    await act(async () => resolve(PROBE));
+    expect(within(dialog).queryByText('Validating...')).not.toBeInTheDocument();
+    expect(within(dialog).getByText('pong')).toBeInTheDocument();
+    expect(within(dialog).getByText('42 ms')).toBeInTheDocument();
+  });
+
+  it('shows request errors in the validation dialog', async () => {
+    let reject!: (error: Error) => void;
+    vi.mocked(client.validateModelEndpoint).mockImplementation(() => new Promise((_, fail) => { reject = fail; }));
+    const dialog = await startValidation();
+    await act(async () => reject(new Error('Provider timed out')));
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Provider timed out');
+    expect(within(dialog).queryByText('Validating...')).not.toBeInTheDocument();
+  });
+
+  it('keeps the menu label stable and does not reopen a dismissed dialog', async () => {
+    let resolve!: (result: typeof PROBE) => void;
+    vi.mocked(client.validateModelEndpoint).mockImplementation(() => new Promise(done => { resolve = done; }));
+    const dialog = await startValidation();
+    fireEvent.click(within(dialog).getAllByRole('button', { name: 'Close' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Validate' })).toBeDisabled();
+    await act(async () => resolve(PROBE));
+    expect(screen.queryByRole('dialog', { name: 'Validation Result' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Validate' })).toBeEnabled();
+  });
+});
 
 describe('Endpoints authentication', () => {
   it.each(['OllamaCloud', 'XAI'])('saves %s with bearer credentials and its URL rules', async (provider) => {

@@ -304,6 +304,23 @@ namespace Test.Shared.Suites.Services
                     }
                 }
             }));
+            cases.Add(CaseAsync("priority_specific_api_endpoint", "Specific API endpoint wins over another API captain", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                Captain other = await AddCaptainAsync(testDb.Driver, "other-api", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                Captain selected = await AddCaptainAsync(testDb.Driver, "selected-api", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                other.Runtime = AgentRuntimeEnum.ApiEndpoint; other.ModelEndpointId = "mep_other";
+                selected.Runtime = AgentRuntimeEnum.ApiEndpoint; selected.ModelEndpointId = "mep_selected";
+                await testDb.Driver.Captains.UpdateAsync(other).ConfigureAwait(false);
+                await testDb.Driver.Captains.UpdateAsync(selected).ConfigureAwait(false);
+                Persona persona = new Persona("SpecificApiRole", "persona.worker");
+                persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ApiEndpoint, Endpoint = "mep_selected" });
+                await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+                Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, persona.Name, null, null).ConfigureAwait(false);
+                AssertTrue(await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false));
+                AssertEqual(selected.Id, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.CaptainId);
+            }));
             cases.Add(CaseAsync("priority_busy_falls_through", "priority busy falls through", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -33,7 +33,7 @@ namespace Armada.Core.Services
                 if (priority.Endpoint?.Length > _MatchValueMaximumLength) return field + ".Endpoint must not exceed 1024 characters";
                 if (priority.Model != null && String.IsNullOrWhiteSpace(priority.Model)) return field + ".Model must not be blank";
                 if (priority.Endpoint != null && String.IsNullOrWhiteSpace(priority.Endpoint)) return field + ".Endpoint must not be blank";
-                if (priority.Endpoint != null && priority.Runtime != AgentRuntimeEnum.Mux) return field + ".Endpoint requires Runtime Mux";
+                if (priority.Endpoint != null && priority.Runtime != AgentRuntimeEnum.Mux && priority.Runtime != AgentRuntimeEnum.ApiEndpoint) return field + ".Endpoint requires Runtime Mux or ApiEndpoint";
                 if (priority.Runtime == null && priority.Model == null && priority.Endpoint == null && priority.MinimumTier == null)
                     return field + " requires at least one matching field";
             }
@@ -51,11 +51,18 @@ namespace Armada.Core.Services
             if (priority.Model != null && !String.Equals(priority.Model, captain.Model, StringComparison.OrdinalIgnoreCase)) return false;
             if (priority.Endpoint != null)
             {
-                if (captain.Runtime != AgentRuntimeEnum.Mux) return false;
-                MuxCaptainOptions? options;
-                try { options = CaptainRuntimeOptions.Deserialize<MuxCaptainOptions>(captain.RuntimeOptionsJson); }
-                catch (JsonException) { return false; }
-                if (!String.Equals(priority.Endpoint, options?.Endpoint, StringComparison.OrdinalIgnoreCase)) return false;
+                if (priority.Runtime == AgentRuntimeEnum.ApiEndpoint)
+                {
+                    if (captain.Runtime != AgentRuntimeEnum.ApiEndpoint || !String.Equals(priority.Endpoint, captain.ModelEndpointId, StringComparison.Ordinal)) return false;
+                }
+                else
+                {
+                    if (captain.Runtime != AgentRuntimeEnum.Mux) return false;
+                    MuxCaptainOptions? options;
+                    try { options = CaptainRuntimeOptions.Deserialize<MuxCaptainOptions>(captain.RuntimeOptionsJson); }
+                    catch (JsonException) { return false; }
+                    if (!String.Equals(priority.Endpoint, options?.Endpoint, StringComparison.OrdinalIgnoreCase)) return false;
+                }
             }
             return true;
         }

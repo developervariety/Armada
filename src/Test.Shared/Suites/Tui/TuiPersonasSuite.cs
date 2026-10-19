@@ -128,6 +128,30 @@ namespace Test.Shared.Suites.Tui
                 }
             }));
 
+            cases.Add(TuiCase.Sync(Suite, "specific_api_endpoint_picker", "Persona priority picker selects a specific API endpoint", () =>
+            {
+                StubHttpHandler stub = Server();
+                stub.Json("GET", "/api/v1/model-endpoints", "[{\"Id\":\"mep_one\",\"Name\":\"First API\",\"Kind\":\"Inference\",\"Provider\":\"XAI\"},{\"Id\":\"mep_embed\",\"Name\":\"Embedding only\",\"Kind\":\"Embedding\"}]");
+                using TuiTestHost host = TuiEntityFixtures.Open(stub, "/configuration?tab=personas");
+                PersonasScreen screen = TuiEntityFixtures.Screen<PersonasScreen>(host);
+                TuiEntityFixtures.WaitFor(host, () => screen.Grid.Rows.Count == 2, "rows");
+                host.Press("n");
+                FormDialog form = TuiConfigTestHelpers.Dialog(host, "Create Persona");
+                var priorities = TuiConfigTestHelpers.Field<RecordListField<Armada.Core.Models.PersonaCaptainPriority>>(form, "Captain priorities");
+                priorities.AddNew();
+                TuiEntityFixtures.WaitFor(host, () => host.App.Modals.Top is FormDialog top && top != form, "priority picker");
+                FormDialog picker = (FormDialog)host.App.Modals.Top!;
+                var runtime = TuiConfigTestHelpers.Field<SelectField<string>>(picker, "Runtime");
+                AssertTrue(runtime.Options.Any(o => o.Value == "endpoint:mep_one"));
+                AssertFalse(runtime.Options.Any(o => o.Value == "endpoint:mep_embed"));
+                runtime.Choose(runtime.Options.First(o => o.Value == "endpoint:mep_one"));
+                host.Press("ctrl+s");
+                TuiEntityFixtures.WaitFor(host, () => priorities.Items.Count == 1, "priority added");
+                AssertEqual(Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint, priorities.Items[0].Runtime);
+                AssertEqual("mep_one", priorities.Items[0].Endpoint);
+                host.Press("esc");
+            }));
+
             cases.Add(TuiCase.Sync(Suite, "detail_builtin_prompt_save_and_reset", "Built-in persona detail: no Delete; Save Prompt and Reset to Default with confirmation", () =>
             {
                 StubHttpHandler stub = Server();

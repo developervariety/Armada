@@ -1,14 +1,15 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocale } from '../../context/LocaleContext';
 import { CAPTAIN_TIERS } from '../../lib/captainForm';
-import { PERSONA_PRIORITY_RUNTIMES } from '../../lib/personaPriorities';
+import { personaPriorityTargets, priorityTarget, priorityTargetPatch } from '../../lib/personaPriorities';
 import type { PersonaRoutingForm } from '../../lib/personaPriorities';
-import type { PersonaCaptainPriority } from '../../types/models';
+import { listModelEndpoints } from '../../api/client';
+import type { ModelEndpoint, PersonaCaptainPriority } from '../../types/models';
 
 const RUNTIME_TIP = 'Match only captains with this runtime, for example Codex. Any matches every runtime.';
 const TIER_TIP = 'Match only captains at or above this tier (Economy, Standard, Premium). A captain\'s set tier wins over the tier guessed from its model. Any matches every tier.';
 const MODEL_TIP = 'Match only captains whose Model is exactly this, ignoring case, for example gpt-5.4-mini. No wildcards. Blank matches any model.';
-const ENDPOINT_TIP = 'Mux only: match captains that use this exact mux endpoint name, ignoring case, for example local. Blank matches any endpoint.';
+const ENDPOINT_TIP = 'For Mux, match an endpoint name ignoring case. For API Endpoint, choose a specific configured inference endpoint.';
 const AVAILABILITY_TIP = 'Try lower priorities: if no captain in a priority is idle, try the next one. Wait for the first priority: only ever use priority 1 and keep missions Pending until one is free.';
 const EXHAUSTION_TIP = 'When no priority has a free captain: Wait keeps the mission Pending and retries later; Use any eligible captain falls back to normal persona and tier routing. Not used when waiting for the first priority.';
 
@@ -17,6 +18,20 @@ interface Props { value: PersonaRoutingForm; onChange: (value: PersonaRoutingFor
 export default function PersonaPriorityEditor({ value, onChange }: Props) {
   const { t } = useLocale();
   const [newRuntime, setNewRuntime] = useState('Codex');
+  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
+  const [endpointError, setEndpointError] = useState(false);
+  useEffect(() => {
+    let active = true;
+    Promise.resolve().then(() => listModelEndpoints()).then(items => { if (active) setEndpoints(items ?? []); }).catch(() => { if (active) setEndpointError(true); });
+    return () => { active = false; };
+  }, []);
+  const targets = personaPriorityTargets(endpoints);
+  const rowTargets = (priority: PersonaCaptainPriority) => {
+    const selected = priorityTarget(priority);
+    return selected && !targets.some(target => target.value === selected)
+      ? [...targets, { value: selected, label: priority.runtime === 'ApiEndpoint' ? `API Endpoint: ${priority.endpoint ?? t('Any')}` : selected }]
+      : targets;
+  };
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const dragged = useRef<number | null>(null);
@@ -35,6 +50,7 @@ export default function PersonaPriorityEditor({ value, onChange }: Props) {
     <legend title={t('Ordered list of captain classes this persona\'s missions go to. Each entry matches captains on all the fields it sets. Leave it empty to use the default captain and normal routing.')}>{t('Captain priorities')}</legend>
     <p className="text-dim">{t('Priorities run from top to bottom. Empty lists use the default captain routing.')}</p>
     <p className="text-dim persona-priority-help">{t('Drag to reorder, or use the arrows or position menu.')}</p>
+    {endpointError && <p role="alert" className="text-danger">{t('Failed to load endpoints.')}</p>}
     <div className="persona-priority-list">
       {value.captainPriorities.map((priority, index) => <fieldset
         className={`persona-priority-class${dropTarget === index ? ' persona-priority-drop-target' : ''}`} key={index}
@@ -59,22 +75,28 @@ export default function PersonaPriorityEditor({ value, onChange }: Props) {
           </div>
         </div>
         <div className="persona-priority-fields">
-          <label title={t(RUNTIME_TIP)}>{t('Runtime')}<select aria-label={t('Runtime')} title={t(RUNTIME_TIP)} value={priority.runtime ?? ''} onChange={e => update(index, { runtime: e.target.value || null, endpoint: e.target.value === 'Mux' ? priority.endpoint : null })}>
-            <option value="">{t('Any')}</option>{PERSONA_PRIORITY_RUNTIMES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+          <label title={t(RUNTIME_TIP)}>{t('Runtime')}<select aria-label={t('Runtime')} title={t(RUNTIME_TIP)} value={priorityTarget(priority)} onChange={e => update(index, priorityTargetPatch(e.target.value, priority))}>
+            <option value="">{t('Any')}</option>{rowTargets(priority).map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select></label>
           <label title={t(TIER_TIP)}>{t('Minimum tier')}<select aria-label={t('Minimum tier')} title={t(TIER_TIP)} value={priority.minimumTier ?? ''} onChange={e => update(index, { minimumTier: e.target.value || null })}>
             <option value="">{t('Any')}</option>{CAPTAIN_TIERS.map(tier => <option key={tier} value={tier}>{t(tier)}</option>)}
           </select></label>
           <label title={t(MODEL_TIP)}>{t('Model')}<input maxLength={1024} title={t(MODEL_TIP)} placeholder={t('Any')} value={priority.model ?? ''} onChange={e => update(index, { model: e.target.value || null })} /></label>
-          <label title={t(ENDPOINT_TIP)}>{t('Endpoint')}<input maxLength={1024} title={t(ENDPOINT_TIP)} disabled={priority.runtime !== 'Mux'} placeholder={priority.runtime === 'Mux' ? t('Any') : t('Mux only')} value={priority.endpoint ?? ''} onChange={e => update(index, { endpoint: e.target.value || null })} /></label>
+          <label title={t(ENDPOINT_TIP)}>{t('Endpoint')}{priority.runtime === 'ApiEndpoint'
+            ? <select aria-label={t('Endpoint')} value={priority.endpoint ?? ''} onChange={e => update(index, { endpoint: e.target.value || null })}>
+              <option value="">{t('Any')}</option>
+              {endpoints.filter(e => e.kind === 'Inference').map(e => <option key={e.id} value={e.id}>{e.name} ({e.provider}{e.model ? ` / ${e.model}` : ''})</option>)}
+              {priority.endpoint && !endpoints.some(e => e.kind === 'Inference' && e.id === priority.endpoint) && <option value={priority.endpoint}>{priority.endpoint}</option>}
+            </select>
+            : <input maxLength={1024} title={t(ENDPOINT_TIP)} disabled={priority.runtime !== 'Mux'} placeholder={priority.runtime === 'Mux' ? t('Any') : t('Mux only')} value={priority.endpoint ?? ''} onChange={e => update(index, { endpoint: e.target.value || null })} />}</label>
         </div>
       </fieldset>)}
     </div>
     <div className="persona-priority-add">
       <label title={t('Runtime the next added priority starts with. You can change it and add more fields after adding.')}>{t('Runtime for new priority')}<select title={t('Runtime the next added priority starts with. You can change it and add more fields after adding.')} value={newRuntime} onChange={e => setNewRuntime(e.target.value)}>
-        {PERSONA_PRIORITY_RUNTIMES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+        {targets.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
       </select></label>
-      <button type="button" className="btn" title={t('Add a priority for the chosen runtime at the bottom of the list, so it is tried last.')} onClick={() => onChange({ ...value, captainPriorities: [...value.captainPriorities, { runtime: newRuntime }] })}>{t('Add priority')}</button>
+      <button type="button" className="btn" title={t('Add a priority for the chosen runtime at the bottom of the list, so it is tried last.')} onClick={() => onChange({ ...value, captainPriorities: [...value.captainPriorities, priorityTargetPatch(newRuntime)] })}>{t('Add priority')}</button>
     </div>
     <div className="persona-priority-policies">
       <label title={t(AVAILABILITY_TIP)}>{t('When a priority is unavailable')}<select title={t(AVAILABILITY_TIP)} value={value.priorityAvailability} onChange={e => onChange({ ...value, priorityAvailability: e.target.value as PersonaRoutingForm['priorityAvailability'] })}>

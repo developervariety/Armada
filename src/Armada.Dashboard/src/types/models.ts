@@ -2527,6 +2527,8 @@ export interface PromptTemplate {
   lastUpdateUtc: string;
 }
 
+/** Ordered captain matcher. For ApiEndpoint, endpoint is the exact managed inference endpoint ID;
+ * for Mux it is a case-insensitive endpoint name. Other runtimes cannot set endpoint. */
 export interface PersonaCaptainPriority {
   runtime?: string | null;
   model?: string | null;

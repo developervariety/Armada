@@ -4514,7 +4514,7 @@ Create a custom persona.
     "description": { "type": "string", "description": "Persona description" },
     "promptTemplateName": { "type": "string", "description": "Name of the prompt template to use for this persona" },
     "defaultCaptainId": { "type": "string", "description": "Optional default (preferred) captain id (cpt_ prefix) for this persona" },
-    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Named Mux endpoint; requires runtime Mux" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
+    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
     "priorityAvailability": { "type": "string", "enum": ["FallThrough", "WaitForFirstPriority"] },
     "priorityExhaustion": { "type": "string", "enum": ["Wait", "UseEligibleCaptain"] }
   },
@@ -4574,7 +4574,7 @@ Update persona properties.
     "description": { "type": "string", "description": "New persona description" },
     "promptTemplateName": { "type": "string", "description": "New prompt template name" },
     "defaultCaptainId": { "type": "string", "description": "Default (preferred) captain id (cpt_ prefix) for this persona; empty string clears it" },
-    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Named Mux endpoint; requires runtime Mux" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
+    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
     "priorityAvailability": { "type": "string", "enum": ["FallThrough", "WaitForFirstPriority"] },
     "priorityExhaustion": { "type": "string", "enum": ["Wait", "UseEligibleCaptain"] }
   },

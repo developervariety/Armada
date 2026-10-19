@@ -73,6 +73,27 @@ namespace Test.Shared.Suites.Services
                 captain.Runtime = AgentRuntimeEnum.Codex;
                 AssertFalse(PersonaCaptainPrioritySelector.Matches(priority, captain));
             }));
+            cases.Add(Case("api_endpoint_exact_identity_and_policies", () =>
+            {
+                PersonaCaptainPriority priority = new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ApiEndpoint, Endpoint = "mep_Selected" };
+                Captain selected = new Captain("selected", AgentRuntimeEnum.ApiEndpoint) { ModelEndpointId = "mep_Selected", Model = "same-model" };
+                Captain other = new Captain("other", AgentRuntimeEnum.ApiEndpoint) { ModelEndpointId = "mep_other", Model = "same-model" };
+                Persona persona = new Persona("EndpointRole", "persona.worker") { CaptainPriorities = new List<PersonaCaptainPriority> { priority, new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex } } };
+                AssertNull(PersonaCaptainPrioritySelector.Validate(persona));
+                AssertTrue(PersonaCaptainPrioritySelector.Matches(priority, selected));
+                AssertFalse(PersonaCaptainPrioritySelector.Matches(priority, other));
+                AssertEqual(selected.Id, PersonaCaptainPrioritySelector.Select(persona, new[] { other, selected })?.Id);
+                selected.ModelEndpointId = "mep_selected";
+                AssertFalse(PersonaCaptainPrioritySelector.Matches(priority, selected));
+                selected.ModelEndpointId = "mep_Selected";
+                selected.Runtime = AgentRuntimeEnum.Mux;
+                AssertFalse(PersonaCaptainPrioritySelector.Matches(priority, selected));
+                Captain fallback = new Captain("fallback", AgentRuntimeEnum.Codex);
+                AssertEqual(fallback.Id, PersonaCaptainPrioritySelector.Select(persona, new[] { other, fallback })?.Id);
+                persona.PriorityAvailability = PersonaPriorityAvailabilityEnum.WaitForFirstPriority;
+                AssertNull(PersonaCaptainPrioritySelector.Select(persona, new[] { other, fallback }));
+                AssertTrue(PersonaCaptainPrioritySelector.Matches(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ApiEndpoint }, other));
+            }));
             cases.Add(Case("model_and_tier_only_classes", () =>
             {
                 Captain captain = new Captain("captain", AgentRuntimeEnum.Gemini) { Model = "example", Tier = CaptainTierEnum.Premium };
@@ -173,18 +194,20 @@ namespace Test.Shared.Suites.Services
                     persona.PriorityAvailability = PersonaPriorityAvailabilityEnum.WaitForFirstPriority;
                     persona.PriorityExhaustion = PersonaPriorityExhaustionEnum.UseEligibleCaptain;
                     persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Mux, Endpoint = "local", Model = "gpt-oss:120b", MinimumTier = CaptainTierEnum.Economy });
+                    persona.CaptainPriorities.Insert(0, new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.ApiEndpoint, Endpoint = "mep_selected" });
                     await db.Driver.Personas.CreateAsync(persona, token).ConfigureAwait(false);
                     Persona read = (await db.Driver.Personas.ReadAsync(persona.Id, token).ConfigureAwait(false))!;
-                    AssertEqual(3, read.CaptainPriorities.Count);
-                    AssertEqual(AgentRuntimeEnum.Codex, read.CaptainPriorities[0].Runtime);
-                    AssertEqual("local", read.CaptainPriorities[2].Endpoint);
-                    AssertEqual("gpt-oss:120b", read.CaptainPriorities[2].Model);
-                    AssertEqual(CaptainTierEnum.Economy, read.CaptainPriorities[2].MinimumTier);
+                    AssertEqual(4, read.CaptainPriorities.Count);
+                    AssertEqual("mep_selected", read.CaptainPriorities[0].Endpoint);
+                    AssertEqual(AgentRuntimeEnum.Codex, read.CaptainPriorities[1].Runtime);
+                    AssertEqual("local", read.CaptainPriorities[3].Endpoint);
+                    AssertEqual("gpt-oss:120b", read.CaptainPriorities[3].Model);
+                    AssertEqual(CaptainTierEnum.Economy, read.CaptainPriorities[3].MinimumTier);
                     AssertEqual(persona.PriorityAvailability, read.PriorityAvailability);
                     AssertEqual(persona.PriorityExhaustion, read.PriorityExhaustion);
-                    AssertEqual(3, (await db.Driver.Personas.ReadByNameAsync(persona.Name, token).ConfigureAwait(false))!.CaptainPriorities.Count);
-                    AssertEqual(3, (await db.Driver.Personas.EnumerateAsync(token).ConfigureAwait(false)).Single(p => p.Id == persona.Id).CaptainPriorities.Count);
-                    AssertEqual(3, (await db.Driver.Personas.EnumerateAsync(new EnumerationQuery(), token).ConfigureAwait(false)).Objects.Single(p => p.Id == persona.Id).CaptainPriorities.Count);
+                    AssertEqual(4, (await db.Driver.Personas.ReadByNameAsync(persona.Name, token).ConfigureAwait(false))!.CaptainPriorities.Count);
+                    AssertEqual(4, (await db.Driver.Personas.EnumerateAsync(token).ConfigureAwait(false)).Single(p => p.Id == persona.Id).CaptainPriorities.Count);
+                    AssertEqual(4, (await db.Driver.Personas.EnumerateAsync(new EnumerationQuery(), token).ConfigureAwait(false)).Objects.Single(p => p.Id == persona.Id).CaptainPriorities.Count);
                     read.CaptainPriorities.Reverse();
                     await db.Driver.Personas.UpdateAsync(read, token).ConfigureAwait(false);
                     AssertEqual(AgentRuntimeEnum.Mux, (await db.Driver.Personas.ReadAsync(persona.Id, token).ConfigureAwait(false))!.CaptainPriorities[0].Runtime);

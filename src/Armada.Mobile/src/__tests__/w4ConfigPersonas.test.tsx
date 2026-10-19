@@ -34,6 +34,11 @@ beforeEach(async () => {
   jest.clearAllMocks();
   api.listPersonas.mockResolvedValue(page([persona(), persona({ id: 'prs_2', name: 'Mine', isBuiltIn: false, scope: 'UserSpecific', promptTemplateName: 'persona.worker' })]) as never);
   api.listPromptTemplates.mockResolvedValue(page([TEMPLATE, { ...TEMPLATE, id: 'ptp_2', name: 'persona.worker' }]) as never);
+  api.listModelEndpoints.mockResolvedValue([
+    { id: 'mep_one', name: 'First API', provider: 'XAI', model: 'same-model', kind: 'Inference' },
+    { id: 'mep_two', name: 'Second API', provider: 'XAI', model: 'same-model', kind: 'Inference' },
+    { id: 'mep_embed', name: 'Embeddings only', provider: 'XAI', kind: 'Embedding' },
+  ] as never);
   api.listCaptains.mockResolvedValue(page([{ id: 'cpt_1', name: 'Ada' }]) as never);
   api.listWorkflowProfiles.mockResolvedValue(page([]) as never);
   api.listFleets.mockResolvedValue(page([]) as never);
@@ -41,6 +46,39 @@ beforeEach(async () => {
 });
 
 describe('Configuration > Personas', () => {
+  it('creates a persona with a specific API endpoint priority', async () => {
+    api.createPersona.mockResolvedValue(persona({ name: 'Reviewer' }));
+    await renderW4Routes(ROUTES, '/configuration?tab=personas');
+    await screen.findByTestId('persona-row-Architect');
+    await fireEvent.press(screen.getByTestId('personas-create'));
+    await fireEvent.changeText(screen.getByTestId('persona-form-name'), 'Reviewer');
+    await fireEvent.press(screen.getByTestId('persona-form-promptTemplateName'));
+    await fireEvent.press(screen.getByTestId('persona-form-promptTemplateName-option-persona.worker'));
+    await fireEvent.press(screen.getByTestId('persona-form-priorities'));
+    const sheet = await screen.findByTestId('persona-priorities');
+    await fireEvent.press(within(sheet).getByRole('button', { name: 'Runtime for new priority' }));
+    await fireEvent.press(await screen.findByRole('radio', { name: 'API Endpoint: First API (XAI / same-model)' }));
+    expect(screen.queryByRole('radio', { name: /Embeddings only/ })).toBeNull();
+    await fireEvent.press(within(sheet).getByText('Add priority'));
+    await act(async () => { await fireEvent.press(within(sheet).getByText('Save')); });
+    await act(async () => { await fireEvent.press(screen.getByTestId('persona-form-submit')); });
+    expect(api.createPersona).toHaveBeenCalledWith(expect.objectContaining({ captainPriorities: [{ runtime: 'ApiEndpoint', endpoint: 'mep_one' }] }));
+  });
+
+  it('edits the specific API endpoint in an existing priority', async () => {
+    api.getPersona.mockResolvedValue(persona({ captainPriorities: [{ runtime: 'ApiEndpoint', endpoint: 'mep_one' }] }));
+    api.getPromptTemplate.mockResolvedValue(TEMPLATE);
+    api.updatePersona.mockResolvedValue(persona());
+    await renderW4Routes(ROUTES, '/personas/Architect');
+    await screen.findByTestId('persona-title');
+    await fireEvent.press(screen.getByText('Captain priorities'));
+    const sheet = await screen.findByTestId('persona-priorities');
+    await fireEvent.press(within(sheet).getByRole('button', { name: 'Runtime' }));
+    await fireEvent.press(await screen.findByRole('radio', { name: 'API Endpoint: Second API (XAI / same-model)' }));
+    await act(async () => { await fireEvent.press(within(sheet).getByText('Save')); });
+    expect(api.updatePersona).toHaveBeenCalledWith('Architect', expect.objectContaining({ captainPriorities: [{ runtime: 'ApiEndpoint', endpoint: 'mep_two' }] }));
+  });
+
   it('lists personas and creates one with the chosen template (personal for regular users)', async () => {
     api.createPersona.mockResolvedValue(persona({ name: 'Reviewer' }));
     await renderW4Routes(ROUTES, '/configuration?tab=personas', 'user');

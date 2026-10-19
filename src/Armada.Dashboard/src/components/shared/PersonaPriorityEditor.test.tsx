@@ -1,7 +1,15 @@
 import { useState } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import PersonaPriorityEditor from './PersonaPriorityEditor';
+import { listModelEndpoints } from '../../api/client';
+
+vi.mock('../../api/client', () => ({ listModelEndpoints: vi.fn() }));
+beforeEach(() => vi.mocked(listModelEndpoints).mockResolvedValue([
+  { id: 'mep_one', name: 'First API', kind: 'Inference', provider: 'XAI', model: 'same-model' },
+  { id: 'mep_two', name: 'Second API', kind: 'Inference', provider: 'XAI', model: 'same-model' },
+  { id: 'mep_embed', name: 'Embeddings only', kind: 'Embedding', provider: 'XAI' },
+] as never));
 import { personaRoutingForm, validatePersonaPriorities, type PersonaRoutingForm } from '../../lib/personaPriorities';
 
 vi.mock('../../context/LocaleContext', () => ({ useLocale: () => ({ t: (text: string, params?: Record<string, unknown>) => text.replace('{{number}}', String(params?.number ?? '')) }) }));
@@ -14,6 +22,28 @@ function Harness({ initial = personaRoutingForm() }: { initial?: PersonaRoutingF
 function payload(): PersonaRoutingForm { return JSON.parse(screen.getByTestId('payload').textContent!); }
 
 describe('Persona priority editor', () => {
+  it('adds a specific inference endpoint as a first-class target and edits its identity', async () => {
+    render(<Harness />);
+    await screen.findByRole('option', { name: 'API Endpoint: First API (XAI / same-model)' });
+    expect(screen.queryByRole('option', { name: /Embeddings only/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'API Endpoint' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Runtime for new priority'), { target: { value: 'endpoint:mep_one' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add priority' }));
+    expect(payload().captainPriorities[0]).toEqual({ runtime: 'ApiEndpoint', endpoint: 'mep_one' });
+    fireEvent.change(screen.getByLabelText('Runtime'), { target: { value: 'endpoint:mep_two' } });
+    expect(payload().captainPriorities[0].endpoint).toBe('mep_two');
+    fireEvent.change(screen.getByLabelText('Runtime'), { target: { value: 'Codex' } });
+    expect(payload().captainPriorities[0]).toMatchObject({ runtime: 'Codex', endpoint: null });
+  });
+
+  it('preserves an existing API endpoint while options load, including a removed endpoint', async () => {
+    render(<Harness initial={personaRoutingForm({ captainPriorities: [{ runtime: 'ApiEndpoint', endpoint: 'mep_removed' }] })} />);
+    expect(screen.getByLabelText('Runtime')).toHaveValue('endpoint:mep_removed');
+    await screen.findAllByRole('option', { name: /First API/ });
+    expect(screen.getByLabelText('Endpoint')).toHaveValue('mep_removed');
+    expect(validatePersonaPriorities(payload().captainPriorities)).toBeNull();
+  });
+
   it('adds, edits, reorders, and removes structured classes', () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: 'Add priority' }));

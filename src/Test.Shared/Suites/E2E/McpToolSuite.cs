@@ -50,11 +50,12 @@ namespace Test.Shared.Suites.E2E
                 JsonElement created = await CallToolAsync(fx.McpClient, session, "create_persona", new
                 {
                     name, promptTemplateName = "persona.worker",
-                    captainPriorities = new object[] { new { runtime = "Codex", minimumTier = "Premium" }, new { runtime = "Mux", endpoint = "test", model = "gpt-oss:120b" } },
+                    captainPriorities = new object[] { new { runtime = "Codex", minimumTier = "Premium" }, new { runtime = "ApiEndpoint", endpoint = "mep_specific" } },
                     priorityAvailability = "WaitForFirstPriority", priorityExhaustion = "UseEligibleCaptain"
                 }).ConfigureAwait(false);
                 Persona persona = JsonHelper.Deserialize<Persona>(GetToolResultText(created));
                 AssertEqual(2, persona.CaptainPriorities.Count);
+                AssertEqual("mep_specific", persona.CaptainPriorities[1].Endpoint);
                 AssertEqual(PersonaPriorityAvailabilityEnum.WaitForFirstPriority, persona.PriorityAvailability);
                 JsonElement updated = await CallToolAsync(fx.McpClient, session, "update_persona", new { name, description = "changed" }).ConfigureAwait(false);
                 AssertEqual(2, JsonHelper.Deserialize<Persona>(GetToolResultText(updated)).CaptainPriorities.Count);

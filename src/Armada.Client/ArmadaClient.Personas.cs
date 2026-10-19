@@ -12,6 +12,7 @@ namespace Armada.Client
 
     /// <summary>
     /// Personas API calls (dashboard <c>api/client.ts</c> parity).
+    /// CaptainPriorities accepts Runtime ApiEndpoint with Endpoint set to an exact managed inference endpoint ID.
     /// </summary>
     public partial class ArmadaClient
     {

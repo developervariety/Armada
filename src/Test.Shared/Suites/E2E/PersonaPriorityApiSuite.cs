@@ -27,7 +27,7 @@ namespace Test.Shared.Suites.E2E
                     using (StringContent content = JsonHelper.ToJsonContent(new
                     {
                         name, promptTemplateName = "persona.worker",
-                        captainPriorities = new object[] { new { runtime = "Mux", endpoint = "test", model = "gpt-oss:120b", minimumTier = "Economy" }, new { runtime = "Codex" } },
+                        captainPriorities = new object[] { new { runtime = "Mux", endpoint = "test", model = "gpt-oss:120b", minimumTier = "Economy" }, new { runtime = "ApiEndpoint", endpoint = "mep_specific" } },
                         priorityAvailability = "FallThrough", priorityExhaustion = "Wait"
                     }))
                     using (HttpResponseMessage response = await fixture.AuthClient.PostAsync("/api/v1/personas", content, token).ConfigureAwait(false))
@@ -36,11 +36,13 @@ namespace Test.Shared.Suites.E2E
                         Persona persona = JsonHelper.Deserialize<Persona>(await response.Content.ReadAsStringAsync(token).ConfigureAwait(false));
                         AssertEqual(2, persona.CaptainPriorities.Count);
                         AssertEqual(AgentRuntimeEnum.Mux, persona.CaptainPriorities[0].Runtime);
+                        AssertEqual("mep_specific", persona.CaptainPriorities[1].Endpoint);
                     }
                     await PutAsync(fixture.AuthClient, name, new { description = "unrelated edit" }, HttpStatusCode.OK, token).ConfigureAwait(false);
                     Persona preserved = await ReadAsync(fixture.AuthClient, name, token).ConfigureAwait(false);
                     AssertEqual(2, preserved.CaptainPriorities.Count);
                     AssertEqual("test", preserved.CaptainPriorities[0].Endpoint);
+                    AssertEqual("mep_specific", preserved.CaptainPriorities[1].Endpoint);
                     await PutAsync(fixture.AuthClient, name, new { captainPriorities = new object[] { new { } } }, HttpStatusCode.BadRequest, token).ConfigureAwait(false);
                     await PutAsync(fixture.AuthClient, name, new { captainPriorities = new object[] { new { runtime = "Codex", endpoint = "test" } } }, HttpStatusCode.BadRequest, token).ConfigureAwait(false);
                     await PutAsync(fixture.AuthClient, name, new { priorityAvailability = 999 }, HttpStatusCode.BadRequest, token).ConfigureAwait(false);

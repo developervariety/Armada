@@ -15,6 +15,8 @@ import { useNotifications } from '../../notifications/NotificationContext';
 import { ALL, useReference } from '../../resource/lookups';
 import { errorText, useLoad, useReloadOnFocus } from '../../resource/useLoad';
 import { personaPath, scopeBadge, scopeField, scopeValue, templateOptions, useViewer } from './common';
+import { personaRoutingForm, type PersonaRoutingForm } from '@dashboard/lib/personaPriorities';
+import { PersonaPrioritySheet } from './PersonaPrioritySheet';
 import { PersonaDetailView } from './PersonaDetail';
 
 /**
@@ -36,6 +38,14 @@ export function PersonasTab() {
   const [search, setSearch] = useState('');
   const [state, setState] = useState('all');
   const [editing, setEditing] = useState<Persona | 'new' | null>(null);
+  const [routing, setRouting] = useState<PersonaRoutingForm>(() => personaRoutingForm());
+  const [routingTouched, setRoutingTouched] = useState(false);
+  const [priorityEditing, setPriorityEditing] = useState(false);
+  function openForm(persona: Persona | 'new') {
+    setRouting(personaRoutingForm(persona === 'new' ? undefined : persona));
+    setRoutingTouched(false);
+    setEditing(persona);
+  }
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -96,7 +106,7 @@ export function PersonasTab() {
             { label: t('Built-in'), value: personas.filter((p) => p.isBuiltIn).length },
             { label: t('Active'), value: personas.filter((p) => p.active).length },
           ]} />
-          <Button label={t('Persona')} icon="add" onPress={() => setEditing('new')} style={resourceStyles.create} testID="personas-create" />
+          <Button label={t('Persona')} icon="add" onPress={() => openForm('new')} style={resourceStyles.create} testID="personas-create" />
         </>
       )}
       emptyTitle={personas.length > 0 ? t('No personas match the current filters.') : t('No personas configured.')}
@@ -112,7 +122,7 @@ export function PersonasTab() {
             selected={selection.selected === p.name}
             onPress={() => selection.open(p.name)}
             actions={[
-              ...(editable ? [{ key: 'edit', label: t('Edit'), icon: 'create-outline' as const, onPress: () => setEditing(p) }] : []),
+              ...(editable ? [{ key: 'edit', label: t('Edit'), icon: 'create-outline' as const, onPress: () => openForm(p) }] : []),
               { key: 'duplicate', label: t('Duplicate'), icon: 'copy-outline' as const, onPress: () => void duplicate(p) },
               { key: 'prompt', label: t('Edit Backing Prompt'), icon: 'document-text-outline' as const, onPress: () => router.push(`/prompt-templates/${encodeURIComponent(p.promptTemplateName)}` as Href) },
               ...(!p.isBuiltIn && editable ? [{ key: 'delete', label: t('Delete'), icon: 'trash-outline' as const, tone: 'danger' as const, onPress: () => remove(p) }] : []),
@@ -140,6 +150,7 @@ export function PersonasTab() {
           { kind: 'multiline', key: 'description', label: t('Description'), placeholder: t('Optional description of this persona...') },
           { kind: 'select', key: 'promptTemplateName', label: t('Prompt Template Name'), required: true, placeholder: t('Select a template...'), options: templateOptions(t, templateNames) },
           scopeField(t, viewer),
+          { kind: 'action', key: 'priorities', label: t('Captain priorities'), apply: values => { setPriorityEditing(true); return values; } },
         ]}
         validate={(v) => (str(v, 'promptTemplateName') ? null : t('{{field}} is required.', { field: t('Prompt Template Name') }))}
         submitLabel={t('Save')}
@@ -147,6 +158,7 @@ export function PersonasTab() {
         onSubmit={async (v) => {
           const payload: Partial<Persona> = { name: str(v, 'name'), promptTemplateName: str(v, 'promptTemplateName'), scope: scopeValue(viewer, v, editing && editing !== 'new' ? editing.scope : null) };
           if (str(v, 'description')) payload.description = str(v, 'description');
+          if (routingTouched) Object.assign(payload, routing);
           if (editing && editing !== 'new') await updatePersona(editing.name, payload);
           else await createPersona(payload);
           pushToast('success', editing && editing !== 'new' ? t('Persona "{{name}}" saved.', { name: editing.name }) : t('Persona "{{name}}" created.', { name: str(v, 'name') }));
@@ -154,6 +166,7 @@ export function PersonasTab() {
           await reload();
         }}
       />
+      {priorityEditing && <PersonaPrioritySheet persona={routing} onClose={() => setPriorityEditing(false)} onSave={async value => { setRouting(value); setRoutingTouched(true); }} />}
       {dialog}
     </>
   );

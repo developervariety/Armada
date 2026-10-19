@@ -10,7 +10,7 @@ Set `captainPriorities` on a persona through REST, MCP, or its configuration edi
 |---|---|
 | `runtime` | Exact Armada runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint, or Custom |
 | `model` | Exact captain model identifier, ignoring case (maximum 1024 characters); no wildcard or substring matching |
-| `endpoint` | Exact named Mux endpoint, ignoring case (maximum 1024 characters); requires `runtime: Mux` |
+| `endpoint` | For `runtime: Mux`, an exact endpoint name ignoring case. For `runtime: ApiEndpoint`, the exact, case-sensitive managed inference endpoint ID (`mep_...`), matched against `Captain.ModelEndpointId`. Maximum 1024 characters. Other runtimes cannot set this field. |
 | `minimumTier` | Minimum effective Economy, Standard, or Premium tier; explicit captain tier overrides model classification |
 
 For example, a persona can prefer Codex, then Claude Code, then a Mux endpoint. Reverse the entries to prefer Mux. Model and endpoint fields select already-configured captains; routing does not modify their launch configuration. Configure the Mux captain's model and `RuntimeOptionsJson.endpoint` separately.
@@ -18,6 +18,7 @@ For example, a persona can prefer Codex, then Claude Code, then a Mux endpoint. 
 ```json
 {
   "captainPriorities": [
+    { "runtime": "ApiEndpoint", "endpoint": "mep_your_grok_endpoint" },
     { "runtime": "Codex", "minimumTier": "Premium" },
     { "runtime": "ClaudeCode", "minimumTier": "Premium" },
     { "runtime": "Mux", "endpoint": "local", "model": "gpt-oss:120b" }
@@ -25,6 +26,29 @@ For example, a persona can prefer Codex, then Claude Code, then a Mux endpoint. 
   "priorityAvailability": "FallThrough",
   "priorityExhaustion": "Wait"
 }
+```
+
+## Select a specific API endpoint
+
+Create an Inference model endpoint under Configuration > Endpoints, then configure an API Endpoint captain with that endpoint (`ModelEndpointId`). In persona create/edit, the priority target picker lists each visible inference endpoint by name, provider, and model alongside the CLI harnesses. Select the endpoint directly. Embedding endpoints are excluded. Dashboard, mobile (including the create/edit form's Captain priorities action), and TUI editors preserve its ID when saving, reordering, or duplicating priorities.
+
+REST, MCP, and the TypeScript and .NET clients use the same contract:
+
+```json
+{ "runtime": "ApiEndpoint", "endpoint": "mep_your_grok_endpoint" }
+```
+
+This matches only captains bound to that endpoint, even if another endpoint uses the same provider and model. Renaming an endpoint does not change its identity. A deleted or unavailable endpoint remains an explicit criterion and follows the availability/exhaustion policy; it is never silently replaced by another API endpoint. Legacy `{ "runtime": "ApiEndpoint" }` entries still match any API captain. `Model` remains an optional constraint on the captain's explicit model override; it does not resolve the endpoint's default model. Routing selects configured captains and does not create a captain or change its launch configuration.
+
+The .NET SDK uses the shared `PersonaCaptainPriority` model:
+
+```csharp
+persona.CaptainPriorities.Add(new PersonaCaptainPriority
+{
+    Runtime = AgentRuntimeEnum.ApiEndpoint,
+    Endpoint = inferenceEndpoint.Id
+});
+await client.UpdatePersonaAsync(persona.Name, persona);
 ```
 
 ## Busy classes and exhausted hierarchies

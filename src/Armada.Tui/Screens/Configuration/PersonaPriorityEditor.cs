@@ -2,6 +2,7 @@ namespace Armada.Tui.Screens.Configuration
 {
     using System;
     using System.Linq;
+    using System.Collections.Generic;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -60,11 +61,26 @@ namespace Armada.Tui.Screens.Configuration
 
         private static void Edit(TuiContext context, PersonaCaptainPriority? priority, Action<PersonaCaptainPriority> done)
         {
+            EntityUi.Run(context, ct => context.Client.ListModelEndpointsAsync(ct), endpoints => EditLoaded(context, priority, done, endpoints ?? new List<ModelEndpoint>()), "Failed to load endpoints.");
+        }
+
+        private static void EditLoaded(TuiContext context, PersonaCaptainPriority? priority, Action<PersonaCaptainPriority> done, List<ModelEndpoint> endpoints)
+        {
             EntityForm form = new EntityForm(context);
-            SelectField<string> runtime = form.Select("Runtime", Enum.GetNames<AgentRuntimeEnum>().Select(v => new SelectOption<string>(v, v)).ToList(), priority?.Runtime?.ToString(), "Any");
+            List<SelectOption<string>> targets = Enum.GetNames<AgentRuntimeEnum>().Where(v => v != "ApiEndpoint").Select(v => new SelectOption<string>(v, v)).ToList();
+            targets.AddRange(endpoints.Where(e => e.Kind == ModelEndpointKindEnum.Inference).Select(e => new SelectOption<string>("endpoint:" + e.Id, "API Endpoint: " + e.Name + " (" + e.Provider + " / " + e.Model + ")")));
+            string? selected = priority?.Runtime == AgentRuntimeEnum.ApiEndpoint && priority.Endpoint != null ? "endpoint:" + priority.Endpoint : priority?.Runtime?.ToString();
+            if (selected != null && !targets.Any(t => t.Value == selected)) targets.Add(new SelectOption<string>(selected, "API Endpoint: " + (priority?.Endpoint ?? "Any")));
+            SelectField<string> runtime = form.Select("Runtime", targets, selected, "Any");
             InputField model = form.Text("Model", priority?.Model);
-            InputField endpoint = form.Text("Endpoint", priority?.Endpoint, "", false, "An endpoint requires the Mux runtime.");
+            InputField endpoint = form.Text("Endpoint", priority?.Endpoint, "", false, "Mux endpoint name, or choose a specific API endpoint in Runtime.");
             SelectField<string> tier = form.Select("Minimum tier", Enum.GetNames<CaptainTierEnum>().Select(v => new SelectOption<string>(v, context.Loc.T(v))).ToList(), priority?.MinimumTier?.ToString(), "Any");
+            void SyncTarget()
+            {
+                endpoint.Visible = runtime.Value == "Mux";
+            }
+            runtime.ValueChanged += (s, e) => SyncTarget();
+            SyncTarget();
             form.MarkClean();
             PersonaCaptainPriority? result = null;
             EntityUi.ShowForm(context, "Captain priorities", form, "Save", token =>
@@ -72,9 +88,9 @@ namespace Armada.Tui.Screens.Configuration
                 token.ThrowIfCancellationRequested();
                 PersonaCaptainPriority candidate = new PersonaCaptainPriority
                 {
-                    Runtime = Enum.TryParse(runtime.Value, out AgentRuntimeEnum parsedRuntime) ? parsedRuntime : null,
+                    Runtime = runtime.Value?.StartsWith("endpoint:", StringComparison.Ordinal) == true ? AgentRuntimeEnum.ApiEndpoint : Enum.TryParse(runtime.Value, out AgentRuntimeEnum parsedRuntime) ? parsedRuntime : null,
                     Model = EntityUi.Blank(model.Value),
-                    Endpoint = EntityUi.Blank(endpoint.Value),
+                    Endpoint = runtime.Value?.StartsWith("endpoint:", StringComparison.Ordinal) == true ? runtime.Value.Substring("endpoint:".Length) : runtime.Value == "Mux" ? EntityUi.Blank(endpoint.Value) : null,
                     MinimumTier = Enum.TryParse(tier.Value, out CaptainTierEnum parsedTier) ? parsedTier : null
                 };
                 Persona validation = new Persona();
