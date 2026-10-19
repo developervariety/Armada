@@ -78,6 +78,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- `GetMission_ReturnsAllProperties` accepts a mission the scheduler assigned
+  before the read, so it no longer fails when a captain is idle.
 - A downstream stage reads the complete report of every earlier stage its brief
   cites. The full redacted output is written to `_briefing/handoff/<mission id>.md`
   in the dock, with the digest the brief states, and the handoff preview names

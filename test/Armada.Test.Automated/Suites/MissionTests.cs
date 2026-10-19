@@ -267,7 +267,11 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual("Full Read", fetched.Title);
                 AssertEqual("Full desc", fetched.Description);
                 AssertEqual(42, fetched.Priority);
-                AssertEqual(MissionStatusEnum.Pending, fetched.Status);
+                // The scheduler may assign the new mission to an idle captain before this read.
+                AssertTrue(fetched.Status == MissionStatusEnum.Pending
+                    || fetched.Status == MissionStatusEnum.Assigned
+                    || fetched.Status == MissionStatusEnum.InProgress,
+                    "a new mission reads as not yet finished, got " + fetched.Status);
             });
 
             #endregion
