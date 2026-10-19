@@ -696,7 +696,30 @@ cite files inside them), a folder idle that many days is removed whole. A folder
 never touched. When free space on the log volume is below
 `diskLifecycle.lowSpaceThresholdGb` (default 20; `0` turns it off), the pass
 runs in low-space mode and uses `diskLifecycle.lowSpacePayloadRetentionHours`
-(default 6) for that payload. The report carries `FreeBytes` and `LowSpace`.
+(default 6) for that payload, logs a warning naming the free bytes and the
+threshold, and records a `disk_lifecycle.low_space` event. The report carries
+`FreeBytes` and `LowSpace`.
+
+`diskLifecycle.extraRetentionRoots` keeps operator directories outside
+Armada's own storage bounded, such as a folder of deploy database dumps or
+rehearsal scratch folders. Each entry names an absolute `path`, a
+`retentionHours` (default 72) and a `keepNewest` count (default 3); the list is
+empty by default. Each root is its own `extraRoot:<folder name>` category, and
+each direct child of the root (file or folder) is one item, aged by the newest
+write of any file inside it. A child is reclaimable when it is idle past
+`retentionHours` and is not among the `keepNewest` most recently written
+children. A child holding an `.armada-keep` file and a symlinked child are
+never touched, and the root itself is never removed. A path that is empty, not
+absolute, a filesystem root or a symlink is refused and named in `Errors`.
+
+```json
+"diskLifecycle": {
+  "extraRetentionRoots": [
+    { "path": "<backup-dir>", "retentionHours": 72, "keepNewest": 3 },
+    { "path": "<operator-scratch-dir>", "retentionHours": 72, "keepNewest": 0 }
+  ]
+}
+```
 `action=reconcile` additionally purges stale sibling-worktree leases and, only
 when `diskLifecycle.enabled` is true and `diskLifecycle.dryRun` is false,
 deletes eligible items. Lease reconciliation takes each lease's lock, drops a

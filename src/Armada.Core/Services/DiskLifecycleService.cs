@@ -172,6 +172,14 @@ namespace Armada.Core.Services
             report.FreeBytes = FreeBytesProbe(_Settings.LogDirectory);
             long lowSpaceBytes = (long)section.LowSpaceThresholdGb * 1024L * 1024L * 1024L;
             report.LowSpace = lowSpaceBytes > 0 && report.FreeBytes >= 0 && report.FreeBytes < lowSpaceBytes;
+            if (report.LowSpace)
+            {
+                // Low-space mode only shortens evidence payload retention; most of a full disk can sit
+                // outside the owned categories, so the operator is told rather than left to find out.
+                _Logging.Warn(_Header + "low disk space: " + FormatBytes(report.FreeBytes) + " free on the log volume, below the "
+                    + section.LowSpaceThresholdGb + " GB threshold; running in low-space mode");
+                await EmitLowSpaceEventAsync(report.FreeBytes, section.LowSpaceThresholdGb, token).ConfigureAwait(false);
+            }
 
             if (OnPassStarted != null)
                 await OnPassStarted(token).ConfigureAwait(false);
@@ -197,6 +205,7 @@ namespace Armada.Core.Services
                 await ScanTempArtifacts(section, delete, report, token).ConfigureAwait(false);
                 await ScanBackups(section, delete, report, token).ConfigureAwait(false);
                 await ScanOperatorEvidence(section, delete, report, token).ConfigureAwait(false);
+                await ScanExtraRetentionRoots(section, delete, report, token).ConfigureAwait(false);
                 ScanBareRepos(report);
             }
             catch (Exception ex)
@@ -800,6 +809,126 @@ namespace Armada.Core.Services
             report.Categories.Add(category);
         }
 
+        // Operator directories outside Armada's own storage (deploy dumps, rehearsal scratch) are kept
+        // bounded per configured root. Each direct child is one item, aged by the newest write anywhere
+        // inside it; the newest children and any child holding the keep marker are never touched.
+        private async Task ScanExtraRetentionRoots(DiskLifecycleSettings section, bool delete, DiskLifecycleReport report, CancellationToken token)
+        {
+            foreach (DiskLifecycleRetentionRoot configured in section.ExtraRetentionRoots)
+            {
+                if (token.IsCancellationRequested) break;
+                if (configured == null) continue;
+                await ScanExtraRetentionRoot(configured, delete, report, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task ScanExtraRetentionRoot(DiskLifecycleRetentionRoot configured, bool delete, DiskLifecycleReport report, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(configured.Path) || !Path.IsPathRooted(configured.Path))
+            {
+                RecordError("extra retention root skipped: path is empty or not absolute: '" + configured.Path + "'");
+                return;
+            }
+
+            string root = Path.GetFullPath(configured.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string leaf = Path.GetFileName(root);
+            if (String.IsNullOrEmpty(leaf))
+            {
+                RecordError("extra retention root skipped: a filesystem root cannot be a retention root: " + configured.Path);
+                return;
+            }
+
+            DiskLifecycleCategory category = NewCategory("extraRoot:" + leaf);
+            if (!Directory.Exists(root))
+            {
+                report.Categories.Add(category);
+                return;
+            }
+
+            if (IsSymlink(root))
+            {
+                RecordError("extra retention root skipped: the root is a symlink: " + root);
+                report.Categories.Add(category);
+                return;
+            }
+
+            DateTime cutoff = DateTime.UtcNow.AddHours(-configured.RetentionHours);
+            List<DiskLifecycleRetentionItem> items = new List<DiskLifecycleRetentionItem>();
+            foreach (string candidate in SafeEnumerateFileSystemEntries(root))
+            {
+                if (token.IsCancellationRequested) break;
+
+                string full = Path.GetFullPath(candidate);
+                if (IsSymlink(full))
+                {
+                    RecordAction(report, category, full, "skipped", "symlink");
+                    continue;
+                }
+
+                if (!String.Equals(Path.GetDirectoryName(full), root, StringComparison.Ordinal))
+                {
+                    RecordAction(report, category, full, "skipped", "not a direct child of the retention root");
+                    continue;
+                }
+
+                bool isDirectory = Directory.Exists(full);
+                DiskLifecycleRetentionItem item = new DiskLifecycleRetentionItem
+                {
+                    Path = full,
+                    IsDirectory = isDirectory,
+                    Bytes = isDirectory ? SafeGetDirectoryBytes(full) : SafeGetFileBytes(full),
+                    NewestWriteUtc = isDirectory ? NewestWriteTimeUtc(full, DateTime.MaxValue) : SafeGetFileLastWriteTimeUtc(full),
+                    Kept = isDirectory && File.Exists(Path.Combine(full, _KeepMarkerFile))
+                };
+                category.TotalBytes += item.Bytes;
+                category.TotalItems++;
+                items.Add(item);
+            }
+
+            items.Sort((a, b) => b.NewestWriteUtc.CompareTo(a.NewestWriteUtc));
+            int newestKept = 0;
+            string reason = "idle past " + configured.RetentionHours + " hours (newest " + configured.KeepNewest + " kept)";
+            foreach (DiskLifecycleRetentionItem item in items)
+            {
+                if (token.IsCancellationRequested) break;
+
+                if (item.Kept)
+                {
+                    category.ProtectedItems++;
+                    continue;
+                }
+
+                if (newestKept < configured.KeepNewest)
+                {
+                    newestKept++;
+                    category.ProtectedItems++;
+                    continue;
+                }
+
+                if (item.NewestWriteUtc > cutoff)
+                {
+                    category.ProtectedItems++;
+                    continue;
+                }
+
+                category.ReclaimableBytes += item.Bytes;
+                category.ReclaimableItems++;
+                if (delete)
+                {
+                    bool removed = item.IsDirectory
+                        ? await RemoveDirectorySafeAsync(item.Path, token).ConfigureAwait(false)
+                        : await RemoveFileSafeAsync(item.Path, token).ConfigureAwait(false);
+                    RecordAction(report, category, item.Path, removed ? "reclaimed" : "skipped", removed ? reason : "removal failed");
+                }
+                else
+                {
+                    RecordAction(report, category, item.Path, "dry-run-reclaim", reason);
+                }
+            }
+
+            report.Categories.Add(category);
+        }
+
         private void ScanBareRepos(DiskLifecycleReport report)
         {
             DiskLifecycleCategory category = NewCategory(_CategoryBareRepos);
@@ -946,6 +1075,14 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrWhiteSpace(extra))
                 {
                     roots.Add(Path.GetFullPath(extra.Trim()));
+                }
+            }
+
+            foreach (DiskLifecycleRetentionRoot retentionRoot in _Settings.DiskLifecycle.ExtraRetentionRoots)
+            {
+                if (retentionRoot != null && Path.IsPathRooted(retentionRoot.Path))
+                {
+                    roots.Add(Path.GetFullPath(retentionRoot.Path));
                 }
             }
             return roots;
@@ -1196,6 +1333,29 @@ namespace Armada.Core.Services
             }
         }
 
+        private async Task EmitLowSpaceEventAsync(long freeBytes, int thresholdGb, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent
+                {
+                    EventType = "disk_lifecycle.low_space",
+                    EntityType = "system",
+                    Message = "Low disk space: " + FormatBytes(freeBytes) + " free on the log volume, below the " + thresholdGb + " GB threshold",
+                    Payload = JsonSerializer.Serialize(new
+                    {
+                        freeBytes = freeBytes,
+                        thresholdGb = thresholdGb
+                    })
+                };
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record low-space event: " + ex.Message);
+            }
+        }
+
         private static string FormatBytes(long bytes)
         {
             if (bytes < 1024)
@@ -1430,6 +1590,26 @@ namespace Armada.Core.Services
         }
 
         #endregion
+
+        #endregion
+
+        #region Private-Classes
+
+        /// <summary>
+        /// One direct child of an extra retention root, measured once per pass.
+        /// </summary>
+        private sealed class DiskLifecycleRetentionItem
+        {
+            public string Path { get; set; } = String.Empty;
+
+            public bool IsDirectory { get; set; } = false;
+
+            public long Bytes { get; set; } = 0;
+
+            public DateTime NewestWriteUtc { get; set; } = DateTime.MinValue;
+
+            public bool Kept { get; set; } = false;
+        }
 
         #endregion
     }

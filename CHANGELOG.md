@@ -9,6 +9,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- `diskLifecycle.extraRetentionRoots` keeps operator directories outside
+  Armada's own storage bounded. Each entry names a `path`, `retentionHours` and
+  `keepNewest`; each direct child of the path is reclaimed once idle past the
+  retention and outside the newest kept, unless it holds `.armada-keep` or is a
+  symlink. A low-space pass logs a warning and records a
+  `disk_lifecycle.low_space` event. `scripts/common/rebuild-local-image.sh`
+  keeps the newest `ARMADA_RETAINED_KEEP` distinct images plus the running and
+  just-built ones, removes the tags matching `ARMADA_PRUNE_TAG_PATTERNS` from
+  older images, and prunes dangling layers.
 - `preview_objective_dispatch` warns with `objective_text_conflicting_ids`
   when the stored text calls an objective other than the record or its parent
   current, parent or authorizing, and with

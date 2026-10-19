@@ -586,6 +586,144 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("An extra retention root reclaims idle children and keeps the newest, recent and kept ones; a scan deletes nothing", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string root = Path.Combine(layout.Settings.DataDirectory, "operator-dumps");
+                    string newest = CreateRetentionFile(root, "dump-newest.bin", DateTime.UtcNow);
+                    string recent = CreateRetentionFile(root, "dump-recent.bin", DateTime.UtcNow.AddHours(-1));
+                    string oldFile = CreateRetentionFile(root, "dump-old.bin", DateTime.UtcNow.AddDays(-8));
+                    string oldFolder = CreateEvidenceFolder(root, "rehearsal-old", DateTime.UtcNow.AddDays(-9));
+                    string keptFolder = CreateEvidenceFolder(root, "rehearsal-pinned", DateTime.UtcNow.AddDays(-20), keep: true);
+                    layout.Settings.DiskLifecycle.ExtraRetentionRoots.Add(new Armada.Core.Settings.DiskLifecycleRetentionRoot { Path = root, RetentionHours = 72, KeepNewest = 1 });
+
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                    service.FreeBytesProbe = _ => 500L * 1024 * 1024 * 1024;
+
+                    DiskLifecycleReport scan = await service.ScanAsync().ConfigureAwait(false);
+                    DiskLifecycleCategory scanned = scan.Categories.First(c => c.Category == "extraRoot:operator-dumps");
+                    AssertEqual(5, scanned.TotalItems, "Every direct child is one item");
+                    AssertEqual(2, scanned.ReclaimableItems, "The idle file and the idle folder are reclaimable");
+                    AssertEqual(3, scanned.ProtectedItems, "The newest, the recent and the kept child are protected");
+                    AssertTrue(File.Exists(oldFile) && Directory.Exists(oldFolder), "A scan deletes nothing");
+
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    DiskLifecycleReport dryRun = await service.ReconcileAsync().ConfigureAwait(false);
+                    AssertTrue(dryRun.DryRun, "Dry-run settings make reconcile a dry run");
+                    AssertTrue(File.Exists(oldFile) && Directory.Exists(oldFolder), "A dry-run reconcile deletes nothing");
+
+                    layout.Settings.DiskLifecycle.DryRun = false;
+                    DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
+                    AssertFalse(File.Exists(oldFile), "An idle file is removed");
+                    AssertFalse(Directory.Exists(oldFolder), "An idle folder is removed whole");
+                    AssertTrue(File.Exists(newest), "The newest child is kept");
+                    AssertTrue(File.Exists(recent), "A child written inside the retention is kept");
+                    AssertTrue(Directory.Exists(keptFolder), "A child holding the keep marker is kept");
+                    AssertTrue(Directory.Exists(root), "The retention root itself stays");
+                    AssertEqual(2, live.Actions.Count(a => a.Category == "extraRoot:operator-dumps" && a.Disposition == "reclaimed"), "Each removal is recorded");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An extra retention root keeps its newest children even when every child is idle", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string root = Path.Combine(layout.Settings.DataDirectory, "deploy-dumps");
+                    string first = CreateRetentionFile(root, "dump-a.bin", DateTime.UtcNow.AddDays(-30));
+                    string second = CreateRetentionFile(root, "dump-b.bin", DateTime.UtcNow.AddDays(-20));
+                    string third = CreateRetentionFile(root, "dump-c.bin", DateTime.UtcNow.AddDays(-10));
+                    layout.Settings.DiskLifecycle.ExtraRetentionRoots.Add(new Armada.Core.Settings.DiskLifecycleRetentionRoot { Path = root, RetentionHours = 24, KeepNewest = 2 });
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                    service.FreeBytesProbe = _ => 500L * 1024 * 1024 * 1024;
+                    await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertFalse(File.Exists(first), "Only the oldest idle child is removed");
+                    AssertTrue(File.Exists(second) && File.Exists(third), "The two newest children are kept though both are idle");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Fail closed: a symlinked child of an extra retention root is skipped, never deleted", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string root = Path.Combine(layout.Settings.DataDirectory, "scratch-root");
+                    Directory.CreateDirectory(root);
+                    string outsideTarget = CreateEvidenceFolder(layout.Settings.DataDirectory, "outside-target", DateTime.UtcNow.AddDays(-30));
+                    string linkPath = Path.Combine(root, "linked");
+                    try
+                    {
+                        Directory.CreateSymbolicLink(linkPath, outsideTarget);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
+                    AgeLinkItself(linkPath, DateTime.UtcNow.AddDays(-30));
+                    layout.Settings.DiskLifecycle.ExtraRetentionRoots.Add(new Armada.Core.Settings.DiskLifecycleRetentionRoot { Path = root, RetentionHours = 1, KeepNewest = 0 });
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                    service.FreeBytesProbe = _ => 500L * 1024 * 1024 * 1024;
+                    DiskLifecycleReport report = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertTrue(Directory.Exists(linkPath), "A symlinked child is never deleted");
+                    AssertTrue(File.Exists(Path.Combine(outsideTarget, "receipt.json")), "The link target is never deleted");
+                    AssertTrue(report.Actions.Any(a => a.Path == linkPath && a.Disposition == "skipped"), "The symlinked child is recorded as skipped");
+                    AssertEqual(0, report.Categories.First(c => c.Category == "extraRoot:scratch-root").ReclaimableItems, "A symlink is never counted reclaimable");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An extra retention root that is not an absolute path is reported and removes nothing", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    layout.Settings.DiskLifecycle.ExtraRetentionRoots.Add(new Armada.Core.Settings.DiskLifecycleRetentionRoot { Path = "relative-dumps", RetentionHours = 1, KeepNewest = 0 });
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                    service.FreeBytesProbe = _ => 500L * 1024 * 1024 * 1024;
+                    DiskLifecycleReport report = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertTrue(report.Errors.Any(e => e.Contains("relative-dumps", StringComparison.Ordinal)), "The refused root is named in the report errors");
+                    AssertFalse(report.Categories.Any(c => c.Category.StartsWith("extraRoot:", StringComparison.Ordinal)), "A refused root yields no category");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Fail closed: a symlinked dock dir is skipped, never deleted", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -804,6 +942,15 @@ namespace Armada.Test.Unit.Suites.Services
                 Directory.SetLastWriteTimeUtc(directory, writtenUtc);
             Directory.SetLastWriteTimeUtc(folder, writtenUtc);
             return folder;
+        }
+
+        private static string CreateRetentionFile(string root, string name, DateTime writtenUtc)
+        {
+            Directory.CreateDirectory(root);
+            string file = Path.Combine(root, name);
+            File.WriteAllText(file, new string('d', 1024));
+            File.SetLastWriteTimeUtc(file, writtenUtc);
+            return file;
         }
 
         private static void Cleanup(Layout layout)

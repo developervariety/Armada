@@ -186,6 +186,17 @@ namespace Armada.Core.Settings
         /// </summary>
         public List<string> AllowedRoots { get; set; } = new List<string>();
 
+        /// <summary>
+        /// Operator directories outside Armada's own storage whose direct children the reconciler
+        /// keeps bounded, each scanned as its own <c>extraRoot:&lt;folder name&gt;</c> category. Each
+        /// configured path is also an allowed root for removal. Empty by default.
+        /// </summary>
+        public List<DiskLifecycleRetentionRoot> ExtraRetentionRoots
+        {
+            get => _ExtraRetentionRoots;
+            set => _ExtraRetentionRoots = value ?? new List<DiskLifecycleRetentionRoot>();
+        }
+
         #endregion
 
         #region Private-Members
@@ -205,6 +216,7 @@ namespace Armada.Core.Settings
         private int _OperatorEvidenceRetentionDays = 0;
         private int _LowSpaceThresholdGb = 20;
         private int _LowSpacePayloadRetentionHours = 6;
+        private List<DiskLifecycleRetentionRoot> _ExtraRetentionRoots = new List<DiskLifecycleRetentionRoot>();
 
         #endregion
     }

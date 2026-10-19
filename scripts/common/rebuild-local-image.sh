@@ -13,9 +13,14 @@ ARMADA_CLI_REFRESH to a number (for example `date +%s`) to pass it as the
 Dockerfile's CLI_REFRESH build argument, which re-installs the agent CLIs at
 their latest versions.
 
-After a successful build the helper removes retention sets older than the
-newest ARMADA_RETAINED_KEEP (default 3). A set is removed by tag, so an image a
-container still runs, or that another tag names, stays on disk.
+After a successful build the helper keeps the newest ARMADA_RETAINED_KEEP
+(default 3) distinct images of the repository, plus the image the container runs
+and the image just built. From every older image it removes each tag that
+matches ARMADA_PRUNE_TAG_PATTERNS (space-separated shell globs, default
+"armada-retained-* rollback-before-* candidate-* superseded-* refused-*"),
+then removes dangling layers. The mutable tag is never removed. Removal is by
+tag, so an image that a container still uses or that an unmatched tag names
+stays on disk.
 USAGE
 }
 
@@ -47,6 +52,11 @@ case "$RETAINED_KEEP" in
     ''|*[!0-9]*) die "ARMADA_RETAINED_KEEP must be a whole number of at least 1" ;;
 esac
 [ "$RETAINED_KEEP" -ge 1 ] || die "ARMADA_RETAINED_KEEP must be a whole number of at least 1"
+
+PRUNE_TAG_PATTERNS="${ARMADA_PRUNE_TAG_PATTERNS-armada-retained-* rollback-before-* candidate-* superseded-* refused-*}"
+case "$PRUNE_TAG_PATTERNS" in
+    *[!A-Za-z0-9._*\ -]*) die "ARMADA_PRUNE_TAG_PATTERNS may hold only tag characters, '*' and spaces" ;;
+esac
 
 CONTAINER="$1"
 MUTABLE_TAG="$2"
@@ -162,40 +172,74 @@ if [ -n "$CLI_REFRESH_VALUE" ]; then
 fi
 "${DOCKER[@]}" build "${BUILD_ARGS[@]}" --file "$DOCKERFILE" --tag "$MUTABLE_TAG" "$CONTEXT"
 
-# Each rebuild retains two full images, so without a bound the retained sets fill
-# the disk. Keep the newest sets; a failure here leaves the build in place and
-# says what it could not remove.
-prune_retention_sets() {
-    local listed
-    if ! listed="$("${DOCKER[@]}" image ls --format '{{.Tag}}' "$MUTABLE_REPOSITORY" 2>/dev/null)"; then
-        echo "WARN: retention prune skipped: image list failed" >&2
+# Each rebuild retains two full images and operators add their own candidate and
+# rollback tags, so without a bound the images fill the disk. Keep the newest
+# distinct images plus the running and just-built ones; a failure here leaves the
+# build in place and says what it could not remove.
+tag_is_prunable() {
+    local tag="$1"
+    local pattern
+    local -a patterns
+    read -r -a patterns <<< "$PRUNE_TAG_PATTERNS"
+    for pattern in "${patterns[@]}"; do
+        # shellcheck disable=SC2053
+        [[ "$tag" == $pattern ]] && return 0
+    done
+    return 1
+}
+
+prune_old_images() {
+    local built_id
+    if ! built_id="$("${DOCKER[@]}" image inspect --format '{{.Id}}' "$MUTABLE_TAG" 2>/dev/null)"; then
+        echo "WARN: image prune skipped: built image inspect failed" >&2
         return 0
     fi
-    local keys
-    keys="$(printf '%s\n' "$listed" \
-        | sed -n -E 's/^armada-retained-(running|tag)-([0-9]{8}T[0-9]{6}Z-[0-9a-f]{16})$/\2/p' \
-        | sort -r -u)"
+    local listed
+    if ! listed="$("${DOCKER[@]}" image ls --no-trunc --format '{{.ID}} {{.Tag}}' "$MUTABLE_REPOSITORY" 2>/dev/null)"; then
+        echo "WARN: image prune skipped: image list failed" >&2
+        return 0
+    fi
+    local ids
+    ids="$(printf '%s\n' "$listed" | awk 'NF == 2 { print $1 }' | sort -u)"
+    local ordered=""
+    local id
+    local created
+    for id in $ids; do
+        if ! created="$("${DOCKER[@]}" image inspect --format '{{.Created}}' "$id" 2>/dev/null)"; then
+            echo "WARN: image prune skipped: created time of ${id} unreadable" >&2
+            return 0
+        fi
+        ordered+="${created} ${id}"$'\n'
+    done
     local index=0
     local removed=0
     local failed=0
-    local key
-    local kind
-    for key in $keys; do
+    local kept=0
+    local tag
+    for id in $(printf '%s' "$ordered" | sort -r | awk 'NF == 2 { print $2 }'); do
         index=$((index + 1))
-        [ "$index" -gt "$RETAINED_KEEP" ] || continue
-        for kind in running tag; do
-            if printf '%s\n' "$listed" | grep -Fx "armada-retained-${kind}-${key}" >/dev/null; then
-                if "${DOCKER[@]}" image rm "${MUTABLE_REPOSITORY}:armada-retained-${kind}-${key}" >/dev/null 2>&1; then
-                    removed=$((removed + 1))
-                else
-                    failed=$((failed + 1))
-                fi
+        if [ "$index" -le "$RETAINED_KEEP" ] || [ "$id" = "$RUNNING_IMAGE_ID" ] || [ "$id" = "$built_id" ]; then
+            kept=$((kept + 1))
+            continue
+        fi
+        for tag in $(printf '%s\n' "$listed" | awk -v target="$id" '$1 == target { print $2 }'); do
+            [ "${MUTABLE_REPOSITORY}:${tag}" = "$MUTABLE_TAG" ] && continue
+            tag_is_prunable "$tag" || continue
+            if "${DOCKER[@]}" image rm "${MUTABLE_REPOSITORY}:${tag}" >/dev/null 2>&1; then
+                echo "removed_tag=${MUTABLE_REPOSITORY}:${tag} image=${id}"
+                removed=$((removed + 1))
+            else
+                failed=$((failed + 1))
             fi
         done
     done
-    echo "retention_prune kept_sets=${RETAINED_KEEP} removed_tags=${removed} failed_tags=${failed}"
-    [ "$failed" -eq 0 ] || echo "WARN: ${failed} retention tags could not be removed" >&2
+    local dangling="skipped"
+    if [ "$removed" -gt 0 ]; then
+        if "${DOCKER[@]}" image prune -f >/dev/null 2>&1; then dangling="pruned"; else dangling="failed"; fi
+    fi
+    echo "image_prune kept_images=${kept} removed_tags=${removed} failed_tags=${failed} dangling=${dangling}"
+    [ "$failed" -eq 0 ] || echo "WARN: ${failed} image tags could not be removed" >&2
     return 0
 }
 
-prune_retention_sets
+prune_old_images
