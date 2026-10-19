@@ -132,7 +132,8 @@ namespace Armada.Core.Models
         /// <summary>
         /// Optional root-cause notes. The cause is person-written only when
         /// <see cref="RootCauseWrittenBy"/> is set; otherwise it is the automatic text the incident
-        /// was opened with.
+        /// was opened with. A close or rollback by a system path leaves an automatic root cause unset;
+        /// <see cref="OpenedReason"/> keeps that text.
         /// </summary>
         public string? RootCause { get; set; } = null;
 

@@ -323,6 +323,17 @@ namespace Armada.Core.Services
             incident.ClosedUtc = request.ClosedUtc.HasValue ? request.ClosedUtc.Value.ToUniversalTime() : incident.ClosedUtc;
             incident.LastUpdateUtc = DateTime.UtcNow;
 
+            // The text an incident opened with is an automatic reading, not a determined cause. A system
+            // path that closes or rolls back the incident therefore leaves the root cause unset rather than
+            // closing on that text; OpenedReason keeps it.
+            if (automatic
+                && IsTerminal(incident.Status)
+                && incident.RootCauseWrittenBy == null
+                && IsOpenedReasonText(incident.RootCause, incident.OpenedReason))
+            {
+                incident.RootCause = null;
+            }
+
             RegressionLinkRules.RequirePurposeForLinks(incident.RegressionPurpose, incident.RegressionCause, incident.RegressionObjectiveId, incident.RegressionLandedCommit);
             ApplyRootCauseAuthorship(auth, incident, previousStatus, previousRootCause, request.RootCause != null, automatic);
             ApplyLifecycleTimestamps(incident);
@@ -605,6 +616,15 @@ namespace Armada.Core.Services
         {
             incident.RootCauseWrittenBy = Normalize(auth.UserId) ?? Normalize(auth.PrincipalDisplay) ?? Normalize(auth.CredentialId) ?? "unknown";
             incident.RootCauseWrittenUtc = DateTime.UtcNow;
+        }
+
+        private static bool IsOpenedReasonText(string? rootCause, string? openedReason)
+        {
+            if (String.IsNullOrWhiteSpace(rootCause)) return false;
+            return String.Equals(
+                IncidentRootCauseRule.Evaluate(rootCause, openedReason),
+                IncidentRootCauseRule.UnchangedCode,
+                StringComparison.Ordinal);
         }
 
         private static bool IsTerminal(IncidentStatusEnum status)

@@ -158,6 +158,15 @@ upstream integrations and excludes changes already present at that baseline.
   change. The decision reason is `consumer_test_failure_not_rescuable`, and the
   incident names the consumer vessel, its id and the failing consumer tests. A
   failure in the producer's own suite is still rescued.
+- A cancelled rescue leaves its failure's incident open. The incident lifecycle
+  closed the incident as superseded when the latest rescue was cancelled, while
+  the failure still needed recovery. It now keeps the incident's status and adds
+  one recovery note that names the rescue and quotes its cancel reason (for an
+  operator voyage cancel, `Voyage cancelled by operator.`). A cancel of the
+  failed mission itself, or of its own voyage, still supersedes the incident.
+- An automatic incident close or rollback leaves `RootCause` unset when it
+  holds only the text the incident opened with, so a closed incident never
+  shows the opened reason as its root cause. `OpenedReason` keeps that text.
 - A voyage-armed Check waits while a stage that reports Testing or Review is
   still running. A captain reports those statuses as progress and can still
   commit, so a Check that ran then measured a commit the stage replaced, was

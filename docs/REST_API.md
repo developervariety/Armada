@@ -4120,8 +4120,10 @@ cause, or it is refused with `incident_root_cause_required`.
 
 The incident lifecycle and autonomous recovery close incidents without a
 written cause. Such a close or rollback sets `ClosedAutomatically` to `true`,
-and a cause a system path supplies never sets `RootCauseWrittenBy`. The flag
-returns to `false` when the incident leaves `Closed` or `RolledBack`.
+and a cause a system path supplies never sets `RootCauseWrittenBy`. When the
+root cause is still the `OpenedReason` text, the automatic close sets
+`RootCause` to null and `OpenedReason` keeps the text. The flag returns to
+`false` when the incident leaves `Closed` or `RolledBack`.
 
 ```bash
 curl -X PUT http://localhost:7890/api/v1/incidents/inc_abc123 \

@@ -186,6 +186,15 @@ namespace Armada.Server
                 return false;
             }
 
+            if (evidence.Kind == IncidentEvidenceKind.RescueCancelled)
+            {
+                // A cancelled rescue ends one recovery attempt without fixing the failure. The incident
+                // keeps its status, so an Open incident stays Open and a Mitigated one stays as an
+                // operator set it; the sweep records the cancel once and never closes on it.
+                if (ContainsNote(incident.RecoveryNotes, evidence.Note)) return false;
+                return await AppendNoteAsync(auth, incident, evidence.Note, "incident.lifecycle_rescue_cancelled", token).ConfigureAwait(false);
+            }
+
             if (evidence.Kind == IncidentEvidenceKind.Superseded)
             {
                 if (settings.AutoClose && incident.Status != IncidentStatusEnum.Closed)
@@ -391,12 +400,26 @@ namespace Armada.Server
             if (latestRescue.Status == MissionStatusEnum.Complete)
                 return IncidentEvidence.Mitigated("Autonomous rescue mission completed: " + latestRescue.Id + ".");
             if (latestRescue.Status == MissionStatusEnum.Cancelled)
-                return IncidentEvidence.Superseded("Autonomous rescue mission was cancelled and the incident is superseded: " + latestRescue.Id + ".");
+                return IncidentEvidence.RescueCancelled(DescribeRescueCancel(latestRescue));
             if (latestRescue.Status == MissionStatusEnum.Failed
                 || latestRescue.Status == MissionStatusEnum.LandingFailed)
                 return IncidentEvidence.ActiveFailure("Latest rescue mission is " + latestRescue.Status + ": " + latestRescue.Id + ".", latestRescue.CompletedUtc ?? latestRescue.LastUpdateUtc);
 
             return IncidentEvidence.ActiveWork("Latest rescue mission is still " + latestRescue.Status + ": " + latestRescue.Id + ".");
+        }
+
+        /// <summary>
+        /// The note a cancelled rescue leaves on its failure's incident. It names the rescue and quotes the
+        /// cancel reason recorded on it, which names who cancelled it when that is known (an operator's
+        /// voyage cancel records "Voyage cancelled by operator.").
+        /// </summary>
+        private static string DescribeRescueCancel(MissionSummary rescue)
+        {
+            string reason = String.IsNullOrWhiteSpace(rescue.FailureReason)
+                ? "no cancel reason was recorded"
+                : "cancel reason: " + rescue.FailureReason!.Trim();
+            return "Autonomous rescue mission " + rescue.Id + " was cancelled (" + reason + "). "
+                + "A cancelled rescue does not resolve the failure, so the incident is left for an operator to resolve.";
         }
 
         private async Task<CheckRun?> FindSupersedingPassedCheckAsync(
@@ -482,6 +505,28 @@ namespace Armada.Server
             }
 
             await EmitEventAsync(eventType, "Incident " + updated.Id + " moved to " + status + ".", updated, note, token).ConfigureAwait(false);
+            return true;
+        }
+
+        private async Task<bool> AppendNoteAsync(
+            AuthContext auth,
+            Incident incident,
+            string note,
+            string eventType,
+            CancellationToken token)
+        {
+            Incident updated = await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+            {
+                RecoveryNotes = AppendNote(incident.RecoveryNotes, note)
+            }, token).ConfigureAwait(false);
+
+            if (updated.Status != incident.Status)
+            {
+                _Logging.Info(_Header + "incident " + updated.Id + " is " + updated.Status + " since the sweep read it; note skipped");
+                return false;
+            }
+
+            await EmitEventAsync(eventType, "Incident " + updated.Id + " recorded: " + note, updated, note, token).ConfigureAwait(false);
             return true;
         }
 
@@ -646,6 +691,7 @@ namespace Armada.Server
             public static IncidentEvidence Mitigated(string note) => new IncidentEvidence(IncidentEvidenceKind.Mitigated, note);
             public static IncidentEvidence RolledBack(string note) => new IncidentEvidence(IncidentEvidenceKind.RolledBack, note);
             public static IncidentEvidence Superseded(string note) => new IncidentEvidence(IncidentEvidenceKind.Superseded, note);
+            public static IncidentEvidence RescueCancelled(string note) => new IncidentEvidence(IncidentEvidenceKind.RescueCancelled, note);
         }
 
         private enum IncidentEvidenceKind
@@ -655,7 +701,8 @@ namespace Armada.Server
             ActiveFailure,
             Mitigated,
             RolledBack,
-            Superseded
+            Superseded,
+            RescueCancelled
         }
     }
 }

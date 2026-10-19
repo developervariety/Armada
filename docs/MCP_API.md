@@ -1415,7 +1415,8 @@ An accepted cause is stored with its author in `RootCauseWrittenBy` and the
 time in `RootCauseWrittenUtc`. `OpenedReason` keeps the automatic text. A null
 `RootCauseWrittenBy` means that the cause is automatic. A close by the incident
 lifecycle or by autonomous recovery sets `ClosedAutomatically` and never counts
-as person-written.
+as person-written. Such a close leaves `RootCause` null when it still holds the
+`OpenedReason` text.
 
 ## Client Names
 

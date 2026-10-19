@@ -85,9 +85,10 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(closed.ClosedAutomatically, "The lifecycle sweep records its close as automatic.");
                 AssertNull(closed.RootCauseWrittenBy, "The automatic cause is not person-written.");
                 AssertEqual("Automated check command failed or could not run.", closed.OpenedReason);
+                AssertNull(closed.RootCause, "An automatic close never keeps the opened reason as the root cause.");
             }).ConfigureAwait(false);
 
-            await RunTest("Completed rescue mission mitigates linked failed-mission incident", async () =>
+            await RunTest("Completed rescue mission mitigates linked failed-mission incident and the automatic close leaves the root cause unset", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_inc_life_rescue", "usr_inc_life_rescue").ConfigureAwait(false);
@@ -107,19 +108,28 @@ namespace Armada.Test.Unit.Suites.Services
                     Severity = IncidentSeverityEnum.Medium,
                     VesselId = vessel.Id,
                     MissionId = failed.Id,
-                    DetectedUtc = DateTime.UtcNow.AddMinutes(-3)
+                    DetectedUtc = DateTime.UtcNow.AddMinutes(-3),
+                    RootCause = "Unit-test failure."
                 }).ConfigureAwait(false);
 
-                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents);
+                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents, 0);
                 AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false));
 
                 Incident? updated = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
                 AssertTrue(updated != null, "Expected incident.");
                 AssertEqual(IncidentStatusEnum.Mitigated, updated!.Status);
                 AssertContains(rescue.Id, updated.RecoveryNotes ?? "", "Expected rescue evidence in recovery notes.");
+
+                AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false));
+                Incident? closed = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
+                AssertTrue(closed != null, "Expected incident.");
+                AssertEqual(IncidentStatusEnum.Closed, closed!.Status, "A completed rescue closes the incident after the quiet period.");
+                AssertTrue(closed.ClosedAutomatically, "The lifecycle close is automatic.");
+                AssertNull(closed.RootCause, "The automatic close does not copy the opened reason into the root cause.");
+                AssertEqual("Unit-test failure.", closed.OpenedReason, "The opened reason is kept.");
             }).ConfigureAwait(false);
 
-            await RunTest("Cancelled rescue closes linked failed-mission incident as superseded", async () =>
+            await RunTest("Cancelled rescue leaves the failed-mission incident open with a note naming the cancel", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_inc_life_cancelled_rescue", "usr_inc_life_cancelled_rescue").ConfigureAwait(false);
@@ -128,6 +138,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Mission rescue = await CreateMissionAsync(testDb, vessel, MissionStatusEnum.Cancelled, "Rescue 1: Original mission").ConfigureAwait(false);
                 rescue.ParentMissionId = failed.Id;
                 rescue.Description = "Autonomous rescue mission cancelled. <!-- ARMADA:AUTO-RESCUE -->";
+                rescue.FailureReason = VoyageCancellation.OperatorCancelReason;
                 await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
@@ -139,16 +150,43 @@ namespace Armada.Test.Unit.Suites.Services
                     Severity = IncidentSeverityEnum.Medium,
                     VesselId = vessel.Id,
                     MissionId = failed.Id,
-                    DetectedUtc = DateTime.UtcNow.AddMinutes(-3)
+                    DetectedUtc = DateTime.UtcNow.AddMinutes(-3),
+                    RootCause = "Unit-test failure."
                 }).ConfigureAwait(false);
+
+                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents, 0);
+                AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false), "The sweep records the cancel once.");
+
+                Incident? updated = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
+                AssertTrue(updated != null, "Expected incident.");
+                AssertEqual(IncidentStatusEnum.Open, updated!.Status, "A cancelled rescue is not a resolution.");
+                AssertFalse(updated.ClosedUtc.HasValue, "The incident is not closed.");
+                AssertContains(rescue.Id, updated.RecoveryNotes ?? "", "The note names the cancelled rescue.");
+                AssertContains(VoyageCancellation.OperatorCancelReason, updated.RecoveryNotes ?? "", "The note names the cancel and who made it.");
+                AssertEqual("Unit-test failure.", updated.RootCause, "The open incident keeps its opened reason as its unverified root cause.");
+
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "A later sweep neither closes the incident nor repeats the note.");
+                Incident? later = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
+                AssertEqual(IncidentStatusEnum.Open, later!.Status, "The incident stays open across sweeps.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A cancelled voyage of the failed mission still supersedes its incident when its rescue was cancelled too", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_inc_life_own_voyage", "usr_inc_life_own_voyage").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_inc_life_own_voyage", "usr_inc_life_own_voyage").ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                Incident incident = await CreateSupersededIncidentAsync(testDb, incidents, auth, vessel, "Operator-cancelled work").ConfigureAwait(false);
 
                 IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents);
                 AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false));
 
                 Incident? updated = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
                 AssertTrue(updated != null, "Expected incident.");
-                AssertEqual(IncidentStatusEnum.Closed, updated!.Status);
-                AssertContains("superseded", updated.RecoveryNotes ?? "", "Expected superseded evidence in recovery notes.");
+                AssertEqual(IncidentStatusEnum.Closed, updated!.Status, "An operator who cancels the failed mission's own voyage ends the work, so the incident is superseded.");
+                AssertContains("cancelled voyage", updated.RecoveryNotes ?? "", "Expected cancelled-voyage evidence.");
+                AssertNull(updated.RootCause, "The automatic close leaves the root cause unset.");
             }).ConfigureAwait(false);
 
             await RunTest("Cancelled voyage closes landing-failed incident as superseded", async () =>
@@ -580,10 +618,21 @@ namespace Armada.Test.Unit.Suites.Services
             Vessel vessel,
             string title)
         {
+            Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Cancelled voyage: " + title)
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                Status = VoyageStatusEnum.Cancelled,
+                CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+            }).ConfigureAwait(false);
             Mission failed = await CreateMissionAsync(testDb, vessel, MissionStatusEnum.Failed, title).ConfigureAwait(false);
+            failed.VoyageId = voyage.Id;
+            await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
             Mission rescue = await CreateMissionAsync(testDb, vessel, MissionStatusEnum.Cancelled, "Rescue 1: " + title).ConfigureAwait(false);
             rescue.ParentMissionId = failed.Id;
             rescue.Description = "Autonomous rescue mission cancelled. <!-- ARMADA:AUTO-RESCUE -->";
+            rescue.FailureReason = "Autonomous recovery suppressed because parent voyage " + voyage.Id + " is Cancelled.";
             await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
 
             return await incidents.CreateAsync(auth, new IncidentUpsertRequest
@@ -593,7 +642,9 @@ namespace Armada.Test.Unit.Suites.Services
                 Severity = IncidentSeverityEnum.Medium,
                 VesselId = vessel.Id,
                 MissionId = failed.Id,
-                DetectedUtc = DateTime.UtcNow.AddMinutes(-3)
+                VoyageId = voyage.Id,
+                DetectedUtc = DateTime.UtcNow.AddMinutes(-3),
+                RootCause = "Unit-test failure."
             }).ConfigureAwait(false);
         }
 

@@ -204,7 +204,17 @@ When incident lifecycle automation is enabled, newer passing Checks,
 successful rescue missions, shipped releases, verified deployments, and
 completed rollbacks can mitigate or close linked incidents after the quiet
 period. A newer matching failure can reopen an incident. Such a close sets
-`ClosedAutomatically`, and its root cause stays automatic.
+`ClosedAutomatically` and leaves `RootCause` unset when it holds only the
+opened text; `OpenedReason` keeps that text.
+
+A cancelled rescue does not resolve the failure it was dispatched for. When the
+latest rescue of a failed mission is cancelled, the incident keeps its status:
+an Open incident stays Open, and a Mitigated incident stays as the operator set
+it. The lifecycle adds one recovery note that names the rescue and quotes its
+cancel reason, which names who cancelled it when that is known. An operator
+voyage cancel records `Voyage cancelled by operator.` When the failed mission
+itself is cancelled, or its own voyage is cancelled, the incident is superseded
+and closes.
 
 ## 8. Runbooks
 
