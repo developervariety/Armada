@@ -455,13 +455,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
 
@@ -510,13 +504,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     await service.CreateWorktreeAsync(bareDir, worktreeDir, "armada/remove-me", "main").ConfigureAwait(false);
@@ -551,13 +539,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     await service.CreateWorktreeAsync(bareDir, worktreeDir, "armada/remove-me", "main").ConfigureAwait(false);
@@ -604,13 +586,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     await service.CreateWorktreeAsync(bareDir, worktreeDir, "armada/remove-twice", "main").ConfigureAwait(false);
@@ -644,13 +620,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     await service.CreateWorktreeAsync(bareDir, worktreeDir, "armada/stale-reg", "main").ConfigureAwait(false);
@@ -817,13 +787,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
                     await RunGitAsync(sourceDir, "branch", "feature/head-test").ConfigureAwait(false);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
@@ -880,13 +844,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     await RunGitAsync(sourceDir, "checkout", "-b", "armada/captain-1").ConfigureAwait(false);
                     await File.WriteAllTextAsync(Path.Combine(sourceDir, "feature.txt"), "feature\n").ConfigureAwait(false);
@@ -921,13 +879,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     string baseCommit = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
 
@@ -958,13 +910,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     await service.CloneBareAsync(sourceDir, bareDir).ConfigureAwait(false);
 
@@ -996,13 +942,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     string sourceHead = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
 
@@ -1159,13 +1099,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     await RunGitAsync(bareDir, "branch", "armada/existing", "main").ConfigureAwait(false);
@@ -1271,13 +1205,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     await service.CloneBareAsync(sourceDir, bareDir).ConfigureAwait(false);
                     await service.CreateWorktreeAsync(bareDir, worktreeDir, "armada/feature", "main").ConfigureAwait(false);
@@ -1317,13 +1245,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(rootDir);
-                    await RunGitAsync(rootDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(rootDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(rootDir);
 
                     await RunGitAsync(rootDir, "checkout", "--orphan", "armada/orphan").ConfigureAwait(false);
                     await RunGitAsync(rootDir, "rm", "-rf", ".").ConfigureAwait(false);
@@ -1353,13 +1275,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(rootDir);
-                    await RunGitAsync(rootDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(rootDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(rootDir);
                     await File.WriteAllTextAsync(Path.Combine(rootDir, "README.md"), "hello\nuncommitted edit\n").ConfigureAwait(false);
 
                     string? diff = null;
@@ -1393,13 +1309,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(rootDir);
-                    await RunGitAsync(rootDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(rootDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(rootDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(rootDir);
 
                     ChangedPathsRead read = await ((IGitService)service).GetChangedFilePathsAgainstBaseAsync(rootDir, "no-such-base").ConfigureAwait(false);
 
@@ -1812,13 +1722,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
 
@@ -1858,13 +1762,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 try
                 {
-                    Directory.CreateDirectory(sourceDir);
-                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    SeedTemplateRepository(sourceDir);
 
                     await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
                     string baseCommit = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
@@ -2105,6 +2003,19 @@ namespace Armada.Test.Unit.Suites.Services
                     try { Directory.Delete(rootDir, true); } catch { }
                 }
             });
+        }
+
+        /// <summary>
+        /// Place an independent repository on branch main with one "Initial commit" adding README.md, and the
+        /// test user configured, at <paramref name="destination"/>. The repository is a copy of the shared
+        /// prepared template moved into place, so no git process runs per case.
+        /// </summary>
+        /// <param name="destination">Directory to create; its parent is created when absent.</param>
+        internal static void SeedTemplateRepository(string destination)
+        {
+            string? parent = Path.GetDirectoryName(destination);
+            if (!String.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+            Directory.Move(global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateWorkingRepoCopy(), destination);
         }
 
         internal static Task<string> RunGitAsync(string workingDirectory, params string[] args)

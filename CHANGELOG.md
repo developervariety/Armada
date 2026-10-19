@@ -97,6 +97,13 @@ upstream integrations and excludes changes already present at that baseline.
   and the automatic check runner name every current holder. A count above 1
   risks false Timeout failures on a host without the capacity for it.
 
+### Changed
+
+- The Git Service and Dock Service unit suites take their base repository
+  (branch `main`, one "Initial commit" adding `README.md`, test user
+  configured) from the shared `TestGitRepoHelper` template, moved into place,
+  instead of running six git commands per case.
+
 ### Removed
 
 - Eleven scripts that nothing referenced: the server bootstrap and

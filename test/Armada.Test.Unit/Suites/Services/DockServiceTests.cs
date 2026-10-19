@@ -40,13 +40,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     try
                     {
-                        Directory.CreateDirectory(sourceDir);
-                        await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                        await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                        GitServiceTests.SeedTemplateRepository(sourceDir);
 
                         string sourceHead = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
 
@@ -843,13 +837,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     try
                     {
-                        Directory.CreateDirectory(sourceDir);
-                        await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                        await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                        GitServiceTests.SeedTemplateRepository(sourceDir);
                         await RunGitAsync(rootDir, "clone", "--bare", sourceDir, remoteDir).ConfigureAwait(false);
 
                         Vessel vessel = new Vessel("anchor-vessel", remoteDir);
@@ -1044,13 +1032,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Process? child = null;
                     try
                     {
-                        Directory.CreateDirectory(sourceDir);
-                        await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                        await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                        GitServiceTests.SeedTemplateRepository(sourceDir);
 
                         Vessel vessel = new Vessel("orphan-vessel", sourceDir);
                         vessel.DefaultBranch = "main";
@@ -1123,13 +1105,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string sourceDir = Path.Combine(rootDir, "source");
                     try
                     {
-                        Directory.CreateDirectory(sourceDir);
-                        await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
-                        await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "hello\n").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
-                        await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                        GitServiceTests.SeedTemplateRepository(sourceDir);
 
                         Vessel vessel = new Vessel("seq-vessel", sourceDir);
                         vessel.DefaultBranch = "main";
