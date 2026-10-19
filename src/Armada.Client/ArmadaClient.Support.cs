@@ -59,6 +59,9 @@ namespace Armada.Client
             JsonNode? node = JsonSerializer.SerializeToNode(data, ArmadaJson.Options);
             JsonObject obj = node as JsonObject ?? new JsonObject();
             if (apiKey != null) obj["apiKey"] = apiKey;
+            // A newly constructed update that does not mention inference settings must preserve the stored policy.
+            // Also honor callers that mutate a nondefault setting through the options getter.
+            if (!data.InferenceOptionsSpecified && !data.InferenceOptions.RequiresPolicySupport) obj.Remove("inferenceOptions");
 
             // Header values are write-only, so the model never serializes them: send the list (values included)
             // only when the caller set it, and otherwise leave it out so the server keeps the stored headers.

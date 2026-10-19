@@ -51,6 +51,66 @@ persona.CaptainPriorities.Add(new PersonaCaptainPriority
 await client.UpdatePersonaAsync(persona.Name, persona);
 ```
 
+## API endpoint captains in pipelines
+
+A persona priority selects a configured captain bound to a particular inference endpoint. The endpoint's `inferenceOptions` apply to every run of that captain, including pipeline stages and Harbor launches. The captain's explicit model override takes precedence over the endpoint's model; it does not override tool restrictions.
+
+Pipeline missions prefer an eligible Harbor and run the API agent loop there, inside the mission's dock. Built-in file and process tools execute on that host against that worktree. Scoped MCP tools call their MCP server, normally the Admiral's mission-scoped Armada MCP service. Tool calls are executed by Armada, rather than by the inference provider. Interactive API captain sessions default to the Admiral unless the endpoint requires a Harbor.
+
+Configure the endpoint in dashboard, mobile, or TUI create/edit, or use the REST/MCP/.NET SDK `inferenceOptions` object:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `toolsEnabled` | `true` | Enable function tools. False sends plain chat without tool definitions or MCP discovery. |
+| `readOnlyTools` | `false` | Only built-in tools classified read-only. Excludes shell, file changes, and all MCP tools because their effects are unclassified. |
+| `mcpToolsEnabled` | `true` | Permit discovery and calls against the launch's scoped MCP server. Does not disable built-in tools. |
+| `allowedTools` | `null` | Exact, case-sensitive names of otherwise permitted tools. `null` permits all eligible tools; `[]` permits none. Maximum 256 distinct names of at most 256 characters. |
+| `maxIterations` | `100` | Maximum model turns per run, from 1 to 1000. Exhaustion exits with failure, so a pipeline cannot treat unfinished work as successful. |
+| `maxTokens` | `null` | Optional output token limit per model turn, 1–10000000; provider/model limits still apply. |
+| `temperature` | `null` | Optional temperature, 0–2; provider/model support still applies. Zero is preserved. |
+| `topP` | `null` | Optional nucleus sampling setting, 0–1. |
+| `requireHarbor` | `false` | Require an eligible Harbor owned by the launching user. Never fall back to execution on the Admiral. |
+
+Null generation values use provider defaults. These controls are for inference execution; embedding operations and health probes do not use the captain's generation limits. Existing endpoints retain their prior defaults after migration. Omitting `inferenceOptions` on update preserves the entire stored object. Supplying the object replaces it, with omitted members taking defaults. REST explicit null resets defaults; MCP callers reset by sending an object with the desired defaults. Blank allowlist text in the editors means all otherwise eligible tools; use Enable tool calls to turn all tools off.
+
+Armada filters definitions before sending them and rejects unadvertised tool names if the model nevertheless returns them. The active run snapshots the endpoint settings; edits apply to subsequent runs. Endpoint policy is an additional restriction on top of existing shell permissions: it cannot grant a command refused by the captain/vessel policy. A Harbor now explicitly applies that resolved shell policy. Approve in Armada for a remote API captain currently falls back to Refuse because that runtime does not advertise a remote permission-prompt bridge; Bypass is still an explicit captain/vessel permission choice. File tools are controlled by endpoint policy and do not trigger individual CLI approval prompts.
+
+Harbors must advertise `api-inference-policy-v1` to run endpoints with nondefault policy or generation settings. Update the Harbor alongside the Admiral. Older Harbors are excluded for these endpoints rather than silently ignoring restrictions. Without `requireHarbor`, ordinary local fallback remains available when the dock can run locally; a dock belonging to a disconnected Harbor stays pending.
+
+Example REST create body (also usable with `create_model_endpoint`):
+
+```json
+{
+  "name": "read-only-grok-reviewer",
+  "kind": "Inference",
+  "provider": "XAI",
+  "baseUrl": "https://api.x.ai",
+  "model": "your-enabled-model",
+  "apiKey": "your-provider-key",
+  "inferenceOptions": {
+    "toolsEnabled": true,
+    "readOnlyTools": true,
+    "mcpToolsEnabled": false,
+    "allowedTools": ["read_file", "grep", "glob", "list_directory"],
+    "maxIterations": 25,
+    "maxTokens": 4096,
+    "temperature": 0,
+    "requireHarbor": true
+  }
+}
+```
+
+The .NET SDK uses the same contract: set `endpoint.InferenceOptions = new InferenceOptions { ReadOnlyTools = true, RequireHarbor = true, MaxIterations = 25 };` before `CreateModelEndpointAsync` or `UpdateModelEndpointAsync`. Dashboard/mobile share the typed `InferenceOptions` model.
+
+### Remaining configuration queue
+
+The following controls remain future work and are not implied by enabling function tools:
+
+- Remote API captain approval prompts over the scoped MCP transport, with cancel/timeout and reconnect handling. Current behavior safely refuses shell calls when approval cannot be requested.
+- Per-tool approval and argument/path/command policies, tool execution deadlines, maximum tool-result size, and an MCP read-only classification contract. The present allowlist controls names, not argument-level permissions or a filesystem sandbox.
+- Per-endpoint retry/backoff and rate/concurrency/cost budgets. Request timeout exists separately as `timeoutMs`; turn limits are now configurable.
+- Provider-specific reasoning effort, structured output/JSON schemas, native hosted tools, parallel calls and tool-choice settings. These require capability negotiation and PolyPrompt support per provider/model rather than assuming all endpoints support them.
+
 ## Busy classes and exhausted hierarchies
 
 `priorityAvailability` defaults to `FallThrough`: Armada selects an eligible idle captain from the first entry with an available match, trying lower entries when earlier ones are busy, missing, quarantined, or otherwise ineligible. `WaitForFirstPriority` considers only the first entry and waits for it, including when no configured captain matches. It never falls through and ignores the exhaustion setting.

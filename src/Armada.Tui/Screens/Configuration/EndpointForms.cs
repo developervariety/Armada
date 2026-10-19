@@ -148,6 +148,16 @@ namespace Armada.Tui.Screens.Configuration
             SyncAuth();
             InputField dimensionality = form.Number("Dimensionality", existing?.Dimensionality ?? 0, 0, 100000);
             InputField timeout = form.Number("Timeout (ms)", existing?.TimeoutMs ?? 120000, 1000, 600000);
+            InferenceOptions inference = existing?.InferenceOptions ?? new InferenceOptions();
+            CheckField toolsEnabled = form.Check("Enable Tool Calls", inference.ToolsEnabled && inference.AllowedTools?.Count != 0);
+            CheckField readOnlyTools = form.Check("Read-only Built-in Tools", inference.ReadOnlyTools);
+            CheckField mcpToolsEnabled = form.Check("Enable Scoped MCP Tools", inference.McpToolsEnabled);
+            CheckField requireHarbor = form.Check("Require Harbor Execution", inference.RequireHarbor);
+            TextAreaField allowedTools = form.Area("Allowed Tools", inference.AllowedTools == null ? "" : String.Join("\n", inference.AllowedTools), 3, false, "Exact tool names, one per line. Blank permits all. Disable tool calls to permit none. Read-only excludes shell, file changes and MCP tools.", ".txt");
+            InputField maxIterations = form.Number("Maximum Model Turns", inference.MaxIterations, 1, 1000);
+            InputField maxTokens = form.Text("Maximum Output Tokens", inference.MaxTokens?.ToString(CultureInfo.InvariantCulture), "Provider default");
+            InputField temperature = form.Text("Temperature", inference.Temperature?.ToString(CultureInfo.InvariantCulture), "Provider default (0–2)");
+            InputField topP = form.Text("Top P", inference.TopP?.ToString(CultureInfo.InvariantCulture), "Provider default (0–1)");
             SelectField<string> scope = form.Scope(existing != null ? existing.Scope : ScopeRules.ResolveCreateScope(context.Session, null));
             CheckField enabled = form.Check("Enabled", existing?.Enabled ?? true);
             form.MarkClean();
@@ -181,6 +191,19 @@ namespace Armada.Tui.Screens.Configuration
                 if (extra == null) return headerError;
 
                 ModelEndpoint payload = new ModelEndpoint();
+                try
+                {
+                    payload.InferenceOptions = new InferenceOptions {
+                        ToolsEnabled = toolsEnabled.Value, ReadOnlyTools = readOnlyTools.Value, McpToolsEnabled = mcpToolsEnabled.Value, RequireHarbor = requireHarbor.Value,
+                        AllowedTools = String.IsNullOrWhiteSpace(allowedTools.Value) ? null : allowedTools.Value.Split(new[] { '\n', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(n => n.Trim()).ToList(),
+                        MaxIterations = EntityForm.IntValue(maxIterations) ?? 100,
+                        MaxTokens = String.IsNullOrWhiteSpace(maxTokens.Value) ? null : Int32.Parse(maxTokens.Value, CultureInfo.InvariantCulture),
+                        Temperature = String.IsNullOrWhiteSpace(temperature.Value) ? null : Double.Parse(temperature.Value, CultureInfo.InvariantCulture),
+                        TopP = String.IsNullOrWhiteSpace(topP.Value) ? null : Double.Parse(topP.Value, CultureInfo.InvariantCulture)
+                    };
+                    payload.InferenceOptions.Validate();
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is FormatException || ex is OverflowException) { return ex.Message; }
                 payload.Name = name.Value.Trim();
                 payload.Kind = k;
                 payload.Provider = p;

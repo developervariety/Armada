@@ -6152,6 +6152,12 @@ To use either for a captain, create an `Inference` endpoint, set the captain run
 
 CLI example: `armada captain add grok-worker --runtime api --model-endpoint <endpoint-id>`.
 
+#### Inference execution controls
+
+Endpoint create/update accepts `inferenceOptions`, returned on reads and shared with the .NET SDK. It controls tool enablement, read-only built-ins, scoped MCP tools, exact tool allowlists, maximum model turns/output tokens, temperature, top P and required Harbor execution. See [API endpoint captains in pipelines](CAPTAIN_ROUTING.md#api-endpoint-captains-in-pipelines) for fields, defaults, validation, examples and remaining configuration gaps.
+
+Omit `inferenceOptions` on PUT to preserve the stored policy. Supplying an object replaces the policy; explicit null resets defaults. Invalid limits or duplicate/blank allowlist names return 400. The policy is snapshotted at launch and travels to the Harbor alongside the resolved endpoint. Nondefault settings require a policy-capable Harbor; `requireHarbor` prevents local fallback.
+
 #### GET /api/v1/model-endpoints
 
 List all model endpoints in the caller scope. This route returns a plain array, **not** a paginated `EnumerationResult` envelope.

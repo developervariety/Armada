@@ -2751,7 +2751,21 @@ export interface ModelEndpointHealthRecord {
   success: boolean;
 }
 
+export interface InferenceOptions {
+  toolsEnabled: boolean;
+  readOnlyTools: boolean;
+  mcpToolsEnabled: boolean;
+  /** Null permits all otherwise eligible tools; [] permits none. Names are case sensitive. */
+  allowedTools: string[] | null;
+  maxIterations: number;
+  maxTokens: number | null;
+  temperature: number | null;
+  topP: number | null;
+  requireHarbor: boolean;
+}
+
 export interface ModelEndpoint {
+  inferenceOptions?: InferenceOptions;
   id: string;
   tenantId: string | null;
   userId: string | null;

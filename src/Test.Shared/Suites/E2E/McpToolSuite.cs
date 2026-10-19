@@ -42,6 +42,35 @@ namespace Test.Shared.Suites.E2E
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("endpoint_inference_policy_roundtrip", "MCP inference policy create, omitted update, explicit reset and invalid limit rejection", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                string session = await InitMcpSessionAsync(fx.McpClient).ConfigureAwait(false);
+                JsonElement created = await CallToolAsync(fx.McpClient, session, "create_model_endpoint", new {
+                    name = "policy-" + Guid.NewGuid().ToString("N"), baseUrl = "http://127.0.0.1:9", provider = "OpenAICompatible", kind = "Inference",
+                    inferenceOptions = new { toolsEnabled = false, readOnlyTools = true, mcpToolsEnabled = false, allowedTools = new[] { "read_file" }, requireHarbor = true, maxIterations = 7, maxTokens = 256, temperature = 0, topP = 1 }
+                }).ConfigureAwait(false);
+                ModelEndpoint endpoint = JsonHelper.Deserialize<ModelEndpoint>(GetToolResultText(created));
+                try
+                {
+                    AssertEqual(false, endpoint.InferenceOptions.ToolsEnabled);
+                    AssertEqual(7, endpoint.InferenceOptions.MaxIterations);
+                    AssertEqual(true, endpoint.InferenceOptions.RequireHarbor);
+                    AssertEqual("read_file", endpoint.InferenceOptions.AllowedTools![0]);
+                    JsonElement update = await CallToolAsync(fx.McpClient, session, "update_model_endpoint", new { endpointId = endpoint.Id, name = "policy renamed" }).ConfigureAwait(false);
+                    AssertEqual(7, JsonHelper.Deserialize<ModelEndpoint>(GetToolResultText(update)).InferenceOptions.MaxIterations);
+                    JsonElement invalid = await CallToolAsync(fx.McpClient, session, "update_model_endpoint", new { endpointId = endpoint.Id, inferenceOptions = new { maxIterations = 0 } }).ConfigureAwait(false);
+                    AssertTrue((invalid.TryGetProperty("isError", out JsonElement isError) && isError.GetBoolean())
+                        || McpToolResultProbe.FromText(GetToolResultText(invalid)).ErrorCode == McpToolErrorCodeEnum.InvalidArgument,
+                        "Schema or handler must reject the invalid limit: " + GetToolResultText(invalid));
+                    JsonElement unchanged = await CallToolAsync(fx.McpClient, session, "get_model_endpoint", new { endpointId = endpoint.Id }).ConfigureAwait(false);
+                    AssertEqual(false, JsonHelper.Deserialize<ModelEndpoint>(GetToolResultText(unchanged)).InferenceOptions.ToolsEnabled);
+                    JsonElement reset = await CallToolAsync(fx.McpClient, session, "update_model_endpoint", new { endpointId = endpoint.Id, inferenceOptions = new { } }).ConfigureAwait(false);
+                    AssertEqual(100, JsonHelper.Deserialize<ModelEndpoint>(GetToolResultText(reset)).InferenceOptions.MaxIterations);
+                }
+                finally { await CallToolAsync(fx.McpClient, session, "delete_model_endpoint", new { endpointId = endpoint.Id }).ConfigureAwait(false); }
+            }));
+
             cases.Add(CaseAsync("persona_priorities_roundtrip", "MCP persona priorities: create, partial update, clear, and validation", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);

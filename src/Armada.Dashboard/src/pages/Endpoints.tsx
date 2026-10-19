@@ -1,3 +1,5 @@
+import { defaultInferenceOptions, parseAllowedTools, validateInferenceOptions } from '../lib/inferenceOptions';
+import type { InferenceOptions } from '../types/models';
 import { useEffect, useMemo, useState } from 'react';
 import {
   listModelEndpoints,
@@ -52,6 +54,8 @@ const formatSpan = (firstUtc: string | null) => formatHealthSpan(firstUtc);
 const unsupportedReason = unsupportedEndpointReason;
 
 interface EndpointForm extends EndpointAuthForm {
+  inferenceOptions: InferenceOptions;
+  allowedToolsText: string;
   name: string;
   kind: ModelEndpointKind;
   provider: ModelProvider;
@@ -70,6 +74,8 @@ interface EndpointForm extends EndpointAuthForm {
 }
 
 const EMPTY_FORM: EndpointForm = {
+  inferenceOptions: { ...defaultInferenceOptions },
+  allowedToolsText: '',
   name: 'New Endpoint',
   kind: 'Inference',
   provider: 'OpenAI',
@@ -180,6 +186,8 @@ export default function Endpoints() {
   function openEdit(endpoint: ModelEndpoint) {
     setEditing(endpoint);
     setForm({
+      inferenceOptions: { ...defaultInferenceOptions, ...endpoint.inferenceOptions },
+      allowedToolsText: endpoint.inferenceOptions?.allowedTools?.join('\n') ?? '',
       name: endpoint.name,
       kind: endpoint.kind,
       provider: endpoint.provider,
@@ -204,11 +212,14 @@ export default function Endpoints() {
     e.preventDefault();
     if (saving) return;
     if (formReason) { setError(formReason); return; }
+    const inferenceProblem = validateInferenceOptions(form.inferenceOptions);
+    if (inferenceProblem) { setError(t(inferenceProblem)); return; }
     const authProblem = validateEndpointAuth(form.provider, form);
     if (authProblem) { setError(lt(authProblem)); return; }
     setSaving(true);
     try {
       const payload: Partial<ModelEndpoint> & { apiKey?: string | null } = {
+        inferenceOptions: form.inferenceOptions,
         name: form.name,
         kind: form.kind,
         provider: form.provider,
@@ -596,6 +607,28 @@ export default function Endpoints() {
                 <input type="number" min={1000} max={600000} title={t(EP_TIMEOUT_TIP)} value={form.timeoutMs} onChange={(e) => setForm({ ...form, timeoutMs: e.target.value })} />
               </label>
             </div>
+            {form.kind === 'Inference' && <fieldset>
+              <legend>{t('Inference and captain execution')}</legend>
+              {([
+                ['toolsEnabled', 'Enable tool calls'], ['readOnlyTools', 'Read-only built-in tools'],
+                ['mcpToolsEnabled', 'Enable scoped MCP tools'], ['requireHarbor', 'Require Harbor execution'],
+              ] as const).map(([key, label]) => <label key={key} className="checkbox-row">
+                <input type="checkbox" checked={form.inferenceOptions[key]} onChange={e => setForm({ ...form, inferenceOptions: { ...form.inferenceOptions, [key]: e.target.checked } })} />{t(label)}
+              </label>)}
+              <p className="text-dim">{t('Read-only excludes shell, file changes and MCP tools. Require Harbor prevents fallback to Admiral execution.')}</p>
+              <label>{t('Allowed tool names (one per line; blank allows all)')}
+                <textarea value={form.allowedToolsText} onChange={e => setForm({ ...form, allowedToolsText: e.target.value, inferenceOptions: { ...form.inferenceOptions, allowedTools: parseAllowedTools(e.target.value) } })} />
+              </label>
+              <div className="detail-form-grid">
+              {([
+                ['maxIterations', 'Maximum model turns', 1, 1000, 1], ['maxTokens', 'Maximum output tokens', 1, 10000000, 1],
+                ['temperature', 'Temperature', 0, 2, 0.01], ['topP', 'Top P', 0, 1, 0.01],
+              ] as const).map(([key, label, min, max, step]) => <label key={key}>{t(label)}
+                <input type="number" min={min} max={max} step={step} required={key === 'maxIterations'} placeholder={t('Provider default')}
+                  value={form.inferenceOptions[key] ?? ''} onChange={e => setForm({ ...form, inferenceOptions: { ...form.inferenceOptions, [key]: e.target.value === '' ? null : Number(e.target.value) } })} />
+              </label>)}
+              </div>
+            </fieldset>}
             <ScopeSelect viewer={viewer} value={form.scope} onChange={(scope) => setForm({ ...form, scope })} />
             <label className="checkbox-row" title={t(EP_ENABLED_TIP)}>
               <input type="checkbox" title={t(EP_ENABLED_TIP)} checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />

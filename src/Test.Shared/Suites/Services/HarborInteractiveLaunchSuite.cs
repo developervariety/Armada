@@ -50,6 +50,39 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("endpoint_restrictions_require_capable_harbor", "Restricted API captains exclude old Harbors that cannot enforce inference policy", TestTags.Positive, async () =>
+            {
+                using Scenario s = await Scenario.CreateAsync().ConfigureAwait(false);
+                HarborHandshake handshake = new HarborHandshake { HarborId = "hbr_api_policy", Name = "API Harbor", ProtocolVersion = HarborProtocol.Version, MaxConcurrentJobs = 2,
+                    Capabilities = new List<HarborCapability> { new HarborCapability { Name = "ApiEndpoint", Available = true } } };
+                await s.Manager.OnHandshakeAsync(handshake, Constants.DefaultTenantId, "usr_ask", (message, token) => Task.CompletedTask).ConfigureAwait(false);
+                ModelEndpoint endpoint = new ModelEndpoint { InferenceOptions = new InferenceOptions { ReadOnlyTools = true } };
+                Captain captain = new Captain("api-policy") { Runtime = AgentRuntimeEnum.ApiEndpoint, ModelEndpointId = endpoint.Id };
+                CaptainLaunchRouter router = new CaptainLaunchRouter(s.Settings, new AgentRuntimeFactory(s.Logging), s.Manager, id => endpoint, s.Logging);
+                CaptainLaunchContext context = new CaptainLaunchContext(captain, "pipeline policy") { TenantId = Constants.DefaultTenantId, UserId = "usr_ask" };
+                AssertNull((await router.DecideAsync(context).ConfigureAwait(false)).HarborId, "An old Harbor must not silently bypass restrictions.");
+                handshake.Capabilities.Add(new HarborCapability { Name = HarborProtocol.InferencePolicyCapability, Available = true });
+                await s.Manager.OnHandshakeAsync(handshake, Constants.DefaultTenantId, "usr_ask", (message, token) => Task.CompletedTask).ConfigureAwait(false);
+                AssertEqual("hbr_api_policy", (await router.DecideAsync(context).ConfigureAwait(false)).HarborId, "Updated Harbor may execute the restricted endpoint.");
+            }));
+
+            cases.Add(CaseAsync("endpoint_requires_harbor_refuses_local_fallback", "Endpoint-specific Harbor requirement applies to pipeline decisions and interactive launches", TestTags.Negative, async () =>
+            {
+                using Scenario s = await Scenario.CreateAsync().ConfigureAwait(false);
+                ModelEndpoint endpoint = new ModelEndpoint { InferenceOptions = new InferenceOptions { RequireHarbor = true } };
+                Captain captain = new Captain("api-required") { Runtime = AgentRuntimeEnum.ApiEndpoint, ModelEndpointId = endpoint.Id };
+                CaptainLaunchRouter router = new CaptainLaunchRouter(s.Settings, new AgentRuntimeFactory(s.Logging), s.Manager, id => endpoint, s.Logging);
+                CaptainLaunchContext context = new CaptainLaunchContext { Captain = captain, TenantId = Constants.DefaultTenantId, UserId = "usr_ask" };
+                CaptainLaunchDecision decision = await router.DecideAsync(context).ConfigureAwait(false);
+                AssertTrue(decision.HarborRequired, "Pipeline decision must enforce the endpoint requirement.");
+                AssertNull(decision.HarborId, "No Harbor is connected.");
+                bool refused = false;
+                try { await router.SelectAsync(context).ConfigureAwait(false); } catch (HarborLaunchUnavailableException) { refused = true; }
+                AssertTrue(refused, "Interactive launch must also refuse local fallback.");
+                endpoint.InferenceOptions.RequireHarbor = false;
+                AssertFalse((await router.DecideAsync(context).ConfigureAwait(false)).HarborRequired, "Default policy retains local fallback.");
+            }));
+
             cases.Add(CaseAsync("ask_turn_runs_on_connected_harbor", "An Ask turn with an eligible Harbor connected runs the CLI on the Harbor and streams its reply back", TestTags.Positive, async () =>
             {
                 using Scenario s = await Scenario.CreateAsync().ConfigureAwait(false);

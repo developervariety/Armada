@@ -145,6 +145,17 @@ namespace Armada.Core.Models
         /// </summary>
         public bool Enabled { get; set; } = true;
 
+        /// <summary>Inference generation defaults and tool restrictions. Omit on update to preserve; null resets defaults.</summary>
+        public InferenceOptions InferenceOptions
+        {
+            get => _InferenceOptions;
+            set { _InferenceOptions = value ?? new InferenceOptions(); InferenceOptionsSpecified = true; }
+        }
+
+        /// <summary>Whether inference options were explicitly supplied.</summary>
+        [JsonIgnore]
+        public bool InferenceOptionsSpecified { get; private set; } = false;
+
         /// <summary>
         /// API key/credential for the endpoint. Accepted on create/update, stored, and used for calls, but
         /// never serialized in read responses.
@@ -386,6 +397,7 @@ namespace Armada.Core.Models
         private string _BaseUrl = String.Empty;
         private string? _ApiKey = null;
         private bool? _HasApiKey = null;
+        private InferenceOptions _InferenceOptions = new InferenceOptions();
         private int _Dimensionality = 0;
         private int _TimeoutMs = 120000;
         private string? _Region = null;

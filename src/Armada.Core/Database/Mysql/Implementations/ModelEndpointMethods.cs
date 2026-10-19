@@ -37,9 +37,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"INSERT INTO model_endpoints
-                        (id, tenant_id, user_id, name, kind, scope, provider, base_url, api_key, model, region, project, api_version, access_key_id, auth_type, auth_username, auth_header_name, auth_query_parameter, auth_headers_json, dimensionality, timeout_ms, enabled, health_status, last_health_check_utc, last_health_error, last_latency_ms, health_history_json, created_utc, last_update_utc)
+                        (id, tenant_id, user_id, name, kind, scope, provider, base_url, api_key, model, region, project, api_version, access_key_id, auth_type, auth_username, auth_header_name, auth_query_parameter, auth_headers_json, inference_options_json, dimensionality, timeout_ms, enabled, health_status, last_health_check_utc, last_health_error, last_latency_ms, health_history_json, created_utc, last_update_utc)
                         VALUES
-                        (@id, @tenant_id, @user_id, @name, @kind, @scope, @provider, @base_url, @api_key, @model, @region, @project, @api_version, @access_key_id, @auth_type, @auth_username, @auth_header_name, @auth_query_parameter, @auth_headers_json, @dimensionality, @timeout_ms, @enabled, @health_status, @last_health_check_utc, @last_health_error, @last_latency_ms, @health_history_json, @created_utc, @last_update_utc);";
+                        (@id, @tenant_id, @user_id, @name, @kind, @scope, @provider, @base_url, @api_key, @model, @region, @project, @api_version, @access_key_id, @auth_type, @auth_username, @auth_header_name, @auth_query_parameter, @auth_headers_json, @inference_options_json, @dimensionality, @timeout_ms, @enabled, @health_status, @last_health_check_utc, @last_health_error, @last_latency_ms, @health_history_json, @created_utc, @last_update_utc);";
                     BindEndpoint(cmd, endpoint);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -76,6 +76,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         auth_header_name = @auth_header_name,
                         auth_query_parameter = @auth_query_parameter,
                         auth_headers_json = @auth_headers_json,
+                        inference_options_json = @inference_options_json,
                         dimensionality = @dimensionality,
                         timeout_ms = @timeout_ms,
                         enabled = @enabled,
@@ -304,6 +305,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@auth_header_name", (object?)endpoint.AuthHeaderName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@auth_query_parameter", (object?)endpoint.AuthQueryParameter ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@auth_headers_json", (object?)ModelEndpointHeaderRecord.SerializeHeaders(endpoint.Headers) ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@inference_options_json", JsonSerializer.Serialize(endpoint.InferenceOptions));
             cmd.Parameters.AddWithValue("@dimensionality", endpoint.Dimensionality);
             cmd.Parameters.AddWithValue("@timeout_ms", endpoint.TimeoutMs);
             cmd.Parameters.AddWithValue("@enabled", endpoint.Enabled ? 1 : 0);
@@ -350,6 +352,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             endpoint.AuthHeaderName = MysqlDatabaseDriver.NullableString(reader["auth_header_name"]);
             endpoint.AuthQueryParameter = MysqlDatabaseDriver.NullableString(reader["auth_query_parameter"]);
             endpoint.Headers = ModelEndpointHeaderRecord.DeserializeHeaders(MysqlDatabaseDriver.NullableString(reader["auth_headers_json"]));
+            endpoint.InferenceOptions = reader["inference_options_json"] == DBNull.Value ? new InferenceOptions() : JsonSerializer.Deserialize<InferenceOptions>(reader["inference_options_json"].ToString()!) ?? new InferenceOptions();
 
             string? historyJson = MysqlDatabaseDriver.NullableString(reader["health_history_json"]);
             if (!String.IsNullOrWhiteSpace(historyJson))

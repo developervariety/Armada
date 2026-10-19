@@ -32,6 +32,68 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("inference_policy_roundtrip_preserve_and_reset", "Inference policy persists, omitted updates preserve it and explicit null resets defaults", TestTags.Positive, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ModelEndpointService service = new ModelEndpointService(db.Driver, CreateLogging());
+                AuthContext auth = AuthContext.Authenticated("ten_policy", "usr_policy", false, true, "Test");
+                ModelEndpoint endpoint = NewInference("policy", "http://localhost:1");
+                endpoint.InferenceOptions = new InferenceOptions { ToolsEnabled = false, ReadOnlyTools = true, McpToolsEnabled = false, AllowedTools = new List<string> { "read_file" }, MaxIterations = 3, MaxTokens = 321, Temperature = 0.2, TopP = 0.8, RequireHarbor = true };
+                ModelEndpoint created = await service.CreateAsync(auth, endpoint).ConfigureAwait(false);
+                ModelEndpoint read = (await db.Driver.ModelEndpoints.ReadAsync(created.Id).ConfigureAwait(false))!;
+                AssertEqual(3, read.InferenceOptions.MaxIterations);
+                AssertEqual(321, read.InferenceOptions.MaxTokens);
+                AssertEqual(false, read.InferenceOptions.ToolsEnabled);
+                AssertEqual(true, read.InferenceOptions.RequireHarbor);
+                AssertEqual("read_file", read.InferenceOptions.AllowedTools![0]);
+                ModelEndpoint update = NewInference("renamed", "http://localhost:1"); update.Id = created.Id;
+                ModelEndpoint preserved = await service.UpdateAsync(auth, update).ConfigureAwait(false);
+                AssertEqual(3, preserved.InferenceOptions.MaxIterations);
+                AssertEqual(false, preserved.InferenceOptions.McpToolsEnabled);
+                update.InferenceOptions = null!;
+                await service.UpdateAsync(auth, update).ConfigureAwait(false);
+                ModelEndpoint reset = (await db.Driver.ModelEndpoints.ReadAsync(created.Id).ConfigureAwait(false))!;
+                AssertEqual(100, reset.InferenceOptions.MaxIterations);
+                AssertEqual(true, reset.InferenceOptions.ToolsEnabled);
+                AssertNull(reset.InferenceOptions.AllowedTools);
+            }));
+
+            cases.Add(CaseAsync("inference_policy_rejects_invalid_values", "Reject invalid inference limits and ambiguous tool names", TestTags.Negative, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ModelEndpointService service = new ModelEndpointService(db.Driver, CreateLogging());
+                AuthContext auth = AuthContext.Authenticated("ten_policy", "usr_policy", false, true, "Test");
+                foreach (InferenceOptions options in new[] {
+                    new InferenceOptions { MaxIterations = 0 }, new InferenceOptions { MaxIterations = 1001 }, new InferenceOptions { MaxTokens = 0 },
+                    new InferenceOptions { Temperature = Double.NaN }, new InferenceOptions { Temperature = 2.1 }, new InferenceOptions { TopP = -0.1 },
+                    new InferenceOptions { AllowedTools = new List<string> { "read_file", "read_file" } }, new InferenceOptions { AllowedTools = new List<string> { " read_file" } } })
+                {
+                    ModelEndpoint endpoint = NewInference("invalid", "http://localhost:1"); endpoint.InferenceOptions = options;
+                    bool rejected = false;
+                    try { await service.CreateAsync(auth, endpoint).ConfigureAwait(false); } catch (ArgumentException) { rejected = true; }
+                    AssertTrue(rejected, "Invalid inference options must be rejected before persistence.");
+                }
+                new InferenceOptions { MaxIterations = 1000, MaxTokens = 10000000, Temperature = 0, TopP = 1, AllowedTools = new List<string>() }.Validate();
+            }));
+
+            cases.Add(CaseAsync("inference_harbor_transport_snapshot", "Harbor transport snapshots tool policy and generation settings alongside credentials", TestTags.Positive, () =>
+            {
+                ModelEndpoint endpoint = NewInference("transport", "http://localhost:1"); endpoint.ApiKey = "secret"; endpoint.Enabled = false;
+                endpoint.InferenceOptions = new InferenceOptions { AllowedTools = new List<string> { "read_file" }, MaxTokens = 42, RequireHarbor = true };
+                Armada.Core.Harbor.HarborInferenceEndpoint transport = Armada.Core.Harbor.HarborInferenceEndpoint.FromEndpoint(endpoint);
+                endpoint.InferenceOptions.AllowedTools.Clear();
+                ModelEndpoint restored = transport.ToEndpoint();
+                AssertEqual("read_file", restored.InferenceOptions.AllowedTools![0]);
+                AssertEqual(true, restored.InferenceOptions.RequireHarbor);
+                AssertEqual(42, restored.InferenceOptions.MaxTokens);
+                AssertEqual(false, restored.Enabled);
+                AssertEqual("secret", restored.ApiKey);
+                AssertTrue(!System.Text.Json.JsonSerializer.Serialize(restored).Contains("secret"), "REST endpoint must not expose provider credentials.");
+                restored.InferenceOptions.AllowedTools.Clear();
+                AssertEqual(1, transport.InferenceOptions.AllowedTools!.Count);
+                return Task.CompletedTask;
+            }));
+
             cases.Add(CaseAsync("create_creates_embedding_endpoint", "CreateAsync creates an embedding endpoint", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

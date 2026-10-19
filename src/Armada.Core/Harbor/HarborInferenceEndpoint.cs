@@ -51,6 +51,12 @@ namespace Armada.Core.Harbor
         /// </summary>
         public int TimeoutMs { get; set; } = 120000;
 
+        /// <summary>Inference generation settings and tool restrictions, enforced on the Harbor.</summary>
+        public InferenceOptions InferenceOptions { get; set; } = new InferenceOptions();
+
+        /// <summary>Whether this endpoint is enabled for inference execution.</summary>
+        public bool Enabled { get; set; } = true;
+
         /// <summary>
         /// Cloud region (Vertex AI, Bedrock), or null.
         /// </summary>
@@ -129,6 +135,8 @@ namespace Armada.Core.Harbor
                 Model = endpoint.Model,
                 ApiKey = endpoint.ApiKey,
                 TimeoutMs = endpoint.TimeoutMs,
+                Enabled = endpoint.Enabled,
+                InferenceOptions = System.Text.Json.JsonSerializer.Deserialize<InferenceOptions>(System.Text.Json.JsonSerializer.Serialize(endpoint.InferenceOptions))!,
                 Region = endpoint.Region,
                 Project = endpoint.Project,
                 ApiVersion = endpoint.ApiVersion,
@@ -155,6 +163,8 @@ namespace Armada.Core.Harbor
                 BaseUrl = BaseUrl,
                 Model = Model,
                 TimeoutMs = TimeoutMs,
+                Enabled = Enabled,
+                InferenceOptions = System.Text.Json.JsonSerializer.Deserialize<InferenceOptions>(System.Text.Json.JsonSerializer.Serialize(InferenceOptions))!,
                 Region = Region,
                 Project = Project,
                 ApiVersion = ApiVersion,

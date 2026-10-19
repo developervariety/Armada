@@ -174,3 +174,31 @@ describe('Endpoints authentication', () => {
     expect(screen.queryByLabelText('Header 3 name')).not.toBeInTheDocument();
   });
 });
+
+describe('Endpoint inference policy', () => {
+  it('saves explicit tool restrictions, Harbor routing and generation settings', async () => {
+    await openEdit();
+    fireEvent.click(screen.getByLabelText('Read-only built-in tools'));
+    fireEvent.click(screen.getByLabelText('Enable scoped MCP tools'));
+    fireEvent.click(screen.getByLabelText('Require Harbor execution'));
+    fireEvent.change(screen.getByLabelText('Allowed tool names (one per line; blank allows all)'), { target: { value: 'read_file\ngrep' } });
+    fireEvent.change(screen.getByLabelText('Maximum model turns'), { target: { value: '8' } });
+    fireEvent.change(screen.getByLabelText('Maximum output tokens'), { target: { value: '2048' } });
+    fireEvent.change(screen.getByLabelText('Temperature'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(client.updateModelEndpoint).toHaveBeenCalledWith('mep_1', expect.objectContaining({
+      inferenceOptions: { toolsEnabled: true, readOnlyTools: true, mcpToolsEnabled: false, requireHarbor: true,
+        allowedTools: ['read_file', 'grep'], maxIterations: 8, maxTokens: 2048, temperature: 0, topP: null },
+    })));
+  });
+
+  it('preserves an empty tool allowlist when editing unrelated settings', async () => {
+    vi.mocked(client.listModelEndpoints).mockResolvedValue([{ ...STORED, inferenceOptions: {
+      toolsEnabled: true, readOnlyTools: false, mcpToolsEnabled: true, requireHarbor: false,
+      allowedTools: [], maxIterations: 2, maxTokens: null, temperature: null, topP: null,
+    } }] as never);
+    await openEdit();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(client.updateModelEndpoint).toHaveBeenCalledWith('mep_1', expect.objectContaining({ inferenceOptions: expect.objectContaining({ allowedTools: [], maxIterations: 2 }) })));
+  });
+});

@@ -109,7 +109,12 @@ namespace Armada.Runtimes
                     throw new NotSupportedException("API-endpoint captain launch did not include an inference endpoint.");
 
                 Armada.Core.Models.ModelEndpoint endpoint = request.InferenceEndpoint.ToEndpoint();
-                runtime = new ApiAgentRuntime(endpoint, _Logging);
+                runtime = new ApiAgentRuntime(endpoint, _Logging)
+                {
+                    // A Harbor must enforce the same resolved shell policy as the Admiral.
+                    // Approval without a prompt bridge fails closed in ApiAgentRuntime.
+                    ShellPolicy = request.CliPermissionPolicy ?? Armada.Core.Enums.CliPermissionPolicyEnum.Refuse
+                };
             }
             else
             {

@@ -2054,7 +2054,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE model_endpoints ADD COLUMN auth_query_parameter TEXT;",
                     @"ALTER TABLE model_endpoints ADD COLUMN auth_headers_json TEXT;"),
                 new SchemaMigration(85, "Add source_template to workflow_profiles for profiles Armada creates from its built-in templates",
-                    @"ALTER TABLE workflow_profiles ADD COLUMN source_template TEXT;")
+                    @"ALTER TABLE workflow_profiles ADD COLUMN source_template TEXT;"),
+                new SchemaMigration(86, "Add inference generation and tool policy settings to model endpoints",
+                    @"ALTER TABLE model_endpoints ADD COLUMN inference_options_json TEXT NULL;")
+
 
             };
         }

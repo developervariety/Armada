@@ -1,3 +1,4 @@
+import { defaultInferenceOptions, parseAllowedTools, validateInferenceOptions } from '@dashboard/lib/inferenceOptions';
 import type { ModelEndpoint, ModelEndpointKind, ModelProvider } from '@dashboard/types/models';
 import { MODEL_ENDPOINT_KINDS, MODEL_PROVIDERS, unsupportedEndpointReason } from '@dashboard/lib/configuration';
 import { resolveCreateScope, type ScopeViewer } from '@dashboard/lib/scoping';
@@ -97,10 +98,28 @@ export function endpointSentAs(t: Translate, v: FormValues): string {
   return t('Sent as: {{how}}', { how });
 }
 
+function inferenceValues(endpoint: ModelEndpoint | null): FormValues {
+  const options = { ...defaultInferenceOptions, ...endpoint?.inferenceOptions };
+  return { toolsEnabled: options.allowedTools?.length === 0 ? false : options.toolsEnabled, readOnlyTools: options.readOnlyTools, mcpToolsEnabled: options.mcpToolsEnabled, requireHarbor: options.requireHarbor,
+    allowedTools: options.allowedTools?.join('\n') ?? '', maxIterations: String(options.maxIterations), maxTokens: options.maxTokens == null ? '' : String(options.maxTokens),
+    temperature: options.temperature == null ? '' : String(options.temperature), topP: options.topP == null ? '' : String(options.topP) };
+}
+
+function inferencePayload(v: FormValues) {
+  return {
+      toolsEnabled: bool(v, 'toolsEnabled'), readOnlyTools: bool(v, 'readOnlyTools'), mcpToolsEnabled: bool(v, 'mcpToolsEnabled'), requireHarbor: bool(v, 'requireHarbor'),
+      allowedTools: parseAllowedTools(str(v, 'allowedTools')), maxIterations: Number(str(v, 'maxIterations')),
+      maxTokens: str(v, 'maxTokens').trim() ? Number(str(v, 'maxTokens')) : null,
+      temperature: str(v, 'temperature').trim() ? Number(str(v, 'temperature')) : null,
+      topP: str(v, 'topP').trim() ? Number(str(v, 'topP')) : null,
+    };
+}
+
 export function endpointValues(viewer: ScopeViewer, endpoint: ModelEndpoint | null): FormValues {
   const e = endpoint as AuthModelEndpoint | null;
   if (!e) {
     return {
+      ...inferenceValues(null),
       name: 'New Endpoint', kind: 'Inference', provider: 'OpenAI', baseUrl: '', model: '', apiKey: '', region: '', project: '', apiVersion: '', accessKeyId: '',
       authType: 'ProviderDefault', authUsername: '', authHeaderName: '', authQueryParameter: '', [HEADER_COUNT]: '0',
       dimensionality: '0', timeoutMs: '120000', enabled: true, scope: resolveCreateScope(viewer),
@@ -108,6 +127,7 @@ export function endpointValues(viewer: ScopeViewer, endpoint: ModelEndpoint | nu
   }
   const headers = e.headers ?? [];
   const values: FormValues = {
+    ...inferenceValues(e),
     name: e.name, kind: e.kind, provider: e.provider, baseUrl: e.baseUrl, model: e.model || '', apiKey: '', region: e.region || '', project: e.project || '',
     apiVersion: e.apiVersion || '', accessKeyId: e.accessKeyId || '',
     authType: e.authType || 'ProviderDefault', authUsername: e.authUsername || '', authHeaderName: e.authHeaderName || '', authQueryParameter: e.authQueryParameter || '',
@@ -169,6 +189,8 @@ export function endpointReason(t: Translate, v: FormValues): string | null {
 export function endpointValidate(t: Translate, v: FormValues, existing: ModelEndpoint | null): string | null {
   const reason = endpointReason(t, v);
   if (reason) return reason;
+  const inferenceError = validateInferenceOptions(inferencePayload(v));
+  if (inferenceError) return t(inferenceError);
   const type = endpointAuthType(v);
   if (['OllamaCloud', 'XAI'].includes(str(v, 'provider')) && !str(v, 'apiKey').trim() && !existing?.hasApiKey) return t('API key is required.');
   if (type === 'Basic' && !str(v, 'authUsername').trim()) return t('Basic authentication needs a username.');
@@ -197,6 +219,7 @@ export function endpointValidate(t: Translate, v: FormValues, existing: ModelEnd
 export function endpointPayload(viewer: ScopeViewer, v: FormValues, existing: ModelEndpoint | null): EndpointPayload {
   const type = endpointAuthType(v);
   const payload: EndpointPayload = {
+    inferenceOptions: inferencePayload(v),
     name: str(v, 'name'),
     kind: str(v, 'kind') as ModelEndpointKind,
     provider: str(v, 'provider') as ModelProvider,
@@ -286,6 +309,17 @@ export function endpointFields(t: Translate, viewer: ScopeViewer, v: FormValues,
     { kind: 'action', key: 'headerAdd', label: t('Add header'), icon: 'add', apply: addHeaderRow },
     { kind: 'integer', key: 'dimensionality', label: t('Dimensionality') },
     { kind: 'integer', key: 'timeoutMs', label: t('Timeout (ms)') },
+    ...(str(v, 'kind') === 'Inference' ? [
+      { kind: 'switch' as const, key: 'toolsEnabled', label: t('Enable tool calls') },
+      { kind: 'switch' as const, key: 'readOnlyTools', label: t('Read-only built-in tools'), hint: t('Excludes shell, file changes and MCP tools.') },
+      { kind: 'switch' as const, key: 'mcpToolsEnabled', label: t('Enable scoped MCP tools') },
+      { kind: 'switch' as const, key: 'requireHarbor', label: t('Require Harbor execution') },
+      { kind: 'multiline' as const, key: 'allowedTools', label: t('Allowed tool names (one per line; blank allows all)') },
+      { kind: 'integer' as const, key: 'maxIterations', label: t('Maximum model turns'), required: true },
+      { kind: 'integer' as const, key: 'maxTokens', label: t('Maximum output tokens') },
+      { kind: 'text' as const, key: 'temperature', label: t('Temperature (0–2, optional)') },
+      { kind: 'text' as const, key: 'topP', label: t('Top P (0–1, optional)') },
+    ] : []),
     scopeField(t, viewer),
     { kind: 'switch', key: 'enabled', label: t('Enabled') },
   ];

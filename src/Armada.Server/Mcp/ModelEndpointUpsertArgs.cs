@@ -87,6 +87,9 @@ namespace Armada.Server.Mcp
         /// </summary>
         public bool? Enabled { get; set; } = null;
 
+        /// <summary>Optional replacement inference settings; omission preserves the stored settings.</summary>
+        public InferenceOptions? InferenceOptions { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

@@ -33,6 +33,9 @@ namespace Armada.Core.Harbor
         /// </summary>
         public static readonly string CheckoutCapability = "harbor-checkouts";
 
+        /// <summary>Harbor enforces inference endpoint generation and tool restrictions.</summary>
+        public const string InferencePolicyCapability = "api-inference-policy-v1";
+
         /// <summary>
         /// Capability a Harbor advertises when it can send a captain's permission prompts to Armada (Approve in Armada):
         /// it honors <see cref="HarborLaunchRequest.CliPermissionPolicy"/>. The detail lists the runtimes it can do this

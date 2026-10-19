@@ -4816,7 +4816,7 @@ CLI example: `armada captain add grok-worker --runtime api --model-endpoint <end
 
 ### create_model_endpoint
 
-Create a model endpoint. Supply `apiKey` to store a provider key; it is write-only and is never returned on reads.
+Create a model endpoint. Supply `apiKey` to store a provider key; it is write-only and is never returned on reads. Optional `inferenceOptions` configures enforced tool restrictions, generation limits and Harbor requirements; see [API captain execution](CAPTAIN_ROUTING.md#api-endpoint-captains-in-pipelines).
 
 **Input Schema:**
 
@@ -4830,6 +4830,7 @@ Create a model endpoint. Supply `apiKey` to store a provider key; it is write-on
     "provider": { "type": "string", "description": "Ollama, OpenAI, OpenAICompatible, Anthropic, Gemini, VoyageAI, AzureOpenAI, VertexAI, Bedrock, OllamaCloud, or XAI" },
     "model": { "type": "string", "description": "Model name to target" },
     "apiKey": { "type": "string", "description": "Provider API key. Write-only: accepted here, never returned on reads." },
+    "inferenceOptions": { "type": "object", "description": "toolsEnabled, readOnlyTools, mcpToolsEnabled, allowedTools, maxIterations, maxTokens, temperature, topP, requireHarbor. See API captain execution for defaults and limits." },
     "dimensionality": { "type": "integer", "description": "Embedding dimensionality (default 0)" },
     "timeoutMs": { "type": "integer", "description": "Request timeout in milliseconds (default 120000, clamped to [1000, 600000])" },
     "enabled": { "type": "boolean", "description": "Whether the endpoint participates in health sweeps (default true)" }
@@ -4874,7 +4875,7 @@ Create a model endpoint. Supply `apiKey` to store a provider key; it is write-on
 
 ### update_model_endpoint
 
-Update an existing model endpoint. Omit `apiKey` to keep the stored key; send `apiKey` to replace it.
+Update an existing model endpoint. Omit `apiKey` to keep the stored key; send `apiKey` to replace it. Omit `inferenceOptions` to preserve its entire policy; send an object to replace it. Its omitted members take defaults. See [API captain execution](CAPTAIN_ROUTING.md#api-endpoint-captains-in-pipelines) for all fields and limits.
 
 **Input Schema:**
 
@@ -4889,6 +4890,7 @@ Update an existing model endpoint. Omit `apiKey` to keep the stored key; send `a
     "baseUrl": { "type": "string", "description": "New provider API base URL" },
     "model": { "type": "string", "description": "New model name to target" },
     "apiKey": { "type": "string", "description": "New provider API key. Omit to keep the stored key." },
+    "inferenceOptions": { "type": "object", "description": "toolsEnabled, readOnlyTools, mcpToolsEnabled, allowedTools, maxIterations, maxTokens, temperature, topP, requireHarbor. See API captain execution for defaults and limits." },
     "dimensionality": { "type": "integer", "description": "Embedding dimensionality" },
     "timeoutMs": { "type": "integer", "description": "Request timeout in milliseconds (clamped to [1000, 600000])" },
     "enabled": { "type": "boolean", "description": "Whether the endpoint participates in health sweeps" }

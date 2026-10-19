@@ -4,6 +4,7 @@ namespace Armada.Runtimes
     using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -127,7 +128,7 @@ namespace Armada.Runtimes
         public ApiAgentRuntime(
             ModelEndpoint endpoint,
             LoggingModule logging,
-            int maxIterations = 100,
+            int maxIterations = 1000,
             Func<ModelEndpoint, LoggingModule, CompletionClientBase>? clientFactory = null,
             Func<string, string?, LoggingModule, McpToolClient>? mcpClientFactory = null)
         {
@@ -151,7 +152,7 @@ namespace Armada.Runtimes
         public ApiAgentRuntime(
             Func<string, ModelEndpoint?> endpointResolver,
             LoggingModule logging,
-            int maxIterations = 100,
+            int maxIterations = 1000,
             Func<ModelEndpoint, LoggingModule, CompletionClientBase>? clientFactory = null,
             Func<string, string?, LoggingModule, McpToolClient>? mcpClientFactory = null)
         {
@@ -198,6 +199,15 @@ namespace Armada.Runtimes
 
             if (endpoint == null)
                 throw new InvalidOperationException("API-endpoint captain has no resolvable inference endpoint. Set the captain's model endpoint to a configured Inference endpoint.");
+
+            if (!endpoint.Enabled || endpoint.Kind != Armada.Core.Enums.ModelEndpointKindEnum.Inference)
+                throw new InvalidOperationException("API captains require an enabled Inference endpoint.");
+            endpoint.InferenceOptions.Validate();
+            // Snapshot configuration so edits cannot change restrictions midway through a run.
+            ModelEndpoint snapshot = JsonSerializer.Deserialize<ModelEndpoint>(JsonSerializer.Serialize(endpoint))!;
+            snapshot.ApiKey = endpoint.ApiKey;
+            snapshot.Headers = endpoint.Headers.Select(h => new ModelEndpointHeader(h.Name, h.Value)).ToList();
+            endpoint = snapshot;
 
             // Optional MCP tool access: when the caller supplies an MCP endpoint (and, typically, a
             // short-lived per-user session token) the in-process loop also exposes that server's tools to
@@ -266,19 +276,50 @@ namespace Armada.Runtimes
                 using CompletionClientBase client = _ClientFactory(endpoint, _Logging);
                 if (!String.IsNullOrWhiteSpace(model)) client.Model = model;
 
+                InferenceOptions settings = endpoint.InferenceOptions;
+                CompletionOptions completionOptions = new CompletionOptions
+                {
+                    Model = String.IsNullOrWhiteSpace(model) ? endpoint.Model : model,
+                    MaxTokens = settings.MaxTokens,
+                    Temperature = settings.Temperature,
+                    TopP = settings.TopP
+                };
+                // Plain chat does not send tool definitions to providers/models without tool support.
+                async Task RunPlainChatAsync()
+                {
+                    completionOptions.SystemPrompt = BuildSystemPrompt(workingDirectory);
+                    ChatResponse reply = await client.ChatAsync(prompt, completionOptions, token).ConfigureAwait(false);
+                    if (!reply.Success)
+                    {
+                        exitCode = 1;
+                        EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, reply.Error ?? "Inference request failed.");
+                        if (reply.StatusCode.HasValue) RaiseProviderError(processId, RuntimeProviderErrorParser.FromHttpStatus(reply.StatusCode.Value, reply.Error));
+                    }
+                    finalText = reply.Text ?? String.Empty;
+                    if (finalText.Length > 0) Emit(processId, finalText);
+                    WriteFinalMessage(finalMessageFilePath, finalText);
+                }
+                if (!settings.ToolsEnabled || settings.AllowedTools?.Count == 0)
+                {
+                    await RunPlainChatAsync().ConfigureAwait(false);
+                    return;
+                }
+
                 TaskPlan taskPlan = new TaskPlan();
                 BuiltInToolRegistry registry = new BuiltInToolRegistry(taskPlan);
-                List<PolyToolDefinition> tools = BuildToolDefinitions(registry);
+                List<PolyToolDefinition> tools = BuildToolDefinitions(registry)
+                    .Where(t => (!settings.ReadOnlyTools || registry.GetMutationKind(t.Name) == ToolMutationKind.ReadOnly)
+                        && (settings.AllowedTools == null || settings.AllowedTools.Contains(t.Name, StringComparer.Ordinal))).ToList();
 
                 // Merge in the tools advertised by the optional MCP endpoint. Built-in tool names always win
                 // on a collision so a remote server can never shadow the local file/process tools. The
                 // routing map records which tool names must be dispatched to the MCP client rather than the
                 // local registry.
                 Dictionary<string, McpToolClient> mcpRouting = new Dictionary<string, McpToolClient>(StringComparer.Ordinal);
-                if (!String.IsNullOrWhiteSpace(mcpUrl))
+                if (settings.McpToolsEnabled && !settings.ReadOnlyTools && !String.IsNullOrWhiteSpace(mcpUrl))
                 {
                     HashSet<string> builtInNames = new HashSet<string>(StringComparer.Ordinal);
-                    foreach (PolyToolDefinition builtIn in tools) builtInNames.Add(builtIn.Name);
+                    foreach (PolyToolDefinition builtIn in BuildToolDefinitions(registry)) builtInNames.Add(builtIn.Name);
 
                     try
                     {
@@ -289,6 +330,7 @@ namespace Armada.Runtimes
                         int added = 0;
                         foreach (McpRemoteTool remote in remoteTools)
                         {
+                            if (settings.AllowedTools != null && !settings.AllowedTools.Contains(remote.Name, StringComparer.Ordinal)) continue;
                             if (builtInNames.Contains(remote.Name) || mcpRouting.ContainsKey(remote.Name)) continue;
                             Dictionary<string, object> parameters = SchemaJsonToDictionary(remote.InputSchemaJson);
                             tools.Add(PolyToolDefinition.Function(remote.Name, remote.Description, parameters));
@@ -307,22 +349,26 @@ namespace Armada.Runtimes
                     }
                 }
 
+                if (tools.Count == 0)
+                {
+                    await RunPlainChatAsync().ConfigureAwait(false);
+                    return;
+                }
+
                 List<ChatMessage> messages = new List<ChatMessage>();
                 messages.Add(ChatMessage.System(BuildSystemPrompt(workingDirectory)));
                 messages.Add(ChatMessage.User(prompt));
 
-                for (int iteration = 0; iteration < _MaxIterations; iteration++)
+                HashSet<string> permittedTools = tools.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
+                int maxIterations = Math.Min(_MaxIterations, settings.MaxIterations);
+                for (int iteration = 0; iteration < maxIterations; iteration++)
                 {
                     token.ThrowIfCancellationRequested();
 
                     ToolChatRequest request = new ToolChatRequest();
                     request.Messages = messages;
                     request.Tools = tools;
-                    if (!String.IsNullOrWhiteSpace(model))
-                    {
-                        request.Options = new CompletionOptions();
-                        request.Options.Model = model;
-                    }
+                    request.Options = completionOptions;
 
                     ToolChatResponse response = await client.ToolChatAsync(request, token).ConfigureAwait(false);
 
@@ -352,13 +398,21 @@ namespace Armada.Runtimes
                     foreach (ToolCall call in response.ToolCalls)
                     {
                         token.ThrowIfCancellationRequested();
-                        string resultContent = await ExecuteToolAsync(processId, registry, mcpRouting, call, workingDirectory, token).ConfigureAwait(false);
+                        string resultContent;
+                        if (!permittedTools.Contains(call.Name))
+                        {
+                            resultContent = JsonSerializer.Serialize(new { error = "tool_not_allowed", message = "This tool is disabled by the endpoint's inference policy." });
+                            EmitToolEvent(processId, new ApiRuntimeToolEvent { Phase = ApiRuntimeToolPhaseEnum.Completed, Id = call.Id, Name = call.Name, Ok = false, PermissionDenied = true, Result = resultContent });
+                        }
+                        else resultContent = await ExecuteToolAsync(processId, registry, mcpRouting, call, workingDirectory, token).ConfigureAwait(false);
                         messages.Add(ChatMessage.ToolResult(call.Id, call.Name, resultContent));
                     }
 
-                    if (iteration == _MaxIterations - 1)
+                    if (iteration == maxIterations - 1)
                     {
-                        EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Warning, "[warning] reached the maximum of " + _MaxIterations + " tool iterations; stopping.");
+                        exitCode = 1;
+                        RaiseProviderError(processId, new RuntimeProviderError { ErrorType = "max_iterations_reached", Reason = "API endpoint captain stopped at the configured " + maxIterations + " model-turn limit." });
+                        EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Warning, "[warning] reached the maximum of " + maxIterations + " tool iterations; stopping.");
                     }
                 }
 

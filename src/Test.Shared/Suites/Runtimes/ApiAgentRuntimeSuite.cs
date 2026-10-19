@@ -36,6 +36,90 @@ namespace Test.Shared.Suites.Runtimes
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("endpoint_policy_enforced_and_generation_forwarded", "Read-only and exact allowlist block unadvertised writes, carry generation settings and skip MCP discovery", TestTags.Positive, async () =>
+            {
+                foreach (InferenceOptions policy in new[] {
+                    new InferenceOptions { ReadOnlyTools = true, MaxTokens = 123, Temperature = 0.4, TopP = 0.9 },
+                    new InferenceOptions { AllowedTools = new List<string> { "read_file" }, McpToolsEnabled = false, MaxTokens = 123, Temperature = 0.4, TopP = 0.9 } })
+                {
+                    string dir = NewTempDir();
+                    try
+                    {
+                        Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                        script.Enqueue(new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "forged", Name = "write_file", ArgumentsJson = "{\"file_path\":\"blocked.txt\",\"content\":\"bad\"}" } } });
+                        script.Enqueue(new ToolChatResponse { Success = true, Text = "done", ToolCalls = new List<ToolCall>() });
+                        ScriptedClient? client = null;
+                        bool mcpDiscovered = false;
+                        bool denied = false;
+                        ModelEndpoint endpoint = new ModelEndpoint { Name = "policy", Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.OpenAICompatible, Model = "endpoint-model", BaseUrl = "http://localhost:1", InferenceOptions = policy };
+                        ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => { endpoint.InferenceOptions = new InferenceOptions(); return client = new ScriptedClient(script, log); }, (url, key, log) => { mcpDiscovered = true; throw new InvalidOperationException("MCP discovery must be disabled"); });
+                        using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                        int code = -1;
+                        runtime.OnToolEvent += (pid, evt) => { if (evt.PermissionDenied == true) denied = true; };
+                        runtime.OnProcessExited += (pid, value) => { code = value ?? -1; exited.Set(); };
+                        await runtime.StartAsync(dir, "try a write", new Dictionary<string, string> { ["ARMADA_MCP_URL"] = "http://localhost:1/mcp" }, model: "captain-model").ConfigureAwait(false);
+                        AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "Run must finish.");
+                        AssertEqual(0, code);
+                        AssertTrue(denied, "Injected tool receives a typed permission denial.");
+                        AssertFalse(mcpDiscovered, "Disabled or read-only MCP must never be contacted.");
+                        AssertTrue(!File.Exists(Path.Combine(dir, "blocked.txt")), "An injected unadvertised tool must never execute.");
+                        AssertNotNull(client);
+                        AssertTrue(!client!.ToolNames.Contains("write_file"), "Mutating tool must not be advertised.");
+                        AssertTrue(client.ToolNames.Contains("read_file"), "Read tool remains available.");
+                        AssertEqual(123, client.Settings!.MaxTokens);
+                        AssertEqual(0.4, client.Settings.Temperature);
+                        AssertEqual(0.9, client.Settings.TopP);
+                        AssertEqual("captain-model", client.Settings.Model);
+                    }
+                    finally { Cleanup(dir); }
+                }
+            }));
+
+            cases.Add(CaseAsync("endpoint_tools_disabled_uses_plain_chat", "Tools disabled or empty allowlist uses plain chat and skips MCP", TestTags.Positive, async () =>
+            {
+                foreach (InferenceOptions policy in new[] { new InferenceOptions { ToolsEnabled = false }, new InferenceOptions { AllowedTools = new List<string>() }, new InferenceOptions { AllowedTools = new List<string> { "not_available" }, McpToolsEnabled = false } })
+                {
+                    string dir = NewTempDir();
+                    try
+                    {
+                        ScriptedClient? client = null;
+                        ModelEndpoint endpoint = new ModelEndpoint { Name = "plain", Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.OpenAICompatible, BaseUrl = "http://localhost:1", InferenceOptions = policy };
+                        ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => client = new ScriptedClient(new Queue<ToolChatResponse>(), log), (url, key, log) => throw new InvalidOperationException("No MCP"));
+                        using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                        int code = -1; runtime.OnProcessExited += (pid, value) => { code = value ?? -1; exited.Set(); };
+                        string finalPath = Path.Combine(dir, "answer.txt");
+                        await runtime.StartAsync(dir, "hello", new Dictionary<string, string> { ["ARMADA_MCP_URL"] = "http://localhost:1/mcp" }, finalMessageFilePath: finalPath).ConfigureAwait(false);
+                        AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "Plain run must finish.");
+                        AssertEqual(0, code);
+                        AssertTrue(client!.PlainChatCalled, "Must use chat without tool definitions.");
+                        AssertEqual(0, client.ToolNames.Count);
+                        AssertEqual("plain answer", File.ReadAllText(finalPath));
+                    }
+                    finally { Cleanup(dir); }
+                }
+            }));
+
+            cases.Add(CaseAsync("endpoint_turn_budget_exits_failure", "Tool loop budget exhaustion fails the mission rather than reporting success", TestTags.Negative, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                    script.Enqueue(new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "read", Name = "list_directory", ArgumentsJson = "{}" } } });
+                    ModelEndpoint endpoint = new ModelEndpoint { Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.OpenAICompatible, BaseUrl = "http://localhost:1", InferenceOptions = new InferenceOptions { MaxIterations = 1 } };
+                    ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => new ScriptedClient(script, log));
+                    using ManualResetEventSlim exited = new ManualResetEventSlim(false); int code = -1;
+                    RuntimeProviderError? failure = null;
+                    runtime.OnProviderError += (pid, error) => failure = error;
+                    runtime.OnProcessExited += (pid, value) => { code = value ?? -1; exited.Set(); };
+                    await runtime.StartAsync(dir, "loop").ConfigureAwait(false);
+                    AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "Budget must terminate run."); AssertEqual(1, code);
+                    AssertNotNull(failure, "Turn budget must produce a structured failure.");
+                    AssertEqual(RuntimeFailureKindEnum.TaskFailure, Armada.Core.Services.RuntimeFailureClassifier.Classify(code, failure), "Turn budgets must not count as captain crashes.");
+                }
+                finally { Cleanup(dir); }
+            }));
+
             cases.Add(CaseAsync("tools_write_then_read_round_trip", "Ported write_file and read_file round-trip in a working directory", TestTags.Positive, async () =>
             {
                 string dir = NewTempDir();
@@ -304,6 +388,30 @@ namespace Test.Shared.Suites.Runtimes
             string? simulation = Environment.GetEnvironmentVariable("ARMADA_MODEL_PROVIDER_SIMULATION");
             if (!String.IsNullOrWhiteSpace(simulation))
             {
+                cases.Add(CaseAsync("harbor_endpoint_policy_native_http", "Harbor API captain executes file tools in its worktree and enforces transported endpoint restrictions", TestTags.Positive, async () =>
+                {
+                    foreach (bool readOnly in new[] { false, true })
+                    {
+                        string dir = NewTempDir();
+                        try
+                        {
+                            ModelEndpoint endpoint = new ModelEndpoint { Name = "xAI Harbor", Provider = ModelProviderEnum.XAI, Kind = ModelEndpointKindEnum.Inference, Model = "test-model", BaseUrl = simulation,
+                                InferenceOptions = new InferenceOptions { ReadOnlyTools = readOnly, McpToolsEnabled = false, MaxIterations = 3, MaxTokens = 256, Temperature = 0, TopP = 1 } };
+                            endpoint.ApiKey = "test-token";
+                            LocalHarborJobRunner runner = new LocalHarborJobRunner(CreateLogging(), new AgentRuntimeFactory(CreateLogging()), Path.Combine(dir, "scratch"));
+                            Armada.Core.Harbor.HarborLaunchRequest request = new Armada.Core.Harbor.HarborLaunchRequest { JobId = "policy-job", Runtime = "ApiEndpoint", WorkingDirectory = dir, Prompt = "Write provider-test.txt",
+                                InferenceEndpoint = Armada.Core.Harbor.HarborInferenceEndpoint.FromEndpoint(endpoint), CliPermissionPolicy = CliPermissionPolicyEnum.Refuse };
+                            int code = -1; using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                            await runner.StartAsync(request, null, pid => { }, (stream, text) => { }, value => { code = value; exited.Set(); }, CancellationToken.None).ConfigureAwait(false);
+                            AssertTrue(exited.Wait(TimeSpan.FromSeconds(15)), "Harbor run must finish.");
+                            AssertEqual(0, code);
+                            AssertEqual(!readOnly, File.Exists(Path.Combine(dir, "provider-test.txt")), "Transported read-only policy controls Harbor file writes.");
+                            if (!readOnly) AssertEqual("native xAI tool loop", File.ReadAllText(Path.Combine(dir, "provider-test.txt")));
+                        }
+                        finally { Cleanup(dir); }
+                    }
+                }));
+
                 cases.Add(CaseAsync("xai_native_http_tool_loop", "API captain executes a native xAI tool call and replays provider state over HTTP", TestTags.Positive, async () =>
                 {
                     string dir = NewTempDir();
@@ -408,6 +516,9 @@ namespace Test.Shared.Suites.Runtimes
 
         private sealed class ScriptedClient : CompletionClientBase
         {
+            public List<string> ToolNames { get; private set; } = new List<string>();
+            public CompletionOptions? Settings { get; private set; }
+            public bool PlainChatCalled { get; private set; }
             private readonly Queue<ToolChatResponse> _Script;
             private readonly CompletionOptions _Defaults = new CompletionOptions { Model = "scripted-model" };
 
@@ -421,12 +532,14 @@ namespace Test.Shared.Suites.Runtimes
 
             protected override Task<ToolChatResponse> ToolChatCoreAsync(ToolChatRequest request, List<ChatMessage> messages, ResolvedCompletion settings, CancellationToken token)
             {
+                ToolNames = request.Tools.Select(t => t.Name).ToList();
+                Settings = new CompletionOptions { Model = settings.Model, MaxTokens = settings.MaxTokens, Temperature = settings.Temperature, TopP = settings.TopP };
                 if (_Script.Count == 0) return Task.FromResult(new ToolChatResponse { Success = true, Text = "", ToolCalls = new List<ToolCall>() });
                 return Task.FromResult(_Script.Dequeue());
             }
 
             public override Task<bool> ValidateConnectivityAsync(CancellationToken token = default) => Task.FromResult(true);
-            protected override Task<ChatResponse> ChatCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
+            protected override Task<ChatResponse> ChatCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) { PlainChatCalled = true; Settings = new CompletionOptions { Model = settings.Model, MaxTokens = settings.MaxTokens, Temperature = settings.Temperature, TopP = settings.TopP }; return Task.FromResult(new ChatResponse { Success = true, Text = "plain answer" }); }
             protected override Task<ChatStreamingResponse> ChatStreamingCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
             protected override Task<ToolChatStreamingResponse> ToolChatStreamingCoreAsync(ToolChatRequest request, List<ChatMessage> messages, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
             protected override Task<GenerationResponse> GenerateCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();

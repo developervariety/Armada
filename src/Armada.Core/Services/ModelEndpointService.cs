@@ -155,6 +155,7 @@ namespace Armada.Core.Services
             existing.Dimensionality = endpoint.Dimensionality;
             existing.TimeoutMs = endpoint.TimeoutMs;
             existing.Enabled = endpoint.Enabled;
+            if (endpoint.InferenceOptionsSpecified) existing.InferenceOptions = endpoint.InferenceOptions;
             if (endpoint.ApiKeySpecified) existing.ApiKey = endpoint.ApiKey;
             existing.AuthType = endpoint.AuthType;
             existing.AuthUsername = endpoint.AuthUsername;
@@ -348,6 +349,7 @@ namespace Armada.Core.Services
 
         private static void ValidateShape(ModelEndpoint endpoint)
         {
+            endpoint.InferenceOptions.Validate();
             if (String.IsNullOrWhiteSpace(endpoint.Name)) throw new ArgumentException("Endpoint name is required.");
 
             // Base URL is required for the URL-addressed providers; Vertex AI and Bedrock derive their

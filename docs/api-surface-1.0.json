@@ -7386,6 +7386,11 @@
           "required": false
         },
         {
+          "name": "inferenceOptions",
+          "type": "object",
+          "required": false
+        },
+        {
           "name": "kind",
           "type": "string",
           "required": false
@@ -10940,6 +10945,11 @@
         {
           "name": "headers",
           "type": "array<object>",
+          "required": false
+        },
+        {
+          "name": "inferenceOptions",
+          "type": "object",
           "required": false
         },
         {

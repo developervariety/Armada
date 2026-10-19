@@ -69,6 +69,17 @@ namespace Armada.Server.Mcp.Tools
                         headers = new { type = "array", description = "Extra headers sent with every request, e.g. Cloudflare Access headers. Values are stored but never returned.", items = new { type = "object", properties = new { name = new { type = "string" }, value = new { type = "string" } }, required = new[] { "name" } } },
                         dimensionality = new { type = "integer", description = "Optional embedding dimensionality hint" },
                         timeoutMs = new { type = "integer", description = "Per-request timeout in milliseconds (default 120000, clamped to 1000-600000)" },
+                        inferenceOptions = new { type = "object", description = "Inference defaults and enforced tool policy; omit on update to preserve.", properties = new {
+                            toolsEnabled = new { type = "boolean", @default = true },
+                            readOnlyTools = new { type = "boolean", @default = false, description = "Only built-in read-only tools; excludes shell, file changes and MCP." },
+                            mcpToolsEnabled = new { type = "boolean", @default = true },
+                            allowedTools = new { type = new[] { "array", "null" }, items = new { type = "string", minLength = 1, maxLength = 256 }, maxItems = 256, uniqueItems = true, description = "Exact case-sensitive names; null permits all otherwise eligible tools, [] none." },
+                            maxIterations = new { type = "integer", minimum = 1, maximum = 1000, @default = 100 },
+                            maxTokens = new { type = new[] { "integer", "null" }, minimum = 1, maximum = 10000000 },
+                            temperature = new { type = new[] { "number", "null" }, minimum = 0, maximum = 2 },
+                            topP = new { type = new[] { "number", "null" }, minimum = 0, maximum = 1 },
+                            requireHarbor = new { type = "boolean", @default = false }
+                        } },
                         enabled = new { type = "boolean", description = "Whether the endpoint is enabled (default true)" }
                     },
                     required = new[] { "name", "baseUrl" }
@@ -87,6 +98,7 @@ namespace Armada.Server.Mcp.Tools
                     endpoint.Model = request.Model;
                     if (request.Dimensionality.HasValue) endpoint.Dimensionality = request.Dimensionality.Value;
                     if (request.TimeoutMs.HasValue) endpoint.TimeoutMs = request.TimeoutMs.Value;
+                    if (request.InferenceOptions != null) endpoint.InferenceOptions = request.InferenceOptions;
                     if (request.Enabled.HasValue) endpoint.Enabled = request.Enabled.Value;
                     if (request.ApiKey != null) endpoint.ApiKey = request.ApiKey;
                     if (request.AuthType.HasValue) endpoint.AuthType = request.AuthType.Value;
@@ -127,6 +139,17 @@ namespace Armada.Server.Mcp.Tools
                         headers = new { type = "array", description = "Extra headers (replaces the stored list; omit to keep it). A header without a value keeps the stored value of the header with the same name.", items = new { type = "object", properties = new { name = new { type = "string" }, value = new { type = "string" } }, required = new[] { "name" } } },
                         dimensionality = new { type = "integer", description = "Embedding dimensionality hint" },
                         timeoutMs = new { type = "integer", description = "Per-request timeout in milliseconds" },
+                        inferenceOptions = new { type = "object", description = "Inference defaults and enforced tool policy; omit on update to preserve.", properties = new {
+                            toolsEnabled = new { type = "boolean", @default = true },
+                            readOnlyTools = new { type = "boolean", @default = false, description = "Only built-in read-only tools; excludes shell, file changes and MCP." },
+                            mcpToolsEnabled = new { type = "boolean", @default = true },
+                            allowedTools = new { type = new[] { "array", "null" }, items = new { type = "string", minLength = 1, maxLength = 256 }, maxItems = 256, uniqueItems = true, description = "Exact case-sensitive names; null permits all otherwise eligible tools, [] none." },
+                            maxIterations = new { type = "integer", minimum = 1, maximum = 1000, @default = 100 },
+                            maxTokens = new { type = new[] { "integer", "null" }, minimum = 1, maximum = 10000000 },
+                            temperature = new { type = new[] { "number", "null" }, minimum = 0, maximum = 2 },
+                            topP = new { type = new[] { "number", "null" }, minimum = 0, maximum = 1 },
+                            requireHarbor = new { type = "boolean", @default = false }
+                        } },
                         enabled = new { type = "boolean", description = "Whether the endpoint is enabled" }
                     },
                     required = new[] { "endpointId" }
@@ -149,6 +172,7 @@ namespace Armada.Server.Mcp.Tools
                     if (request.Model != null) existing.Model = request.Model;
                     if (request.Dimensionality.HasValue) existing.Dimensionality = request.Dimensionality.Value;
                     if (request.TimeoutMs.HasValue) existing.TimeoutMs = request.TimeoutMs.Value;
+                    if (request.InferenceOptions != null) existing.InferenceOptions = request.InferenceOptions;
                     if (request.Enabled.HasValue) existing.Enabled = request.Enabled.Value;
                     // Through the write-only input, so the service sees the key as supplied (a plain set was ignored).
                     if (request.ApiKey != null) existing.ApiKeyInput = request.ApiKey;

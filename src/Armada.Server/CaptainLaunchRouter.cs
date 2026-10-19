@@ -6,6 +6,7 @@ namespace Armada.Server
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
@@ -72,7 +73,9 @@ namespace Armada.Server
             if (context == null) throw new ArgumentNullException(nameof(context));
 
             CaptainLaunchDecision result = new CaptainLaunchDecision();
-            result.HarborRequired = _Settings.RequireHarborForLaunch;
+            result.HarborRequired = _Settings.RequireHarborForLaunch ||
+                (context.Captain.Runtime == AgentRuntimeEnum.ApiEndpoint && !String.IsNullOrWhiteSpace(context.Captain.ModelEndpointId)
+                 && _EndpointResolver?.Invoke(context.Captain.ModelEndpointId)?.InferenceOptions.RequireHarbor == true);
             string? pinnedHarborId = String.IsNullOrWhiteSpace(context.PinnedHarborId) ? null : context.PinnedHarborId;
 
             if (_Harbors == null)
@@ -100,6 +103,10 @@ namespace Armada.Server
                     OwnerUserId = context.UserId,
                     ExcludedHarborIds = new List<string>(context.ExcludedHarborIds ?? new List<string>())
                 };
+
+                if (context.Captain.Runtime == AgentRuntimeEnum.ApiEndpoint && !String.IsNullOrWhiteSpace(context.Captain.ModelEndpointId)
+                    && _EndpointResolver?.Invoke(context.Captain.ModelEndpointId)?.InferenceOptions.RequiresPolicySupport == true)
+                    request.RequiredCapabilities.Add(HarborProtocol.InferencePolicyCapability);
 
                 _Logging.Debug(_Header + "Harbor routing for " + context.Purpose + " (captain " + context.Captain.Id + "): tenant=" + (context.TenantId ?? "(none)")
                     + " runtime=" + request.RequestedRuntime + " dockHarbor=" + (request.ExistingHarborId ?? "(none)")
@@ -130,8 +137,8 @@ namespace Armada.Server
 
         /// <summary>
         /// Route an interactive (non-mission) launch and create the runtime to start. A captain routed to a Harbor gets a
-        /// remote runtime that runs it there; otherwise a local runtime. API-endpoint captains always run in-process on
-        /// the Admiral: they have no CLI, and their tool activity and permission prompts need the in-process runtime.
+        /// remote runtime that runs it there; otherwise a local runtime. API-endpoint interactive captains default to in-process execution on
+        /// the Admiral; an endpoint with RequireHarbor uses the same remote selection and fail-closed routing.
         /// </summary>
         /// <param name="context">Launch to route.</param>
         /// <param name="token">Cancellation token.</param>
@@ -142,7 +149,8 @@ namespace Armada.Server
         {
             if (context == null) throw new ArgumentNullException(nameof(context));
 
-            if (context.Captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
+            if (context.Captain.Runtime == AgentRuntimeEnum.ApiEndpoint
+                && (String.IsNullOrWhiteSpace(context.Captain.ModelEndpointId) || _EndpointResolver?.Invoke(context.Captain.ModelEndpointId)?.InferenceOptions.RequireHarbor != true))
                 return new CaptainLaunchTarget(_RuntimeFactory.Create(context.Captain.Runtime), null, "API-endpoint captains run in-process on the Admiral");
 
             CaptainLaunchDecision decision = await DecideAsync(context, token).ConfigureAwait(false);
@@ -161,7 +169,7 @@ namespace Armada.Server
 
             if (decision.HarborRequired)
             {
-                string message = "No Harbor is connected to run this captain. requireHarborForLaunch is on, so the "
+                string message = "No Harbor is connected to run this captain. Harbor execution is required, so the "
                     + context.Purpose + " will not run on the Admiral host (" + decision.Reason + ").";
                 _Logging.Warn(_Header + message);
                 throw new HarborLaunchUnavailableException(context.PinnedHarborId, true, message);
