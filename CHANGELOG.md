@@ -107,6 +107,11 @@ upstream integrations and excludes changes already present at that baseline.
 - The code-index staleness suite reports each of its cases as a named skip when
   git is not on the path, so the runner counts the skips instead of reporting a
   passing suite that ran nothing.
+- The Harbor transport tests prove that the Admiral sent a runner nothing with
+  an ordering probe instead of a 400 ms quiet wait. The fake runner repeats its
+  handshake, and the link answers with one `harbor_handshake_duplicate` error
+  after every frame it sent earlier, so the first frame back must be that
+  answer.
 - A definition-of-done gate holds the host command slot from its first command
   until it ends. Its unit tests and each consumer build and test follow its
   build directly instead of going to the back of the queue for every command,

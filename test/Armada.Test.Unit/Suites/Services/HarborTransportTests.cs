@@ -39,7 +39,6 @@ namespace Armada.Test.Unit.Suites.Services
     public sealed class HarborTransportTests : TestSuite
     {
         private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
-        private static readonly TimeSpan Quiet = TimeSpan.FromMilliseconds(400);
 
         /// <inheritdoc />
         public override string Name => "Harbor Transport";
@@ -1272,6 +1271,7 @@ namespace Armada.Test.Unit.Suites.Services
             private readonly Channel<HarborMessage> _Inbound = Channel.CreateUnbounded<HarborMessage>();
             private readonly TaskCompletionSource<bool> _Closed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             private readonly Task _ReceiveLoop;
+            private HarborHandshake? _AcceptedHandshake;
 
             private FakeRunner(ClientWebSocket socket)
             {
@@ -1290,7 +1290,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public async Task<HarborHandshakeAck> HandshakeAsync(string runnerId, int maxConcurrentJobs = 4)
             {
-                await SendAsync(new HarborHandshake
+                HarborHandshake handshake = new HarborHandshake
                 {
                     CorrelationId = "handshake-" + runnerId,
                     HarborId = runnerId,
@@ -1298,8 +1298,11 @@ namespace Armada.Test.Unit.Suites.Services
                     ProtocolVersion = HarborProtocol.Version,
                     MaxConcurrentJobs = maxConcurrentJobs,
                     Capabilities = new List<HarborCapability> { new HarborCapability { Name = "claude" } }
-                }).ConfigureAwait(false);
-                return await NextAsync<HarborHandshakeAck>().ConfigureAwait(false);
+                };
+                await SendAsync(handshake).ConfigureAwait(false);
+                HarborHandshakeAck ack = await NextAsync<HarborHandshakeAck>().ConfigureAwait(false);
+                if (ack.Accepted) _AcceptedHandshake = handshake;
+                return ack;
             }
 
             public async Task SendAsync(HarborMessage message)
@@ -1329,12 +1332,30 @@ namespace Armada.Test.Unit.Suites.Services
                 throw new Exception("Expected " + typeof(T).Name + " but received " + HarborProtocol.Serialize(message));
             }
 
+            /// <summary>
+            /// Proves that the Admiral has sent this runner nothing, without waiting out a quiet window. The link
+            /// handles its frames in order through one send lock, and a handshaken link answers a repeated handshake
+            /// with one harbor_handshake_duplicate error and no other effect. So anything the Admiral sent before it
+            /// read the probe arrives ahead of that answer: a command it sent before the caller's call returned, and
+            /// any refusal of a frame this runner sent earlier.
+            /// </summary>
             public async Task<bool> NoMessageAsync()
             {
-                await Task.Delay(Quiet).ConfigureAwait(false);
-                if (_Inbound.Reader.TryRead(out HarborMessage? unexpected))
-                    throw new Exception("Expected no message but received " + HarborProtocol.Serialize(unexpected));
-                return true;
+                if (_AcceptedHandshake == null) throw new InvalidOperationException("The quiet probe needs a handshaken link.");
+                string correlationId = "quiet-probe-" + Guid.NewGuid().ToString("N");
+                await SendAsync(new HarborHandshake
+                {
+                    CorrelationId = correlationId,
+                    HarborId = _AcceptedHandshake.HarborId,
+                    Name = _AcceptedHandshake.Name,
+                    ProtocolVersion = _AcceptedHandshake.ProtocolVersion,
+                    MaxConcurrentJobs = _AcceptedHandshake.MaxConcurrentJobs,
+                    Capabilities = _AcceptedHandshake.Capabilities
+                }).ConfigureAwait(false);
+                HarborMessage first = await NextAsync<HarborMessage>().ConfigureAwait(false);
+                if (first is HarborError answer && answer.CorrelationId == correlationId && answer.Message == "harbor_handshake_duplicate")
+                    return true;
+                throw new Exception("Expected no message but received " + HarborProtocol.Serialize(first));
             }
 
             public async Task<bool> WaitClosedAsync()
