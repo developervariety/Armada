@@ -250,6 +250,37 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Armed check waits while a running stage reports Testing, and runs once that stage has completed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("progress-status-voyage")).ConfigureAwait(false);
+                    CheckRun armed = await ArmCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+
+                    await CreateStageMissionAsync(testDb, vessel, voyage, PersonaCatalog.Linter,
+                        MissionStatusEnum.WorkProduced, "armada/linter/msn-progress", "linter111").ConfigureAwait(false);
+                    Mission fixer = await CreateStageMissionAsync(testDb, vessel, voyage, PersonaCatalog.Worker,
+                        MissionStatusEnum.Testing, null, null).ConfigureAwait(false);
+
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    AssertFalse(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false),
+                        "a captain that reports Testing is still running and can still commit, so the check must wait");
+
+                    fixer.Status = MissionStatusEnum.Review;
+                    await testDb.Driver.Missions.UpdateAsync(fixer).ConfigureAwait(false);
+                    AssertFalse(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false),
+                        "a captain that reports Review without a completion time is still running, so the check must wait");
+
+                    fixer.BranchName = "armada/worker/msn-progress";
+                    fixer.CommitHash = "worker222";
+                    fixer.CompletedUtc = DateTime.UtcNow;
+                    await testDb.Driver.Missions.UpdateAsync(fixer).ConfigureAwait(false);
+                    AssertTrue(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false),
+                        "a stage in Review with a completion time has finished, so its commit is final and the check runs");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Armed check becomes eligible when only the Judge stage remains", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -137,6 +137,13 @@ namespace Armada.Core.Database.Interfaces
         Task<List<MissionSummary>> EnumerateMissionSummariesByCaptainAsync(string captainId, CancellationToken token = default);
 
         /// <summary>
+        /// Enumerate lightweight mission summary records whose parent mission is the given mission,
+        /// such as the rescues dispatched for a failure. Reads only the matching rows, so a caller
+        /// that runs every sweep does not read every mission of the vessel.
+        /// </summary>
+        Task<List<MissionSummary>> EnumerateMissionSummariesByParentAsync(string parentMissionId, CancellationToken token = default);
+
+        /// <summary>
         /// Enumerate missions by status.
         /// </summary>
         Task<List<Mission>> EnumerateByStatusAsync(MissionStatusEnum status, CancellationToken token = default);

@@ -137,12 +137,12 @@ namespace Armada.Core.Services
 
             try
             {
-                List<MissionSummary> vesselMissions = auth.IsAdmin
-                    ? await _Database.Missions.EnumerateMissionSummariesByVesselAsync(mission.VesselId, token).ConfigureAwait(false)
-                    : await _Database.Missions.EnumerateMissionSummariesByVesselAsync(auth.TenantId!, mission.VesselId, token).ConfigureAwait(false);
+                List<MissionSummary> children = await _Database.Missions.EnumerateMissionSummariesByParentAsync(mission.Id, token).ConfigureAwait(false);
 
-                IEnumerable<MissionSummary> rescues = vesselMissions
-                    .Where(item => String.Equals(item.ParentMissionId, mission.Id, StringComparison.Ordinal));
+                IEnumerable<MissionSummary> rescues = children
+                    .Where(item => String.Equals(item.VesselId, mission.VesselId, StringComparison.Ordinal));
+                if (!auth.IsAdmin)
+                    rescues = rescues.Where(item => String.Equals(item.TenantId, auth.TenantId, StringComparison.Ordinal));
                 if (!auth.IsAdmin && !auth.IsTenantAdmin)
                     rescues = rescues.Where(item => String.Equals(item.UserId, auth.UserId, StringComparison.Ordinal));
 

@@ -377,6 +377,39 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(CaseAsync("mission_summaries_by_parent", "Mission_EnumerateMissionSummariesByParent", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
+
+                    Mission failed = new Mission("Failed Mission");
+                    failed.VesselId = prereqs.Vessel.Id;
+                    Mission otherFailed = new Mission("Other Failed Mission");
+                    otherFailed.VesselId = prereqs.Vessel.Id;
+                    await db.Missions.CreateAsync(failed);
+                    await db.Missions.CreateAsync(otherFailed);
+
+                    Mission rescue = new Mission("Rescue Of Failed");
+                    rescue.VesselId = prereqs.Vessel.Id;
+                    rescue.ParentMissionId = failed.Id;
+                    Mission otherRescue = new Mission("Rescue Of Other");
+                    otherRescue.VesselId = prereqs.Vessel.Id;
+                    otherRescue.ParentMissionId = otherFailed.Id;
+                    await db.Missions.CreateAsync(rescue);
+                    await db.Missions.CreateAsync(otherRescue);
+
+                    List<MissionSummary> children = await db.Missions.EnumerateMissionSummariesByParentAsync(failed.Id);
+                    AssertEqual(1, children.Count, "only the mission whose parent is the failure is returned");
+                    AssertEqual(rescue.Id, children[0].Id);
+                    AssertEqual(failed.Id, children[0].ParentMissionId);
+
+                    List<MissionSummary> none = await db.Missions.EnumerateMissionSummariesByParentAsync(rescue.Id);
+                    AssertEqual(0, none.Count, "a mission with no children has no summaries");
+                }
+            }));
+
             cases.Add(CaseAsync("mission_enumerate_by_captain", "Mission_EnumerateByCaptain", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

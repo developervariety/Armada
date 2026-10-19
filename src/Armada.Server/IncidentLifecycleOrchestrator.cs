@@ -373,17 +373,13 @@ namespace Armada.Server
             if (await IsMissionVoyageCancelledAsync(mission, token).ConfigureAwait(false))
                 return IncidentEvidence.Superseded("Linked mission belongs to a cancelled voyage and is superseded: " + mission.Id + ".");
 
-            // Enumerate lightweight summaries (no description / agent_output / diff_snapshot
-            // hydration). This runs in the incident-lifecycle sweep every ~5s; loading every
-            // vessel mission's heavy text columns caused hundreds of MB of LOH churn per tick.
-            // ParentMissionId is set exclusively by rescue dispatch, so a ParentMissionId match
-            // uniquely identifies auto-rescue missions of this failure.
-            List<MissionSummary> related = !String.IsNullOrWhiteSpace(mission.VesselId)
-                ? await _Database.Missions.EnumerateMissionSummariesByVesselAsync(mission.VesselId, token).ConfigureAwait(false)
-                : await EnumerateAllMissionSummariesAsync(token).ConfigureAwait(false);
+            // This runs in the incident-lifecycle sweep every ~5s, so it reads only the summaries
+            // whose parent is this mission, never every mission of the vessel. ParentMissionId is
+            // set exclusively by rescue dispatch, so a ParentMissionId match uniquely identifies
+            // auto-rescue missions of this failure.
+            List<MissionSummary> related = await _Database.Missions.EnumerateMissionSummariesByParentAsync(mission.Id, token).ConfigureAwait(false);
 
             MissionSummary? latestRescue = related
-                .Where(item => String.Equals(item.ParentMissionId, mission.Id, StringComparison.Ordinal))
                 .OrderByDescending(item => item.LastUpdateUtc)
                 .FirstOrDefault();
 
@@ -615,29 +611,6 @@ namespace Armada.Server
                 IncidentSeverityEnum.Medium => 2,
                 _ => 1
             };
-        }
-
-        private async Task<List<MissionSummary>> EnumerateAllMissionSummariesAsync(CancellationToken token)
-        {
-            List<MissionSummary> all = new List<MissionSummary>();
-            int pageNumber = 1;
-            const int pageSize = 1000;
-            while (true)
-            {
-                EnumerationResult<MissionSummary> page = await _Database.Missions.EnumerateMissionSummariesAsync(
-                    new EnumerationQuery
-                    {
-                        PageNumber = pageNumber,
-                        PageSize = pageSize,
-                        Order = EnumerationOrderEnum.CreatedDescending
-                    }, token).ConfigureAwait(false);
-
-                all.AddRange(page.Objects);
-                if (page.Objects.Count < pageSize) break;
-                pageNumber++;
-            }
-
-            return all;
         }
 
         private static AuthContext BuildSystemAuth()

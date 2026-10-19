@@ -70,6 +70,12 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
             return await EnumerateSummariesByColumnAsync("captain_id", captainId, token).ConfigureAwait(false);
         }
 
+        public async Task<List<MissionSummary>> EnumerateMissionSummariesByParentAsync(string parentMissionId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(parentMissionId)) throw new ArgumentNullException(nameof(parentMissionId));
+            return await EnumerateSummariesByColumnAsync("parent_mission_id", parentMissionId, token).ConfigureAwait(false);
+        }
+
         public async Task<Dictionary<MissionStatusEnum, int>> CountMissionSummariesByStatusAsync(CancellationToken token = default)
         {
             return await CountByStatusCoreAsync(

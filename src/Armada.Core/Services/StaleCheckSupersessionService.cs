@@ -104,16 +104,22 @@ namespace Armada.Core.Services
         /// it is a review or record-keeping stage whose result never lands in the branch: the Judge,
         /// a persona whose normal completion is an empty diff
         /// (<see cref="PersonaCatalog.IsNoOpCompletionExempt"/>), or a mission running in a read-only
-        /// mode. Every other status means the stage is done or ended, so its commit, if any, is final.
+        /// mode. Testing and Review count as unfinished while the mission has no completion time: a
+        /// running captain reports them as progress and keeps working, while the completion path
+        /// that moves finished work to Review stamps the completion time. Every other status means
+        /// the stage is done or ended, so its commit, if any, is final.
         /// </remarks>
         /// <param name="mission">A mission of the voyage.</param>
         /// <returns>True when the mission may still commit.</returns>
         public static bool MayStillCommit(Mission? mission)
         {
             if (mission == null) return false;
-            if (mission.Status != MissionStatusEnum.Pending
-                && mission.Status != MissionStatusEnum.Assigned
-                && mission.Status != MissionStatusEnum.InProgress) return false;
+            bool running = mission.Status == MissionStatusEnum.Pending
+                || mission.Status == MissionStatusEnum.Assigned
+                || mission.Status == MissionStatusEnum.InProgress
+                || ((mission.Status == MissionStatusEnum.Testing || mission.Status == MissionStatusEnum.Review)
+                    && mission.CompletedUtc == null);
+            if (!running) return false;
             if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge)) return false;
             if (PersonaCatalog.IsNoOpCompletionExempt(mission.Persona)) return false;
             if (mission.IsReadOnlyMode) return false;

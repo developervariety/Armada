@@ -126,6 +126,17 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A voyage-armed Check waits while a stage that reports Testing or Review is
+  still running. A captain reports those statuses as progress and can still
+  commit, so a Check that ran then measured a commit the stage replaced, was
+  superseded, and ran again. A stage that reached Review through completion
+  carries a completion time and no longer holds the Check back.
+- The autonomous-recovery and incident-lifecycle sweeps find a failure's rescue
+  missions by parent mission. They read only the matching mission summaries on
+  each tick instead of every mission of the vessel, which kept the database
+  busy with large reads several times a second. The mission recovery report
+  uses the same lookup.
+
 - The `SlotWait.Guidance` text on an unresolved Check no longer claims the host runs one
   suite at a time. It says the host runs a limited number of full build or test suites at
   once, which holds for any `definitionOfDone.hostCommandSlots` value.
@@ -229,8 +240,8 @@ upstream integrations and excludes changes already present at that baseline.
   merge-queue test that asked before the gate began still runs first; one that
   asks while the gate runs waits for the rest of the gate.
 - A voyage-armed Check runs once the voyage's work is final: a stage has
-  committed and no stage that can still commit is Pending, Assigned or
-  InProgress. The Judge, personas whose normal result is an empty diff, and
+  committed and no stage that can still commit is Pending, Assigned,
+  InProgress, or in Testing or Review without a completion time. The Judge, personas whose normal result is an empty diff, and
   read-only missions do not count, so the Check still runs before the Judge
   decides. A Check no longer spends the host command slot on each intermediate
   stage commit only to be superseded by the next stage.

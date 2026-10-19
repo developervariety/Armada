@@ -306,8 +306,9 @@ than one.
 
 The heartbeat runs eligible non-deployment Checks automatically, up to three per
 sweep: a voyage-armed Check once a stage has committed work to a branch and
-no stage that can still commit remains (a Pending, Assigned or InProgress stage
-other than the Judge, a persona whose normal result is an empty diff, or a
+no stage that can still commit remains (a Pending, Assigned or InProgress stage,
+or a Testing or Review stage with no completion time, since a running captain
+reports those as progress, other than the Judge, a persona whose normal result is an empty diff, or a
 read-only mission), so the Check measures the commit the Judge reviews instead
 of an intermediate one a later stage replaces (on a split voyage, only the
 stages of the record's own lane count); a mission-linked Check after its mission completes, a release-linked Check when

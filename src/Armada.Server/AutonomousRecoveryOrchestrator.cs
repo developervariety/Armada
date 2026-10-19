@@ -1006,18 +1006,11 @@ namespace Armada.Server
         // Lightweight rescue lookup for the hot read-only path (IsAlreadyHandledAsync runs for
         // every recovery candidate every ~5s). ParentMissionId is set exclusively by rescue
         // dispatch (see DispatchRescueMissionAsync), so a ParentMissionId match uniquely
-        // identifies auto-rescue missions of this failure. Uses summaries (no description /
-        // agent_output / diff_snapshot hydration) to avoid loading every vessel mission's heavy
-        // text columns on each tick.
+        // identifies auto-rescue missions of this failure. The lookup reads only the matching
+        // summary rows; reading every mission of the vessel on each tick kept the database busy.
         private async Task<List<MissionSummary>> EnumerateRescueMissionSummariesAsync(Mission failedMission, CancellationToken token)
         {
-            List<MissionSummary> vesselMissions = !String.IsNullOrWhiteSpace(failedMission.VesselId)
-                ? await _Database.Missions.EnumerateMissionSummariesByVesselAsync(failedMission.VesselId, token).ConfigureAwait(false)
-                : await EnumerateAllSummariesByStatusAsync(null, token).ConfigureAwait(false);
-
-            return vesselMissions
-                .Where(item => String.Equals(item.ParentMissionId, failedMission.Id, StringComparison.Ordinal))
-                .ToList();
+            return await _Database.Missions.EnumerateMissionSummariesByParentAsync(failedMission.Id, token).ConfigureAwait(false);
         }
 
         private async Task<bool> ApplyFailurePolicyAsync(string? tenantId, string missionId, CancellationToken token)
