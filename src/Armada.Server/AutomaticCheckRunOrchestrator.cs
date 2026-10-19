@@ -334,7 +334,7 @@ namespace Armada.Server
         /// <remarks>
         /// The hold blocks new mission and voyage dispatches, not missions that were already running.
         /// A running mission can therefore produce work while the hold is active. Its voyage-armed
-        /// check must run when that work becomes measurable, or the check itself prevents the voyage
+        /// check must run when that work becomes final, or the check itself prevents the voyage
         /// from completing and the deployment drain cannot finish. A timestamp cutoff would strand
         /// exactly that in-flight work. Other automatic checks remain deferred.
         /// </remarks>
@@ -458,9 +458,12 @@ namespace Armada.Server
                 // Waiting for the voyage to COMPLETE is a condition this Check itself prevents: a
                 // Judge PASS requires a green independent Check, so the voyage cannot complete until
                 // this record runs, and this record would not run until the voyage completed. The
-                // work becomes measurable much earlier -- as soon as a stage commits it to a branch --
-                // and that is the point the gate actually needs an answer.
-                return await ResolveWorkUnderReviewAsync(run.VoyageId!, token).ConfigureAwait(false) != null;
+                // work becomes final much earlier -- once a stage has committed it and no stage that can
+                // still commit remains, which is no later than when only the Judge is left -- and that
+                // is the point the gate actually needs an answer. Running before then measures a commit
+                // a later stage replaces, and that green is superseded without deciding anything.
+                List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(run.VoyageId!, token).ConfigureAwait(false);
+                return StaleCheckSupersessionService.SelectFinalWorkUnderReview(missions) != null;
             }
 
             if (!String.IsNullOrWhiteSpace(run.MissionId))

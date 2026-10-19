@@ -91,6 +91,12 @@ upstream integrations and excludes changes already present at that baseline.
   which made one gate wait behind all newer work once per command. A Check or
   merge-queue test that asked before the gate began still runs first; one that
   asks while the gate runs waits for the rest of the gate.
+- A voyage-armed Check runs once the voyage's work is final: a stage has
+  committed and no stage that can still commit is Pending, Assigned or
+  InProgress. The Judge, personas whose normal result is an empty diff, and
+  read-only missions do not count, so the Check still runs before the Judge
+  decides. A Check no longer spends the host command slot on each intermediate
+  stage commit only to be superseded by the next stage.
 - A brief whose runtime cannot widen its workspace roots names
   `grep -rn <pattern> <sibling path>` for a sibling search; the captain image
   ships `grep`, not `rg`.

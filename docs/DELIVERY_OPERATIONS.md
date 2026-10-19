@@ -296,8 +296,11 @@ what holds each slot, and how many of the slots are in use when there is more
 than one.
 
 The heartbeat runs eligible non-deployment Checks automatically, up to three per
-sweep: a voyage-armed Check once a stage commits work to a branch, a
-mission-linked Check after its mission completes, a release-linked Check when
+sweep: a voyage-armed Check once a stage has committed work to a branch and
+no stage that can still commit remains (a Pending, Assigned or InProgress stage
+other than the Judge, a persona whose normal result is an empty diff, or a
+read-only mission), so the Check measures the commit the Judge reviews instead
+of an intermediate one a later stage replaces; a mission-linked Check after its mission completes, a release-linked Check when
 the release is ready, and an unlinked Check when its vessel is idle. A Pending
 Check of a voyage that ended without completing is cancelled with its reason.
 Cancellation, execution and source stamping re-read the current Check under a

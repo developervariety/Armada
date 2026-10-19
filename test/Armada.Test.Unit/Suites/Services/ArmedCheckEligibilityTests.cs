@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.Threading.Tasks;
+    using Armada.Core;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -73,6 +74,19 @@ namespace Armada.Test.Unit.Suites.Services
             return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
         }
 
+        private static async Task<Mission> CreateStageMissionAsync(
+            TestDatabase testDb, Vessel vessel, Voyage voyage, string persona, MissionStatusEnum status, string? branch, string? commit)
+        {
+            Mission mission = new Mission("[" + persona + "] Stage of the work", "Stage of the work");
+            mission.VesselId = vessel.Id;
+            mission.VoyageId = voyage.Id;
+            mission.Persona = persona;
+            mission.Status = status;
+            mission.BranchName = branch;
+            mission.CommitHash = commit;
+            return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
         /// <summary>Run all armed-check eligibility tests.</summary>
         protected override async Task RunTestsAsync()
         {
@@ -131,6 +145,93 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(eligible, "A check with nothing committed to measure must not run");
                 }
             });
+
+            await RunTest("Armed check waits while a later stage can still commit on top of the work", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("staged-voyage")).ConfigureAwait(false);
+                    CheckRun armed = await ArmCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+
+                    await CreateStageMissionAsync(testDb, vessel, voyage, PersonaCatalog.Worker,
+                        MissionStatusEnum.WorkProduced, "armada/worker/msn-staged", "worker111").ConfigureAwait(false);
+                    await CreateStageMissionAsync(testDb, vessel, voyage, PersonaCatalog.TestEngineer,
+                        MissionStatusEnum.Pending, null, null).ConfigureAwait(false);
+                    await CreateStageMissionAsync(testDb, vessel, voyage, PersonaCatalog.Judge,
+                        MissionStatusEnum.Pending, null, null).ConfigureAwait(false);
+
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    bool eligible = await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false);
+
+                    AssertFalse(eligible, "a pending stage that can still commit would replace the measured commit, so the check must wait");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Armed check becomes eligible when only the Judge stage remains", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("staged-voyage")).ConfigureAwait(false);
+                    CheckRun armed = await ArmCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+
+                    await CreateStageMissionAsync(testDb, vessel, voyage, PersonaCatalog.Worker,
+                        MissionStatusEnum.WorkProduced, "armada/worker/msn-staged", "worker111").ConfigureAwait(false);
+                    Mission testStage = await CreateStageMissionAsync(testDb, vessel, voyage, PersonaCatalog.TestEngineer,
+                        MissionStatusEnum.InProgress, null, null).ConfigureAwait(false);
+                    await CreateStageMissionAsync(testDb, vessel, voyage, PersonaCatalog.Judge,
+                        MissionStatusEnum.Pending, null, null).ConfigureAwait(false);
+
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    AssertFalse(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false),
+                        "the check waits while the test stage is still running");
+
+                    testStage.Status = MissionStatusEnum.WorkProduced;
+                    testStage.BranchName = "armada/test-engineer/msn-staged";
+                    testStage.CommitHash = "tests222";
+                    await testDb.Driver.Missions.UpdateAsync(testStage).ConfigureAwait(false);
+
+                    AssertTrue(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false),
+                        "with only the Judge left the check must run, or the Judge's hold on a missing green never ends");
+
+                    CheckRun stamped = await orchestrator.StampWorkUnderReviewAsync(armed, default).ConfigureAwait(false);
+                    AssertEqual("tests222", stamped.CommitHash, "the check measures the last committed stage, the commit the Judge reviews");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Armed check of a single committed and completed stage is eligible", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("single-stage-voyage")).ConfigureAwait(false);
+                    CheckRun armed = await ArmCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+
+                    await CreateStageMissionAsync(testDb, vessel, voyage, PersonaCatalog.Worker,
+                        MissionStatusEnum.Complete, "armada/worker/msn-single", "single333").ConfigureAwait(false);
+
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    bool eligible = await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false);
+
+                    AssertTrue(eligible, "a completed single stage is final work, so the check runs");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A stage that cannot commit does not hold back an armed check", () =>
+            {
+                Mission judge = new Mission("[Judge] Review", "Review") { Persona = PersonaCatalog.Judge, Status = MissionStatusEnum.InProgress };
+                Mission recorder = new Mission("[Recorder] Record", "Record") { Persona = PersonaCatalog.Recorder, Status = MissionStatusEnum.Pending };
+                Mission research = new Mission("[Worker] Research", "Research") { Persona = PersonaCatalog.Worker, Status = MissionStatusEnum.Assigned, Mode = MissionModeEnum.Research };
+                Mission linter = new Mission("[Linter] Lint", "Lint") { Persona = PersonaCatalog.Linter, Status = MissionStatusEnum.Assigned };
+                Mission failedWorker = new Mission("[Worker] Failed", "Failed") { Persona = PersonaCatalog.Worker, Status = MissionStatusEnum.Failed };
+
+                AssertFalse(StaleCheckSupersessionService.MayStillCommit(judge), "the Judge reviews and never commits");
+                AssertFalse(StaleCheckSupersessionService.MayStillCommit(recorder), "a persona whose normal result is an empty diff never commits");
+                AssertFalse(StaleCheckSupersessionService.MayStillCommit(research), "a read-only mission never commits");
+                AssertFalse(StaleCheckSupersessionService.MayStillCommit(failedWorker), "an ended stage adds no further commit");
+                AssertTrue(StaleCheckSupersessionService.MayStillCommit(linter), "an unfinished Linter can commit fixes");
+            }).ConfigureAwait(false);
 
             await RunTest("Armed check on a cancelled voyage never becomes eligible", async () =>
             {

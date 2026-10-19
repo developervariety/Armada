@@ -17,13 +17,14 @@ namespace Armada.Core.Services
     /// live voyage is now reviewing.
     /// </summary>
     /// <remarks>
-    /// A voyage-armed Check is stamped once, at the first stage that commits, and never re-stamped.
-    /// A Failed record for an older commit is treated the same way as a stale green: the later
-    /// commit may be the fix, so the red is superseded and a fresh record decides at the tip.
-    /// Every stage after that commits on top, so by the time the Judge runs the only green record
-    /// can vouch for a commit several stages back. The Judge gate holds a PASS when it sees such a
-    /// record (<see cref="CheckRunGateRules.IsStale"/>); this service is what lets the hold end,
-    /// by giving the executor a record it can run against the current tip.
+    /// A voyage-armed Check runs once the voyage's work is final (<see cref="SelectFinalWorkUnderReview"/>),
+    /// is stamped with that commit when it executes, and is never re-stamped. A stage can still add
+    /// a commit afterwards, for example a fix stage added to the voyage, and then the record vouches
+    /// for older work. A Failed record for an older commit is treated the same way as a stale green:
+    /// the later commit may be the fix, so the red is superseded and a fresh record decides at the
+    /// tip. The Judge gate holds a PASS when it sees such a record
+    /// (<see cref="CheckRunGateRules.IsStale"/>); this service is what lets the hold end, by giving
+    /// the executor a record it can run against the current tip.
     /// <para>
     /// The stale record is Canceled, not deleted or rewritten: it stays as the honest history of
     /// what it measured, its summary names the record that supersedes it, and a Canceled record
@@ -84,6 +85,52 @@ namespace Armada.Core.Services
                     || mission.Status == MissionStatusEnum.Complete)
                 .OrderByDescending(mission => mission.LastUpdateUtc)
                 .FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Whether a stage can still add a commit on top of the work under review.
+        /// </summary>
+        /// <remarks>
+        /// A stage that has not finished (Pending, Assigned or InProgress) may still commit, unless
+        /// it is a review or record-keeping stage whose result never lands in the branch: the Judge,
+        /// a persona whose normal completion is an empty diff
+        /// (<see cref="PersonaCatalog.IsNoOpCompletionExempt"/>), or a mission running in a read-only
+        /// mode. Every other status means the stage is done or ended, so its commit, if any, is final.
+        /// </remarks>
+        /// <param name="mission">A mission of the voyage.</param>
+        /// <returns>True when the mission may still commit.</returns>
+        public static bool MayStillCommit(Mission? mission)
+        {
+            if (mission == null) return false;
+            if (mission.Status != MissionStatusEnum.Pending
+                && mission.Status != MissionStatusEnum.Assigned
+                && mission.Status != MissionStatusEnum.InProgress) return false;
+            if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge)) return false;
+            if (PersonaCatalog.IsNoOpCompletionExempt(mission.Persona)) return false;
+            if (mission.IsReadOnlyMode) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Whether a voyage-armed Check would measure final work if it ran now: some stage has
+        /// committed work (<see cref="SelectWorkUnderReview"/>) and no stage can still commit on top
+        /// of it (<see cref="MayStillCommit"/>).
+        /// </summary>
+        /// <remarks>
+        /// Only the run at the last commit decides the Judge gate; a run while a later stage can still
+        /// commit is superseded as soon as that stage commits, so it spends the host command slot for
+        /// no verdict. The Judge itself never counts as a committing stage, so the Check becomes
+        /// runnable no later than when the Judge is the only stage left, and the Judge's hold on a
+        /// missing green still ends.
+        /// </remarks>
+        /// <param name="missions">The voyage's missions, in any order.</param>
+        /// <returns>The mission carrying final work, or null while there is none.</returns>
+        public static Mission? SelectFinalWorkUnderReview(IEnumerable<Mission>? missions)
+        {
+            if (missions == null) return null;
+            List<Mission> list = missions.Where(mission => mission != null).ToList();
+            if (list.Any(MayStillCommit)) return null;
+            return SelectWorkUnderReview(list);
         }
 
         /// <summary>
