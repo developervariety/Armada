@@ -501,12 +501,30 @@ namespace Armada.Core.Services
             }
         }
 
+        private static bool UsesWorktree(string? workingDirectory, string worktreePath)
+        {
+            if (String.IsNullOrWhiteSpace(workingDirectory)) return false;
+            try { return HarborDockSettings.IsSameOrUnder(workingDirectory, worktreePath); }
+            catch (ArgumentException) { return false; }
+            catch (NotSupportedException) { return false; }
+        }
+
         private async Task HandleDockAsync(HarborDockRequest dock, CancellationToken token)
         {
             LogEntry(_LogClassifier.DockRequest(dock));
 
             HarborDockResult result;
-            if (_Docks == null)
+            HarborJobInfo? owner = dock.Operation == HarborDockOperationEnum.Reclaim && !String.IsNullOrWhiteSpace(dock.WorktreePath)
+                ? _JobState.LiveJobs().Find(job => UsesWorktree(job.WorkingDirectory, dock.WorktreePath!)) : null;
+            if (owner != null)
+            {
+                result = new HarborDockResult
+                {
+                    CorrelationId = dock.CorrelationId, RequestId = dock.RequestId,
+                    Message = "Cannot reclaim this worktree while Harbor job " + owner.JobId + " is running in it. Stop the job before reclaiming its dock."
+                };
+            }
+            else if (_Docks == null)
             {
                 result = new HarborDockResult
                 {

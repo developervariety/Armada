@@ -38,6 +38,9 @@ namespace Armada.Core.Harbor
         /// </summary>
         public string Runtime { get; set; } = String.Empty;
 
+        // Host-local execution ownership; never serialized into job display/telemetry.
+        internal string? WorkingDirectory { get; set; } = null;
+
         /// <summary>
         /// When the job started, UTC.
         /// </summary>
@@ -100,6 +103,7 @@ namespace Armada.Core.Harbor
             info.MissionId = String.IsNullOrWhiteSpace(request.MissionId) ? null : request.MissionId!.Trim();
             info.CaptainId = String.IsNullOrWhiteSpace(request.CaptainId) ? null : request.CaptainId!.Trim();
             info.Runtime = request.Runtime ?? String.Empty;
+            info.WorkingDirectory = request.WorkingDirectory;
             info.StartedUtc = startedUtc;
             info.Model = String.IsNullOrWhiteSpace(request.Model) ? null : request.Model!.Trim();
             info.Display = request.Display != null && !request.Display.IsEmpty() ? request.Display.Clone() : null;
@@ -200,6 +204,7 @@ namespace Armada.Core.Harbor
                 MissionId = MissionId,
                 CaptainId = CaptainId,
                 Runtime = Runtime,
+                WorkingDirectory = WorkingDirectory,
                 StartedUtc = StartedUtc,
                 Model = Model,
                 Display = Display?.Clone(),

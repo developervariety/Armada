@@ -419,6 +419,62 @@ namespace Test.Shared.Suites.Services
                 AssertNotNull(await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/" + run.Dock.BranchName).ConfigureAwait(false), "the mission branch is kept for a retry");
             }));
 
+            cases.Add(CaseAsync("late_reclaim_preserves_live_job_worktree", "A late reclaim cannot delete a running replacement job's worktree; reclaim works after exit", TestTags.Reliability, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_late_reclaim").ConfigureAwait(false);
+                Vessel vessel = await s.CreateVesselAsync(git.Origin, LandingModeEnum.LocalMerge).ConfigureAwait(false);
+                Captain captain = await s.CreateCaptainAsync().ConfigureAwait(false);
+                Dock dock = await s.Docks.ProvisionOnHarborAsync(vessel, captain, "armada/live-dock", "msn_live", "hbr_late_reclaim").ConfigureAwait(false);
+                HarborJobInfo job = HarborJobInfo.FromLaunch(new HarborLaunchRequest { JobId = "replacement", WorkingDirectory = Path.Combine(dock.WorktreePath!, "src") }, DateTime.UtcNow);
+                harbor.Client.JobState.AddLiveJob(HarborJobInfo.FromLaunch(new HarborLaunchRequest { JobId = "bad-display-path", WorkingDirectory = "\0" }, DateTime.UtcNow));
+                harbor.Client.JobState.AddLiveJob(job);
+                HarborDockClient client = new HarborDockClient(s.Manager);
+                HarborDockResult? refused = await client.ReclaimAsync(dock, vessel).ConfigureAwait(false);
+                AssertNotNull(refused);
+                AssertFalse(refused!.Success);
+                AssertContains("replacement", refused.Message!);
+                AssertTrue(Directory.Exists(dock.WorktreePath!), "The running job keeps its worktree even when stale Admiral cleanup requests it.");
+                harbor.Client.JobState.RemoveLiveJob("replacement");
+                HarborDockResult? removed = await client.ReclaimAsync(dock, vessel).ConfigureAwait(false);
+                AssertTrue(removed!.Success, removed.Message);
+                AssertFalse(Directory.Exists(dock.WorktreePath!));
+            }));
+
+            cases.Add(CaseAsync("stale_dock_record_cannot_remove_active_path", "Legacy duplicate dock records can be retired or purged without removing a newer active worktree", TestTags.Reliability, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_duplicate_path").ConfigureAwait(false);
+                Vessel vessel = await s.CreateVesselAsync(git.Origin, LandingModeEnum.LocalMerge).ConfigureAwait(false);
+                Captain captain = await s.CreateCaptainAsync().ConfigureAwait(false);
+                Dock live = await s.Docks.ProvisionOnHarborAsync(vessel, captain, "armada/duplicate", "msn_duplicate", "hbr_duplicate_path").ConfigureAwait(false);
+                Dock stale = await s.Db.Driver.Docks.CreateAsync(new Dock(vessel.Id) { HarborId = live.HarborId, WorktreePath = live.WorktreePath, RepositoryPath = live.RepositoryPath, Active = true }).ConfigureAwait(false);
+                await s.Docks.ReclaimAsync(stale.Id).ConfigureAwait(false);
+                AssertTrue(Directory.Exists(live.WorktreePath!), "Late reclaim must preserve the replacement dock.");
+                AssertFalse((await s.Db.Driver.Docks.ReadAsync(stale.Id).ConfigureAwait(false))!.Active);
+                await s.Docks.PurgeAsync(stale.Id).ConfigureAwait(false);
+                AssertTrue(Directory.Exists(live.WorktreePath!), "Deleting a retired legacy record must preserve the replacement dock.");
+                await s.Docks.ReclaimAsync(live.Id).ConfigureAwait(false);
+                AssertFalse(Directory.Exists(live.WorktreePath!), "The actual owner remains reclaimable.");
+            }));
+
+            cases.Add(CaseAsync("redispatch_uses_distinct_dock_generation_paths", "Separate attempts of one mission have distinct paths so old cleanup cannot target a replacement", TestTags.Reliability, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectMappedAsync("hbr_generations").ConfigureAwait(false);
+                Vessel vessel = await s.CreateVesselAsync(git.Origin, LandingModeEnum.LocalMerge).ConfigureAwait(false);
+                Captain captain = await s.CreateCaptainAsync().ConfigureAwait(false);
+                Dock old = await s.Docks.ProvisionOnHarborAsync(vessel, captain, "armada/old-generation", "msn_same", "hbr_generations").ConfigureAwait(false);
+                Dock current = await s.Docks.ProvisionOnHarborAsync(vessel, captain, "armada/current-generation", "msn_same", "hbr_generations").ConfigureAwait(false);
+                AssertFalse(old.WorktreePath == current.WorktreePath, "Mission id alone must not identify a physical attempt.");
+                await s.Docks.ReclaimAsync(old.Id).ConfigureAwait(false);
+                AssertTrue(Directory.Exists(current.WorktreePath!));
+                await s.Docks.ReclaimAsync(current.Id).ConfigureAwait(false);
+            }));
+
             cases.Add(CaseAsync("reclaim_removes_dock_on_harbor", "Reclaiming a Harbor dock removes its worktree on the Harbor and releases the dock", TestTags.Positive, async () =>
             {
                 using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);

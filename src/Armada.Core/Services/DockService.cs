@@ -65,9 +65,10 @@ namespace Armada.Core.Services
 
             string repoPath = vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
 
-            // Use per-mission dock path when missionId is provided (eliminates path-reuse races).
-            // Falls back to per-captain path for backward compatibility.
-            string dockDirName = !String.IsNullOrEmpty(missionId) ? missionId : captain.Name;
+            // Every provisioning attempt owns a distinct path, including redispatches of the same mission.
+            // A delayed finalizer for an old dock must never remove a replacement attempt's worktree.
+            Dock dock = new Dock(vessel.Id);
+            string dockDirName = (!String.IsNullOrEmpty(missionId) ? missionId : captain.Name) + "_" + dock.Id;
             string worktreePath = Path.Combine(_Settings.DocksDirectory, vessel.Name, dockDirName);
             string normalizedRepoPath = Path.GetFullPath(repoPath);
             SemaphoreSlim repoLock = _RepoProvisionLocks.GetOrAdd(normalizedRepoPath, _ => new SemaphoreSlim(1, 1));
@@ -232,7 +233,6 @@ namespace Armada.Core.Services
                 }
 
                 // Create dock record
-                Dock dock = new Dock(vessel.Id);
                 dock.TenantId = vessel.TenantId;
                 dock.UserId = vessel.UserId;
                 dock.CaptainId = captain.Id;
@@ -285,12 +285,13 @@ namespace Armada.Core.Services
             if (harbors == null)
                 throw new DockProvisioningException(vessel.Id, branchName, "Harbor delegation is not available on this Admiral, so no dock can be created on Harbor " + harborId + ".");
 
+            Dock dock = new Dock(vessel.Id);
             string harbor = harbors.Describe(harborId);
             HarborDockClient client = new HarborDockClient(harbors);
             Armada.Core.Harbor.HarborDockResult? result;
             try
             {
-                result = await client.ProvisionAsync(harborId, vessel, branchName, missionId, token).ConfigureAwait(false);
+                result = await client.ProvisionAsync(harborId, vessel, branchName, missionId + "_" + dock.Id, token).ConfigureAwait(false);
             }
             catch (InvalidOperationException ex)
             {
@@ -304,7 +305,6 @@ namespace Armada.Core.Services
                 throw new DockProvisioningException(vessel.Id, branchName, "Harbor " + harbor + " could not create a dock for vessel " + vessel.Name + ": "
                     + (result.Message ?? "it did not say why") + ".");
 
-            Dock dock = new Dock(vessel.Id);
             dock.TenantId = vessel.TenantId;
             dock.UserId = vessel.UserId;
             dock.CaptainId = captain.Id;
@@ -352,7 +352,11 @@ namespace Armada.Core.Services
                 return;
             }
 
-            if (DockHostResolver.IsHarborDock(dock))
+            if (await HasOtherActivePathOwnerAsync(dock, token).ConfigureAwait(false))
+            {
+                _Logging.Warn(_Header + "retiring stale dock " + dock.Id + " without removing the worktree owned by another active dock");
+            }
+            else if (DockHostResolver.IsHarborDock(dock))
             {
                 await RemoveHarborDockAsync(dock, token).ConfigureAwait(false);
             }
@@ -496,10 +500,27 @@ namespace Armada.Core.Services
         #region Private-Methods
 
         /// <summary>
-        /// Clean up a dock's worktree by removing the git worktree and directory.
+        /// Whether a legacy path has been reassigned to a different active dock.
         /// </summary>
+        private async Task<bool> HasOtherActivePathOwnerAsync(Dock dock, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(dock.WorktreePath)) return false;
+            foreach (Dock other in await _Database.Docks.EnumerateAsync(token).ConfigureAwait(false))
+            {
+                if (other.Id != dock.Id && other.Active && other.HarborId == dock.HarborId
+                    && String.Equals(other.WorktreePath?.TrimEnd('/', '\\'), dock.WorktreePath.TrimEnd('/', '\\'), StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
         private async Task CleanupWorktreeAsync(Dock dock, CancellationToken token)
         {
+            if (await HasOtherActivePathOwnerAsync(dock, token).ConfigureAwait(false))
+            {
+                _Logging.Warn(_Header + "skipping physical cleanup of stale dock " + dock.Id + " because another active dock owns its worktree");
+                TryDeleteDockStartCommitFile(dock.Id);
+                return;
+            }
             if (DockHostResolver.IsHarborDock(dock))
             {
                 await RemoveHarborDockAsync(dock, token).ConfigureAwait(false);

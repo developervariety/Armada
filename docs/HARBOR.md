@@ -556,3 +556,16 @@ Harbor management REST routes and MCP tools, the `harbor.*`, `deploymentMode`, a
 and the link protocol below are excluded from the 1.0 compatibility promise and may change in a minor release (see
 [COMPATIBILITY.md](COMPATIBILITY.md)). Experimental routes and tools are marked `[Experimental]` in OpenAPI and in their
 MCP descriptions.
+
+### Worktree ownership during restart recovery
+
+Each newly provisioned dock uses a distinct directory for its provisioning attempt, including attempts
+for the same mission. Late cleanup of an older dock must not remove a replacement attempt's worktree.
+Legacy records that share a path can be retired or deleted without removing the path while another
+active dock owns it. Harbor also refuses a reclaim request while a live captain job runs in that
+worktree or one of its subdirectories; retry cleanup after the job exits. This host-side guard also
+protects jobs when connected to an older Admiral.
+
+API captain `run_process` commands are noninteractive and receive EOF on standard input. Use an explicit
+heredoc or input redirection when a command needs data. A bare `cat` or `read` cannot wait on Harbor's
+inherited terminal input until the tool timeout.

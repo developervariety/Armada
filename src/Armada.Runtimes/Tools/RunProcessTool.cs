@@ -140,6 +140,9 @@ namespace Armada.Runtimes.Tools
                     };
 
                     process.Start();
+                    // This tool has no interactive input channel. EOF prevents commands such as cat/read
+                    // from waiting on the Harbor GUI's inherited stdin for the entire tool timeout.
+                    process.StandardInput.Close();
                     process.BeginOutputReadLine();
                     process.BeginErrorReadLine();
 
@@ -228,6 +231,7 @@ namespace Armada.Runtimes.Tools
         {
             ProcessStartInfo startInfo = new ProcessStartInfo();
             startInfo.WorkingDirectory = resolvedWorkDir;
+            startInfo.RedirectStandardInput = true;
             startInfo.RedirectStandardOutput = true;
             startInfo.RedirectStandardError = true;
             startInfo.UseShellExecute = false;

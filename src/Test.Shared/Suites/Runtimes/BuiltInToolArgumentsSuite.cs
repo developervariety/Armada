@@ -261,6 +261,26 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(CaseAsync("run_process_is_noninteractive", "Commands needing stdin receive EOF, while explicit heredoc input still works", TestTags.Reliability, async () =>
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+                string dir = NewTempDir();
+                try
+                {
+                    BuiltInToolRegistry registry = new BuiltInToolRegistry(null);
+                    string request = JsonSerializer.Serialize(new { command = "cat; printf 'stdin-closed'", timeout_ms = 2000 });
+                    ToolResult result = await Run(registry, "run_process", request, dir).ConfigureAwait(false);
+                    AssertTrue(result.Success, result.Content);
+                    RunProcessOutput output = JsonSerializer.Deserialize<RunProcessOutput>(result.Content)!;
+                    AssertFalse(output.TimedOut);
+                    AssertContains("stdin-closed", output.Stdout);
+                    ToolResult heredoc = await Run(registry, "run_process", JsonSerializer.Serialize(new { command = "cat <<'EOF'\nexplicit input\nEOF", timeout_ms = 2000 }), dir).ConfigureAwait(false);
+                    AssertTrue(heredoc.Success, heredoc.Content);
+                    AssertContains("explicit input", JsonSerializer.Deserialize<RunProcessOutput>(heredoc.Content)!.Stdout);
+                }
+                finally { Cleanup(dir); }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: _SuiteId,
                 displayName: "Built-in Tool Arguments",

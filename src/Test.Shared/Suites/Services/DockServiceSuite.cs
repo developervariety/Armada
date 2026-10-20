@@ -172,8 +172,13 @@ namespace Test.Shared.Suites.Services
                     AssertTrue(File.Exists(metadataPath), "Dock provisioning should persist the start commit metadata");
                     AssertEqual("abc123", (await File.ReadAllTextAsync(metadataPath).ConfigureAwait(false)).Trim(), "Metadata should store the provisioned HEAD commit");
 
+                    Dock? replacement = await service.ProvisionAsync(vessel, captain, "armada/metadata/replacement", "msn_one").ConfigureAwait(false);
+                    AssertNotNull(replacement);
+                    AssertFalse(dock.WorktreePath == replacement!.WorktreePath, "A redispatch of the same mission must have its own physical worktree.");
                     await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
                     AssertFalse(File.Exists(metadataPath), "Dock reclaim should remove the start commit metadata");
+                    AssertTrue(Directory.Exists(replacement.WorktreePath!), "Late local-dock reclaim must not remove the replacement's worktree.");
+                    await service.ReclaimAsync(replacement.Id).ConfigureAwait(false);
                 }
             }));
 
