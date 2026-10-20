@@ -241,7 +241,8 @@ namespace Armada.Core.Services.Interfaces
         Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default);
 
         /// <summary>
-        /// Force-advance a local branch ref to a specific commit. Unlike <c>git branch -f</c>, this uses
+        /// Advance a local branch to include a produced commit without rewinding newer work. Divergent work is
+        /// preserved under refs/armada/stage-commits/&lt;commit&gt; and the update is refused. Unlike <c>git branch -f</c>, this uses
         /// <c>git update-ref</c>, which tolerates a branch that is currently checked out (or detached) in a
         /// worktree that shares the same repository. Used by pipeline stage handoff to lift a prior stage's
         /// produced commit -- resolved from a detached dock's live HEAD -- onto the shared branch ref so the
@@ -251,7 +252,7 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="branchName">Branch name to advance (without the refs/heads/ prefix).</param>
         /// <param name="commitHash">Commit hash the branch ref should point to.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>True when the ref was updated; false when inputs were missing or the update failed.</returns>
+        /// <returns>True when the commit is included (possibly already); false when inputs were missing, commits diverged, or the update failed.</returns>
         Task<bool> ForceAdvanceBranchAsync(string worktreePath, string branchName, string commitHash, CancellationToken token = default);
 
         /// <summary>

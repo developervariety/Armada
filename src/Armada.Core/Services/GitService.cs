@@ -632,13 +632,37 @@ namespace Armada.Core.Services
 
             try
             {
-                await RunGitAsync(worktreePath, token, "update-ref", "refs/heads/" + branchName, commitHash).ConfigureAwait(false);
-                _Logging.Debug(_Header + "force-advanced branch " + branchName + " to " + commitHash + " via " + worktreePath);
-                return true;
+                string proposed = (await RunGitAsync(worktreePath, token, "rev-parse", "--verify", commitHash + "^{commit}").ConfigureAwait(false)).Trim();
+                string branchRef = "refs/heads/" + branchName;
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    string current = await RefResolvesAsync(worktreePath, branchRef, token).ConfigureAwait(false)
+                        ? (await RunGitAsync(worktreePath, token, "rev-parse", "--verify", branchRef).ConfigureAwait(false)).Trim()
+                        : new string('0', proposed.Length);
+                    if (current == proposed || (current != new string('0', proposed.Length) && await IsAncestorAsync(worktreePath, proposed, current, token).ConfigureAwait(false) == true))
+                        return true; // A late read-only stage must never rewind newer integrated work.
+                    if (current != new string('0', proposed.Length) && await IsAncestorAsync(worktreePath, current, proposed, token).ConfigureAwait(false) != true)
+                    {
+                        await RunGitAsync(worktreePath, token, "update-ref", "refs/armada/stage-commits/" + proposed, proposed).ConfigureAwait(false);
+                        _Logging.Warn(_Header + "refusing divergent pipeline branch update for " + branchName + "; preserved stage commit " + proposed);
+                        return false;
+                    }
+                    try
+                    {
+                        // Compare-and-swap protects against a writer advancing the ref after our ancestry check.
+                        await RunGitAsync(worktreePath, token, "update-ref", branchRef, proposed, current).ConfigureAwait(false);
+                        return true;
+                    }
+                    catch (GitCommandException) when (!token.IsCancellationRequested && attempt < 2)
+                    {
+                        // Re-read the ref before retrying; never overwrite a concurrent writer blindly.
+                    }
+                }
+                return false;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
             {
-                _Logging.Warn(_Header + "force-advance of branch " + branchName + " to " + commitHash + " failed: " + ex.ToString());
+                _Logging.Warn(_Header + "safe branch advance for " + branchName + " to " + commitHash + " failed: " + ex.ToString());
                 return false;
             }
         }

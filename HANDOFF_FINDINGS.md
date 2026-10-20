@@ -10,13 +10,13 @@ FullPipeline: Product Manager → Architect → Worker → Usability Engineer �
 
 Authenticated API polling every 25 seconds archives full API-visible logs, mission records, instruction snapshots, status transitions, and requested/actual captains. It captures terminal records even when a stage finishes between polls. Server log rendering omits protocol noise; this is not raw provider-token capture. Full log snapshots are retained when rendered content changes, avoiding an assumption that streamed lines are append-only. Evidence: `/tmp/armada-full-pipeline-20261020` (private local artifacts, not portable repository evidence).
 
-Current state: the Architect emitted its version-2 plan at approximately 21:51:52 UTC after 9m33s. Eight slices expanded into 48 downstream missions (50 total). The first Worker handed off package upgrade commit `87aad329`, reporting 47 shared cases and both test adapters passing. Usability independently reran validation and a deliberate wrong-route mutation, restored the tree, and passed its assessment. Test Engineer is adding `/v1` model/embedding endpoint variants and real SSE parsing coverage. No end-to-end success is claimed yet.
+Current state at 22:34 UTC: first slice passed independent Codex Judge on its first review (53/53 shared cases, both adapters, warning-free build), and Recorder completed. Metadata reached Judge with 62 passing cases but needed its first automatic rework: unknown/Custom providers bypassed the XAIResponses prohibition, and an OllamaCloud URL with embedded user information was accepted. DeepSeek completed the rework; the repeated Test Engineer stage is active. There have been no runtime redispatches or captain substitutions. Remaining slices are not accepted; no overall success is claimed.
 
 ## Open work and acceptance gates
 
 | ID | Item | Status / next evidence |
 | --- | --- | --- |
-| HF-02 | Verify full-pipeline rework and independent Judge routing in deployment | Local regressions pass; observe if this run needs rework; do not manufacture a defect merely to trigger it |
+| HF-02 | Finish live full-pipeline rework verification | First revision created Worker → Usability → Test → Linter → Judge, reparented Recorder correctly; repeated Test stage active, final routing/verdict pending |
 | HF-03 | Verify strict captain routing for all stages and fan-out/rework jobs | Persisted overrides verified; compare every actual captain with its request |
 | HF-04 | Reduce missed failure-path coverage and contradictory design decisions | Measure first-pass acceptance/reworks; require observable evidence, not passing counts alone |
 | HF-05 | Semantic plan validation | Structural validation cannot establish objective completeness, resolve contradictions, or prove tests ran; further validation remains open |
@@ -26,9 +26,12 @@ Current state: the Architect emitted its version-2 plan at approximately 21:51:5
 | HF-09 | Independent final workflow verification | Repeat local HTTP/redaction/persistence/validation and C#/Python/JavaScript SDK checks after the full pipeline passes; hosted provider inference remains separately unverified |
 | HF-10 | Mobile native coverage limits | Android phone/tablet flows passed before strict-selection UI; iOS native-device testing remains unavailable on this host |
 | HF-11 | Complete CLI interaction diagnostics through API | New: mission and captain APIs expose abbreviated tool commands and omit tool-result payloads; retain an access-controlled, appropriately redacted diagnostic transcript alongside readable logs |
-| HF-12 | Dependency connectivity-probe documentation | Product Manager found installed PolyPrompt 3.4.1 README probe table omits xAI/OllamaCloud routes; first slice now captures actual clients |
+| HF-12 | Dependency connectivity-probe documentation | Package routes now independently verified; external README omission remains. Current verification details are in the completed appendix |
 | HF-13 | Slice breadth and copied global decisions | New plan still groups discovery with inference/tools; all 19 decisions are copied into every slice. Needs per-slice decision references and stronger scope review |
-| HF-14 | Validation command status masking | Worker used a final echo after a pipeline; reproduce wrapper exit 0 despite an earlier exit 1. No hidden product failure established yet |
+| HF-14 | Validation command status masking | Wrapper reproduction confirms exit 0 despite prior failure; local guidance fix pending rollout. No hidden product failure established |
+| HF-15 | Focused Wilson test selection | Low-priority Test Engineer papercut: Test.Automated has no case filter; quantify cost before adding unrelated tooling to this acceptance task |
+| HF-17 | Safe shared-branch handoff | Isolated real-Git regression reproduced stale-stage rewind; 201 targeted tests pass on .NET 8 and 10; warning-free solution build; guarded advancement/blocked-landing fix awaits rollout |
+| HF-18 | Universal validation rules need boundary combinations | First metadata Judge reproduced Custom + XAIResponses and cloud URL user-info omissions; rework in verification |
 
 ## Findings from this run
 
@@ -52,15 +55,38 @@ Worker `msn_mvh7i8d0_gflbLdMm6eM` ran `dotnet run ... | tail -60; echo EXIT:${PI
 
 Recoverable Worker exploration errors so far: one mistyped absolute path (corrected next turn) and two ad-hoc reflection probes that lacked assembly-loading dependencies. They did not fail the mission or indicate a PolyPrompt transport/tool failure. Distinguish these from Judge rework and runtime redispatch.
 
+### HF-17 — A stale stage could rewind the shared branch
+
+Code inspection found unconditional `git update-ref` during stage hardening. An isolated real-Git test failed against the existing implementation: an older completed stage moved a branch back behind newer committed work. This is a reproduced product bug, **not an observed cause in the current serialized voyage**. The local fix keeps already-contained commits, permits only compare-and-swap fast-forwards, and preserves divergent stage commits under `refs/armada/stage-commits/<SHA>`. An explicitly refused handoff becomes a failed mission with the commit, branch and remediation visible in mission details; downstream stages are cancelled, including during recovery redrive. Transport exceptions retain the existing best-effort behavior and remain a limitation. The guarded Git implementation must reach Harbor as well as the server; server-side ancestry checking additionally protects common stale handoffs with older Harbors. Regression tests cover normal advancement, stale heads, divergence, downstream cancellation and recovery. Not deployed to this run.
+
+### HF-18 — Passing cases omitted combinations implied by universal rules
+
+Metadata Judge `msn_mvh7xiak_1iLTFnRfXYS` independently rebuilt and ran 62/62 shared cases plus both adapters, then reproduced two registry-level violations of existing D-3: `ApiType="Custom", ToolCallingApiFormat="XAIResponses"` returned no error because unknown-provider compatibility returned early; `https://user:pass@ollama.com` passed the fixed cloud endpoint check. The Judge did not claim HTTP reproduction. These are implementation/test omissions under an existing rule, not missing model tool capability. Strengthen applicable test matrices for universal prohibitions (including unknown values) and URI components, rather than adding only examples for known providers. Automatic rework 1 is running the full verification chain without operator restart. The original Recorder now depends on its replacement Judge; the next slice remains blocked behind Recorder.
+
 Record further issues with mission/stage/captain, violated requirement, reproduction/evidence, remediation, and verification status. Keep unresolved findings here; move verified fixes and finished work into the appendix.
 
 ## Appendix — completed work and historical evidence
 
 Local remediation prepared during this run: per-slice `decisionIndexes`, range/duplicate validation, compatibility fallback for older plans, latest-brief migration preserving operator edits, and validation-status guidance. The final 155 targeted service tests pass on .NET 8 and 10, including migration and rendered-prompt checks. Every new slice also retains a full-plan mission/API reference. This code has not been published as images or applied to this voyage. HF-13 semantic scope review and HF-14 shell-status enforcement remain open.
 
-Current-run milestones: HF-01 deployment fan-out verified: all eight slices have six downstream stages, and every acceptance ID plus verification text is retained in all 48 descriptions (`fanout-contract-check.json`). Rejection behavior remains locally tested, not deliberately triggered on production. Cleanup/reset verified; strict assignments persisted; Product Manager `msn_mvh7i6ia_rdjA0ADcCWh` produced stable R-/AC-/U- requirements with no source changes or unperformed-test claims. Planning has begun; product implementation is not yet accepted.
+Current-run first slice milestones: Worker `87aad329` upgraded the package and added five capture cases; Usability independently validated a route mutation; Test Engineer `cc99532` added six cases and five fixture mutations; Linter `5c3f9f2` fixed explicit-type conventions/dead code without weakening assertions; independent Codex Judge passed 53/53 plus both adapters. Confirmed package xAI connectivity GET `/v1/models`, Cloud connectivity GET `/api/tags`, model-list errors returning empty lists with failure information in CallDetails, and raw Bearer retention in CallDetails unless recording is disabled. These facts were explicitly carried from Test Engineer through Linter and retrieved by Judge. Actual provider connectivity is still unverified. Recorder completed and stored the verified dependency facts; prior memories were marked as historical rather than treated as current evidence.
+
+Current-run milestones: HF-01 deployment fan-out verified: all eight slices have six downstream stages, and every acceptance ID plus verification text is retained in all 48 descriptions (`fanout-contract-check.json`). Rejection behavior remains locally tested, not deliberately triggered on production. Cleanup/reset verified; strict assignments persisted; Product Manager `msn_mvh7i6ia_rdjA0ADcCWh` produced stable R-/AC-/U- requirements with no source changes or unperformed-test claims. Planning completed; the package slice is accepted, while later product implementation remains under review.
 
 Completed items: prior acceptance cleanup/reset and autonomous 33-mission run; prompt migration and bounded-slice guidance; mobile parity fixes and Android native flows; versioned plan validation, full-chain rework, contributor exclusion, strict dispatch selection, local regression checks, CI, image publication and verified deployment. Those mechanisms are implemented; their effect on this new run is still under the open acceptance gates above. Historical recommendations below are evidence, not a claim that every recommendation has been implemented.
+
+
+### HF-16 — Metadata defaults were not covered by the Worker fixtures
+
+Usability `msn_mvh7xi7g_3hWohuQigDK` reviewed Worker commit `29c3ce4` and produced fix `254b04b0a6fc28edc24c07c8749068ff6b80f72b`:
+
+1. An OllamaCloud request omitting endpoint inherited `http://localhost:11434` from the settings class and was incorrectly rejected instead of resolving to the cloud default (D-5).
+2. Existing Ollama endpoints with slash/case/whitespace/empty variations were rewritten, also changing health URLs and violating compatibility.
+3. A non-xAI runner using XAIResponses received duplicate errors for the same field.
+
+The new `provider-default-endpoint-edges` case failed before the fix; after changes Usability reports 59/59 shared cases, both adapters passing and a warning-free build. Test Engineer expanded the suite to 62 cases and corrected a fixture that mislabeled an administrator token as non-admin; real non-admin access is now exercised. Codex independently passed those cases and requested two separate boundary fixes (HF-18). These are **pre-Judge corrections**, not automatic Judge rework loops. Track them separately so zero reworks does not imply a defect-free Worker delivery.
+
+Cause: fixtures primarily exercised explicit, fully populated values rather than minimal deserialized requests and legacy value variations. The design already specified D-5 and compatibility; this was an implementation/verification omission, not lack of a written requirement. Local prompt guidance now explicitly requests omitted/null/empty/whitespace/inherited-default vectors, and verified component symbol owners (the Usability test initially called a static helper on the wrong class). This remains guidance; it does not prove fixture completeness and is not deployed to the current voyage.
 
 
 ### Test setup — 2026-10-20

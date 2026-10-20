@@ -127,7 +127,7 @@ namespace Test.Shared.Suites.Services
                 AssertContains("Capture before request", description);
                 AssertContains("dotnet test", description);
                 AssertContains("Unrelated dashboard", ArchitectPlanParser.DescribeMission(plan, plan.Missions[1]), "Omitted indexes preserve older plans");
-                plan.Missions[0].DecisionIndexes.Clear();
+                plan.Missions[0].DecisionIndexes!.Clear();
                 description = ArchitectPlanParser.DescribeMission(plan, plan.Missions[0]);
                 AssertFalse(description.Contains("explicit false is retained"));
                 AssertContains("AC-READ", description);

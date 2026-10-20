@@ -2789,6 +2789,12 @@ namespace Armada.Core.Services
                 try
                 {
                     await TryHandoffToNextStageAsync(produced, token).ConfigureAwait(false);
+                    Mission? afterHandoff = await _Database.Missions.ReadAsync(produced.Id, token).ConfigureAwait(false);
+                    if (afterHandoff?.Status == MissionStatusEnum.Failed)
+                    {
+                        await CancelDependentPipelineStagesAsync(afterHandoff, token).ConfigureAwait(false);
+                        await UpdateVoyageTerminalStatusAsync(afterHandoff.VoyageId, token).ConfigureAwait(false);
+                    }
                     redriven++;
                 }
                 catch (Exception ex)
@@ -2894,9 +2900,9 @@ namespace Armada.Core.Services
 
             // Stage-lag hardening: the just-completed stage's dock may have committed on a detached HEAD,
             // leaving its produced commit off the shared branch ref. The next stage reuses that same branch,
-            // so resolve the dock's live HEAD and force-advance the branch ref before handing off, otherwise
-            // the next stage would check out stale code. Best-effort: a git failure is logged, not fatal.
-            await HardenStageBranchAsync(completedMission, token).ConfigureAwait(false);
+            // so safely advance the branch before handing off. An explicit refusal fails the handoff;
+            // transport exceptions retain the existing best-effort logging behavior.
+            if (!await HardenStageBranchAsync(completedMission, token).ConfigureAwait(false)) return false;
 
             foreach (Mission nextMission in dependentMissions)
             {
@@ -2920,36 +2926,55 @@ namespace Armada.Core.Services
         /// Force-advance the shared pipeline branch to the just-completed stage's produced commit. A prior
         /// stage's dock can end on a detached HEAD (its commit is not on the branch ref), so the next stage --
         /// which reuses the same branch -- would otherwise check out stale code. Resolve the dock's live HEAD
-        /// and lift it onto the branch ref. Best-effort: any failure is logged and the handoff continues.
+        /// and lift it onto the branch ref without rewinding newer work. A refused update blocks downstream
+        /// dispatch with a recoverable commit reference and remediation. Transport exceptions retain the existing
+        /// best-effort behavior.
         /// </summary>
-        private async Task HardenStageBranchAsync(Mission completedMission, CancellationToken token)
+        private async Task<bool> HardenStageBranchAsync(Mission completedMission, CancellationToken token)
         {
-            if (_Git == null) return;
-            if (String.IsNullOrEmpty(completedMission.BranchName) || String.IsNullOrEmpty(completedMission.DockId)) return;
+            if (_Git == null) return true;
+            if (String.IsNullOrEmpty(completedMission.BranchName) || String.IsNullOrEmpty(completedMission.DockId)) return true;
 
             Dock? dock = !String.IsNullOrEmpty(completedMission.TenantId)
                 ? await _Database.Docks.ReadAsync(completedMission.TenantId, completedMission.DockId!, token).ConfigureAwait(false)
                 : await _Database.Docks.ReadAsync(completedMission.DockId!, token).ConfigureAwait(false);
             DockHost? harborHost = HarborHostFor(dock);
             IGitService git = harborHost != null ? harborHost.Git : _Git;
-            if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || !await DockDirectoryExistsAsync(harborHost, dock.WorktreePath!, token).ConfigureAwait(false)) return;
+            if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || !await DockDirectoryExistsAsync(harborHost, dock.WorktreePath!, token).ConfigureAwait(false)) return true;
 
             try
             {
                 string? headCommit = await git.GetHeadCommitHashAsync(dock.WorktreePath!, token).ConfigureAwait(false);
-                if (String.IsNullOrEmpty(headCommit)) return;
+                if (String.IsNullOrEmpty(headCommit)) return true;
 
+                // This also prevents rewinds when talking to an older Harbor implementation.
+                if (await git.IsAncestorAsync(dock.WorktreePath!, headCommit!, completedMission.BranchName!, token).ConfigureAwait(false) == true) return true;
                 bool advanced = await git.ForceAdvanceBranchAsync(dock.WorktreePath!, completedMission.BranchName!, headCommit!, token).ConfigureAwait(false);
+                if (!advanced)
+                {
+                    completedMission.Status = MissionStatusEnum.Failed;
+                    completedMission.CommitHash = headCommit;
+                    completedMission.FailureKind = MissionFailureKindEnum.LandingConflict;
+                    completedMission.FailureReason = "Pipeline handoff could not safely advance branch " + completedMission.BranchName
+                        + " to stage commit " + headCommit + ". No downstream stage was dispatched. "
+                        + "Remediation: inspect the branch and saved stage commit; integrate any divergent work without resetting newer commits, then restart the failed stage. Check Harbor/git availability if the update itself failed.";
+                    completedMission.CompletedUtc = DateTime.UtcNow;
+                    completedMission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(completedMission, token).ConfigureAwait(false);
+                    return false;
+                }
                 if (advanced)
                 {
                     _Logging.Debug(_Header + "stage-lag hardening: advanced branch " + completedMission.BranchName +
                         " to " + headCommit + " from dock " + dock.Id + " before handoff from mission " + completedMission.Id);
                 }
             }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "stage-lag hardening failed for mission " + completedMission.Id + ": " + ex.ToString());
             }
+            return true;
         }
 
         private async Task CancelDependentPipelineStagesAsync(Mission failedMission, CancellationToken token)
