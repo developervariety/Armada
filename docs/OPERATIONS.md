@@ -277,6 +277,8 @@ disconnected are not moved to another Harbor: the stall watchdog (`stallThreshol
 once it is back; while it is still offline and the policy is on, each recovery attempt waits another stall interval, and
 the mission fails with `StallRecoveryExhausted` when `maxRecoveryAttempts` run out.
 
+**Old recovery work reappears after cleanup.** A recovery incident can dispatch another rescue while its budget remains. Cancelling or deleting the original mission or its latest rescue now closes the recovery chain, with an operator-stop note rather than a claim that a fix landed. On older images, close the related recovery incident before stopping and deleting its missions; deleting only the voyage leaves standalone rescues outside that voyage.
+
 **A captain launched from a Harbor cannot reach MCP.** The Harbor hands captains the URL in
 `harbor.advertisedMcpBaseUrl`. From the Harbor host, `curl` that URL. In the split compose file it is
 `http://127.0.0.1:7891/mcp`, which only works when the Harbor runs on the Docker host.

@@ -112,6 +112,28 @@ namespace Armada.Core.Services
                 return;
             }
 
+            // Cancellation and deletion express operator intent to stop this recovery chain.
+            // Do not interpret a cancelled or removed rescue as another retryable failure.
+            Mission? original = String.IsNullOrEmpty(incident.MissionId)
+                ? null
+                : await _Database.Missions.ReadAsync(incident.MissionId!, token).ConfigureAwait(false);
+            if (original == null || original.Status == MissionStatusEnum.Cancelled)
+            {
+                await TransitionAsync(auth, incident, IncidentStatusEnum.Closed,
+                    "Recovery stopped: the original mission was cancelled or deleted.", token).ConfigureAwait(false);
+                return;
+            }
+            if (incident.RescueMissionIds.Count > 0)
+            {
+                Mission? latestRescue = await _Database.Missions.ReadAsync(incident.RescueMissionIds[incident.RescueMissionIds.Count - 1], token).ConfigureAwait(false);
+                if (latestRescue == null || latestRescue.Status == MissionStatusEnum.Cancelled)
+                {
+                    await TransitionAsync(auth, incident, IncidentStatusEnum.Closed,
+                        "Recovery stopped: the latest rescue mission was cancelled or deleted.", token).ConfigureAwait(false);
+                    return;
+                }
+            }
+
             List<Mission> rescues = new List<Mission>();
             foreach (string rescueId in incident.RescueMissionIds)
             {
@@ -133,9 +155,6 @@ namespace Armada.Core.Services
             if (incident.RecoveryAttempts < maxAttempts)
             {
                 if (String.IsNullOrEmpty(incident.MissionId)) return;
-                Mission? original = await _Database.Missions.ReadAsync(incident.MissionId!, token).ConfigureAwait(false);
-                if (original == null) return;
-
                 Mission rescueMission = await DispatchRescueAsync(original, incident, token).ConfigureAwait(false);
                 incident.RescueMissionIds.Add(rescueMission.Id);
                 incident.RecoveryAttempts += 1;

@@ -11,6 +11,7 @@ All notable changes to Armada are documented in this file.
 - Voyage deletion consistently uses Delete in the dashboard. Selecting multiple voyages exposes Delete Multiple with confirmation, in-progress feedback and partial-failure reporting; failed voyages remain selected.
 
 ### Worker completion and recovery
+- Cancelling or deleting an original mission or its latest rescue now closes that recovery chain instead of dispatching a replacement rescue. Closure notes distinguish an operator stop from a successfully landed fix.
 - API captains continue after incomplete terminal replies within a bounded budget, reject missing required completion markers, clear stale final artifacts, and log per-turn finish reason, token usage, text length and tool counts.
 - Worker > Judge pipelines can escalate without an Architect or Product Manager. Unchanged rejected reworks switch captain early; recovery stays pinned to its alternative and the implementation captain cannot review its own work.
 - Failed or unavailable stage checks no longer advance as successful work. Judge instructions cover dependency restore in fresh worktrees. Unix built-in process tools use Bash with pipeline failure propagation when available and explain portable timeouts.

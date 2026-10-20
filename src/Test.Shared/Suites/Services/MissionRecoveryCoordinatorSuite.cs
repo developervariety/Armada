@@ -194,6 +194,37 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(0, recovery.Count, "the recorded kind decides, not the reason text");
             }));
 
+            foreach (string operation in new[] { "cancel_original", "delete_original", "cancel_rescue", "delete_rescue" })
+            {
+                cases.Add(CaseAsync("operator_" + operation + "_stops_recovery", "Operator " + operation + " stops further rescue dispatch", TestTags.Negative, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    ArmadaSettings settings = new ArmadaSettings { MaxMissionRecoveryAttempts = 3 };
+                    MissionRecoveryCoordinator coordinator = new MissionRecoveryCoordinator(CreateLogging(), testDb.Driver, settings);
+                    IncidentService incidents = new IncidentService(testDb.Driver);
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Mission failed = await CreateFailedMissionAsync(testDb, vessel.Id, MissionFailureKindEnum.Crash, "Agent process exited with code 1").ConfigureAwait(false);
+                    await coordinator.MaintainAsync().ConfigureAwait(false);
+                    Incident incident = (await ReadRecoveryIncidentsAsync(incidents).ConfigureAwait(false))[0];
+                    string targetId = operation.EndsWith("original", StringComparison.Ordinal) ? failed.Id : incident.RescueMissionIds[0];
+                    if (operation.StartsWith("delete", StringComparison.Ordinal))
+                        await testDb.Driver.Missions.DeleteAsync(targetId).ConfigureAwait(false);
+                    else
+                    {
+                        Mission target = (await testDb.Driver.Missions.ReadAsync(targetId).ConfigureAwait(false))!;
+                        target.Status = MissionStatusEnum.Cancelled;
+                        await testDb.Driver.Missions.UpdateAsync(target).ConfigureAwait(false);
+                    }
+                    await coordinator.MaintainAsync().ConfigureAwait(false);
+                    await coordinator.MaintainAsync().ConfigureAwait(false);
+                    incident = (await ReadRecoveryIncidentsAsync(incidents).ConfigureAwait(false))[0];
+                    AssertEqual(IncidentStatusEnum.Closed, incident.Status, "operator intent closes the recovery chain");
+                    AssertEqual(1, incident.RecoveryAttempts, "no replacement rescue after cancellation or deletion");
+                    AssertEqual(1, incident.RescueMissionIds.Count, "no additional rescue linked");
+                    AssertContains("Recovery stopped", incident.RecoveryNotes ?? String.Empty, "closure must not claim a successful fix");
+                }));
+            }
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.MissionRecoveryCoordinator",
                 displayName: "Mission Recovery Coordinator",
