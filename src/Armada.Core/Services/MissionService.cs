@@ -1591,8 +1591,9 @@ namespace Armada.Core.Services
                         };
                     }
 
+                    string? reworkUnavailableReason = null;
                     if (!mission.RequiresReview && !rejectedPass && isBlockingVerdict && exhibitsAffectedCase
-                        && await TryScheduleJudgeReworkAsync(mission, token).ConfigureAwait(false))
+                        && await TryScheduleJudgeReworkAsync(mission, token, reason => reworkUnavailableReason = reason).ConfigureAwait(false))
                     {
                         // The Judge asked for concrete changes: the work goes back to a Worker on the same branch with
                         // the review, then to a new Judge. The rest of the pipeline now waits on that Judge.
@@ -1610,7 +1611,8 @@ namespace Armada.Core.Services
                         mission.Status = MissionStatusEnum.Failed;
                         mission.CompletedUtc = DateTime.UtcNow;
                         mission.LastUpdateUtc = DateTime.UtcNow;
-                        mission.FailureReason = blockingReason;
+                        mission.FailureReason = blockingReason + (reworkUnavailableReason == null ? String.Empty
+                            : "\n" + reworkUnavailableReason + "\nRemediation: Read this Judge's affected-case report, correct any captain or persona configuration it identifies, then dispatch a follow-up mission using the preserved work branch and an independent Judge. Rejected work has not been approved for landing.");
                         mission.FailureKind = MissionFailureKindEnum.JudgeRejected;
                         await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                         _Logging.Warn(_Header + "judge mission " + mission.Id + " blocked landing: " + blockingReason);
@@ -4739,9 +4741,11 @@ namespace Armada.Core.Services
 
         private const int _MaxJudgeReworkRounds = 2;
 
-        private async Task<bool> TryScheduleJudgeReworkAsync(Mission judge, CancellationToken token)
+        private async Task<bool> TryScheduleJudgeReworkAsync(Mission judge, CancellationToken token, Action<string>? onUnavailable = null)
         {
-            if (String.IsNullOrEmpty(judge.VoyageId) || String.IsNullOrEmpty(judge.DependsOnMissionId)) return false;
+            bool Unavailable(string reason) { onUnavailable?.Invoke(reason); return false; }
+            if (String.IsNullOrEmpty(judge.VoyageId) || String.IsNullOrEmpty(judge.DependsOnMissionId))
+                return Unavailable("Automatic Judge rework is unavailable because the review has no voyage or Worker dependency.");
             List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(judge.VoyageId!, token).ConfigureAwait(false);
             Dictionary<string, Mission> byId = voyageMissions.ToDictionary(m => m.Id, StringComparer.Ordinal);
 
@@ -4757,13 +4761,14 @@ namespace Armada.Core.Services
                 if (worker == null && PersonaCatalog.Matches(cursor.Persona, PersonaCatalog.Worker)) worker = cursor;
             }
 
-            if (worker == null) return false;
+            if (worker == null) return Unavailable("Automatic Judge rework is unavailable because the reviewed Worker could not be found in the dependency chain.");
 
             // Give the Worker bounded rework, then try one different captain. Unchanged rejected work
             // switches earlier. Escalation also works in voyages with no planning stage.
             bool escalated = voyageMissions.Any(m => m.Title.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal)
                 && m.Title.Contains(_EscalatedMarker, StringComparison.Ordinal) && IsAncestorOf(m, judge, byId));
-            if (escalated || rounds > _MaxJudgeReworkRounds) return false;
+            if (escalated || rounds > _MaxJudgeReworkRounds)
+                return Unavailable("Automatic Judge rework limit reached after " + rounds + " rework round(s)" + (escalated ? ", including an escalated attempt." : "."));
             string? escalateTo = null;
             Mission? previousWorker = voyageMissions.FirstOrDefault(m => m.Id != worker.Id && PersonaCatalog.Matches(m.Persona, PersonaCatalog.Worker)
                 && IsAncestorOf(m, worker, byId) && !String.IsNullOrEmpty(m.CommitHash) && m.CommitHash == worker.CommitHash);
@@ -4771,7 +4776,7 @@ namespace Armada.Core.Services
             if (rounds == _MaxJudgeReworkRounds || stagnant)
             {
                 Captain? alternative = await CaptainEscalationSelector.SelectAsync(_Database, worker, worker.CaptainId, voyageMissions, token).ConfigureAwait(false);
-                if (alternative == null) return false;
+                if (alternative == null) return Unavailable("No alternate eligible Worker captain is available for Judge-requested escalation. Check captain availability, scope, tier and persona priorities.");
                 escalateTo = alternative.Id;
             }
 

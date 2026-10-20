@@ -28,6 +28,8 @@ All notable changes to Armada are documented in this file.
 
 - Live REST and MCP mission diff requests use the dock's owning Harbor for filesystem and Git operations. Offline Harbors return actionable 503 guidance instead of a false reclaimed-worktree error, while saved diffs remain readable.
 
+- Judge-rejected missions explain when automatic rework stopped because its bounded rounds were exhausted or no eligible alternate Worker captain was available, with configuration checks and follow-up guidance in the persisted failure reason.
+
 ### Model providers and dependencies
 - Updated PolyPrompt to 3.4.1, preserving native provider continuation state through tool loops. Added a real Harbor/SDK HTTP regression that checks unchanged Ollama thinking across sequential and parallel tool results.
 - Upgrade PolyPrompt to 3.4.0 and SyslogLogging to 2.4.1.
