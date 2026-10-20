@@ -1615,6 +1615,19 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask.ConfigureAwait(false);
             }).ConfigureAwait(false);
 
+            await RunTest("Readiness skips leading environment assignments whose values are paths", async () =>
+            {
+                string command = "JAVA_HOME=/usr/lib/jvm/example ANDROID_SDK_ROOT=/opt/sdk bash ./gradlew assembleDebug";
+
+                List<string> dependencies = VesselReadinessService.ExtractPrimaryDependencies(command).ToList();
+
+                AssertEqual(1, dependencies.Count, "only the program after the assignments is a dependency");
+                AssertEqual("bash", dependencies[0], "the program after the assignments is probed");
+                AssertEqual("./gradlew", VesselReadinessService.ExtractPrimaryDependencies("A_1=x/y ./gradlew build").Single(), "a relative program after an assignment is probed");
+                AssertEqual("1X=/opt/tool", VesselReadinessService.ExtractPrimaryDependencies("1X=/opt/tool run").Single(), "a name starting with a digit is not an assignment");
+                await Task.CompletedTask.ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
             await RunTest("Landing preview does not count a failed check with zero exit code as passed", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

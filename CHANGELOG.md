@@ -205,6 +205,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The readiness and dispatch-preview command probe skips a leading `NAME=value`
+  environment assignment whose value is a path (for example
+  `JAVA_HOME=/usr/lib/jvm/... bash ./gradlew build`) and probes the program after
+  it. A name that starts with a digit is not an assignment.
 - `armada_mission_code_search` binds a captain credential to the mission it was
   issued to. A supplied `missionId` naming another mission is ignored and named
   in `Warnings`, the search runs on the credential's own vessel, and the call

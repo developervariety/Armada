@@ -760,11 +760,13 @@ namespace Armada.Core.Services
 
         private static bool LooksLikeEnvironmentAssignment(string token)
         {
+            // Only the name decides: a shell assignment is NAME=value with a name of letters, digits
+            // and underscores that does not start with a digit. The value may be a path.
             int separatorIndex = token.IndexOf('=');
             if (separatorIndex <= 0) return false;
-            if (token.Contains(Path.DirectorySeparatorChar) || token.Contains(Path.AltDirectorySeparatorChar)) return false;
 
             string variableName = token.Substring(0, separatorIndex);
+            if (Char.IsDigit(variableName[0])) return false;
             return variableName.All(ch => Char.IsLetterOrDigit(ch) || ch == '_');
         }
 
