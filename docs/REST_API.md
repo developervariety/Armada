@@ -6176,7 +6176,7 @@ Requests that violate either constraint are rejected with `400 Bad Request`.
 
 **Ollama Cloud and xAI endpoints**
 
-`OllamaCloud` and `XAI` support both `Inference` and `Embedding` through PolyPrompt 3.4.0. Both require an API key and accept only `ProviderDefault` or `Bearer` authentication. Credentials are write-only; omit the API key on update to preserve it.
+`OllamaCloud` and `XAI` support both `Inference` and `Embedding` through PolyPrompt 3.4.1. Both require an API key and accept only `ProviderDefault` or `Bearer` authentication. Credentials are write-only; omit the API key on update to preserve it.
 
 Ollama Cloud uses the fixed URL `https://ollama.com:443` (omit the base URL or supply that address). Choose a hosted model; embedding availability depends on the cloud catalog. xAI defaults to `https://api.x.ai` when the base URL is omitted, uses the native Responses API for inference, and requires an explicit accessible embedding model for embeddings.
 

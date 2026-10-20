@@ -1,7 +1,7 @@
 # Model provider smoke simulation
 
 The fixture models the native xAI Responses and embeddings contracts used by
-PolyPrompt 3.4.0, following the upstream PolyPrompt `postman/xai.openapi.json` and
+PolyPrompt 3.4.1, following the upstream PolyPrompt `postman/xai.openapi.json` and
 its xAI fixture. The owner's published mock search was unavailable because the
 Postman CLI was signed out. This fixture runs locally without login or real keys.
 
@@ -30,3 +30,9 @@ The fixture also serves Ollama `/api/chat` reasoning responses. The Harbor HTTP 
 that an explicit 32,768-token budget can finish in one request without continuation. The synthetic
 response follows Ollama's chat `message.thinking`, `done_reason`, and token count fields; it does not
 claim to reproduce the quality or timing of a live DeepSeek answer.
+
+The continuation-state regression uses the real Harbor job runner, API runtime, local file tools, and installed
+PolyPrompt SDK over HTTP. The Ollama fixture rejects any loss or whitespace change in both prior assistant
+thinking turns, missing native tool-result names, or a file tool that did not execute. A three-request run
+includes sequential and parallel tools and completes without a retry. This is the regression for the upstream
+3.4.0 reasoning-loss issue; it must be run with the simulation environment variable above.

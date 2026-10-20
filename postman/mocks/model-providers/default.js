@@ -10,6 +10,30 @@ http.createServer(async (req, res) => {
     if (!body.model) return send(400, { error: { message: 'Model required' } });
     // Ollama chat contract: reasoning and answer share the output-token budget.
     if (req.method === 'POST' && req.url === '/api/chat') {
+      if (body.model === 'ollama-thinking-replay') {
+        const assistants = (body.messages || []).filter(message => message.role === 'assistant');
+        const results = (body.messages || []).filter(message => message.role === 'tool');
+        const thoughts = ['  First native thought.\n', '\nSecond native thought with parallel tools.  '];
+        for (let index = 0; index < assistants.length; index++) {
+          if (assistants[index].thinking !== thoughts[index])
+            return send(400, { error: 'Native assistant thinking was lost or modified at turn ' + index });
+        }
+        const names = results.map(message => message.tool_name);
+        const expectedNames = assistants.length === 1 ? ['write_file'] : ['write_file', 'read_file', 'list_directory'];
+        if (assistants.length && (JSON.stringify(names) !== JSON.stringify(expectedNames) || results.some(message => !message.content)))
+          return send(400, { error: 'Tool results must retain their native names and contents' });
+        let message;
+        if (!assistants.length) message = { role: 'assistant', thinking: thoughts[0], content: 'I will create the fixture file.',
+          tool_calls: [{ function: { name: 'write_file', arguments: { file_path: 'provider-thinking.txt', content: 'native thinking replay verified' } } }] };
+        else if (assistants.length === 1) message = { role: 'assistant', thinking: thoughts[1], content: 'I will verify the file.',
+          tool_calls: [{ function: { name: 'read_file', arguments: { file_path: 'provider-thinking.txt' } } },
+            { function: { name: 'list_directory', arguments: { path: '.' } } }] };
+        else {
+          if (!results[1].content.includes('native thinking replay verified')) return send(400, { error: 'The requested file tool did not execute' });
+          message = { role: 'assistant', content: '[ARMADA:RESULT] COMPLETE\nVerified native Ollama thinking across sequential and parallel tools.' };
+        }
+        return send(200, { model: body.model, done: true, done_reason: 'stop', message, prompt_eval_count: 100, eval_count: 20 });
+      }
       const enough = (body.options?.num_predict || 4096) >= 32768;
       return send(200, { model: body.model, done: true, done_reason: enough ? 'stop' : 'length',
         message: { role: 'assistant', content: enough ? '[ARMADA:RESULT] COMPLETE\nImplemented and tested the mission.' : '', thinking: 'Reasoning consumes the response budget.' },

@@ -25,6 +25,7 @@ All notable changes to Armada are documented in this file.
 - Endpoint Validate opens its modal immediately with progress, then shows the result or request error in place. The action menu label stays Validate.
 
 ### Model providers and dependencies
+- Updated PolyPrompt to 3.4.1, preserving native provider continuation state through tool loops. Added a real Harbor/SDK HTTP regression that checks unchanged Ollama thinking across sequential and parallel tool results.
 - Upgrade PolyPrompt to 3.4.0 and SyslogLogging to 2.4.1.
 - Add OllamaCloud and XAI inference/embedding providers across REST, MCP, the .NET client, dashboard, mobile, and TUI. Ollama Cloud uses its fixed hosted URL; xAI uses native Responses. Both require bearer credentials; cloud embedding availability depends on the provider's model catalog.
 - Let CLI API captains select an inference endpoint with `--model-endpoint`, and preserve that binding on updates.

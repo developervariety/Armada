@@ -435,6 +435,37 @@ namespace Test.Shared.Suites.Runtimes
             string? simulation = Environment.GetEnvironmentVariable("ARMADA_MODEL_PROVIDER_SIMULATION");
             if (!String.IsNullOrWhiteSpace(simulation))
             {
+                cases.Add(CaseAsync("ollama_thinking_replayed_through_harbor_http", "Harbor executes sequential and parallel Ollama tools while replaying native thinking unchanged", TestTags.Reliability, async () =>
+                {
+                    string dir = NewTempDir();
+                    try
+                    {
+                        ModelEndpoint endpoint = new ModelEndpoint { Name = "Ollama continuation HTTP", Provider = ModelProviderEnum.Ollama,
+                            Kind = ModelEndpointKindEnum.Inference, Model = "ollama-thinking-replay", BaseUrl = simulation, ApiKey = "test-token",
+                            InferenceOptions = new InferenceOptions { McpToolsEnabled = false, MaxIterations = 3, MaxTokens = 32768 } };
+                        LocalHarborJobRunner runner = new LocalHarborJobRunner(CreateLogging(), new AgentRuntimeFactory(CreateLogging()), Path.Combine(dir, "scratch"));
+                        Armada.Core.Harbor.HarborLaunchRequest request = new Armada.Core.Harbor.HarborLaunchRequest { JobId = "thinking-replay", Runtime = "ApiEndpoint", WorkingDirectory = dir,
+                            Prompt = "Write and verify provider-thinking.txt, then finish the mission.", InferenceEndpoint = Armada.Core.Harbor.HarborInferenceEndpoint.FromEndpoint(endpoint), ReturnProviderErrors = true };
+                        List<string> lines = new List<string>();
+                        RuntimeProviderError? failure = null;
+                        int code = -1;
+                        using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                        await runner.StartAsync(request, null, _ => { }, (stream, text) =>
+                        {
+                            if (stream == Armada.Core.Harbor.HarborOutputStreamEnum.ProviderError) failure = System.Text.Json.JsonSerializer.Deserialize<RuntimeProviderError>(text);
+                            else lines.Add(text);
+                        }, value => { code = value; exited.Set(); }, CancellationToken.None).ConfigureAwait(false);
+                        AssertTrue(exited.Wait(TimeSpan.FromSeconds(15)), "Real SDK/tool loop must finish.");
+                        AssertEqual(0, code, "Fixture rejects dropped thinking, changed whitespace, unnamed tool results or unexecuted file tools.");
+                        AssertNull(failure);
+                        AssertEqual("native thinking replay verified", File.ReadAllText(Path.Combine(dir, "provider-thinking.txt")));
+                        AssertEqual(3, lines.Count(line => line.StartsWith("[inference] ", StringComparison.Ordinal)), "Three requests finish without retry/continuation.");
+                        AssertFalse(lines.Any(line => line.Contains("asking the captain to continue", StringComparison.Ordinal)));
+                        AssertTrue(lines.Any(line => line.Contains("Verified native Ollama thinking", StringComparison.Ordinal)));
+                    }
+                    finally { Cleanup(dir); }
+                }));
+
                 cases.Add(CaseAsync("harbor_reasoning_budget_native_http", "Ollama reasoning truncation reaches Admiral with remediation; sufficient budget finishes without continuation", TestTags.Positive, async () =>
                 {
                     foreach (bool reportErrors in new[] { false, true })
