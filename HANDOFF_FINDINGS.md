@@ -54,6 +54,35 @@ The Worker emitted two concrete papercuts: the plan's proposed `MaxCallDetails=0
 
 Timing comparisons are observational: mobile native builds/tests ran concurrently on the Harbor host, and provider/transport wall time is not decomposed by current telemetry. Do not attribute total elapsed time solely to prompts or model compute.
 
+## Why the eight reworks happened, and how to reduce them
+
+The dominant pattern was incomplete behavioral verification, not inability to execute tools. Workers often delivered passing tests that omitted the failure path the Judge subsequently reproduced. Two of eight slices passed first review; six needed rework, and inference and dashboard each needed a second revision. These are review-driven revisions, not eight infrastructure retries. Neither the records nor this single mixed-captain run establish an intrinsic DeepSeek capability limit.
+
+Three causes overlap; they should not be assigned mutually exclusive percentages:
+
+- **Implementation omissions:** credential redaction missed response/validation surfaces; incomplete SSE was treated as complete; asynchronous probe cancellation/identity missed configuration changes; editor normalization lost explicit choices and case-sensitive custom paths.
+- **Specification and dependency gaps:** the Architect required exact preservation of a malformed legacy URL, conflicted on mandatory cloud auth versus explicit overrides, and proposed dependency behavior that had not been established. PolyPrompt model-list failures becoming empty results and logging configuration not suppressing raw bodies reached implementation as discoveries rather than resolved design facts.
+- **Verification gaps:** tests proved selected happy paths instead of the stated invariant. The clearest example was final integration: 83 backend cases passed, but PUT exposed the key, request capture was attached after invalid-input checks, and every inventory check disabled live status. A zero count from an unattached handler proves nothing about outbound requests.
+
+The final integration review was especially avoidable: its contract already explicitly limited the credential exception to administrator GET, required capture of invalid-input traffic, and required live-status listing. This was a Worker implementation/evidence failure, not missing instructions. Likewise, “incomplete streamed function call is not executed” was already stated; the missing EOF case needed an explicit fixture and self-check. More prose alone would not fix either failure.
+
+### Concrete prevention gates
+
+| Gate | Required evidence before advancing | Reworks it targets |
+| --- | --- | --- |
+| Architect plan acceptance | Trace every overall acceptance criterion to an owned slice/test; resolve defaults versus explicit values, intended compatibility bugs, and cross-slice response/serialization rules | Contradictory metadata/auth requirements and omitted boundaries |
+| Dependency investigation | Capture actual success, HTTP failure and empty-result behavior; verify logging and URL composition before prescribing their implementation | Discovery/fallback and redaction assumptions |
+| Worker completion | For every acceptance ID, name the executable case, assertion, observed result and any skipped path; inherited test counts are not new evidence | Passing suites with missing guarantees |
+| Test validity | Attach capture before the action; prove it observes a known request; make targeted regressions fail when the relevant guard is removed or the fixture is deliberately violated | False zero-request checks and vacuous success |
+| Rework completion | Reproduce every prior finding, retain its regression, then inspect adjacent cases in that behavior before resubmitting | Serial second revisions in inference/dashboard |
+| Integration | Exercise real local HTTP through configure → persist → reload → live inventory → inference/tools → health, with response/log leak scanning and SDK deserialization | Cross-surface gaps deferred to final Judge |
+
+Use a reusable failure checklist rather than lengthening every persona: 401/403/404/5xx, empty success versus failed request, invalid settings before any HTTP, stream EOF without terminal completion, configuration removal/change during a queued or in-flight probe, and explicit false/empty/custom/case-sensitive values across save/reload. The Architect selects applicable rows and expected behavior; the Worker supplies executable evidence; the Judge independently challenges those claims. Avoid inventing expected behavior merely to fill the matrix.
+
+Split the broad inference slice into discovery/status and inference execution, with tool streaming already separate. Preserve a final integration gate and serialize edits to shared files. More slices add overhead, so judge the change by first-pass acceptance and total elapsed time, not slice count. Do not split already successful package-only work further.
+
+Prioritize contract checks and trustworthy failure-path tests ahead of additional prompt tuning. Captain pinning and phase telemetry are also needed for reproducible evaluation and diagnosis, but neither is proven to have caused these defects. Keep the Judge independent: reducing revisions by weakening its checks would hide the exact failures it caught here.
+
 ## Mobile/tablet review
 
 The React Native app shares the dashboard API client, types, and pure logic. Review found real gaps despite that sharing:
