@@ -487,6 +487,7 @@ export interface CaptainAssignmentOverride {
   persona: string;
   captainId?: string | null;
   fallbackTier?: CaptainTier | null;
+  strictCaptain?: boolean;
 }
 
 export type ObjectiveStatus =

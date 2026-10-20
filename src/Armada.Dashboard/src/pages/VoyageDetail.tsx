@@ -307,7 +307,7 @@ export default function VoyageDetail() {
                     <span className="text-muted" style={{ fontSize: 12 }}>{override.persona}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                       <CaptainRef captainId={override.captainId} captains={captains} />
-                      {override.fallbackTier ? <span className="text-muted" style={{ fontSize: 11 }} title={t('Lowest capability tier dispatch may fall back to when this captain is busy.')}>{t('fallback: {{tier}}', { tier: t(override.fallbackTier) })}</span> : null}
+                      {override.strictCaptain ? <span className="text-muted">{t('Wait for selected captain')}</span> : override.fallbackTier ? <span className="text-muted" style={{ fontSize: 11 }} title={t('Lowest capability tier dispatch may fall back to when this captain is busy.')}>{t('fallback: {{tier}}', { tier: t(override.fallbackTier) })}</span> : null}
                     </div>
                   </div>
                 ))}

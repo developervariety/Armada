@@ -224,7 +224,7 @@ export function VoyageDetail({ id, embedded }: OperationsDetailProps) {
             <KeyValueRow
               key={`${o.persona}-${i}`}
               label={o.persona}
-              value={`${o.captainId ? lookups.captainName(o.captainId) : t('Any')}${o.fallbackTier ? ` - ${t('fallback: {{tier}}', { tier: t(o.fallbackTier) })}` : ''}`}
+              value={`${o.captainId ? lookups.captainName(o.captainId) : t('Any')}${o.strictCaptain ? ` - ${t('Wait for selected captain')}` : o.fallbackTier ? ` - ${t('fallback: {{tier}}', { tier: t(o.fallbackTier) })}` : ''}`}
               onPress={o.captainId ? () => router.push(`/captains/${o.captainId}` as Href) : undefined}
             />
           ))}

@@ -11,6 +11,18 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Version 2 enables contract validation before any Worker is dispatched. Null preserves legacy plans.</summary>
+        [JsonPropertyName("contractVersion")]
+        public int? ContractVersion { get; set; }
+
+        /// <summary>Stable objective requirement identifiers, each owned by at least one acceptance criterion.</summary>
+        [JsonPropertyName("requirements")]
+        public List<string> Requirements { get; set; } = new List<string>();
+
+        /// <summary>Resolved design choices, including compatibility changes and mandatory versus default settings.</summary>
+        [JsonPropertyName("decisions")]
+        public List<string> Decisions { get; set; } = new List<string>();
+
         /// <summary>
         /// The planned missions, in order. Indexes used by <see cref="ArchitectPlanMission.DependsOn"/> are 1-based
         /// positions in this list.

@@ -107,8 +107,9 @@ describe('Dispatch', () => {
     await fireEvent.press(await screen.findByTestId('dispatch-vessel-option-vsl_b'));
     await fireEvent.press(screen.getByTestId('dispatch-pipeline'));
     await fireEvent.press(await screen.findByTestId('dispatch-pipeline-option-Reviewed'));
-    // Worker is seeded from the persona default; Judge gets a fallback tier.
+    // Worker is pinned to its selected captain; Judge keeps legacy fallback routing.
     expect(await screen.findByTestId('dispatch-step-Worker')).toBeTruthy();
+    await fireEvent(screen.getByTestId('dispatch-strict-Worker'), 'valueChange', true);
     await fireEvent.press(screen.getByTestId('dispatch-tier-Judge'));
     await fireEvent.press(await screen.findByTestId('dispatch-tier-Judge-option-Standard'));
     await fireEvent.changeText(screen.getByTestId('dispatch-priority'), '42');
@@ -126,7 +127,7 @@ describe('Dispatch', () => {
       pipeline: 'Reviewed',
       selectedPlaybooks: [{ playbookId: 'pbk_1', deliveryMode: 'InstructionWithReference' }],
       captainAssignments: [
-        { persona: 'Worker', captainId: 'cpt_1', fallbackTier: null },
+        { persona: 'Worker', captainId: 'cpt_1', fallbackTier: null, strictCaptain: true },
         { persona: 'Judge', captainId: null, fallbackTier: 'Standard' },
       ],
     }));

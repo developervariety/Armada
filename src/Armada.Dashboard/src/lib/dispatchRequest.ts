@@ -16,6 +16,7 @@ import type {
 export interface StepAssignment {
   captainId: string | null;
   fallbackTier: CaptainTier | null;
+  strictCaptain?: boolean;
 }
 
 /** Where a dispatch was opened from, with the draft it carries (the dashboard passes it as router state). */
@@ -83,7 +84,7 @@ export function dispatchPrefillNotice(prefill: DispatchPrefillState | null | und
 export function captainAssignmentOverrides(assignments: Record<string, StepAssignment>): CaptainAssignmentOverride[] {
   return Object.entries(assignments)
     .filter(([, assignment]) => assignment.captainId || assignment.fallbackTier)
-    .map(([persona, assignment]) => ({ persona, captainId: assignment.captainId, fallbackTier: assignment.fallbackTier }));
+    .map(([persona, assignment]) => ({ persona, captainId: assignment.captainId, fallbackTier: assignment.fallbackTier, ...(assignment.captainId && assignment.strictCaptain ? { strictCaptain: true } : {}) }));
 }
 
 export interface DispatchDraft {

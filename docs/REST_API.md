@@ -7983,7 +7983,7 @@ Return the interactive Swagger UI for the same OpenAPI surface.
 Personas can carry an ordered captain hierarchy or a legacy default captain, and dispatch can dictate which captain runs each pipeline step, with a capability-tier fallback when that captain is busy. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md) for the full model.
 
 - `POST` / `PUT /api/v1/personas` accept and return `defaultCaptainId` (a `cpt_` id). An invalid captain id is rejected with `400`. `PUT` sets the field to the request value, so an omitted/null value clears the default.
-- `POST /api/v1/voyages` accepts `captainAssignments`, an array of `{ persona, captainId, fallbackTier }` binding each pipeline step (persona) to a preferred captain and a fallback tier (`Economy` | `Standard` | `Premium`). Each entry in `missions` may also carry `requestedCaptainId` and `tier`. The overrides are stored on the voyage and resolved at assignment time, including for fan-out missions.
+- `POST /api/v1/voyages` accepts `captainAssignments`, an array of `{ persona, captainId, fallbackTier, strictCaptain }` binding each pipeline step (persona) to a preferred captain and a fallback tier (`Economy` | `Standard` | `Premium`). Each entry in `missions` may also carry `requestedCaptainId` and `tier`. The overrides are stored on the voyage and resolved at assignment time, including for fan-out missions.
 - Mission reads (`GET /api/v1/missions/{id}`, enumerate, summaries) include both `requestedCaptainId` (the preferred captain) and `captainId` (the captain that actually ran).
 
 ## Data Types
@@ -10192,3 +10192,7 @@ Local collection starts in the background. Harbors report asynchronously on thei
 Recent history and remote caches reset when the Admiral restarts. Prometheus owns durable telemetry history. `Armada` emits `armada.storage.collections` (outcome), `armada.storage.collection_duration` (seconds), `armada.storage.stage_duration` (discovery/filesystem/database), and `armada.storage.observed_bytes` (bounded category gauge), plus storage collection/stage spans. Category metrics have no file paths, host identifiers or table names as labels.
 
 Retention values provide policy context rather than reclaimable-byte estimates. Zero days means expiry is disabled; `BuildSlots` counts retained builds. Storage inventory offers no cleanup controls.
+
+### Strict captain assignments
+
+Set `captainAssignments[].strictCaptain` to `true` alongside `captainId` to wait for that selected captain instead of falling back when busy/unavailable. The default is `false`; tier fallback remains unchanged. Exact persona overrides take precedence over `*`. Strict selection also prevents automatic rework escalation to a different captain: an exhausted or stagnant chain reports remediation and preserves its work. Without a selected captain this flag has no effect. C# clients share `CaptainAssignmentOverride.StrictCaptain`. See [PIPELINES.md](PIPELINES.md#validated-slice-contracts) for plan validation and full-pipeline rework.

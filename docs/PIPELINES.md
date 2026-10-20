@@ -318,7 +318,7 @@ When a stage's mission finishes and its `RequiresReview` is true, the mission mo
 
 Approving a non-terminal stage continues to the next pipeline stage; approving the last stage continues to landing. Denying applies the stage's `ReviewDenyAction` (or an action supplied with the deny): `RetryStage` sends the same stage back for rework, `FailPipeline` fails the stage and cancels its downstream stages. If nobody resolves a review within `ReviewTimeoutMinutes` (default 1440; 0 disables), the watchdog raises the review's severity in Needs You and emits an event; the mission and its dock stay as they are for the reviewer.
 
-An **ungated Judge** that returns NEEDS_REVISION or FAIL and cites a concrete affected case sends the work back for rework instead of failing: Armada adds a Worker mission on the same branch (routed by the Worker persona's captain priorities, for example to a local model) whose instructions are the original task plus the Judge's review, then a new Judge that reviews the rework. The stages that followed the first Judge (Recorder, landing) now follow the new one. Up to two rework rounds run per chain on the Worker persona. If the Judge still blocks, one escalated round (titled "(escalated)") goes to the captain that planned the voyage (its Architect, else its Product Manager), typically a frontier model, so a fix the local model could not get past review still lands. After that a block fails the chain and nothing lands. A block without an affected case, or a PASS that is not substantiated, still fails directly.
+An **ungated Judge** that returns NEEDS_REVISION or FAIL and cites a concrete affected case sends the work back for rework instead of failing: Armada adds a Worker mission on the same branch (routed by the Worker persona's captain priorities, for example to a local model) whose instructions are the original task plus the Judge's review, then repeats any intervening verification stages before a new Judge reviews the rework. The stages that followed the first Judge (Recorder, landing) now follow the new one. Up to two rework rounds run per chain on the Worker persona. If the Judge still blocks, one escalated round (titled "(escalated)") goes to the captain that planned the voyage (its Architect, else its Product Manager), typically a frontier model, so a fix the local model could not get past review still lands. After that a block fails the chain and nothing lands. A block without an affected case, or a PASS that is not substantiated, still fails directly.
 
 A gated **Judge** stage that does not PASS (FAIL, NEEDS_REVISION, an unsubstantiated PASS, or no verdict) also goes to `Review` instead of failing the voyage, with the Judge's reason as the review comment. Approving overrides the Judge and lands the work; denying with FailPipeline stops the pipeline, and RetryStage runs the Judge again. An ungated Judge that does not PASS fails the mission and nothing lands.
 
@@ -396,9 +396,21 @@ Branch: armada/captain-1/msn_abc123
 
 The Architect persona is special: instead of passing context to the next stage, its output can define multiple Worker missions.
 
-### Output Format
+### Validated slice contracts
 
-The Architect agent is instructed (via the `persona.architect` template) to output mission definitions. The preferred format is a fenced code block whose info string is `armada-plan`, containing JSON:
+Built-in Architect prompts request `contractVersion: 2` in the `armada-plan` JSON. The top level contains `requirements` (stable objective IDs), `decisions` (resolved design choices), and `missions`. Each mission includes `title`, `description`, `kind` (`implementation`, `investigation`, or `integration`), `dependsOn`, `waitForOtherMissions`, `validationCommands`, and `acceptanceCriteria`.
+
+Each criterion contains `id` (unique plan-wide), `requirementIds`, `scenario`, `expected`, `verification`, and `negativeCases`; use `negativeCasesNotApplicableReason` when no negative case applies. Every objective ID must be covered. The last mission must be `integration` with `waitForOtherMissions: true`. Invalid dependencies, duplicate IDs/titles, missing evidence fields or coverage, and missing integration barriers reject the plan before Worker fan-out. Mission details show the contract failure and remediation; dependents are cancelled. Criteria, commands and decisions are rendered into the persisted slice for all downstream stages.
+
+This gate validates structure and declared traceability, not semantic correctness, completeness of the objective inventory, or whether an agent actually ran its tests. Independent review remains required. Legacy unversioned plans and marker formats remain supported for customized templates. A malformed or rejected fenced plan does not fall back to loose prose or an older valid block; correct it before restarting the Architect.
+
+FullPipeline rework repeats Worker → Usability Engineer → Test Engineer → Linter → Judge, retaining the actual original intervening stage sequence and routing/review settings. Recorder follows the replacement Judge. Judge routing excludes the Worker and intervening contributing captains on that slice, rather than checking only its immediate predecessor.
+
+Dispatch offers **Wait for selected captain**. Its API field is `captainAssignments[].strictCaptain: true` with a `captainId`. Busy, unavailable, or deleted selected captains leave the mission pending; automatic escalation cannot substitute a different captain. If bounded rework would require escalation, the mission reports failure and remediation instead. Omitted/false preserves the existing preferred-captain fallback behavior. C# clients use the shared `CaptainAssignmentOverride.StrictCaptain`; dashboard and mobile use the same request shape.
+
+### Legacy structured output format
+
+Customized templates can still emit an unversioned fenced `armada-plan` JSON block; built-in prompts use the validated contract described above:
 
 ````
 ```armada-plan
@@ -409,9 +421,9 @@ The Architect agent is instructed (via the `persona.architect` template) to outp
 ```
 ````
 
-`dependsOn` is the 1-based number of an earlier mission in the plan whose whole Worker chain must finish before this one starts (null when it can start immediately), and `waitForOtherMissions` defers the mission until the voyage's other workers settle. When the output has several plan blocks, the last well-formed one wins; missions without a title, with a placeholder title such as `<title>`, or with a repeated title are dropped.
+`dependsOn` is the 1-based number of an earlier mission in the plan whose whole Worker chain must finish before this one starts (null when it can start immediately), and `waitForOtherMissions` defers the mission until the voyage's other workers settle. When the output has several plan blocks, the final block must be valid; missions without a title, with a placeholder title such as `<title>`, or with a repeated title are dropped.
 
-When there is no valid plan block, Armada falls back to the legacy `[ARMADA:MISSION]` markers (optionally closed with `[/ARMADA:MISSION]`, with a `Depends on:` line for sequencing), and then to numbered summary lines:
+When there is no plan block, Armada falls back to the legacy `[ARMADA:MISSION]` markers (optionally closed with `[/ARMADA:MISSION]`, with a `Depends on:` line for sequencing), and then to numbered summary lines:
 
 ```
 [ARMADA:MISSION] Add CacheService with TTL support

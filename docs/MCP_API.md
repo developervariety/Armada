@@ -5111,7 +5111,7 @@ Restore Armada from a previously created backup ZIP file.
 Personas can carry a default captain, and a dispatch can dictate which captain runs each pipeline step, with a capability-tier fallback when that captain is busy. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md) for the full model.
 
 - `create_persona` / `update_persona` accept `defaultCaptainId` (a `cpt_` id, validated against an existing captain). `update_persona` clears it with an empty string. `get_persona` returns it.
-- `dispatch` accepts `captainAssignments`, an array of `{ persona, captainId, fallbackTier }` that binds each pipeline step (persona) to a preferred captain and a fallback tier (`Economy` | `Standard` | `Premium`). Entries in `missions` may also carry a per-mission `requestedCaptainId` and `tier`.
+- `dispatch` accepts `captainAssignments`, an array of `{ persona, captainId, fallbackTier, strictCaptain }` that binds each pipeline step (persona) to a preferred captain and a fallback tier (`Economy` | `Standard` | `Premium`). Entries in `missions` may also carry a per-mission `requestedCaptainId` and `tier`.
 - Mission responses (`mission_status`, `get_mission_diff`, `get_mission_log`, `enumerate` for missions) include both `requestedCaptainId` (the preferred captain) and `captainId` (the captain that actually ran).
 
 ## Data Types
@@ -5840,3 +5840,7 @@ Any MCP-compatible client can connect to the Armada MCP server using the HTTP tr
 The default persona guidance and additive replication procedure are documented in [Prompt and Handoff Improvements](../PROMPT_AND_HANDOFF_IMPROVEMENTS.md). Live prompt-template edits apply when future mission instructions are generated; they do not rewrite in-flight briefs. No request fields, output signals, plan schema, or endpoints change. Embedded defaults in upgraded builds include the guidance; startup upgrades only recognized untouched previous defaults and retains operator-edited templates.
 
 Synthetic activity generation is an operator CLI/global-admin REST workflow (`POST /api/v1/activity/synthetic`), with no new MCP write tool. Existing enumerate/history/token-summary tools can read the generated synthetic records. See [synthetic activity guide](SYNTHETIC_ACTIVITY.md).
+
+### Strict captain assignments
+
+Set `captainAssignments[].strictCaptain` to `true` alongside `captainId` to wait for that selected captain instead of falling back when busy/unavailable. The default is `false`; tier fallback remains unchanged. Exact persona overrides take precedence over `*`. Strict selection also prevents automatic rework escalation to a different captain: an exhausted or stagnant chain reports remediation and preserves its work. Without a selected captain this flag has no effect. C# clients share `CaptainAssignmentOverride.StrictCaptain`. See [PIPELINES.md](PIPELINES.md#validated-slice-contracts) for plan validation and full-pipeline rework.

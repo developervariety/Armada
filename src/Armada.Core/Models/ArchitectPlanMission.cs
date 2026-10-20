@@ -1,5 +1,6 @@
 namespace Armada.Core.Models
 {
+    using System.Collections.Generic;
     using System.Text.Json.Serialization;
 
     /// <summary>
@@ -8,6 +9,18 @@ namespace Armada.Core.Models
     public class ArchitectPlanMission
     {
         #region Public-Members
+
+        /// <summary>Implementation, investigation, or integration; version 2 requires a final integration barrier.</summary>
+        [JsonPropertyName("kind")]
+        public string? Kind { get; set; }
+
+        /// <summary>Executable acceptance scenarios, preserved in every downstream slice contract.</summary>
+        [JsonPropertyName("acceptanceCriteria")]
+        public List<ArchitectAcceptanceCriterion> AcceptanceCriteria { get; set; } = new List<ArchitectAcceptanceCriterion>();
+
+        /// <summary>Exact commands whose original exit status must be checked.</summary>
+        [JsonPropertyName("validationCommands")]
+        public List<string> ValidationCommands { get; set; } = new List<string>();
 
         /// <summary>
         /// Mission title.

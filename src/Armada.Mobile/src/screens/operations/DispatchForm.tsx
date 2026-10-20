@@ -14,6 +14,7 @@ import { useLocale } from '../../i18n/LocaleContext';
 import { useNotifications } from '../../notifications/NotificationContext';
 import { spacing } from '../../theme/typography';
 import { DEFAULT_RUN_APPROVALS, RunApprovalFields, validRunApprovalOptions } from '../../components/app/RunApprovalFields';
+import { SwitchField } from '../../components/ui/SwitchField';
 import { CaptainPickerField, FallbackTierField } from './w24/CaptainFields';
 import { PlaybookPicker } from '../../components/app/PlaybookPicker';
 import { ReadinessCard } from './w24/ReadinessCard';
@@ -225,15 +226,19 @@ export function DispatchForm({ prefill, header, testID = 'dispatch-screen', sche
                   label={t('Preferred Captain')}
                   captains={captains}
                   value={assignment.captainId}
-                  onChange={(captainId) => setAssignments(() => ({ ...effectiveAssignments, [persona]: { ...assignment, captainId } }))}
+                  onChange={(captainId) => setAssignments(() => ({ ...effectiveAssignments, [persona]: { ...assignment, captainId, strictCaptain: captainId ? assignment.strictCaptain : false } }))}
                   disabled={dispatching}
                   testID={`dispatch-captain-${key}`}
                 />
+                {assignment.captainId ? <SwitchField label={t('Wait for selected captain')} value={!!assignment.strictCaptain} disabled={dispatching}
+                  hint={t('Wait when busy; do not substitute another captain or automatically escalate.')}
+                  onChange={(strictCaptain) => setAssignments(() => ({ ...effectiveAssignments, [persona]: { ...assignment, strictCaptain } }))}
+                  testID={`dispatch-strict-${key}`} /> : null}
                 <FallbackTierField
                   label={t('Fallback Tier')}
                   value={assignment.fallbackTier}
                   onChange={(fallbackTier) => setAssignments(() => ({ ...effectiveAssignments, [persona]: { ...assignment, fallbackTier } }))}
-                  disabled={dispatching}
+                  disabled={dispatching || !!assignment.strictCaptain}
                   testID={`dispatch-tier-${key}`}
                 />
               </View>

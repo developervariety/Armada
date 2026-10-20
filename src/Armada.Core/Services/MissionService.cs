@@ -2815,6 +2815,17 @@ namespace Armada.Core.Services
             // Special handling for Architect stage: parse output into new missions
             if (String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
+                ArchitectPlanParser.TryParse(completedMission.AgentOutput, out _, out string? planError);
+                if (planError != null)
+                {
+                    completedMission.Status = MissionStatusEnum.Failed;
+                    completedMission.FailureReason = planError;
+                    completedMission.FailureKind = MissionFailureKindEnum.InvalidOutput;
+                    completedMission.CompletedUtc = DateTime.UtcNow;
+                    completedMission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(completedMission, token).ConfigureAwait(false);
+                    return false;
+                }
                 List<ParsedArchitectMission> parsed = ParseArchitectOutput(completedMission);
                 if (parsed.Count > 0)
                 {
@@ -3223,7 +3234,7 @@ namespace Armada.Core.Services
                 {
                     ParsedArchitectMission parsed = new ParsedArchitectMission();
                     parsed.Title = planned.Title ?? String.Empty;
-                    parsed.Description = planned.Description ?? parsed.Title;
+                    parsed.Description = ArchitectPlanParser.DescribeMission(plan, planned);
                     parsed.DependsOnIndex = planned.DependsOn;
                     parsed.WaitForOtherMissions = planned.WaitForOtherMissions;
                     results.Add(parsed);
@@ -4157,13 +4168,35 @@ namespace Armada.Core.Services
             }
         }
 
+        private async Task<bool> HasStrictCaptainOverrideAsync(Mission mission, CancellationToken token)
+        {
+            List<CaptainAssignmentOverride> overrides = await ReadVoyageCaptainOverridesAsync(mission.VoyageId, token).ConfigureAwait(false);
+            CaptainAssignmentOverride? chosen = overrides.FirstOrDefault(o => PersonaCatalog.Matches(o.Persona, RoutingPersona(mission)))
+                ?? overrides.FirstOrDefault(o => o.Persona == "*" || String.IsNullOrEmpty(o.Persona));
+            return chosen?.StrictCaptain == true && !String.IsNullOrEmpty(chosen.CaptainId);
+        }
+
+        private async Task<HashSet<string>> ReviewAuthorCaptainIdsAsync(Mission mission, CancellationToken token)
+        {
+            HashSet<string> authors = new HashSet<string>(StringComparer.Ordinal);
+            if (!PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge)) return authors;
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal) { mission.Id };
+            string? parentId = mission.DependsOnMissionId;
+            while (!String.IsNullOrEmpty(parentId) && seen.Add(parentId))
+            {
+                Mission? parent = await _Database.Missions.ReadAsync(parentId, token).ConfigureAwait(false);
+                if (parent == null || parent.VoyageId != mission.VoyageId || PersonaCatalog.Matches(parent.Persona, PersonaCatalog.Judge)) break;
+                if (!String.IsNullOrEmpty(parent.CaptainId)) authors.Add(parent.CaptainId);
+                if (PersonaCatalog.Matches(parent.Persona, PersonaCatalog.Worker)) break;
+                parentId = parent.DependsOnMissionId;
+            }
+            return authors;
+        }
+
         private async Task<bool> IsAnyCaptainEligibleAsync(List<Captain> idleCaptains, Mission mission, CancellationToken token)
         {
-            if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) && !String.IsNullOrEmpty(mission.DependsOnMissionId))
-            {
-                Mission? reviewedWorker = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
-                if (reviewedWorker != null) idleCaptains = idleCaptains.Where(c => c.Id != reviewedWorker.CaptainId).ToList();
-            }
+            HashSet<string> reviewAuthors = await ReviewAuthorCaptainIdsAsync(mission, token).ConfigureAwait(false);
+            idleCaptains = idleCaptains.Where(c => !reviewAuthors.Contains(c.Id)).ToList();
             // Mirrors FindAvailableCaptainAsync: a requested (dictated) captain that is idle is always eligible;
             // otherwise the persona fence and the tier floor apply.
             if (!String.IsNullOrEmpty(mission.RequestedCaptainId) && idleCaptains.Any(c => c.Id == mission.RequestedCaptainId && CaptainVisibleToMission(c, mission) &&
@@ -4171,6 +4204,8 @@ namespace Armada.Core.Services
                 return true;
             if (!String.IsNullOrEmpty(mission.RequestedCaptainId) && (mission.Title.Contains(_EscalatedMarker, StringComparison.Ordinal)
                 || (mission.Description ?? "").Contains("## Escalated to ", StringComparison.Ordinal))) return false;
+
+            if (await HasStrictCaptainOverrideAsync(mission, token).ConfigureAwait(false)) return false;
 
             IEnumerable<Captain> eligible = idleCaptains.Where(c => CaptainVisibleToMission(c, mission) &&
                 (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow));
@@ -4273,11 +4308,8 @@ namespace Armada.Core.Services
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
             idleCaptains = idleCaptains.Where(c => CaptainVisibleToMission(c, mission) &&
                 (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)).ToList();
-            if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) && !String.IsNullOrEmpty(mission.DependsOnMissionId))
-            {
-                Mission? reviewedWorker = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
-                if (reviewedWorker != null) idleCaptains.RemoveAll(c => c.Id == reviewedWorker.CaptainId);
-            }
+            HashSet<string> reviewAuthors = await ReviewAuthorCaptainIdsAsync(mission, token).ConfigureAwait(false);
+            idleCaptains.RemoveAll(c => reviewAuthors.Contains(c.Id));
             if (idleCaptains.Count == 0)
                 return null;
 
@@ -4292,6 +4324,7 @@ namespace Armada.Core.Services
 
                 // Recovery must wait for its chosen alternative, never silently rerun the failed captain.
                 if (mission.Title.Contains(_EscalatedMarker, StringComparison.Ordinal) || (mission.Description ?? "").Contains("## Escalated to ", StringComparison.Ordinal)) return null;
+                if (await HasStrictCaptainOverrideAsync(mission, token).ConfigureAwait(false)) return null;
                 Captain? requested = await _Database.Captains.ReadAsync(requestedCaptainId, token).ConfigureAwait(false);
                 if (requested == null)
                     _Logging.Warn(_Header + "requested captain " + requestedCaptainId + " not found; falling back to normal persona/tier routing");
@@ -4734,6 +4767,8 @@ namespace Armada.Core.Services
             bool stagnant = previousWorker != null && !MissionModeContract.IsReadOnly(worker.Mode);
             if (rounds == _MaxJudgeReworkRounds || stagnant)
             {
+                if (await HasStrictCaptainOverrideAsync(worker, token).ConfigureAwait(false))
+                    return Unavailable("Strict captain selection prevents automatic escalation. Read the review and correct the work or explicitly change the voyage captain assignment.");
                 Captain? alternative = await CaptainEscalationSelector.SelectAsync(_Database, worker, worker.CaptainId, voyageMissions, token).ConfigureAwait(false);
                 if (alternative == null) return Unavailable("No alternate eligible Worker captain is available for Judge-requested escalation. Check captain availability, scope, tier and persona priorities.");
                 escalateTo = alternative.Id;
@@ -4767,6 +4802,37 @@ namespace Armada.Core.Services
             rework.RequiresReview = false;
             rework = await _Database.Missions.CreateAsync(rework, token).ConfigureAwait(false);
 
+            // Repeat the actual verification stages between this slice's Worker and Judge. Rework must
+            // not silently downgrade FullPipeline to Reviewed. Use the original contract, not stale excerpts.
+            List<Mission> verificationStages = new List<Mission>();
+            Mission? prior = judge;
+            HashSet<string> stageIds = new HashSet<string>(StringComparer.Ordinal);
+            while (!String.IsNullOrEmpty(prior.DependsOnMissionId) && stageIds.Add(prior.Id)
+                && byId.TryGetValue(prior.DependsOnMissionId, out Mission? preceding) && preceding.Id != worker.Id)
+            {
+                verificationStages.Add(preceding);
+                prior = preceding;
+            }
+            verificationStages.Reverse();
+            string reworkParentId = rework.Id;
+            foreach (Mission original in verificationStages)
+            {
+                Mission repeated = new Mission("[" + original.Persona + "] Rework " + round + ": " + baseTitle, taskSpec);
+                repeated.TenantId = original.TenantId;
+                repeated.UserId = original.UserId;
+                repeated.VoyageId = original.VoyageId;
+                repeated.VesselId = original.VesselId;
+                repeated.Persona = original.Persona;
+                repeated.Mode = original.Mode;
+                repeated.Tier = original.Tier;
+                repeated.RequestedCaptainId = original.RequestedCaptainId;
+                repeated.DependsOnMissionId = reworkParentId;
+                repeated.RequiresReview = original.RequiresReview;
+                repeated.ReviewDenyAction = original.ReviewDenyAction;
+                repeated = await _Database.Missions.CreateAsync(repeated, token).ConfigureAwait(false);
+                reworkParentId = repeated.Id;
+            }
+
             Mission nextJudge = new Mission("[Judge] Review rework " + round + ": " + baseTitle, taskSpec);
             nextJudge.TenantId = judge.TenantId;
             nextJudge.UserId = judge.UserId;
@@ -4774,7 +4840,7 @@ namespace Armada.Core.Services
             nextJudge.VesselId = judge.VesselId;
             nextJudge.Persona = PersonaCatalog.Judge;
             nextJudge.Tier = judge.Tier;
-            nextJudge.DependsOnMissionId = rework.Id;
+            nextJudge.DependsOnMissionId = reworkParentId;
             nextJudge.RequiresReview = judge.RequiresReview;
             nextJudge.ReviewDenyAction = judge.ReviewDenyAction;
             nextJudge = await _Database.Missions.CreateAsync(nextJudge, token).ConfigureAwait(false);

@@ -41,6 +41,9 @@ namespace Armada.Core.Models
         /// </summary>
         public CaptainTierEnum? FallbackTier { get; set; } = null;
 
+        /// <summary>When a captain is selected, wait for it instead of using fallback or automatic escalation. Defaults false.</summary>
+        public bool StrictCaptain { get; set; } = false;
+
         #endregion
 
         #region Private-Members

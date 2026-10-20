@@ -16,6 +16,8 @@ namespace Armada.Core.Services
 
         internal static IReadOnlyDictionary<string, string> PreviousBriefs { get; } = Load("persona-briefs-v1.json");
 
+        internal static IReadOnlyDictionary<string, string> RecentBriefs { get; } = Load("persona-briefs-v2.json");
+
         internal static string Apply(string name, string content)
         {
             if (!Additions.TryGetValue(name, out string? addition)) return content;

@@ -45,7 +45,7 @@ namespace Test.Shared.Suites.Services
             {
                 List<CaptainAssignmentOverride> overrides = new List<CaptainAssignmentOverride>
                 {
-                    new CaptainAssignmentOverride("Worker", "cpt_worker", CaptainTierEnum.Economy),
+                    new CaptainAssignmentOverride("Worker", "cpt_worker", CaptainTierEnum.Economy) { StrictCaptain = true },
                     new CaptainAssignmentOverride("Judge", "cpt_judge", CaptainTierEnum.Premium),
                     new CaptainAssignmentOverride("Architect", null, CaptainTierEnum.Standard)
                 };
@@ -55,6 +55,8 @@ namespace Test.Shared.Suites.Services
 
                 List<CaptainAssignmentOverride> parsed = MissionService.DeserializeCaptainOverrides(json);
                 AssertEqual(3, parsed.Count, "Round-trip should preserve every override");
+                AssertTrue(parsed[0].StrictCaptain, "Strict pin survives storage");
+                AssertFalse(parsed[1].StrictCaptain, "Legacy fallback remains default");
                 AssertEqual("Worker", parsed[0].Persona, "First persona should round-trip");
                 AssertEqual("cpt_worker", parsed[0].CaptainId, "First captain id should round-trip");
                 AssertEqual(CaptainTierEnum.Economy, parsed[0].FallbackTier, "First fallback tier should round-trip");
@@ -148,7 +150,7 @@ namespace Test.Shared.Suites.Services
                 {
                     List<CaptainAssignmentOverride> overrides = new List<CaptainAssignmentOverride>
                     {
-                        new CaptainAssignmentOverride("Worker", "cpt_w", CaptainTierEnum.Economy)
+                        new CaptainAssignmentOverride("Worker", "cpt_w", CaptainTierEnum.Economy) { StrictCaptain = true }
                     };
 
                     Voyage voyage = new Voyage("routing voyage", "carries overrides");
@@ -161,6 +163,7 @@ namespace Test.Shared.Suites.Services
 
                     List<CaptainAssignmentOverride> parsed = MissionService.DeserializeCaptainOverrides(read.CaptainOverridesJson);
                     AssertEqual(1, parsed.Count, "Persisted overrides should deserialize");
+                    AssertTrue(parsed[0].StrictCaptain, "Strict pin survives storage");
                     AssertEqual("Worker", parsed[0].Persona, "Persisted persona should round-trip");
                     AssertEqual("cpt_w", parsed[0].CaptainId, "Persisted captain id should round-trip");
                     AssertEqual(CaptainTierEnum.Economy, parsed[0].FallbackTier, "Persisted fallback tier should round-trip");
@@ -221,6 +224,26 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(alternative.Id, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.CaptainId);
             }));
 
+            cases.Add(CaseAsync("strict_override_waits_for_selected_captain", "Strict voyage assignments wait for their selected captain while legacy assignments still allow fallback", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                Captain failed = await AddCaptainAsync(testDb.Driver, "failed", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
+                Captain alternative = await AddCaptainAsync(testDb.Driver, "alternative", CaptainStateEnum.Working, null, null).ConfigureAwait(false);
+                Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, "Worker", alternative.Id, null).ConfigureAwait(false);
+                Voyage voyage = new Voyage("Strict run");
+                voyage.CaptainOverridesJson = MissionService.SerializeCaptainOverrides(new List<CaptainAssignmentOverride>
+                    { new CaptainAssignmentOverride("Worker", alternative.Id, null) { StrictCaptain = true } });
+                voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                mission.VoyageId = voyage.Id;
+                await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                AssertFalse(await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false), "Wait for the alternative instead of redispatching the failed captain");
+                alternative.State = CaptainStateEnum.Idle;
+                await testDb.Driver.Captains.UpdateAsync(alternative).ConfigureAwait(false);
+                AssertTrue(await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false), "The chosen alternative becomes assignable when idle");
+                AssertEqual(alternative.Id, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.CaptainId);
+            }));
+
             cases.Add(CaseAsync("judge_cannot_review_own_escalated_work", "Judge routing excludes the preceding implementation captain even when explicitly requested", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -232,6 +255,35 @@ namespace Test.Shared.Suites.Services
                 await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
                 Mission judge = await AddMissionAsync(testDb.Driver, harness.Vessel, "Judge", author.Id, null).ConfigureAwait(false);
                 judge.DependsOnMissionId = worker.Id;
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                AssertFalse(await harness.Missions.TryAssignAsync(judge, harness.Vessel).ConfigureAwait(false), "A captain cannot approve its own implementation");
+                Captain reviewer = await AddCaptainAsync(testDb.Driver, "independent reviewer", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
+                AssertTrue(await harness.Missions.TryAssignAsync(judge, harness.Vessel).ConfigureAwait(false), "An independent captain can review the work");
+                AssertEqual(reviewer.Id, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.CaptainId);
+            }));
+
+            cases.Add(CaseAsync("judge_excludes_full_pipeline_authors", "Judge routing excludes the Worker behind verification stages and all intervening contributors", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                Captain author = await AddCaptainAsync(testDb.Driver, "author", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
+                Mission worker = await AddMissionAsync(testDb.Driver, harness.Vessel, "Worker", null, null).ConfigureAwait(false);
+                worker.Status = MissionStatusEnum.WorkProduced;
+                worker.CaptainId = author.Id;
+                await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                Mission judge = await AddMissionAsync(testDb.Driver, harness.Vessel, "Judge", author.Id, null).ConfigureAwait(false);
+                Captain contributor = await AddCaptainAsync(testDb.Driver, "contributor", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
+                Mission preceding = worker;
+                foreach (string persona in new[] { "Usability Engineer", "Test Engineer", "Linter" })
+                {
+                    Mission stage = await AddMissionAsync(testDb.Driver, harness.Vessel, persona, null, null).ConfigureAwait(false);
+                    stage.Status = MissionStatusEnum.WorkProduced;
+                    stage.CaptainId = contributor.Id;
+                    stage.DependsOnMissionId = preceding.Id;
+                    await testDb.Driver.Missions.UpdateAsync(stage).ConfigureAwait(false);
+                    preceding = stage;
+                }
+                judge.DependsOnMissionId = preceding.Id;
                 await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
                 AssertFalse(await harness.Missions.TryAssignAsync(judge, harness.Vessel).ConfigureAwait(false), "A captain cannot approve its own implementation");
                 Captain reviewer = await AddCaptainAsync(testDb.Driver, "independent reviewer", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);

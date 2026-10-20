@@ -296,18 +296,25 @@ Armada will dispatch this request as a voyage on the selected vessel.`)}
                   return (
                     <div className="captain-assignment-row" key={persona}>
                       <span>{persona === '*' ? t('All steps') : persona}</span>
-                      <CaptainPicker
-                        captains={captains}
-                        value={assignment.captainId}
-                        onChange={(captainId) => setStepAssignments((cur) => ({ ...cur, [persona]: { ...assignment, captainId } }))}
-                        disabled={dispatching}
-                        ariaLabel={t('Preferred captain for {{persona}}', { persona })}
-                        title={t('Captain to use for this step; choosing one overrides the persona\'s captain priorities. Auto uses normal routing.')}
-                      />
+                      <div>
+                        <CaptainPicker
+                          captains={captains}
+                          value={assignment.captainId}
+                          onChange={(captainId) => setStepAssignments((cur) => ({ ...cur, [persona]: { ...assignment, captainId, strictCaptain: captainId ? assignment.strictCaptain : false } }))}
+                          disabled={dispatching}
+                          ariaLabel={t('Preferred captain for {{persona}}', { persona })}
+                          title={t('Captain to use for this step; choosing one overrides the persona\'s captain priorities. Auto uses normal routing.')}
+                        />
+                        {assignment.captainId ? <label title={t('Wait when busy; do not substitute another captain or automatically escalate.')} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12 }}>
+                          <input type="checkbox" checked={!!assignment.strictCaptain} disabled={dispatching}
+                            onChange={(event) => setStepAssignments((cur) => ({ ...cur, [persona]: { ...assignment, strictCaptain: event.target.checked } }))} />
+                          {t('Wait for selected captain')}
+                        </label> : null}
+                      </div>
                       <FallbackTierSelect
                         value={assignment.fallbackTier}
                         onChange={(fallbackTier) => setStepAssignments((cur) => ({ ...cur, [persona]: { ...assignment, fallbackTier } }))}
-                        disabled={dispatching}
+                        disabled={dispatching || !!assignment.strictCaptain}
                         ariaLabel={t('Fallback tier for {{persona}}', { persona })}
                         title={t('When the chosen captain is busy, the step uses another idle captain at this tier or higher. Auto means the chosen captain\'s own tier.')}
                       />

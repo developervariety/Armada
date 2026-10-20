@@ -291,6 +291,50 @@ namespace Test.Shared.Suites.Services
                 AssertContains("independent Judge", stopped.FailureReason);
             }));
 
+            cases.Add(CaseAsync("full_pipeline_rework_repeats_verification", "Judge revisions preserve all intervening FullPipeline stages and move Recorder after their new Judge", TestTags.Reliability, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                h.Missions.OnGetMissionOutput = _ => "## Correctness\nMissing failure case.\n## Affected Case\nScenario: xAI tool stream ends before completion but reports success.\nExpected failure, actual success.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                int landings = 0;
+                h.Missions.OnMissionComplete = (m, d) => { landings++; return Task.CompletedTask; };
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("full") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("Implement [Worker]", "AC-EOF: reject missing completion.")
+                { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, BranchName = "armada/full/rework" }).ConfigureAwait(false);
+                Mission preceding = worker;
+                foreach (string persona in new[] { "Usability Engineer", "Test Engineer", "Linter" })
+                {
+                    preceding = await testDb.Driver.Missions.CreateAsync(new Mission("Verify", "AC-EOF: original contract.")
+                    { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = persona, Status = MissionStatusEnum.WorkProduced,
+                        DependsOnMissionId = preceding.Id, Tier = CaptainTierEnum.Standard, RequestedCaptainId = "cpt_verifier" }).ConfigureAwait(false);
+                }
+                Captain captain = await CreateCaptainAsync(testDb, "Reviewer", AgentRuntimeEnum.Codex, CaptainStateEnum.Working).ConfigureAwait(false);
+                Mission judge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, captain, "Judge", false).ConfigureAwait(false);
+                judge.DependsOnMissionId = preceding.Id;
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                Mission recorder = await testDb.Driver.Missions.CreateAsync(new Mission("Record", "Record facts")
+                { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Recorder", DependsOnMissionId = judge.Id }).ConfigureAwait(false);
+                await h.Missions.HandleCompletionAsync(captain, judge.Id).ConfigureAwait(false);
+                List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                string parent = judge.Id;
+                foreach (string persona in new[] { "Worker", "Usability Engineer", "Test Engineer", "Linter", "Judge" })
+                {
+                    Mission? next = all.Find(m => m.DependsOnMissionId == parent && m.Persona == persona);
+                    AssertNotNull(next, "Rework must repeat " + persona);
+                    AssertContains("AC-EOF", next!.Description, "Original slice criteria retained");
+                    if (persona != "Worker" && persona != "Judge")
+                    {
+                        AssertEqual(CaptainTierEnum.Standard, next.Tier);
+                        AssertEqual("cpt_verifier", next.RequestedCaptainId);
+                        AssertEqual(MissionStatusEnum.Pending, next.Status);
+                    }
+                    parent = next.Id;
+                }
+                AssertEqual(parent, (await testDb.Driver.Missions.ReadAsync(recorder.Id).ConfigureAwait(false))!.DependsOnMissionId);
+                AssertEqual(0, landings, "Full verification must finish before landing");
+            }));
+
             cases.Add(CaseAsync("architect_slice_has_own_rework_budget", "A later Architect slice starts its own bounded rework budget after an earlier slice passed an escalated review", TestTags.Positive, async () =>
             {
                 foreach (string priorTitle in new[] { "[Worker] Rework 3 (escalated): Catalog", "[Worker] Rework 1: Catalog" })
@@ -361,6 +405,33 @@ namespace Test.Shared.Suites.Services
                 AssertNotNull(escalated, "A stagnant rework switches captain immediately");
                 AssertEqual(codex.Id, escalated.RequestedCaptainId);
                 AssertContains("(escalated)", escalated.Title);
+            }));
+
+            cases.Add(CaseAsync("strict_rework_cannot_escalate", "Strict captain selection reports remediation rather than escalating unchanged work", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                h.Missions.OnGetMissionOutput = _ => "## Affected Case\nFile: a.py:1\nThe implementation is still missing.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("stagnation") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                Captain deepseek = await CreateCaptainAsync(testDb, "Deepseek", AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                voyage.CaptainOverridesJson = MissionService.SerializeCaptainOverrides(new List<CaptainAssignmentOverride>
+                    { new CaptainAssignmentOverride("Worker", deepseek.Id, null) { StrictCaptain = true } });
+                await testDb.Driver.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+                Mission initial = await testDb.Driver.Missions.CreateAsync(new Mission("Implement", "Implement it") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CaptainId = deepseek.Id, CommitHash = "same-commit", BranchName = "b" }).ConfigureAwait(false);
+                Mission rework = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Rework 1: Implement", "Implement it") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CaptainId = deepseek.Id, CommitHash = "same-commit", BranchName = "b", DependsOnMissionId = initial.Id }).ConfigureAwait(false);
+                Captain codex = await CreateCaptainAsync(testDb, "Reviewer", AgentRuntimeEnum.Codex, CaptainStateEnum.Working).ConfigureAwait(false);
+                Mission judge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, codex, "Judge", false).ConfigureAwait(false);
+                judge.DependsOnMissionId = rework.Id;
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                await h.Missions.HandleCompletionAsync(codex, judge.Id).ConfigureAwait(false);
+                List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                Mission? escalated = all.Find(m => m.DependsOnMissionId == judge.Id && m.Persona == "Worker");
+                AssertNull(escalated, "Strict captain mode must not dispatch another model");
+                Mission? failed = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Failed, failed!.Status);
+                AssertContains("Strict captain selection", failed.FailureReason!);
+                AssertContains("Remediation", failed.FailureReason!);
             }));
 
             cases.Add(CaseAsync("judge_rework_escalates_to_planner", "When the Worker's rework rounds are used up, one escalated round goes to the captain that planned the voyage; after it the chain fails", TestTags.Positive, async () =>

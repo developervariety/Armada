@@ -2,6 +2,7 @@ namespace Test.Shared.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
@@ -98,6 +99,71 @@ namespace Test.Shared.Suites.Services
                 AssertContains("waitForOtherMissions", text);
             }));
 
+            cases.Add(Case("versioned_contract_preserves_evidence", "Versioned plans retain objective traceability and evidence in every slice", TestTags.Positive, () =>
+            {
+                ArchitectPlan input = ValidContract();
+                AssertTrue(ArchitectPlanParser.TryParse(Fence(input), out ArchitectPlan? plan, out string? error));
+                AssertNull(error);
+                string description = ArchitectPlanParser.DescribeMission(plan!, plan!.Missions[0]);
+                AssertContains("AC-READ", description);
+                AssertContains("REQ-READ", description);
+                AssertContains("HTTP 401 must report disconnected", description);
+                AssertContains("Capture before request", description);
+                AssertContains("dotnet test", description);
+                AssertContains("explicit false is retained", description);
+            }));
+
+            cases.Add(Case("versioned_contract_rejects_unsafe_plans", "Incomplete coverage, vacuous checks, invalid dependencies and missing integration never dispatch", TestTags.Negative, () =>
+            {
+                List<Action<ArchitectPlan>> defects = new List<Action<ArchitectPlan>>
+                {
+                    p => p.ContractVersion = 99,
+                    p => p.Requirements.Add("UNOWNED"),
+                    p => p.Decisions.Clear(),
+                    p => p.Missions[0].DependsOn = 2,
+                    p => p.Missions[0].WaitForOtherMissions = true,
+                    p => p.Missions[0].ValidationCommands.Clear(),
+                    p => p.Missions[0].AcceptanceCriteria[0].Verification = "",
+                    p => p.Missions[0].AcceptanceCriteria[0].NegativeCases.Clear(),
+                    p => p.Missions[0].AcceptanceCriteria[0].RequirementIds = new List<string> { "invented" },
+                    p => p.Missions[1].AcceptanceCriteria[0].Id = "AC-READ",
+                    p => p.Missions[1].WaitForOtherMissions = false,
+                    p => p.Missions[1].Kind = "implementation",
+                    p => p.Missions.Add(null!),
+                    p => p.Missions[0].AcceptanceCriteria.Add(null!),
+                    p => p.Missions[0].AcceptanceCriteria[0].NegativeCases = null!,
+                    p => p.Missions[0].Title = "<title>",
+                    p => p.Missions[1].Title = p.Missions[0].Title
+                };
+                foreach (Action<ArchitectPlan> defect in defects)
+                {
+                    ArchitectPlan plan = ValidContract();
+                    defect(plan);
+                    AssertFalse(ArchitectPlanParser.TryParse(Fence(plan), out ArchitectPlan? parsed, out string? error));
+                    AssertNull(parsed);
+                    AssertContains("Remediation", error!);
+                }
+            }));
+
+            cases.Add(Case("invalid_revision_cannot_use_old_plan", "An invalid final plan cannot silently dispatch an earlier valid block", TestTags.Negative, () =>
+            {
+                string valid = Fence(ValidContract());
+                AssertFalse(ArchitectPlanParser.TryParse(valid + "\n```armada-plan\ninvalid\n```", out _, out string? error));
+                AssertContains("JSON is invalid", error!);
+                ArchitectPlan broken = ValidContract();
+                broken.Missions[1].WaitForOtherMissions = false;
+                AssertFalse(ArchitectPlanParser.TryParse(valid + "\n" + Fence(broken), out _, out error));
+                AssertContains("last mission", error!);
+            }));
+
+            cases.Add(Case("negative_cases_can_be_inapplicable", "A specific non-applicability reason is accepted instead of fabricated failure cases", TestTags.Positive, () =>
+            {
+                ArchitectPlan input = ValidContract();
+                input.Missions[0].AcceptanceCriteria[0].NegativeCases.Clear();
+                input.Missions[0].AcceptanceCriteria[0].NegativeCasesNotApplicableReason = "Static manifest-only check; no execution path changes.";
+                AssertTrue(ArchitectPlanParser.TryParse(Fence(input), out _, out _));
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.ArchitectPlanParser",
                 displayName: "Architect Plan Parser",
@@ -107,6 +173,37 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private static string Fence(ArchitectPlan plan) => "```armada-plan\n" + JsonSerializer.Serialize(plan) + "\n```";
+
+        private static ArchitectPlan ValidContract()
+        {
+            ArchitectPlan plan = new ArchitectPlan
+            {
+                ContractVersion = 2,
+                Requirements = new List<string> { "REQ-READ" },
+                Decisions = new List<string> { "Defaults only apply when absent; explicit false is retained." }
+            };
+            for (int i = 0; i < 2; i++) plan.Missions.Add(new ArchitectPlanMission
+            {
+                Title = i == 0 ? "Discovery" : "Integration",
+                Description = "Verify inventory and connection status.",
+                Kind = i == 0 ? "implementation" : "integration",
+                DependsOn = i == 0 ? null : 1,
+                WaitForOtherMissions = i == 1,
+                ValidationCommands = new List<string> { "dotnet test" },
+                AcceptanceCriteria = new List<ArchitectAcceptanceCriterion> { new ArchitectAcceptanceCriterion
+                {
+                    Id = i == 0 ? "AC-READ" : "AC-INTEGRATE",
+                    RequirementIds = new List<string> { "REQ-READ" },
+                    Scenario = "List inventory through local HTTP",
+                    Expected = "Authorized inventory is returned",
+                    Verification = "Capture before request; assert request and response",
+                    NegativeCases = new List<string> { "HTTP 401 must report disconnected" }
+                } }
+            });
+            return plan;
+        }
 
         private static TestCaseDescriptor Case(string caseId, string displayName, string tag, Action body)
         {

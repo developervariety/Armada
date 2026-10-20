@@ -350,7 +350,7 @@ namespace Armada.Core.Services
                 string recall = previous.Key == "persona.recorder" ? String.Empty : _MemoryRecallGuidance;
                 string improved = PersonaPromptImprovements.Apply(previous.Key, previous.Value);
                 string recallBeforeImprovement = PersonaPromptImprovements.Apply(previous.Key, previous.Value + recall);
-                if (!new[] { previous.Value, previous.Value + recall, improved, improved + recall, recallBeforeImprovement, PersonaPromptImprovements.PreviousBriefs[previous.Key] }
+                if (!new[] { previous.Value, previous.Value + recall, improved, improved + recall, recallBeforeImprovement, PersonaPromptImprovements.PreviousBriefs[previous.Key], PersonaPromptImprovements.RecentBriefs[previous.Key] }
                     .Any(shipped => NormalizeLineEndings(existing.Content) == NormalizeLineEndings(shipped))) continue;
                 existing.Content = _EmbeddedDefaults[previous.Key].Content;
                 existing.LastUpdateUtc = DateTime.UtcNow;
