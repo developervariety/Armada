@@ -66,6 +66,7 @@ namespace Armada.Test.Database
             await AssertColumnAsync(conn, "environments", "rollout_monitoring_window_minutes", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "environments", "rollout_monitoring_interval_seconds", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "environments", "alert_on_regression", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "environments", "required_check_types_json", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "tenant_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "user_id", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "vessel_id", token).ConfigureAwait(false);
@@ -79,6 +80,12 @@ namespace Armada.Test.Database
             await AssertColumnAsync(conn, "deployments", "last_regression_alert_utc", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "latest_monitoring_summary", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "deployments", "monitoring_failure_count", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "source_commit", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "artifact_identity", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "approved_source_commit", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "approved_artifact_identity", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "validation_check_run_ids_json", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "deployments", "validation_summary", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "objectives", "backlog_state", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "objectives", "rank", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "objectives", "deployment_ids_json", token).ConfigureAwait(false);

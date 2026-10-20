@@ -1665,7 +1665,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(113, "Persist the workflow profile failed-test line pattern and isolated re-run command", WorkflowProfileIsolatedRerunPersistence.SqliteStatements),
                 new SchemaMigration(114, "Persist who promoted a memory proposal and the AI-Memory commit that holds it", MemoryProposalPromotionPersistence.SqliteStatements),
                 new SchemaMigration(115, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.SqliteStatements),
-                new SchemaMigration(116, "Index signals by type, read flag and creation time", SignalTypeReadIndexSchema.SqliteStatements)
+                new SchemaMigration(116, "Index signals by type, read flag and creation time", SignalTypeReadIndexSchema.SqliteStatements),
+                new SchemaMigration(117, "Pin deployments to a resolved source commit and artifact, and store required Check types per environment", DeploymentCandidatePinPersistence.SqliteStatements)
             };
         }
 

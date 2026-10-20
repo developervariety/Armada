@@ -8,7 +8,7 @@ namespace Armada.Core.Database
 
     /// <summary>
     /// The deployments row-to-model contract, shared by every provider. A status or verification status name
-    /// outside the model reads as the model's default; the Check list and request-history summary read as empty
+    /// outside the model reads as the model's default; the Check lists and request-history summary read as empty
     /// or absent when null or blank, and a document that is not valid JSON is named rather than read as empty.
     /// </summary>
     internal static class DeploymentColumns
@@ -40,6 +40,12 @@ namespace Armada.Core.Database
             deployment.VoyageId = row.NullableText("voyage_id");
             deployment.Title = row.Text("title");
             deployment.SourceRef = row.NullableText("source_ref");
+            deployment.SourceCommit = row.NullableText("source_commit");
+            deployment.ArtifactIdentity = row.NullableText("artifact_identity");
+            deployment.ApprovedSourceCommit = row.NullableText("approved_source_commit");
+            deployment.ApprovedArtifactIdentity = row.NullableText("approved_artifact_identity");
+            deployment.ValidationCheckRunIds = row.Json<List<string>>("validation_check_run_ids_json", _Json) ?? new List<string>();
+            deployment.ValidationSummary = row.NullableText("validation_summary");
             deployment.Summary = row.NullableText("summary");
             deployment.Notes = row.NullableText("notes");
             deployment.Status = row.EnumOrFallback("status", DeploymentStatusEnum.PendingApproval);
@@ -90,6 +96,12 @@ namespace Armada.Core.Database
                 .Text("voyage_id", deployment.VoyageId)
                 .Text("title", deployment.Title)
                 .Text("source_ref", deployment.SourceRef)
+                .Text("source_commit", deployment.SourceCommit)
+                .Text("artifact_identity", deployment.ArtifactIdentity)
+                .Text("approved_source_commit", deployment.ApprovedSourceCommit)
+                .Text("approved_artifact_identity", deployment.ApprovedArtifactIdentity)
+                .Text("validation_check_run_ids_json", JsonSerializer.Serialize(deployment.ValidationCheckRunIds ?? new List<string>(), _Json))
+                .Text("validation_summary", deployment.ValidationSummary)
                 .Text("summary", deployment.Summary)
                 .Text("notes", deployment.Notes)
                 .Text("status", deployment.Status.ToString())

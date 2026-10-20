@@ -102,6 +102,7 @@ namespace Armada.Core.Services
                 RolloutMonitoringIntervalSeconds = NormalizeMonitoringIntervalSeconds(request.RolloutMonitoringIntervalSeconds),
                 AlertOnRegression = request.AlertOnRegression ?? true,
                 RequiresApproval = request.RequiresApproval ?? false,
+                RequiredCheckTypes = NormalizeRequiredCheckTypes(request.RequiredCheckTypes),
                 IsDefault = request.IsDefault ?? false,
                 Active = request.Active ?? true,
                 CreatedUtc = DateTime.UtcNow,
@@ -161,6 +162,9 @@ namespace Armada.Core.Services
                 : environment.RolloutMonitoringIntervalSeconds;
             environment.AlertOnRegression = request.AlertOnRegression ?? environment.AlertOnRegression;
             environment.RequiresApproval = request.RequiresApproval ?? environment.RequiresApproval;
+            environment.RequiredCheckTypes = request.RequiredCheckTypes != null
+                ? NormalizeRequiredCheckTypes(request.RequiredCheckTypes)
+                : environment.RequiredCheckTypes;
             environment.IsDefault = request.IsDefault ?? environment.IsDefault;
             environment.Active = request.Active ?? environment.Active;
             environment.LastUpdateUtc = DateTime.UtcNow;
@@ -383,6 +387,24 @@ namespace Armada.Core.Services
             string? normalized = Normalize(value);
             if (String.IsNullOrWhiteSpace(normalized))
                 throw new InvalidOperationException(parameterName + " is required.");
+            return normalized;
+        }
+
+        /// <summary>
+        /// A required Check type must measure the source before it ships. Deploy, rollback and the post-deploy
+        /// verification types measure a running target, so they cannot be required evidence for a candidate commit.
+        /// </summary>
+        private static List<CheckRunTypeEnum> NormalizeRequiredCheckTypes(List<CheckRunTypeEnum>? types)
+        {
+            List<CheckRunTypeEnum> normalized = new List<CheckRunTypeEnum>();
+            if (types == null) return normalized;
+            foreach (CheckRunTypeEnum type in types)
+            {
+                if (!DeploymentEvidenceEvaluator.IsRequirableType(type))
+                    throw new InvalidOperationException("deployment_required_check_type_invalid: " + type
+                        + " measures a deployed target, not a source commit, so it cannot be a required Check type.");
+                if (!normalized.Contains(type)) normalized.Add(type);
+            }
             return normalized;
         }
 

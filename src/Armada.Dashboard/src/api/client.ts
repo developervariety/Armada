@@ -964,7 +964,15 @@ export const getDeployment = (id: string) => get<Deployment>(`/api/v1/deployment
 export const createDeployment = (data: DeploymentUpsertRequest) => post<Deployment>('/api/v1/deployments', data);
 export const updateDeployment = (id: string, data: DeploymentUpsertRequest) => put<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`, data);
 export const syncGitHubActions = (data: GitHubActionsSyncRequest) => post<GitHubActionsSyncResult>('/api/v1/check-runs/sync/github-actions', data);
-export const approveDeployment = (id: string, comment?: string | null) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/approve`, comment ? { comment } : {});
+export const approveDeployment = (
+  id: string,
+  comment?: string | null,
+  candidate?: { sourceCommit?: string | null; artifactIdentity?: string | null },
+) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/approve`, {
+  comment: comment || undefined,
+  sourceCommit: candidate?.sourceCommit || undefined,
+  artifactIdentity: candidate?.artifactIdentity || undefined,
+});
 export const denyDeployment = (id: string, comment?: string | null) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/deny`, comment ? { comment } : {});
 export const verifyDeployment = (id: string) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/verify`, {});
 export const rollbackDeployment = (id: string) => post<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}/rollback`, {});

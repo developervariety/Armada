@@ -1195,6 +1195,7 @@ export interface DeploymentEnvironment {
   rolloutMonitoringIntervalSeconds: number;
   alertOnRegression: boolean;
   requiresApproval: boolean;
+  requiredCheckTypes?: CheckRunType[];
   isDefault: boolean;
   active: boolean;
   createdUtc: string;
@@ -1228,6 +1229,7 @@ export interface DeploymentEnvironmentUpsertRequest {
   rolloutMonitoringIntervalSeconds?: number | null;
   alertOnRegression?: boolean | null;
   requiresApproval?: boolean | null;
+  requiredCheckTypes?: CheckRunType[] | null;
   isDefault?: boolean | null;
   active?: boolean | null;
 }
@@ -1263,6 +1265,12 @@ export interface Deployment {
   voyageId: string | null;
   title: string;
   sourceRef: string | null;
+  sourceCommit?: string | null;
+  artifactIdentity?: string | null;
+  approvedSourceCommit?: string | null;
+  approvedArtifactIdentity?: string | null;
+  validationCheckRunIds?: string[];
+  validationSummary?: string | null;
   summary: string | null;
   notes: string | null;
   status: DeploymentStatus;
@@ -1323,6 +1331,7 @@ export interface DeploymentUpsertRequest {
   objectiveIds?: string[];
   title?: string | null;
   sourceRef?: string | null;
+  artifactIdentity?: string | null;
   summary?: string | null;
   notes?: string | null;
   autoExecute?: boolean | null;

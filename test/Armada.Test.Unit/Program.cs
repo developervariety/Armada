@@ -58,6 +58,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ObjectiveModelTests());
             runner.AddSuite(new ObjectiveRefinementModelTests());
             runner.AddSuite(new DeploymentEnvironmentServiceTests());
+            runner.AddSuite(new DeploymentEvidenceEvaluatorTests());
             runner.AddSuite(new ProxyDashboardRelayIntegrationTests());
             runner.AddSuite(new RemoteDashboardRelayServiceTests());
             runner.AddSuite(new DashboardStaticFileTests());

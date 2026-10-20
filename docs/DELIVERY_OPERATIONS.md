@@ -108,9 +108,83 @@ endpoint reachability and authentication first with the MCP
 Use `create_deployment` with a named environment and a source release or ref.
 Read the result with `get_deployment`.
 
+### 4.1 The pinned candidate
+
+A deployment resolves its `SourceRef` once, when it is created, to the full
+commit the ref names in the vessel's own repository, and records it as
+`SourceCommit`. The vessel's local repository is read first, then its working
+directory; discovery never climbs above that directory. A branch is tried as a
+local branch, then as `origin/<branch>`, then as a tag. `ArtifactIdentity`
+records the artifact the deployment ships, such as an image digest or a
+package version, when the operator supplies one. Together the commit and the
+artifact are the candidate.
+
+- A ref that names no commit in an existing repository refuses the create or
+  the update with `deployment_source_unresolved`.
+- A vessel with no git repository creates an unpinned deployment, and the
+  admiral log names it.
+- An update that keeps the ref keeps the pinned commit. An update that
+  changes the ref resolves the new ref. A changed commit or artifact clears
+  the recorded validation evidence.
+- Once a deployment is approved, started or finished, its candidate is fixed.
+  An update that changes the ref, the artifact or the vessel refuses with
+  `deployment_candidate_frozen`; create a new deployment instead.
+
+The deploy and rollback Checks run with `CommitHash` set to the pinned commit,
+and every check command of a deployment receives the candidate as environment
+variables: `ARMADA_DEPLOYMENT_ID`, `ARMADA_DEPLOYMENT_SOURCE_REF`,
+`ARMADA_DEPLOYMENT_SOURCE_COMMIT` and `ARMADA_DEPLOYMENT_ARTIFACT`. These
+override a workflow profile variable of the same name. A deploy script that
+checks out `ARMADA_DEPLOYMENT_SOURCE_COMMIT` ships the pinned commit even when
+the branch has moved. A Pending deploy or rollback Check is reused only when it
+names the same commit.
+
+When the ref has moved since the deployment pinned it, execution still ships
+the pinned commit, and `ValidationSummary` names the commit the ref names now.
+
+### 4.2 Required Check evidence
+
+An environment's `RequiredCheckTypes` lists the Check types that must have
+passed at the candidate commit, for example `Build` and `UnitTest`. Deploy,
+rollback, smoke test, health check and the verification types measure a
+running target and cannot be required. The default is an empty list: the
+environment requires no evidence.
+
+Each required type is decided on its own, and a passing Build never stands in
+for a UnitTest. A record counts for a type only when it measured the vessel at
+exactly the full candidate commit. A record that Armada ran must have run the
+workflow profile's own command for that type, so a filtered run or a command
+override is not proof. A record imported from an external system counts as
+that system's verdict. Of the records that count, the newest Passed or Failed
+record decides, so a failure newer than a pass withdraws the proof. A
+Canceled, Pending or Running record neither proves nor disproves the type.
+
+The evidence is evaluated at approval and again at execution. A refusal names
+each type and why it is not proven, with the prefix
+`deployment_validation_missing`, `deployment_validation_failed` or
+`deployment_source_unpinned`. The deciding Passed records are stored in
+`ValidationCheckRunIds`, and the verdict in `ValidationSummary`. A refused
+approval leaves the deployment pending, so new proof can follow. A deployment
+that executes without approval and is refused is marked Failed with the
+refusal as its summary.
+
+### 4.3 Approval names the candidate
+
 If the environment requires approval, the deployment waits for
 `approve_deployment`. Approval is an outward action. The operator must review
-the target, source, profile, and required Checks before approval.
+the target, the pinned commit, the artifact, the profile, and the required
+Checks before approval.
+
+Pass the reviewed candidate with the approval: `expectedSourceCommit` (the
+full commit or a prefix of at least 7 characters) and
+`expectedArtifactIdentity` over MCP, or `SourceCommit` and `ArtifactIdentity`
+in the REST approval body. Approval refuses with
+`deployment_candidate_changed` when the deployment names a different
+candidate. An approval records `ApprovedSourceCommit` and
+`ApprovedArtifactIdentity`; execution refuses with
+`deployment_approval_mismatch` when they differ from the deployment's
+candidate, and with `deployment_approval_missing` when a required approval is
+absent.
 
 Use `update_deployment` to correct deployment metadata before execution.
 `armada_update_deployment` is a compatibility alias.
@@ -370,7 +444,8 @@ Before you report delivery completion:
 - the release links the correct work and source commit;
 - required Checks passed;
 - the deployment targets the correct environment;
-- approval exists when required;
+- the deployment names the intended `SourceCommit` and `ArtifactIdentity`;
+- approval exists when required, and names the same candidate;
 - verification proves the live state;
 - rollback evidence exists if rollback occurred;
 - incidents match their evidence;

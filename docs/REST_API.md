@@ -187,6 +187,23 @@ A deployment environment keeps the tenant it was created in, so
 `400`. Deleting an objective that has no row purges only the caller's own
 tenant's orphan snapshots; another tenant's orphan id returns `404`.
 
+A deployment pins its candidate. `POST /api/v1/deployments` resolves
+`SourceRef` once to the full `SourceCommit` and records the optional
+`ArtifactIdentity`; a ref that names no commit in the vessel's repository
+returns `400` with `deployment_source_unresolved`. `PUT /api/v1/deployments/{id}`
+returns `400` with `deployment_candidate_frozen` when it changes the ref, the
+artifact or the vessel of a deployment that was approved or executed. The
+`POST /api/v1/deployments/{id}/approve` body accepts `Comment`,
+`SourceCommit` (the full commit or a prefix of at least 7 characters) and
+`ArtifactIdentity`; it returns `400` with `deployment_candidate_changed` when
+they name a different candidate, and with `deployment_validation_missing`,
+`deployment_validation_failed` or `deployment_source_unpinned` when the
+environment's `RequiredCheckTypes` have not passed at the pinned commit. An
+environment's `RequiredCheckTypes` defaults to an empty list; on
+`PUT /api/v1/environments/{id}` an omitted list keeps the current one and `[]`
+clears it. [DELIVERY_OPERATIONS.md](DELIVERY_OPERATIONS.md) section 4 owns
+the rules.
+
 Paths that run without a caller read linked records only inside the owning
 record's tenant: a mission's dependency must share the tenant of the vessel the
 mission runs in, a Judge follow-up joins only a merge entry of its own tenant,

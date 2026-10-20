@@ -2,6 +2,7 @@ namespace Test.Shared.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
@@ -189,6 +190,184 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("pinned_commit_ships_after_branch_moves", "A deployment ships the commit its ref named at create, even after the branch moves before approval", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string repo = TestGitRepoHelper.CreateWorkingRepoCopy();
+                    string pinned = RunGit(repo, "rev-parse", "HEAD").Trim();
+                    PinFixture fixture = await CreatePinFixtureAsync(testDb, "ten_deploy_pin", "usr_deploy_pin", repo, true, new List<CheckRunTypeEnum>()).ConfigureAwait(false);
+
+                    Deployment pending = await fixture.Deployments.CreateAsync(fixture.Auth, new DeploymentUpsertRequest
+                    {
+                        VesselId = fixture.Vessel.Id,
+                        WorkflowProfileId = fixture.Profile.Id,
+                        EnvironmentId = fixture.Environment.Id,
+                        Title = "Pinned",
+                        SourceRef = "main",
+                        AutoExecute = true
+                    }).ConfigureAwait(false);
+                    AssertEqual(DeploymentStatusEnum.PendingApproval, pending.Status);
+                    AssertEqual(pinned, pending.SourceCommit, "create resolves the ref to its full commit");
+
+                    RunGit(repo, "commit", "--allow-empty", "-m", "moved after create");
+                    string moved = RunGit(repo, "rev-parse", "HEAD").Trim();
+                    AssertNotEqual(pinned, moved, "the fixture branch moved");
+
+                    Deployment approved = await fixture.Deployments.ApproveAsync(fixture.Auth, pending.Id, "Ship the reviewed commit.", pinned.Substring(0, 12), null).ConfigureAwait(false);
+                    AssertEqual(DeploymentStatusEnum.Succeeded, approved.Status);
+                    AssertEqual(pinned, approved.ApprovedSourceCommit, "the approval names the pinned commit");
+
+                    CheckRun deployRun = NotNull(await testDb.Driver.CheckRuns.ReadAsync(approved.DeployCheckRunId!, null).ConfigureAwait(false));
+                    AssertEqual(pinned, deployRun.CommitHash, "the deploy Check records the pinned commit, not the moved tip");
+                    AssertContains("pinned=" + pinned, deployRun.Output ?? String.Empty, "the deploy command receives the pinned commit");
+                    AssertFalse((deployRun.Output ?? String.Empty).Contains(moved, StringComparison.Ordinal), "the deploy command never sees the moved tip");
+                    AssertContains(moved, approved.ValidationSummary ?? String.Empty, "the record names the commit the moved ref names now");
+
+                    // A fresh service over the same store stands in for an admiral restart.
+                    Deployment reloaded = NotNull(await testDb.Driver.Deployments.ReadAsync(approved.Id, null).ConfigureAwait(false));
+                    AssertEqual(pinned, reloaded.SourceCommit, "the pinned commit survives a restart");
+                    AssertEqual(pinned, reloaded.ApprovedSourceCommit, "the approved commit survives a restart");
+                    AssertEqual(approved.DeployCheckRunId, reloaded.DeployCheckRunId, "the deploy evidence link survives a restart");
+                }
+            }));
+
+            cases.Add(CaseAsync("approval_bound_to_pinned_candidate", "Approval refuses a different candidate, an update keeps the pin, and an approved deployment's candidate is frozen", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string repo = TestGitRepoHelper.CreateWorkingRepoCopy();
+                    string pinned = RunGit(repo, "rev-parse", "HEAD").Trim();
+                    PinFixture fixture = await CreatePinFixtureAsync(testDb, "ten_deploy_bind", "usr_deploy_bind", repo, true, new List<CheckRunTypeEnum>()).ConfigureAwait(false);
+
+                    Deployment pending = await fixture.Deployments.CreateAsync(fixture.Auth, new DeploymentUpsertRequest
+                    {
+                        VesselId = fixture.Vessel.Id,
+                        WorkflowProfileId = fixture.Profile.Id,
+                        EnvironmentId = fixture.Environment.Id,
+                        SourceRef = "main",
+                        ArtifactIdentity = "app@sha256:aaaa",
+                        AutoExecute = true
+                    }).ConfigureAwait(false);
+
+                    RunGit(repo, "commit", "--allow-empty", "-m", "moved after create");
+                    string moved = RunGit(repo, "rev-parse", "HEAD").Trim();
+
+                    Deployment retitled = await fixture.Deployments.UpdateAsync(fixture.Auth, pending.Id, new DeploymentUpsertRequest
+                    {
+                        Title = "Retitled"
+                    }).ConfigureAwait(false);
+                    AssertEqual(pinned, retitled.SourceCommit, "an update that keeps the ref keeps the pinned commit");
+
+                    string commitRefusal = await RefusalAsync(() => fixture.Deployments.ApproveAsync(fixture.Auth, pending.Id, null, moved, null)).ConfigureAwait(false);
+                    AssertContains("deployment_candidate_changed", commitRefusal, "approving the moved tip is refused");
+                    string artifactRefusal = await RefusalAsync(() => fixture.Deployments.ApproveAsync(fixture.Auth, pending.Id, null, pinned, "app@sha256:bbbb")).ConfigureAwait(false);
+                    AssertContains("deployment_candidate_changed", artifactRefusal, "approving another artifact is refused");
+
+                    Deployment stillPending = NotNull(await testDb.Driver.Deployments.ReadAsync(pending.Id, null).ConfigureAwait(false));
+                    AssertEqual(DeploymentStatusEnum.PendingApproval, stillPending.Status, "a refused approval leaves the deployment pending");
+                    AssertTrue(String.IsNullOrWhiteSpace(stillPending.DeployCheckRunId), "a refused approval runs no deploy command");
+
+                    Deployment approved = await fixture.Deployments.ApproveAsync(fixture.Auth, pending.Id, null, pinned, "app@sha256:aaaa").ConfigureAwait(false);
+                    AssertEqual(DeploymentStatusEnum.Succeeded, approved.Status);
+                    AssertEqual("app@sha256:aaaa", approved.ApprovedArtifactIdentity);
+
+                    string refRefusal = await RefusalAsync(() => fixture.Deployments.UpdateAsync(fixture.Auth, pending.Id, new DeploymentUpsertRequest
+                    {
+                        SourceRef = moved
+                    })).ConfigureAwait(false);
+                    AssertContains("deployment_candidate_frozen", refRefusal, "an executed deployment cannot be re-pointed");
+                    string artifactChange = await RefusalAsync(() => fixture.Deployments.UpdateAsync(fixture.Auth, pending.Id, new DeploymentUpsertRequest
+                    {
+                        ArtifactIdentity = "app@sha256:bbbb"
+                    })).ConfigureAwait(false);
+                    AssertContains("deployment_candidate_frozen", artifactChange, "an executed deployment cannot ship another artifact");
+                }
+            }));
+
+            cases.Add(CaseAsync("unresolvable_ref_refuses_create", "A ref that names no commit in the vessel's repository refuses the create", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string repo = TestGitRepoHelper.CreateWorkingRepoCopy();
+                    PinFixture fixture = await CreatePinFixtureAsync(testDb, "ten_deploy_unresolved", "usr_deploy_unresolved", repo, true, new List<CheckRunTypeEnum>()).ConfigureAwait(false);
+
+                    string refusal = await RefusalAsync(() => fixture.Deployments.CreateAsync(fixture.Auth, new DeploymentUpsertRequest
+                    {
+                        VesselId = fixture.Vessel.Id,
+                        WorkflowProfileId = fixture.Profile.Id,
+                        EnvironmentId = fixture.Environment.Id,
+                        SourceRef = "no-such-branch",
+                        AutoExecute = true
+                    })).ConfigureAwait(false);
+                    AssertContains("deployment_source_unresolved", refusal, "an unknown ref is never stored unpinned");
+                }
+            }));
+
+            cases.Add(CaseAsync("required_check_evidence_gates_approval", "Approval requires the environment's required Check type to have passed at the pinned commit", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string repo = TestGitRepoHelper.CreateWorkingRepoCopy();
+                    string pinned = RunGit(repo, "rev-parse", "HEAD").Trim();
+                    PinFixture fixture = await CreatePinFixtureAsync(testDb, "ten_deploy_evidence", "usr_deploy_evidence", repo, true,
+                        new List<CheckRunTypeEnum> { CheckRunTypeEnum.UnitTest }).ConfigureAwait(false);
+
+                    Deployment pending = await fixture.Deployments.CreateAsync(fixture.Auth, new DeploymentUpsertRequest
+                    {
+                        VesselId = fixture.Vessel.Id,
+                        WorkflowProfileId = fixture.Profile.Id,
+                        EnvironmentId = fixture.Environment.Id,
+                        SourceRef = "main",
+                        AutoExecute = true
+                    }).ConfigureAwait(false);
+
+                    string missing = await RefusalAsync(() => fixture.Deployments.ApproveAsync(fixture.Auth, pending.Id, null)).ConfigureAwait(false);
+                    AssertStartsWith(DeploymentEvidenceEvaluator.MissingReason, missing, "no UnitTest record refuses approval");
+
+                    await CreateRecordAsync(testDb, fixture, CheckRunTypeEnum.Build, pinned, "echo build", CheckRunStatusEnum.Passed, 1).ConfigureAwait(false);
+                    string wrongType = await RefusalAsync(() => fixture.Deployments.ApproveAsync(fixture.Auth, pending.Id, null)).ConfigureAwait(false);
+                    AssertStartsWith(DeploymentEvidenceEvaluator.MissingReason, wrongType, "a passing Build does not satisfy UnitTest");
+
+                    await CreateRecordAsync(testDb, fixture, CheckRunTypeEnum.UnitTest, pinned, "echo unit", CheckRunStatusEnum.Failed, 2).ConfigureAwait(false);
+                    string failed = await RefusalAsync(() => fixture.Deployments.ApproveAsync(fixture.Auth, pending.Id, null)).ConfigureAwait(false);
+                    AssertStartsWith(DeploymentEvidenceEvaluator.FailedReason, failed, "a failed UnitTest at the commit refuses approval");
+
+                    Deployment refused = NotNull(await testDb.Driver.Deployments.ReadAsync(pending.Id, null).ConfigureAwait(false));
+                    AssertEqual(DeploymentStatusEnum.PendingApproval, refused.Status, "a refused approval leaves the deployment pending");
+                    AssertTrue(String.IsNullOrWhiteSpace(refused.DeployCheckRunId), "a refused approval runs no deploy command");
+                    AssertEqual(failed, refused.ValidationSummary, "the refusal is stored on the record");
+
+                    CheckRun pass = await CreateRecordAsync(testDb, fixture, CheckRunTypeEnum.UnitTest, pinned, "echo unit", CheckRunStatusEnum.Passed, 3).ConfigureAwait(false);
+                    Deployment approved = await fixture.Deployments.ApproveAsync(fixture.Auth, pending.Id, null).ConfigureAwait(false);
+                    AssertEqual(DeploymentStatusEnum.Succeeded, approved.Status);
+                    AssertEqual(pass.Id, String.Join(",", approved.ValidationCheckRunIds), "the deciding record is linked as evidence");
+                }
+            }));
+
+            cases.Add(CaseAsync("auto_execute_refuses_without_required_evidence", "A deployment that needs no approval does not execute without the required Check evidence", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string repo = TestGitRepoHelper.CreateWorkingRepoCopy();
+                    PinFixture fixture = await CreatePinFixtureAsync(testDb, "ten_deploy_auto_evidence", "usr_deploy_auto_evidence", repo, false,
+                        new List<CheckRunTypeEnum> { CheckRunTypeEnum.UnitTest }).ConfigureAwait(false);
+
+                    Deployment deployment = await fixture.Deployments.CreateAsync(fixture.Auth, new DeploymentUpsertRequest
+                    {
+                        VesselId = fixture.Vessel.Id,
+                        WorkflowProfileId = fixture.Profile.Id,
+                        EnvironmentId = fixture.Environment.Id,
+                        SourceRef = "main",
+                        AutoExecute = true
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(DeploymentStatusEnum.Failed, deployment.Status, "execution is refused");
+                    AssertStartsWith(DeploymentEvidenceEvaluator.MissingReason, deployment.Summary ?? String.Empty);
+                    AssertTrue(String.IsNullOrWhiteSpace(deployment.DeployCheckRunId), "no deploy command runs without evidence");
+                }
+            }));
+
             // Audit addition: create with a null request throws (confirmed against source).
 
             cases.Add(CaseAsync("create_null_request_throws", "CreateAsync NullRequest Throws", TestTags.Negative, async () =>
@@ -308,6 +487,134 @@ namespace Test.Shared.Suites.Services
             return run;
         }
 
+        private static Deployment NotNull(Deployment? deployment)
+        {
+            if (deployment == null) throw new InvalidOperationException("Expected deployment to be present.");
+            return deployment;
+        }
+
+        private static async Task<PinFixture> CreatePinFixtureAsync(
+            TestDatabase testDb,
+            string tenantId,
+            string userId,
+            string repositoryPath,
+            bool requiresApproval,
+            List<CheckRunTypeEnum> requiredCheckTypes)
+        {
+            LoggingModule logging = CreateLogging();
+            WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+            VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+            CheckRunService checks = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+            DeploymentEnvironmentService environments = new DeploymentEnvironmentService(testDb.Driver, workflowProfiles, logging);
+            DeploymentService deployments = new DeploymentService(testDb.Driver, workflowProfiles, environments, checks, logging);
+
+            await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+            Vessel vessel = CreateVessel(tenantId, userId, repositoryPath);
+            await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+            string deployCommand = OperatingSystem.IsWindows()
+                ? "echo pinned=%ARMADA_DEPLOYMENT_SOURCE_COMMIT%"
+                : "echo pinned=$ARMADA_DEPLOYMENT_SOURCE_COMMIT";
+            WorkflowProfile profile = CreateWorkflowProfile(tenantId, userId, vessel.Id, new List<WorkflowEnvironmentProfile>
+            {
+                new WorkflowEnvironmentProfile
+                {
+                    EnvironmentName = "production",
+                    DeployCommand = deployCommand
+                }
+            });
+            profile.UnitTestCommand = "echo unit";
+            await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+            DeploymentEnvironment environment = await testDb.Driver.Environments.CreateAsync(new DeploymentEnvironment
+            {
+                TenantId = tenantId,
+                UserId = userId,
+                VesselId = vessel.Id,
+                Name = "production",
+                Kind = EnvironmentKindEnum.Production,
+                IsDefault = true,
+                Active = true,
+                RequiresApproval = requiresApproval,
+                RequiredCheckTypes = requiredCheckTypes
+            }).ConfigureAwait(false);
+
+            return new PinFixture
+            {
+                Deployments = deployments,
+                Vessel = vessel,
+                Profile = profile,
+                Environment = environment,
+                Auth = AuthContext.Authenticated(tenantId, userId, false, false, "UnitTest")
+            };
+        }
+
+        private static async Task<CheckRun> CreateRecordAsync(
+            TestDatabase testDb,
+            PinFixture fixture,
+            CheckRunTypeEnum type,
+            string commit,
+            string command,
+            CheckRunStatusEnum status,
+            int order)
+        {
+            DateTime created = DateTime.UtcNow.AddMinutes(order);
+            return await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+            {
+                TenantId = fixture.Vessel.TenantId,
+                UserId = fixture.Vessel.UserId,
+                VesselId = fixture.Vessel.Id,
+                WorkflowProfileId = fixture.Profile.Id,
+                Type = type,
+                Source = CheckRunSourceEnum.Armada,
+                Status = status,
+                CommitHash = commit,
+                Command = command,
+                ExitCode = status == CheckRunStatusEnum.Passed ? 0 : 1,
+                CreatedUtc = created,
+                CompletedUtc = created,
+                LastUpdateUtc = created
+            }).ConfigureAwait(false);
+        }
+
+        private static async Task<string> RefusalAsync(Func<Task> action)
+        {
+            try
+            {
+                await action().ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ex.Message;
+            }
+
+            throw new AssertionException("Expected the deployment action to be refused.");
+        }
+
+        private static string RunGit(string workingDirectory, params string[] arguments)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo("git")
+            {
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
+
+            using (Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("The local Git test command did not start."))
+            {
+                string output = process.StandardOutput.ReadToEnd();
+                string error = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException("The local Git test command failed: " + error);
+                return output;
+            }
+        }
+
         private static string CreateWorkingDirectory(string prefix)
         {
             string path = Path.Combine(Path.GetTempPath(), "armada-" + prefix + "-" + Guid.NewGuid().ToString("N"));
@@ -335,6 +642,23 @@ namespace Test.Shared.Suites.Services
                 displayName: displayName,
                 executeAsync: (CancellationToken ct) => body(),
                 tags: new List<string> { tag });
+        }
+
+        #endregion
+
+        #region Private-Types
+
+        private sealed class PinFixture
+        {
+            public DeploymentService Deployments { get; set; } = null!;
+
+            public Vessel Vessel { get; set; } = null!;
+
+            public WorkflowProfile Profile { get; set; } = null!;
+
+            public DeploymentEnvironment Environment { get; set; } = null!;
+
+            public AuthContext Auth { get; set; } = null!;
         }
 
         #endregion

@@ -24,7 +24,7 @@ namespace Armada.Core.Database
             {
                 "id", "tenant_id", "user_id", "vessel_id", "name", "description", "kind", "configuration_source", "base_url", "health_endpoint",
                 "access_notes", "deployment_rules", "verification_definitions_json", "rollout_monitoring_window_minutes",
-                "rollout_monitoring_interval_seconds", "alert_on_regression", "requires_approval", "is_default", "active", "created_utc",
+                "rollout_monitoring_interval_seconds", "alert_on_regression", "requires_approval", "required_check_types_json", "is_default", "active", "created_utc",
                 "last_update_utc"
             },
             new[] { "created_utc" },

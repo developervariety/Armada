@@ -439,8 +439,9 @@ namespace Armada.Core.Services
                         run = claim.Run;
                         OnCheckRunChanged?.Invoke(run);
                         Stopwatch sw = Stopwatch.StartNew();
+                        Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
                         execution = await ExecuteCommandAsync(
-                            executionCommand, executionDirectory, _DefaultTimeout, token, profile?.EnvironmentVariables).ConfigureAwait(false);
+                            executionCommand, executionDirectory, _DefaultTimeout, token, commandEnvironment).ConfigureAwait(false);
                         sw.Stop();
                         executionDurationMs = Convert.ToInt64(Math.Round(sw.Elapsed.TotalMilliseconds));
                     }
@@ -879,7 +880,7 @@ namespace Armada.Core.Services
                     || String.IsNullOrWhiteSpace(run.BranchName)
                     || String.Equals(run.BranchName, request.BranchName, StringComparison.OrdinalIgnoreCase))
                 .Where(run => String.IsNullOrWhiteSpace(request.CommitHash)
-                    || String.IsNullOrWhiteSpace(run.CommitHash)
+                    || (String.IsNullOrWhiteSpace(run.CommitHash) && !IsDeploymentExecutionType(request.Type))
                     || String.Equals(run.CommitHash, request.CommitHash, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(run => run.CreatedUtc)
                 .FirstOrDefault();
@@ -1017,6 +1018,37 @@ namespace Armada.Core.Services
             run = await CompleteExecutionAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
             return run;
+        }
+
+        /// <summary>
+        /// The environment a check command runs with: the workflow profile's variables, plus the deployment candidate
+        /// for a record that belongs to a deployment. The candidate variables are set by Armada and win over a profile
+        /// variable of the same name, so a deploy script reads the commit the deployment pinned rather than a branch tip.
+        /// </summary>
+        private async Task<Dictionary<string, string>> BuildCommandEnvironmentAsync(
+            WorkflowProfile? profile,
+            CheckRun run,
+            CancellationToken token)
+        {
+            Dictionary<string, string> environment = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (profile?.EnvironmentVariables != null)
+            {
+                foreach (KeyValuePair<string, string> pair in profile.EnvironmentVariables)
+                {
+                    if (!String.IsNullOrWhiteSpace(pair.Key)) environment[pair.Key] = pair.Value ?? String.Empty;
+                }
+            }
+
+            if (String.IsNullOrWhiteSpace(run.DeploymentId)) return environment;
+
+            Deployment? deployment = await _Database.Deployments.ReadAsync(run.DeploymentId, null, token).ConfigureAwait(false);
+            if (deployment == null) return environment;
+
+            environment["ARMADA_DEPLOYMENT_ID"] = deployment.Id;
+            environment["ARMADA_DEPLOYMENT_SOURCE_REF"] = deployment.SourceRef ?? String.Empty;
+            environment["ARMADA_DEPLOYMENT_SOURCE_COMMIT"] = deployment.SourceCommit ?? String.Empty;
+            environment["ARMADA_DEPLOYMENT_ARTIFACT"] = deployment.ArtifactIdentity ?? String.Empty;
+            return environment;
         }
 
         private static bool IsDeploymentExecutionType(CheckRunTypeEnum type)
@@ -1160,8 +1192,9 @@ namespace Armada.Core.Services
                     run = claim.Run;
                     OnCheckRunChanged?.Invoke(run);
                     Stopwatch sw = Stopwatch.StartNew();
+                    Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
                     execution = await ExecuteCommandAsync(
-                        executionCommand, executionDirectory, _DefaultTimeout, token, profile?.EnvironmentVariables).ConfigureAwait(false);
+                        executionCommand, executionDirectory, _DefaultTimeout, token, commandEnvironment).ConfigureAwait(false);
                     sw.Stop();
                     executionDurationMs = Convert.ToInt64(Math.Round(sw.Elapsed.TotalMilliseconds));
                 }

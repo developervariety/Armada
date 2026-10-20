@@ -1034,6 +1034,7 @@ namespace Armada.Test.Database
                     RolloutMonitoringIntervalSeconds = 90,
                     AlertOnRegression = false,
                     RequiresApproval = true,
+                    RequiredCheckTypes = new List<CheckRunTypeEnum> { CheckRunTypeEnum.UnitTest, CheckRunTypeEnum.Build },
                     IsDefault = true,
                     Active = false,
                     CreatedUtc = DateTime.UtcNow.AddMinutes(-5)
@@ -1055,6 +1056,7 @@ namespace Armada.Test.Database
                 created.RolloutMonitoringIntervalSeconds = 300;
                 created.AlertOnRegression = true;
                 created.RequiresApproval = false;
+                created.RequiredCheckTypes = new List<CheckRunTypeEnum>();
                 created.IsDefault = false;
                 created.Active = true;
                 DeploymentEnvironment updated = await _Driver.Environments.UpdateAsync(created, token).ConfigureAwait(false);
@@ -1151,6 +1153,12 @@ namespace Armada.Test.Database
                     VoyageId = graph.Voyage.Id,
                     Title = "Round-trip deployment ユニコード",
                     SourceRef = "refs/heads/main",
+                    SourceCommit = "0123456789abcdef0123456789abcdef01234567",
+                    ArtifactIdentity = "registry.example.test/app@sha256:feed ユニコード",
+                    ApprovedSourceCommit = "0123456789abcdef0123456789abcdef01234567",
+                    ApprovedArtifactIdentity = "registry.example.test/app@sha256:feed ユニコード",
+                    ValidationCheckRunIds = new List<string> { graph.CheckRun.Id },
+                    ValidationSummary = "required Checks passed ユニコード",
                     Summary = "Deployment summary",
                     Notes = "Deployment notes ユニコード",
                     Status = DeploymentStatusEnum.RolledBack,
@@ -1188,6 +1196,12 @@ namespace Armada.Test.Database
                 created.MissionId = null;
                 created.VoyageId = null;
                 created.SourceRef = null;
+                created.SourceCommit = null;
+                created.ArtifactIdentity = null;
+                created.ApprovedSourceCommit = null;
+                created.ApprovedArtifactIdentity = null;
+                created.ValidationCheckRunIds = new List<string>();
+                created.ValidationSummary = null;
                 created.Summary = null;
                 created.Notes = null;
                 created.Status = DeploymentStatusEnum.PendingApproval;

@@ -26,6 +26,9 @@ namespace Armada.Core.Services
         private readonly DeploymentEnvironmentService _Environments;
         private readonly CheckRunService _CheckRuns;
         private readonly LoggingModule _Logging;
+        private readonly DeploymentSourceResolver _SourceResolver;
+        private const int _EvidencePageSize = 200;
+        private const int _EvidenceMaxPages = 5;
 
         /// <summary>
         /// Instantiate.
@@ -35,13 +38,15 @@ namespace Armada.Core.Services
             WorkflowProfileService workflowProfiles,
             DeploymentEnvironmentService environments,
             CheckRunService checkRuns,
-            LoggingModule logging)
+            LoggingModule logging,
+            DeploymentSourceResolver? sourceResolver = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _WorkflowProfiles = workflowProfiles ?? throw new ArgumentNullException(nameof(workflowProfiles));
             _Environments = environments ?? throw new ArgumentNullException(nameof(environments));
             _CheckRuns = checkRuns ?? throw new ArgumentNullException(nameof(checkRuns));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _SourceResolver = sourceResolver ?? new DeploymentSourceResolver();
         }
 
         /// <summary>
@@ -95,6 +100,8 @@ namespace Armada.Core.Services
                 VoyageId = draft.Voyage?.Id,
                 Title = draft.Title,
                 SourceRef = draft.SourceRef,
+                SourceCommit = draft.SourceCommit,
+                ArtifactIdentity = draft.ArtifactIdentity,
                 Summary = draft.Summary,
                 Notes = draft.Notes,
                 Status = draft.ApprovalRequired ? DeploymentStatusEnum.PendingApproval : DeploymentStatusEnum.Running,
@@ -136,7 +143,11 @@ namespace Armada.Core.Services
             if (existing.Status == DeploymentStatusEnum.Running || existing.Status == DeploymentStatusEnum.RollingBack)
                 throw new InvalidOperationException("Deployments cannot be edited while they are executing.");
 
+            RefuseCandidateChangeWhenFrozen(existing, request);
+
             ResolvedDeploymentDraft draft = await ResolveDraftAsync(auth, existing, request, token).ConfigureAwait(false);
+            bool candidateChanged = !String.Equals(existing.SourceCommit, draft.SourceCommit, StringComparison.OrdinalIgnoreCase)
+                || !String.Equals(existing.ArtifactIdentity, draft.ArtifactIdentity, StringComparison.Ordinal);
             existing.VesselId = draft.Vessel.Id;
             existing.WorkflowProfileId = draft.WorkflowProfile?.Id;
             existing.EnvironmentId = draft.Environment.Id;
@@ -146,6 +157,14 @@ namespace Armada.Core.Services
             existing.VoyageId = draft.Voyage?.Id;
             existing.Title = draft.Title;
             existing.SourceRef = draft.SourceRef;
+            existing.SourceCommit = draft.SourceCommit;
+            existing.ArtifactIdentity = draft.ArtifactIdentity;
+            if (candidateChanged)
+            {
+                // Evidence gathered for the previous candidate says nothing about this one.
+                existing.ValidationCheckRunIds = new List<string>();
+                existing.ValidationSummary = null;
+            }
             existing.Summary = draft.Summary;
             existing.Notes = draft.Notes;
             existing.ApprovalRequired = draft.ApprovalRequired;
@@ -159,10 +178,34 @@ namespace Armada.Core.Services
         /// <summary>
         /// Approve and execute a pending deployment.
         /// </summary>
-        public async Task<Deployment> ApproveAsync(
+        public Task<Deployment> ApproveAsync(
             AuthContext auth,
             string id,
             string? comment = null,
+            CancellationToken token = default)
+        {
+            return ApproveAsync(auth, id, comment, null, null, token);
+        }
+
+        /// <summary>
+        /// Approve and execute a pending deployment, naming the candidate the approver reviewed. Approval refuses when
+        /// the deployment no longer names that commit or artifact, and when the environment's required Checks have not
+        /// passed at the pinned commit; the deployment then stays pending so new proof or a new approval can follow.
+        /// </summary>
+        /// <param name="auth">Caller.</param>
+        /// <param name="id">Deployment ID.</param>
+        /// <param name="comment">Optional approval comment.</param>
+        /// <param name="expectedSourceCommit">Optional commit the approver reviewed: the full commit or a prefix of at
+        /// least 7 characters.</param>
+        /// <param name="expectedArtifactIdentity">Optional artifact identity the approver reviewed.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The executed deployment.</returns>
+        public async Task<Deployment> ApproveAsync(
+            AuthContext auth,
+            string id,
+            string? comment,
+            string? expectedSourceCommit,
+            string? expectedArtifactIdentity,
             CancellationToken token = default)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
@@ -182,9 +225,25 @@ namespace Armada.Core.Services
                 ?? throw new InvalidOperationException("Environment not found or not accessible.");
             WorkflowProfile? profile = await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, deployment.WorkflowProfileId, token).ConfigureAwait(false);
 
+            RefuseApprovalOfDifferentCandidate(deployment, expectedSourceCommit, expectedArtifactIdentity);
+
+            DeploymentEvidenceResult evidence = await EvaluateEvidenceAsync(deployment, environment, profile, token).ConfigureAwait(false);
+            deployment.ValidationCheckRunIds = evidence.CheckRunIds;
+            deployment.ValidationSummary = evidence.Summary;
+            if (!evidence.Satisfied)
+            {
+                deployment.LastUpdateUtc = DateTime.UtcNow;
+                deployment = await _Database.Deployments.UpdateAsync(deployment, token).ConfigureAwait(false);
+                EmitChanged(deployment);
+                _Logging.Warn(_Header + "refused approval of deployment " + deployment.Id + ": " + evidence.Summary);
+                throw new InvalidOperationException(evidence.Summary);
+            }
+
             deployment.ApprovedByUserId = auth.UserId;
             deployment.ApprovedUtc = DateTime.UtcNow;
             deployment.ApprovalComment = Normalize(comment);
+            deployment.ApprovedSourceCommit = deployment.SourceCommit;
+            deployment.ApprovedArtifactIdentity = deployment.ArtifactIdentity;
             deployment.Status = DeploymentStatusEnum.Running;
             deployment.LastUpdateUtc = DateTime.UtcNow;
             deployment = await _Database.Deployments.UpdateAsync(deployment, token).ConfigureAwait(false);
@@ -290,7 +349,8 @@ namespace Armada.Core.Services
                 DeploymentId = deployment.Id,
                 Type = CheckRunTypeEnum.Rollback,
                 EnvironmentName = deployment.EnvironmentName,
-                Label = "Rollback " + deployment.EnvironmentName
+                Label = "Rollback " + deployment.EnvironmentName,
+                CommitHash = deployment.SourceCommit
             }, allowDeploymentExecution: true, token: token).ConfigureAwait(false);
             AppendCheckRun(deployment, rollbackRun.Id);
             deployment.RollbackCheckRunId = rollbackRun.Id;
@@ -421,6 +481,37 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(_WorkflowProfiles.ResolveCommand(resolvedProfile, CheckRunTypeEnum.Deploy, environment.Name)))
                 throw new InvalidOperationException("No deploy command is configured for environment " + environment.Name + ".");
 
+            string? refusal = DescribeApprovalMismatch(deployment);
+            if (refusal == null)
+            {
+                DeploymentEvidenceResult evidence = await EvaluateEvidenceAsync(deployment, environment, resolvedProfile, token).ConfigureAwait(false);
+                deployment.ValidationCheckRunIds = evidence.CheckRunIds;
+                deployment.ValidationSummary = evidence.Summary;
+                if (!evidence.Satisfied) refusal = evidence.Summary;
+            }
+
+            if (refusal != null)
+            {
+                deployment.WorkflowProfileId = resolvedProfile.Id;
+                deployment.Status = DeploymentStatusEnum.Failed;
+                deployment.Summary = refusal;
+                deployment.CompletedUtc = DateTime.UtcNow;
+                deployment.LastUpdateUtc = DateTime.UtcNow;
+                deployment = await _Database.Deployments.UpdateAsync(deployment, token).ConfigureAwait(false);
+                EmitChanged(deployment);
+                _Logging.Warn(_Header + "refused to execute deployment " + deployment.Id + ": " + refusal);
+                return deployment;
+            }
+
+            string? movedNote = await DescribeMovedSourceAsync(vessel, deployment, token).ConfigureAwait(false);
+            if (movedNote != null)
+            {
+                deployment.ValidationSummary = String.IsNullOrWhiteSpace(deployment.ValidationSummary)
+                    ? movedNote
+                    : deployment.ValidationSummary + " " + movedNote;
+                _Logging.Warn(_Header + "deployment " + deployment.Id + ": " + movedNote);
+            }
+
             deployment.WorkflowProfileId = resolvedProfile.Id;
             deployment.EnvironmentId = environment.Id;
             deployment.EnvironmentName = environment.Name;
@@ -442,7 +533,8 @@ namespace Armada.Core.Services
                 Type = CheckRunTypeEnum.Deploy,
                 EnvironmentName = environment.Name,
                 Label = "Deploy " + environment.Name,
-                BranchName = deployment.SourceRef
+                BranchName = deployment.SourceRef,
+                CommitHash = deployment.SourceCommit
             }, allowDeploymentExecution: true, token: token).ConfigureAwait(false);
             AppendCheckRun(deployment, deployRun.Id);
             deployment.DeployCheckRunId = deployRun.Id;
@@ -1084,6 +1176,33 @@ namespace Armada.Core.Services
                 ?? Normalize(mission?.BranchName)
                 ?? vessel.DefaultBranch;
 
+            // The ref is resolved once. An update that leaves the ref and vessel alone keeps the pinned commit, so a
+            // branch that moved since creation does not move the deployment with it. A record that already ran keeps
+            // whatever it recorded, pinned or not, because it is the evidence of what shipped.
+            string? sourceCommit;
+            bool sourceUnchanged = existing != null
+                && String.Equals(existing.SourceRef, sourceRef, StringComparison.Ordinal)
+                && String.Equals(existing.VesselId, vessel.Id, StringComparison.Ordinal);
+            if (existing != null && IsCandidateFrozen(existing))
+            {
+                sourceCommit = existing.SourceCommit;
+            }
+            else if (sourceUnchanged && !String.IsNullOrWhiteSpace(existing!.SourceCommit))
+            {
+                sourceCommit = existing.SourceCommit;
+            }
+            else
+            {
+                DeploymentSourceResolution resolution = await _SourceResolver.ResolveAsync(vessel, sourceRef, token).ConfigureAwait(false);
+                if (resolution.Commit == null && resolution.RepositoryFound)
+                    throw new InvalidOperationException(resolution.Reason);
+                if (resolution.Commit == null)
+                    _Logging.Warn(_Header + "deployment source is not pinned: " + resolution.Reason);
+                sourceCommit = resolution.Commit;
+            }
+
+            string? artifactIdentity = Normalize(request.ArtifactIdentity) ?? Normalize(existing?.ArtifactIdentity);
+
             string title = Normalize(request.Title)
                 ?? Normalize(existing?.Title)
                 ?? BuildTitle(vessel, environment, release);
@@ -1100,6 +1219,8 @@ namespace Armada.Core.Services
                 Voyage = voyage,
                 Title = title,
                 SourceRef = sourceRef,
+                SourceCommit = sourceCommit,
+                ArtifactIdentity = artifactIdentity,
                 Summary = summary,
                 Notes = notes,
                 ApprovalRequired = environment.RequiresApproval
@@ -1339,6 +1460,150 @@ namespace Armada.Core.Services
                 : "Rollout monitoring detected a regression for " + target + ". " + joined;
         }
 
+        /// <summary>
+        /// A deployment's candidate is fixed once it has been approved, started or finished: the record is the
+        /// evidence of what shipped, so a later edit must not rewrite the commit or artifact it names.
+        /// </summary>
+        private static bool IsCandidateFrozen(Deployment deployment)
+        {
+            return deployment.ApprovedUtc.HasValue
+                || deployment.StartedUtc.HasValue
+                || deployment.CompletedUtc.HasValue;
+        }
+
+        private static void RefuseCandidateChangeWhenFrozen(Deployment existing, DeploymentUpsertRequest request)
+        {
+            if (!IsCandidateFrozen(existing)) return;
+
+            string? requestedRef = Normalize(request.SourceRef);
+            string? requestedArtifact = Normalize(request.ArtifactIdentity);
+            string? requestedVessel = Normalize(request.VesselId);
+            bool refChanged = requestedRef != null && !String.Equals(requestedRef, existing.SourceRef, StringComparison.Ordinal);
+            bool artifactChanged = requestedArtifact != null && !String.Equals(requestedArtifact, existing.ArtifactIdentity, StringComparison.Ordinal);
+            bool vesselChanged = requestedVessel != null && !String.Equals(requestedVessel, existing.VesselId, StringComparison.Ordinal);
+            if (!refChanged && !artifactChanged && !vesselChanged) return;
+
+            throw new InvalidOperationException("deployment_candidate_frozen: deployment " + existing.Id + " was approved or executed for "
+                + DescribeCandidate(existing.SourceRef, existing.SourceCommit, existing.ArtifactIdentity)
+                + "; create a new deployment to ship a different source or artifact.");
+        }
+
+        private static void RefuseApprovalOfDifferentCandidate(Deployment deployment, string? expectedSourceCommit, string? expectedArtifactIdentity)
+        {
+            string? expectedCommit = Normalize(expectedSourceCommit);
+            if (expectedCommit != null)
+            {
+                bool matches = expectedCommit.Length >= 7
+                    && !String.IsNullOrWhiteSpace(deployment.SourceCommit)
+                    && deployment.SourceCommit!.StartsWith(expectedCommit, StringComparison.OrdinalIgnoreCase);
+                if (!matches)
+                {
+                    throw new InvalidOperationException("deployment_candidate_changed: the approval names commit " + expectedCommit
+                        + " but deployment " + deployment.Id + " is pinned to "
+                        + (String.IsNullOrWhiteSpace(deployment.SourceCommit) ? "no commit" : deployment.SourceCommit)
+                        + "; review the pinned candidate and approve it by name.");
+                }
+            }
+
+            string? expectedArtifact = Normalize(expectedArtifactIdentity);
+            if (expectedArtifact != null && !String.Equals(expectedArtifact, deployment.ArtifactIdentity, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("deployment_candidate_changed: the approval names artifact " + expectedArtifact
+                    + " but deployment " + deployment.Id + " ships "
+                    + (String.IsNullOrWhiteSpace(deployment.ArtifactIdentity) ? "no recorded artifact" : deployment.ArtifactIdentity)
+                    + "; review the pinned candidate and approve it by name.");
+            }
+        }
+
+        /// <summary>
+        /// A deployment that requires approval executes only the candidate its approval named.
+        /// </summary>
+        private static string? DescribeApprovalMismatch(Deployment deployment)
+        {
+            if (!deployment.ApprovalRequired) return null;
+            if (!deployment.ApprovedUtc.HasValue)
+                return "deployment_approval_missing: deployment " + deployment.Id + " requires approval and has none.";
+            bool commitMatches = String.Equals(deployment.ApprovedSourceCommit, deployment.SourceCommit, StringComparison.OrdinalIgnoreCase);
+            bool artifactMatches = String.Equals(deployment.ApprovedArtifactIdentity, deployment.ArtifactIdentity, StringComparison.Ordinal);
+            if (commitMatches && artifactMatches) return null;
+            return "deployment_approval_mismatch: the approval names "
+                + DescribeCandidate(null, deployment.ApprovedSourceCommit, deployment.ApprovedArtifactIdentity)
+                + " but the deployment names " + DescribeCandidate(null, deployment.SourceCommit, deployment.ArtifactIdentity)
+                + "; a new approval is required.";
+        }
+
+        private static string DescribeCandidate(string? sourceRef, string? sourceCommit, string? artifactIdentity)
+        {
+            string text = String.IsNullOrWhiteSpace(sourceCommit) ? "an unpinned source" : "commit " + sourceCommit;
+            if (!String.IsNullOrWhiteSpace(sourceRef)) text += " (ref " + sourceRef + ")";
+            if (!String.IsNullOrWhiteSpace(artifactIdentity)) text += " with artifact " + artifactIdentity;
+            return text;
+        }
+
+        private async Task<DeploymentEvidenceResult> EvaluateEvidenceAsync(
+            Deployment deployment,
+            DeploymentEnvironment environment,
+            WorkflowProfile? profile,
+            CancellationToken token)
+        {
+            List<CheckRunTypeEnum> required = environment.RequiredCheckTypes ?? new List<CheckRunTypeEnum>();
+            Dictionary<CheckRunTypeEnum, string> expectedCommands = new Dictionary<CheckRunTypeEnum, string>();
+            List<CheckRun> records = new List<CheckRun>();
+            string vesselId = deployment.VesselId ?? String.Empty;
+
+            if (required.Count > 0 && !String.IsNullOrWhiteSpace(deployment.SourceCommit))
+            {
+                foreach (CheckRunTypeEnum type in required.Distinct())
+                {
+                    string? command = profile != null ? _WorkflowProfiles.ResolveCommand(profile, type, environment.Name) : null;
+                    if (!String.IsNullOrWhiteSpace(command)) expectedCommands[type] = command;
+
+                    CheckRunQuery query = new CheckRunQuery
+                    {
+                        VesselId = vesselId,
+                        Type = type,
+                        PageNumber = 1,
+                        PageSize = _EvidencePageSize,
+                        IncludeOutput = false
+                    };
+                    while (query.PageNumber <= _EvidenceMaxPages)
+                    {
+                        EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
+                        records.AddRange(page.Objects.Where(run => run != null));
+                        if (page.Objects.Count < query.PageSize || query.PageNumber >= page.TotalPages) break;
+                        query.PageNumber++;
+                    }
+                }
+            }
+
+            return DeploymentEvidenceEvaluator.Evaluate(required, vesselId, deployment.SourceCommit, records, expectedCommands);
+        }
+
+        /// <summary>
+        /// Name a source ref that has moved since the deployment pinned it. The deployment still ships the pinned
+        /// commit; the note keeps the move visible on the record. A ref that cannot be read now yields no note.
+        /// </summary>
+        private async Task<string?> DescribeMovedSourceAsync(Vessel vessel, Deployment deployment, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(deployment.SourceCommit) || String.IsNullOrWhiteSpace(deployment.SourceRef)) return null;
+            try
+            {
+                DeploymentSourceResolution now = await _SourceResolver.ResolveAsync(vessel, deployment.SourceRef!, token).ConfigureAwait(false);
+                if (now.Commit == null || String.Equals(now.Commit, deployment.SourceCommit, StringComparison.OrdinalIgnoreCase)) return null;
+                return "Source ref " + deployment.SourceRef + " now names " + now.Commit + "; the deployment ships its pinned commit "
+                    + deployment.SourceCommit + ".";
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not re-read source ref " + deployment.SourceRef + " for deployment " + deployment.Id + ": " + ex.Message);
+                return null;
+            }
+        }
+
         private static string? Normalize(string? value)
         {
             return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -1354,6 +1619,8 @@ namespace Armada.Core.Services
             public Voyage? Voyage { get; set; } = null;
             public string Title { get; set; } = "Deployment";
             public string SourceRef { get; set; } = "main";
+            public string? SourceCommit { get; set; } = null;
+            public string? ArtifactIdentity { get; set; } = null;
             public string? Summary { get; set; } = null;
             public string? Notes { get; set; } = null;
             public bool ApprovalRequired { get; set; } = false;

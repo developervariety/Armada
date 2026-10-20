@@ -3,19 +3,26 @@ namespace Armada.Core.Database
     using System.Collections.Generic;
     using System.Data;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
     /// The environments row-to-model contract, shared by every provider. A kind name outside the model reads as
-    /// the model's default kind; a verification list that is null or blank reads as empty, and one that is not
-    /// valid JSON is named rather than read as empty.
+    /// the model's default kind; a verification list or required Check type list that is null or blank reads as
+    /// empty, and one that is not valid JSON is named rather than read as empty.
     /// </summary>
     internal static class DeploymentEnvironmentColumns
     {
         private static readonly JsonSerializerOptions _Json = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true
+        };
+
+        private static readonly JsonSerializerOptions _CheckTypeJson = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            Converters = { new JsonStringEnumConverter() }
         };
 
         /// <summary>
@@ -46,6 +53,8 @@ namespace Armada.Core.Database
             environment.RolloutMonitoringIntervalSeconds = row.Int("rollout_monitoring_interval_seconds");
             environment.AlertOnRegression = row.Bool("alert_on_regression");
             environment.RequiresApproval = row.Bool("requires_approval");
+            environment.RequiredCheckTypes = row.Json<List<CheckRunTypeEnum>>("required_check_types_json", _CheckTypeJson)
+                ?? new List<CheckRunTypeEnum>();
             environment.IsDefault = row.Bool("is_default");
             environment.Active = row.Bool("active");
             environment.CreatedUtc = row.Utc("created_utc");
@@ -78,6 +87,7 @@ namespace Armada.Core.Database
                 .Int("rollout_monitoring_interval_seconds", environment.RolloutMonitoringIntervalSeconds)
                 .Bool("alert_on_regression", environment.AlertOnRegression)
                 .Bool("requires_approval", environment.RequiresApproval)
+                .Text("required_check_types_json", JsonSerializer.Serialize(environment.RequiredCheckTypes ?? new List<CheckRunTypeEnum>(), _CheckTypeJson))
                 .Bool("is_default", environment.IsDefault)
                 .Bool("active", environment.Active)
                 .Utc("created_utc", environment.CreatedUtc)

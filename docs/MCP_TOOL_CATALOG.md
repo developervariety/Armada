@@ -521,6 +521,13 @@ authentication before approving a real release.
 `armada_update_deployment` is a compatibility alias for
 `update_deployment`.
 
+`create_deployment` resolves `sourceRef` once to the full commit it ships and
+accepts an optional `artifactIdentity`. `approve_deployment` accepts
+`expectedSourceCommit` and `expectedArtifactIdentity` and refuses when the
+deployment names a different candidate, or when the environment's
+`requiredCheckTypes` have not passed at the pinned commit. The rules are in
+[DELIVERY_OPERATIONS.md](DELIVERY_OPERATIONS.md) section 4.
+
 ### 8.13 Runbooks
 
 | Risk | Tools |

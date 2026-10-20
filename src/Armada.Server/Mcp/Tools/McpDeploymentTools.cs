@@ -62,7 +62,8 @@ namespace Armada.Server.Mcp.Tools
                         missionId = new { type = "string", description = "Optional linked mission ID (msn_ prefix)" },
                         voyageId = new { type = "string", description = "Optional linked voyage ID (vyg_ prefix)" },
                         title = new { type = "string", description = "Optional deployment title" },
-                        sourceRef = new { type = "string", description = "Optional source ref such as a branch, tag, or commit" },
+                        sourceRef = new { type = "string", description = "Optional source ref such as a branch, tag, or commit; resolved once to the full commit the deployment ships" },
+                        artifactIdentity = new { type = "string", description = "Optional identity of the artifact the deployment ships, such as an image digest or package version" },
                         summary = new { type = "string", description = "Optional short summary" },
                         notes = new { type = "string", description = "Optional operator notes" },
                         autoExecute = new { type = "boolean", description = "Whether to execute immediately when approval is not required" }
@@ -90,7 +91,8 @@ namespace Armada.Server.Mcp.Tools
                     missionId = new { type = "string", description = "Optional linked mission ID (msn_ prefix)" },
                     voyageId = new { type = "string", description = "Optional linked voyage ID (vyg_ prefix)" },
                     title = new { type = "string", description = "Optional deployment title" },
-                    sourceRef = new { type = "string", description = "Optional source ref" },
+                    sourceRef = new { type = "string", description = "Optional source ref; a changed ref is resolved again, refused once the deployment was approved or executed" },
+                    artifactIdentity = new { type = "string", description = "Optional artifact identity; refused once the deployment was approved or executed" },
                     summary = new { type = "string", description = "Optional short summary" },
                     notes = new { type = "string", description = "Optional operator notes" },
                     autoExecute = new { type = "boolean", description = "Whether to execute immediately when approval is not required" }
@@ -120,24 +122,30 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "approve_deployment",
-                "Approve a pending deployment and begin execution.",
+                "Approve a pending deployment and begin execution. Name the reviewed candidate: approval refuses when the deployment names a different commit or artifact, or when the environment's required Checks have not passed at the pinned commit.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
                         deploymentId = new { type = "string", description = "Deployment ID (dpl_ prefix)" },
-                        comment = new { type = "string", description = "Optional approval comment" }
+                        comment = new { type = "string", description = "Optional approval comment" },
+                        expectedSourceCommit = new { type = "string", description = "Optional commit the approver reviewed: the full commit or a prefix of at least 7 characters" },
+                        expectedArtifactIdentity = new { type = "string", description = "Optional artifact identity the approver reviewed" }
                     },
                     required = new[] { "deploymentId" }
                 },
                 async (args) =>
                 {
-                    JsonElement value = args!.Value;
-                    string deploymentId = value.GetProperty("deploymentId").GetString() ?? String.Empty;
-                    string? comment = value.TryGetProperty("comment", out JsonElement commentElement) ? commentElement.GetString() : null;
+                    DeploymentApprovalArgs request = JsonSerializer.Deserialize<DeploymentApprovalArgs>(args!.Value, _JsonOptions)
+                        ?? throw new InvalidOperationException("Could not deserialize DeploymentApprovalArgs.");
                     AuthContext auth = McpCallerContext.Require();
-                    return (object)await deploymentService.ApproveAsync(auth, deploymentId, comment).ConfigureAwait(false);
+                    return (object)await deploymentService.ApproveAsync(
+                        auth,
+                        request.DeploymentId,
+                        request.Comment,
+                        request.ExpectedSourceCommit,
+                        request.ExpectedArtifactIdentity).ConfigureAwait(false);
                 });
 
             register(
@@ -181,6 +189,17 @@ namespace Armada.Server.Mcp.Tools
                 });
         }
 
+        private sealed class DeploymentApprovalArgs
+        {
+            public string DeploymentId { get; set; } = "";
+
+            public string? Comment { get; set; } = null;
+
+            public string? ExpectedSourceCommit { get; set; } = null;
+
+            public string? ExpectedArtifactIdentity { get; set; } = null;
+        }
+
         private sealed class DeploymentUpdateArgs : DeploymentUpsertRequest
         {
             public string DeploymentId { get; set; } = "";
@@ -199,6 +218,7 @@ namespace Armada.Server.Mcp.Tools
                     ObjectiveIds = ObjectiveIds,
                     Title = Title,
                     SourceRef = SourceRef,
+                    ArtifactIdentity = ArtifactIdentity,
                     Summary = Summary,
                     Notes = Notes,
                     AutoExecute = AutoExecute

@@ -53,9 +53,15 @@ namespace Armada.Core.Models
         public string? Title { get; set; } = null;
 
         /// <summary>
-        /// Optional freeform source ref such as a branch, tag, or commit.
+        /// Optional freeform source ref such as a branch, tag, or commit. It is resolved to a full commit once, when
+        /// the deployment is created or its source changes.
         /// </summary>
         public string? SourceRef { get; set; } = null;
+
+        /// <summary>
+        /// Optional identity of the built artifact to ship, such as an image digest.
+        /// </summary>
+        public string? ArtifactIdentity { get; set; } = null;
 
         /// <summary>
         /// Optional summary override.

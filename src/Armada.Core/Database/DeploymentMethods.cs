@@ -23,7 +23,8 @@ namespace Armada.Core.Database
             new[]
             {
                 "id", "tenant_id", "user_id", "vessel_id", "workflow_profile_id", "environment_id", "environment_name", "release_id", "mission_id",
-                "voyage_id", "title", "source_ref", "summary", "notes", "status", "verification_status", "approval_required", "approved_by_user_id",
+                "voyage_id", "title", "source_ref", "source_commit", "artifact_identity", "approved_source_commit",
+                "approved_artifact_identity", "validation_check_run_ids_json", "validation_summary", "summary", "notes", "status", "verification_status", "approval_required", "approved_by_user_id",
                 "approved_utc", "approval_comment", "deploy_check_run_id", "smoke_test_check_run_id", "health_check_run_id",
                 "deployment_verification_check_run_id", "rollback_check_run_id", "rollback_verification_check_run_id", "check_run_ids_json",
                 "request_history_summary_json", "created_utc", "started_utc", "completed_utc", "verified_utc", "rolled_back_utc",

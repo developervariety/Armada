@@ -118,7 +118,7 @@ namespace Armada.Server.Mcp.Tools
                 ["environment"] = new
                 {
                     type = "object",
-                    description = "DeploymentEnvironmentUpsertRequest JSON",
+                    description = "DeploymentEnvironmentUpsertRequest JSON. requiredCheckTypes lists the Check types (such as Build, UnitTest) that must have passed at a deployment's pinned commit before it is approved or executed; omit it on update to keep the current list, send [] to clear it.",
                     additionalProperties = true
                 }
             };

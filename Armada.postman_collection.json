@@ -9665,7 +9665,7 @@
 						"description": "Create an environment and save the resulting ID to environmentId.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"VesselId\": \"{{vesselId}}\",\n  \"Name\": \"Staging\",\n  \"Kind\": \"Staging\",\n  \"BaseUrl\": \"https://staging.example.com\",\n  \"HealthEndpoint\": \"/api/v1/status/health\",\n  \"RequiresApproval\": true\n}"
+							"raw": "{\n  \"VesselId\": \"{{vesselId}}\",\n  \"Name\": \"Staging\",\n  \"Kind\": \"Staging\",\n  \"BaseUrl\": \"https://staging.example.com\",\n  \"HealthEndpoint\": \"/api/v1/status/health\",\n  \"RequiresApproval\": true,\n  \"RequiredCheckTypes\": [\"Build\", \"UnitTest\"]\n}"
 						}
 					},
 					"event": {
@@ -9865,7 +9865,7 @@
 						"description": "Create a deployment and save the resulting ID to deploymentId.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"VesselId\": \"{{vesselId}}\",\n  \"EnvironmentId\": \"{{environmentId}}\",\n  \"ReleaseId\": \"{{releaseId}}\",\n  \"Title\": \"Deploy release to staging\",\n  \"SourceRef\": \"refs/tags/v1.4.2\",\n  \"AutoExecute\": true\n}"
+							"raw": "{\n  \"VesselId\": \"{{vesselId}}\",\n  \"EnvironmentId\": \"{{environmentId}}\",\n  \"ReleaseId\": \"{{releaseId}}\",\n  \"Title\": \"Deploy release to staging\",\n  \"SourceRef\": \"refs/tags/v1.4.2\",\n  \"ArtifactIdentity\": \"registry.example.com/app@sha256:0123abcd\",\n  \"AutoExecute\": true\n}"
 						}
 					},
 					"event": {
@@ -9953,10 +9953,10 @@
 								"approve"
 							]
 						},
-						"description": "Approve one pending deployment.",
+						"description": "Approve one pending deployment, naming the reviewed candidate. SourceCommit is the full commit or a prefix of at least 7 characters; approval refuses when the deployment names a different commit or artifact, or when the environment's required Checks have not passed at the pinned commit.",
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"Comment\": \"Approved from Postman\"\n}"
+							"raw": "{\n  \"Comment\": \"Approved from Postman\",\n  \"SourceCommit\": \"0123abcd\",\n  \"ArtifactIdentity\": \"registry.example.com/app@sha256:0123abcd\"\n}"
 						}
 					}
 				},

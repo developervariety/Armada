@@ -111,6 +111,17 @@ namespace Armada.Core.Models
         public bool RequiresApproval { get; set; } = false;
 
         /// <summary>
+        /// Check types that must have passed at a deployment's exact source commit before the deployment may be
+        /// approved or executed, for example Build and UnitTest. Each type needs its own passing record; empty
+        /// requires no evidence.
+        /// </summary>
+        public List<CheckRunTypeEnum> RequiredCheckTypes
+        {
+            get => _RequiredCheckTypes;
+            set => _RequiredCheckTypes = value ?? new List<CheckRunTypeEnum>();
+        }
+
+        /// <summary>
         /// Indicates whether this is the default environment for its vessel.
         /// </summary>
         public bool IsDefault { get; set; } = false;
@@ -132,5 +143,6 @@ namespace Armada.Core.Models
 
         private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.EnvironmentIdPrefix, 24);
         private string _Name = "Environment";
+        private List<CheckRunTypeEnum> _RequiredCheckTypes = new List<CheckRunTypeEnum>();
     }
 }

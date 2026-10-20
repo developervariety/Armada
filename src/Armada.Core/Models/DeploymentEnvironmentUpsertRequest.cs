@@ -79,6 +79,12 @@ namespace Armada.Core.Models
         public bool? RequiresApproval { get; set; } = null;
 
         /// <summary>
+        /// Optional Check types that must have passed at a deployment's exact source commit. Null keeps the current
+        /// list on update and requires none on create; an empty list clears the requirement.
+        /// </summary>
+        public List<CheckRunTypeEnum>? RequiredCheckTypes { get; set; } = null;
+
+        /// <summary>
         /// Optional default-environment flag.
         /// </summary>
         public bool? IsDefault { get; set; } = null;

@@ -86,6 +86,42 @@ namespace Armada.Core.Models
         public string? SourceRef { get; set; } = null;
 
         /// <summary>
+        /// Full commit the source ref resolved to when the deployment was created or its source last changed.
+        /// Approval, required Check evidence and the deploy and rollback Checks all name this commit, so a branch
+        /// that moves later does not change what the deployment deploys. Null only when the vessel has no git
+        /// repository to resolve the ref in.
+        /// </summary>
+        public string? SourceCommit { get; set; } = null;
+
+        /// <summary>
+        /// Optional identity of the built artifact the deployment ships, such as an image digest or a package
+        /// version with its checksum. It is fixed with the source commit once the deployment is approved or starts.
+        /// </summary>
+        public string? ArtifactIdentity { get; set; } = null;
+
+        /// <summary>
+        /// Source commit the approver approved. Execution of a deployment that requires approval refuses to start
+        /// when this differs from <see cref="SourceCommit"/>.
+        /// </summary>
+        public string? ApprovedSourceCommit { get; set; } = null;
+
+        /// <summary>
+        /// Artifact identity the approver approved. Execution of a deployment that requires approval refuses to
+        /// start when this differs from <see cref="ArtifactIdentity"/>.
+        /// </summary>
+        public string? ApprovedArtifactIdentity { get; set; } = null;
+
+        /// <summary>
+        /// Check runs that proved the environment's required Check types at the source commit.
+        /// </summary>
+        public List<string> ValidationCheckRunIds { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Outcome of the latest required-evidence evaluation, with the reason when it refused.
+        /// </summary>
+        public string? ValidationSummary { get; set; } = null;
+
+        /// <summary>
         /// Optional short summary.
         /// </summary>
         public string? Summary { get; set; } = null;

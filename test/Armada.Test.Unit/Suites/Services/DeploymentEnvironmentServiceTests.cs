@@ -116,6 +116,78 @@ namespace Armada.Test.Unit.Suites.Services
                     TryDeleteDirectory(workingDirectory);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("Required Check types persist, survive an update that omits them, and refuse target-measuring types", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                    DeploymentEnvironmentService service = new DeploymentEnvironmentService(testDb.Driver, workflowProfiles, logging);
+                    string tenantId = "ten_environment_required";
+                    string userId = "usr_environment_required";
+                    string workingDirectory = CreateWorkingDirectory("environment-required");
+
+                    try
+                    {
+                        await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                        Vessel vessel = CreateVessel(tenantId, userId, workingDirectory);
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                        AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, false, "UnitTest");
+
+                        DeploymentEnvironment defaulted = await service.CreateAsync(auth, new DeploymentEnvironmentUpsertRequest
+                        {
+                            VesselId = vessel.Id,
+                            Name = "Development",
+                            Kind = EnvironmentKindEnum.Development
+                        }).ConfigureAwait(false);
+                        AssertEqual(0, defaulted.RequiredCheckTypes.Count, "an environment requires no evidence by default");
+
+                        DeploymentEnvironment created = await service.CreateAsync(auth, new DeploymentEnvironmentUpsertRequest
+                        {
+                            VesselId = vessel.Id,
+                            Name = "Staging",
+                            Kind = EnvironmentKindEnum.Staging,
+                            RequiredCheckTypes = new List<CheckRunTypeEnum> { CheckRunTypeEnum.UnitTest, CheckRunTypeEnum.Build, CheckRunTypeEnum.UnitTest }
+                        }).ConfigureAwait(false);
+                        DeploymentEnvironment stored = NotNull(await testDb.Driver.Environments.ReadAsync(created.Id, null).ConfigureAwait(false));
+                        AssertEqual("UnitTest,Build", String.Join(",", stored.RequiredCheckTypes), "the stored list is de-duplicated and keeps its order");
+
+                        DeploymentEnvironment renamed = await service.UpdateAsync(auth, created.Id, new DeploymentEnvironmentUpsertRequest
+                        {
+                            Name = "Staging Two"
+                        }).ConfigureAwait(false);
+                        AssertEqual("UnitTest,Build", String.Join(",", renamed.RequiredCheckTypes), "an update that omits the list keeps it");
+
+                        DeploymentEnvironment cleared = await service.UpdateAsync(auth, created.Id, new DeploymentEnvironmentUpsertRequest
+                        {
+                            RequiredCheckTypes = new List<CheckRunTypeEnum>()
+                        }).ConfigureAwait(false);
+                        AssertEqual(0, cleared.RequiredCheckTypes.Count, "an empty list clears the requirement");
+
+                        string refusal = String.Empty;
+                        try
+                        {
+                            await service.CreateAsync(auth, new DeploymentEnvironmentUpsertRequest
+                            {
+                                VesselId = vessel.Id,
+                                Name = "Production",
+                                Kind = EnvironmentKindEnum.Production,
+                                RequiredCheckTypes = new List<CheckRunTypeEnum> { CheckRunTypeEnum.Build, CheckRunTypeEnum.Deploy }
+                            }).ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            refusal = ex.Message;
+                        }
+                        AssertContains("deployment_required_check_type_invalid", refusal, "a deploy Check measures the target, not the candidate, so it cannot be required");
+                    }
+                    finally
+                    {
+                        TryDeleteDirectory(workingDirectory);
+                    }
+                }
+            }).ConfigureAwait(false);
         }
 
         private static LoggingModule CreateLogging()

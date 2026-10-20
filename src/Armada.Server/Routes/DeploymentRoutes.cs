@@ -174,21 +174,21 @@ namespace Armada.Server.Routes
 
             app.Post("/api/v1/deployments/{id}/approve", async (ApiRequest req) =>
             {
-                return await HandleCommentedActionAsync(req, authenticate, authz, (ctx, deploymentId, comment) => _Deployments.ApproveAsync(ctx, deploymentId, comment)).ConfigureAwait(false);
+                return await HandleCommentedActionAsync(req, authenticate, authz, (ctx, deploymentId, body) => _Deployments.ApproveAsync(ctx, deploymentId, body?.Comment, body?.SourceCommit, body?.ArtifactIdentity)).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Deployments")
                 .WithSummary("Approve a deployment")
-                .WithDescription("Approves a pending deployment and begins execution.")
+                .WithDescription("Approves a pending deployment and begins execution. Name the reviewed candidate with SourceCommit (full commit or a prefix of at least 7 characters) and ArtifactIdentity; approval refuses when the deployment names a different candidate, or when the environment's required Checks have not passed at the pinned commit.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Deployment ID (dpl_ prefix)"))
-                .WithRequestBody(OpenApiJson.BodyFor<DeploymentApprovalBody>("Optional approval comment", false))
+                .WithRequestBody(OpenApiJson.BodyFor<DeploymentApprovalBody>("Optional approval comment and the reviewed candidate", false))
                 .WithResponse(200, OpenApiJson.For<Deployment>("Approved deployment"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/deployments/{id}/deny", async (ApiRequest req) =>
             {
-                return await HandleCommentedActionAsync(req, authenticate, authz, (ctx, deploymentId, comment) => _Deployments.DenyAsync(ctx, deploymentId, comment)).ConfigureAwait(false);
+                return await HandleCommentedActionAsync(req, authenticate, authz, (ctx, deploymentId, body) => _Deployments.DenyAsync(ctx, deploymentId, body?.Comment)).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Deployments")
@@ -287,7 +287,7 @@ namespace Armada.Server.Routes
             ApiRequest req,
             Func<HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz,
-            Func<AuthContext, string, string?, Task<Deployment>> handler)
+            Func<AuthContext, string, DeploymentApprovalBody?, Task<Deployment>> handler)
         {
             AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
             if (ctx == null) return RouteAuthRefusal.FromStatus(req);
@@ -300,7 +300,7 @@ namespace Armada.Server.Routes
 
             try
             {
-                return await handler(ctx, req.Parameters["id"], body?.Comment).ConfigureAwait(false);
+                return await handler(ctx, req.Parameters["id"], body).ConfigureAwait(false);
             }
             catch (InvalidOperationException ex)
             {
@@ -454,7 +454,20 @@ namespace Armada.Server.Routes
 
         private sealed class DeploymentApprovalBody
         {
+            /// <summary>
+            /// Optional approval or denial comment.
+            /// </summary>
             public string? Comment { get; set; } = null;
+
+            /// <summary>
+            /// Optional commit the approver reviewed: the full commit or a prefix of at least 7 characters.
+            /// </summary>
+            public string? SourceCommit { get; set; } = null;
+
+            /// <summary>
+            /// Optional artifact identity the approver reviewed.
+            /// </summary>
+            public string? ArtifactIdentity { get; set; } = null;
         }
     }
 }

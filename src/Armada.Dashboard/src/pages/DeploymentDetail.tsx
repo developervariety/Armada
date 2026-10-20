@@ -294,7 +294,13 @@ export default function DeploymentDetail() {
         setConfirm((current) => ({ ...current, open: false }));
         try {
           let updated: Deployment;
-          if (action === 'approve') updated = await approveDeployment(currentDeployment.id);
+          if (action === 'approve') {
+            // Approve the candidate this page shows, so a deployment re-pointed meanwhile is refused.
+            updated = await approveDeployment(currentDeployment.id, null, {
+              sourceCommit: currentDeployment.sourceCommit,
+              artifactIdentity: currentDeployment.artifactIdentity,
+            });
+          }
           else if (action === 'deny') updated = await denyDeployment(currentDeployment.id);
           else if (action === 'verify') updated = await verifyDeployment(currentDeployment.id);
           else updated = await rollbackDeployment(currentDeployment.id);
@@ -631,8 +637,20 @@ export default function DeploymentDetail() {
               <strong>{deployment?.completedUtc ? formatRelativeTime(deployment.completedUtc) : '-'}</strong>
             </div>
             <div className="detail-meta-field">
+              <span>{t('Pinned Commit')}</span>
+              <strong className="mono">{deployment?.sourceCommit || t('Not pinned')}</strong>
+            </div>
+            <div className="detail-meta-field">
+              <span>{t('Artifact')}</span>
+              <strong>{deployment?.artifactIdentity || '-'}</strong>
+            </div>
+            <div className="detail-meta-field">
               <span>{t('Approved By')}</span>
               <strong>{deployment?.approvedByUserId || '-'}</strong>
+            </div>
+            <div className="detail-meta-field">
+              <span>{t('Approved Commit')}</span>
+              <strong className="mono">{deployment?.approvedSourceCommit || '-'}</strong>
             </div>
             <div className="detail-meta-field">
               <span>{t('Monitoring Window')}</span>
@@ -654,6 +672,16 @@ export default function DeploymentDetail() {
 
           {!createMode && deployment && (
             <>
+              <div className="detail-divider" />
+              <h4>{t('Validation Evidence')}</h4>
+              {deployment.validationSummary ? (
+                <div className="card" style={{ padding: '0.85rem', marginBottom: '1rem' }}>
+                  <div>{deployment.validationSummary}</div>
+                </div>
+              ) : (
+                <p className="text-dim">{t('No validation evidence has been evaluated for this deployment.')}</p>
+              )}
+
               <div className="detail-divider" />
               <h4>{t('Verification Monitoring')}</h4>
               {deployment.latestMonitoringSummary ? (

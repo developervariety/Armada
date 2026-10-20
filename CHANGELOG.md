@@ -9,6 +9,38 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Deployments pin one immutable candidate. A deployment resolves its
+  `SourceRef` once, at create, to the full commit in the vessel's own
+  repository and stores it as `SourceCommit`, with an optional
+  `ArtifactIdentity`. The deploy and rollback Checks run with that commit as
+  `CommitHash`, a Pending deploy or rollback Check is reused only at the same
+  commit, and every deployment check command receives
+  `ARMADA_DEPLOYMENT_SOURCE_COMMIT`, `ARMADA_DEPLOYMENT_SOURCE_REF`,
+  `ARMADA_DEPLOYMENT_ARTIFACT` and `ARMADA_DEPLOYMENT_ID`. A ref that moves
+  after create does not change what ships; execution names the move in
+  `ValidationSummary`. Once a deployment is approved, started or finished, an
+  update that changes its ref, artifact or vessel is refused with
+  `deployment_candidate_frozen`. Approval accepts the reviewed candidate
+  (`expectedSourceCommit` and `expectedArtifactIdentity` over MCP, `SourceCommit`
+  and `ArtifactIdentity` over REST), refuses a different one with
+  `deployment_candidate_changed`, and records `ApprovedSourceCommit` and
+  `ApprovedArtifactIdentity`; execution refuses a candidate the approval did not
+  name with `deployment_approval_mismatch`. An environment's
+  `RequiredCheckTypes` names the Check types that must have passed at exactly
+  the pinned commit before approval and before execution. Each type is decided
+  on its own; a failed, stale, filtered or command-overridden record, or a
+  record of another type, never satisfies it. The deciding records are stored in
+  `ValidationCheckRunIds` and the verdict in `ValidationSummary`. Migrations add
+  the six deployment columns and `required_check_types_json` on SQLite,
+  PostgreSQL, SQL Server and MySQL.
+  **Default and live impact:** `RequiredCheckTypes` is empty for every existing
+  and new environment, so the evidence gate refuses nothing until an operator
+  sets it. Existing deployments keep a null `SourceCommit`, run as before, and
+  are never re-resolved. A new deployment on a vessel with a git repository is
+  pinned; a vessel with none creates an unpinned deployment and the admiral log
+  names it. One behaviour changes for every environment: a create or a ref
+  change whose ref names no commit in the vessel's existing repository is now
+  refused with `deployment_source_unresolved` instead of being stored.
 - A mission change summary: `GET /api/v1/missions/{id}/change-summary` and
   the MCP tool `armada_mission_change_summary` share one reader. It lists every
   path one mission stage committed, with its status (`Added`, `Modified`,
