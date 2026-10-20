@@ -81,6 +81,11 @@ namespace Armada.Server.Mcp
             // (armada_code_search, armada_fleet_code_search) stay outside mission scope.
             "armada_mission_code_search",
 
+            // The mission change summary. It takes no vessel, path, URL or commit argument: the mission comes from
+            // the caller (a mission credential reads only its own), and the vessel and both commits come from that
+            // mission's recorded evidence. It is read-only, bounded, and budgeted per mission credential.
+            "armada_mission_change_summary",
+
             // Harbor job tools apply the shared runner authorization rule to every job, and stopping also needs
             // the tenant administrator level the REST route requires.
             "armada_harbor_jobs",

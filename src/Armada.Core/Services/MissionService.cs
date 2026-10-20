@@ -11566,21 +11566,7 @@ namespace Armada.Core.Services
 
         private string? TryReadDockStartCommit(string dockId)
         {
-            try
-            {
-                string metadataPath = Path.Combine(_Settings.LogDirectory, "docks", dockId + ".start");
-                if (!File.Exists(metadataPath))
-                {
-                    return null;
-                }
-
-                return File.ReadAllText(metadataPath).Trim();
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "could not read dock start commit metadata for " + dockId + ": " + ex.Message);
-                return null;
-            }
+            return MissionStageStartCommitResolver.ReadDockStartRecord(_Settings.LogDirectory, dockId, _Logging);
         }
 
         /// <summary>
@@ -13058,36 +13044,12 @@ namespace Armada.Core.Services
             return String.IsNullOrWhiteSpace(planner.StartFromRef) ? null : planner.StartFromRef.Trim();
         }
 
-        // The commit a planner's dock was provisioned at: the dock's recorded Git anchors first, then
-        // the dock start-commit file, then a start ref that already names a full commit.
+        // The commit a planner's dock was provisioned at, read through the one stage-start rule.
         private async Task<string?> ResolvePlannerStageStartCommitAsync(Mission planner, CancellationToken token)
         {
-            if (!String.IsNullOrWhiteSpace(planner.DockId))
-            {
-                try
-                {
-                    Dock? dock = await _Database.Docks.ReadAsync(planner.DockId!, token).ConfigureAwait(false);
-                    DockGitAnchorSnapshot? snapshot = dock?.GitAnchorsSnapshot;
-                    if (snapshot != null
-                        && String.Equals(snapshot.MissionId, planner.Id, StringComparison.Ordinal)
-                        && DockGitAnchorPersistence.IsCommit(snapshot.ProvisionedCommit))
-                        return snapshot.ProvisionedCommit;
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "could not read dock anchors for planner " + planner.Id + ": " + ex.Message);
-                }
-
-                string? recorded = TryReadDockStartCommit(planner.DockId!);
-                if (DockGitAnchorPersistence.IsCommit(recorded)) return recorded;
-            }
-
-            string? startRef = planner.StartFromRef?.Trim();
-            return DockGitAnchorPersistence.IsCommit(startRef) ? startRef : null;
+            MissionStageStartCommit? start = await MissionStageStartCommitResolver.ResolveAsync(
+                _Database, _Settings.LogDirectory, planner, _Logging, token).ConfigureAwait(false);
+            return start?.Commit;
         }
 
         private static bool IsPipelineHandoffPrepared(Mission mission, Mission dependency)

@@ -132,6 +132,10 @@ namespace Armada.Server.Mcp
             McpVesselTools.Register(register, database, dockService, missionOperations);
             McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs, objectiveDispatchPreviewService, dispatchStalenessAdapter, missionOperations);
             McpMissionTools.Register(register, database, admiral, settings, git, landingService, statusTransitions, missionOperations);
+
+            // The mission change summary resolves its mission, vessel and both commits from the caller and recorded
+            // mission evidence, so it sits in the caller-scoped catalogue beside the mission code search.
+            McpMissionChangeSummaryTools.Register(register, database, effectiveSettings, git, logging);
             if (captainAdministration == null)
             {
                 captainAdministration = new CaptainAdministrationService(database, (captainId, token) => admiral.RecallCaptainAsync(captainId, token), logging);

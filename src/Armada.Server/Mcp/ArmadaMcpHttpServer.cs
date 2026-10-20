@@ -355,7 +355,11 @@ namespace Armada.Server.Mcp
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                object result = await registration.Handler(arguments).ConfigureAwait(false);
+                object result;
+                using (McpCallerContext.BeginCall(cancellationToken))
+                {
+                    result = await registration.Handler(arguments).ConfigureAwait(false);
+                }
                 CallToolResult toolResult = ConvertToolResult(result, out string? toolError);
                 bool toolFailed = toolResult.IsError == true;
                 await WriteToolAuditAsync(

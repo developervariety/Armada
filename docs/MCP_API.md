@@ -589,7 +589,7 @@ What a caller may use:
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
 | Tenant administrator | The caller-scoped tools below, plus `create_persona`, `update_persona`, `delete_persona`, `create_pipeline`, `update_pipeline` and `delete_pipeline`, as on REST. Each change finds the record through the caller scope and applies `OwnershipPolicy.CanEdit`, so it changes only the caller's own tenant's records; another tenant's record reads as not found |
 | Mission captain (a mission session token), whatever its owner's role | The caller-scoped tools below, plus the read-only voyage tools `armada_enumerate`, `armada_mission_status`, `armada_get_mission_log`, `armada_voyage_status`, `armada_mission_output` and `get_objective`. An administrator owner's mission still reaches no operator tool, and its model is sent only these definitions with each request |
-| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_fetch_context`, `armada_mission_code_search`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
+| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_fetch_context`, `armada_mission_code_search`, `armada_mission_change_summary`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
 
 The Harbor job tools apply the runner authority rule that Harbor enrollment
 uses: a caller sees a job when it is the runner owner or has authority over the
@@ -1086,6 +1086,47 @@ with the vessel and the remedy, so an unindexed vessel is visible to operators. 
 `codeIndex.captainSearchMaxCallsPerMission` (reason `budget` when spent), and is
 caller-scoped like the other captain tools. The operator tools
 `armada_code_search` and `armada_fleet_code_search` stay outside mission scope.
+
+### armada_mission_change_summary
+
+List every path one mission stage committed, with its status. Args: optional
+`missionId` and optional `maxPaths` (default 1000, maximum 5000). The REST
+route `GET /api/v1/missions/{id}/change-summary` calls the same reader, so both
+surfaces share one authorization rule, one set of bounds and one answer.
+
+The tool compares the stage's recorded start commit with its recorded final
+commit (`Mission.CommitHash`) in the vessel's bare repository. The start commit
+is the dock's stored Git anchor snapshot for that mission, then the dock start
+record written at provisioning, then a mission start ref that is itself a full
+commit id; `StartCommitSource` names which. Only full commit ids are compared,
+so moving a branch never changes an answer's commit pair, and the tool needs no
+dock. The answer is not a diff against the current target branch and holds no
+uncommitted files.
+
+A mission credential always reads its own mission: a `missionId` naming another
+mission is ignored (the answer says so in `Warnings`), even when the
+credential's owner is an administrator, and the credential's own mission must
+have its tenant and owner. Any other caller reads a mission its tenant and role
+let it read: an administrator reads any mission, a tenant administrator its
+tenant's, and any other user its own. A mission outside that scope answers
+`mission_not_found`. The vessel and both commits come from the mission, never
+from the request.
+
+The answer carries `MissionId`, `VesselId`, `Available`, `Complete`, `Reason`,
+`Message`, `StartCommit`, `StartCommitSource`, `FinalCommit`, `Paths` (each
+`Status`, `Path`, and `PreviousPath` for a rename), `PathCount`,
+`TotalPathCount`, `MaxPaths`, `CallsUsed` and `Warnings`. `Available: false`
+means nothing was compared and never means nothing changed; `Reason` is one of
+`invalid`, `mission_not_found`, `no_vessel`, `repository_unavailable`,
+`start_commit_not_recorded`, `final_commit_not_recorded`, `git_unavailable`,
+`start_commit_missing`, `final_commit_missing`, `invalid_commit`, `timeout`,
+`output_limit_exceeded`, `git_failed`, `unreadable_output`, `busy`, `budget`,
+or `exception`. `Complete: false` with `Reason: path_limit` lists the first
+`maxPaths` paths and gives the total in `TotalPathCount`. Each read runs under
+a 30-second deadline and a 4 MiB output limit, at most four reads run at once
+(`busy` after a 2-second wait), and a mission credential may call it 60 times
+per admiral process (`budget`). Caller cancellation propagates. It writes no
+record and calls no embedding or classifier provider.
 
 ### armada_change_quality
 

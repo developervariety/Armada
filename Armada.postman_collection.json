@@ -4483,6 +4483,42 @@
 					]
 				},
 				{
+					"name": "Get Mission Change Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/change-summary?maxPaths=1000",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"missions",
+								"{{missionId}}",
+								"change-summary"
+							],
+							"query": [
+								{
+									"key": "maxPaths",
+									"value": "1000",
+									"description": "Most paths to list (default 1000, maximum 5000)"
+								}
+							]
+						},
+						"description": "Lists every path the mission stage committed, with its status, by comparing the stage's recorded start commit with its recorded final commit in the vessel's bare repository. Needs no dock; not a diff against the current target branch. A mission session token reads only its own mission. Available false with a named Reason means nothing was compared, never that nothing changed."
+					},
+					"response": [
+						{
+							"name": "Summary Available",
+							"status": "OK",
+							"code": 200,
+							"body": "{\n  \"MissionId\": \"msn_abc123\",\n  \"VesselId\": \"vsl_abc123\",\n  \"Available\": true,\n  \"Complete\": true,\n  \"Reason\": null,\n  \"StartCommit\": \"5f1c0a3e9b7d4c2a1e8f6b0d3c9a7e5f1b2d4c6a\",\n  \"StartCommitSource\": \"dock_anchor_snapshot\",\n  \"FinalCommit\": \"9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b\",\n  \"Paths\": [\n    {\n      \"Status\": \"Modified\",\n      \"Path\": \"src/auth.ts\",\n      \"PreviousPath\": null\n    }\n  ],\n  \"PathCount\": 1,\n  \"TotalPathCount\": 1,\n  \"MaxPaths\": 1000\n}"
+						}
+					]
+				},
+				{
 					"name": "Get Mission Log",
 					"request": {
 						"method": "GET",

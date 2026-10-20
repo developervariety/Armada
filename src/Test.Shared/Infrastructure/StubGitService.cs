@@ -311,6 +311,22 @@ namespace Test.Shared.Infrastructure
             return Task.FromResult(ChangedPathsResult ?? Armada.Core.Services.GitDiffPaths.ExtractPaths(DiffResult));
         }
 
+        /// <summary>
+        /// When set, ReadChangedPathStatusesBetweenCommitsAsync is answered by this function, normally a real git
+        /// service's read over a fixture repository. When null, the read is unsupported, as for any seam without a
+        /// repository.
+        /// </summary>
+        public Func<string, string, string, int, TimeSpan, int, CancellationToken, Task<Armada.Core.Models.ChangedPathStatusRead>>? CommitPairRead { get; set; } = null;
+
+        public Task<Armada.Core.Models.ChangedPathStatusRead> ReadChangedPathStatusesBetweenCommitsAsync(string repoPath, string fromCommit, string toCommit,
+            int maxPaths, TimeSpan timeout, int outputLimitBytes, CancellationToken token = default)
+        {
+            if (CommitPairRead != null)
+                return CommitPairRead(repoPath, fromCommit, toCommit, maxPaths, timeout, outputLimitBytes, token);
+            return Task.FromResult(Armada.Core.Models.ChangedPathStatusRead.Unavailable(
+                Armada.Core.Models.ChangedPathStatusRead.NotSupportedCode, "The stub git service reads no repository."));
+        }
+
         /// <summary>Producer changed paths returned by GetChangedFilePathsAgainstBaseAsync.</summary>
         public IReadOnlyList<string> ChangedFilePathsAgainstBaseResult { get; set; } = Array.Empty<string>();
 

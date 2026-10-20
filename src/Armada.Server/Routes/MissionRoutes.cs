@@ -1125,6 +1125,45 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/missions/{id}/change-summary", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    return RouteAuthRefusal.Refuse(req, ctx);
+                }
+                string? maxPathsValue = QueryValueReader.Read(req, "maxPaths");
+                int? maxPaths = null;
+                if (maxPathsValue != null)
+                {
+                    if (!Int32.TryParse(maxPathsValue, out int parsedMaxPaths))
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "maxPaths must be an integer" };
+                    }
+                    maxPaths = parsedMaxPaths;
+                }
+
+                // REST and MCP read a change summary through one reader, which resolves the mission through the
+                // caller's scope and the vessel and both commits from recorded mission evidence.
+                MissionChangeSummary summary = await MissionChangeSummaryReader.ReadAsync(
+                    _database, _settings.LogDirectory, _git, ctx, req.Parameters["id"], maxPaths,
+                    null, _logging, req.Http.Token).ConfigureAwait(false);
+                if (String.Equals(summary.Reason, MissionChangeSummary.MissionNotFoundReason, StringComparison.Ordinal))
+                    req.Http.Response.StatusCode = 404;
+                return (object)summary;
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Get the change summary of a mission stage")
+                .WithDescription("Lists every path the mission stage committed, with its status, comparing the stage's recorded start commit with its recorded final commit in the vessel's repository. Needs no dock. It is not a diff against the current target branch and holds no uncommitted files. A mission credential reads only its own mission. When the commits cannot be compared, Available is false and Reason names why; Complete is false with Reason path_limit when only the first maxPaths paths are listed.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("maxPaths", "Most paths to list (default 1000, maximum 5000)", false, OpenApiSchemaMetadata.Integer()))
+                .WithResponse(200, OpenApiJson.For<MissionChangeSummary>("Change summary, or the named reason it is unavailable"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/missions/{id}/log", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

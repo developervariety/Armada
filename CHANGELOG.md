@@ -9,6 +9,25 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- A mission change summary: `GET /api/v1/missions/{id}/change-summary` and
+  the MCP tool `armada_mission_change_summary` share one reader. It lists every
+  path one mission stage committed, with its status (`Added`, `Modified`,
+  `Deleted`, `Renamed`, `TypeChanged`), by comparing the stage's recorded start
+  commit (the dock's stored Git anchor snapshot, the dock start record, or a
+  start ref that is a full commit id) with its recorded final commit in the
+  vessel's bare repository. It needs no dock, so it still answers after the
+  dock is reclaimed, and it is not a diff against the current target branch.
+  The answer states both full commit ids, so moving a branch never changes
+  them. The mission comes from the caller: a mission credential reads only its
+  own mission, and any other caller reads under its tenant and role scope; the
+  vessel and both commits come from the mission, never from the request. A
+  missing recorded commit, a missing object, a deadline, output past its limit,
+  or a busy reader returns `Available: false` with a named `Reason`, never an
+  empty change; more paths than `maxPaths` (default 1000, maximum 5000) return
+  the first ones with `Complete: false`, `Reason: path_limit` and the total.
+  Reads run under a 30-second deadline, a 4 MiB output limit, four concurrent
+  reads, and 60 calls per mission credential; caller cancellation propagates,
+  including an MCP client's cancellation of the tool call.
 - Source-control phase telemetry on the `Armada` meter. Duration histograms
   in seconds cover repository-lock wait, fetch, primary and sibling checkout,
   sibling artifact copy, host-command-slot wait, validation commands and

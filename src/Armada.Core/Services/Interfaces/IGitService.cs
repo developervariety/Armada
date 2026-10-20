@@ -567,6 +567,34 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// List every path that differs between two full commit ids, with its status (added, modified, deleted,
+        /// renamed, type changed), from a repository path, so the change one stage committed stays readable after
+        /// its dock is gone. Both commits are verified first; only full object ids are accepted, so moving a branch
+        /// can never change what is compared. Paths keep git's exact bytes and case.
+        /// </summary>
+        /// <remarks>
+        /// Every git process runs under <paramref name="timeout"/> and <paramref name="outputLimitBytes"/>. A
+        /// missing commit, a timeout, output past the limit, or a git error returns an unavailable read with a named
+        /// code, never an empty change. More than <paramref name="maxPaths"/> entries returns the first ones as an
+        /// incomplete read with the total. Cancellation propagates. The default reports the read as unsupported, so
+        /// a git seam that does not consult a repository cannot answer "nothing changed".
+        /// </remarks>
+        /// <param name="repoPath">Repository path (normally the vessel's bare repository) that holds both commits.</param>
+        /// <param name="fromCommit">Full id of the commit the change starts from.</param>
+        /// <param name="toCommit">Full id of the commit the change ends at.</param>
+        /// <param name="maxPaths">Most entries to return; at least one.</param>
+        /// <param name="timeout">Deadline for each git process.</param>
+        /// <param name="outputLimitBytes">Most bytes of comparison output to read.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The changed paths, or an unavailable read naming why it failed.</returns>
+        Task<ChangedPathStatusRead> ReadChangedPathStatusesBetweenCommitsAsync(string repoPath, string fromCommit, string toCommit,
+            int maxPaths, TimeSpan timeout, int outputLimitBytes, CancellationToken token = default)
+        {
+            return Task.FromResult(ChangedPathStatusRead.Unavailable(
+                ChangedPathStatusRead.NotSupportedCode, "This git seam does not read changed paths between commits."));
+        }
+
+        /// <summary>
         /// Read every path the worktree's HEAD changes against the merge point with the base branch,
         /// for a landing gate that must see the whole change. A rename reports both its old and new
         /// name and names are read NUL-separated, so no quoting reaches a path rule. A failure throws:

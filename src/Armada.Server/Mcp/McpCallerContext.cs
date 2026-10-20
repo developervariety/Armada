@@ -18,6 +18,8 @@ namespace Armada.Server.Mcp
 
         private static readonly AsyncLocal<AuthContext?> _Current = new AsyncLocal<AuthContext?>();
 
+        private static readonly AsyncLocal<CancellationToken> _CallToken = new AsyncLocal<CancellationToken>();
+
         #endregion
 
         #region Public-Members
@@ -26,6 +28,12 @@ namespace Armada.Server.Mcp
         /// The authenticated caller of the current tool call, or null when none was set.
         /// </summary>
         public static AuthContext? Current => _Current.Value;
+
+        /// <summary>
+        /// Cancellation of the tool call that is running now: the transport cancels it when the client cancels or
+        /// disconnects. <see cref="CancellationToken.None"/> when the transport set none.
+        /// </summary>
+        public static CancellationToken CallToken => _CallToken.Value;
 
         #endregion
 
@@ -90,9 +98,39 @@ namespace Armada.Server.Mcp
             return new Scope(previous);
         }
 
+        /// <summary>
+        /// Set the cancellation of the current tool call for the current async flow until the returned scope is disposed.
+        /// </summary>
+        /// <param name="token">The transport's cancellation for this call.</param>
+        /// <returns>A scope that restores the previous token when disposed.</returns>
+        public static IDisposable BeginCall(CancellationToken token)
+        {
+            CancellationToken previous = _CallToken.Value;
+            _CallToken.Value = token;
+            return new CallScope(previous);
+        }
+
         #endregion
 
         #region Private-Types
+
+        private sealed class CallScope : IDisposable
+        {
+            private readonly CancellationToken _Previous;
+            private bool _Disposed;
+
+            public CallScope(CancellationToken previous)
+            {
+                _Previous = previous;
+            }
+
+            public void Dispose()
+            {
+                if (_Disposed) return;
+                _Disposed = true;
+                _CallToken.Value = _Previous;
+            }
+        }
 
         private sealed class Scope : IDisposable
         {

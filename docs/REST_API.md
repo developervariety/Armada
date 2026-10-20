@@ -2032,6 +2032,52 @@ snapshot stored on the mission, then a live worktree diff. When none exists the 
 
 ---
 
+#### GET /api/v1/missions/{id}/change-summary
+
+Lists every path one mission stage committed, with its status, by comparing the stage's recorded start commit with its
+recorded final commit in the vessel's bare repository. It needs no dock, and it is not a diff against the current target
+branch. REST and MCP `armada_mission_change_summary` read it through one reader; the MCP section in `docs/MCP_API.md`
+states the start-commit evidence, the caller rule, every `Reason` value and the bounds. A mission session token reads
+only its own mission, whatever `{id}` names.
+
+**Path Parameters:**
+| Parameter | Description |
+|---|---|
+| `id` | Mission ID (`msn_` prefix) |
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `maxPaths` | integer | 1000 | Most paths to list (maximum 5000) |
+
+**Response:** `200 OK` - a [MissionChangeSummary](#missionchangesummary). An unavailable summary is still `200` with
+`Available: false` and a named `Reason`.
+
+```json
+{
+  "MissionId": "msn_abc123",
+  "VesselId": "vsl_abc123",
+  "Available": true,
+  "Complete": true,
+  "Reason": null,
+  "StartCommit": "5f1c0a3e9b7d4c2a1e8f6b0d3c9a7e5f1b2d4c6a",
+  "StartCommitSource": "dock_anchor_snapshot",
+  "FinalCommit": "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b",
+  "Paths": [
+    { "Status": "Modified", "Path": "src/auth.ts", "PreviousPath": null },
+    { "Status": "Renamed", "Path": "src/session/token.ts", "PreviousPath": "src/token.ts" }
+  ],
+  "PathCount": 2,
+  "TotalPathCount": 2,
+  "MaxPaths": 1000
+}
+```
+
+**Errors:** `400` - `maxPaths` is not an integer; `404` - Mission not found (the body is the summary with
+`Reason: mission_not_found`)
+
+---
+
 #### GET /api/v1/missions/{id}/log
 
 Returns the session log (captured stdout/stderr) for a mission. Log files are written to disk when a captain executes a mission. Supports pagination via query parameters. When the canonical log is empty or absent, the newest non-empty sidecar log (`<id>.*.log`) is read. REST, WebSocket `get_mission_log` and MCP `armada_get_mission_log` read the page through one reader: runtime noise is filtered, a negative offset reads as 0, the line count is at least 1, and secret-shaped values are redacted.
@@ -5277,6 +5323,30 @@ Response from `GET /api/v1/missions/{id}/diff`.
 
 ---
 
+#### MissionChangeSummary
+
+Response from `GET /api/v1/missions/{id}/change-summary` and MCP `armada_mission_change_summary`.
+
+| Field | Type | Description |
+|---|---|---|
+| `MissionId` | string | Mission the summary describes |
+| `VesselId` | string? | The mission's vessel |
+| `Available` | bool | True when the two commits were compared; false never means nothing changed |
+| `Complete` | bool | True when `Paths` holds every changed path |
+| `Reason` | string? | Why the summary is unavailable or incomplete (`path_limit`); null when available and complete |
+| `Message` | string? | Short explanation of `Reason` |
+| `StartCommit` | string? | Full id of the commit the stage started from, when recorded |
+| `StartCommitSource` | string? | `dock_anchor_snapshot`, `dock_start_record` or `start_ref_commit` |
+| `FinalCommit` | string? | Full id of the stage's recorded final commit |
+| `Paths` | array | Each entry: `Status` (`Added`, `Modified`, `Deleted`, `Renamed`, `TypeChanged`), `Path`, `PreviousPath` (rename only) |
+| `PathCount` | int | Number of entries in `Paths` |
+| `TotalPathCount` | int? | Number of paths that changed, when compared |
+| `MaxPaths` | int | Path limit applied |
+| `CallsUsed` | int? | Calls made by the mission credential, when the caller holds one |
+| `Warnings` | array\<string\> | How to read the answer |
+
+---
+
 #### MissionLog
 
 Response from `GET /api/v1/missions/{id}/log`.
@@ -5440,6 +5510,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 101 | POST | `/api/v1/vessels/{id}/branches/push` | Push a landing-repository branch to origin without force (tenant administrator) | Yes |
 | 102 | POST | `/api/v1/vessels/{id}/branches/merge` | Fast-forward or merge-commit landing-repository branches (tenant administrator) | Yes |
 | 103 | POST | `/api/v1/merge-queue/{id}/cancel` | Cancel an active merge entry; a finished entry is refused | Yes |
+| 104 | GET | `/api/v1/missions/{id}/change-summary` | Paths one mission stage committed, from its recorded commit pair, with no dock | Yes |
 
 This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
 

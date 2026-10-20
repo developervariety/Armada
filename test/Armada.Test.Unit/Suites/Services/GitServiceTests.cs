@@ -353,6 +353,111 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ReadChangedPathStatusesBetweenCommitsAsync matches git for added, modified, deleted, renamed, non-ASCII and case-distinct paths in a bare repository", async () =>
+            {
+                GitService git = CreateService();
+                using (CommitPairFixture fixture = await CommitPairFixture.CreateAsync().ConfigureAwait(false))
+                {
+                    ChangedPathStatusRead read = await git.ReadChangedPathStatusesBetweenCommitsAsync(
+                        fixture.BarePath, fixture.BaseCommit, fixture.StageCommit, 100, TimeSpan.FromSeconds(30), 1024 * 1024).ConfigureAwait(false);
+
+                    AssertTrue(read.Available, "a comparison of two present commits is available: " + read.FailureCode + " " + read.Message);
+                    AssertTrue(read.Complete, "five paths fit under a limit of one hundred");
+                    AssertEqual(5, read.TotalCount ?? -1, "the stage changed five paths");
+                    HashSet<string> actual = new HashSet<string>(
+                        read.Entries.Select(entry => entry.Status + "|" + (entry.PreviousPath ?? "") + "|" + entry.Path), StringComparer.Ordinal);
+                    HashSet<string> expected = new HashSet<string>(StringComparer.Ordinal)
+                    {
+                        "Added||" + CommitPairFixture.UnicodePath,
+                        "Added||" + CommitPairFixture.CaseDistinctPath,
+                        "Modified||keep.txt",
+                        "Deleted||remove.txt",
+                        "Renamed|old/name.txt|new/name.txt"
+                    };
+                    AssertTrue(expected.SetEquals(actual), "statuses and paths match the stage commit: " + String.Join(", ", actual));
+                    AssertFalse(read.Entries.Any(entry => String.Equals(entry.Path, "Readme.md", StringComparison.Ordinal)),
+                        "the unchanged upper-case path is not reported for its lower-case sibling");
+
+                    // Cross-check against git's own listing with rename detection off: a rename is its old and new path.
+                    HashSet<string> listedByGit = await fixture.GitChangedPathsAsync(fixture.BaseCommit, fixture.StageCommit).ConfigureAwait(false);
+                    HashSet<string> listedByRead = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (ChangedPathEntry entry in read.Entries)
+                    {
+                        listedByRead.Add(entry.Path);
+                        if (entry.PreviousPath != null) listedByRead.Add(entry.PreviousPath);
+                    }
+                    AssertTrue(listedByGit.SetEquals(listedByRead), "every path git lists is reported, byte for byte: git=" + String.Join(", ", listedByGit));
+
+                    ChangedPathStatusRead same = await git.ReadChangedPathStatusesBetweenCommitsAsync(
+                        fixture.BarePath, fixture.StageCommit, fixture.StageCommit, 100, TimeSpan.FromSeconds(30), 1024 * 1024).ConfigureAwait(false);
+                    AssertTrue(same.Available && same.Complete && same.Entries.Count == 0, "one commit compared with itself is a verified empty change");
+                }
+            });
+
+            await RunTest("ReadChangedPathStatusesBetweenCommitsAsync names a missing commit, a ref name, a non-repository, output overflow and path overflow, and propagates cancellation", async () =>
+            {
+                GitService git = CreateService();
+                using (CommitPairFixture fixture = await CommitPairFixture.CreateAsync().ConfigureAwait(false))
+                {
+                    TimeSpan timeout = TimeSpan.FromSeconds(30);
+                    string absent = new string('1', 40);
+
+                    ChangedPathStatusRead missingStart = await git.ReadChangedPathStatusesBetweenCommitsAsync(fixture.BarePath, absent, fixture.StageCommit, 100, timeout, 1024 * 1024).ConfigureAwait(false);
+                    AssertFalse(missingStart.Available, "a missing start commit is never an empty change");
+                    AssertEqual(ChangedPathStatusRead.StartCommitMissingCode, missingStart.FailureCode);
+                    AssertEqual(0, missingStart.Entries.Count);
+
+                    ChangedPathStatusRead missingFinal = await git.ReadChangedPathStatusesBetweenCommitsAsync(fixture.BarePath, fixture.BaseCommit, absent, 100, timeout, 1024 * 1024).ConfigureAwait(false);
+                    AssertEqual(ChangedPathStatusRead.FinalCommitMissingCode, missingFinal.FailureCode);
+
+                    ChangedPathStatusRead byRef = await git.ReadChangedPathStatusesBetweenCommitsAsync(fixture.BarePath, fixture.BaseCommit, "main", 100, timeout, 1024 * 1024).ConfigureAwait(false);
+                    AssertEqual(ChangedPathStatusRead.InvalidCommitCode, byRef.FailureCode, "a branch name is refused, so a moving ref is never compared");
+
+                    string notARepository = Path.Combine(fixture.Root, "not-a-repository");
+                    Directory.CreateDirectory(notARepository);
+                    ChangedPathStatusRead noRepository = await git.ReadChangedPathStatusesBetweenCommitsAsync(notARepository, fixture.BaseCommit, fixture.StageCommit, 100, timeout, 1024 * 1024).ConfigureAwait(false);
+                    AssertFalse(noRepository.Available, "a path that holds no repository is unavailable");
+                    AssertEqual(ChangedPathStatusRead.GitFailedCode, noRepository.FailureCode);
+
+                    ChangedPathStatusRead overflow = await git.ReadChangedPathStatusesBetweenCommitsAsync(fixture.BarePath, fixture.StageCommit, fixture.BulkCommit, 100, timeout, 1024).ConfigureAwait(false);
+                    AssertFalse(overflow.Available, "output past the limit returns no partial list");
+                    AssertEqual(ChangedPathStatusRead.OutputLimitCode, overflow.FailureCode);
+
+                    ChangedPathStatusRead whole = await git.ReadChangedPathStatusesBetweenCommitsAsync(fixture.BarePath, fixture.StageCommit, fixture.BulkCommit, 100, timeout, 1024 * 1024).ConfigureAwait(false);
+                    AssertTrue(whole.Available && whole.Complete, "the same comparison under a larger output limit is read whole");
+                    AssertEqual(CommitPairFixture.BulkFileCount, whole.Entries.Count);
+
+                    ChangedPathStatusRead limited = await git.ReadChangedPathStatusesBetweenCommitsAsync(fixture.BarePath, fixture.StageCommit, fixture.BulkCommit, 7, timeout, 1024 * 1024).ConfigureAwait(false);
+                    AssertTrue(limited.Available, "a path overflow still answers");
+                    AssertFalse(limited.Complete, "a path overflow is incomplete, never complete");
+                    AssertEqual(ChangedPathStatusRead.PathLimitCode, limited.IncompleteReason);
+                    AssertEqual(7, limited.Entries.Count);
+                    AssertEqual(CommitPairFixture.BulkFileCount, limited.TotalCount ?? -1, "the total is reported with the truncated list");
+
+                    using (CancellationTokenSource cancellation = new CancellationTokenSource())
+                    {
+                        cancellation.Cancel();
+                        await AssertThrowsAsync<OperationCanceledException>(() =>
+                            git.ReadChangedPathStatusesBetweenCommitsAsync(fixture.BarePath, fixture.BaseCommit, fixture.StageCommit, 100, timeout, 1024 * 1024, cancellation.Token),
+                            "the caller's cancellation propagates");
+                    }
+                }
+            });
+
+            await RunTest("A commit-pair git process that times out or overflows is named, and a cancelled one propagates", () =>
+            {
+                ChangedPathStatusRead? timedOut = GitService.ClassifyCommitPairProcess(new BoundedProcessResult { TimedOut = true }, "comparison");
+                AssertEqual(ChangedPathStatusRead.TimeoutCode, timedOut?.FailureCode, "a process stopped at its deadline is a timeout");
+                ChangedPathStatusRead? truncated = GitService.ClassifyCommitPairProcess(new BoundedProcessResult { ExitCode = 0, StandardOutputTruncated = true }, "comparison");
+                AssertEqual(ChangedPathStatusRead.OutputLimitCode, truncated?.FailureCode, "truncated output is never parsed as a list");
+                AssertNull(GitService.ClassifyCommitPairProcess(new BoundedProcessResult { ExitCode = 0 }, "comparison"), "a clean exit is not a failure");
+                bool threw = false;
+                try { GitService.ClassifyCommitPairProcess(new BoundedProcessResult { Cancelled = true }, "comparison"); }
+                catch (OperationCanceledException) { threw = true; }
+                AssertTrue(threw, "a cancelled process is not reported as a failure");
+                return Task.CompletedTask;
+            });
+
             await RunTest("GetCommitTimeUtcAsync reads a bare repository tip as UTC and returns null when it cannot resolve one", async () =>
             {
                 GitService git = CreateService();
