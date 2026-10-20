@@ -3,7 +3,8 @@ name: ci
 # The quick smoke test for every push and pull request: one Linux runner, a warning-free build, the fast unit suites
 # (Models, Client, Metrics, Database on SQLite, Runtimes; about a minute), and a check that the committed dashboard
 # dist/ matches its source. The slow suites (Services, E2E, TUI), the other operating systems and net8.0, the
-# dashboard and mobile tests, and the parity, install, and security checks run only on demand (full.yml,
+# targeted pipeline contract/routing regressions also run on every push. Other service suites, dashboard/mobile
+# tests, and the parity, install, and security checks run only on demand (full.yml,
 # install-verify.yml, db-parity.yml, security.yml). Nothing runs on a schedule.
 on:
   push:
@@ -51,6 +52,9 @@ jobs:
 
       - name: Smoke tests
         run: dotnet run --project src/Test.Automated -c Release --no-build --framework net10.0 -- --suites Models,Client,Metrics,Database,Runtimes
+
+      - name: Pipeline contract and routing regressions
+        run: dotnet run --project src/Test.Automated -c Release --no-build --framework net10.0 -- --suites Services.ArchitectPlanParser,Services.PromptTemplateService,Services.MissionPrompt,Services.MultiRuntimeFlow,Services.CaptainRouting,Services.PipelineDispatch
 
   dashboard-dist:
     runs-on: ubuntu-latest
