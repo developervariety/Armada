@@ -41,6 +41,14 @@ namespace Armada.Runtimes
             if (runtime == null) throw new ArgumentNullException(nameof(runtime));
             bool approve = effective == CliPermissionPolicyEnum.ApproveInArmada;
 
+            if (runtime is CodexRuntime codex)
+            {
+                // full-auto still uses workspace-write on Unix. An explicitly resolved
+                // Bypass policy must use the actual bypass flag, including on Harbors.
+                codex.ApprovalMode = effective == CliPermissionPolicyEnum.Bypass ? "dangerous" : "full-auto";
+                return false; // Codex has no Armada permission prompt hook.
+            }
+
             if (runtime is ClaudeCodeRuntime claude)
             {
                 claude.PermissionPromptTool = approve ? CliPermissionPolicyResolver.ClaudePromptToolName : null;

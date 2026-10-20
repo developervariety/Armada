@@ -297,9 +297,12 @@ namespace Test.Shared.Suites.Services
                 List<string> codexRefuse = codex.Args(refuse);
                 AssertTrue(codexRefuse.Contains("--sandbox") && codexRefuse.Contains("workspace-write"), "Codex Refuse sandboxes");
                 AssertFalse(codexRefuse.Contains("--dangerously-bypass-approvals-and-sandbox"));
-                codex.ApprovalMode = "dangerous";
-                AssertTrue(codex.Args(bypass).Contains("--dangerously-bypass-approvals-and-sandbox"), "Codex Bypass (dangerous mode)");
+                AssertFalse(CliPermissionLaunch.Apply(codex, CliPermissionPolicyEnum.Bypass, 600), "Bypass has no prompt hook");
+                AssertTrue(codex.Args(bypass).Contains("--dangerously-bypass-approvals-and-sandbox"), "Resolved Codex Bypass must not retain the workspace sandbox");
                 AssertFalse(codex.Args(refuse).Contains("--dangerously-bypass-approvals-and-sandbox"), "Refuse never bypasses, whatever the mode");
+                CliPermissionLaunch.Apply(codex, CliPermissionPolicyEnum.Refuse, 600);
+                AssertEqual("full-auto", codex.ApprovalMode, "reusing a runtime clears a prior bypass mode");
+                AssertTrue(codex.Args(refuse).Contains("workspace-write"), "Refuse stays sandboxed");
 
                 InspectableGemini gemini = new InspectableGemini(Logging());
                 AssertTrue(gemini.Args(refuse).Contains("auto_edit"), "Gemini Refuse is auto_edit");

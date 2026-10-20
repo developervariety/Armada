@@ -240,6 +240,32 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(0, client.LiveJobs().Count, "nothing live after the exit");
             }));
 
+            cases.Add(CaseAsync("codex_resolved_policy_flags", "Harbor Codex launches honor resolved Bypass while Refuse and legacy launches retain their sandbox", TestTags.Process, async () =>
+            {
+                string root = TestTemp.NewDirectory("harbor-codex-policy");
+                string shim = Path.Combine(root, OperatingSystem.IsWindows() ? "codex.cmd" : "codex");
+                File.WriteAllText(shim, OperatingSystem.IsWindows() ? "@echo off\r\necho %*\r\n" : "#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(shim, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                LoggingModule logging = CreateLogging();
+                AgentRuntimeFactory factory = new AgentRuntimeFactory(logging);
+                factory.Override(AgentRuntimeEnum.Codex, () => new CodexRuntime(logging) { ExecutablePath = shim });
+                LocalHarborJobRunner runner = new LocalHarborJobRunner(logging, factory, Path.Combine(root, "scratch"));
+                foreach (CliPermissionPolicyEnum? policy in new CliPermissionPolicyEnum?[] { CliPermissionPolicyEnum.Bypass, CliPermissionPolicyEnum.Refuse, null })
+                {
+                    List<string> output = new List<string>();
+                    TaskCompletionSource<int> exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    HarborLaunchRequest request = new HarborLaunchRequest { JobId = Guid.NewGuid().ToString("N"), Runtime = "Codex", WorkingDirectory = root,
+                        Prompt = "test", AutoApprove = policy != CliPermissionPolicyEnum.Refuse, CliPermissionPolicy = policy };
+                    await runner.StartAsync(request, null, _ => { }, (_, line) => { lock (output) output.Add(line); }, code => exited.TrySetResult(code), CancellationToken.None).ConfigureAwait(false);
+                    AssertTrue(await Task.WhenAny(exited.Task, Task.Delay(10000)).ConfigureAwait(false) == exited.Task, "shim must exit");
+                    string args;
+                    lock (output) args = String.Join(" ", output);
+                    bool bypass = policy == CliPermissionPolicyEnum.Bypass || (!policy.HasValue && OperatingSystem.IsWindows());
+                    AssertEqual(bypass, args.Contains("--dangerously-bypass-approvals-and-sandbox", StringComparison.Ordinal), "policy " + policy + ": " + args);
+                    if (!bypass) AssertContains("workspace-write", args);
+                }
+            }));
+
             cases.Add(CaseAsync("job_runner_keeps_job_output_on_this_machine", "A job's output (stderr marked) and exit code are written to its log on the Harbor's machine", TestTags.Process, async () =>
             {
                 string root = TestTemp.NewDirectory("harbor-app-joblog");

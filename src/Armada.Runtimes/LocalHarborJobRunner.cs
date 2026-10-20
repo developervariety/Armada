@@ -319,6 +319,9 @@ namespace Armada.Runtimes
                 jobLog?.WriteNote(note);
             }
 
+            if (request.CliPermissionPolicy.HasValue && request.CliPermissionPolicy != Armada.Core.Enums.CliPermissionPolicyEnum.ApproveInArmada)
+                CliPermissionPromptSetup.Configure(runtime, request.CliPermissionPolicy.Value, request.PermissionPromptTimeoutSeconds ?? 600);
+
             try
             {
                 await runtime.StartAsync(

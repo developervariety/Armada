@@ -588,3 +588,11 @@ ARMADA_MCP_SIMULATION=http://127.0.0.1:4918/mcp dotnet run --project src/Test.Au
 
 This exercises the actual HTTP client against expired sessions, repeated expiry, and
 permission rejection. It does not require production credentials.
+
+### Codex CLI permissions
+
+Codex launches with a resolved **Bypass** CLI tool policy use its actual approval-and-sandbox
+bypass flag on both Admiral and Harbor. Its legacy `full-auto` default retains the workspace
+sandbox and is not equivalent to Bypass on Unix. Refuse and unsupported approval hooks remain
+sandboxed. This honors the existing resolved policy; it does not change stored captain,
+vessel, or server permission settings.
