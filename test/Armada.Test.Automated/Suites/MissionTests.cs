@@ -437,7 +437,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("StatusTransition_PendingToAssigned_Succeeds", async () =>
             {
                 string vesselId = await SetupVesselAsync();
-                Mission created = await CreateMissionAsync(vesselId, "PendToAssign");
+                Mission created = await CreateHeldMissionAsync(vesselId, "PendToAssign");
                 string missionId = created.Id;
 
                 HttpResponseMessage response = await TransitionAsync(missionId, "Assigned");
@@ -1394,11 +1394,11 @@ namespace Armada.Test.Automated.Suites
             await RunTest("Enumerate_WithStatusFilter", async () =>
             {
                 string vesselId = await SetupVesselAsync();
-                Mission m1 = await CreateMissionAsync(vesselId, "EnumStatus Assigned");
+                Mission m1 = await CreateHeldMissionAsync(vesselId, "EnumStatus Assigned");
                 string m1Id = m1.Id;
                 await TransitionAndAssertAsync(m1Id, "Assigned");
 
-                await CreateMissionAsync(vesselId, "EnumStatus Pending");
+                await CreateHeldMissionAsync(vesselId, "EnumStatus Pending");
 
                 StringContent content = JsonHelper.ToJsonContent(new { Status = "Assigned" });
                 HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/missions/enumerate", content);
@@ -1516,13 +1516,13 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await CreateFleetAsync();
                 string vessel1 = await CreateVesselAsync(fleetId);
 
-                Mission m1 = await CreateMissionAsync(vessel1, "Combined Assigned");
+                Mission m1 = await CreateHeldMissionAsync(vessel1, "Combined Assigned");
                 string m1Id = m1.Id;
                 Mission transitionResult = await TransitionAndAssertAsync(m1Id, "Assigned");
                 WriteCombinedFilterObservation("transition-response", transitionResult);
                 _ = await ReadCombinedFilterMissionAsync(m1Id, "first-after-transition");
 
-                Mission m2 = await CreateMissionAsync(vessel1, "Combined Pending");
+                Mission m2 = await CreateHeldMissionAsync(vessel1, "Combined Pending");
                 WriteCombinedFilterObservation("second-create-response", m2);
                 Mission firstBeforeEnumeration = await ReadCombinedFilterMissionAsync(m1Id, "first-before-enumeration");
                 Mission secondBeforeEnumeration = await ReadCombinedFilterMissionAsync(m2.Id, "second-before-enumeration");
@@ -1793,6 +1793,38 @@ namespace Armada.Test.Automated.Suites
 
             if (String.IsNullOrEmpty(mission.Id))
                 throw new Exception("CreateMissionAsync failed (" + (int)resp.StatusCode + "): " + body);
+            _CreatedMissionIds.Add(mission.Id);
+            return mission;
+        }
+
+        /// <summary>
+        /// Create a mission on the vessel that stays Pending however many captains are idle.
+        /// </summary>
+        /// <remarks>
+        /// A mission created on a vessel is assigned at once when a captain is idle, and the per-case cleanup
+        /// recalls captains, so a case that needs a Pending mission cannot rely on every captain being busy. The
+        /// mission depends on a predecessor that has no vessel, which is never assigned, so the assignment pass
+        /// holds the mission as waiting on an unfinished predecessor. An operator transition is not affected by
+        /// that hold.
+        /// </remarks>
+        private async Task<Mission> CreateHeldMissionAsync(string vesselId, string title)
+        {
+            Mission predecessor = await PostMissionAsync(new { Title = title + " predecessor", Description = "" });
+            Mission held = await PostMissionAsync(new { Title = title, VesselId = vesselId, Description = "", DependsOnMissionId = predecessor.Id });
+            AssertEqual(MissionStatusEnum.Pending, held.Status, "mission " + held.Id + " waiting on predecessor " + predecessor.Id + " is held Pending");
+            return held;
+        }
+
+        private async Task<Mission> PostMissionAsync(object requestBody)
+        {
+            StringContent content = JsonHelper.ToJsonContent(requestBody);
+            HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/missions", content);
+            string body = await resp.Content.ReadAsStringAsync();
+            AssertEqual(HttpStatusCode.Created, resp.StatusCode, body);
+            MissionCreateResponse wrapper = JsonHelper.Deserialize<MissionCreateResponse>(body);
+            Mission mission = wrapper.Mission ?? JsonHelper.Deserialize<Mission>(body);
+            if (String.IsNullOrEmpty(mission.Id))
+                throw new Exception("PostMissionAsync failed (" + (int)resp.StatusCode + "): " + body);
             _CreatedMissionIds.Add(mission.Id);
             return mission;
         }
