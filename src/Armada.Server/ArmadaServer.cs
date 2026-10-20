@@ -454,6 +454,7 @@ namespace Armada.Server
                 _Database, _Admiral, _IncidentService, _RunbookService, _Settings, _Logging,
                 _MergeQueue, _Git, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _ProviderProgress, _CheckRunService,
                 null, _DispatchHold, _TerminalMarkers);
+            _AutonomousRecovery.ContextPackStager = new DispatchContextPackStager(_Database, _CodeIndex, _Settings, _Logging);
 
             // Gated typed-decision adapters (failure_cause, refusal, runtime_failure, review_substance,
             // change_substance, capacity_escalation). Each consumer holds an adapter over the shared

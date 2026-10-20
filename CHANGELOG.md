@@ -245,6 +245,17 @@ upstream integrations and excludes changes already present at that baseline.
   sentence when that sentence cites nothing else, and it is matched as a whole
   word. A range that no longer holds its symbol is listed under "Cited line
   ranges to recheck" with the symbol's current line.
+- The autonomous objective scheduler and autonomous rescues stage each
+  mission's own context pack through the same seam as operator dispatch; a
+  rescue's later stages read the Worker's pack. A pack holds the files the
+  mission brief names under `## Assigned files` ahead of ranked evidence, keeps
+  ranked evidence only when it touches an identifier or file the mission names,
+  and holds one `No relevant indexed chunk:` line when nothing does. The header
+  names the start ref and states in a `Commit check:` line whether the indexed
+  commit is the start commit; an assigned file changed between them is read
+  locally at the start commit. A mission whose pack is not staged gains a
+  `Context pack: not staged. Reason: ...` description line and a
+  `code_context.not_staged` event.
 - Autonomous recovery dispatches no rescue in the producer for a
   definition-of-done `TestFail` on a declared consumer's test suite
   (`consumer_tests_failed: <consumer>`). The gate runs a consumer's suite only

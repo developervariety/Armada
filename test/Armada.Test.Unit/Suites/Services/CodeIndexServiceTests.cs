@@ -236,6 +236,142 @@ namespace Armada.Test.Unit.Suites.Services
               }
             });
 
+            await RunTest("BuildContextPackAsync puts the files the mission names ahead of ranked evidence", async () =>
+            {
+                TestRepository repository = await CreateRepositoryWithFilesAsync(new Dictionary<string, string>
+                {
+                    ["docs/guide.md"] = "# Guide\n\nRepair the widget parser. The widget parser repairs widget input. Widget parser repair notes for every widget.\n",
+                    ["src/Widgets/WidgetParser.cs"] = "namespace Sample\n{\n    public class WidgetParser\n    {\n        public string Parse() => \"assigned file marker\";\n    }\n}\n"
+                }).ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "Repair the widget parser. The widget parser repairs widget input. Compare with ../ReferenceLib/src/Codec.cs.",
+                            AssignedPaths = new List<string> { "src/Widgets/WidgetParser.cs" },
+                            TokenBudget = 1200,
+                            MaxResults = 1
+                        }).ConfigureAwait(false);
+
+                        string body = File.ReadAllText(response.MaterializedPath);
+                        AssertContains("Assigned files: src/Widgets/WidgetParser.cs (1 found, 0 not found).", body, "The header names the assigned manifest.");
+                        int assignedAt = body.IndexOf("## Assigned files", StringComparison.Ordinal);
+                        AssertTrue(assignedAt >= 0, "The pack has an assigned-files section.");
+                        int markerAt = body.IndexOf("assigned file marker", StringComparison.Ordinal);
+                        AssertTrue(markerAt > assignedAt, "The assigned file's content is in the assigned-files section.");
+                        int evidenceAt = body.IndexOf("## Related evidence", StringComparison.Ordinal);
+                        AssertTrue(evidenceAt < 0 || evidenceAt > markerAt, "Ranked evidence comes after the assigned files.");
+                        AssertTrue(response.Metrics.IncludedFiles.Contains("src/Widgets/WidgetParser.cs"), "Metrics list the assigned file.");
+                        AssertContains("Sibling inputs not in this pack (read them in the sibling checkout): ../ReferenceLib/src/Codec.cs.", body,
+                            "The header names the sibling input the single-vessel index does not hold.");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync states in one line that no indexed chunk is relevant", async () =>
+            {
+                TestRepository repository = await CreateRepositoryWithFilesAsync(new Dictionary<string, string>
+                {
+                    ["docs/audit.md"] = "# Audit\n\nThe ordering of reports and the eviction notes are reviewed every quarter.\n",
+                    ["src/Ledger.cs"] = "namespace Sample\n{\n    public class Ledger\n    {\n        public int Count() => 0;\n    }\n}\n"
+                }).ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "Fix the GadgetRouterCache eviction and the ordering of reports",
+                            FastPackOnly = true,
+                            TokenBudget = 1200,
+                            MaxResults = 4
+                        }).ConfigureAwait(false);
+
+                        string body = File.ReadAllText(response.MaterializedPath);
+                        AssertContains("No relevant indexed chunk: nothing in the index at commit " + repository.CommitSha, body,
+                            "The pack says in one line that nothing relevant is indexed.");
+                        AssertFalse(body.Contains("reviewed every quarter", StringComparison.Ordinal), "Unrelated prose is not staged.");
+                        AssertFalse(body.Contains("## Evidence", StringComparison.Ordinal), "No evidence section is staged.");
+                        AssertEqual(0, response.Results.Count, "No result is reported as relevant.");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync header states when the indexed commit differs from the start commit", async () =>
+            {
+                TestRepository repository = await CreateRepositoryWithFilesAsync(new Dictionary<string, string>
+                {
+                    ["src/Widgets/WidgetParser.cs"] = "namespace Sample\n{\n    public class WidgetParser\n    {\n        public string Parse() => \"indexed version marker\";\n    }\n}\n"
+                }).ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        await AppendCommitAsync(
+                            repository.Path,
+                            "src/Widgets/WidgetParser.cs",
+                            "namespace Sample\n{\n    public class WidgetParser\n    {\n        public string Parse() => \"start version marker\";\n    }\n}\n",
+                            "Change the parser after indexing").ConfigureAwait(false);
+                        string startSha = (await RunGitAsync(repository.Path, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "Repair the parser in src/Widgets/WidgetParser.cs",
+                            StartRef = startSha,
+                            FastPackOnly = true,
+                            TokenBudget = 1200,
+                            MaxResults = 4
+                        }).ConfigureAwait(false);
+
+                        string body = File.ReadAllText(response.MaterializedPath);
+                        AssertContains("Start ref: " + startSha + " (" + startSha + ")", body, "The header names the start ref and its commit.");
+                        AssertContains("the indexed commit " + repository.CommitSha + " differs from the start commit " + startSha, body,
+                            "The header states the commit mismatch.");
+                        AssertContains("src/Widgets/WidgetParser.cs (read at the start commit)", body, "The changed assigned file is read at the start commit.");
+                        AssertContains("start version marker", body, "The pack holds the start-commit content.");
+                        AssertFalse(body.Contains("indexed version marker", StringComparison.Ordinal), "The out-of-date indexed content is not staged.");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("SearchAsync_UseSemanticSearchFalse_MatchesV1LexicalScoresForFixedCorpus", async () =>
             {
                 string dataRoot = NewTempDirectory("armada-code-index-data-");

@@ -1388,6 +1388,19 @@ namespace Armada.Server
             }
             if (!StageSkipRequest.HasStages(stageSkip)) stageSkip = null;
 
+            // The scheduler stages each mission's context pack through the same seam as operator dispatch.
+            // A pack that cannot be built never holds the objective back: the mission records why instead.
+            DispatchContextPackStager packStager = new DispatchContextPackStager(_Database, _CodeIndex, _Settings, _Logging);
+            await packStager.PrepareAsync(new DispatchContextPackRequest
+            {
+                VesselId = vesselId,
+                Missions = missionDescriptions,
+                Source = "scheduler",
+                RefuseOnFailure = false,
+                TenantId = objective.TenantId,
+                UserId = objective.UserId
+            }, token).ConfigureAwait(false);
+
             AuthContext objectiveAuth = BuildAuth(objective);
             ObjectiveDispatchAdmission admission;
             try

@@ -324,17 +324,30 @@ Armada owns a repository code index for dispatch-time retrieval:
 - `armada_fleet_code_search` and `armada_fleet_context_pack` retrieve across a fleet.
 - Graph tools search symbols, callers, callees, impact, and affected tests from sidecar files.
 - Hybrid search can combine lexical and semantic ranking when semantic search is enabled. Semantic embeddings use a Voyage AI client (`voyage-code-3`); supply the embedding key from the environment to enable live indexing.
-- Context packs can be attached automatically during MCP dispatch and architect decomposition.
-  Dispatch builds each mission's pack for that mission's own goal (its code-context query, or its
-  title and description). When the full goal pack fails or times out, dispatch stages a lexical-only
-  pack for the same goal, which reads only the local index (no query embedding, graph expansion or
-  summary), and logs `lexical_goal_pack` with the reason. The vessel's baseline pack, cached for the
-  generic goal "codebase architecture key types and responsibilities", is never staged for a mission.
-  Every pack header names its goal, the indexed commit and the covered roots, and says that sibling
-  repositories, mounted evidence trees and changes after the indexed commit are not in the pack; a
-  summarized pack keeps that header above the summary. The captain brief tells the captain to record a pack that misses files in the
-  report's `Pack:` line, not as a papercut.
-- Search and context packs never create an index. On a vessel that has never been indexed, vessel search returns `Available: false` with `UnavailableReason: not_indexed`, fleet search and fleet packs list the vessel in `NotIndexedVesselIds`, and a context pack stages no file. Nothing from that vessel reaches the embedding provider. An `auto` dispatch then proceeds without code context and logs the reason, even when `codeIndex.requireContextPackWhenEnabled` is set; a `force` dispatch fails and names the reason.
+- Context packs are attached automatically during architect decomposition and on every dispatch
+  path that creates captain work: operator dispatch (REST and MCP), the autonomous objective
+  scheduler, and autonomous rescues (whose later stages read the Worker's pack). Each mission's pack
+  is built for that mission's own goal (its code-context query, or its title and description), with
+  the files its brief names and its start ref. When the full goal pack fails or times out, dispatch
+  stages a lexical-only pack for the same goal, which reads only the local index (no query embedding,
+  graph expansion or summary), and logs `lexical_goal_pack` with the reason. The vessel's baseline
+  pack, cached for the generic goal "codebase architecture key types and responsibilities", is never
+  staged for a mission.
+- A pack puts the files the mission names under `## Assigned files`, ahead of ranked evidence.
+  Ranked evidence follows only when a chunk touches an identifier or file the mission names; when
+  nothing in the index does, the pack holds one `No relevant indexed chunk:` line instead of
+  unrelated prose. Every pack header names its goal, the indexed commit, the start ref and its
+  commit, a `Commit check:` line that states whether the indexed commit is the start commit, the
+  covered roots, the assigned files (found and not found), and any `../` sibling inputs the brief
+  names, which a single-vessel pack does not hold. When the indexed commit differs from the start
+  commit, an assigned file that changed between them is read from the local repository at the start
+  commit (a local `git show`; nothing is embedded or summarized). A summarized pack keeps the header
+  and the assigned files above the summary. The captain brief tells the captain to record a pack
+  that misses files in the report's `Pack:` line, not as a papercut.
+- A mission whose pack is not staged is never skipped in silence: its description gains a
+  `Context pack: not staged. Reason: ...` line that the captain quotes in its `Pack:` line, and a
+  `code_context.not_staged` event records the vessel, the dispatch path and the reason.
+- Search and context packs never create an index. On a vessel that has never been indexed, vessel search returns `Available: false` with `UnavailableReason: not_indexed`, fleet search and fleet packs list the vessel in `NotIndexedVesselIds`, and a context pack stages no file. Nothing from that vessel reaches the embedding provider. An `auto` dispatch then proceeds without code context and records the not-staged reason, even when `codeIndex.requireContextPackWhenEnabled` is set; a `force` dispatch fails and names the reason. The scheduler and rescue paths never refuse for a missing pack; they record the reason.
 - Only an explicit index update (`armada_index_update` or the REST update route) indexes a vessel for the first time. Automatic refresh (after a landing, from the merge queue, from a stale-index dispatch, and from the staleness sweep) refreshes an already-indexed vessel in the background and never indexes a new one.
 - A failed index update reports `Freshness: Error` with `LastError` and keeps the last successfully indexed commit, so the vessel stays enrolled and the staleness sweep still compares it.
 - Index status reports lexical freshness (`Freshness`) and semantic completeness (`EmbeddingState`, `EmbeddedChunkCount`, `MissingEmbeddingCount`, `EmbeddingDimensions`) separately. Vectors belong to one embedding provider (model, endpoint and vector length): a provider change replaces every vector, including those on unchanged files, and an update on the same commit retries chunks whose embedding failed while it reuses the valid vectors.

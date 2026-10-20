@@ -97,6 +97,13 @@ namespace Armada.Server
         /// </summary>
         public TypedFailureCauseAdapter? FailureCauseAdapter { get; set; }
 
+        /// <summary>
+        /// The context pack seam every dispatch path shares. A rescue stages its Worker's pack through it, and
+        /// the rescue's later stages carry the same pack. Set by the server after construction; when null, a
+        /// rescue's Worker description records that no pack was staged and why.
+        /// </summary>
+        public DispatchContextPackStager? ContextPackStager { get; set; }
+
         // Missions whose withheld nudge already produced an event, so a finished captain yields one
         // event rather than one per sweep tick; every withheld nudge is still counted and logged.
         // An entry is dropped once no Working captain holds the mission.
@@ -2124,6 +2131,8 @@ namespace Armada.Server
             if (stagePlan.UnassignableReason != null)
                 throw new UnassignableRescueException(stagePlan.UnassignableReason);
 
+            await StageRescueContextPackAsync(rescue, token).ConfigureAwait(false);
+
             if (!chainReReview)
                 return await _Admiral.DispatchMissionAsync(rescue, token).ConfigureAwait(false);
 
@@ -2441,6 +2450,70 @@ namespace Armada.Server
             return linked;
         }
 
+        /// <summary>
+        /// Stage the rescue Worker's context pack through the shared dispatch seam: built for the rescue's own
+        /// goal, the files its brief names and its start ref. A rescue is never held back for want of a pack;
+        /// when none is staged, the Worker's description says why.
+        /// </summary>
+        private async Task StageRescueContextPackAsync(Mission rescue, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(rescue.VesselId)) return;
+
+            if (ContextPackStager == null)
+            {
+                rescue.Description = DispatchContextPackStager.AppendNotStagedLine(
+                    rescue.Description, "the recovery path has no context pack service");
+                _Logging.Warn(_Header + "rescue " + rescue.Title + " dispatches without a context pack: no context pack service is wired");
+                return;
+            }
+
+            MissionDescription description = new MissionDescription(rescue.Title ?? "", rescue.Description ?? "")
+            {
+                StartFromRef = rescue.StartFromRef,
+                PrestagedFiles = rescue.PrestagedFiles
+            };
+
+            try
+            {
+                await ContextPackStager.PrepareAsync(new DispatchContextPackRequest
+                {
+                    VesselId = rescue.VesselId!,
+                    Missions = new List<MissionDescription> { description },
+                    Source = "rescue",
+                    RefuseOnFailure = false,
+                    TenantId = rescue.TenantId,
+                    UserId = rescue.UserId
+                }, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                description.Description = DispatchContextPackStager.AppendNotStagedLine(
+                    description.Description, "pack preparation failed: " + ex.Message);
+                _Logging.Warn(_Header + "context pack preparation failed for rescue " + rescue.Title + ": " + ex.Message);
+            }
+
+            rescue.Description = description.Description;
+            rescue.PrestagedFiles = description.PrestagedFiles;
+        }
+
+        private static List<PrestagedFile>? CloneContextPackFiles(List<PrestagedFile>? files)
+        {
+            if (files == null || files.Count == 0) return null;
+            List<PrestagedFile> clones = new List<PrestagedFile>();
+            foreach (PrestagedFile file in files)
+            {
+                if (file == null) continue;
+                if (!String.Equals(file.DestPath, DispatchContextPackStager.ContextPackDestPath, StringComparison.Ordinal)) continue;
+                clones.Add(new PrestagedFile(file.SourcePath ?? "", file.DestPath));
+            }
+
+            return clones.Count > 0 ? clones : null;
+        }
+
         // Dispatch the Worker revision rescue as the root of a dedicated rescue voyage, then rebuild
         // every downstream stage from the owning objective's selected pipeline. The standard handoff
         // (MissionService) stamps each downstream stage with the revision branch and assigns it
@@ -2523,16 +2596,19 @@ namespace Armada.Server
                     string? lastMissionInGroup = null;
                     foreach (PipelineStage stage in stageGroup)
                     {
-                        Mission chainedStage = await _Database.Missions.CreateAsync(
-                            BuildChainedRescueStage(
-                                failedMission,
-                                rescueVoyage.Id,
-                                groupDependencyId,
-                                stage,
-                                attemptNumber,
-                                rescuePlaybooks,
-                                owningObjective),
-                            token).ConfigureAwait(false);
+                        Mission chainedDraft = BuildChainedRescueStage(
+                            failedMission,
+                            rescueVoyage.Id,
+                            groupDependencyId,
+                            stage,
+                            attemptNumber,
+                            rescuePlaybooks,
+                            owningObjective);
+
+                        // Every stage of a rescue reads the same pack as its Worker, as every stage of a
+                        // dispatched pipeline does.
+                        chainedDraft.PrestagedFiles = CloneContextPackFiles(workerRescue.PrestagedFiles);
+                        Mission chainedStage = await _Database.Missions.CreateAsync(chainedDraft, token).ConfigureAwait(false);
                         await PersistRescuePlaybookSnapshotsAsync(chainedStage, token).ConfigureAwait(false);
                         lastMissionInGroup = chainedStage.Id;
                         missionCount++;

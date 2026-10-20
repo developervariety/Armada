@@ -116,10 +116,24 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.FromResult(new FleetCodeSearchResponse());
         }
 
+        /// <summary>
+        /// Requests passed to <see cref="BuildContextPackAsync"/>, in call order.
+        /// </summary>
+        public List<ContextPackRequest> ContextPackRequests { get; } = new List<ContextPackRequest>();
+
+        /// <summary>
+        /// Answer to <see cref="BuildContextPackAsync"/>. Null answers an empty response.
+        /// </summary>
+        public ContextPackResponse? PackResponse { get; set; } = null;
+
         /// <inheritdoc />
         public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
         {
-            return Task.FromResult(new ContextPackResponse());
+            lock (_Gate)
+            {
+                ContextPackRequests.Add(request);
+            }
+            return Task.FromResult(PackResponse ?? new ContextPackResponse());
         }
 
         /// <summary>

@@ -35,11 +35,8 @@ namespace Armada.Server
         private readonly ArmadaSettings? _Settings;
         private readonly TypedDispatchStalenessAdapter? _DispatchStalenessAdapter;
 
-        private const string _CodeContextDestPath = "_briefing/context-pack.md";
         private const string _CodeContextModeAuto = "auto";
         private const string _CodeContextModeOff = "off";
-        private const string _CodeContextModeForce = "force";
-        private const int _DefaultCodeContextTokenBudget = 5000;
         #endregion
 
         #region Private-Types
@@ -401,11 +398,12 @@ namespace Armada.Server
                 requestedPipelineName).ConfigureAwait(false);
 
             string? codeContextError = await PrepareDispatchCodeContextAsync(
-                vesselId,
+                dispatchVessel,
                 request.CodeContextMode,
                 request.CodeContextTokenBudget,
                 request.CodeContextMaxResults,
-                missions).ConfigureAwait(false);
+                missions,
+                token).ConfigureAwait(false);
             LogDispatchInfo("dispatch step code_context_prepared elapsedMs=" + dispatchWatch.ElapsedMilliseconds
                 + " deterministic=true");
             if (codeContextError != null) return VoyageDispatchResult.BadRequest(new { Error = codeContextError });
@@ -1064,417 +1062,26 @@ namespace Armada.Server
         }
 
         private async Task<string?> PrepareDispatchCodeContextAsync(
-            string vesselId,
+            Vessel vessel,
             string? topLevelMode,
             int? tokenBudget,
             int? maxResults,
-            List<MissionDescription> missions)
+            List<MissionDescription> missions,
+            CancellationToken token)
         {
-            if (missions == null || missions.Count == 0) return null;
-
-            string dispatchMode;
-            if (!TryNormalizeCodeContextMode(topLevelMode, _CodeContextModeAuto, out dispatchMode))
-                return "invalid codeContextMode: " + topLevelMode + ". Expected auto, off, or force.";
-
-            if (!IsCodeIndexEnabled())
+            DispatchContextPackStager stager = new DispatchContextPackStager(_Database, _CodeIndexService, _Settings, _Logging);
+            return await stager.PrepareAsync(new DispatchContextPackRequest
             {
-                if (String.Equals(dispatchMode, _CodeContextModeForce, StringComparison.Ordinal)
-                    || missions.Any(m => m != null
-                        && String.Equals(m.CodeContextMode?.Trim(), _CodeContextModeForce, StringComparison.OrdinalIgnoreCase)))
-                {
-                    return "code context force requested but code indexing is disabled";
-                }
-
-                LogCodeContextInfo("code context preparation skipped because code indexing is disabled");
-                return null;
-            }
-
-            bool requireContextPackWhenEnabled = _Settings?.CodeIndex?.RequireContextPackWhenEnabled ?? true;
-            bool loggedUnavailable = false;
-            for (int i = 0; i < missions.Count; i++)
-            {
-                MissionDescription mission = missions[i];
-                if (mission == null) continue;
-
-                string mode;
-                if (!TryNormalizeCodeContextMode(mission.CodeContextMode, dispatchMode, out mode))
-                    return "invalid codeContextMode for mission '" + mission.Title + "': " + mission.CodeContextMode + ". Expected auto, off, or force.";
-
-                if (String.Equals(mode, _CodeContextModeOff, StringComparison.Ordinal))
-                    continue;
-
-                string query = BuildMissionCodeContextQuery(mission);
-                if (String.IsNullOrWhiteSpace(query))
-                {
-                    if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
-                        return "code context force requested for mission '" + mission.Title + "' but no query could be built";
-
-                    if (requireContextPackWhenEnabled)
-                        return "code context required for mission '" + mission.Title + "' but no query could be built (provide CodeContextQuery, title, or description)";
-
-                    LogCodeContextWarning("skipping code context for mission '" + mission.Title + "' because no query could be built");
-                    continue;
-                }
-
-                if (_CodeIndexService == null)
-                {
-                    if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
-                        return "code context force requested but code index service is unavailable";
-
-                    if (requireContextPackWhenEnabled)
-                        return "code context required for mission '" + mission.Title + "' but the code index service is unavailable";
-
-                    if (!loggedUnavailable)
-                    {
-                        LogCodeContextWarning("code index service is unavailable; dispatch will continue without auto code context");
-                        loggedUnavailable = true;
-                    }
-                    continue;
-                }
-
-                ContextPackRequest contextRequest = new ContextPackRequest
-                {
-                    VesselId = vesselId,
-                    Goal = query,
-                    TokenBudget = tokenBudget ?? _DefaultCodeContextTokenBudget,
-                    MaxResults = maxResults
-                };
-
-                // The pack is built for this mission's own goal. The vessel's cached baseline pack answers a
-                // generic architecture question for another goal, so it is never staged. When the full goal
-                // pack cannot be built, a lexical-only pack for the same goal is the fallback.
-                try
-                {
-                    Stopwatch totalWatch = Stopwatch.StartNew();
-                    LogCodeContextInfo(
-                        "code context phase start for mission '" + mission.Title + "' vessel " + vesselId
-                        + " mode=" + mode + " timeoutMs=" + ((int)GetCodeContextTimeout().TotalMilliseconds));
-
-                    ContextPackResponse contextPack = await BuildContextPackWithTimeoutAsync(_CodeIndexService, contextRequest)
-                        .ConfigureAwait(false);
-                    totalWatch.Stop();
-                    TimeSpan usedTimeout = GetCodeContextTimeout();
-                    LogCodeContextInfo(
-                        "code context for mission '" + mission.Title + "': goal_pack"
-                        + " totalMs=" + totalWatch.ElapsedMilliseconds
-                        + " searchMs=" + contextPack.Metrics?.SearchElapsedMs
-                        + " summarizerMs=" + contextPack.Metrics?.SummarizerElapsedMs
-                        + " timeoutMs=" + (int)usedTimeout.TotalMilliseconds);
-
-                    // A vessel with no code index has no code context to give, and generating a pack
-                    // never indexes it. Auto (and require-when-enabled) dispatches continue without code
-                    // context and log the reason; force still demands code context.
-                    if (!contextPack.Available)
-                    {
-                        string unavailable = contextPack.UnavailableReason + ": " + contextPack.Message;
-                        if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal))
-                            return "code context force requested for mission '" + mission.Title + "' but no code context is available (" + unavailable + ")";
-
-                        LogCodeContextWarning("code context skipped for mission '" + mission.Title + "': " + unavailable + "; dispatch continues without code context");
-                        continue;
-                    }
-
-                    if (contextPack.PrestagedFiles == null || contextPack.PrestagedFiles.Count == 0)
-                    {
-                        if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)
-                            return "code context generation returned no prestaged files for mission '" + mission.Title + "'";
-
-                        LogCodeContextWarning("code context generation returned no prestaged files for mission '" + mission.Title + "'");
-                        continue;
-                    }
-
-                    MergeGeneratedPrestagedFiles(mission, contextPack.PrestagedFiles);
-                }
-                catch (TimeoutException ex)
-                {
-                    string? lexicalFailure = await TryStageLexicalGoalPackAsync(mission, contextRequest, "the goal pack timed out: " + ex.Message).ConfigureAwait(false);
-                    if (lexicalFailure == null)
-                        continue;
-
-                    // A stalled index/embedding backend must never block dispatch. Force/require
-                    // callers get a specific actionable error; auto callers degrade to no pack.
-                    // Keep the established "code context generation failed" prefix -- it is an error
-                    // contract callers match on -- and append the actionable timeout remedy.
-                    if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)
-                        return "code context generation failed for mission '" + mission.Title + "': " + ex.Message
-                            + "; " + lexicalFailure
-                            + " (raise " + CodeContextTimeouts.TimeoutEnvVar + " or dispatch with codeContextMode=off)";
-
-                    LogCodeContextWarning(
-                        "code context phase end for mission '" + mission.Title + "': DEGRADED to no pack after timeout -- "
-                        + ex.Message + "; dispatch continues");
-                }
-                catch (Exception ex)
-                {
-                    string? lexicalFailure = await TryStageLexicalGoalPackAsync(mission, contextRequest, "the goal pack failed: " + ex.Message).ConfigureAwait(false);
-                    if (lexicalFailure == null)
-                        continue;
-
-                    if (String.Equals(mode, _CodeContextModeForce, StringComparison.Ordinal) || requireContextPackWhenEnabled)
-                        return "code context generation failed for mission '" + mission.Title + "': " + ex.Message + "; " + lexicalFailure;
-
-                    LogCodeContextWarning("code context generation failed for mission '" + mission.Title + "': " + ex.Message);
-                }
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// Stage a lexical-only pack for the mission's own goal when the full goal pack could not be built.
-        /// The lexical pack reads only the local index (no query embedding, graph expansion or summary), so it
-        /// survives a slow or failing embedding or summarizer backend. A pack built for any other goal, such as
-        /// the vessel's cached baseline, is never staged in its place.
-        /// </summary>
-        /// <param name="mission">Mission being prepared.</param>
-        /// <param name="contextRequest">The full goal pack request.</param>
-        /// <param name="reason">Why the full goal pack was not staged.</param>
-        /// <returns>Null when a lexical goal pack was staged; otherwise why it was not.</returns>
-        private async Task<string?> TryStageLexicalGoalPackAsync(MissionDescription mission, ContextPackRequest contextRequest, string reason)
-        {
-            if (_CodeIndexService == null) return "the code index service is unavailable";
-            ContextPackRequest lexicalRequest = new ContextPackRequest
-            {
-                VesselId = contextRequest.VesselId,
-                Goal = contextRequest.Goal,
-                TokenBudget = contextRequest.TokenBudget,
-                MaxResults = contextRequest.MaxResults,
-                FastPackOnly = true,
-                LexicalOnly = true
-            };
-
-            ContextPackResponse lexical;
-            try
-            {
-                lexical = await RunCodeIndexCallWithTimeoutAsync(
-                    "code context lexical goal pack",
-                    cancellationToken => _CodeIndexService.BuildContextPackAsync(lexicalRequest, cancellationToken))
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogCodeContextWarning("code context lexical goal pack for mission '" + mission.Title + "' failed: " + ex.Message);
-                return "the lexical goal pack also failed: " + ex.Message;
-            }
-
-            if (!lexical.Available || lexical.PrestagedFiles == null || lexical.PrestagedFiles.Count == 0)
-                return "the lexical goal pack staged no file";
-
-            LogCodeContextWarning(
-                "code context for mission '" + mission.Title + "': lexical_goal_pack because " + reason
-                + "; the staged pack ranks chunks by the goal's words only");
-            MergeGeneratedPrestagedFiles(mission, lexical.PrestagedFiles);
-            return null;
-        }
-
-        private static async Task<ContextPackResponse> BuildContextPackWithTimeoutAsync(
-            ICodeIndexService codeIndexService,
-            ContextPackRequest contextRequest)
-        {
-            TimeSpan timeout = GetCodeContextTimeout();
-            CancellationTokenSource timeoutCts = new CancellationTokenSource();
-            Task<ContextPackResponse> buildTask;
-
-            try
-            {
-                buildTask = codeIndexService.BuildContextPackAsync(contextRequest, timeoutCts.Token);
-            }
-            catch
-            {
-                timeoutCts.Dispose();
-                throw;
-            }
-
-            Task completed = await Task.WhenAny(buildTask, Task.Delay(timeout)).ConfigureAwait(false);
-            if (completed != buildTask)
-            {
-                try { timeoutCts.Cancel(); }
-                catch (ObjectDisposedException) { }
-
-                _ = buildTask.ContinueWith(
-                    task =>
-                    {
-                        _ = task.Exception;
-                        timeoutCts.Dispose();
-                    },
-                    CancellationToken.None,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
-
-                throw new TimeoutException(
-                    "code context generation exceeded " + timeout.TotalSeconds.ToString("F0") + " seconds");
-            }
-
-            try
-            {
-                return await buildTask.ConfigureAwait(false);
-            }
-            finally
-            {
-                timeoutCts.Dispose();
-            }
-        }
-
-        private static TimeSpan GetCodeContextTimeout()
-        {
-            return CodeContextTimeouts.Resolve(CodeContextTimeouts.DefaultDispatchTimeoutMs);
-        }
-
-        /// <summary>
-        /// Bound an arbitrary code-index call on the dispatch path with the shared code-context
-        /// timeout. Only BuildContextPackAsync was previously time-boxed; the cache-probe, baseline
-        /// warm, and index-status calls ran with no timeout and no token, so a stalled index or
-        /// embedding backend blocked armada_dispatch indefinitely with no voyage and no log line.
-        /// </summary>
-        /// <typeparam name="T">Result type of the bounded operation.</typeparam>
-        /// <param name="operationName">Short name used in the timeout message and logs.</param>
-        /// <param name="operation">Factory receiving the cancellation token to pass through.</param>
-        /// <returns>The operation result.</returns>
-        /// <exception cref="TimeoutException">Thrown when the operation exceeds the resolved bound.</exception>
-        private static async Task<T> RunCodeIndexCallWithTimeoutAsync<T>(
-            string operationName,
-            Func<CancellationToken, Task<T>> operation)
-        {
-            TimeSpan timeout = GetCodeContextTimeout();
-            CancellationTokenSource timeoutCts = new CancellationTokenSource();
-            Task<T> operationTask;
-
-            try
-            {
-                operationTask = operation(timeoutCts.Token);
-            }
-            catch
-            {
-                timeoutCts.Dispose();
-                throw;
-            }
-
-            Task completed = await Task.WhenAny(operationTask, Task.Delay(timeout)).ConfigureAwait(false);
-            if (completed != operationTask)
-            {
-                try { timeoutCts.Cancel(); }
-                catch (ObjectDisposedException) { }
-
-                // Observe the abandoned task's exception so it does not surface as unobserved.
-                _ = operationTask.ContinueWith(
-                    task =>
-                    {
-                        _ = task.Exception;
-                        timeoutCts.Dispose();
-                    },
-                    CancellationToken.None,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
-
-                throw new TimeoutException(
-                    operationName + " exceeded " + timeout.TotalSeconds.ToString("F0") + " seconds");
-            }
-
-            try
-            {
-                return await operationTask.ConfigureAwait(false);
-            }
-            finally
-            {
-                timeoutCts.Dispose();
-            }
-        }
-
-        private static bool TryNormalizeCodeContextMode(string? value, string fallback, out string normalized)
-        {
-            if (String.IsNullOrWhiteSpace(value))
-            {
-                normalized = fallback;
-                return true;
-            }
-
-            string candidate = value.Trim().ToLowerInvariant();
-            if (String.Equals(candidate, _CodeContextModeAuto, StringComparison.Ordinal)
-                || String.Equals(candidate, _CodeContextModeOff, StringComparison.Ordinal)
-                || String.Equals(candidate, _CodeContextModeForce, StringComparison.Ordinal))
-            {
-                normalized = candidate;
-                return true;
-            }
-
-            normalized = fallback;
-            return false;
-        }
-
-        private static string BuildMissionCodeContextQuery(MissionDescription mission)
-        {
-            if (!String.IsNullOrWhiteSpace(mission.CodeContextQuery))
-                return mission.CodeContextQuery.Trim();
-
-            string title = mission.Title ?? "";
-            string description = mission.Description ?? "";
-            if (String.IsNullOrWhiteSpace(description)) return title.Trim();
-            if (String.IsNullOrWhiteSpace(title)) return description.Trim();
-            return title.Trim() + "\n\n" + description.Trim();
-        }
-
-        private void MergeGeneratedPrestagedFiles(MissionDescription mission, List<PrestagedFile> generatedFiles)
-        {
-            if (generatedFiles == null || generatedFiles.Count == 0) return;
-
-            List<PrestagedFile> merged = mission.PrestagedFiles ?? new List<PrestagedFile>();
-            foreach (PrestagedFile generated in generatedFiles)
-            {
-                if (generated == null) continue;
-
-                bool duplicateDest = false;
-                foreach (PrestagedFile existing in merged)
-                {
-                    if (existing == null) continue;
-                    if (String.Equals(existing.DestPath, generated.DestPath, StringComparison.Ordinal))
-                    {
-                        duplicateDest = true;
-                        break;
-                    }
-                }
-
-                if (duplicateDest)
-                {
-                    LogCodeContextWarning("skipping generated code context prestaged file because destPath already exists: " + generated.DestPath);
-                    continue;
-                }
-
-                merged.Add(new PrestagedFile(generated.SourcePath ?? "", generated.DestPath ?? _CodeContextDestPath));
-            }
-
-            mission.PrestagedFiles = merged.Count > 0 ? merged : null;
-        }
-
-        private void MergeGeneratedPrestagedFiles(Mission mission, List<PrestagedFile> generatedFiles)
-        {
-            if (generatedFiles == null || generatedFiles.Count == 0) return;
-
-            List<PrestagedFile> merged = mission.PrestagedFiles ?? new List<PrestagedFile>();
-            foreach (PrestagedFile generated in generatedFiles)
-            {
-                if (generated == null) continue;
-
-                bool duplicateDest = false;
-                foreach (PrestagedFile existing in merged)
-                {
-                    if (existing == null) continue;
-                    if (String.Equals(existing.DestPath, generated.DestPath, StringComparison.Ordinal))
-                    {
-                        duplicateDest = true;
-                        break;
-                    }
-                }
-
-                if (duplicateDest)
-                {
-                    LogCodeContextWarning("skipping generated code context prestaged file because destPath already exists: " + generated.DestPath);
-                    continue;
-                }
-
-                merged.Add(new PrestagedFile(generated.SourcePath ?? "", generated.DestPath ?? _CodeContextDestPath));
-            }
-
-            mission.PrestagedFiles = merged.Count > 0 ? merged : null;
+                VesselId = vessel.Id,
+                CodeContextMode = topLevelMode,
+                TokenBudget = tokenBudget,
+                MaxResults = maxResults,
+                Missions = missions,
+                Source = "operator",
+                RefuseOnFailure = true,
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId
+            }, token).ConfigureAwait(false);
         }
 
         private void LogCodeContextWarning(string message)

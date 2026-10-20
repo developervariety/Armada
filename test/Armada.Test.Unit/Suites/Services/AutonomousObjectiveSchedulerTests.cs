@@ -1643,6 +1643,102 @@ namespace Armada.Test.Unit.Suites.Services
                     "Structured sibling preparation must reach the autonomous mission.");
             }).ConfigureAwait(false);
 
+            await RunTest("A scheduler dispatch stages the mission's own context pack at its start ref", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("pack-scheduler-vessel", "https://github.com/test/pack.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Repair the widget parser in src/Widgets/WidgetParser.cs",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id },
+                    StartFromRef = "recover/widget-tip-abc1234"
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                codeIndex.PackResponse = new ContextPackResponse();
+                codeIndex.PackResponse.PrestagedFiles.Add(PrestagedFile.FromContent(DispatchContextPackStager.ContextPackDestPath, "# Context Pack\n\nGoal pack content"));
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings, codeIndex: codeIndex);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "The objective dispatches.");
+                AssertEqual(1, codeIndex.ContextPackRequests.Count, "The scheduler builds one pack for its one mission.");
+                ContextPackRequest packRequest = codeIndex.ContextPackRequests[0];
+                AssertContains("Repair the widget parser", packRequest.Goal, "The pack is built for the mission's own goal.");
+                AssertEqual("recover/widget-tip-abc1234", packRequest.StartRef, "The pack is built at the mission start ref.");
+                AssertTrue(packRequest.AssignedPaths.Contains("src/Widgets/WidgetParser.cs"), "The file the brief names is the pack's assigned manifest.");
+
+                List<PrestagedFile> staged = admiral.LastMissionDescriptions![0].PrestagedFiles ?? new List<PrestagedFile>();
+                bool hasPack = false;
+                foreach (PrestagedFile file in staged)
+                {
+                    if (String.Equals(file.DestPath, DispatchContextPackStager.ContextPackDestPath, StringComparison.Ordinal)) hasPack = true;
+                }
+                AssertTrue(hasPack, "The scheduler mission carries the staged context pack.");
+                AssertFalse(admiral.LastMissionDescriptions[0].Description.Contains(DispatchContextPackStager.NotStagedLinePrefix, StringComparison.Ordinal),
+                    "A staged pack adds no not-staged line.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A scheduler dispatch that cannot stage a pack names the reason in the brief and an event", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("pack-missing-vessel", "https://github.com/test/pack-missing.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Tidy the widget loader",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "A missing code index never holds the objective back.");
+                AssertContains(DispatchContextPackStager.NotStagedLinePrefix, admiral.LastMissionDescriptions![0].Description,
+                    "The brief's Pack line names that no pack was staged.");
+                AssertContains("code index service is unavailable", admiral.LastMissionDescriptions[0].Description,
+                    "The brief names why no pack was staged.");
+                List<ArmadaEvent> notStaged = await testDb.Driver.Events.EnumerateByTypeAsync(DispatchContextPackStager.NotStagedEventType).ConfigureAwait(false);
+                AssertEqual(1, notStaged.Count, "The skipped pack is recorded as one event.");
+                AssertEqual(vessel.Id, notStaged[0].VesselId, "The event names the vessel.");
+            }).ConfigureAwait(false);
+
             await RunTest("An operator-confirmed preparation stage skip reaches the scheduler dispatch", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -3175,7 +3271,8 @@ namespace Armada.Test.Unit.Suites.Services
             IObjectiveDispatchPreviewService? objectiveDispatchPreview = null,
             TimeSpan? refillDebounceDelay = null,
             int maxCandidatesPerSweep = 100,
-            TimeSpan? sweepTimeBudget = null)
+            TimeSpan? sweepTimeBudget = null,
+            ICodeIndexService? codeIndex = null)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
@@ -3187,7 +3284,7 @@ namespace Armada.Test.Unit.Suites.Services
                 new StubMergeQueueService(),
                 settings,
                 logging,
-                null,
+                codeIndex,
                 dispatchHold,
                 objectiveDispatchPreview,
                 refillDebounceDelay,

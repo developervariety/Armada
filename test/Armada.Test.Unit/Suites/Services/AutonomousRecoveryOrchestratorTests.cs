@@ -831,6 +831,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("Worker", rescue!.Persona, "Reviewer-stage failures should dispatch Worker rescue missions.");
                 AssertEqual(failed.CommitHash, rescue.StartFromRef, "The rescue must start from the reviewed mission tip.");
                 AssertContains("Autonomous rescue", rescue!.Description ?? "", "Rescue mission should carry recovery context.");
+                AssertContains(DispatchContextPackStager.NotStagedLinePrefix, rescue.Description ?? "",
+                    "A rescue with no context pack service names that no pack was staged.");
 
                 AuthContext auth = AuthContext.Authenticated("ten_auto_recovery", "usr_auto_recovery", false, true, "UnitTest");
                 EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
@@ -850,6 +852,40 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 AssertEqual(1, executionPage.Objects.Count);
                 AssertEqual(RunbookExecutionStatusEnum.Completed, executionPage.Objects[0].Status);
+            }).ConfigureAwait(false);
+
+            await RunTest("A rescue stages its own context pack at the rescue start ref", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_recovery", "usr_auto_recovery").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.CommitHash = "2222222222222222222222222222222222222222";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+                RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                codeIndex.PackResponse = new ContextPackResponse();
+                codeIndex.PackResponse.PrestagedFiles.Add(PrestagedFile.FromContent(DispatchContextPackStager.ContextPackDestPath, "# Context Pack\n\nGoal pack content"));
+                orchestrator.ContextPackStager = new DispatchContextPackStager(testDb.Driver, codeIndex, new ArmadaSettings(), null);
+
+                await SeedEligibleRecoveryCaptainsAsync(testDb, vessel, "Worker", "Judge").ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<Mission> vesselMissions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                Mission? rescue = vesselMissions.FirstOrDefault(item => item.ParentMissionId == failed.Id);
+                AssertTrue(rescue != null, "Expected a linked rescue mission.");
+                AssertEqual(1, codeIndex.ContextPackRequests.Count, "The rescue builds one pack.");
+                AssertEqual(failed.CommitHash, codeIndex.ContextPackRequests[0].StartRef, "The pack is built at the rescue start ref.");
+                AssertTrue((rescue!.PrestagedFiles ?? new List<PrestagedFile>()).Any(file => file.DestPath == DispatchContextPackStager.ContextPackDestPath),
+                    "The rescue carries the staged context pack.");
+                AssertFalse((rescue.Description ?? "").Contains(DispatchContextPackStager.NotStagedLinePrefix, StringComparison.Ordinal),
+                    "A staged pack adds no not-staged line.");
             }).ConfigureAwait(false);
 
             await RunTest("ReadOnlyJudgeFailure_PreservesModeAndPersistsRecommendedImplementation", async () =>

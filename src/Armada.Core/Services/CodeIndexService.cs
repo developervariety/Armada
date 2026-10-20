@@ -940,8 +940,19 @@ namespace Armada.Core.Services
                 warnings.Add(warning);
             }
 
-            string header = BuildContextPackHeader(request.Goal, search.Status, request.LexicalOnly);
-            string markdown = BuildContextPackMarkdown(header, tokenBudget, search);
+            // The files the mission names come first; ranked search evidence fills what budget is left and
+            // keeps only chunks that touch a subject the mission names.
+            List<string> assignedPaths = MergeManifest(
+                request.AssignedPaths, ContextPackManifest.ExtractAssignedPaths(request.Goal), ContextPackManifest.MaxAssignedPaths);
+            List<string> siblingPaths = MergeManifest(
+                request.SiblingPaths, ContextPackManifest.ExtractSiblingPaths(request.Goal), ContextPackManifest.MaxSiblingPaths);
+            ContextPackStartRefState startState = await ResolveStartRefStateAsync(request.VesselId, request.StartRef, search.Status, token).ConfigureAwait(false);
+            ContextPackAssignedSection assignedSection = await BuildAssignedSectionAsync(
+                request.VesselId, search.Status, assignedPaths, startState, tokenBudget, token).ConfigureAwait(false);
+            List<CodeSearchResult> relatedResults = SelectRelatedResults(search.Results, assignedSection.MatchedPaths, assignedPaths, request.Goal);
+
+            string header = BuildContextPackHeader(request.Goal, search.Status, request.LexicalOnly, startState, assignedPaths, siblingPaths, assignedSection);
+            string markdown = BuildContextPackMarkdown(header, tokenBudget, assignedSection, relatedResults, search.Status);
             if (graphExpansion.Used)
             {
                 markdown = markdown.TrimEnd() + "\n\n" + graphExpansion.Markdown.TrimEnd() + "\n";
@@ -951,7 +962,7 @@ namespace Armada.Core.Services
             bool isSummarized = false;
             long summarizerElapsedMs = 0;
 
-            if (_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && !request.LexicalOnly && search.Results.Count > 0 && !budgetToken.IsCancellationRequested)
+            if (_Settings.CodeIndex.UseSummarizer && _InferenceClient != null && !request.LexicalOnly && relatedResults.Count > 0 && !budgetToken.IsCancellationRequested)
             {
                 string systemPrompt = "You are a codebase analyst. Given code chunks from a repository, produce a compact markdown summary for a software engineer who needs to understand the relevant patterns before making a change. Output: first a 3-5 sentence synthesis naming the key types, their responsibilities, and any important call chains. Then a bulleted file-by-file list of key types and their roles. Be concise. No introductory text. Output only the summary markdown.";
                 string userMessage = "Goal: " + request.Goal + "\n\n" + markdown;
@@ -1010,8 +1021,11 @@ namespace Armada.Core.Services
                 }
             }
 
-            // A summarized pack keeps the header, so the staged file still names its goal, commit and roots.
-            string staged = isSummarized ? header + "\n" + summarizedMarkdown!.Trim() + "\n" : markdown;
+            // A summarized pack keeps the header and the assigned files verbatim, so the staged file still
+            // names its goal, commit and roots and still holds the files the mission must read or change.
+            string staged = isSummarized
+                ? header + "\n" + (String.IsNullOrEmpty(assignedSection.Markdown) ? "" : assignedSection.Markdown.TrimEnd() + "\n\n## Summary\n\n") + summarizedMarkdown!.Trim() + "\n"
+                : markdown;
             string materializedPath = await WriteContextPackAsync(request.VesselId, staged, token).ConfigureAwait(false);
 
             ContextPackResponse response = new ContextPackResponse
@@ -1021,12 +1035,14 @@ namespace Armada.Core.Services
                 Markdown = markdown,
                 EstimatedTokens = EstimateTokens(markdown),
                 MaterializedPath = materializedPath,
-                Results = search.Results,
+                Results = relatedResults,
                 GraphIncludedFiles = graphExpansion.IncludedFiles,
                 SummarizedMarkdown = summarizedMarkdown,
                 IsSummarized = isSummarized
             };
             response.PrestagedFiles.Add(new PrestagedFile(materializedPath, "_briefing/context-pack.md"));
+            foreach (string assignedWarning in assignedSection.Warnings)
+                warnings.Add(assignedWarning);
             foreach (string w in warnings)
                 response.Warnings.Add(w);
             long totalElapsedMs = (long)_TimeProvider.GetElapsedTime(totalStarted).TotalMilliseconds;
@@ -1038,6 +1054,12 @@ namespace Armada.Core.Services
                 searchElapsedMs: searchElapsedMs,
                 summarizerElapsedMs: summarizerElapsedMs,
                 totalElapsedMs: totalElapsedMs);
+            foreach (string assignedPath in assignedSection.MatchedPaths)
+            {
+                if (!response.Metrics.IncludedFiles.Contains(assignedPath, StringComparer.OrdinalIgnoreCase))
+                    response.Metrics.IncludedFiles.Add(assignedPath);
+            }
+            response.Metrics.IncludedFileCount = response.Metrics.IncludedFiles.Count;
             return response;
         }
 
@@ -3920,10 +3942,17 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Build the header every single-vessel context pack starts with: the goal it was built for, the
-        /// indexed commit, and the roots it covers. Sibling repositories and mounted evidence trees are never
-        /// in a single-vessel pack, so the header says so instead of leaving their absence to be inferred.
+        /// indexed commit, the start commit of the mission checkout and whether the two differ, the roots it
+        /// covers, the files the mission names, and the sibling inputs a single-vessel index does not hold.
         /// </summary>
-        private static string BuildContextPackHeader(string goal, CodeIndexStatus status, bool lexicalOnly)
+        private static string BuildContextPackHeader(
+            string goal,
+            CodeIndexStatus status,
+            bool lexicalOnly,
+            ContextPackStartRefState startState,
+            List<string> assignedPaths,
+            List<string> siblingPaths,
+            ContextPackAssignedSection assignedSection)
         {
             string vesselLabel = String.IsNullOrWhiteSpace(status.VesselName) ? status.VesselId : status.VesselName;
             StringBuilder builder = new StringBuilder();
@@ -3937,58 +3966,411 @@ namespace Armada.Core.Services
             builder.AppendLine("Commit: " + (status.IndexedCommitSha ?? ""));
             builder.AppendLine("Freshness: " + status.Freshness);
             builder.AppendLine("IndexedAtUtc: " + (status.IndexedAtUtc.HasValue ? status.IndexedAtUtc.Value.ToString("o") : ""));
-            builder.AppendLine("Covered roots: the " + vesselLabel + " repository at the indexed commit. Sibling repositories, mounted evidence trees and changes after the indexed commit are not in this pack; read or search them directly.");
+            builder.AppendLine("Start ref: " + DescribeStartRef(startState));
+            builder.AppendLine("Commit check: " + DescribeCommitCheck(startState, assignedSection));
+            builder.AppendLine("Covered roots: the " + vesselLabel + " repository at the indexed commit"
+                + (assignedSection.ReadAtStartCount > 0 ? ", plus the assigned files marked as read at the start commit" : "")
+                + ". Sibling repositories, mounted evidence trees and changes after the indexed commit are not in this pack; read or search them directly.");
+            builder.AppendLine(assignedPaths.Count == 0
+                ? "Assigned files: none named by the mission."
+                : "Assigned files: " + String.Join(", ", assignedPaths) + " (" + assignedSection.MatchedPaths.Count + " found, " + assignedSection.MissingPaths.Count + " not found).");
+            if (siblingPaths.Count > 0)
+                builder.AppendLine("Sibling inputs not in this pack (read them in the sibling checkout): " + String.Join(", ", siblingPaths) + ".");
             if (lexicalOnly)
                 builder.AppendLine("Search: lexical only. The full pack for this goal could not be built, so this pack ranks chunks by the goal's words alone.");
             return builder.ToString();
         }
 
-        private string BuildContextPackMarkdown(string header, int tokenBudget, CodeSearchResponse search)
+        private static string DescribeStartRef(ContextPackStartRefState startState)
+        {
+            string name = startState.Ref ?? "the default branch";
+            if (!String.IsNullOrWhiteSpace(startState.StartCommit)) return name + " (" + startState.StartCommit + ")";
+            return name + " (not resolved in the vessel repository)";
+        }
+
+        private static string DescribeCommitCheck(ContextPackStartRefState startState, ContextPackAssignedSection assignedSection)
+        {
+            if (String.IsNullOrWhiteSpace(startState.StartCommit))
+                return "the start commit is unknown, so this pack cannot be compared with the mission checkout; verify every snippet against the checkout.";
+            if (String.IsNullOrWhiteSpace(startState.IndexedCommit))
+                return "the indexed commit is unknown; verify every snippet against the checkout.";
+            if (String.Equals(startState.IndexedCommit, startState.StartCommit, StringComparison.OrdinalIgnoreCase))
+                return "the indexed commit is the start commit.";
+
+            string changed = startState.ChangedPaths == null
+                ? "the files changed between them could not be listed"
+                : startState.ChangedPaths.Count + " file(s) changed between them";
+            return "the indexed commit " + startState.IndexedCommit + " differs from the start commit " + startState.StartCommit
+                + "; " + changed + ". " + assignedSection.ReadAtStartCount
+                + " assigned file(s) are read at the start commit; other evidence comes from the indexed commit and may be out of date.";
+        }
+
+        private static List<string> MergeManifest(List<string>? declared, List<string> extracted, int limit)
+        {
+            List<string> merged = new List<string>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string entry in (declared ?? new List<string>()).Concat(extracted))
+            {
+                if (String.IsNullOrWhiteSpace(entry)) continue;
+                string normalized = entry.Trim().Replace('\\', '/');
+                if (!seen.Add(normalized)) continue;
+                merged.Add(normalized);
+                if (merged.Count >= limit) break;
+            }
+
+            return merged;
+        }
+
+        /// <summary>
+        /// Resolve the commit the mission checkout starts from and, when it is not the indexed commit, the
+        /// paths that changed between the two. Reads the existing local repository only; it never clones,
+        /// fetches or indexes. A ref that does not resolve leaves the start commit unknown.
+        /// </summary>
+        private async Task<ContextPackStartRefState> ResolveStartRefStateAsync(string vesselId, string? startRef, CodeIndexStatus status, CancellationToken token)
+        {
+            ContextPackStartRefState state = new ContextPackStartRefState
+            {
+                Ref = String.IsNullOrWhiteSpace(startRef) ? null : startRef.Trim(),
+                IndexedCommit = status.IndexedCommitSha
+            };
+
+            try
+            {
+                Vessel vessel = await ReadVesselOrThrowAsync(vesselId, token).ConfigureAwait(false);
+                state.RepoPath = await TryFindExistingRepositoryPathAsync(vessel, token).ConfigureAwait(false);
+
+                if (state.Ref == null)
+                    state.StartCommit = String.IsNullOrWhiteSpace(status.CurrentCommitSha) ? null : status.CurrentCommitSha;
+                else if (state.RepoPath != null)
+                    state.StartCommit = await TryResolveCommitAsync(state.RepoPath, state.Ref, token).ConfigureAwait(false);
+
+                if (state.RepoPath != null
+                    && !String.IsNullOrWhiteSpace(state.StartCommit)
+                    && !String.IsNullOrWhiteSpace(state.IndexedCommit)
+                    && !String.Equals(state.StartCommit, state.IndexedCommit, StringComparison.OrdinalIgnoreCase))
+                {
+                    state.ChangedPaths = await TryGetChangedPathsAsync(state.RepoPath, state.IndexedCommit!, state.StartCommit!, token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "context pack could not resolve the start ref for vessel " + vesselId + ": " + ex.Message);
+            }
+
+            return state;
+        }
+
+        private async Task<string?> TryResolveCommitAsync(string repoPath, string gitRef, CancellationToken token)
+        {
+            // A ref is passed to git as an argument, so a value that reads as an option is refused.
+            if (String.IsNullOrWhiteSpace(gitRef) || gitRef.StartsWith("-", StringComparison.Ordinal)) return null;
+
+            string[] candidates = new string[] { gitRef, "refs/remotes/origin/" + gitRef };
+            foreach (string candidate in candidates)
+            {
+                try
+                {
+                    string output = await RunGitAsync(repoPath, token, "rev-parse", "--verify", "--quiet", candidate + "^{commit}").ConfigureAwait(false);
+                    string sha = output.Trim();
+                    if (!String.IsNullOrEmpty(sha)) return sha;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Debug(_Header + "start ref candidate " + candidate + " did not resolve in " + repoPath + ": " + ex.Message);
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Read one file at the mission's start commit from the local repository. Local read only: nothing
+        /// is embedded, summarized or sent anywhere. Secret-shaped paths are never read.
+        /// </summary>
+        private async Task<string?> TryReadAtStartCommitAsync(ContextPackStartRefState startState, string path, CancellationToken token)
+        {
+            if (startState.RepoPath == null || String.IsNullOrWhiteSpace(startState.StartCommit)) return null;
+            string normalized = NormalizeRepoPath(path);
+            if (String.IsNullOrWhiteSpace(normalized)
+                || normalized.IndexOf("..", StringComparison.Ordinal) >= 0
+                || normalized.StartsWith("-", StringComparison.Ordinal))
+                return null;
+
+            string fileName = Path.GetFileName(normalized);
+            string extension = Path.GetExtension(normalized);
+            if (IsSecretOrCredentialPath(fileName, extension, "/" + normalized.Trim('/') + "/")) return null;
+
+            try
+            {
+                return await RunGitAsync(startState.RepoPath, token, "show", startState.StartCommit + ":" + normalized).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not read " + normalized + " at " + startState.StartCommit + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Build the assigned-files section: every file the mission names, before any ranked evidence. An
+        /// indexed file contributes its chunks; a file changed after the indexed commit, or absent from the
+        /// index, is read at the start commit when the start commit is known; a file found nowhere is listed
+        /// as not found so the captain reads it directly.
+        /// </summary>
+        private async Task<ContextPackAssignedSection> BuildAssignedSectionAsync(
+            string vesselId,
+            CodeIndexStatus status,
+            List<string> assignedPaths,
+            ContextPackStartRefState startState,
+            int tokenBudget,
+            CancellationToken token)
+        {
+            ContextPackAssignedSection section = new ContextPackAssignedSection();
+            if (assignedPaths.Count == 0) return section;
+
+            List<CodeIndexRecord> records = await ReadRecordsAsync(vesselId, status.Freshness, token).ConfigureAwait(false);
+            int charBudget = Math.Max(2000, tokenBudget * 4);
+            int perEntryBudget = Math.Max(1200, (charBudget * 3 / 4) / assignedPaths.Count);
+
+            StringBuilder builder = new StringBuilder();
+            builder.AppendLine("## Assigned files");
+            builder.AppendLine();
+            builder.AppendLine("Files this mission names, before any ranked search evidence.");
+
+            foreach (string entry in assignedPaths)
+            {
+                List<string> matchedPaths = records
+                    .Where(r => ContextPackManifest.Matches(r.Path, entry))
+                    .Select(r => r.Path)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                    .Take(3)
+                    .ToList();
+
+                if (matchedPaths.Count == 0)
+                {
+                    string? fromStart = entry.IndexOf('/') >= 0
+                        ? await TryReadAtStartCommitAsync(startState, entry, token).ConfigureAwait(false)
+                        : null;
+                    if (fromStart != null)
+                    {
+                        AppendFileReadAtStart(builder, entry, startState, fromStart, perEntryBudget);
+                        section.MatchedPaths.Add(entry);
+                        section.ReadAtStartCount++;
+                    }
+                    else
+                    {
+                        builder.AppendLine();
+                        builder.AppendLine("### " + entry);
+                        builder.AppendLine();
+                        builder.AppendLine("Not found in the index or at the start commit; read or search for it in the checkout.");
+                        section.MissingPaths.Add(entry);
+                    }
+                    continue;
+                }
+
+                foreach (string path in matchedPaths)
+                {
+                    section.MatchedPaths.Add(path);
+                    if (startState.ChangedPaths != null && startState.ChangedPaths.Contains(path))
+                    {
+                        string? fromStart = await TryReadAtStartCommitAsync(startState, path, token).ConfigureAwait(false);
+                        if (fromStart != null)
+                        {
+                            AppendFileReadAtStart(builder, path, startState, fromStart, perEntryBudget);
+                            section.ReadAtStartCount++;
+                        }
+                        else
+                        {
+                            builder.AppendLine();
+                            builder.AppendLine("### " + path);
+                            builder.AppendLine();
+                            builder.AppendLine("Changed after the indexed commit and absent at the start commit (deleted or moved); search the checkout.");
+                            section.Warnings.Add("assigned_file_absent_at_start: " + path);
+                        }
+                        continue;
+                    }
+
+                    AppendIndexedChunks(builder, records.Where(r => String.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase)), perEntryBudget);
+                }
+            }
+
+            section.Markdown = builder.ToString();
+            return section;
+        }
+
+        private static void AppendIndexedChunks(StringBuilder builder, IEnumerable<CodeIndexRecord> chunks, int budget)
+        {
+            int used = 0;
+            foreach (CodeIndexRecord record in chunks.OrderBy(r => r.StartLine))
+            {
+                string section = FormatChunk(record, null);
+                if (used > 0 && used + section.Length > budget)
+                {
+                    builder.AppendLine();
+                    builder.AppendLine("Further chunks of " + record.Path + " are omitted for budget; read the file.");
+                    return;
+                }
+
+                builder.Append(section);
+                used += section.Length;
+            }
+        }
+
+        private static void AppendFileReadAtStart(StringBuilder builder, string path, ContextPackStartRefState startState, string content, int budget)
+        {
+            string body = NormalizeLineEndings(content).TrimEnd();
+            if (body.Length > budget) body = body.Substring(0, budget).TrimEnd() + "\n...";
+            string language = Path.GetExtension(path).TrimStart('.');
+
+            builder.AppendLine();
+            builder.AppendLine("### " + path + " (read at the start commit)");
+            builder.AppendLine();
+            builder.AppendLine("- Commit: " + startState.StartCommit);
+            builder.AppendLine();
+            builder.AppendLine("```" + language);
+            builder.AppendLine(body);
+            builder.AppendLine("```");
+        }
+
+        private static string FormatChunk(CodeIndexRecord record, double? score)
+        {
+            string content = (record.Content ?? "").Trim();
+            if (content.Length > 1200)
+            {
+                content = content.Substring(0, 1200).TrimEnd() + "\n...";
+            }
+
+            StringBuilder section = new StringBuilder();
+            section.AppendLine();
+            section.AppendLine("### " + record.Path + ":" + record.StartLine + "-" + record.EndLine);
+            section.AppendLine();
+            section.AppendLine("- Language: " + record.Language);
+            if (score.HasValue) section.AppendLine("- Score: " + score.Value.ToString("0.##"));
+            section.AppendLine("- Commit: " + record.CommitSha);
+            section.AppendLine("- ContentHash: " + record.ContentHash);
+            section.AppendLine("- Freshness: " + record.Freshness);
+            section.AppendLine();
+            section.AppendLine("```" + record.Language);
+            section.AppendLine(content);
+            section.AppendLine("```");
+            return section.ToString();
+        }
+
+        /// <summary>
+        /// Keep the ranked results that add something beyond the assigned files. A result from an assigned
+        /// file is already shown. When the mission names identifiers or files, a result must touch one of
+        /// them (in its path or its content); a goal that names neither keeps every ranked result.
+        /// </summary>
+        private static List<CodeSearchResult> SelectRelatedResults(
+            List<CodeSearchResult> results,
+            List<string> matchedAssignedPaths,
+            List<string> assignedPaths,
+            string goal)
+        {
+            HashSet<string> assigned = new HashSet<string>(matchedAssignedPaths, StringComparer.OrdinalIgnoreCase);
+            List<string> subjects = new List<string>(MissionSubjectExtractor.ExtractTerms(goal));
+            foreach (string entry in assignedPaths)
+            {
+                string stem = Path.GetFileNameWithoutExtension(entry);
+                if (stem.Length >= MissionSubjectExtractor.MinTermLength && !subjects.Contains(stem, StringComparer.Ordinal))
+                    subjects.Add(stem);
+            }
+
+            List<CodeSearchResult> related = new List<CodeSearchResult>();
+            foreach (CodeSearchResult result in results)
+            {
+                CodeIndexRecord? record = result.Record;
+                if (record == null) continue;
+                if (assigned.Contains(record.Path)) continue;
+                if (subjects.Count > 0 && !TouchesSubject(record, subjects)) continue;
+                related.Add(result);
+            }
+
+            return related;
+        }
+
+        private static bool TouchesSubject(CodeIndexRecord record, List<string> subjects)
+        {
+            string path = record.Path ?? "";
+            string content = record.Content ?? "";
+            foreach (string subject in subjects)
+            {
+                if (path.Contains(subject, StringComparison.OrdinalIgnoreCase)) return true;
+                if (content.Contains(subject, StringComparison.Ordinal)) return true;
+            }
+
+            return false;
+        }
+
+        private string BuildContextPackMarkdown(
+            string header,
+            int tokenBudget,
+            ContextPackAssignedSection assignedSection,
+            List<CodeSearchResult> relatedResults,
+            CodeIndexStatus status)
         {
             int charBudget = Math.Max(2000, tokenBudget * 4);
+            bool hasAssigned = !String.IsNullOrEmpty(assignedSection.Markdown);
             StringBuilder builder = new StringBuilder();
             builder.Append(header);
             builder.AppendLine();
-            builder.AppendLine("## Evidence");
 
-            foreach (CodeSearchResult result in search.Results)
+            if (hasAssigned)
             {
-                CodeIndexRecord record = result.Record;
-                string content = record.Content.Trim();
-                if (content.Length > 1200)
-                {
-                    content = content.Substring(0, 1200).TrimEnd() + "\n...";
-                }
+                builder.Append(assignedSection.Markdown.TrimEnd());
+                builder.AppendLine();
+                builder.AppendLine();
+            }
 
-                StringBuilder section = new StringBuilder();
-                section.AppendLine();
-                section.AppendLine("### " + record.Path + ":" + record.StartLine + "-" + record.EndLine);
-                section.AppendLine();
-                section.AppendLine("- Language: " + record.Language);
-                section.AppendLine("- Score: " + result.Score.ToString("0.##"));
-                section.AppendLine("- Commit: " + record.CommitSha);
-                section.AppendLine("- ContentHash: " + record.ContentHash);
-                section.AppendLine("- Freshness: " + record.Freshness);
-                section.AppendLine();
-                section.AppendLine("```" + record.Language);
-                section.AppendLine(content);
-                section.AppendLine("```");
+            if (relatedResults.Count == 0)
+            {
+                // One line instead of unrelated ranked prose: nothing in the index touches what the mission names.
+                if (assignedSection.MatchedPaths.Count == 0)
+                    builder.AppendLine(NoRelevantChunkLine(status));
+                return builder.ToString().TrimEnd() + "\n";
+            }
 
-                if (builder.Length + section.Length > charBudget)
+            builder.AppendLine(hasAssigned ? "## Related evidence" : "## Evidence");
+            int sectionsAdded = 0;
+            foreach (CodeSearchResult result in relatedResults)
+            {
+                string section = FormatChunk(result.Record, result.Score);
+
+                // Related evidence never pushes the pack past its budget, except that when the assigned files
+                // used the whole budget the top related result is still kept.
+                if (builder.Length + section.Length > charBudget && (sectionsAdded > 0 || !hasAssigned))
                 {
                     break;
                 }
 
                 builder.Append(section);
-            }
-
-            if (search.Results.Count == 0)
-            {
-                builder.AppendLine();
-                builder.AppendLine("No indexed evidence matched the goal. Dispatch should include explicit file reads.");
+                sectionsAdded++;
             }
 
             return builder.ToString().TrimEnd() + "\n";
+        }
+
+        /// <summary>
+        /// The single line a pack carries when no indexed chunk touches the mission's goal, named files or
+        /// identifiers.
+        /// </summary>
+        internal static string NoRelevantChunkLine(CodeIndexStatus? status)
+        {
+            return "No relevant indexed chunk: nothing in the index at commit " + (status?.IndexedCommitSha ?? "")
+                + " matches this mission's goal, named files or identifiers; read the files the mission names directly.";
         }
 
         private static ContextPackMetrics BuildContextPackMetrics(ContextPackResponse response, bool graphExpansionUsed, int vesselCount, bool fastPackFallbackUsed = false, long searchElapsedMs = 0, long summarizerElapsedMs = 0, long totalElapsedMs = 0)
@@ -4077,6 +4459,32 @@ namespace Armada.Core.Services
                 EdgesByTargetEndpoint = edgesByTargetEndpoint;
                 Warnings = warnings;
             }
+        }
+
+        private sealed class ContextPackStartRefState
+        {
+            public string? Ref { get; set; }
+
+            public string? StartCommit { get; set; }
+
+            public string? IndexedCommit { get; set; }
+
+            public string? RepoPath { get; set; }
+
+            public HashSet<string>? ChangedPaths { get; set; }
+        }
+
+        private sealed class ContextPackAssignedSection
+        {
+            public string Markdown { get; set; } = "";
+
+            public List<string> MatchedPaths { get; } = new List<string>();
+
+            public List<string> MissingPaths { get; } = new List<string>();
+
+            public int ReadAtStartCount { get; set; }
+
+            public List<string> Warnings { get; } = new List<string>();
         }
 
         private sealed class GraphContextPackExpansion
