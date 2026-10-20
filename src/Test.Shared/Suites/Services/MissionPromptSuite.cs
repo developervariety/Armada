@@ -614,6 +614,37 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            foreach (string persona in new[] { "Worker", "Judge", "Test Engineer" })
+            foreach (string captainMode in new[] { "none", "empty", "whitespace" })
+            {
+                cases.Add(CaseAsync("default_contract_delivered_" + persona.Replace(" ", "_") + "_" + captainMode,
+                    "Required " + persona + " contract reaches the mission file with " + captainMode + " captain instructions", TestTags.Positive, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                    IPromptTemplateService templates;
+                    MissionService service = CreateMissionServiceWithTemplates(CreateLogging(), testDb.Driver, CreateSettings(), new StubGitService(), out templates);
+                    await templates.SeedDefaultsAsync();
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_contract_delivery_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+                    try
+                    {
+                        Vessel vessel = new Vessel("contract-delivery", "https://github.com/test/repo");
+                        Mission mission = new Mission("Verify instruction delivery", "Review the requested work.") { Persona = persona };
+                        Captain? captain = captainMode == "none" ? null : new Captain("default-instructions")
+                        {
+                            Runtime = Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint,
+                            SystemInstructions = captainMode == "whitespace" ? "   " : String.Empty
+                        };
+                        string contract = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain)["CaptainInstructions"];
+                        AssertTrue(!String.IsNullOrWhiteSpace(contract), "the role has a required contract independently of custom instructions");
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+                        string instructions = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertContains(contract, instructions, "the generated artifact must deliver the complete role contract even without custom captain instructions");
+                    }
+                    finally { try { Directory.Delete(tempDir, true); } catch { } }
+                }));
+            }
+
             cases.Add(CaseAsync("template_resolved_claude_md_contains_persona_prompt", "Template-resolved CLAUDE.md contains persona prompt", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

@@ -1843,8 +1843,9 @@ namespace Armada.Core.Services
 
             string content = "";
 
-            // Captain instructions
-            if (captain != null && !String.IsNullOrEmpty(captain.SystemInstructions))
+            // BuildTemplateParams includes the mandatory persona contract even when the captain
+            // has no custom system instructions. Deliver that contract to every generated brief.
+            if (!String.IsNullOrWhiteSpace(templateParams["CaptainInstructions"]))
             {
                 content += await ResolveSectionAsync("mission.captain_instructions_wrapper", templateParams, token).ConfigureAwait(false);
                 content += "\n";
