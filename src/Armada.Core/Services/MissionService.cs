@@ -984,6 +984,28 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(title)) mission.Title = title!;
             if (!String.IsNullOrEmpty(description)) mission.Description = description!;
 
+            if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge))
+            {
+                JudgeVerdictEnum previousVerdict = JudgeVerdictParser.Parse(mission.AgentOutput);
+                if ((previousVerdict == JudgeVerdictEnum.Fail || previousVerdict == JudgeVerdictEnum.NeedsRevision)
+                    && !String.IsNullOrWhiteSpace(mission.AgentOutput))
+                {
+                    string priorFindings = mission.AgentOutput.Trim();
+                    const int maxFindings = 12000;
+                    if (priorFindings.Length > maxFindings)
+                        priorFindings = priorFindings.Substring(0, maxFindings / 2)
+                            + "\n(previous review excerpt truncated)\n"
+                            + priorFindings.Substring(priorFindings.Length - maxFindings / 2);
+                    if (!(mission.Description ?? String.Empty).Contains(priorFindings, StringComparison.Ordinal))
+                        mission.Description = (mission.Description ?? String.Empty)
+                            + "\n\n## Previous Judge findings (historical; recheck on restart)\n"
+                            + "Re-evaluate every finding below against the current branch and current requirements. "
+                            + "Report which are resolved, superseded, or still reproducible, and check the full mission scope. "
+                            + "This is historical evidence, not the current verdict or a reason to skip independent validation.\n\n"
+                            + priorFindings;
+                }
+            }
+
             // A later pipeline stage builds on the earlier stages' commits: keep their branch. A first stage starts
             // over on a fresh branch.
             string? keptBranch = null;

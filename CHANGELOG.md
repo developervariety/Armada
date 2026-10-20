@@ -11,6 +11,7 @@ All notable changes to Armada are documented in this file.
 - Voyage deletion consistently uses Delete in the dashboard. Selecting multiple voyages exposes Delete Multiple with confirmation, in-progress feedback and partial-failure reporting; failed voyages remain selected.
 
 ### Worker completion and recovery
+- Restarting a rejected Judge retains its prior findings as historical evidence to recheck against the current branch and requirements, preventing a new review from silently omitting an earlier defect.
 - Architect slices have independent Judge rework budgets. A passing earlier slice no longer exhausts a later slice's correction attempts or triggers escalation because it shares a commit. Same-slice rework and escalation remain bounded.
 - Admiral rollouts preserve Harbor-owned mission agents and restore their durable ownership, output, final-result and exit callbacks before accepting reconnects. Startup uses a bounded reconnect grace instead of treating remote/synthetic PIDs as dead local processes. Actual recovery launches increment the mission retry counter and retain the existing worktree; reattachment preserves the original start time and attempt count.
 - Required persona contracts are included in generated mission files even when a captain has no custom system instructions. Previously the contract was built but omitted from the file for default captains.

@@ -171,6 +171,29 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(refused, "a Complete mission cannot be restarted");
             }));
 
+            cases.Add(CaseAsync("restarted_judge_retains_findings", "A restarted rejected Judge receives prior findings as historical evidence alongside its current requirements", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("Review", "Original requirements")
+                {
+                    Persona = "Judge", Status = MissionStatusEnum.Failed, FailureKind = MissionFailureKindEnum.JudgeRejected,
+                    AgentOutput = "## Affected Case\nBlank-key tool chat sends an unauthenticated request.\n[ARMADA:VERDICT] NEEDS_REVISION"
+                }).ConfigureAwait(false);
+                Mission restarted = await h.Missions.RestartAsync(judge, description: "Updated requirements").ConfigureAwait(false);
+                AssertContains("Updated requirements", restarted.Description);
+                AssertContains("Blank-key tool chat sends an unauthenticated request.", restarted.Description);
+                AssertContains("historical", restarted.Description);
+                AssertContains("recheck", restarted.Description);
+                restarted.Status = MissionStatusEnum.Failed;
+                restarted.FailureKind = MissionFailureKindEnum.JudgeRejected;
+                restarted.AgentOutput = "## Affected Case\nUnknown providers need an explicit unsupported error.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                await testDb.Driver.Missions.UpdateAsync(restarted).ConfigureAwait(false);
+                Mission again = await h.Missions.RestartAsync(restarted).ConfigureAwait(false);
+                AssertContains("Blank-key tool chat sends an unauthenticated request.", again.Description);
+                AssertContains("Unknown providers need an explicit unsupported error.", again.Description);
+            }));
+
             cases.Add(CaseAsync("uncommitted_work_is_committed", "Work a captain left uncommitted is committed before the diff is taken", TestTags.Positive, async () =>
             {
                 string repo = Path.Combine(Path.GetTempPath(), "armada_uncommitted_" + Guid.NewGuid().ToString("N"));
