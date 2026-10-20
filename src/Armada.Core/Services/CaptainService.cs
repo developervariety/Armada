@@ -259,9 +259,12 @@ namespace Armada.Core.Services
                 captain.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
 
-                // Re-launch agent process
+                // Count every attempted recovery launch durably, including retries after a Harbor reconnect.
+                // Reattaching an existing Harbor process never enters this path and must not increment it.
                 if (OnLaunchAgent != null)
                 {
+                    mission.RedispatchAttempts++;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                     try
                     {
                         int processId = await OnLaunchAgent.Invoke(captain, mission, dock).ConfigureAwait(false);

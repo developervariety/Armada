@@ -171,10 +171,9 @@ namespace Armada.Core.Services.Interfaces
         Task RecallAllAsync(CancellationToken token = default);
 
         /// <summary>
-        /// Kill the OS processes of all working captains without altering mission or dock state.
-        /// Called on Admiral shutdown so agent subprocesses do not survive as orphans; restart
-        /// recovery then reconciles the now-dead processes normally. Cross-platform via the
-        /// runtime's process-tree kill.
+        /// Stop Admiral-local agent processes without altering mission or dock state.
+        /// Harbor-owned mission agents survive shutdown and are reattached before links are accepted
+        /// on restart. Explicit RecallAllAsync still stops captains on every host.
         /// </summary>
         Task StopAllAgentProcessesAsync(CancellationToken token = default);
 

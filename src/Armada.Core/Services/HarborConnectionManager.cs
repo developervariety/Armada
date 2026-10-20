@@ -73,6 +73,9 @@ namespace Armada.Core.Services
             set => _VanishedJobGrace = value < TimeSpan.Zero ? TimeSpan.Zero : value;
         }
 
+        /// <summary>Startup grace for a restored job to reconnect before normal stall recovery resumes.</summary>
+        public TimeSpan RestoredJobReconnectGrace { get; set; } = TimeSpan.FromSeconds(45);
+
         #endregion
 
         /// <summary>Admin inventory sink for reports bound to an authenticated Harbor link.</summary>
@@ -94,6 +97,7 @@ namespace Armada.Core.Services
         private readonly ConcurrentDictionary<int, HarborJobHandle> _JobsByProcessId = new ConcurrentDictionary<int, HarborJobHandle>();
         private readonly ConcurrentDictionary<string, string> _JobOwners = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, byte> _StartedJobs = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, DateTime> _RestoredSince = new ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, DateTime> _VanishedSince = new ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
         private readonly ConcurrentDictionary<string, HarborJobSequenceState> _JobSequences = new ConcurrentDictionary<string, HarborJobSequenceState>(StringComparer.Ordinal);
         private Func<DateTime> _Clock = () => DateTime.UtcNow;
@@ -685,6 +689,26 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Restore a durable mission job before accepting Harbor reconnects. No launch is sent.
+        /// </summary>
+        /// <param name="harborId">Owning Harbor.</param>
+        /// <param name="jobId">Persisted launch identifier.</param>
+        /// <param name="processId">Persisted Harbor process identifier.</param>
+        /// <param name="listener">Reconstructed lifecycle listener.</param>
+        public void RestoreJob(string harborId, string jobId, int processId, IHarborJobListener listener)
+        {
+            if (String.IsNullOrWhiteSpace(harborId)) throw new ArgumentNullException(nameof(harborId));
+            if (String.IsNullOrWhiteSpace(jobId)) throw new ArgumentNullException(nameof(jobId));
+            if (processId <= 0) throw new ArgumentOutOfRangeException(nameof(processId));
+            if (listener == null) throw new ArgumentNullException(nameof(listener));
+            if (!_JobListeners.TryAdd(jobId, listener)) throw new InvalidOperationException("Job already tracked: " + jobId);
+            _JobOwners[jobId] = harborId;
+            _StartedJobs[jobId] = 0;
+            _RestoredSince[jobId] = _Clock();
+            RegisterProcessId(processId, harborId, jobId);
+        }
+
+        /// <summary>
         /// Stop a delegated job: the Admiral stops tracking it at once, and a connected Harbor is sent a stop request. When
         /// the Harbor is not connected the request cannot be delivered, but the job is not gone: a Harbor's jobs keep
         /// running through a link drop. The Harbor stops it when it reconnects, because the handshake acknowledgement no
@@ -736,6 +760,16 @@ namespace Armada.Core.Services
         public void UnregisterProcessId(int processId)
         {
             _JobsByProcessId.TryRemove(processId, out HarborJobHandle? _);
+        }
+
+        /// <summary>Whether a restored process is within its bounded wait for the Harbor's first report.</summary>
+        /// <param name="processId">Persisted process identifier.</param>
+        /// <returns>True only during startup reconnect grace.</returns>
+        public bool IsProcessAwaitingReconnect(int processId)
+        {
+            return _JobsByProcessId.TryGetValue(processId, out HarborJobHandle? job)
+                && _RestoredSince.TryGetValue(job.JobId, out DateTime restored)
+                && _Clock() - restored < RestoredJobReconnectGrace;
         }
 
         /// <summary>
@@ -952,6 +986,7 @@ namespace Armada.Core.Services
             _JobOwners.TryRemove(jobId, out string? _);
             _StartedJobs.TryRemove(jobId, out byte _);
             _VanishedSince.TryRemove(jobId, out DateTime _);
+            _RestoredSince.TryRemove(jobId, out DateTime _);
         }
 
         private void TrackReportedJobs(string harborId, List<string> liveJobIds, DateTime now)
@@ -964,7 +999,11 @@ namespace Armada.Core.Services
                 // A job that has not reported its start may not be in the Harbor's live set yet; the launch's start timeout
                 // covers one that never starts.
                 if (!_StartedJobs.ContainsKey(owner.Key)) continue;
-                if (live.Contains(owner.Key)) _VanishedSince.TryRemove(owner.Key, out DateTime _);
+                if (live.Contains(owner.Key))
+                {
+                    _VanishedSince.TryRemove(owner.Key, out DateTime _);
+                    _RestoredSince.TryRemove(owner.Key, out DateTime _);
+                }
                 else _VanishedSince.TryAdd(owner.Key, now);
             }
         }

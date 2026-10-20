@@ -212,12 +212,110 @@ namespace Test.Shared.Suites.E2E
                 }
             }));
 
+            cases.Add(CaseAsync("harbor_mission_survives_admiral_rollout", "Two real Admiral instances recover the same Harbor mission over WebSocket without relaunch", TestTags.Reliability, async () =>
+            {
+                ArmadaSettings settings = CreateSettings(out string tempDir);
+                ArmadaServer? first = null;
+                ArmadaServer? second = null;
+                using CancellationTokenSource deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                LoggingModule quiet = new LoggingModule();
+                quiet.Settings.EnableConsole = false;
+                try
+                {
+                    Mission mission;
+                    Dock dock;
+                    Captain captain;
+                    using (Armada.Core.Database.DatabaseDriver db = Armada.Core.Database.DatabaseDriverFactory.Create(settings.Database, quiet))
+                    {
+                        await db.InitializeAsync().ConfigureAwait(false);
+                        Harbor harbor = await db.Harbors.CreateAsync(new Harbor { Name = "Rollout Harbor" }).ConfigureAwait(false);
+                        Vessel vessel = await db.Vessels.CreateAsync(new Vessel("Rollout vessel", "https://github.com/test/rollout.git")).ConfigureAwait(false);
+                        dock = await db.Docks.CreateAsync(new Dock(vessel.Id) { HarborId = harbor.Id, BranchName = "armada/original", WorktreePath = Path.Combine(tempDir, "preserved-dock") }).ConfigureAwait(false);
+                        Directory.CreateDirectory(dock.WorktreePath!);
+                        File.WriteAllText(Path.Combine(dock.WorktreePath!, "uncommitted.txt"), "survives rollout");
+                        captain = await db.Captains.CreateAsync(new Captain("Remote API captain", AgentRuntimeEnum.ApiEndpoint) { State = CaptainStateEnum.Working, ProcessId = 2000000007, CurrentDockId = dock.Id }).ConfigureAwait(false);
+                        mission = await db.Missions.CreateAsync(new Mission("Keep running") { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id, VesselId = vessel.Id, DockId = dock.Id, BranchName = dock.BranchName, StartedUtc = DateTime.UtcNow.AddMinutes(-1), ProcessId = captain.ProcessId }).ConfigureAwait(false);
+                        captain.CurrentMissionId = mission.Id;
+                        await db.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                        await db.HarborJobs.CreateAsync(new HarborJobRecord { JobId = "rollout-existing-job", HarborId = harbor.Id, MissionId = mission.Id, CaptainId = captain.Id, Kind = Armada.Core.Harbor.HarborJobKindEnum.Mission, Runtime = captain.Runtime.ToString(), StartedUtc = mission.StartedUtc }).ConfigureAwait(false);
+                    }
+
+                    first = await StartOnFreePortsAsync(settings).ConfigureAwait(false);
+                    using Armada.Runtimes.Mcp.McpToolClient mcp = new Armada.Runtimes.Mcp.McpToolClient("http://127.0.0.1:" + settings.McpPort + "/mcp", null, null, quiet);
+                    await mcp.InitializeAsync(deadline.Token).ConfigureAwait(false);
+                    int originalToolCount = (await mcp.ListToolsAsync(deadline.Token).ConfigureAwait(false)).Count;
+                    AssertTrue(originalToolCount > 0, "captain MCP session is live before rollout");
+                    using (WebSocketHarborTransport link = await ConnectRolloutHarborAsync(settings, dock.HarborId!, deadline.Token).ConfigureAwait(false))
+                    {
+                        first.Stop();
+                        first = null;
+                    }
+                    // Reuse both ports, as a real image update does: the existing captain keeps its original MCP URL.
+                    second = CreateServerFromSettings(settings);
+                    await second.StartAsync().ConfigureAwait(false);
+                    AssertEqual(originalToolCount, (await mcp.ListToolsAsync(deadline.Token).ConfigureAwait(false)).Count,
+                        "existing captain client recovers its stale MCP session after restart");
+                    using (WebSocketHarborTransport link = await ConnectRolloutHarborAsync(settings, dock.HarborId!, deadline.Token).ConfigureAwait(false))
+                    {
+                        // Only an output is sent: a hidden relaunch would either lose its original owner on handshake,
+                        // change the persisted attempt metadata, or fail to append to this mission's original log.
+                        await link.SendAsync(Armada.Core.Harbor.HarborProtocol.Serialize(new Armada.Core.Harbor.HarborOutput
+                        { JobId = "rollout-existing-job", Stream = Armada.Core.Harbor.HarborOutputStreamEnum.Stdout, Data = "original agent continued after rollout" }), deadline.Token).ConfigureAwait(false);
+                        string log = Path.Combine(settings.LogDirectory, "missions", mission.Id + ".log");
+                        MonotonicDeadline wait = MonotonicDeadline.After(TimeSpan.FromSeconds(5));
+                        while ((!File.Exists(log) || !File.ReadAllText(log).Contains("original agent continued after rollout", StringComparison.Ordinal)) && !wait.Passed)
+                            await Task.Delay(20, deadline.Token).ConfigureAwait(false);
+                        AssertContains("original agent continued after rollout", File.ReadAllText(log), "output reaches restored lifecycle over the real WebSocket");
+                        using HttpClient client = new HttpClient();
+                        client.DefaultRequestHeaders.Add("X-Api-Key", settings.ApiKey);
+                        HttpResponseMessage response = await client.GetAsync("http://127.0.0.1:" + settings.AdmiralPort + "/api/v1/missions/" + mission.Id, deadline.Token).ConfigureAwait(false);
+                        AssertStatusCode(HttpStatusCode.OK, response);
+                        Mission after = await JsonHelper.DeserializeAsync<Mission>(response).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.InProgress, after.Status);
+                        AssertEqual(mission.ProcessId, after.ProcessId);
+                        AssertEqual(mission.StartedUtc, after.StartedUtc);
+                        AssertEqual(mission.BranchName, after.BranchName);
+                        AssertEqual(dock.Id, after.DockId);
+                        AssertEqual(0, after.RedispatchAttempts);
+                        AssertEqual("survives rollout", File.ReadAllText(Path.Combine(dock.WorktreePath!, "uncommitted.txt")));
+                    }
+                }
+                finally
+                {
+                    if (first != null) { try { first.Stop(); } catch (Exception) { } }
+                    if (second != null) { try { second.Stop(); } catch (Exception) { } }
+                    TestTemp.TryDelete(tempDir);
+                }
+            }));
+
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Server Startup", cases: cases);
         }
 
         #endregion
 
         #region Private-Methods
+
+        private static async Task<WebSocketHarborTransport> ConnectRolloutHarborAsync(ArmadaSettings settings, string harborId, CancellationToken token)
+        {
+            WebSocketHarborTransport link = new WebSocketHarborTransport(new Uri("ws://127.0.0.1:" + settings.AdmiralPort + settings.Harbor.LinkPath),
+                new Dictionary<string, string> { ["X-Api-Key"] = settings.ApiKey! });
+            try
+            {
+                await link.ConnectAsync(token).ConfigureAwait(false);
+                await link.SendAsync(Armada.Core.Harbor.HarborProtocol.Serialize(new Armada.Core.Harbor.HarborHandshake
+                { HarborId = harborId, Name = "Rollout Harbor", LiveJobIds = new List<string> { "rollout-existing-job" }, JobOutboxEpoch = "unchanged-harbor-process" }), token).ConfigureAwait(false);
+                Armada.Core.Harbor.HarborMessage message = Armada.Core.Harbor.HarborProtocol.Deserialize((await link.ReceiveAsync(token).ConfigureAwait(false))!);
+                AssertTrue(message is Armada.Core.Harbor.HarborHandshakeAck, "real endpoint accepts reconnect");
+                Armada.Core.Harbor.HarborHandshakeAck ack = (Armada.Core.Harbor.HarborHandshakeAck)message;
+                AssertTrue(ack.Accepted && ack.OwnedJobIds!.Contains("rollout-existing-job"), "Harbor is told to retain the same running job");
+                return link;
+            }
+            catch
+            {
+                link.Dispose();
+                throw;
+            }
+        }
 
         private static async Task<HttpStatusCode> WhoAmIStatusAsync(HttpClient client, int restPort, string token)
         {

@@ -102,8 +102,8 @@ namespace Armada.Core.Models
         public int Priority { get; set; } = 100;
 
         /// <summary>
-        /// Number of times this mission has been automatically re-dispatched after a detected no-op
-        /// completion. Bounds the auto-retry before the mission is failed and surfaced to the operator.
+        /// Number of automatic re-dispatches or attempted process recovery launches, including interruptions
+        /// and no-op completions. Reattaching a still-running Harbor job does not increment this count.
         /// </summary>
         public int RedispatchAttempts { get; set; } = 0;
 

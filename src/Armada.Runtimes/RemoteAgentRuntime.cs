@@ -165,6 +165,26 @@ namespace Armada.Runtimes
 
         #region Public-Methods
 
+        /// <summary>
+        /// Reattach an existing Harbor job after an Admiral restart, without starting a process or changing its dock.
+        /// </summary>
+        /// <param name="jobId">Durable job identifier.</param>
+        /// <param name="processId">Existing process identifier.</param>
+        /// <param name="logFilePath">Existing mission log to append.</param>
+        /// <param name="finalMessageFilePath">Existing final-message artifact.</param>
+        /// <param name="alreadyExited">Replay a durable exit without reclaiming live ownership.</param>
+        public void Reattach(string jobId, int processId, string logFilePath, string finalMessageFilePath, bool alreadyExited = false)
+        {
+            _JobId = jobId;
+            _ProcessId = processId;
+            _FinalMessageFilePath = finalMessageFilePath;
+            _Decoder = StructuredProgress && MissionStreamDecoder.Supports(_RuntimeType) ? MissionStreamDecoder.For(_RuntimeType) : null;
+            _MuxOutcome = _RuntimeType == AgentRuntimeEnum.Mux ? new MuxRunOutcomeTracker() : null;
+            _ParseStructuredErrors = _Decoder != null;
+            OpenLog(logFilePath, String.Empty, reattached: true);
+            if (!alreadyExited) _Manager.RestoreJob(_HarborId, jobId, processId, this);
+        }
+
         /// <inheritdoc />
         public async Task<int> StartAsync(
             string workingDirectory,
@@ -476,7 +496,7 @@ namespace Armada.Runtimes
             }
         }
 
-        private void OpenLog(string? logFilePath, string prompt)
+        private void OpenLog(string? logFilePath, string prompt, bool reattached = false)
         {
             if (String.IsNullOrEmpty(logFilePath)) return;
             try
@@ -486,7 +506,7 @@ namespace Armada.Runtimes
                     Directory.CreateDirectory(Path.GetDirectoryName(logFilePath)!);
                     _LogWriter = new StreamWriter(logFilePath, append: true) { AutoFlush = true };
                     string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
-                    _LogWriter.WriteLine("[" + timestamp + "] Agent starting on Harbor " + _HarborId + " (" + _RuntimeType + ")");
+                    _LogWriter.WriteLine("[" + timestamp + "] " + (reattached ? "Admiral reattached to existing agent on Harbor " : "Agent starting on Harbor ") + _HarborId + " (" + _RuntimeType + ")");
                     if (!String.IsNullOrEmpty(prompt)) _LogWriter.WriteLine(prompt);
                     _LogWriter.WriteLine(String.Empty);
                 }

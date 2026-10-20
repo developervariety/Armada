@@ -62,6 +62,25 @@ require a credential in every case. The Docker split profile binds `0.0.0.0`, so
 credential. And the advertised MCP URL must be reachable from the Harbor host, not from inside the container. [HARBOR.md](HARBOR.md) explains the model and
 [HARBOR_PROTOCOL.md](HARBOR_PROTOCOL.md) the wire contract.
 
+### Admiral rollouts while missions run
+
+An Admiral restart leaves Harbor-hosted mission agents running. Before accepting Harbor links, the new Admiral
+restores ownership from the persisted mission, captain, dock and Harbor job records. The reconnect acknowledgement
+retains those jobs, and their output and exit events continue through the mission lifecycle. Mission ID, process ID,
+branch, dock, start time and `RedispatchAttempts` remain unchanged when no new agent was launched. The mission log
+records an explicit reattachment note rather than another “Agent starting” entry. Explicit captain stop and recall
+operations still stop remote agents.
+
+Startup allows restored jobs `harbor.heartbeatTimeoutSeconds` to reconnect before normal stall recovery applies.
+If the Harbor reports that a job disappeared, Armada waits for its replayed exit, then handles a missing job as an
+interruption. A real recovery launch retains the existing worktree and its uncommitted changes, adds continuation
+instructions, and increments `RedispatchAttempts` before attempting the launch. Recovery limits still apply;
+exhausted infrastructure interruptions are reported as infrastructure failures rather than model crashes.
+Admiral-local agents cannot outlive their host restart and use this counted recovery path. The Admiral's database
+and log directory must be persistent across image updates. This does not provide a distributed lease for multiple
+Admirals running against the same database simultaneously, or preserve in-memory model execution across a Harbor
+process restart.
+
 ### Remote Admiral
 
 Any of the shapes above can serve other machines: bind `rest.hostname` beyond loopback (or put a TLS proxy in front),

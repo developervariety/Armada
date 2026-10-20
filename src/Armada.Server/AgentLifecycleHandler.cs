@@ -689,24 +689,9 @@ namespace Armada.Server
             }
         }
 
-        /// <summary>
-        /// Launch an agent process for the given captain, mission, and dock.
-        /// </summary>
-        public async Task<int> HandleLaunchAgentAsync(Captain captain, Mission mission, Dock dock)
+        private void ObserveMissionRuntime(Armada.Runtimes.Interfaces.IAgentRuntime runtime, Captain captain, Mission mission,
+            out ChatTurnTelemetryRecorder missionTelemetry, out LatestValueThrottle<RuntimeActivity> missionActivity)
         {
-            _Logging.Info(_Header + "launching " + captain.Runtime + " agent for captain " + captain.Id);
-            LaunchExecutorResolution resolution = await ResolveLaunchExecutorAsync(captain, mission, dock).ConfigureAwait(false);
-            Armada.Runtimes.Interfaces.IAgentRuntime runtime = resolution.Executor.CreateRuntime(captain.Runtime);
-            string launchKey = captain.Id + ":" + mission.Id;
-            _PendingLaunches[launchKey] = new PendingLaunchInfo
-            {
-                CaptainId = captain.Id,
-                MissionId = mission.Id
-            };
-            runtime.OnProcessStarted += processId => HandleProcessStarted(processId, launchKey);
-
-            // Token usage and the model come from the CLI's own events, read from its raw stdout as it arrives (a mission
-            // streaming its progress raises decoded text on OnStdoutReceived, which no longer carries them).
             ChatTurnTelemetryRecorder telemetry = new ChatTurnTelemetryRecorder();
             AgentRuntimeEnum telemetryRuntime = captain.Runtime;
             _MissionTelemetry[mission.Id] = telemetry;
@@ -734,6 +719,87 @@ namespace Armada.Server
                     catch (Exception ex) { _Logging.Debug(_Header + "could not cancel CLI permission requests of " + exitedMissionId + ": " + ex.Message); }
                 });
             };
+
+            missionTelemetry = telemetry;
+            missionActivity = activityBroadcast;
+        }
+
+        /// <summary>
+        /// Recover Harbor mission ownership before the REST listener accepts reconnects. Runtime callbacks, log artifacts,
+        /// process maps and completion handling are restored; no launch request is sent to the Harbor.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Number of restored jobs.</returns>
+        public async Task<int> RestoreHarborMissionsAsync(CancellationToken token = default)
+        {
+            if (_HarborConnections == null) return 0;
+            int restored = 0;
+            List<Captain> captains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+            foreach (Captain captain in captains)
+            {
+                if (!captain.ProcessId.HasValue || String.IsNullOrEmpty(captain.CurrentMissionId) || IsProcessTracked(captain.ProcessId.Value)) continue;
+                Mission? mission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
+                if (mission == null || (mission.Status != MissionStatusEnum.InProgress && mission.Status != MissionStatusEnum.Assigned)
+                    || mission.CaptainId != captain.Id || (mission.ProcessId.HasValue && mission.ProcessId != captain.ProcessId) || String.IsNullOrEmpty(mission.DockId)) continue;
+                Dock? dock = await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
+                if (dock == null || !dock.Active || String.IsNullOrEmpty(dock.HarborId)) continue;
+                List<HarborJobRecord> jobs = await _Database.HarborJobs.EnumerateAsync(dock.HarborId, mission.CreatedUtc, DateTime.MaxValue, token).ConfigureAwait(false);
+                HarborJobRecord? job = jobs.Where(item => item.MissionId == mission.Id && item.CaptainId == captain.Id
+                    && item.Kind == Armada.Core.Harbor.HarborJobKindEnum.Mission).OrderByDescending(item => item.LaunchedUtc).FirstOrDefault();
+                if (job == null || job.StopRequested || job.Runtime != captain.Runtime.ToString()) continue;
+                // The old callback may have claimed the exit (clearing ProcessId) before shutdown interrupted
+                // completion. Re-arm that claim only for a recorded exit on this still-active assignment.
+                if (!mission.ProcessId.HasValue)
+                {
+                    if (!job.EndedUtc.HasValue) continue;
+                    MissionStatusEnum observed = mission.Status;
+                    mission.ProcessId = captain.ProcessId;
+                    if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, new[] { observed }, token).ConfigureAwait(false)) continue;
+                }
+
+                RemoteAgentRuntime runtime = new RemoteAgentRuntime(_HarborConnections, dock.HarborId, captain.Runtime)
+                {
+                    MissionId = mission.Id,
+                    JobKind = Armada.Core.Harbor.HarborJobKindEnum.Mission,
+                    StructuredProgress = true
+                };
+                ObserveMissionRuntime(runtime, captain, mission, out _, out _);
+                string finalMessage = Path.Combine(_Settings.LogDirectory, "final-messages", mission.Id + ".txt");
+                _MissionFinalMessageFiles[mission.Id] = finalMessage;
+                lock (_ProcessToCaptain)
+                {
+                    _ProcessToCaptain[captain.ProcessId.Value] = captain.Id;
+                    _ProcessToMission[captain.ProcessId.Value] = mission.Id;
+                }
+                runtime.Reattach(job.JobId, captain.ProcessId.Value, Path.Combine(_Settings.LogDirectory, "missions", mission.Id + ".log"), finalMessage, alreadyExited: job.EndedUtc.HasValue);
+                StartProcessLivenessHeartbeat(captain.ProcessId.Value, captain.Id, mission.Id);
+                restored++;
+                // An exit may have been durably recorded immediately before the old Admiral stopped, but its
+                // asynchronous mission completion was not committed. Replay it through the normal claimed-exit path.
+                if (job.EndedUtc.HasValue)
+                    runtime.OnExited(job.ExitCode ?? -1);
+            }
+            return restored;
+        }
+
+        /// <summary>
+        /// Launch an agent process for the given captain, mission, and dock.
+        /// </summary>
+        public async Task<int> HandleLaunchAgentAsync(Captain captain, Mission mission, Dock dock)
+        {
+            _Logging.Info(_Header + "launching " + captain.Runtime + " agent for captain " + captain.Id);
+            LaunchExecutorResolution resolution = await ResolveLaunchExecutorAsync(captain, mission, dock).ConfigureAwait(false);
+            Armada.Runtimes.Interfaces.IAgentRuntime runtime = resolution.Executor.CreateRuntime(captain.Runtime);
+            string launchKey = captain.Id + ":" + mission.Id;
+            _PendingLaunches[launchKey] = new PendingLaunchInfo
+            {
+                CaptainId = captain.Id,
+                MissionId = mission.Id
+            };
+            runtime.OnProcessStarted += processId => HandleProcessStarted(processId, launchKey);
+
+            ObserveMissionRuntime(runtime, captain, mission, out ChatTurnTelemetryRecorder telemetry,
+                out LatestValueThrottle<RuntimeActivity> activityBroadcast);
 
             Vessel? vessel = null;
             if (!String.IsNullOrEmpty(mission.VesselId))

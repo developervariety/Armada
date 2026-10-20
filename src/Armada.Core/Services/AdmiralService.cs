@@ -78,6 +78,12 @@ namespace Armada.Core.Services
         /// </summary>
         public Func<int, bool>? OnIsProcessTracked { get; set; }
 
+        /// <summary>Whether a process is owned by a Harbor and can outlive this Admiral.</summary>
+        public Func<int, bool>? OnIsRemoteProcessTracked { get; set; }
+
+        /// <summary>Bounded startup wait for a restored Harbor process to report its status.</summary>
+        public Func<int, bool>? OnIsProcessAwaitingReconnect { get; set; }
+
         /// <summary>
         /// Time source. In-process waits and windows (the wait for a fast-exiting captain's launch to be recorded, the
         /// crash-loop window) are measured on its monotonic clock, never its wall clock, so a wall-clock jump (the host
@@ -539,6 +545,11 @@ namespace Armada.Core.Services
             foreach (Captain captain in workingCaptains)
             {
                 if (!captain.ProcessId.HasValue) continue;
+                if (OnIsRemoteProcessTracked?.Invoke(captain.ProcessId.Value) == true)
+                {
+                    _Logging.Info(_Header + "shutdown: leaving Harbor agent running for captain " + captain.Id);
+                    continue;
+                }
                 try
                 {
                     await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false);
@@ -670,9 +681,23 @@ namespace Armada.Core.Services
                 }
 
                 bool processAlive = captain.ProcessId.HasValue &&
-                    ProcessSupervisor.IsTrackedProcessAlive(captain.ProcessId.Value, currentMission?.StartedUtc);
+                    (OnIsProcessTracked?.Invoke(captain.ProcessId.Value) == true ||
+                     OnIsProcessExitHandled?.Invoke(captain.ProcessId.Value) == true ||
+                     ProcessSupervisor.IsTrackedProcessAlive(captain.ProcessId.Value, currentMission?.StartedUtc));
 
                 if (processAlive) continue;
+
+                // Dead local agents (or a Harbor job with no recoverable ownership record) represent an actual
+                // interruption. Resume in the existing dock instead of quietly provisioning a fresh generation.
+                if (currentMission != null && (currentMission.Status == MissionStatusEnum.InProgress || currentMission.Status == MissionStatusEnum.Assigned))
+                {
+                    if (currentMission.RedispatchAttempts < InterruptedRedispatchLimit)
+                        await HandleInterruptedProcessExitAsync(captain, currentMission, currentMission.Id, -1, token).ConfigureAwait(false);
+                    else
+                        await HandleTerminalProcessExitFailureAsync(captain, currentMission, currentMission.Id, "Restart recovery limit reached after Admiral interruption", RuntimeFailureKindEnum.Transient, token, MissionFailureKindEnum.Infra).ConfigureAwait(false);
+                    resetCount++;
+                    continue;
+                }
 
                 // Reset active missions back to Pending for re-dispatch
                 List<Mission> captainMissions = await _Database.Missions.EnumerateByCaptainAsync(captain.Id, token).ConfigureAwait(false);
@@ -682,6 +707,7 @@ namespace Armada.Core.Services
 
                 foreach (Mission mission in activeMissions)
                 {
+                    mission.RedispatchAttempts++;
                     mission.Status = MissionStatusEnum.Pending;
                     mission.CaptainId = null;
                     mission.ProcessId = null;
@@ -966,7 +992,7 @@ namespace Armada.Core.Services
                     return;
                 }
 
-                await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, failureReason, exitInfo.FailureKind, token).ConfigureAwait(false);
+                await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, failureReason, exitInfo.FailureKind, token, exitCode < 0 ? MissionFailureKindEnum.Infra : null).ConfigureAwait(false);
 
                 // Provider usage-limit / auth failures will just fail again immediately; quarantine the
                 // captain out of the dispatch pool until it resets rather than handing it more work. The kind
@@ -976,7 +1002,7 @@ namespace Armada.Core.Services
                 {
                     await QuarantineCaptainAsync(captainId, failureKind, token, exitInfo.ProviderError).ConfigureAwait(false);
                 }
-                else if (failureKind == RuntimeFailureKindEnum.Crash && RecordCrashAndCheckLoop(captainId))
+                else if (exitCode >= 0 && failureKind == RuntimeFailureKindEnum.Crash && RecordCrashAndCheckLoop(captainId))
                 {
                     // Crash-loop detection: N non-clean failures inside the window means this captain keeps
                     // dying on work rather than doing it; quarantine it so tier selection stops handing it more.
@@ -1261,6 +1287,7 @@ namespace Armada.Core.Services
 
             // Determine the process ID to check
             int? processId = captain.ProcessId ?? mission?.ProcessId;
+            if (processId.HasValue && OnIsProcessAwaitingReconnect?.Invoke(processId.Value) == true) return;
 
             // A stall-recovery relaunch that was refused (requireHarborForLaunch with the user's Harbor offline) leaves
             // the captain Working on its active mission with no process and a spent recovery attempt. Treat it as a
@@ -1371,7 +1398,7 @@ namespace Armada.Core.Services
 
                     // The health monitor only knows the exit code (no structured provider error reached it).
                     RuntimeExitInfo healthExitInfo = RuntimeFailureClassifier.Decide(exitCode, null);
-                    await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, healthExitInfo.Describe(), healthExitInfo.FailureKind, token).ConfigureAwait(false);
+                    await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, healthExitInfo.Describe(), healthExitInfo.FailureKind, token, exitCode < 0 ? MissionFailureKindEnum.Infra : null).ConfigureAwait(false);
                 }
             }
             else
@@ -2034,6 +2061,13 @@ namespace Armada.Core.Services
             int exitCode,
             CancellationToken token)
         {
+            Dock? interruptedDock = String.IsNullOrEmpty(mission.DockId) ? null : await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
+            if (interruptedDock != null && interruptedDock.Active && !String.IsNullOrEmpty(interruptedDock.WorktreePath))
+            {
+                await TryResumeInPlaceAsync(captain, mission, "Agent interrupted by server/Harbor restart (exit " + exitCode + ")", token).ConfigureAwait(false);
+                return;
+            }
+
             // Reclaim the dock and release the captain before resetting the mission (ReclaimDockAsync keys off
             // the captain's/mission's current dock, so do it before clearing those references).
             MissionStatusEnum observedStatus = mission.Status;
@@ -2074,7 +2108,8 @@ namespace Armada.Core.Services
             string missionId,
             string failureReason,
             RuntimeFailureKindEnum runtimeFailureKind,
-            CancellationToken token)
+            CancellationToken token,
+            MissionFailureKindEnum? missionFailureKind = null)
         {
             bool missionFailed = false;
             if (mission != null)
@@ -2082,7 +2117,7 @@ namespace Armada.Core.Services
                 MissionStatusEnum observedStatus = mission.Status;
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = failureReason;
-                mission.FailureKind = runtimeFailureKind == RuntimeFailureKindEnum.TaskFailure ? MissionFailureKindEnum.InvalidOutput : MissionFailureKindEnum.Crash;
+                mission.FailureKind = missionFailureKind ?? (runtimeFailureKind == RuntimeFailureKindEnum.TaskFailure ? MissionFailureKindEnum.InvalidOutput : MissionFailureKindEnum.Crash);
                 mission.ProcessId = null;
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;

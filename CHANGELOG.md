@@ -11,6 +11,7 @@ All notable changes to Armada are documented in this file.
 - Voyage deletion consistently uses Delete in the dashboard. Selecting multiple voyages exposes Delete Multiple with confirmation, in-progress feedback and partial-failure reporting; failed voyages remain selected.
 
 ### Worker completion and recovery
+- Admiral rollouts preserve Harbor-owned mission agents and restore their durable ownership, output, final-result and exit callbacks before accepting reconnects. Startup uses a bounded reconnect grace instead of treating remote/synthetic PIDs as dead local processes. Actual recovery launches increment the mission retry counter and retain the existing worktree; reattachment preserves the original start time and attempt count.
 - Required persona contracts are included in generated mission files even when a captain has no custom system instructions. Previously the contract was built but omitted from the file for default captains.
 - Worker guidance calls for behavior-level API fixtures and configuration-transition coverage. Judge re-review covers cumulative mission changes against the original requirements, and rework preserves those requirements instead of treating the reported findings as the whole task. Source review and unverified publication/delivery must be reported separately.
 - Cancelling or deleting an original mission or its latest rescue now closes that recovery chain instead of dispatching a replacement rescue. Closure notes distinguish an operator stop from a successfully landed fix.

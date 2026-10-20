@@ -252,6 +252,25 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(transport.Closed, "the transport was closed");
             }));
 
+            cases.Add(CaseAsync("restored_job_reconnect_grace_is_bounded", "Restored jobs wait for their first report for a bounded grace, and live reports clear that wait", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    HarborTestClock clock = new HarborTestClock(_Start);
+                    HarborConnectionManager manager = NewManager(testDb, clock);
+                    manager.RestoreJob("hbr_restore", "job-restored", 2000000007, new RecordingHarborJobListener());
+                    AssertTrue(manager.IsProcessAwaitingReconnect(2000000007));
+                    clock.Advance(manager.RestoredJobReconnectGrace);
+                    AssertFalse(manager.IsProcessAwaitingReconnect(2000000007), "offline Harbor cannot suppress recovery forever");
+                    manager.RestoreJob("hbr_restore", "job-reported", 2000000008, new RecordingHarborJobListener());
+                    HarborHandshake handshake = Handshake("hbr_restore", 15000);
+                    handshake.LiveJobIds = new List<string> { "job-restored", "job-reported" };
+                    await manager.OnHandshakeAsync(handshake, null, null, Recorder(new List<HarborMessage>())).ConfigureAwait(false);
+                    AssertFalse(manager.IsProcessAwaitingReconnect(2000000008), "live job report ends the startup wait immediately");
+                    AssertTrue(manager.IsProcessTracked(2000000008), "and retains job ownership");
+                }
+            }));
+
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Harbor Job Reconcile", cases: cases);
         }
 

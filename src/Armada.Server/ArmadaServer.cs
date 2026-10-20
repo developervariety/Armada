@@ -340,6 +340,7 @@ namespace Armada.Server
                 : _Settings.Harbor.AdvertisedMcpBaseUrl!;
             _HarborConnectionManager = new HarborConnectionManager(_HarborService, _Logging, harborMcpUrl);
             _HarborMetricsRecorder = new HarborMetricsRecorder(_Database, _Logging, _Settings.Harbor);
+            _HarborConnectionManager.RestoredJobReconnectGrace = TimeSpan.FromSeconds(_Settings.Harbor.HeartbeatTimeoutSeconds);
             _HarborConnectionManager.Metrics = _HarborMetricsRecorder;
             _StorageInventory = new StorageInventoryService(_Database, _Settings, _HarborConnectionManager.IsConnected);
             _HarborConnectionManager.StorageReportReceived = _StorageInventory.Receive;
@@ -444,6 +445,8 @@ namespace Armada.Server
             _Admiral.OnCaptureDiff = _MissionLanding.HandleCaptureDiffAsync;
             _Admiral.OnIsProcessExitHandled = _AgentLifecycle.IsProcessExitHandled;
             admiralService.OnIsProcessTracked = _AgentLifecycle.IsProcessTracked;
+            admiralService.OnIsRemoteProcessTracked = _HarborConnectionManager.IsProcessTracked;
+            admiralService.OnIsProcessAwaitingReconnect = _HarborConnectionManager.IsProcessAwaitingReconnect;
             missionService.OnGetMissionOutput = _AgentLifecycle.GetAndClearMissionOutput;
             missionService.OnTakeMissionTelemetry = _AgentLifecycle.TakeMissionTelemetry;
 
@@ -710,6 +713,8 @@ namespace Armada.Server
 
             // Watson 7 StartAsync is long-running; Start() binds and returns after
             // scheduling the accept loop.
+            int restoredJobs = await _AgentLifecycle.RestoreHarborMissionsAsync(_TokenSource.Token).ConfigureAwait(false);
+            _Logging.Info(_Header + "restored ownership of " + restoredJobs + " Harbor mission job(s) before accepting links");
             _App.Start(_TokenSource.Token);
             _Logging.Info(_Header + "REST API started on port " + _Settings.AdmiralPort);
 
@@ -828,7 +833,7 @@ namespace Armada.Server
             {
                 _Logging.Warn(_Header + "REST API stop error: " + ex.ToString());
             }
-            // Kill agent subprocesses so none survive as orphans after the Admiral exits.
+            // Stop Admiral-local subprocesses; Harbor-owned missions survive and are reattached on startup.
             // Runs before the token is cancelled and the database is disposed (it needs both).
             try
             {

@@ -1497,6 +1497,76 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("shutdown_preserves_harbor_agents", "Shutdown stops only Admiral-local agents, leaving Harbor ownership recoverable", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService docks = new DockService(logging, db, settings, git);
+                    CaptainService captains = new CaptainService(logging, db, settings, git, docks);
+                    List<int> stopped = new List<int>();
+                    captains.OnStopAgent = captain => { stopped.Add(captain.ProcessId!.Value); return Task.CompletedTask; };
+                    AdmiralService service = new AdmiralService(logging, db, settings, captains, new MissionService(logging, db, settings, docks, captains), new VoyageService(logging, db), docks);
+                    await db.Captains.CreateAsync(new Captain("Harbor") { State = CaptainStateEnum.Working, ProcessId = 2000000007 }).ConfigureAwait(false);
+                    await db.Captains.CreateAsync(new Captain("Local") { State = CaptainStateEnum.Working, ProcessId = 2000000008 }).ConfigureAwait(false);
+                    service.OnIsRemoteProcessTracked = pid => pid == 2000000007;
+                    await service.StopAllAgentProcessesAsync().ConfigureAwait(false);
+                    AssertEqual(1, stopped.Count);
+                    AssertEqual(2000000008, stopped[0], "only the local process stops");
+                }
+            }));
+
+            foreach (bool tracked in new[] { true, false })
+            {
+                bool captured = tracked;
+                cases.Add(CaseAsync("startup_interruption_" + captured, "Startup " + (captured ? "retains a restored synthetic PID" : "counts relaunch and preserves uncommitted dock work"), TestTags.Reliability, async () =>
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        DatabaseDriver db = testDb.Driver;
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        StubGitService git = new StubGitService();
+                        IDockService docks = new DockService(logging, db, settings, git);
+                        CaptainService captains = new CaptainService(logging, db, settings, git, docks);
+                        int launches = 0;
+                        captains.OnLaunchAgent = (_, _, _) => Task.FromResult(2000000010 + ++launches);
+                        AdmiralService service = new AdmiralService(logging, db, settings, captains, new MissionService(logging, db, settings, docks, captains), new VoyageService(logging, db), docks);
+                        Vessel vessel = await db.Vessels.CreateAsync(new Vessel("startup", "https://github.com/test/startup.git")).ConfigureAwait(false);
+                        string path = Path.Combine(Path.GetTempPath(), "armada_startup_" + Guid.NewGuid().ToString("N"));
+                        Directory.CreateDirectory(path);
+                        File.WriteAllText(Path.Combine(path, "uncommitted.txt"), "keep my work");
+                        Dock dock = await db.Docks.CreateAsync(new Dock(vessel.Id) { WorktreePath = path, BranchName = "armada/same" }).ConfigureAwait(false);
+                        Captain captain = await db.Captains.CreateAsync(new Captain("restart") { State = CaptainStateEnum.Working, ProcessId = 2000000007, CurrentDockId = dock.Id }).ConfigureAwait(false);
+                        Mission mission = await db.Missions.CreateAsync(new Mission("restart") { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id, ProcessId = captain.ProcessId, VesselId = vessel.Id, DockId = dock.Id, StartedUtc = DateTime.UtcNow.AddMinutes(-2), BranchName = dock.BranchName }).ConfigureAwait(false);
+                        captain.CurrentMissionId = mission.Id;
+                        await db.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                        service.OnIsProcessTracked = pid => captured || pid == 2000000011;
+                        await service.CleanupStaleCaptainsAsync().ConfigureAwait(false);
+                        await service.CleanupStaleCaptainsAsync().ConfigureAwait(false);
+                        Mission after = (await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(captured ? 0 : 1, launches, "one actual interrupted launch, never duplicate cleanup");
+                        AssertEqual(captured ? 0 : 1, after.RedispatchAttempts, "counts real relaunches, not reattachment");
+                        AssertEqual(mission.StartedUtc, after.StartedUtc);
+                        AssertEqual(dock.Id, after.DockId);
+                        AssertEqual("keep my work", File.ReadAllText(Path.Combine(path, "uncommitted.txt")));
+                        AssertTrue((await db.Docks.ReadAsync(dock.Id).ConfigureAwait(false))!.Active, "original dock stays active");
+                        if (captured)
+                        {
+                            captain.LastHeartbeatUtc = DateTime.UtcNow.AddHours(-2);
+                            await db.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                            service.OnIsProcessAwaitingReconnect = _ => true;
+                            await service.HealthCheckAsync().ConfigureAwait(false);
+                            AssertEqual(0, launches, "startup must not stall-recover an old heartbeat before the Harbor reports");
+                        }
+                        Directory.Delete(path, true);
+                    }
+                }));
+            }
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Admiral Service",
