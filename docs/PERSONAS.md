@@ -184,6 +184,14 @@ A brief carries only what the mission's mode and persona can use:
   under "Cited line ranges to recheck" with where the symbol is now.
 - The Runtime Signals verdict lines reach only a Judge, and the Architect
   signal rule reaches only an Architect.
+- The read-only rules forbid editing, committing and pushing. By default they
+  also forbid running builds and tests. When the linked objective has an
+  acceptance criterion that requires a build or test run, the criterion wins:
+  the rules tell the captain to run the existing build and test commands the
+  criterion needs and quote each command with its totals, state that this rule
+  wins over any other line that forbids running them, and ask the captain to
+  report the conflict and the rule it followed. Read-only still forbids
+  changing a tracked file.
 - On a read-only mission the captain's own instructions are kept, followed by
   one line that says the read-only rules win over any edit, commit or push
   order in them.

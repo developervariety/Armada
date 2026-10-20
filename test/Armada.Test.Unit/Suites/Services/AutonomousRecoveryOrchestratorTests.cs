@@ -4711,6 +4711,8 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildRescueDescription_LongReportOnlyJudgeReview_CarriesResidualRiskDefect).ConfigureAwait(false);
             await RunTest("BuildRescueDescription keeps the newest prior stage's report essentials that the description digest would cut",
                 BuildRescueDescription_LongDescription_KeepsTheNewestReportEssentials).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription qualifies a do-not-re-implement line with the fixes the review requires and the non-goal rule",
+                BuildRescueDescription_DoNotReimplementScope_RequiresTheReviewFixesAndLetsANonGoalWin).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief keeps every finding's opening inside its bound when the findings are long",
                 BuildBlockingFindingsForBrief_ManyLongFindings_KeepsEveryOpeningInsideTheBound).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief carries a required revision written as a paragraph",
@@ -5770,6 +5772,60 @@ namespace Armada.Test.Unit.Suites.Services
             string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
             AssertContains("StressedFill_KeepsClerkSlippage", brief, "The added-tests list survives the description digest");
             AssertContains("Complete output: mission-output:msn_test_tester", brief, "The complete-output reference survives");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildRescueDescription_DoNotReimplementScope_RequiresTheReviewFixesAndLetsANonGoalWin()
+        {
+            string review = String.Join("\n", new[]
+            {
+                "## Correctness",
+                "",
+                "**Revision required: the parser must check the record length before it reads the payload.**",
+                "",
+                "## Verdict",
+                "",
+                "Fix the length check, then add the missing regression test.",
+                "",
+                "[ARMADA:VERDICT] NEEDS_REVISION"
+            });
+            string description = "## Scope\n\nFIRST ACTION (restart from preserved work). This voyage starts from the previous Worker commit, "
+                + "which already implements every scope item. Do not re-implement.\n\n## Non-Goals\n\n- Do not change the public reader interface.\n";
+            Mission failed = new Mission
+            {
+                Id = "msn_test_rescue_reimplement",
+                Title = "Reader length check",
+                Persona = "Judge",
+                Status = MissionStatusEnum.Failed,
+                FailureReason = "Judge verdict: NEEDS_REVISION",
+                Description = description,
+                AgentOutput = review,
+                ReviewComment = review
+            };
+            Incident incident = new Incident { Id = "inc_test_rescue_reimplement", Title = "t", Summary = "s", Status = IncidentStatusEnum.Open, Severity = IncidentSeverityEnum.Medium };
+
+            string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+            int precedence = brief.IndexOf(AutonomousRecoveryOrchestrator.RescueRevisionPrecedence, StringComparison.Ordinal);
+            int carried = brief.IndexOf("Do not re-implement.", StringComparison.Ordinal);
+            AssertTrue(carried >= 0, "The original scope line is carried into the rescue");
+            AssertTrue(precedence >= 0 && precedence < carried,
+                "The precedence that qualifies the carried line comes before it");
+            AssertContains("do make every revision the blocking findings require", brief,
+                "A do-not-re-implement line does not cancel the fixes the review requires");
+            AssertContains("the non-goal wins", brief, "A required fix that a non-goal forbids is reported, not made");
+
+            Mission gateFailure = new Mission
+            {
+                Id = "msn_test_rescue_gate",
+                Title = "Reader length check",
+                Persona = "Worker",
+                Status = MissionStatusEnum.Failed,
+                FailureReason = "DoD gate failed: classification=Compile",
+                Description = description
+            };
+            string gateBrief = AutonomousRecoveryOrchestrator.BuildRescueDescription(gateFailure, incident, 1);
+            AssertFalse(gateBrief.Contains(AutonomousRecoveryOrchestrator.RescueRevisionPrecedence, StringComparison.Ordinal),
+                "A rescue with no review carries no review precedence");
             await Task.CompletedTask;
         }
 

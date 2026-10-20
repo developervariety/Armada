@@ -45,6 +45,12 @@ namespace Armada.Core.Services
         #region Public-Members
 
         /// <summary>
+        /// Issue code for a stage whose persona duty conflicts with the objective's non-goals or the dispatch's
+        /// read-only mode. The message names the conflict and the rule that wins.
+        /// </summary>
+        public const string StageDutyConflictIssueCode = "stage_duty_conflict";
+
+        /// <summary>
         /// The D5 preflight text-half adapter, run after the deterministic preflight block to add
         /// model flags to the preview. Null leaves the preview fully deterministic, which is the
         /// operationally-off state; it is set after construction only when the live typed-decision
@@ -215,13 +221,14 @@ namespace Armada.Core.Services
 
             string? effectivePipelineRequest = NormalizeEmpty(requestedPipelineId)
                 ?? NormalizeEmpty(objective.SuggestedPipelineId);
+            bool readOnlyDispatch = effectiveMissionModes.Count > 0
+                ? effectiveMissionModes.All(IsReadOnlyMissionMode)
+                : objective.Kind == ObjectiveKindEnum.Research;
             Pipeline? pipeline = await ResolvePipelineReadOnlyAsync(
                 auth,
                 vessel,
                 effectivePipelineRequest,
-                effectiveMissionModes.Count > 0
-                    ? effectiveMissionModes.All(IsReadOnlyMissionMode)
-                    : objective.Kind == ObjectiveKindEnum.Research,
+                readOnlyDispatch,
                 result,
                 token).ConfigureAwait(false);
             if (pipeline != null)
@@ -236,6 +243,7 @@ namespace Armada.Core.Services
 
             List<Captain> captains = await ReadCaptainsAsync(auth, token).ConfigureAwait(false);
             Pipeline? coveragePipeline = ApplyStoredStageSkip(objective, pipeline, result);
+            EvaluateStageDutyConflicts(objective, readOnlyDispatch, result);
             await EvaluateCaptainCoverageAsync(auth, vessel, coveragePipeline, captains, captainAssignments, missionDescriptions, result, token).ConfigureAwait(false);
             await EvaluateChecksAsync(auth, vessel, result, token).ConfigureAwait(false);
 
@@ -347,6 +355,24 @@ namespace Armada.Core.Services
             {
                 AddIssue(result, "preparation_claim_needs_recheck", "brief", ReadinessSeverityEnum.Error,
                     "A preparation claim must be verified again before dispatch: " + claim.Text, claim.Id);
+            }
+        }
+
+        /// <summary>
+        /// Flag each stage whose persona duty conflicts with the objective's non-goals or the dispatch's read-only
+        /// mode, and record which rule wins. The mission brief states the same rule, so the warning tells the
+        /// operator what each captain will be told; a conflict with a stated winner does not block dispatch.
+        /// </summary>
+        private static void EvaluateStageDutyConflicts(Objective objective, bool readOnlyDispatch, ObjectiveDispatchPreview result)
+        {
+            List<string> conflicts = MissionService.FindStageDutyConflicts(
+                readOnlyDispatch,
+                result.EffectivePipelineStages,
+                objective.AcceptanceCriteria,
+                objective.NonGoals);
+            foreach (string conflict in conflicts)
+            {
+                AddIssue(result, StageDutyConflictIssueCode, "brief", ReadinessSeverityEnum.Warning, conflict, null);
             }
         }
 

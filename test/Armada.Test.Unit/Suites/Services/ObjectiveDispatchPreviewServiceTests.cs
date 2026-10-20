@@ -1394,6 +1394,55 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Preview flags a stage duty that conflicts with read-only mode or a non-goal and names the rule that wins", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+
+                    Objective research = harness.CreateReadyObjective("read-only-run-preview");
+                    research.Kind = ObjectiveKindEnum.Research;
+                    research.AcceptanceCriteria = new List<string> { "The report cites every branch it read." };
+                    ObjectiveDispatchPreview clean = await harness.Service.PreviewAsync(harness.Auth, research).ConfigureAwait(false);
+                    AssertFalse(clean.Issues.Any(issue => issue.Code == ObjectiveDispatchPreviewService.StageDutyConflictIssueCode),
+                        "a read-only objective whose criteria need no run raises no duty conflict");
+
+                    research.AcceptanceCriteria = new List<string>
+                    {
+                        "The report cites every branch it read.",
+                        "The report quotes 20 class runs and a green solution gate."
+                    };
+                    ObjectiveDispatchPreview readOnly = await harness.Service.PreviewAsync(harness.Auth, research).ConfigureAwait(false);
+                    ObjectiveDispatchPreviewIssue runConflict = readOnly.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.StageDutyConflictIssueCode);
+                    AssertEqual(ReadinessSeverityEnum.Warning, runConflict.Severity, "a conflict with a stated winner does not block dispatch");
+                    AssertContains("20 class runs", runConflict.Message, "the warning quotes the criterion that needs a run");
+                    AssertContains("Rule that wins: the criterion.", runConflict.Message, "the warning records which rule wins");
+
+                    Pipeline pipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("DutyConflictPreview")
+                    {
+                        Stages = new List<PipelineStage>
+                        {
+                            new PipelineStage(1, "Worker"),
+                            new PipelineStage(2, "TestEngineer"),
+                            new PipelineStage(3, "Judge")
+                        }
+                    }).ConfigureAwait(false);
+                    Objective implementation = harness.CreateReadyObjective("non-goal-duty-preview");
+                    implementation.NonGoals = new List<string> { "No new tests; the report is the only changed file." };
+                    ObjectiveDispatchPreview nonGoal = await harness.Service.PreviewAsync(
+                        harness.Auth, implementation, null, pipeline.Id).ConfigureAwait(false);
+                    ObjectiveDispatchPreviewIssue testConflict = nonGoal.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.StageDutyConflictIssueCode);
+                    AssertContains("TestEngineer", testConflict.Message, "the warning names the conflicting stage");
+                    AssertContains("Rule that wins: the non-goal.", testConflict.Message, "the warning records which rule wins");
+
+                    implementation.NonGoals = new List<string> { "Do not change the public reader interface." };
+                    ObjectiveDispatchPreview agreed = await harness.Service.PreviewAsync(
+                        harness.Auth, implementation, null, pipeline.Id).ConfigureAwait(false);
+                    AssertFalse(agreed.Issues.Any(issue => issue.Code == ObjectiveDispatchPreviewService.StageDutyConflictIssueCode),
+                        "a TestEngineer stage on an objective that allows test edits raises no duty conflict");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Preflight citations resolve declared sibling paths at the sibling tip", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

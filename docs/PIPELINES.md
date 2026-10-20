@@ -298,6 +298,17 @@ role section (the `## Your Role:` heading and its paragraph) and says so. A
 rescue of a failed Judge, Linter or TestEngineer is a Worker that fixes the
 work, so it never receives the reviewer's role text as its own brief.
 
+A rescue that carries a review (a reviewer rejection) states, before the
+embedded description, that the review decides what the rescue changes. The
+embedded description and its objective can say the work is already done, for
+example "restart from preserved work" or "do not re-implement". Such text keeps
+the work already present and stops a rebuild, but it does not cancel the
+revisions the blocking findings require. When a required revision would change
+something an objective non-goal forbids, the non-goal wins: the rescue does not
+make that revision and reports the conflict in one line naming the finding and
+the non-goal. The same precedence is in the Objective Scope section of every
+linked brief.
+
 Each later stage in the rescue chain re-verifies the revision against the
 original failure. After a reviewer rejection, its brief embeds the same
 blocking findings the rescue Worker received and tells it to confirm each one

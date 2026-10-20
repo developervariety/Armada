@@ -3494,6 +3494,19 @@ namespace Armada.Server
         internal const int _MaxRescueGateLogChars = 2000;
         internal const int _MaxRescueBlockingFindingsChars = 4000;
 
+        /// <summary>
+        /// The precedence a rescue of a rejected stage states before the original description. That description
+        /// and its objective can say the work is already done ("do not re-implement", "restart from preserved
+        /// work"); such text protects work already present and does not cancel the fixes the review requires. A
+        /// required fix that an objective non-goal forbids is not made: the non-goal wins and the conflict is
+        /// reported, as the Objective Scope precedence line states.
+        /// </summary>
+        internal const string RescueRevisionPrecedence =
+            "The review above decides what this rescue changes. Where the original description or its objective says the work is already done "
+            + "or must not be re-implemented, keep the work already present and do not rebuild it, but do make every revision the blocking findings require. "
+            + "When a required revision would change something an objective non-goal forbids, the non-goal wins: do not make that revision, and report the "
+            + "conflict in one line naming the finding and the non-goal.";
+
         internal static string BuildRescueDescription(Mission failedMission, Incident incident, int attemptNumber)
         {
             MissionOutputArtifactPage outputArtifact = MissionOutputArtifact.Build(
@@ -3567,6 +3580,8 @@ namespace Armada.Server
             sb.AppendLine();
             sb.AppendLine("Objective:");
             sb.AppendLine("Recover the original mission without repeating the failure. Inspect the original failure, make the smallest corrective change, run the vessel's workflow profile checks when available, and leave explicit evidence in Armada records.");
+            if (!String.IsNullOrWhiteSpace(review))
+                sb.AppendLine(RescueRevisionPrecedence);
             sb.AppendLine();
             sb.AppendLine("Original mission description:");
             sb.AppendLine("Read the full original mission record with armada_mission_status (missionId=" + failedMission.Id + ", includeDescription=true) when this excerpt or its diagnostics are shortened.");

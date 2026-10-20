@@ -10,6 +10,23 @@ namespace Armada.Core.Services
 
     public partial class MissionService
     {
+        #region Public-Members
+
+        /// <summary>
+        /// The rule that decides a read-only mission whose acceptance criteria require a build or test run.
+        /// Read-only forbids changes to the repository, not verification, so the criterion wins over the
+        /// read-only default against running builds and tests, and every other read-only rule still holds.
+        /// </summary>
+        public const string ReadOnlyVerificationRunRule =
+            "An acceptance criterion requires running builds or tests, and that criterion wins over the read-only default against running them: " +
+            "run the existing build and test commands the criterion needs, and quote each command with its totals. " +
+            "This rule wins over any other line in this brief that forbids running builds or tests. " +
+            "Read-only still holds: change no tracked file, and do not commit, stage, or push. " +
+            "Run no other command that changes repository state. " +
+            "State this conflict and the rule you followed in one line of your report.";
+
+        #endregion
+
         #region Private-Members
 
         /// <summary>
@@ -30,6 +47,19 @@ namespace Armada.Core.Services
             @"(?:unit\s+|integration\s+)?tests?\b" +
             @"|\btests?(?:\s+files?|\s+suites?)?\s+(?:are\s+|stay\s+|remain\s+)?(?:unchanged|untouched|out\s+of\s+scope|read-only)" +
             @"|\b(?:no|not|never|without)\b[^.;\n]{0,30}\b(?:production|source|code)\s+(?:or|and|nor)\s+tests?\b",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+        private static readonly Regex _VerificationRunCriterionPattern = new Regex(
+            @"\b(?:run|runs|running|re-run|rerun|execute|executes|executing)\b[^.;\n]{0,60}?\b(?:tests?|test\s+class(?:es)?|suites?|gates?|builds?|checks?)\b" +
+            @"|\b(?:class|suite|test)\s+runs?\b" +
+            @"|\b\d+\s*/\s*\d+\s+(?:pass|passed|green)\b" +
+            @"|\b0\s+(?:failures?|failed|errors?)\b" +
+            @"|\b(?:builds?|tests?|suites?|gates?)\b[^.;\n]{0,60}?\b(?:pass|passes|passed|(?:is|are|stays?)\s+green|succeeds?|succeeded)\b" +
+            @"|\b(?:dotnet|npm|pnpm|yarn|cargo|go|mvn|gradle)\s+(?:test|build)\b|\bpytest\b|\bmake\s+(?:test|check)\b",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+        private static readonly Regex _VerificationRunNegationPattern = new Regex(
+            @"\b(?:do\s+not|don't|never|without)\s+(?:run|running|re-run|rerun|execute|executing|build|building)\b",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         #endregion
@@ -145,6 +175,85 @@ namespace Armada.Core.Services
                 lines += "These non-goals forbid test edits, so this TestEngineer stage is validate-only: run the validation the objective permits, report coverage gaps as findings, and commit no test files.\n";
             }
             return lines + "\n";
+        }
+
+        /// <summary>
+        /// Whether an acceptance criterion can only be met by running a build or tests: it asks to run or execute
+        /// tests, a suite, a gate or a build, names class or suite runs, pins a pass count ("42/42 pass", "0
+        /// failures"), says a build or suite passes, or names a build or test command. A criterion that forbids
+        /// running them ("do not run tests") does not count.
+        /// </summary>
+        /// <param name="criteria">The acceptance criteria.</param>
+        /// <returns>True when any criterion requires a build or test run.</returns>
+        public static bool CriteriaRequireVerificationRuns(IEnumerable<string>? criteria)
+        {
+            return FindVerificationRunCriteria(criteria).Count > 0;
+        }
+
+        /// <summary>
+        /// The acceptance criteria that require a build or test run, in their stored order (see
+        /// <see cref="CriteriaRequireVerificationRuns(IEnumerable{string}?)"/>).
+        /// </summary>
+        /// <param name="criteria">The acceptance criteria.</param>
+        /// <returns>The matching criteria, trimmed; empty when none requires a run.</returns>
+        public static List<string> FindVerificationRunCriteria(IEnumerable<string>? criteria)
+        {
+            List<string> found = new List<string>();
+            if (criteria == null) return found;
+            foreach (string criterion in criteria)
+            {
+                if (String.IsNullOrWhiteSpace(criterion)) continue;
+                if (_VerificationRunNegationPattern.IsMatch(criterion)) continue;
+                if (_VerificationRunCriterionPattern.IsMatch(criterion)) found.Add(criterion.Trim());
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// The duty conflicts a dispatch preflight finds between the stages that will run and the objective,
+        /// each stating which rule wins. A read-only dispatch whose criteria require a build or test run is
+        /// decided by <see cref="ReadOnlyVerificationRunRule"/>; a TestEngineer stage on an objective whose
+        /// non-goals forbid test edits is decided by the non-goal, and that stage validates only. The mission
+        /// brief carries the same rule, so the preflight records what the captain will be told.
+        /// </summary>
+        /// <param name="readOnly">True when the dispatch runs in a read-only mode.</param>
+        /// <param name="stagePersonas">Persona names of the stages that will run.</param>
+        /// <param name="acceptanceCriteria">The objective's acceptance criteria.</param>
+        /// <param name="nonGoals">The objective's non-goals.</param>
+        /// <returns>One line per conflict; empty when the stages and the objective agree.</returns>
+        public static List<string> FindStageDutyConflicts(
+            bool readOnly,
+            IEnumerable<string>? stagePersonas,
+            IEnumerable<string>? acceptanceCriteria,
+            IEnumerable<string>? nonGoals)
+        {
+            List<string> conflicts = new List<string>();
+            if (readOnly)
+            {
+                List<string> runCriteria = FindVerificationRunCriteria(acceptanceCriteria);
+                if (runCriteria.Count > 0)
+                {
+                    conflicts.Add("Read-only mode forbids running builds and tests by default, but these acceptance criteria require them: "
+                        + String.Join(" | ", runCriteria)
+                        + ". Rule that wins: the criterion. The brief lets each stage run the existing build and test commands the criterion needs; "
+                        + "read-only still forbids edits, commits and pushes.");
+                }
+            }
+
+            bool hasTestEngineer = false;
+            if (stagePersonas != null)
+            {
+                foreach (string persona in stagePersonas)
+                {
+                    if (PersonaCatalog.Matches(persona, PersonaCatalog.TestEngineer)) { hasTestEngineer = true; break; }
+                }
+            }
+            if (hasTestEngineer && !readOnly && NonGoalsForbidTestEdits(nonGoals))
+            {
+                conflicts.Add("The TestEngineer stage writes and commits tests, but a non-goal forbids test edits. "
+                    + "Rule that wins: the non-goal. The brief tells the TestEngineer it is validate-only.");
+            }
+            return conflicts;
         }
 
         /// <summary>

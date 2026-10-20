@@ -191,6 +191,26 @@ upstream integrations and excludes changes already present at that baseline.
   `FAIL <name>: <message>` gets its failing tests named in the check run
   summary. A run with no recorded profile, or a profile without a pattern,
   reads the output with the built-in matchers only.
+- A read-only (Audit or Research) brief whose objective has an acceptance
+  criterion that requires a build or test run (run the tests or a suite, class
+  runs, `N/N pass`, `0 failures`, a build or test command) lets that criterion
+  win over the read-only default against running builds and tests. The rules
+  section tells the captain to run the existing build and test commands the
+  criterion needs and quote the totals, to change no tracked file and commit
+  nothing, and to report the conflict and the rule it followed. A read-only
+  brief with no such criterion keeps the default rule.
+- The objective dispatch preview flags each stage whose duty conflicts with the
+  objective: a read-only dispatch whose criteria require a build or test run,
+  and a TestEngineer stage on an objective whose non-goals forbid test edits.
+  Each `stage_duty_conflict` warning quotes the conflict and names the rule
+  that wins (the criterion, or the non-goal), which is the rule the brief
+  states. The warning does not block dispatch.
+- A rescue of a rejected stage states that the review decides what the rescue
+  changes. Text carried from the original description or objective that says
+  the work is already done or must not be re-implemented keeps the work already
+  present, but does not cancel the revisions the blocking findings require. A
+  required revision that an objective non-goal forbids is not made, and the
+  rescue reports the conflict.
 - Autonomous recovery dispatches no rescue in the producer for a
   definition-of-done `TestFail` on a declared consumer's test suite
   (`consumer_tests_failed: <consumer>`). The gate runs a consumer's suite only

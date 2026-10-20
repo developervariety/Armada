@@ -827,6 +827,79 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A read-only brief lets a criterion that requires a test run win over the read-only default, and keeps the default otherwise", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    string runDir = Path.Combine(tempDir, "run");
+                    string reportDir = Path.Combine(tempDir, "report");
+                    Directory.CreateDirectory(runDir);
+                    Directory.CreateDirectory(reportDir);
+                    const string defaultRule = "- Do not run builds, tests, or any command that changes repository state.";
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("ReadOnlyRunVessel", "https://github.com/test/repo");
+
+                        Voyage runVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("read-only-run-voyage")).ConfigureAwait(false);
+                        Objective runObjective = new Objective();
+                        runObjective.Title = "Verify the parser report";
+                        runObjective.Kind = ObjectiveKindEnum.Research;
+                        runObjective.Description = "Report whether the parser handles empty records.";
+                        runObjective.AcceptanceCriteria = new List<string>
+                        {
+                            "The report cites each parser branch it read.",
+                            "Run the focused parser test class and quote its totals."
+                        };
+                        runObjective.VoyageIds = new List<string> { runVoyage.Id };
+                        await testDb.Driver.Objectives.CreateAsync(runObjective).ConfigureAwait(false);
+
+                        Mission runMission = new Mission();
+                        runMission.Title = "Verify the parser report";
+                        runMission.Persona = "Worker";
+                        runMission.Mode = MissionModeEnum.Research;
+                        runMission.Description = "Report whether the parser handles empty records.";
+                        runMission.VoyageId = runVoyage.Id;
+                        await service.GenerateClaudeMdAsync(runDir, runMission, vessel);
+                        string runBrief = await File.ReadAllTextAsync(Path.Combine(runDir, "CLAUDE.md"));
+                        AssertContains(MissionService.ReadOnlyVerificationRunRule, runBrief,
+                            "a read-only brief whose criteria require a test run lets the criterion win and says so");
+                        AssertFalse(runBrief.Contains(defaultRule), "the brief does not also forbid the run the criterion requires");
+                        AssertContains("Do not commit, stage, or push anything.", runBrief, "read-only still forbids commits");
+
+                        Voyage reportVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("read-only-report-voyage")).ConfigureAwait(false);
+                        Objective reportObjective = new Objective();
+                        reportObjective.Title = "Describe the parser";
+                        reportObjective.Kind = ObjectiveKindEnum.Research;
+                        reportObjective.Description = "Report how the parser handles empty records.";
+                        reportObjective.AcceptanceCriteria = new List<string> { "The report cites each parser branch it read." };
+                        reportObjective.VoyageIds = new List<string> { reportVoyage.Id };
+                        await testDb.Driver.Objectives.CreateAsync(reportObjective).ConfigureAwait(false);
+
+                        Mission reportMission = new Mission();
+                        reportMission.Title = "Describe the parser";
+                        reportMission.Persona = "Worker";
+                        reportMission.Mode = MissionModeEnum.Research;
+                        reportMission.Description = "Report how the parser handles empty records.";
+                        reportMission.VoyageId = reportVoyage.Id;
+                        await service.GenerateClaudeMdAsync(reportDir, reportMission, vessel);
+                        string reportBrief = await File.ReadAllTextAsync(Path.Combine(reportDir, "CLAUDE.md"));
+                        AssertContains(defaultRule, reportBrief, "a read-only brief with no run-requiring criterion keeps the default rule");
+                        AssertFalse(reportBrief.Contains(MissionService.ReadOnlyVerificationRunRule),
+                            "the verification-run rule appears only when a criterion requires a run");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("Objective Scope names the objective id and states that a non-goal wins over a conflicting role duty", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

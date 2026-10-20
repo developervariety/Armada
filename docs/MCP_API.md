@@ -400,6 +400,19 @@ acceptance criteria. The description, criteria, non-goals, rollout constraints
 and refinement summary are read; each warning quotes at most five sentences.
 Rewording a superseded sentence stays an operator edit.
 
+`preview_objective_dispatch` also warns, without blocking dispatch, when a stage
+that will run has a duty that conflicts with the objective, and each
+`stage_duty_conflict` warning names the rule that wins. A read-only dispatch
+(Audit or Research) whose acceptance criteria require a build or test run
+quotes those criteria, and the criterion wins: the brief lets each stage run the
+existing build and test commands the criterion needs, while read-only still
+forbids edits, commits and pushes. A TestEngineer stage on an objective whose
+non-goals forbid test edits is decided by the non-goal, and the brief tells
+that stage it is validate-only. A criterion requires a run when it asks to run
+or execute tests, a suite, a gate or a build, names class or suite runs, pins a
+pass count (`42/42 pass`, `0 failures`), says a build or suite passes, or names
+a build or test command; a criterion that says not to run them does not count.
+
 `armada_dispatch` accepts `captainAssignments`, an array of `persona`,
 `captainId` and optional `fallbackTier` entries (`persona` `*` applies to every
 stage without its own entry). The voyage row stores them when it is created,

@@ -3760,7 +3760,11 @@ namespace Armada.Core.Services
             // rather than silently obeying.
             if (mission.IsReadOnlyMode)
             {
-                content += ledger.Track("mission.rules_read_only", BuildReadOnlyRulesSection(mission.Mode));
+                // A criterion that needs a build or test run wins over the read-only default against running
+                // them; the rules state that, so the captain is not forbidden to verify what it must meet.
+                Objective? readOnlyObjective = await FindLinkedObjectiveAsync(mission, token).ConfigureAwait(false);
+                bool criteriaRequireRuns = CriteriaRequireVerificationRuns(readOnlyObjective?.AcceptanceCriteria);
+                content += ledger.Track("mission.rules_read_only", BuildReadOnlyRulesSection(mission.Mode, criteriaRequireRuns));
             }
             else
             {
@@ -5112,11 +5116,28 @@ namespace Armada.Core.Services
         /// <returns>The rules section.</returns>
         internal static string BuildReadOnlyRulesSection(MissionModeEnum mode)
         {
+            return BuildReadOnlyRulesSection(mode, false);
+        }
+
+        /// <summary>
+        /// Builds the read-only rule set. Read-only forbids changing the repository; by default it also forbids
+        /// running builds and tests. When an acceptance criterion requires a build or test run, the criterion
+        /// wins over that default and the section says so (<see cref="ReadOnlyVerificationRunRule"/>), so the
+        /// captain is not told to meet a criterion it is forbidden to verify.
+        /// </summary>
+        /// <param name="mode">The mission mode; named in the text so the captain knows why.</param>
+        /// <param name="criteriaRequireVerificationRuns">True when an acceptance criterion requires a build or test run.</param>
+        /// <returns>The rules section.</returns>
+        internal static string BuildReadOnlyRulesSection(MissionModeEnum mode, bool criteriaRequireVerificationRuns)
+        {
+            string runRule = criteriaRequireVerificationRuns
+                ? "- " + ReadOnlyVerificationRunRule + "\n"
+                : "- Do not run builds, tests, or any command that changes repository state.\n";
             return
                 "## Rules (" + mode + " mission, read-only)\n" +
                 "- This mission delivers a report. Do not edit, create, or delete repository files.\n" +
                 "- Do not commit, stage, or push anything. Producing no commit is the expected outcome, not a failure.\n" +
-                "- Do not run builds, tests, or any command that changes repository state.\n" +
+                runRule +
                 "- Read anything you need. Prefer targeted reads over broad exploration.\n" +
                 "- Report exact evidence: file paths, line numbers, command output, and counts you actually observed.\n" +
                 "- If a question cannot be answered from the evidence available, say so plainly rather than estimating.\n" +
