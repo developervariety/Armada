@@ -4752,26 +4752,32 @@ namespace Armada.Core.Services
             // The Worker this Judge reviews, and how many rework rounds this chain has had.
             Mission? worker = null;
             int rounds = 0;
+            bool escalated = false;
+            HashSet<string> workerChain = new HashSet<string>(StringComparer.Ordinal);
             HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
             for (Mission? cursor = judge; cursor != null && !String.IsNullOrEmpty(cursor.DependsOnMissionId) && seen.Add(cursor.Id);)
             {
                 cursor = byId.TryGetValue(cursor.DependsOnMissionId!, out Mission? up) ? up : null;
                 if (cursor == null) break;
-                if (cursor.Title.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal)) rounds++;
-                if (worker == null && PersonaCatalog.Matches(cursor.Persona, PersonaCatalog.Worker)) worker = cursor;
+                if (!PersonaCatalog.Matches(cursor.Persona, PersonaCatalog.Worker)) continue;
+                if (worker == null) worker = cursor;
+                workerChain.Add(cursor.Id);
+                // A fresh Worker is the boundary of this implementation slice. Its dependency may be a
+                // passing Judge from another Architect slice, whose rework budget is independent.
+                if (!cursor.Title.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal)) break;
+                rounds++;
+                escalated |= cursor.Title.Contains(_EscalatedMarker, StringComparison.Ordinal);
             }
 
             if (worker == null) return Unavailable("Automatic Judge rework is unavailable because the reviewed Worker could not be found in the dependency chain.");
 
             // Give the Worker bounded rework, then try one different captain. Unchanged rejected work
             // switches earlier. Escalation also works in voyages with no planning stage.
-            bool escalated = voyageMissions.Any(m => m.Title.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal)
-                && m.Title.Contains(_EscalatedMarker, StringComparison.Ordinal) && IsAncestorOf(m, judge, byId));
             if (escalated || rounds > _MaxJudgeReworkRounds)
                 return Unavailable("Automatic Judge rework limit reached after " + rounds + " rework round(s)" + (escalated ? ", including an escalated attempt." : "."));
             string? escalateTo = null;
             Mission? previousWorker = voyageMissions.FirstOrDefault(m => m.Id != worker.Id && PersonaCatalog.Matches(m.Persona, PersonaCatalog.Worker)
-                && IsAncestorOf(m, worker, byId) && !String.IsNullOrEmpty(m.CommitHash) && m.CommitHash == worker.CommitHash);
+                && workerChain.Contains(m.Id) && !String.IsNullOrEmpty(m.CommitHash) && m.CommitHash == worker.CommitHash);
             bool stagnant = previousWorker != null && !MissionModeContract.IsReadOnly(worker.Mode);
             if (rounds == _MaxJudgeReworkRounds || stagnant)
             {

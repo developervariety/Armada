@@ -267,6 +267,37 @@ namespace Test.Shared.Suites.Services
                 AssertContains("independent Judge", stopped.FailureReason);
             }));
 
+            cases.Add(CaseAsync("architect_slice_has_own_rework_budget", "A later Architect slice starts its own bounded rework budget after an earlier slice passed an escalated review", TestTags.Positive, async () =>
+            {
+                foreach (string priorTitle in new[] { "[Worker] Rework 3 (escalated): Catalog", "[Worker] Rework 1: Catalog" })
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    Harness h = new Harness(testDb, new DirCreatingGitService());
+                    h.Missions.OnGetMissionOutput = _ => "## Affected Case\nFile: client.cs:10\nReject the wrong authentication header.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Architect slices") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    Mission prior = await testDb.Driver.Missions.CreateAsync(new Mission(priorTitle, "Catalog") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CommitHash = "catalog-commit", BranchName = "armada/slices" }).ConfigureAwait(false);
+                    Mission passed = await testDb.Driver.Missions.CreateAsync(new Mission("Review catalog", "Catalog") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", Status = MissionStatusEnum.WorkProduced, DependsOnMissionId = prior.Id, AgentOutput = "[ARMADA:VERDICT] PASS" }).ConfigureAwait(false);
+                    Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("Inference [Worker]", "Implement inference") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, DependsOnMissionId = passed.Id, CommitHash = "catalog-commit", BranchName = "armada/slices" }).ConfigureAwait(false);
+                    Captain reviewer = await CreateCaptainAsync(testDb, "Reviewer", AgentRuntimeEnum.Codex, CaptainStateEnum.Working).ConfigureAwait(false);
+                    Mission judge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, reviewer, "Judge", false).ConfigureAwait(false);
+                    judge.DependsOnMissionId = worker.Id;
+                    judge.BranchName = "armada/slices";
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+                    await h.Missions.HandleCompletionAsync(reviewer, judge.Id).ConfigureAwait(false);
+
+                    Mission reviewed = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    AssertNotEqual(MissionStatusEnum.Failed, reviewed.Status, "An earlier slice's escalation must not fail a later slice's first review");
+                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    Mission? rework = all.Find(m => m.DependsOnMissionId == judge.Id && m.Persona == "Worker");
+                    AssertNotNull(rework, "The new slice gets a correction attempt");
+                    AssertContains("Rework round 1", rework.Description);
+                    AssertEqual<string?>(null, rework.RequestedCaptainId, "An earlier slice must not force escalation");
+                    AssertEqual("armada/slices", rework.BranchName);
+                }
+            }));
+
             cases.Add(CaseAsync("unchanged_rework_escalates_early", "A rejected rework that preserves the previous worker commit switches captain before exhausting ordinary retries", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -296,6 +296,8 @@ disconnected are not moved to another Harbor: the stall watchdog (`stallThreshol
 once it is back; while it is still offline and the policy is on, each recovery attempt waits another stall interval, and
 the mission fails with `StallRecoveryExhausted` when `maxRecoveryAttempts` run out.
 
+**Architect slices and rework.** Each implementation slice has its own bounded Judge rework budget. A slice starts a new budget even when it depends on an earlier slice that passed after escalation; unchanged-work detection also stays within the current slice.
+
 **A Judge rejects the last rework.** Mission details and the inbox retain why automatic rework stopped: the bounded rework/escalation limit, a missing Worker dependency, or no eligible alternate Worker captain. For an eligibility failure, check captain availability, ownership/scope, tier and persona priorities. Read the Judge's affected-case report and dispatch a follow-up from the preserved work branch with an independent Judge; rejected work has not been approved for landing.
 
 **An inference mission fails because of configuration.** Open the dashboard inbox entry or mission details for the recorded provider error and remediation. Mission details link to the captain, its inference endpoints, and the vessel configuration. Authentication failures point to credentials; model-not-found failures point to the URL, model ID, and account access. Rejected requests (HTTP 400, 405, 415, or 422) require checking provider/model options and tool support, but may also indicate an SDK integration defect. Correct and validate the affected configuration before restarting. Endpoint health alone does not prove that its model supports the mission tool workflow.
