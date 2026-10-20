@@ -1,11 +1,9 @@
 name: ci
 
-# The quick smoke test for every push and pull request: one Linux runner, a warning-free build, the fast unit suites
-# (Models, Client, Metrics, Database on SQLite, Runtimes; about a minute), and a check that the committed dashboard
-# dist/ matches its source. The slow suites (Services, E2E, TUI), the other operating systems and net8.0, the
-# targeted pipeline contract/routing regressions also run on every push. Other service suites, dashboard/mobile
-# tests, and the parity, install, and security checks run only on demand (full.yml,
-# install-verify.yml, db-parity.yml, security.yml). Nothing runs on a schedule.
+# Every push/PR runs a warning-free Linux build, fast unit suites, targeted pipeline contract/routing regressions,
+# and a check that committed dashboard dist/ matches its source. Other Services, E2E and TUI suites, other operating
+# systems/net8.0, dashboard/mobile tests, parity, install and security checks run on demand through full.yml,
+# install-verify.yml, db-parity.yml and security.yml. Nothing runs on a schedule.
 on:
   push:
   pull_request:

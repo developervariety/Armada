@@ -153,3 +153,13 @@ Still open: semantic plan contradiction detection, role-limited tool/context exp
 Local validation for this implementation round: 153 targeted service cases passed on .NET 10 and the same 153 on .NET 8; the complete solution built with zero warnings/errors. Dashboard production build and 15 shared dispatch tests passed. Mobile type checking/lint passed, and seven dispatch interaction tests passed on each iOS/Android preset, including strict selection in the submitted request. The earlier full native mobile results are independent of this new switch; it has not been rerun on a device. A concurrent dashboard/solution build initially raced while generated assets were being replaced; the ordered rerun passed. A subsequent no-restore build required a full restore for Harbor's missing net8 assets; restored solution build passed. Neither was an observed product runtime failure.
 
 The targeted pipeline contract/routing suites are also added to push/PR CI, so these regressions no longer depend solely on manually running the broader Services suites.
+
+Rollout artifact: product changes committed as `00f45ea4`; `build-all.sh v1.1.0` completed successfully for server, dashboard and proxy, both architectures, pushed `v1.1.0`/`latest` and pulled them locally. Local tag identity was checked. Published manifest digests:
+
+| Image | Digest |
+| --- | --- |
+| `jchristn77/armada-server` | `sha256:506c8eeb9d3a42254d07f9cc48dc74f5417099fd98fa7c444367841ec5a041cd` |
+| `jchristn77/armada-dashboard` | `sha256:bfbcb1beeb952d0350a56ca79744a4501e05d394a7d10ddd38e333621b510c35` |
+| `jchristn77/armada-proxy` | `sha256:17f872c50d443147b6c38b188a340f3bba7430845e09329fcb44266bae0d41b2` |
+
+Awaiting operator deployment confirmation before cleanup/reset and the fresh full-pipeline run. The existing acceptance voyage has 33 Complete missions and no active jobs; its records and accepted source remain preserved until rollout verification. The prepared request retains the previous objective and uses strict assignments for every FullPipeline persona. Evidence and request: `/tmp/armada-full-pipeline-20261020` (local). CI adds the targeted suites; hosted CI results are not claimed as complete while the latest run is pending.
