@@ -70,7 +70,7 @@ namespace Armada.Core.Services
             {
                 if (!PersonaPromptImprovements.Additions.ContainsKey(entry.Key)) continue;
                 _PreviousPersonaContents[entry.Key] = entry.Value.Content;
-                entry.Value.Content = PersonaPromptImprovements.Apply(entry.Key, entry.Value.Content);
+                entry.Value.Content = PersonaPromptImprovements.Briefs[entry.Key];
             }
         }
 
@@ -300,7 +300,8 @@ namespace Armada.Core.Services
                     // vessel's durable memory before acting, so recorded knowledge is actually reused.
                     string content = embedded.Content;
                     if (String.Equals(embedded.Category, "persona", StringComparison.OrdinalIgnoreCase)
-                        && !String.Equals(name, "persona.recorder", StringComparison.OrdinalIgnoreCase))
+                        && !String.Equals(name, "persona.recorder", StringComparison.OrdinalIgnoreCase)
+                        && !content.Contains(_MemoryRecallMarker, StringComparison.Ordinal))
                     {
                         content += _MemoryRecallGuidance;
                     }
@@ -347,9 +348,11 @@ namespace Armada.Core.Services
                 PromptTemplate? existing = await _Database.PromptTemplates.ReadByNameAsync(previous.Key, token).ConfigureAwait(false);
                 if (existing == null || !existing.IsBuiltIn) continue;
                 string recall = previous.Key == "persona.recorder" ? String.Empty : _MemoryRecallGuidance;
-                if (!String.Equals(existing.Content, previous.Value, StringComparison.Ordinal)
-                    && !String.Equals(existing.Content, previous.Value + recall, StringComparison.Ordinal)) continue;
-                existing.Content = PersonaPromptImprovements.Apply(previous.Key, previous.Value) + recall;
+                string improved = PersonaPromptImprovements.Apply(previous.Key, previous.Value);
+                string recallBeforeImprovement = PersonaPromptImprovements.Apply(previous.Key, previous.Value + recall);
+                if (!new[] { previous.Value, previous.Value + recall, improved, improved + recall, recallBeforeImprovement }
+                    .Any(shipped => NormalizeLineEndings(existing.Content) == NormalizeLineEndings(shipped))) continue;
+                existing.Content = _EmbeddedDefaults[previous.Key].Content;
                 existing.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.PromptTemplates.UpdateAsync(existing, token).ConfigureAwait(false);
                 _Logging.Debug(_Header + "upgraded untouched built-in persona execution guidance for '" + previous.Key + "'");

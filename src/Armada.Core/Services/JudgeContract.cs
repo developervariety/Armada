@@ -190,15 +190,14 @@ namespace Armada.Core.Services
         public static string OutputContract()
         {
             return
-                "Review the cumulative mission changes against the original acceptance requirements, including on re-review; do not limit review to the latest rework commit or assume previously unreported paths are correct. " +
-                "Check whether executed tests cover the behavior advertised by the change, rather than only construction or compilation. List all concrete blocking cases found, and distinguish reviewed source from unverified publication or delivery. " +
-                "Review the work through exactly three lenses, each as its own section: " +
-                "`## Correctness` (is the change logically correct for the inputs it can receive?), " +
-                "`## Blast Radius` (what else could this change break, and how far do its effects reach?), and " +
-                "`## Source Fidelity` (does it faithfully implement the mission, stay in scope, and match the real codebase without inventing behavior?). " +
-                "End with a `## Verdict` section and exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. " +
-                "To block (FAIL or NEEDS_REVISION) you MUST include a `## Affected Case` section that exhibits one concrete affected case with a `File: <path>[:line]` line naming where the change is wrong or unsafe, or a `Scenario: <inputs and the wrong result>` line describing how to trigger it. " +
-                "A blocking verdict without a concrete affected case is not accepted. Do not reply with only a verdict line.";
+                "Review cumulative changes against original acceptance criteria and every prior finding. " +
+                "Use current source and relevant checks; distinguish executed evidence from upstream claims and unverified delivery. " +
+                "Use `## Correctness`, `## Blast Radius`, `## Source Fidelity`, and `## Verdict`. " +
+                "Report all concrete blocking defects; label optional improvements separately. " +
+                "To block, add `## Affected Case` with `File: <path>[:line]` or `Scenario: <inputs and wrong result>`, " +
+                "the violated requirement, expected/actual behavior, and required correction. " +
+                "Mark prior findings resolved, superseded (why), or unresolved. " +
+                "End with exactly one standalone `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION` line.";
         }
 
         /// <summary>

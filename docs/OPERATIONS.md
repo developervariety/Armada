@@ -437,3 +437,11 @@ already running.
 
 The Windows paths of both programs (the service host, `sc.exe`, and `reg.exe`) are covered by tests of the exact
 command lines they run, not by a run on Windows. Treat the first Windows install of a release as the real check.
+
+## Persona prompts and stage handoffs
+
+Built-in persona briefs live in `src/Armada.Core/Prompts/persona-briefs.json`. Each role keeps its existing result/verdict protocol. Architects plan the fewest useful missions with measurable acceptance criteria; Workers resolve original requirements and prior findings; Judges distinguish blocking defects from optional improvements and recheck every prior finding.
+
+Startup upgrades exact, untouched legacy defaults and preserves customized templates. Reset a template to adopt the current default deliberately. Prompt-template API updates apply to newly generated instructions; running jobs keep their existing instructions. Changing a persona prompt does not change its captain priorities.
+
+Stage handoffs carry source mission, branch, commit, and at most 3,000 characters of prior output (opening and closing excerpts). Complete output and diffs remain persisted on the prior mission; agents must retrieve omitted evidence before resolving findings. Template diff excerpts are capped at 4,000 characters. These bounds limit copied context; they do not truncate the mission's original acceptance criteria or stored artifacts.

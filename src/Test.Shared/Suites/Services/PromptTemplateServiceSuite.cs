@@ -335,6 +335,15 @@ namespace Test.Shared.Suites.Services
                         await testDb.Driver.PromptTemplates.UpdateAsync(row).ConfigureAwait(false);
                     }
                     await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    foreach (KeyValuePair<string, string> entry in previous)
+                    {
+                        PromptTemplate legacy = (await testDb.Driver.PromptTemplates.ReadByNameAsync(entry.Key).ConfigureAwait(false))!;
+                        string recall = entry.Key == "persona.recorder" ? String.Empty
+                            : (string)typeof(PromptTemplateService).GetField("_MemoryRecallGuidance", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetRawConstantValue()!;
+                        legacy.Content = PersonaPromptImprovements.Apply(entry.Key, entry.Value + recall);
+                        await testDb.Driver.PromptTemplates.UpdateAsync(legacy).ConfigureAwait(false);
+                    }
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
                     foreach (string name in previous.Keys)
                     {
                         PromptTemplate row = (await testDb.Driver.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false))!;
@@ -370,13 +379,14 @@ namespace Test.Shared.Suites.Services
                     foreach (string name in PersonaPromptImprovements.Additions.Keys)
                     {
                         string rendered = await service.RenderAsync(name, new Dictionary<string, string> { ["MissionDescription"] = "A bounded offline task", ["Diff"] = "a verified diff", ["PreviousStageOutput"] = "supplied evidence" }).ConfigureAwait(false);
+                        AssertTrue(rendered.Length < 1800, name + " stays succinct");
                         AssertContains("Report unavailable tools", rendered, name + " unavailable checks are explicit");
                         AssertContains("Never claim an inspection", rendered, name + " evidence honesty");
                         AssertFalse(rendered.Contains("{MissionDescription}"), name + " objective rendered");
                     }
                     string architect = service.GetEmbeddedDefault("persona.architect")!;
-                    AssertContains("inside that mission's existing JSON description field", architect, "self-contained fan-out description");
-                    AssertContains("exact repository validation commands", architect, "executable checks");
+                    AssertContains("Each description must stand alone", architect, "self-contained fan-out description");
+                    AssertContains("validation commands", architect, "executable checks");
                     AssertContains("armada-plan", architect, "plan protocol preserved");
                     string worker = service.GetEmbeddedDefault("persona.worker")!;
                     AssertContains("changed files", worker, "worker handoff");
@@ -385,7 +395,7 @@ namespace Test.Shared.Suites.Services
                     AssertContains("publication/access date", product, "dated research evidence");
                     AssertContains("stable identifiers", product, "measurable acceptance criteria");
                     string testEngineer = service.GetEmbeddedDefault("persona.test_engineer")!;
-                    AssertContains("Do not weaken/delete assertions", testEngineer, "production defect honesty");
+                    AssertContains("weaken/delete assertions", testEngineer, "production defect honesty");
                     AssertContains("named tests", testEngineer, "requirement mapping");
                     AssertContains("smallest corrective action", service.GetEmbeddedDefault("persona.judge")!, "actionable judge repair");
                     AssertContains("file/line references", service.GetEmbeddedDefault("persona.linter")!, "linter locations");

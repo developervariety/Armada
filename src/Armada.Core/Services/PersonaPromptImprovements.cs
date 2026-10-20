@@ -12,6 +12,8 @@ namespace Armada.Core.Services
 
         internal static IReadOnlyDictionary<string, string> Additions { get; } = Load();
 
+        internal static IReadOnlyDictionary<string, string> Briefs { get; } = Load("persona-briefs.json");
+
         internal static string Apply(string name, string content)
         {
             if (!Additions.TryGetValue(name, out string? addition)) return content;
@@ -19,10 +21,10 @@ namespace Armada.Core.Services
             return content + addition;
         }
 
-        private static Dictionary<string, string> Load()
+        private static Dictionary<string, string> Load(string resource = "persona-improvements.json")
         {
             Assembly assembly = typeof(PersonaPromptImprovements).Assembly;
-            using Stream stream = assembly.GetManifestResourceStream("Armada.Core.Prompts.persona-improvements.json")
+            using Stream stream = assembly.GetManifestResourceStream("Armada.Core.Prompts." + resource)
                 ?? throw new InvalidOperationException("Embedded persona improvements are missing.");
             return JsonSerializer.Deserialize<Dictionary<string, string>>(stream)
                 ?? throw new InvalidOperationException("Embedded persona improvements are invalid.");

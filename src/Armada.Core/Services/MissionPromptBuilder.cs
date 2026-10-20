@@ -15,8 +15,8 @@ namespace Armada.Core.Services
         private const int MaxPersonaSummaryChars = 320;
         private const int MaxCaptainInstructionChars = 800;
         private const int MaxMissionDescriptionChars = 3500;
-        private const int MaxPreviousStageOutputChars = 8000;
-        private const int MaxPreviousStageDiffChars = 20000;
+        private const int MaxPreviousStageOutputChars = 3000;
+        private const int MaxPreviousStageDiffChars = 4000;
 
         /// <summary>
         /// Text placed in <c>{Diff}</c> when the mission has no prior pipeline stage diff.
@@ -93,8 +93,8 @@ namespace Armada.Core.Services
         /// <summary>
         /// Build the template parameter dictionary, filling the pipeline placeholders <c>{Diff}</c> and
         /// <c>{PreviousStageOutput}</c> from the prior pipeline stage (the mission this one depends on). The diff is
-        /// capped at 20000 characters and the output at 8000 (the full diff and output are also in the mission
-        /// description, which the stage handoff rewrites); without a prior stage they hold
+        /// capped at 4000 characters and the output at 3000. Complete artifacts remain on the prior
+        /// mission and its branch; without a prior stage they hold
         /// <see cref="NoPreviousStageDiffText"/> and <see cref="NoPreviousStageOutputText"/>.
         /// </summary>
         /// <param name="mission">Mission.</param>
@@ -266,7 +266,7 @@ namespace Armada.Core.Services
             if (previousStage == null || String.IsNullOrWhiteSpace(previousStage.DiffSnapshot)) return NoPreviousStageDiffText;
             string diff = previousStage.DiffSnapshot!.Trim();
             if (diff.Length <= MaxPreviousStageDiffChars) return diff;
-            return diff.Substring(0, MaxPreviousStageDiffChars) + "\n...(truncated; the full diff is in the mission description under \"Diff from prior stage\")";
+            return diff.Substring(0, MaxPreviousStageDiffChars) + "\n...(truncated; retrieve the full diff with get_mission_diff or inspect git diff on the assigned branch)";
         }
 
         private static string BuildPreviousStageOutput(Mission? previousStage)
@@ -274,7 +274,7 @@ namespace Armada.Core.Services
             if (previousStage == null || String.IsNullOrWhiteSpace(previousStage.AgentOutput)) return NoPreviousStageOutputText;
             string output = previousStage.AgentOutput!.Trim();
             if (output.Length <= MaxPreviousStageOutputChars) return output;
-            return output.Substring(0, MaxPreviousStageOutputChars) + "\n...(truncated)";
+            return PipelineHandoffContext.BoundOutput(output);
         }
 
         private static string BuildBootstrapRoleSummary(string? persona)

@@ -6,6 +6,11 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Concise pipeline prompts
+
+- Replace the eight built-in persona briefs with concise requirements, evidence, and role-specific output contracts. Untouched legacy defaults upgrade automatically; customized templates remain unchanged.
+- Bound stage handoffs, identify the source mission/branch/commit, and retain access to complete output and diffs without embedding cumulative diffs. Rework and review retain original acceptance criteria and prior findings.
+
 ### Voyage deletion
 
 - Voyage deletion consistently uses Delete in the dashboard. Selecting multiple voyages exposes Delete Multiple with confirmation, in-progress feedback and partial-failure reporting; failed voyages remain selected.

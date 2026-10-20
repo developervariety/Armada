@@ -44,6 +44,29 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("stage_handoff_is_bounded_and_preserves_artifact_references", "Large stage evidence stays bounded without hiding full-artifact access", TestTags.Positive, async () =>
+            {
+                await Task.CompletedTask;
+                Mission prior = new Mission("Implement provider support", "Scoped acceptance criteria");
+                prior.Persona = "Worker";
+                prior.BranchName = "armada/provider-fix";
+                prior.CommitHash = "abc123";
+                prior.AgentOutput = "Requirement summary\n" + new string('x', 100000) + "\nUnresolved: missing key guard\n[ARMADA:VERDICT] NEEDS_REVISION";
+                prior.DiffSnapshot = new string('D', 200000);
+                string context = PipelineHandoffContext.Build(prior);
+                AssertTrue(context.Length < 4200, "full output and diff must not inflate handoff");
+                AssertContains("Branch: armada/provider-fix", context, "exact source branch");
+                AssertContains("Commit: abc123", context, "exact source commit");
+                AssertContains("Requirement summary", context, "opening evidence retained");
+                AssertContains("Unresolved: missing key guard", context, "closing findings retained");
+                AssertContains("retrieve the full prior mission output", context, "explicit incomplete evidence warning");
+                AssertContains(prior.Id, context, "complete artifacts remain discoverable");
+                AssertContains("get_mission_diff", context, "full diff retrieval reference");
+                AssertFalse(context.Contains(new string('D', 100)), "cumulative diff omitted");
+                AssertContains("No prior output recorded", PipelineHandoffContext.BoundOutput(null), "missing output explicit");
+                AssertEqual("small evidence", PipelineHandoffContext.BoundOutput("small evidence"), "small evidence preserved verbatim");
+            }));
+
             cases.Add(CaseAsync("direct_dispatch_sanitizes_captain_names_in_mission_branches", "Direct dispatch sanitizes captain names in mission branches", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
