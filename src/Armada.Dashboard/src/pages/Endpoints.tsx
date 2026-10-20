@@ -660,6 +660,7 @@ export default function Endpoints() {
                   value={form.inferenceOptions[key] ?? ''} onChange={e => setForm({ ...form, inferenceOptions: { ...form.inferenceOptions, [key]: e.target.value === '' ? null : Number(e.target.value) } })} />
               </label>)}
               </div>
+              <p className="text-dim">{t('A model turn can contain several tool calls. Output tokens include reasoning and the visible answer; PolyPrompt defaults to 4,096 when no limit is set. Reasoning models may need a larger explicit budget.')}</p>
             </fieldset>}
             {form.kind === 'Inference' && <fieldset className="endpoint-auth-section endpoint-inference-section">
               <legend>{t('Captain')}</legend>

@@ -24,3 +24,9 @@ availability. Ollama Cloud's fixed HTTPS destination is not redirected; its
 factory, storage, authentication, and form behavior have offline coverage.
 Use an accessible hosted model for Cloud, and an explicit catalog model for xAI
 embeddings. Model access and Cloud embedding support depend on the account.
+
+The fixture also serves Ollama `/api/chat` reasoning responses. The Harbor HTTP case reproduces a
+4,096-token reasoning-only `length` response, checks typed failure transport and remediation, and verifies
+that an explicit 32,768-token budget can finish in one request without continuation. The synthetic
+response follows Ollama's chat `message.thinking`, `done_reason`, and token count fields; it does not
+claim to reproduce the quality or timing of a live DeepSeek answer.

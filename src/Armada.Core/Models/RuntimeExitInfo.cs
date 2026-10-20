@@ -44,12 +44,35 @@ namespace Armada.Core.Models
             {
                 string reason = ProviderError.Reason!.Trim();
                 if (!reason.EndsWith(".", StringComparison.Ordinal)) reason += ".";
-                return reason + " Agent process exited with code " + exit + ".";
+                return reason + " Agent process exited with code " + exit + "." + Remediation();
             }
 
             string text = "Agent process exited with code " + (ExitCode.HasValue ? ExitCode.Value.ToString() : "unknown");
             if (ProviderError != null) text += " (" + ProviderError.ToString() + ")";
-            return text;
+            return text + Remediation();
+        }
+
+        private string Remediation()
+        {
+            string? guidance = ProviderError?.ErrorType?.ToLowerInvariant() switch
+            {
+                "max_iterations_reached" => "Increase the endpoint or captain model-turn limit, or narrow the mission and reduce repeated investigation. A model turn can contain several tool calls.",
+                "budget_exceeded" => "Review the runtime token or cost budget. Increase the appropriate budget or narrow the task before another run.",
+                "degenerate_output" => "Inspect repeated tool calls and outputs; reduce repetitive context or select a model that can reliably complete this task.",
+                "tool_call_limit_reached" => "Increase the tool-call limit or reduce the mission scope. Tool calls and model turns are separate budgets.",
+                "output_token_limit_reached" => "Increase Max Output Tokens in the inference endpoint, including room for reasoning and the visible answer. Reduce reasoning effort where the model supports it.",
+                "incomplete_completion" => "Inspect the final inference turn and mission log. Check output-token limits and model tool support; the captain must finish the work and return the required completion marker and summary.",
+                "context_limit_exceeded" => "Reduce tool output and mission context, or select a model with a larger context window.",
+                _ => FailureKind switch
+                {
+                    RuntimeFailureKindEnum.AuthFailure => "Check the endpoint credentials and provider permissions, then re-enable the captain.",
+                    RuntimeFailureKindEnum.UsageLimit => "Check provider quota, billing and rate limits; wait for the limit to reset or select an available endpoint.",
+                    RuntimeFailureKindEnum.ModelUnavailable => "Check the endpoint URL, model identifier and account access to that model.",
+                    RuntimeFailureKindEnum.Transient => "Check provider availability, connectivity and request timeout settings.",
+                    _ => null
+                }
+            };
+            return guidance == null ? String.Empty : "\nRemediation: " + guidance;
         }
 
         #endregion

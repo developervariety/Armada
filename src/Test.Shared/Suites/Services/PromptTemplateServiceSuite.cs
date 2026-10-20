@@ -61,6 +61,28 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("upgrade_partial_success_guidance_preserves_custom_edits", "Only untouched context guidance is upgraded to require complete work", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
+                PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                await service.SeedDefaultsAsync().ConfigureAwait(false);
+                PromptTemplate template = (await testDb.Driver.PromptTemplates.ReadByNameAsync("mission.context_conservation").ConfigureAwait(false))!;
+                const string newRule = "5. **Complete the assigned scope.** Work incrementally and validate relevant changes. If a real blocker prevents completion, preserve your work and report the blocker explicitly. Never emit a success marker or claim completion for partial work.\n";
+                const string oldRule = "5. **If the mission scope feels too large** (more than 8 files, or files with 500+ lines to read), commit what you have, report progress, and exit with code 0. Partial progress is better than crashing.\n";
+                AssertContains(newRule, template.Content);
+                template.Content = template.Content.Replace(newRule, oldRule);
+                await testDb.Driver.PromptTemplates.UpdateAsync(template).ConfigureAwait(false);
+                await service.SeedDefaultsAsync().ConfigureAwait(false);
+                template = (await testDb.Driver.PromptTemplates.ReadByNameAsync(template.Name).ConfigureAwait(false))!;
+                AssertContains(newRule, template.Content);
+                template.Content = template.Content.Replace(newRule, oldRule) + "Operator customization";
+                await testDb.Driver.PromptTemplates.UpdateAsync(template).ConfigureAwait(false);
+                await service.SeedDefaultsAsync().ConfigureAwait(false);
+                AssertContains("Operator customization", (await testDb.Driver.PromptTemplates.ReadByNameAsync(template.Name).ConfigureAwait(false))!.Content);
+                AssertContains(oldRule, (await testDb.Driver.PromptTemplates.ReadByNameAsync(template.Name).ConfigureAwait(false))!.Content);
+            }));
+
             cases.Add(CaseAsync("resolve_returns_database_template_when_exists", "Resolve returns database template when exists", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

@@ -94,6 +94,17 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(RuntimeFailureClassifier.IsCaptainUnavailable(RuntimeFailureKindEnum.Crash), "a crash does not");
             }));
 
+            cases.Add(Case("limits_have_actionable_mission_reasons", "Turn, tool, output and context budgets have distinct remediation", TestTags.Positive, () =>
+            {
+                foreach (string type in new[] { "max_iterations_reached", "tool_call_limit_reached", "output_token_limit_reached", "context_limit_exceeded", "incomplete_completion" })
+                {
+                    RuntimeExitInfo info = RuntimeFailureClassifier.Decide(1, new RuntimeProviderError { ErrorType = type, Reason = "Precise configured limit." });
+                    AssertEqual(RuntimeFailureKindEnum.TaskFailure, info.FailureKind);
+                    AssertContains("Precise configured limit", info.Describe());
+                    AssertContains("Remediation:", info.Describe());
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.RuntimeFailureClassifier",
                 displayName: "Runtime Failure Classifier",

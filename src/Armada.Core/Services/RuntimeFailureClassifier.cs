@@ -112,6 +112,8 @@ namespace Armada.Core.Services
                 case "budget_exceeded":
                 case "degenerate_output":
                 case "incomplete_completion":
+                case "output_token_limit_reached":
+                case "tool_call_limit_reached":
                 case "context_limit_exceeded":
                     return RuntimeFailureKindEnum.TaskFailure;
                 case "llm_connection_error":

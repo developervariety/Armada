@@ -82,6 +82,16 @@ describe('MissionDetail waiting and landing', () => {
     vi.mocked(listDeployments).mockResolvedValue(emptyPage as never);
   });
 
+  it('shows the concrete runtime limit and remediation on the failed mission', async () => {
+    const reason = 'The inference response hit the output-token limit (4096).\nRemediation: Increase Max Output Tokens in the inference endpoint.';
+    vi.mocked(getMission).mockResolvedValue(mission({ status: 'Failed', failureReason: reason }));
+    vi.mocked(getMissionLandingPreview).mockResolvedValue(preview({ missionStatus: 'Failed' }));
+    renderPage();
+    expect(await screen.findByText('Failure Reason')).toBeInTheDocument();
+    expect(screen.getByText(/The inference response hit the output-token limit/)).toHaveTextContent('4096');
+    expect(screen.getByText(/The inference response hit the output-token limit/)).toHaveTextContent('Remediation: Increase Max Output Tokens');
+  });
+
   it('explains why a Pending mission waits and never shows Ready To Land (F11)', async () => {
     vi.mocked(getMission).mockResolvedValue(mission({
       status: 'Pending',

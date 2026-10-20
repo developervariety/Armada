@@ -224,6 +224,7 @@ namespace Armada.Runtimes
                 StreamJsonOutput = streamsJson || decodeHere,
                 ShowThinking = showThinking,
                 ReturnFinalMessage = _FinalMessageFilePath != null,
+                ReturnProviderErrors = true,
                 JobKind = JobKind.ToString(),
                 MissionId = String.IsNullOrWhiteSpace(MissionId) ? null : MissionId,
                 CaptainId = captain != null && !String.IsNullOrWhiteSpace(captain.Id) ? captain.Id : null,
@@ -305,6 +306,14 @@ namespace Armada.Runtimes
         /// <inheritdoc />
         public void OnOutput(HarborOutputStreamEnum stream, string data)
         {
+            if (stream == HarborOutputStreamEnum.ProviderError)
+            {
+                // Only the Harbor runtime event channel can supply this metadata, never tool/stdout text.
+                try { RaiseProviderError(System.Text.Json.JsonSerializer.Deserialize<RuntimeProviderError>(data)); }
+                catch (System.Text.Json.JsonException) { WriteLog("[warning] Harbor sent invalid runtime failure metadata."); }
+                return;
+            }
+
             if (stream == HarborOutputStreamEnum.FinalMessage)
             {
                 // The runtime's final-message artifact, captured on the Harbor: write it where a local run would have,

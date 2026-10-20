@@ -27,6 +27,10 @@ namespace Armada.Core.Harbor
         /// for it never receives it.
         /// </summary>
         [EnumMember(Value = "FinalMessage")]
-        FinalMessage
+        FinalMessage,
+
+        /// <summary>Structured runtime failure metadata, never assistant output.</summary>
+        [EnumMember(Value = "ProviderError")]
+        ProviderError
     }
 }

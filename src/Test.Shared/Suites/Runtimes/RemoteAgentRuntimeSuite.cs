@@ -34,6 +34,31 @@ namespace Test.Shared.Suites.Runtimes
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("harbor_failure_metadata_is_not_assistant_output", "Harbor transports precise runtime failure before exit without polluting replies", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                HarborConnectionManager manager = new HarborConnectionManager(new HarborService(testDb.Driver, CreateLogging()), CreateLogging(), null);
+                RemoteAgentRuntime runtime = new RemoteAgentRuntime(manager, "hbr_failure", AgentRuntimeEnum.ApiEndpoint);
+                RuntimeProviderError? observed = null;
+                List<string> output = new List<string>();
+                runtime.OnProviderError += (pid, error) => observed = error;
+                runtime.OnOutputReceived += (pid, line) => output.Add(line);
+                runtime.OnOutput(HarborOutputStreamEnum.Stdout, "{\"ErrorType\":\"authentication_error\"}");
+                AssertNull(observed, "Ordinary assistant/tool output cannot impersonate metadata.");
+                runtime.OnOutput(HarborOutputStreamEnum.ProviderError, System.Text.Json.JsonSerializer.Serialize(new RuntimeProviderError
+                {
+                    ErrorType = "output_token_limit_reached", Reason = "Hit the 4096 output-token limit.", HttpStatusCode = 200
+                }));
+                AssertNotNull(observed);
+                AssertEqual("output_token_limit_reached", observed!.ErrorType);
+                AssertEqual(RuntimeFailureKindEnum.TaskFailure, RuntimeFailureClassifier.Classify(1, observed));
+                AssertContains("4096", RuntimeFailureClassifier.Decide(1, observed).Describe());
+                AssertContains("Remediation:", RuntimeFailureClassifier.Decide(1, observed).Describe());
+                AssertEqual(1, output.Count, "Metadata must not become assistant text.");
+                runtime.OnOutput(HarborOutputStreamEnum.ProviderError, "{invalid}");
+                AssertEqual("output_token_limit_reached", observed.ErrorType);
+            }));
+
             cases.Add(CaseAsync("permission_policy_survives_harbor_launch", "Resolved permissions survive API and CLI Harbor launches, including Bypass", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -53,7 +53,7 @@ captain hosts and upgrade them on purpose.
 | Thinking display | Prompted block | Prompted block | Prompted block | Prompted block | Native | Native | Prompted block |
 | Tool-call cards in chat | Yes | No | No | No | Yes | Yes | Yes |
 | Model selection | `--model` | `--model` | `--model` | `--model` | `--model` | `--model` | Endpoint model, captain override |
-| Reasoning effort | `MAX_THINKING_TOKENS` | `model_reasoning_effort` | No | No | `--effort` | `--variant` | No |
+| Reasoning effort | `MAX_THINKING_TOKENS` | `model_reasoning_effort` | No | No | `--effort` | `--variant` | PolyPrompt reasoning effort |
 | Resume | Yes | No | No | No | No | No | No |
 | Isolated launch (`IsolateCaptainLaunch`) | Yes | Yes | Yes | Yes | Yes | No | Not applicable |
 
@@ -501,3 +501,22 @@ denied when any subcommand matches a deny rule (deny rules also match the whole 
 space). A command with command or process substitution (`$(...)`, backticks, `<(...)`, `>(...)`) or unbalanced quotes is never allowed by a
 `Bash(...)` or shell `run_process(...)` rule, so it goes to an approver. A specifier on any other tool is not interpreted
 and never matches.
+
+### API captain limits and failure details
+
+Inference endpoints configure `inferenceOptions.maxIterations` (model turns, not individual tool calls),
+`maxTokens` (reasoning and visible output share the provider's output budget), and `timeoutMs` per request.
+An unset output limit uses PolyPrompt's provider defaults; a reasoning model may consume that limit before
+returning a tool call or visible answer. Set an explicit sufficient output budget for long reasoning tasks.
+Captain reasoning effort is forwarded to PolyPrompt; unsupported controls remain provider errors.
+
+Mission details and the mission API's `failureReason` retain the precise runtime reason and an actionable
+`Remediation:` paragraph when a limit or provider failure is reported. Output-token exhaustion, model-turn
+exhaustion, and tool-call exhaustion have different remedies. Harbor sends typed failure metadata before
+exit when requested by the Admiral, so API captain task failures do not become generic crashes or trigger
+crash rescue. Older Admirals do not receive the new metadata stream. Update both Admiral and Harbor to
+use this reporting. This does not change the existing `failureReason` wire format (a nullable string).
+
+Partial work is not mission success. Built-in context guidance requires agents to preserve blocked work
+and explain the blocker, without emitting a completion marker for an unfinished assignment. Untouched
+legacy guidance is upgraded automatically; operator-edited templates are preserved.

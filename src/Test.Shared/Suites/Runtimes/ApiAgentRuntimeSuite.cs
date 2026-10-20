@@ -57,7 +57,7 @@ namespace Test.Shared.Suites.Runtimes
                         int code = -1;
                         runtime.OnToolEvent += (pid, evt) => { if (evt.PermissionDenied == true) denied = true; };
                         runtime.OnProcessExited += (pid, value) => { code = value ?? -1; exited.Set(); };
-                        await runtime.StartAsync(dir, "try a write", new Dictionary<string, string> { ["ARMADA_MCP_URL"] = "http://localhost:1/mcp" }, model: "captain-model").ConfigureAwait(false);
+                        await runtime.StartAsync(dir, "try a write", new Dictionary<string, string> { ["ARMADA_MCP_URL"] = "http://localhost:1/mcp" }, model: "captain-model", captain: new Captain("effort") { ReasoningEffort = ReasoningEffortEnum.Low }).ConfigureAwait(false);
                         AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "Run must finish.");
                         AssertEqual(0, code);
                         AssertTrue(denied, "Injected tool receives a typed permission denial.");
@@ -70,6 +70,7 @@ namespace Test.Shared.Suites.Runtimes
                         AssertEqual(0.4, client.Settings.Temperature);
                         AssertEqual(0.9, client.Settings.TopP);
                         AssertEqual("captain-model", client.Settings.Model);
+                        AssertEqual(ReasoningEffortLevel.Low, client.Settings.ReasoningEffort!.Level);
                     }
                     finally { Cleanup(dir); }
                 }
@@ -130,7 +131,12 @@ namespace Test.Shared.Suites.Runtimes
                             AssertContains("Implemented and tested", File.ReadAllText(finalPath));
                             AssertTrue(diagnostics.Exists(d => d.Kind == ApiRuntimeDiagnosticKindEnum.Inference && d.Message.Contains("\"PromptTokens\":42") && d.Message.Contains("\"FinishReason\":\"stop\"")), "Finish reason and actual usage must survive into turn diagnostics.");
                         }
-                        else AssertEqual(RuntimeFailureKindEnum.TaskFailure, Armada.Core.Services.RuntimeFailureClassifier.Classify(code, failure));
+                        else
+                        {
+                            AssertEqual(RuntimeFailureKindEnum.TaskFailure, Armada.Core.Services.RuntimeFailureClassifier.Classify(code, failure));
+                            AssertEqual(terminal?.Contains("Truncated") == true ? "output_token_limit_reached" : "incomplete_completion", failure!.ErrorType);
+                            AssertContains("Remediation:", Armada.Core.Services.RuntimeFailureClassifier.Decide(code, failure).Describe());
+                        }
                     }
                     finally { Cleanup(dir); }
                 }
@@ -401,7 +407,8 @@ namespace Test.Shared.Suites.Runtimes
                     ModelEndpoint endpoint = new ModelEndpoint { Name = "timeout", Provider = ModelProviderEnum.OpenAICompatible, Kind = ModelEndpointKindEnum.Inference, Model = "m", BaseUrl = "http://localhost:1" };
                     ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => new TimeoutClient(log));
 
-                    int? exitCode = null;
+                    int? exitCode = null; RuntimeProviderError? failure = null;
+                    runtime.OnProviderError += (pid, error) => failure = error;
                     List<ApiRuntimeDiagnostic> diagnostics = new List<ApiRuntimeDiagnostic>();
                     ManualResetEventSlim exited = new ManualResetEventSlim(false);
                     runtime.OnDiagnostic += (pid, diag) => { lock (diagnostics) diagnostics.Add(diag); };
@@ -410,6 +417,9 @@ namespace Test.Shared.Suites.Runtimes
                     await runtime.StartAsync(dir, "anything").ConfigureAwait(false);
                     AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "Expected the loop to complete.");
                     AssertEqual(1, exitCode ?? 0, "A timeout is a failed run, not the -1 interruption sentinel");
+                    AssertEqual("llm_timeout", failure!.ErrorType);
+                    AssertContains("120000 ms", failure.Reason!);
+                    AssertContains("Remediation:", Armada.Core.Services.RuntimeFailureClassifier.Decide(exitCode, failure).Describe());
                     lock (diagnostics)
                     {
                         AssertFalse(diagnostics.Exists(d => d.Kind == ApiRuntimeDiagnosticKindEnum.Cancelled), "No cancelled diagnostic without a stop");
@@ -425,6 +435,49 @@ namespace Test.Shared.Suites.Runtimes
             string? simulation = Environment.GetEnvironmentVariable("ARMADA_MODEL_PROVIDER_SIMULATION");
             if (!String.IsNullOrWhiteSpace(simulation))
             {
+                cases.Add(CaseAsync("harbor_reasoning_budget_native_http", "Ollama reasoning truncation reaches Admiral with remediation; sufficient budget finishes without continuation", TestTags.Positive, async () =>
+                {
+                    foreach (bool reportErrors in new[] { false, true })
+                    foreach (int maxTokens in new[] { 4096, 32768 })
+                    {
+                        string dir = NewTempDir();
+                        try
+                        {
+                            ModelEndpoint endpoint = new ModelEndpoint { Provider = ModelProviderEnum.Ollama, Kind = ModelEndpointKindEnum.Inference, Model = "reasoning-budget",
+                                BaseUrl = simulation, InferenceOptions = new InferenceOptions { McpToolsEnabled = false, MaxTokens = maxTokens } };
+                            endpoint.ApiKey = "test-token";
+                            LocalHarborJobRunner runner = new LocalHarborJobRunner(CreateLogging(), new AgentRuntimeFactory(CreateLogging()), Path.Combine(dir, "scratch"));
+                            Armada.Core.Harbor.HarborLaunchRequest request = new Armada.Core.Harbor.HarborLaunchRequest { JobId = "reasoning-budget", Runtime = "ApiEndpoint", WorkingDirectory = dir,
+                                Prompt = "Finish the mission with [ARMADA:RESULT] COMPLETE", InferenceEndpoint = Armada.Core.Harbor.HarborInferenceEndpoint.FromEndpoint(endpoint), ReturnProviderErrors = reportErrors };
+                            RuntimeProviderError? failure = null;
+                            List<string> lines = new List<string>();
+                            int code = -1; using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                            await runner.StartAsync(request, null, pid => { }, (stream, text) =>
+                            {
+                                if (stream == Armada.Core.Harbor.HarborOutputStreamEnum.ProviderError) failure = System.Text.Json.JsonSerializer.Deserialize<RuntimeProviderError>(text);
+                                else lines.Add(text);
+                            }, value => { code = value; exited.Set(); }, CancellationToken.None).ConfigureAwait(false);
+                            AssertTrue(exited.Wait(TimeSpan.FromSeconds(15)), "Harbor HTTP run must finish.");
+                            AssertEqual(maxTokens == 32768 ? 0 : 1, code);
+                            if (maxTokens == 32768)
+                            {
+                                AssertEqual(1, lines.Count(line => line.StartsWith("[inference] ", StringComparison.Ordinal)));
+                                AssertFalse(lines.Any(line => line.Contains("asking the captain to continue")), "Enough output budget succeeds in one request.");
+                            }
+                            else if (reportErrors)
+                            {
+                                AssertNotNull(failure);
+                                AssertEqual("output_token_limit_reached", failure!.ErrorType);
+                                string reason = Armada.Core.Services.RuntimeFailureClassifier.Decide(code, failure).Describe();
+                                AssertContains("4096", reason);
+                                AssertContains("Remediation:", reason);
+                            }
+                            else AssertNull(failure, "An older Admiral must not receive an unknown metadata stream.");
+                        }
+                        finally { Cleanup(dir); }
+                    }
+                }));
+
                 cases.Add(CaseAsync("incomplete_completion_native_http", "Real PolyPrompt HTTP parsing preserves empty-terminal recovery and bounded task failure", TestTags.Negative, async () =>
                 {
                     foreach (bool recover in new[] { true, false })
@@ -447,7 +500,12 @@ namespace Test.Shared.Suites.Runtimes
                             AssertEqual(recover ? 0 : 1, code);
                             AssertFalse(File.ReadAllText(finalPath).Contains("stale result"), "The terminal result replaces earlier output even when empty.");
                             if (recover) AssertContains("Recovered", File.ReadAllText(finalPath));
-                            else AssertEqual(RuntimeFailureKindEnum.TaskFailure, Armada.Core.Services.RuntimeFailureClassifier.Classify(code, failure));
+                            else
+                        {
+                            AssertEqual(RuntimeFailureKindEnum.TaskFailure, Armada.Core.Services.RuntimeFailureClassifier.Classify(code, failure));
+                            AssertEqual("incomplete_completion", failure!.ErrorType);
+                            AssertContains("Remediation:", Armada.Core.Services.RuntimeFailureClassifier.Decide(code, failure).Describe());
+                        }
                         }
                         finally { Cleanup(dir); }
                     }
@@ -598,13 +656,13 @@ namespace Test.Shared.Suites.Runtimes
             protected override Task<ToolChatResponse> ToolChatCoreAsync(ToolChatRequest request, List<ChatMessage> messages, ResolvedCompletion settings, CancellationToken token)
             {
                 ToolNames = request.Tools.Select(t => t.Name).ToList();
-                Settings = new CompletionOptions { Model = settings.Model, MaxTokens = settings.MaxTokens, Temperature = settings.Temperature, TopP = settings.TopP };
+                Settings = new CompletionOptions { Model = settings.Model, MaxTokens = settings.MaxTokens, Temperature = settings.Temperature, TopP = settings.TopP, ReasoningEffort = settings.ReasoningEffort };
                 if (_Script.Count == 0) return Task.FromResult(new ToolChatResponse { Success = true, Text = "", ToolCalls = new List<ToolCall>() });
                 return Task.FromResult(_Script.Dequeue());
             }
 
             public override Task<bool> ValidateConnectivityAsync(CancellationToken token = default) => Task.FromResult(true);
-            protected override Task<ChatResponse> ChatCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) { PlainChatCalled = true; Settings = new CompletionOptions { Model = settings.Model, MaxTokens = settings.MaxTokens, Temperature = settings.Temperature, TopP = settings.TopP }; return Task.FromResult(new ChatResponse { Success = true, Text = "plain answer" }); }
+            protected override Task<ChatResponse> ChatCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) { PlainChatCalled = true; Settings = new CompletionOptions { Model = settings.Model, MaxTokens = settings.MaxTokens, Temperature = settings.Temperature, TopP = settings.TopP, ReasoningEffort = settings.ReasoningEffort }; return Task.FromResult(new ChatResponse { Success = true, Text = "plain answer" }); }
             protected override Task<ChatStreamingResponse> ChatStreamingCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
             protected override Task<ToolChatStreamingResponse> ToolChatStreamingCoreAsync(ToolChatRequest request, List<ChatMessage> messages, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
             protected override Task<GenerationResponse> GenerateCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();

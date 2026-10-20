@@ -167,6 +167,9 @@ namespace Armada.Core.Harbor
         /// </summary>
         public bool ReturnFinalMessage { get; set; } = false;
 
+        /// <summary>Request typed provider failures on the dedicated metadata stream. Older Admirals omit this.</summary>
+        public bool ReturnProviderErrors { get; set; } = false;
+
         /// <summary>
         /// Whether a mission runs with its runtime's structured output (Claude Code stream-json, Codex exec --json) so its
         /// progress can be seen while it runs. The Harbor decodes it: it reports the readable output the CLI prints in

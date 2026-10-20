@@ -323,6 +323,20 @@ namespace Armada.Core.Services
             await UpgradeBuiltInAskSystemAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInCommitPreambleAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInMissionRulesAsync(token).ConfigureAwait(false);
+            await UpgradeBuiltInContextCompletionAsync(token).ConfigureAwait(false);
+        }
+
+        private async Task UpgradeBuiltInContextCompletionAsync(CancellationToken token)
+        {
+            const string name = "mission.context_conservation";
+            string current = _EmbeddedDefaults[name].Content;
+            const string oldRule = "5. **If the mission scope feels too large** (more than 8 files, or files with 500+ lines to read), commit what you have, report progress, and exit with code 0. Partial progress is better than crashing.\n";
+            const string newRule = "5. **Complete the assigned scope.** Work incrementally and validate relevant changes. If a real blocker prevents completion, preserve your work and report the blocker explicitly. Never emit a success marker or claim completion for partial work.\n";
+            PromptTemplate? existing = await _Database.PromptTemplates.ReadByNameAsync(name, token).ConfigureAwait(false);
+            if (existing == null || !existing.IsBuiltIn || NormalizeLineEndings(existing.Content) != NormalizeLineEndings(current.Replace(newRule, oldRule))) return;
+            existing.Content = current;
+            existing.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.PromptTemplates.UpdateAsync(existing, token).ConfigureAwait(false);
         }
 
         private async Task UpgradeBuiltInPersonaExecutionGuidanceAsync(CancellationToken token)
@@ -619,9 +633,9 @@ namespace Armada.Core.Services
                     "read files for 'context' that isn't directly needed for your edit, and do not explore related " +
                     "files out of curiosity.\n" +
                     "\n" +
-                    "5. **If the mission scope feels too large** (more than 8 files, or files with 500+ lines to " +
-                    "read), commit what you have, report progress, and exit with code 0. Partial progress is " +
-                    "better than crashing.\n"
+                    "5. **Complete the assigned scope.** Work incrementally and validate relevant changes. If a real " +
+                    "blocker prevents completion, preserve your work and report the blocker explicitly. Never " +
+                    "emit a success marker or claim completion for partial work.\n"
             };
 
             defaults["mission.merge_conflict_avoidance"] = new EmbeddedTemplate

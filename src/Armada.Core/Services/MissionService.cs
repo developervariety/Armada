@@ -2481,9 +2481,9 @@ namespace Armada.Core.Services
                         "read files for 'context' that isn't directly needed for your edit, and do not explore related " +
                         "files out of curiosity.\n" +
                         "\n" +
-                        "5. **If the mission scope feels too large** (more than 8 files, or files with 500+ lines to " +
-                        "read), commit what you have, report progress, and exit with code 0. Partial progress is " +
-                        "better than crashing.\n";
+                        "5. **Complete the assigned scope.** Work incrementally and validate relevant changes. If a real " +
+                        "blocker prevents completion, preserve your work and report the blocker explicitly. Never " +
+                        "emit a success marker or claim completion for partial work.\n";
 
                 case "mission.merge_conflict_avoidance":
                     return

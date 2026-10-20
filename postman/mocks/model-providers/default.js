@@ -8,6 +8,13 @@ http.createServer(async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk;
     const body = typeof req.body === 'object' ? req.body : JSON.parse(req.body || raw || '{}');
     if (!body.model) return send(400, { error: { message: 'Model required' } });
+    // Ollama chat contract: reasoning and answer share the output-token budget.
+    if (req.method === 'POST' && req.url === '/api/chat') {
+      const enough = (body.options?.num_predict || 4096) >= 32768;
+      return send(200, { model: body.model, done: true, done_reason: enough ? 'stop' : 'length',
+        message: { role: 'assistant', content: enough ? '[ARMADA:RESULT] COMPLETE\nImplemented and tested the mission.' : '', thinking: 'Reasoning consumes the response budget.' },
+        prompt_eval_count: 100, eval_count: enough ? 200 : 4096 });
+    }
     if (req.method === 'POST' && req.url === '/v1/embeddings') {
       if (!body.input) return send(400, { error: { message: 'Input required' } });
       return send(200, { object: 'list', model: body.model, data: [{ index: 0, object: 'embedding', embedding: [1, 2, 3] }], usage: { prompt_tokens: 2, total_tokens: 2 } });

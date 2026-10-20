@@ -220,6 +220,10 @@ namespace Armada.Runtimes
                 runtime.OnOutputReceived += (processId, line) => report(HarborOutputStreamEnum.Stdout, line);
             }
 
+            if (request.ReturnProviderErrors)
+                runtime.OnProviderError += (processId, error) =>
+                    report(HarborOutputStreamEnum.ProviderError, System.Text.Json.JsonSerializer.Serialize(error));
+
             runtime.OnActivity += (processId, activity) =>
             {
                 jobLog?.WriteActivity(activity);

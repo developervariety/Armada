@@ -229,7 +229,7 @@ namespace Armada.Runtimes
             OnProcessStarted?.Invoke(processId);
 
             // Run the loop in the background so StartAsync returns the pid promptly, mirroring a process launch.
-            _ = Task.Run(() => RunLoopAsync(processId, endpoint, workingDirectory, prompt, model, finalMessageFilePath, mcpUrl, mcpToken, cts));
+            _ = Task.Run(() => RunLoopAsync(processId, endpoint, workingDirectory, prompt, model, captain?.ReasoningEffort, finalMessageFilePath, mcpUrl, mcpToken, cts));
 
             return Task.FromResult(processId);
         }
@@ -261,6 +261,7 @@ namespace Armada.Runtimes
             string workingDirectory,
             string prompt,
             string? model,
+            Armada.Core.Enums.ReasoningEffortEnum? reasoningEffort,
             string? finalMessageFilePath,
             string? mcpUrl,
             string? mcpToken,
@@ -282,7 +283,16 @@ namespace Armada.Runtimes
                     Model = String.IsNullOrWhiteSpace(model) ? endpoint.Model : model,
                     MaxTokens = settings.MaxTokens,
                     Temperature = settings.Temperature,
-                    TopP = settings.TopP
+                    TopP = settings.TopP,
+                    ReasoningEffort = reasoningEffort switch
+                    {
+                        Armada.Core.Enums.ReasoningEffortEnum.Off => ReasoningEffort.Minimal,
+                        Armada.Core.Enums.ReasoningEffortEnum.Minimal => ReasoningEffort.Minimal,
+                        Armada.Core.Enums.ReasoningEffortEnum.Low => ReasoningEffort.Low,
+                        Armada.Core.Enums.ReasoningEffortEnum.Medium => ReasoningEffort.Medium,
+                        Armada.Core.Enums.ReasoningEffortEnum.High => ReasoningEffort.High,
+                        _ => null
+                    }
                 };
                 // Plain chat does not send tool definitions to providers/models without tool support.
                 async Task RunPlainChatAsync()
@@ -294,13 +304,16 @@ namespace Armada.Runtimes
                     {
                         exitCode = 1;
                         EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, reply.Error ?? "Inference request failed.");
-                        if (reply.StatusCode.HasValue) RaiseProviderError(processId, RuntimeProviderErrorParser.FromHttpStatus(reply.StatusCode.Value, reply.Error));
+                        RaiseProviderError(processId, (reply.StatusCode.HasValue ? RuntimeProviderErrorParser.FromHttpStatus(reply.StatusCode.Value, reply.Error) : null)
+                            ?? new RuntimeProviderError { ErrorType = "inference_error", Reason = "Inference request failed: " + (reply.Error ?? "the endpoint returned failure without detail") });
+                        WriteFinalMessage(finalMessageFilePath, String.Empty);
+                        return;
                     }
                     finalText = reply.Text ?? String.Empty;
                     if (!IsCompleteResponse(finalText, reply.FinishReason, prompt.Contains("[ARMADA:RESULT] COMPLETE", StringComparison.Ordinal)))
                     {
                         exitCode = 1;
-                        RaiseProviderError(processId, new RuntimeProviderError { ErrorType = "incomplete_completion", Reason = "Plain inference did not produce a valid mission completion." });
+                        RaiseProviderError(processId, new RuntimeProviderError { ErrorType = IsTokenLimit(reply.FinishReason) ? "output_token_limit_reached" : "incomplete_completion", Reason = IsTokenLimit(reply.FinishReason) ? "The inference response hit its output-token limit (finish reason: " + reply.FinishReason + "). The mission did not finish." : "Plain inference did not produce a valid mission completion." });
                     }
                     if (finalText.Length > 0) Emit(processId, finalText);
                     WriteFinalMessage(finalMessageFilePath, finalText);
@@ -368,6 +381,7 @@ namespace Armada.Runtimes
                 HashSet<string> permittedTools = tools.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
                 int maxIterations = Math.Min(_MaxIterations, settings.MaxIterations);
                 int incompleteResponses = 0;
+                RuntimeProviderError? tokenLimitFailure = null;
                 bool requiresCompletion = prompt.Contains("[ARMADA:RESULT] COMPLETE", StringComparison.Ordinal);
                 for (int iteration = 0; iteration < maxIterations; iteration++)
                 {
@@ -386,7 +400,8 @@ namespace Armada.Runtimes
                     {
                         string reason = String.IsNullOrEmpty(response.Error) ? "the inference endpoint reported failure without detail" : response.Error!;
                         EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, "[error] inference call failed: " + reason);
-                        if (response.StatusCode.HasValue) RaiseProviderError(processId, RuntimeProviderErrorParser.FromHttpStatus(response.StatusCode.Value, response.Error));
+                        RaiseProviderError(processId, (response.StatusCode.HasValue ? RuntimeProviderErrorParser.FromHttpStatus(response.StatusCode.Value, response.Error) : null)
+                            ?? new RuntimeProviderError { ErrorType = "inference_error", Reason = "Inference request failed: " + reason });
                         exitCode = 1;
                         break;
                     }
@@ -401,6 +416,13 @@ namespace Armada.Runtimes
 
                     if (response.ToolCalls == null || response.ToolCalls.Count == 0)
                     {
+                        if (IsTokenLimit(response.FinishReason)) tokenLimitFailure = new RuntimeProviderError
+                        {
+                            ErrorType = "output_token_limit_reached",
+                            Reason = "The inference response hit the output-token limit (finish reason: " + response.FinishReason
+                                + "; configured Max Output Tokens: " + (settings.MaxTokens?.ToString() ?? "provider default")
+                                + "; completion tokens: " + response.Usage?.CompletionTokens + "). The mission did not finish."
+                        };
                         // Only this terminal response can finish the run; earlier narration is not a result.
                         finalText = response.Text ?? String.Empty;
                         bool complete = IsCompleteResponse(finalText, response.FinishReason, requiresCompletion);
@@ -413,7 +435,8 @@ namespace Armada.Runtimes
                             continue;
                         }
                         exitCode = 1;
-                        RaiseProviderError(processId, new RuntimeProviderError { ErrorType = "incomplete_completion", Reason = "The endpoint stopped without a nonempty final response and the required mission completion marker after bounded continuation attempts." });
+                        RaiseProviderError(processId, tokenLimitFailure ?? new RuntimeProviderError { ErrorType = "incomplete_completion",
+                            Reason = "The endpoint stopped without a nonempty final response and the required mission completion marker after bounded continuation attempts." });
                         EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, "[error] incomplete completion; the mission is not finished.");
                         break;
                     }
@@ -436,7 +459,7 @@ namespace Armada.Runtimes
                     {
                         exitCode = 1;
                         RaiseProviderError(processId, new RuntimeProviderError { ErrorType = "max_iterations_reached", Reason = "API endpoint captain stopped at the configured " + maxIterations + " model-turn limit." });
-                        EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Warning, "[warning] reached the maximum of " + maxIterations + " tool iterations; stopping.");
+                        EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Warning, "[warning] reached the maximum of " + maxIterations + " model turns; stopping.");
                     }
                 }
 
@@ -455,12 +478,15 @@ namespace Armada.Runtimes
                 exitCode = 1;
                 _Logging.Warn(_Header + "loop error for process " + processId + ": " + e.ToString());
                 Emit(processId, "[error] " + e.Message);
-                if (e.StatusCode.HasValue) RaiseProviderError(processId, RuntimeProviderErrorParser.FromHttpStatus((int)e.StatusCode.Value, e.Message));
+                RaiseProviderError(processId, e.StatusCode.HasValue ? RuntimeProviderErrorParser.FromHttpStatus((int)e.StatusCode.Value, e.Message)
+                    : new RuntimeProviderError { ErrorType = "llm_connection_error", Reason = "Unable to reach the inference endpoint: " + e.Message });
             }
             catch (Exception e)
             {
                 exitCode = 1;
                 _Logging.Warn(_Header + "loop error for process " + processId + ": " + e.ToString());
+                RaiseProviderError(processId, new RuntimeProviderError { ErrorType = e is OperationCanceledException ? "llm_timeout" : "runtime_error",
+                    Reason = e is OperationCanceledException ? "Inference request exceeded the endpoint request timeout of " + endpoint.TimeoutMs + " ms." : "API captain runtime failed: " + e.Message });
                 EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, "[error] " + e.Message);
             }
             finally
@@ -601,7 +627,7 @@ namespace Armada.Runtimes
                 "worktree at " + workingDirectory + ". Use the provided tools to inspect and modify files and to run " +
                 "commands in order to complete the mission described by the user. Make focused changes, verify your " +
                 "work, and when the mission is complete stop calling tools and reply with a concise summary of what " +
-                "you changed. If the mission instructions define [ARMADA:...] signals, emit them as plain text lines.";
+                "you changed. Work efficiently: inspect only relevant files, make the smallest complete change, then validate. Stay within the assigned scope and implement incrementally instead of repeatedly rediscovering the same interfaces. If the mission instructions define [ARMADA:...] signals, emit them as plain text lines.";
         }
 
         private void RaiseProviderError(int processId, RuntimeProviderError? error)
@@ -699,10 +725,11 @@ namespace Armada.Runtimes
             }
         }
 
+        private static bool IsTokenLimit(string? reason) => String.Equals(reason, "length", StringComparison.OrdinalIgnoreCase) || String.Equals(reason, "max_tokens", StringComparison.OrdinalIgnoreCase) || String.Equals(reason, "max_output_tokens", StringComparison.OrdinalIgnoreCase);
+
         private static bool IsCompleteResponse(string text, string? finishReason, bool requiresCompletion)
         {
-            if (String.IsNullOrWhiteSpace(text) || String.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase)
-                || String.Equals(finishReason, "max_tokens", StringComparison.OrdinalIgnoreCase)) return false;
+            if (String.IsNullOrWhiteSpace(text) || IsTokenLimit(finishReason)) return false;
             if (!requiresCompletion) return true;
             string[] lines = text.Replace("\r", "").Split('\n');
             return lines.Any(line => line.Trim() == "[ARMADA:RESULT] COMPLETE")

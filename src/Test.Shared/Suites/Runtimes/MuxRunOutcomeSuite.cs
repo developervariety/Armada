@@ -74,7 +74,9 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual("mux stopped: reached the 50-iteration limit (max_iterations_reached)", errors[0].Reason);
 
                 RuntimeExitInfo exit = RuntimeFailureClassifier.Decide(1, errors[0]);
-                AssertEqual("mux stopped: reached the 50-iteration limit (max_iterations_reached). Agent process exited with code 1.", exit.Describe());
+                AssertEqual("mux stopped: reached the 50-iteration limit (max_iterations_reached). Agent process exited with code 1.", exit.Describe().Split('\n')[0]);
+                AssertContains("Remediation:", exit.Describe());
+                AssertContains("model-turn limit", exit.Describe());
             }));
 
             cases.Add(Case("tracker_fatal_error_in_completed_run_stays_failure", "A connection error keeps a completed_with_errors run a failure, as does an error after run_completed", TestTags.Negative, () =>
@@ -132,10 +134,11 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual(1, tracker.ResolveExitCode(1) ?? -99);
             }));
 
-            cases.Add(Case("describe_without_reason_unchanged", "An exit without a reason still reads as before", TestTags.Negative, () =>
+            cases.Add(Case("describe_without_reason_preserves_provider_detail", "Provider detail is preserved with remediation; an unknown exit stays unchanged", TestTags.Negative, () =>
             {
                 RuntimeProviderError plain = new RuntimeProviderError { HttpStatusCode = 429, ErrorType = "rate_limit_error" };
-                AssertEqual("Agent process exited with code 1 (provider error HTTP 429 rate_limit_error)", RuntimeFailureClassifier.Decide(1, plain).Describe());
+                AssertEqual("Agent process exited with code 1 (provider error HTTP 429 rate_limit_error)", RuntimeFailureClassifier.Decide(1, plain).Describe().Split('\n')[0]);
+                AssertContains("Remediation: Check provider quota", RuntimeFailureClassifier.Decide(1, plain).Describe());
                 AssertEqual("Agent process exited with code 2", RuntimeFailureClassifier.Decide(2, null).Describe());
             }));
 

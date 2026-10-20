@@ -763,6 +763,7 @@ export default function MissionDetail() {
         {mission.failureReason && (
           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
             <span className="detail-label" title={t('Why the mission failed or could not land, as recorded when it failed.')}>{t('Failure Reason')}</span>
+            <span className="text-dim">{t('Runtime limits and remediation are recorded here when reported by the captain. See the mission log for the individual inference turns and tool calls.')}</span>
             <pre style={{
               margin: 0,
               padding: '0.75rem',
