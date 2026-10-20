@@ -235,6 +235,45 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
+            await RunTest("A mission whose ancestry query fails on a broken history is kept as unknown ancestry, never failed as unlanded", async () =>
+            {
+                await WithFixtureAsync(async (fx, db, logging) =>
+                {
+                    // The mission commit and the default branch both resolve, but the commit they share is
+                    // missing, so git cannot answer the ancestry query.
+                    string broken = Path.Combine(fx.Root, "broken");
+                    Directory.CreateDirectory(broken);
+                    await GitAsync(broken, "init", "-b", "main").ConfigureAwait(false);
+                    await GitAsync(broken, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await GitAsync(broken, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await CommitAsync(broken, "base.txt").ConfigureAwait(false);
+                    string baseSha = await GitAsync(broken, "rev-parse", "HEAD").ConfigureAwait(false);
+                    await CommitAsync(broken, "main.txt").ConfigureAwait(false);
+                    await GitAsync(broken, "checkout", "-b", "armada/test/side", baseSha).ConfigureAwait(false);
+                    await CommitAsync(broken, "side.txt").ConfigureAwait(false);
+                    string sideSha = await GitAsync(broken, "rev-parse", "HEAD").ConfigureAwait(false);
+                    await GitAsync(broken, "checkout", "main").ConfigureAwait(false);
+                    File.Delete(Path.Combine(broken, ".git", "objects", baseSha.Substring(0, 2), baseSha.Substring(2)));
+
+                    Vessel brokenVessel = new Vessel("broken-history-" + Guid.NewGuid().ToString("N"), "https://github.com/test/broken.git");
+                    brokenVessel.LocalPath = broken;
+                    brokenVessel.DefaultBranch = "main";
+                    brokenVessel = await db.Vessels.CreateAsync(brokenVessel).ConfigureAwait(false);
+                    Voyage voyage = await CreateVoyageAsync(db, VoyageStatusEnum.Failed, _Now.AddHours(-2)).ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(db, brokenVessel, voyage, "Worker", sideSha).ConfigureAwait(false);
+
+                    TerminalVoyageMissionReconciliationResult result = await Reconciler(fx, db, logging)
+                        .ReconcileAsync(Apply(), CancellationToken.None).ConfigureAwait(false);
+
+                    AssertEqual(0, result.Completed + result.Failed + result.Cancelled, "a failed ancestry query changes nothing");
+                    AssertEqual(1, Reason(result, TerminalVoyageMissionRule.ReasonAncestryUnknown), "the failed query is named as unknown ancestry");
+                    AssertEqual(0, Reason(result, TerminalVoyageMissionRule.ReasonWorkUnlanded), "a failed query is never evidence that the work is unlanded");
+                    Mission after = (await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.WorkProduced, after.Status, "the mission stays WorkProduced");
+                    AssertEqual(sideSha, after.CommitHash, "the commit evidence stays on the mission");
+                }).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
             await RunTest("The automatic window skips voyages that ended before the lookback; the historical repair includes them", async () =>
             {
                 await WithFixtureAsync(async (fx, db, logging) =>

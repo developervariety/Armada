@@ -1061,10 +1061,17 @@ dormant (returns unavailable) until the `prior_art` decision is enabled.
 Search the code index of the calling mission's own vessel. Args: `missionId`
 (required), `query` (required), optional `limit`, `pathPrefix`, `language`, and
 `includeContent`. The tool resolves the vessel from the mission and takes no
-vessel or fleet argument, so a captain reaches only its own vessel's index. It
-refuses a mission outside the caller's tenant (`mission_not_found`) or one that
-has finished (`mission_not_active`), never returns reference-only records, and
-clamps `limit` to `codeIndex.captainSearchMaxResults`. Each result carries
+vessel or fleet argument, so a captain reaches only its own vessel's index. A
+captain credential always searches the mission it was issued to: a `missionId`
+naming another mission is ignored (the answer says so in `Warnings`), even when
+the credential's owner is an administrator, and the call is charged to the
+credential's own mission. The credential's own mission must have its tenant and
+owner (`mission_not_found` otherwise). A caller without a mission credential
+uses the supplied `missionId`; an administrator may name any mission, and any
+other caller is refused a mission outside its tenant (`mission_not_found`). The
+tool refuses a mission that has finished (`mission_not_active`), never returns
+reference-only records, and clamps `limit` to
+`codeIndex.captainSearchMaxResults`. Each result carries
 `Score`, `Path`, `StartLine`, `EndLine`, `Language`, `Excerpt`, and `Content`
 when asked.
 

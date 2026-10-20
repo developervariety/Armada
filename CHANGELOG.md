@@ -196,6 +196,24 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- `armada_mission_code_search` binds a captain credential to the mission it was
+  issued to. A supplied `missionId` naming another mission is ignored and named
+  in `Warnings`, the search runs on the credential's own vessel, and the call
+  is charged to the credential's own mission budget, also when the credential's
+  owner is an administrator. The credential's own mission must have its tenant
+  and owner. A caller without a mission credential keeps the operator policy:
+  an administrator may name any mission, and any other caller only a mission
+  in its own tenant.
+- Git ancestry reads the exit of `git merge-base --is-ancestor` at the process
+  boundary. `TryIsAncestorAsync` answers true on exit 0, false on exit 1 with no
+  error text, and unavailable (null) on exit 128, a missing ref or object, a
+  corrupt history, an exit 1 that reports a read error, a timeout or a process
+  that cannot start. Caller cancellation reaches the git process and
+  propagates. The terminal-voyage reconciliation keeps a mission whose
+  ancestry query fails as unknown ancestry instead of failing it as unlanded
+  work, and manual completion proof reports a commit missing from the
+  repository as `manual_completion_ancestry_unknown`. `IsAncestorAsync` stays
+  true only on proven ancestry.
 - The bounded check-run view that `get_check_run`, `run_check` and
   `retry_check_run` return reads failing test names in `testOutcomes` with the
   `failedTestLinePattern` of the workflow profile the check run recorded, as

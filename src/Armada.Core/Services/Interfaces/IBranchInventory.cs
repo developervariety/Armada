@@ -57,7 +57,9 @@ namespace Armada.Core.Services.Interfaces
         /// <summary>
         /// Determine whether one commit-ish is an ancestor of another, i.e. whether
         /// <paramref name="ancestorRef"/> has already been merged into <paramref name="descendantRef"/>.
-        /// Returns false when either ref is missing or the comparison cannot be made.
+        /// Returns false when either ref is missing or the comparison cannot be made, so false means
+        /// "not proven merged", never "proven unmerged". A caller that must tell the two apart uses
+        /// <c>IGitService.TryIsAncestorAsync</c>, which reports an unavailable query as null.
         /// </summary>
         /// <param name="repoPath">Path to the repository.</param>
         /// <param name="ancestorRef">Candidate ancestor ref.</param>

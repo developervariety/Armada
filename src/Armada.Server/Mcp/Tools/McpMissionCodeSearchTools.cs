@@ -17,7 +17,8 @@ namespace Armada.Server.Mcp.Tools
     /// <summary>
     /// Registers the captain-facing code search tool <c>armada_mission_code_search</c>. It searches the
     /// code index of the calling mission's own vessel and no other: the vessel is resolved from the
-    /// mission id, so the tool takes no vessel or fleet argument. It is read-only, writes no Armada
+    /// mission a captain credential was issued to (or, for a caller without one, the supplied mission
+    /// id), so the tool takes no vessel or fleet argument. It is read-only, writes no Armada
     /// record, and is bounded by a per-mission call budget from <c>codeIndex</c> settings.
     ///
     /// The index covers the vessel's default branch, not the captain's dock branch. When the index is
@@ -77,7 +78,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 ToolName,
-                "Search the code index of your own mission's vessel. Use it to find existing code before you write new code, and to check whether a method you added duplicates one that already exists. Pass your mission id in 'missionId'; the tool resolves your vessel from it and searches no other vessel. The index covers the vessel's default branch, not your dock branch, so your own uncommitted changes are not in it. Results give path, line range, language, score, and an excerpt; set 'includeContent' for the full chunk. When the index is missing, failed, stale, or lexical-only, the answer says so: an empty result then does not mean the code is absent, so search the checkout by hand. It is read-only, writes no record, and is budgeted per mission.",
+                "Search the code index of your own mission's vessel. Use it to find existing code before you write new code, and to check whether a method you added duplicates one that already exists. Pass your mission id in 'missionId'; the tool resolves your vessel from it and searches no other vessel. A captain credential always searches the mission it was issued to and is charged to that mission's budget, whatever id is passed. The index covers the vessel's default branch, not your dock branch, so your own uncommitted changes are not in it. Results give path, line range, language, score, and an excerpt; set 'includeContent' for the full chunk. When the index is missing, failed, stale, or lexical-only, the answer says so: an empty result then does not mean the code is absent, so search the checkout by hand. It is read-only, writes no record, and is budgeted per mission.",
                 new
                 {
                     type = "object",
@@ -123,7 +124,17 @@ namespace Armada.Server.Mcp.Tools
 
                 MissionCodeSearchArgs request = JsonSerializer.Deserialize<MissionCodeSearchArgs>(args.Value, _JsonOptions)
                     ?? new MissionCodeSearchArgs();
-                if (String.IsNullOrWhiteSpace(request.MissionId))
+
+                // A captain credential names the mission it was issued to, and that mission wins over the
+                // supplied id, so a captain searches its own vessel and spends its own budget only. This
+                // holds when the credential's owner is an administrator: a mission token never inherits
+                // its owner's operator rights. A caller without a mission credential uses the supplied id.
+                AuthContext? caller = McpCallerContext.Current;
+                string? missionId = McpCallerContext.ResolveMissionId(request.MissionId, out string? ignoredMissionId);
+                if (ignoredMissionId != null)
+                    logging?.Warn("[McpMissionCodeSearchTools] ignored missionId " + ignoredMissionId
+                        + ": the caller's credential is scoped to mission " + missionId);
+                if (String.IsNullOrWhiteSpace(missionId))
                     return Unavailable("invalid", "Pass your mission id in 'missionId'.");
                 if (String.IsNullOrWhiteSpace(request.Query))
                     return Unavailable("invalid", "Give a query to search for.");
@@ -132,16 +143,23 @@ namespace Armada.Server.Mcp.Tools
                 if (!indexSettings.Enabled)
                     return Unavailable("disabled", "Code indexing is disabled on this admiral. Search the checkout by hand.");
 
-                Mission? mission = await database.Missions.ReadAsync(request.MissionId, CancellationToken.None).ConfigureAwait(false);
+                Mission? mission = await database.Missions.ReadAsync(missionId, CancellationToken.None).ConfigureAwait(false);
                 if (mission == null)
                     return Unavailable("mission_not_found", "No mission has that id.");
 
-                // The endpoint has no per-captain authorization, so scope is the guard: the mission must
-                // belong to the caller's tenant and still be live, and its vessel is the only one searched.
-                AuthContext? caller = McpCallerContext.Current;
-                if (caller != null && !caller.IsAdmin
+                // Scope is the guard: a captain's own mission must have the credential's tenant and owner;
+                // an operator's mission must have the operator's tenant unless the operator is an
+                // administrator. The mission must still be live, and its vessel is the only one searched.
+                if (caller != null && !String.IsNullOrEmpty(caller.MissionId))
+                {
+                    if (!McpMissionEvidenceScope.SameOwner(caller, mission.TenantId, mission.UserId))
+                        return Unavailable("mission_not_found", "No mission has that id.");
+                }
+                else if (caller != null && !caller.IsAdmin
                     && !String.Equals(caller.TenantId, mission.TenantId, StringComparison.Ordinal))
+                {
                     return Unavailable("mission_not_found", "No mission has that id.");
+                }
                 if (MissionStateMachine.IsTerminal(mission.Status))
                     return Unavailable("mission_not_active", "That mission is no longer active, so it has no vessel search scope.");
                 if (String.IsNullOrWhiteSpace(mission.VesselId))
@@ -201,6 +219,8 @@ namespace Armada.Server.Mcp.Tools
                 }).ConfigureAwait(false);
 
                 List<string> warnings = new List<string>();
+                if (ignoredMissionId != null)
+                    warnings.Add("The supplied missionId names another mission, so it was ignored: your credential searches only its own mission's vessel.");
                 if (!String.Equals(status.Freshness, "Fresh", StringComparison.OrdinalIgnoreCase))
                     warnings.Add("The index is " + status.Freshness + ": it was built at " + (status.IndexedCommitSha ?? "an unknown commit") + ", so recent code may be missing from the results.");
                 if (!status.UseSemanticSearch)

@@ -77,7 +77,7 @@ namespace Armada.Test.Unit.Suites.Services
                         ManualCompletionProofResult result = await new ManualCompletionProofService(
                             testDb.Driver, CreateGit()).EvaluateAsync(mission, false).ConfigureAwait(false);
                         AssertFalse(result.Allowed, "A missing commit must fail closed");
-                        AssertEqual("manual_completion_unlanded", result.Reason, "Missing commit is safely treated as unlanded");
+                        AssertEqual("manual_completion_ancestry_unknown", result.Reason, "A commit the repository lacks is unknown ancestry, not proven unlanded");
                     }
                     finally
                     {

@@ -1104,7 +1104,10 @@ migration versions are SQLite 100, PostgreSQL 101, MySQL 92 and SQL Server 95.
 The rule keeps a mission unchanged in these cases, and counts each by reason:
 
 - `ancestry_unknown`: there is no vessel or repository, the default branch does
-  not resolve, or the probe failed.
+  not resolve, or the ancestry query failed. Only `git merge-base --is-ancestor`
+  exiting 1 with no error text reads as unlanded; an exit 128, a missing object
+  in the history, a read error, a timeout or a query that cannot start is
+  unknown.
 - `landing_in_flight`: a merge entry for the mission is not yet `Landed`,
   `Failed` or `Cancelled`.
 - `voyage_terminal_grace`: the voyage ended less than ten minutes ago.

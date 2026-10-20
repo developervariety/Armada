@@ -259,6 +259,58 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("TryIsAncestorAsync answers yes on exit 0, no on exit 1, unavailable on a missing ref or object, and passes cancellation to git", async () =>
+            {
+                GitService git = CreateService();
+                string directory = Path.Combine(Path.GetTempPath(), "armada-ancestry-exits-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                try
+                {
+                    await RunGitAsync(directory, "init", "-b", "main");
+                    await RunGitAsync(directory, "config", "user.name", "Armada Tests");
+                    await RunGitAsync(directory, "config", "user.email", "armada-tests@example.com");
+                    await File.WriteAllTextAsync(Path.Combine(directory, "base.txt"), "base");
+                    await RunGitAsync(directory, "add", "base.txt");
+                    await RunGitAsync(directory, "commit", "-m", "Base");
+                    string baseSha = (await RunGitAsync(directory, "rev-parse", "HEAD")).Trim();
+                    await File.WriteAllTextAsync(Path.Combine(directory, "main.txt"), "main");
+                    await RunGitAsync(directory, "add", "main.txt");
+                    await RunGitAsync(directory, "commit", "-m", "Main");
+                    string mainSha = (await RunGitAsync(directory, "rev-parse", "HEAD")).Trim();
+                    await RunGitAsync(directory, "checkout", "-b", "side", baseSha);
+                    await File.WriteAllTextAsync(Path.Combine(directory, "side.txt"), "side");
+                    await RunGitAsync(directory, "add", "side.txt");
+                    await RunGitAsync(directory, "commit", "-m", "Side");
+                    string sideSha = (await RunGitAsync(directory, "rev-parse", "HEAD")).Trim();
+                    await RunGitAsync(directory, "checkout", "main");
+
+                    AssertEqual<bool?>(true, await git.TryIsAncestorAsync(directory, baseSha, mainSha), "exit 0 is a proven ancestor");
+                    AssertEqual<bool?>(false, await git.TryIsAncestorAsync(directory, sideSha, mainSha), "exit 1 is a proven non-ancestor");
+                    AssertNull(await git.TryIsAncestorAsync(directory, "refs/heads/absent-branch", mainSha), "exit 128 for a missing ref is unavailable, not a non-ancestor");
+                    AssertNull(await git.TryIsAncestorAsync(directory, new string('0', 40), mainSha), "a commit missing from the repository is unavailable");
+                    AssertNull(await git.TryIsAncestorAsync(Path.Combine(directory, "no-such-repository"), baseSha, mainSha), "a query that cannot start is unavailable");
+                    AssertFalse(await git.IsAncestorAsync(directory, "refs/heads/absent-branch", mainSha), "the two-state form is true only on proven ancestry");
+
+                    using (CancellationTokenSource cancellation = new CancellationTokenSource())
+                    {
+                        cancellation.Cancel();
+                        await AssertThrowsAsync<OperationCanceledException>(() =>
+                            git.TryIsAncestorAsync(directory, baseSha, mainSha, cancellation.Token), "caller cancellation propagates");
+                        await AssertThrowsAsync<OperationCanceledException>(() =>
+                            git.IsAncestorAsync(directory, baseSha, mainSha, cancellation.Token), "the two-state form passes the token too");
+                    }
+
+                    // Both commits still resolve, but the history between them cannot be read.
+                    File.Delete(Path.Combine(directory, ".git", "objects", baseSha.Substring(0, 2), baseSha.Substring(2)));
+                    AssertNull(await git.TryIsAncestorAsync(directory, sideSha, mainSha), "a history with a missing object is unavailable, not a non-ancestor");
+                    AssertFalse(await git.IsAncestorAsync(directory, sideSha, mainSha), "a broken history is never proven ancestry");
+                }
+                finally
+                {
+                    if (Directory.Exists(directory)) Directory.Delete(directory, true);
+                }
+            });
+
             await RunTest("ReadChangedPathsBetweenCommitsAsync lists only the paths changed between two commits and reports a bad commit as unavailable", async () =>
             {
                 GitService git = CreateService();

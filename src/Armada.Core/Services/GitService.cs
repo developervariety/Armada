@@ -1394,7 +1394,11 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         /// <summary>
-        /// Ancestry as a three-state answer: true, false, or null when the probe itself failed.
+        /// Ancestry as a three-state answer read from the exit of <c>git merge-base --is-ancestor</c>:
+        /// exit 0 is true, exit 1 with no error text is false, and every other outcome is null
+        /// (unavailable). A missing ref or object, a corrupt history, a timeout, or a process that could
+        /// not start is never reported as "not an ancestor". Caller cancellation reaches the git process
+        /// and propagates as <see cref="OperationCanceledException"/>.
         /// </summary>
         /// <param name="repoPath">Repository or worktree path.</param>
         /// <param name="ancestorRef">The ref that should be contained.</param>
@@ -1403,35 +1407,37 @@ namespace Armada.Core.Services
         /// <returns>True, false, or null when ancestry could not be established.</returns>
         public async Task<bool?> TryIsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
         {
+            if (String.IsNullOrEmpty(repoPath) || String.IsNullOrEmpty(ancestorRef) || String.IsNullOrEmpty(descendantRef)) return null;
+
             try
             {
-                return await IsAncestorAsync(repoPath, ancestorRef, descendantRef, token).ConfigureAwait(false);
+                return await QueryAncestryAsync(repoPath, ancestorRef, descendantRef, token).ConfigureAwait(false);
             }
-            catch (Exception)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 // A broken probe is not evidence that the base is wrong.
+                _Logging.Warn(_Header + "ancestry of " + ancestorRef + " in " + descendantRef + " is unavailable in " + repoPath + ": " + ex.Message);
                 return null;
             }
         }
 
+        /// <inheritdoc />
+        /// <remarks>
+        /// True only when git proved the ancestry. An unavailable answer reads as false here, so a caller
+        /// that must tell "not an ancestor" from "could not tell" uses <see cref="TryIsAncestorAsync"/>.
+        /// </remarks>
         public async Task<bool> IsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
             if (String.IsNullOrEmpty(ancestorRef)) throw new ArgumentNullException(nameof(ancestorRef));
             if (String.IsNullOrEmpty(descendantRef)) throw new ArgumentNullException(nameof(descendantRef));
 
-            try
-            {
-                // `merge-base --is-ancestor` communicates through the exit code: 0 yes, 1 no. RunGitAsync
-                // throws on a non-zero exit, so "no" and "ref missing" both land in the catch. Callers
-                // treat that as not-merged, which is the safe direction for a report about unlanded work.
-                await RunGitAsync(repoPath, "merge-base", "--is-ancestor", ancestorRef, descendantRef).ConfigureAwait(false);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
+            bool? answer = await TryIsAncestorAsync(repoPath, ancestorRef, descendantRef, token).ConfigureAwait(false);
+            return answer == true;
         }
 
         /// <summary>
@@ -1622,6 +1628,41 @@ namespace Armada.Core.Services
         private async Task<string> RunGitAsync(string? workingDirectory, CancellationToken token, params string[] args)
         {
             return await RunProcessAsync(workingDirectory, "git", token, args).ConfigureAwait(false);
+        }
+
+        // `merge-base --is-ancestor` answers through its exit code, so the exit is read here instead of
+        // through RunGitAsync, which turns every non-zero exit into the same exception. Exit 1 is "no" only
+        // with no error text: some git versions exit 1 after "could not read" an object in the history,
+        // and that is a failed query, not an answer.
+        private async Task<bool?> QueryAncestryAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            string[] args = new[] { "merge-base", "--is-ancestor", "--end-of-options", ancestorRef, descendantRef };
+            TimeSpan processTimeout = GitProcessTimeouts.Resolve();
+            BoundedProcessRequest request = new BoundedProcessRequest(GitProcessStartInfo.Create(repoPath, args), processTimeout)
+            {
+                OutputLimitBytes = _GitOutputLimitBytes
+            };
+
+            BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            if (result.KillError != null)
+                _Logging.Warn(_Header + "could not kill a timed-out or cancelled ancestry query; it may still be running: " + result.KillError);
+            if (result.Cancelled)
+            {
+                token.ThrowIfCancellationRequested();
+                throw new OperationCanceledException(token);
+            }
+            if (result.TimedOut)
+                throw new TimeoutException("git merge-base --is-ancestor timed out after " + processTimeout.TotalSeconds.ToString("F0") + " seconds");
+
+            int exitCode = result.ExitCode ?? -1;
+            string stderr = result.StandardError.Trim();
+            if (exitCode == 0) return true;
+            if (exitCode == 1 && stderr.Length == 0) return false;
+
+            _Logging.Warn(_Header + "ancestry of " + ancestorRef + " in " + descendantRef + " is unavailable in " + repoPath
+                + ": git merge-base --is-ancestor exited " + exitCode + (stderr.Length == 0 ? String.Empty : ": " + stderr));
+            return null;
         }
 
         private async Task EnsureTrackedFilesCleanAsync(string worktreePath, CancellationToken token)
