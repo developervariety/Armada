@@ -296,6 +296,8 @@ disconnected are not moved to another Harbor: the stall watchdog (`stallThreshol
 once it is back; while it is still offline and the policy is on, each recovery attempt waits another stall interval, and
 the mission fails with `StallRecoveryExhausted` when `maxRecoveryAttempts` run out.
 
+**Final-stage sequencing.** An Architect's `waitForOtherMissions` barrier waits for sibling implementation pipelines, including their reviews and checks, rather than starting when Workers merely produce a commit. It excludes its own downstream review and the Architect to avoid circular waits. Reworks retain the barrier, including existing reworks created before inheritance was persisted.
+
 **Architect slices and rework.** Each implementation slice has its own bounded Judge rework budget. A slice starts a new budget even when it depends on an earlier slice that passed after escalation; unchanged-work detection also stays within the current slice.
 
 **Restarting a rejected Judge.** Prior structured rejection findings are included as historical context in the restarted review. The Judge must independently recheck them against the current requirements and code and distinguish resolved, superseded and reproducible findings; the previous verdict is not automatically reused.

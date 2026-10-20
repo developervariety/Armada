@@ -270,7 +270,7 @@ namespace Armada.Core.Services
             if (await ShouldDeferArchitectSequencedMissionAsync(mission, token).ConfigureAwait(false))
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.WaitingForVoyageWorkers;
-                blocker.Summary = "The architect sequenced this mission after the voyage's other implementation missions, which are still running.";
+                blocker.Summary = "Waiting for the voyage's other implementation pipelines, including reviews and checks, to settle.";
                 return blocker;
             }
 
@@ -4694,12 +4694,37 @@ namespace Armada.Core.Services
 
             // Structured flag only (set from the architect plan's waitForOtherMissions, or once from the legacy
             // marker-format description when the architect output was parsed). Description wording is never read here.
-            if (!mission.WaitForVoyageWorkers) return false;
+            if (!mission.WaitForVoyageWorkers && !mission.Title.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal)) return false;
 
             List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
+            if (!mission.WaitForVoyageWorkers)
+            {
+                // Reworks created before barrier inheritance was persisted still inherit their root Worker's flag.
+                Dictionary<string, Mission> byId = voyageMissions.ToDictionary(m => m.Id, StringComparer.Ordinal);
+                HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
+                Mission? root = mission;
+                while (root != null && visited.Add(root.Id))
+                {
+                    if (PersonaCatalog.Matches(root.Persona, PersonaCatalog.Worker)
+                        && !root.Title.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal)) break;
+                    root = !String.IsNullOrEmpty(root.DependsOnMissionId) && byId.TryGetValue(root.DependsOnMissionId!, out Mission? parent)
+                        ? parent : null;
+                }
+                if (root?.WaitForVoyageWorkers != true) return false;
+            }
+            HashSet<string> ownChain = new HashSet<string>(StringComparer.Ordinal) { mission.Id };
+            bool grew;
+            do
+            {
+                grew = false;
+                foreach (Mission candidate in voyageMissions)
+                    if (!String.IsNullOrEmpty(candidate.DependsOnMissionId) && ownChain.Contains(candidate.DependsOnMissionId!)
+                        && ownChain.Add(candidate.Id)) grew = true;
+            } while (grew);
+
             return voyageMissions.Any(m =>
-                m.Id != mission.Id &&
-                String.Equals(m.Persona, "Worker", StringComparison.OrdinalIgnoreCase) &&
+                !ownChain.Contains(m.Id) &&
+                !PersonaCatalog.Matches(m.Persona, PersonaCatalog.Architect) &&
                 m.Status != MissionStatusEnum.Complete &&
                 m.Status != MissionStatusEnum.WorkProduced &&
                 m.Status != MissionStatusEnum.Failed &&
@@ -4830,6 +4855,7 @@ namespace Armada.Core.Services
             rework.VesselId = judge.VesselId;
             rework.Persona = PersonaCatalog.Worker;
             rework.Tier = worker.Tier;
+            rework.WaitForVoyageWorkers = worker.WaitForVoyageWorkers;
             rework.RequestedCaptainId = escalateTo;
             rework.DependsOnMissionId = judge.Id;
             rework.RequiresReview = false;

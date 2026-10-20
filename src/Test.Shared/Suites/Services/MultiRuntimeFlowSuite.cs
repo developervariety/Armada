@@ -236,7 +236,7 @@ namespace Test.Shared.Suites.Services
 
                 Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
                 Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("pipeline") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
-                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("Add the CLI [Worker]", "Write textkit/cli.py.") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, BranchName = "armada/flow/judge" }).ConfigureAwait(false);
+                Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("Add the CLI [Worker]", "Write textkit/cli.py.") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, BranchName = "armada/flow/judge", WaitForVoyageWorkers = true }).ConfigureAwait(false);
                 Captain codex = await CreateCaptainAsync(testDb, "Codex", AgentRuntimeEnum.Codex, CaptainStateEnum.Working).ConfigureAwait(false);
                 Mission judge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, codex, "Judge", false).ConfigureAwait(false);
                 judge.DependsOnMissionId = worker.Id;
@@ -252,6 +252,7 @@ namespace Test.Shared.Suites.Services
                 AssertNotNull(rework, "a rework Worker follows the Judge");
                 AssertContains("Rework round 1", rework.Description);
                 AssertContains("Write textkit/cli.py.", rework.Description);
+                AssertTrue(rework.WaitForVoyageWorkers, "Rework preserves the original final-stage barrier");
                 AssertEqual("armada/flow/judge", rework.BranchName, "the rework continues on the same branch");
                 Mission? nextJudge = all.Find(m => m.DependsOnMissionId == rework.Id && m.Persona == "Judge");
                 AssertNotNull(nextJudge, "a new Judge reviews the rework");
@@ -319,6 +320,25 @@ namespace Test.Shared.Suites.Services
                     AssertEqual<string?>(null, rework.RequestedCaptainId, "An earlier slice must not force escalation");
                     AssertEqual("armada/slices", rework.BranchName);
                 }
+            }));
+
+            cases.Add(CaseAsync("existing_rework_inherits_final_stage_barrier", "A stored rework inherits its root's barrier and waits for sibling review without waiting on its own Judge", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Final documentation")).ConfigureAwait(false);
+                Mission root = await testDb.Driver.Missions.CreateAsync(new Mission("Docs [Worker]", "Document") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, WaitForVoyageWorkers = true }).ConfigureAwait(false);
+                Mission rejected = await testDb.Driver.Missions.CreateAsync(new Mission("Review docs", "Review") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", Status = MissionStatusEnum.WorkProduced, DependsOnMissionId = root.Id }).ConfigureAwait(false);
+                Mission rework = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Rework 1: Docs", "Correct docs") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", DependsOnMissionId = rejected.Id }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Review docs again", "Review") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", DependsOnMissionId = rework.Id }).ConfigureAwait(false);
+                Mission sibling = await testDb.Driver.Missions.CreateAsync(new Mission("Review implementation", "Review") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", Status = MissionStatusEnum.Review }).ConfigureAwait(false);
+                MissionAssignmentBlocker? blocked = await h.Missions.GetAssignmentBlockerAsync(rework).ConfigureAwait(false);
+                AssertEqual(MissionAssignmentBlockerReasonEnum.WaitingForVoyageWorkers, blocked!.Reason);
+                sibling.Status = MissionStatusEnum.Complete;
+                await testDb.Driver.Missions.UpdateAsync(sibling).ConfigureAwait(false);
+                MissionAssignmentBlocker? released = await h.Missions.GetAssignmentBlockerAsync(rework).ConfigureAwait(false);
+                AssertNotEqual(MissionAssignmentBlockerReasonEnum.WaitingForVoyageWorkers, released!.Reason);
             }));
 
             cases.Add(CaseAsync("unchanged_rework_escalates_early", "A rejected rework that preserves the previous worker commit switches captain before exhausting ordinary retries", TestTags.Negative, async () =>

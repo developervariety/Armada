@@ -1866,8 +1866,36 @@ namespace Test.Shared.Suites.Services
                     implementationB.LastUpdateUtc = DateTime.UtcNow;
                     await testDb.Driver.Missions.UpdateAsync(implementationB).ConfigureAwait(false);
 
+                    implementationB.Status = MissionStatusEnum.WorkProduced;
+                    await testDb.Driver.Missions.UpdateAsync(implementationB).ConfigureAwait(false);
+                    Mission siblingJudge = await testDb.Driver.Missions.CreateAsync(new Mission("Review implementation B", "Review")
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge",
+                        DependsOnMissionId = implementationB.Id, Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(new Mission("Review docs", "Review")
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge",
+                        DependsOnMissionId = docsMission.Id, Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(new Mission("Plan", "Plan")
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Architect", Status = MissionStatusEnum.WorkProduced
+                    }).ConfigureAwait(false);
+                    AssertFalse(await missionService.TryAssignAsync(docsMission, vessel).ConfigureAwait(false),
+                        "A produced Worker does not release final documentation while its Judge is pending");
+                    MissionAssignmentBlocker? barrier = await missionService.GetAssignmentBlockerAsync(docsMission).ConfigureAwait(false);
+                    AssertEqual(MissionAssignmentBlockerReasonEnum.WaitingForVoyageWorkers, barrier!.Reason);
+                    AssertContains("review", barrier.Summary);
+                    siblingJudge.Status = MissionStatusEnum.Review;
+                    await testDb.Driver.Missions.UpdateAsync(siblingJudge).ConfigureAwait(false);
+                    AssertFalse(await missionService.TryAssignAsync(docsMission, vessel).ConfigureAwait(false),
+                        "A pending review decision still blocks final documentation");
+                    siblingJudge.Status = MissionStatusEnum.Complete;
+                    await testDb.Driver.Missions.UpdateAsync(siblingJudge).ConfigureAwait(false);
+
                     bool assignedAfterSiblingsSettled = await missionService.TryAssignAsync(docsMission, vessel).ConfigureAwait(false);
-                    AssertTrue(assignedAfterSiblingsSettled, "Sequenced docs mission should assign once sibling worker missions are settled");
+                    AssertTrue(assignedAfterSiblingsSettled, "Documentation starts after sibling reviews and ignores its own pending Judge and produced Architect");
                 }
             }));
 

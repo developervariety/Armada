@@ -182,10 +182,10 @@ namespace Armada.Core.Models
         public MissionFailureKindEnum? FailureKind { get; set; } = null;
 
         /// <summary>
-        /// When true, a Worker mission is not assigned while any other Worker mission in the same voyage is still
-        /// unsettled (not Complete, WorkProduced, Failed, Cancelled, or LandingFailed). Set from the structured
-        /// architect plan (waitForOtherMissions) so that "run after the other implementation missions" sequencing
-        /// does not depend on description wording.
+        /// When true, a Worker mission waits for other implementation pipelines in the voyage, including reviews
+        /// and checks, to settle (Complete, WorkProduced, Failed, Cancelled, or LandingFailed). Its own downstream
+        /// stages and the Architect are excluded to avoid a circular wait. Reworks inherit this barrier. Set from
+        /// the structured architect plan (waitForOtherMissions), not inferred from description wording.
         /// </summary>
         public bool WaitForVoyageWorkers { get; set; } = false;
 

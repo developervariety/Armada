@@ -29,8 +29,9 @@ namespace Armada.Core.Models
         public int? DependsOn { get; set; } = null;
 
         /// <summary>
-        /// When true, this mission waits until every other Worker mission in the voyage has settled (for example a
-        /// documentation mission that describes the final behavior of the implementation missions).
+        /// When true, this mission waits until other implementation pipelines in the voyage, including reviews
+        /// and checks, settle. Its own downstream stages and the Architect are excluded; reworks inherit the
+        /// barrier. For example, final documentation waits for implementation review to finish.
         /// </summary>
         [JsonPropertyName("waitForOtherMissions")]
         public bool WaitForOtherMissions { get; set; } = false;

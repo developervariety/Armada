@@ -8440,7 +8440,7 @@ An atomic unit of work assigned to a captain.
 | `DiffSnapshot` | string? | null | Always `null` in list/status responses to keep payloads compact. Use `GET /api/v1/missions/{id}/diff` to retrieve the full diff. |
 | `FailureReason` | string? | null | Human-readable reason for a failure or landing failure. Display text only; never parsed |
 | `FailureKind` | string? | null | Structured failure classification set where the failure happens: `Compile`, `TestFail`, `Timeout`, `LandingConflict`, `Crash`, `NoOp`, `Boundary`, `ScopeViolation`, `JudgeRejected`, `Infra`, `Unknown`, `ReviewDenied`, `DependencyFailed`, `MaxRuntimeExceeded`, `StallRecoveryExhausted`, `OperatorAction`, `InvalidOutput`. Autonomous recovery reads this field |
-| `WaitForVoyageWorkers` | bool | false | When true, a Worker mission is not assigned until every other Worker mission in its voyage has settled (set from an architect plan's `waitForOtherMissions`) |
+| `WaitForVoyageWorkers` | bool | false | When true, a Worker waits for other implementation pipelines, including reviews and checks, to settle. Its own downstream stages and the Architect are excluded; reworks inherit the barrier (set from an architect plan's `waitForOtherMissions`) |
 | `Persona` | string? | null | Persona for this mission (`Worker`, `Architect`, `Judge`, ...); null means `Worker` |
 | `Tier` | string? | null | Required capability tier (`CaptainTierEnum`); dispatch picks an idle captain at or above it. Null means `Standard` |
 | `RequestedCaptainId` | string? | null | Preferred captain (`cpt_`); used when idle, otherwise dispatch falls back by `Tier` |
