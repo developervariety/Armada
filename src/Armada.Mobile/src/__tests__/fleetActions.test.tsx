@@ -182,7 +182,7 @@ describe('run sheet', () => {
     expect(screen.getByTestId('run-action-confirm')).toBeTruthy();
     expect(screen.getByText('The clean-tree check is off: the command also runs in vessels with uncommitted changes.')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('run-action-start'));
-    await waitFor(() => expect(api.runFleetAction).toHaveBeenCalledWith('fac_1', { VesselIds: ['vsl_1', 'vsl_2'], Concurrency: 4, Overrides: { RequiresCleanWorkingTree: false } }));
+    await waitFor(() => expect(api.runFleetAction).toHaveBeenCalledWith('fac_1', { VesselIds: ['vsl_1', 'vsl_2'], Concurrency: 4, Overrides: { RequiresCleanWorkingTree: false, ApprovalOptions: { approveAll: false, timeoutSeconds: 600, timeoutDecision: 'Deny' } } }));
     expect(onStarted).toHaveBeenCalledWith(expect.objectContaining({ runId: 'far_9' }));
   });
 
@@ -199,7 +199,7 @@ describe('run sheet', () => {
     await fireEvent.press(screen.getByTestId('run-action-review'));
     await fireEvent.press(screen.getByTestId('run-action-start'));
     await waitFor(() => expect(api.runAdHocFleetAction).toHaveBeenCalledWith({
-      VesselIds: ['vsl_1'], Concurrency: 2,
+      VesselIds: ['vsl_1'], Concurrency: 2, Overrides: { ApprovalOptions: { approveAll: false, timeoutSeconds: 600, timeoutDecision: 'Deny' } },
       Definition: { Name: 'Status', Kind: 'Command', CommandText: 'git status -sb', PromptTemplate: null, PipelineId: null, TimeoutSeconds: 300, RequiresCleanWorkingTree: true },
     }));
     expect(mockRouter.push).toHaveBeenCalledWith('/fleet-actions/runs/far_7');

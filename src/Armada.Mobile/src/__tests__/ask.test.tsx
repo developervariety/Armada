@@ -1,3 +1,4 @@
+import { expectAnnouncement } from '../test/announcements';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { Slot } from 'expo-router';
@@ -665,7 +666,7 @@ describe('Ask Armada', () => {
     await waitFor(() => expect(api.enumerateAskMessages).toHaveBeenCalled());
     await emit('ask.message', { threadId: 'thr_1', message: message({ id: 'msg_w', sequence: 5, role: 'Assistant', kind: 'WorkReport', trackedWorkId: 'trk_1', captainId: 'cpt_1', contentText: 'All 412 tests passed.' }) });
     await waitFor(() => expect(screen.getByTestId('ask-msg-5-report')).toBeTruthy());
-    expect(AccessibilityInfo.announceForAccessibilityWithOptions).toHaveBeenCalledWith('Report: All 412 tests passed.', { queue: true });
+    expectAnnouncement('Report: All 412 tests passed.');
   });
 
   it('a failed turn is shown inline', async () => {
@@ -678,7 +679,7 @@ describe('Ask Armada', () => {
     await waitFor(() => expect(screen.getByTestId('ask-turn-error')).toBeTruthy());
     expect(screen.getByText('The captain turn failed: runtime not found')).toBeTruthy();
     // VoiceOver has no live regions: the failure is announced, queued behind current speech.
-    expect(AccessibilityInfo.announceForAccessibilityWithOptions).toHaveBeenCalledWith('The captain turn failed: runtime not found', { queue: true });
+    expectAnnouncement('The captain turn failed: runtime not found');
   });
 
   it('links in captain replies open app pages in the app and web pages outside, after naming the real host', async () => {
@@ -1016,7 +1017,7 @@ describe('Ask Armada slash commands', () => {
     await waitFor(() => expect(api.listCaptains).toHaveBeenCalled());
     await type('/thinking on');
     await ret();
-    expect(screen.getByTestId('ask-show-thinking').props.value).toBe(true);
+    expect(screen.getByTestId('ask-show-thinking').props.accessibilityState?.checked ?? screen.getByTestId('ask-show-thinking').props.value ?? screen.getByTestId('ask-show-thinking').props.on).toBe(true);
     expect(screen.getByTestId('ask-composer-hint')).toHaveTextContent('Show thinking is on.');
     await type('/captain grace');
     await ret();

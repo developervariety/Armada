@@ -62,7 +62,7 @@ export function CliPermissionCard({ request, onDecided, showThread, collapsible 
       <AppText variant="label">{pending ? t('Permission needed') : t('CLI permission')}</AppText>
       <AppText variant="mono">{request.toolName || t('tool')}</AppText>
       <StatusBadge label={requestStatusLabel(t, status)} tone={pending ? 'warning' : statusTone(status)} />
-      <CliPermissionCountdown expiresUtc={request.expiresUtc} active={pending} />
+      <CliPermissionCountdown expiresUtc={request.expiresUtc} active={pending} timeoutDecision={request.timeoutDecision} />
     </>
   );
 

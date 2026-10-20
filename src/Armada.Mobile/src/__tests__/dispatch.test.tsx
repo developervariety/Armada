@@ -71,6 +71,7 @@ describe('Dispatch', () => {
     await fireEvent.changeText(screen.getByTestId('dispatch-prompt'), '  Fix the login bug  ');
     await fireEvent.press(screen.getByTestId('dispatch-submit'));
     await waitFor(() => expect(api.createVoyage).toHaveBeenCalledWith({
+      approvalOptions: { approveAll: false, timeoutSeconds: 600, timeoutDecision: 'Deny' },
       title: 'Fix the login bug',
       vesselId: 'vsl_a',
       missions: [{ vesselId: 'vsl_a', title: 'Fix the login bug', description: 'Fix the login bug', priority: 100 }],
@@ -118,6 +119,7 @@ describe('Dispatch', () => {
     await fireEvent.changeText(screen.getByTestId('dispatch-prompt'), 'Do it');
     await fireEvent.press(screen.getByTestId('dispatch-submit'));
     await waitFor(() => expect(api.createVoyage).toHaveBeenCalledWith({
+      approvalOptions: { approveAll: false, timeoutSeconds: 600, timeoutDecision: 'Deny' },
       title: 'Named voyage',
       vesselId: 'vsl_b',
       missions: [{ vesselId: 'vsl_b', title: 'Do it', description: 'Do it', priority: 42 }],

@@ -135,6 +135,7 @@ function ReviewApproval({ item, target, onChanged }: { item: InboxItem; target: 
   return (
     <View style={styles.inner}>
       <ItemHeader item={item} openLabel={t('Open')} />
+      <CliPermissionCountdown expiresUtc={item.expiresUtc} active timeoutDecision={item.timeoutDecision ?? undefined} />
       <Button label={t('Review mission')} onPress={() => { setError(null); setOpen(true); }} testID={`review-open-${target.missionId}`} style={styles.noMargin} />
       <ReviewSheet open={open} title={t('Review: {{title}}', { title: item.entityName || item.title })} busy={busy} error={error} onSubmit={(v) => void submit(v)} onClose={() => setOpen(false)} />
     </View>
@@ -196,7 +197,7 @@ function CliApproval({ item, onChanged }: { item: InboxItem; onChanged: () => vo
     return (
       <View style={styles.inner}>
         <ItemHeader item={item} openLabel={inboxActionLabel(t, item)} />
-        <CliPermissionCountdown expiresUtc={item.expiresUtc} active />
+        <CliPermissionCountdown expiresUtc={item.expiresUtc} active timeoutDecision={item.timeoutDecision ?? undefined} />
       </View>
     );
   }

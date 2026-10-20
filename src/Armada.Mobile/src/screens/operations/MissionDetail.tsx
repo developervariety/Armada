@@ -24,6 +24,7 @@ import {
   type ReviewVerdict,
 } from '@dashboard/lib/missionActions';
 import type { Mission } from '@dashboard/types/models';
+import { CliPermissionCountdown } from '../../components/cliPermissions/CliPermissionCountdown';
 import { EntityStatusBadge } from '../../components/app/EntityStatusBadge';
 import { JsonSheet } from '../../components/app/JsonSheet';
 import { useConfirm } from '../../components/app/useConfirm';
@@ -308,6 +309,7 @@ export function MissionDetail({ id, embedded, initialTab = 'overview', onDeleted
 
       {mission.status === 'Pending' && mission.assignmentBlocker ? <AssignmentBlockerCard blocker={mission.assignmentBlocker} onOpen={open} /> : null}
 
+      {state.canResolveReview ? <CliPermissionCountdown expiresUtc={mission.reviewDeadlineUtc} active /> : null}
       <LandingPreviewCard preview={previewQuery.data ?? null} loading={previewQuery.loading} landing={state} branchName={mission.branchName} />
 
       {mission.prUrl ? (

@@ -251,7 +251,7 @@ function PolicyField({ label, hint, value, onChange, disabled, testID }: { label
 export function CliPermissionSettingsSection({ settings, locked, onSaved }: SectionProps) {
   const { t } = useLocale();
   const s = { ...CLI_PERMISSION_DEFAULTS, ...(settings.permissions ?? {}) };
-  const draft = useDraft({ askDefaultPolicy: s.askDefaultPolicy, missionDefaultPolicy: s.missionDefaultPolicy, allowOwnerApproval: !!s.allowOwnerApproval, promptTimeoutSeconds: String(s.promptTimeoutSeconds) });
+  const draft = useDraft({ askDefaultPolicy: s.askDefaultPolicy, missionDefaultPolicy: s.missionDefaultPolicy, allowOwnerApproval: !!s.allowOwnerApproval, timeoutDecision: s.timeoutDecision ?? 'Deny', promptTimeoutSeconds: String(s.promptTimeoutSeconds) });
   const { save, saving } = useSettingsSave(onSaved);
   const v = draft.value;
   const timeoutValid = validPromptTimeout(v.promptTimeoutSeconds);
@@ -261,12 +261,13 @@ export function CliPermissionSettingsSection({ settings, locked, onSaved }: Sect
       <PolicyField label={t('Mission default')} hint={t('Used by missions (default Bypass, the previous behavior). A vessel with auto-approve off caps missions at Refuse.')} value={v.missionDefaultPolicy} onChange={(x) => draft.set({ missionDefaultPolicy: x })} disabled={locked} />
       <NumberField
         label={t('Prompt timeout (seconds)')}
-        hint={t('How long a request waits for a decision before it expires and is denied (10-3600, default 600).')}
+        hint={t('How long a request waits for a decision before applying the default answer (10-3600, default 600).')}
         error={timeoutValid ? null : t('Must be a whole number from {{min}} to {{max}}.', { min: PROMPT_TIMEOUT_RANGE.min, max: PROMPT_TIMEOUT_RANGE.max.toLocaleString() })}
         value={v.promptTimeoutSeconds}
         onChange={(x) => draft.set({ promptTimeoutSeconds: x })}
         disabled={locked}
       />
+      <SelectField closeLabel={t('Close')} label={t('Default answer on timeout')} value={v.timeoutDecision} options={[{ value: 'Deny', label: t('Deny') }, { value: 'Approve', label: t('Approve') }]} onChange={(timeoutDecision) => draft.set({ timeoutDecision: timeoutDecision as 'Deny' | 'Approve' })} disabled={locked} testID="settings-cli-timeout-decision" />
       <SwitchField label={t('Let owners approve their own requests')} hint={t('When on, the owner of a conversation or mission may allow or deny its requests. Admins and tenant admins can always decide; only they can create rules.')} value={v.allowOwnerApproval} onChange={(x) => draft.set({ allowOwnerApproval: x })} disabled={locked} />
       <SaveRow
         label={t('Save CLI Tool Permissions')}
@@ -276,7 +277,7 @@ export function CliPermissionSettingsSection({ settings, locked, onSaved }: Sect
         onDiscard={draft.reset}
         onSave={async () => {
           const ok = await save({
-            permissions: { askDefaultPolicy: v.askDefaultPolicy, missionDefaultPolicy: v.missionDefaultPolicy, allowOwnerApproval: v.allowOwnerApproval, promptTimeoutSeconds: Number(v.promptTimeoutSeconds) },
+            permissions: { askDefaultPolicy: v.askDefaultPolicy, missionDefaultPolicy: v.missionDefaultPolicy, allowOwnerApproval: v.allowOwnerApproval, promptTimeoutSeconds: Number(v.promptTimeoutSeconds), timeoutDecision: v.timeoutDecision },
           }, t('CLI tool permission settings saved.'));
           if (ok) draft.reset();
         }}

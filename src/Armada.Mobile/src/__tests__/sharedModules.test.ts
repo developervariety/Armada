@@ -60,7 +60,7 @@ describe('modules shared with the dashboard', () => {
       const full = path.join(root, file);
       expect(fs.existsSync(full)).toBe(true);
       const code = fs.readFileSync(full, 'utf8');
-      expect(code).toMatch(/\b(window|document|localStorage|navigator)\b|\.\.\/context\/|from '\.\/dialogA11y'/);
+      expect(code).toMatch(/\b(window|document|localStorage|navigator)\b|\.\.\/context\/|from '\.\/dialogA11y'|from 'react-router-dom'/);
     }
   });
 });

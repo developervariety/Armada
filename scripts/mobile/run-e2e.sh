@@ -268,7 +268,7 @@ run_flows() {
   local platform="$1" device="$2" server_url="$3" proxy_url="$4"
   if [ "$PROXY_ONLY" != "1" ] && [ "$PUSH_SIM_ONLY" != "1" ] && [ "$ASK_FOLLOW_ONLY" != "1" ]; then
     log "running Maestro flows on ${platform} (${device}) against ${server_url}"
-    if ! maestro --device "$device" test "$FLOWS" \
+    if ! maestro --platform "$platform" --device "$device" test "$FLOWS" \
         -e SERVER_URL="$server_url" -e HOST_SERVER_URL="http://127.0.0.1:${PORT}" -e APP_ID="$APP_ID" -e PLATFORM="$platform" \
         --format junit --output "${OUTPUT}/${platform}-report.xml" \
         --test-output-dir "${OUTPUT}/${platform}"; then
@@ -277,7 +277,7 @@ run_flows() {
   fi
   if [ "$ASK_FOLLOW" = "1" ]; then
     log "running Maestro Ask follow flows on ${platform} (${device}) against ${server_url}"
-    if ! maestro --device "$device" test "${MOBILE}/e2e/ask-follow" \
+    if ! maestro --platform "$platform" --device "$device" test "${MOBILE}/e2e/ask-follow" \
         -e SERVER_URL="$server_url" -e HOST_SERVER_URL="http://127.0.0.1:${PORT}" -e APP_ID="$APP_ID" -e PLATFORM="$platform" \
         --format junit --output "${OUTPUT}/${platform}-ask-follow-report.xml" \
         --test-output-dir "${OUTPUT}/${platform}-ask-follow"; then
@@ -286,7 +286,7 @@ run_flows() {
   fi
   if [ "$PROXY" = "1" ] && [ "$PUSH_SIM_ONLY" != "1" ]; then
     log "running Maestro proxy flows on ${platform} (${device}) against ${proxy_url}"
-    if ! maestro --device "$device" test "${MOBILE}/e2e/proxy" \
+    if ! maestro --platform "$platform" --device "$device" test "${MOBILE}/e2e/proxy" \
         -e PROXY_URL="$proxy_url" -e PROXY_PASSWORD="$PROXY_PASSWORD" -e PROXY_INSTANCE="$PROXY_INSTANCE" \
         -e APP_ID="$APP_ID" -e PLATFORM="$platform" \
         --format junit --output "${OUTPUT}/${platform}-proxy-report.xml" \
@@ -302,7 +302,7 @@ push_sim_flow() {
   local udid="$1" flow="$2" payload="$3" name
   name="$(basename "$flow" .yaml)"
   printf '%s' "$payload" > "${DATA_DIR}/${name}.apns"
-  maestro --device "$udid" test "$flow" -e APP_ID="$APP_ID" -e SERVER_URL="http://127.0.0.1:${PORT}" \
+  maestro --platform ios --device "$udid" test "$flow" -e APP_ID="$APP_ID" -e SERVER_URL="http://127.0.0.1:${PORT}" \
     --format junit --output "${OUTPUT}/ios-${name}-report.xml" --test-output-dir "${OUTPUT}/ios-push-sim" &
   local mpid=$!
   while kill -0 "$mpid" 2>/dev/null; do
@@ -315,7 +315,7 @@ push_sim_flow() {
 run_push_sim() {
   local udid="$1" dir="${MOBILE}/e2e/push-sim"
   log "running simulated push flows on iOS (${udid})"
-  if ! maestro --device "$udid" test "${dir}/01-enable-notifications.yaml" -e APP_ID="$APP_ID" -e SERVER_URL="http://127.0.0.1:${PORT}" \
+  if ! maestro --platform ios --device "$udid" test "${dir}/01-enable-notifications.yaml" -e APP_ID="$APP_ID" -e SERVER_URL="http://127.0.0.1:${PORT}" \
       --format junit --output "${OUTPUT}/ios-push-enable-report.xml" --test-output-dir "${OUTPUT}/ios-push-sim"; then
     STATUS=1
     return

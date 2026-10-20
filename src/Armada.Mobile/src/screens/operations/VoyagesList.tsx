@@ -80,16 +80,16 @@ export function VoyagesList({ onSelect, selectedId }: OperationsListProps) {
   });
 
   const handlePurge = (v: Voyage) => confirm({
-    title: t('Purge Voyage'),
-    message: t('Purge voyage "{{title}}"? This will permanently remove the voyage and all associated missions. This cannot be undone.', { title: v.title }),
-    confirmLabel: t('Purge'),
+    title: t('Delete Voyage'),
+    message: t('Delete voyage "{{title}}"? This will permanently remove the voyage and all associated missions. This cannot be undone.', { title: v.title }),
+    confirmLabel: t('Delete'),
     danger: true,
     onConfirm: async () => {
       try {
         await purgeVoyage(v.id);
-        pushToast('warning', t('Voyage "{{title}}" purged.', { title: v.title }));
+        pushToast('warning', t('Voyage "{{title}}" deleted.', { title: v.title }));
         void list.reload();
-      } catch { setError(t('Purge failed.')); }
+      } catch { setError(t('Delete failed.')); }
     },
   });
 
@@ -115,6 +115,27 @@ export function VoyagesList({ onSelect, selectedId }: OperationsListProps) {
       void list.reload();
     },
   });
+
+  const handleBulkDelete = () => {
+    const ids = [...selected];
+    confirm({
+      title: t('Delete Multiple Voyages'),
+      message: t('Delete {{count}} selected voyages and all their associated missions? This cannot be undone. Active voyages or voyages with active missions cannot be deleted.', { count: ids.length }),
+      confirmLabel: t('Delete'),
+      danger: true,
+      onConfirm: async () => {
+        const failed: string[] = [];
+        for (const id of ids) {
+          try { await purgeVoyage(id); } catch { failed.push(id); }
+        }
+        setSelected(failed);
+        const success = ids.length - failed.length;
+        if (success) pushToast(failed.length ? 'warning' : 'success', t('Deleted {{success}} voyages.', { success }));
+        if (failed.length) setError(t('Deleted {{success}} voyages. {{failed}} failed.', { success, failed: failed.length }));
+        void list.reload();
+      },
+    });
+  };
 
   const viewStatus = async (v: Voyage) => {
     try {
@@ -159,6 +180,7 @@ export function VoyagesList({ onSelect, selectedId }: OperationsListProps) {
       {selecting ? (
         <View style={styles.buttons}>
           <Button testID="voyages-bulk-cancel" variant="danger" label={`${t('Cancel Selected')} (${selected.length})`} onPress={handleBulkCancel} style={styles.flex} />
+          <Button testID="voyages-bulk-delete" variant="danger" label={`${t('Delete Multiple')} (${selected.length})`} onPress={handleBulkDelete} style={styles.flex} />
           <Button testID="voyages-selection-clear" variant="ghost" label={t('Clear')} onPress={() => setSelected([])} />
         </View>
       ) : null}
@@ -208,7 +230,7 @@ export function VoyagesList({ onSelect, selectedId }: OperationsListProps) {
           { key: 'json', label: t('View JSON'), icon: 'code-slash-outline', onPress: () => setJson({ title: `${t('Voyage')}: ${menu.title}`, data: menu }) },
           { key: 'select', label: selected.includes(menu.id) ? t('Deselect') : t('Select'), icon: 'checkbox-outline', onPress: () => toggle(menu.id) },
           { key: 'cancel', label: t('Cancel'), icon: 'close-circle-outline', danger: true, onPress: () => handleCancel(menu) },
-          { key: 'purge', label: t('Purge'), icon: 'trash-outline', danger: true, onPress: () => handlePurge(menu) },
+          { key: 'purge', label: t('Delete'), icon: 'trash-outline', danger: true, onPress: () => handlePurge(menu) },
         ] : []}
       />
       <JsonSheet open={json !== null} title={json?.title ?? ''} data={json?.data} onClose={() => setJson(null)} />

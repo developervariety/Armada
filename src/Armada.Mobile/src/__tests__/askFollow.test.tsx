@@ -1,3 +1,4 @@
+import { expectAnnouncement, announcementMock } from '../test/announcements';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { createRef, type ReactNode } from 'react';
 import { AccessibilityInfo, Text } from 'react-native';
@@ -314,9 +315,9 @@ describe('MessageList following the newest message', () => {
     expect(pill.props.accessibilityRole).toBe('button');
     expect(pill.props.accessibilityLabel).toBe('New messages');
     expect(pill.props.accessibilityHint).toBe('Scrolls to the newest message');
-    expect(AccessibilityInfo.announceForAccessibilityWithOptions).toHaveBeenCalledWith('New messages', { queue: true });
+    expectAnnouncement('New messages');
     await rerender(<List messages={[...page, message('m4'), message('m5')]} />);
-    expect(AccessibilityInfo.announceForAccessibilityWithOptions).toHaveBeenCalledTimes(1);
+    expect(announcementMock()).toHaveBeenCalledTimes(1);
     expect(scrollToOffset).not.toHaveBeenCalled();
 
     await fireEvent.press(screen.getByTestId('ask-new-messages'));

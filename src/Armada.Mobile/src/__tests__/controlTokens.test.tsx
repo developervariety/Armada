@@ -52,7 +52,7 @@ describe.each(['light', 'dark', 'highContrast'] as ThemeName[])('%s theme', (nam
     expect(borderOf('field')).toBe(colors.control);
     expect(borderOf('search')).toBe(colors.control);
     expect(borderOf('select')).toBe(colors.control);
-    expect(screen.getByTestId('switch').props.tintColor ?? screen.getByTestId('switch').props.trackColor?.false).toBe(colors.control);
+    expect(screen.getByTestId('switch').props.tintColor ?? screen.getByTestId('switch').props.trackColor?.false ?? screen.getByTestId('switch').props.trackColorForFalse).toBe(colors.control);
     expect((StyleSheet.flatten(screen.getByTestId('progress').props.style) as { backgroundColor?: string }).backgroundColor).toBe(colors.track);
   });
 });

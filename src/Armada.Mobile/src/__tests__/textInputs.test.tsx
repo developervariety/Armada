@@ -26,6 +26,7 @@ describe('SearchField placeholder', () => {
   });
 
   it('is the native placeholder on iOS', async () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
     await renderWithProviders(<SearchField value="" onChangeText={jest.fn()} placeholder={LONG} clearLabel="Clear" testID="search" />);
     expect(screen.getByTestId('search').props.placeholder).toBe(LONG);
     expect(screen.queryByTestId('search-placeholder', { includeHiddenElements: true })).toBeNull();

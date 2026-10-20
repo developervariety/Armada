@@ -14,6 +14,7 @@ import {
   type AdHocRunForm,
   type RunMode,
 } from '@dashboard/lib/fleetActionForm';
+import { DEFAULT_RUN_APPROVALS, RunApprovalFields, validRunApprovalOptions } from '../../components/app/RunApprovalFields';
 import { CodeBlock } from '../../components/ask/CodeBlock';
 import { InfoRow, SwitchField } from '../../build/fields';
 import { errorMessage } from '../../build/useLiveResource';
@@ -70,6 +71,7 @@ export function RunActionContent({ vesselIds, onClose, initialActionId, initialK
   const [cleanTreeOverride, setCleanTreeOverride] = useState<boolean | null>(null);
   const [adHoc, setAdHoc] = useState<AdHocRunForm>(() => (initialDefinition ? adHocFromDefinition(initialDefinition) : emptyAdHoc(initialKind ?? 'Command')));
   const [submitted, setSubmitted] = useState(false);
+  const [approvalOptions, setApprovalOptions] = useState({ ...DEFAULT_RUN_APPROVALS });
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -124,7 +126,7 @@ export function RunActionContent({ vesselIds, onClose, initialActionId, initialK
 
   function review() {
     setSubmitted(true);
-    if (Object.keys(errors).length > 0) return;
+    if (Object.keys(errors).length > 0 || !validRunApprovalOptions(approvalOptions)) return;
     setServerError(null);
     setStep('confirm');
   }
@@ -134,9 +136,10 @@ export function RunActionContent({ vesselIds, onClose, initialActionId, initialK
     setServerError(null);
     const c = parseInt(concurrency, 10);
     try {
+      const savedRequest = selectedAction ? buildSavedRunRequest(vesselIds, c, selectedAction, cleanTreeOverride) : null;
       const result = mode === 'saved' && selectedAction
-        ? await runFleetAction(selectedAction.id, buildSavedRunRequest(vesselIds, c, selectedAction, cleanTreeOverride))
-        : await runAdHocFleetAction({ VesselIds: vesselIds, Concurrency: c, Definition: buildAdHocDefinition(adHoc) });
+        ? await runFleetAction(selectedAction.id, { ...savedRequest!, Overrides: { ...savedRequest?.Overrides, ApprovalOptions: approvalOptions } })
+        : await runAdHocFleetAction({ VesselIds: vesselIds, Concurrency: c, Definition: buildAdHocDefinition(adHoc), Overrides: { ApprovalOptions: approvalOptions } });
       pushToast('success', t('{count, plural, one {Fleet action started on # vessel.} other {Fleet action started on # vessels.}}', { count: result.targetCount }));
       onClose();
       if (onStarted) onStarted(result);
@@ -191,6 +194,7 @@ export function RunActionContent({ vesselIds, onClose, initialActionId, initialK
 
   return (
     <View testID="run-action-configure">
+      <RunApprovalFields value={approvalOptions} onChange={setApprovalOptions} disabled={submitting} />
       <AppText muted style={styles.gap}>{t('{count, plural, one {# vessel selected} other {# vessels selected}}', { count })}</AppText>
       {serverError ? <Banner tone="danger" title={serverError} testID="run-action-error" /> : null}
       {showError('vessels') ? <Banner tone="danger" title={showError('vessels') ?? ''} /> : null}

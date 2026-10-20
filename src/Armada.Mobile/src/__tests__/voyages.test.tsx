@@ -116,6 +116,20 @@ describe('VoyagesList', () => {
     expect(api.cancelVoyage).toHaveBeenCalledTimes(3);
   });
 
+  it('deletes multiple voyages after confirmation and retains failed selections', async () => {
+    api.purgeVoyage.mockImplementation(async (id) => { if (id === 'vyg_1') throw new Error('Active voyage'); });
+    await renderScreen(<VoyagesList onSelect={jest.fn()} />);
+    await screen.findByText('Docs sweep');
+    await fireEvent(screen.getByTestId('voyage-row-vyg_1'), 'longPress');
+    await fireEvent.press(screen.getByTestId('voyage-row-vyg_2'));
+    await fireEvent.press(screen.getByTestId('voyages-bulk-delete'));
+    expect(api.purgeVoyage).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('voyages-confirm-confirm'));
+    await waitFor(() => expect(api.purgeVoyage).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('voyages-error')).toHaveTextContent('Deleted 1 voyages. 1 failed.');
+    expect(screen.getByTestId('voyages-bulk-delete')).toHaveTextContent('Delete Multiple (1)');
+  });
+
   it('purges after confirming and shows the status JSON', async () => {
     api.purgeVoyage.mockResolvedValue(undefined);
     api.getVoyageStatus.mockResolvedValue({ voyageId: 'vyg_2', complete: 1 });

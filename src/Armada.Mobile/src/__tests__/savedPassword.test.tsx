@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { act, fireEvent, render, renderHook, screen, userEvent, waitFor, within } from '@testing-library/react-native';
 import type { ReactNode } from 'react';
-import { Pressable, Text } from 'react-native';
+import { Platform, Pressable, Text } from 'react-native';
 import * as client from '@dashboard/api/client';
 import type { I18nCatalog } from '@dashboard/i18n/catalog';
 import type { WhoAmIResult } from '@dashboard/types/models';
@@ -230,7 +230,7 @@ describe('the one-time offer', () => {
     await render(<><SavePasswordOfferSheet /><Probe /></>, { wrapper: Providers });
     await waitFor(() => expect(auth?.status).toBe('signedOut'));
     await act(async () => { await auth!.login('tok_1', DETAILS, DONT_SAVE); });
-    expect(await screen.findByText('Use Face ID next time?')).toBeTruthy();
+    expect(await screen.findByText(Platform.OS === 'ios' ? 'Use Face ID next time?' : 'Use biometrics next time?')).toBeTruthy();
     await user.press(screen.getByTestId('save-password-offer-accept'));
     await waitFor(() => expect(auth?.activeProfile?.savedSignIn?.email).toBe('admin@armada'));
     expect(JSON.parse(secureStore.get(ADMIRAL_KEY) ?? '{}').password).toBe(SECRET);
@@ -273,7 +273,7 @@ describe('sign-in screen', () => {
     api.authenticate.mockResolvedValue({ success: true, token: 'tok_pw' } as never);
     await renderSignIn(PROFILE);
     await toPasswordStep(user);
-    expect(await screen.findByText('Save password and use Face ID')).toBeTruthy();
+    expect(await screen.findByText(Platform.OS === 'ios' ? 'Save password and use Face ID' : 'Save password and use biometrics')).toBeTruthy();
     await act(async () => { fireEvent(screen.getByTestId('sign-in-save-password'), 'valueChange', true); });
     await user.type(screen.getByTestId('sign-in-password'), SECRET);
     await user.press(screen.getByTestId('sign-in-submit'));
@@ -300,7 +300,7 @@ describe('sign-in screen', () => {
     localAuth.supportedAuthenticationTypesAsync.mockResolvedValue([LocalAuthentication.AuthenticationType.FINGERPRINT]);
     await renderSignIn(PROFILE);
     await toPasswordStep(user);
-    expect(await screen.findByText('Save password and use Touch ID')).toBeTruthy();
+    expect(await screen.findByText(Platform.OS === 'ios' ? 'Save password and use Touch ID' : 'Save password and use fingerprint')).toBeTruthy();
     const { FINGERPRINT, FACIAL_RECOGNITION } = LocalAuthentication.AuthenticationType;
     expect(biometricKindFor([FINGERPRINT], 'android')).toBe('fingerprint');
     expect(biometricKindFor([FINGERPRINT, FACIAL_RECOGNITION], 'android')).toBe('biometrics');
@@ -346,7 +346,7 @@ describe('sign-in screen', () => {
     api.authenticate.mockResolvedValue({ success: true, token: 'tok_face' } as never);
     await renderSignIn(SAVED_PROFILE);
     // Cancelled: back to the password form for the saved account, and the saved password stays.
-    expect(within(await screen.findByTestId('sign-in-notice')).getByText(/^Face\ ID\ sign\-in\ was\ cancelled\.\ Sign\ in\ with\ your\ password\./)).toBeTruthy();
+    expect(within(await screen.findByTestId('sign-in-notice')).getByText(Platform.OS === 'ios' ? 'Face ID sign-in was cancelled. Sign in with your password.' : 'biometrics sign-in was cancelled. Sign in with your password.')).toBeTruthy();
     expect(screen.getByTestId('sign-in-password')).toBeTruthy();
     expect(screen.getByTestId('sign-in-context')).toHaveTextContent('Signing in as admin@armada to Default');
     expect(secureStore.has(ADMIRAL_KEY)).toBe(true);
@@ -496,8 +496,8 @@ describe('keeping and forgetting', () => {
     secureStore.set(tokenKey('prf_test'), 'tok_1');
     await storeProfiles([SAVED_PROFILE], SAVED_PROFILE.id);
     await render(<><SignInSecuritySection /><Probe /></>, { wrapper: Providers });
-    expect(await screen.findByText('Unlock with Face ID')).toBeTruthy();
-    expect(screen.getByText('Saved password for Face ID sign-in')).toBeTruthy();
+    expect(await screen.findByText(Platform.OS === 'ios' ? 'Unlock with Face ID' : 'Unlock with biometrics')).toBeTruthy();
+    expect(screen.getByText(Platform.OS === 'ios' ? 'Saved password for Face ID sign-in' : 'Saved password for biometrics sign-in')).toBeTruthy();
     expect(screen.getByTestId('prefs-saved-password-status')).toHaveTextContent('Saved for admin@armada');
     await act(async () => { fireEvent(screen.getByTestId('prefs-app-lock'), 'valueChange', true); });
     await waitFor(() => expect(auth?.activeProfile?.biometricUnlock).toBe(true));

@@ -13,6 +13,7 @@ import { errorMessage } from '../../data/errors';
 import { useLocale } from '../../i18n/LocaleContext';
 import { useNotifications } from '../../notifications/NotificationContext';
 import { spacing } from '../../theme/typography';
+import { DEFAULT_RUN_APPROVALS, RunApprovalFields, validRunApprovalOptions } from '../../components/app/RunApprovalFields';
 import { CaptainPickerField, FallbackTierField } from './w24/CaptainFields';
 import { PlaybookPicker } from '../../components/app/PlaybookPicker';
 import { ReadinessCard } from './w24/ReadinessCard';
@@ -54,6 +55,7 @@ export function DispatchForm({ prefill, header, testID = 'dispatch-screen', sche
   const [assignments, setAssignments] = useState<Record<string, StepAssignment>>({});
   const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
   const [readinessFor, setReadinessFor] = useState('');
+  const [approvalOptions, setApprovalOptions] = useState({ ...DEFAULT_RUN_APPROVALS });
   const [dispatching, setDispatching] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   const mounted = useRef(true);
@@ -93,7 +95,7 @@ export function DispatchForm({ prefill, header, testID = 'dispatch-screen', sche
   const notice = dispatchPrefillNotice(prefill);
 
   const dispatch = async () => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || !validRunApprovalOptions(approvalOptions)) return;
     if (!vesselId) {
       setResult({ ok: false, message: t('Please select a vessel.') });
       return;
@@ -106,7 +108,7 @@ export function DispatchForm({ prefill, header, testID = 'dispatch-screen', sche
         vesselId, prompt, priority, voyageTitle, objectiveId, pipeline: selectedPipeline, selectedPlaybooks,
         stepAssignments: effectiveAssignments, multiTaskTitle: t('Multi-task voyage'),
       });
-      const voyage = await createVoyage(request);
+      const voyage = await createVoyage({ ...request, approvalOptions });
       const missionCount = multiStage
         ? t('{{count}} pipeline stages', { count: pipeline!.stages.length })
         : t('{{count}} mission(s)', { count: request.missions.length });
@@ -132,7 +134,7 @@ export function DispatchForm({ prefill, header, testID = 'dispatch-screen', sche
         label={dispatching ? t('Dispatching...') : t('Dispatch')}
         icon="paper-plane-outline"
         busy={dispatching}
-        disabled={!vesselId || !prompt.trim()}
+        disabled={!vesselId || !prompt.trim() || !validRunApprovalOptions(approvalOptions)}
         onPress={() => void dispatch()}
         testID="dispatch-submit"
       />
@@ -143,6 +145,7 @@ export function DispatchForm({ prefill, header, testID = 'dispatch-screen', sche
     <Screen testID={testID} footer={footer}>
       {header}
       <View style={styles.wrap} testID="dispatch-form">
+        <RunApprovalFields value={approvalOptions} onChange={setApprovalOptions} disabled={dispatching} />
         <AppText muted style={styles.intro}>{t('Describe the work you want Armada to dispatch through the selected vessel and pipeline.')}</AppText>
         {notice ? (
           <View>

@@ -1865,6 +1865,14 @@
     },
     {
       "kind": "api",
+      "key": "duplicateModelEndpoint",
+      "status": "implemented",
+      "mobile": "src/screens/configuration/EndpointsTab.tsx",
+      "workstream": "W4",
+      "notes": "Duplicate/edit/save uses the server duplication endpoint, preserving stored credentials; inference creation offers a captain."
+    },
+    {
+      "kind": "api",
       "key": "enableHarbor",
       "status": "implemented",
       "mobile": "src/screens/configuration/HarborsTab",
@@ -4270,6 +4278,14 @@
       "mobile": "src/screens/system/ServerSettingsTab.tsx",
       "workstream": "W4.4",
       "notes": ""
+    },
+    {
+      "kind": "setting",
+      "key": "settings.permissions.timeoutDecision",
+      "status": "implemented",
+      "mobile": "src/screens/system/ServerPolicySections.tsx",
+      "workstream": "W4",
+      "notes": "CLI permission settings save Deny/Approve timeout defaults. Dispatch and fleet-action forms expose per-run overrides."
     },
     {
       "kind": "setting",

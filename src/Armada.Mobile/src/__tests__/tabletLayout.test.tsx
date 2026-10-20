@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { act, fireEvent, screen } from '@testing-library/react-native';
 import { useState } from 'react';
-import { DeviceEventEmitter, Dimensions, StyleSheet, Text, TextInput, View } from 'react-native';
+import { DeviceEventEmitter, Platform, Dimensions, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BottomSheet, KeyboardAvoidingPane, ListRow, PaneWidthContext, SplitView, StatusBadge } from '../components/ui';
 import { InitialSelectionContext, ListDetailRoute, useListSelection } from '../navigation/listDetail';
 import { mockRouter } from '../test/routerMock';
@@ -344,7 +344,26 @@ describe('modals in landscape', () => {
 });
 
 describe('keyboard avoidance wherever the pane sits', () => {
-  it('lifts by the pane\'s overlap with the keyboard, measured in the window, and follows later frame changes', async () => {
+  it('uses Android native keyboard avoidance with the measured header offset', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const nativeMethods = jest.requireActual('@react-native/jest-preset/jest/MockNativeMethods').default as { measureInWindow: jest.Mock };
+    nativeMethods.measureInWindow.mockImplementation((callback: (x: number, y: number, w: number, h: number) => void) => callback(0, 84, 500, 600));
+    try {
+      await renderWithProviders(<KeyboardAvoidingPane testID="android-pane"><Text>composer</Text></KeyboardAvoidingPane>);
+      await fireEvent(screen.getByTestId('android-pane'), 'layout');
+      await fireEvent(screen.getByTestId('android-pane-avoider'), 'layout', { persist: jest.fn(), nativeEvent: { layout: { x: 0, y: 0, width: 500, height: 600 } } });
+      await act(async () => {
+        DeviceEventEmitter.emit('keyboardDidShow', { endCoordinates: { screenX: 0, screenY: 500, width: 500, height: 300 }, duration: 0, easing: 'keyboard' });
+      });
+      expect(StyleSheet.flatten(screen.getByTestId('android-pane-avoider').props.style).paddingBottom).toBe(184);
+    } finally {
+      nativeMethods.measureInWindow.mockReset();
+      jest.restoreAllMocks();
+    }
+  });
+
+  it('lifts by the pane\'s overlap with the keyboard, measured in the window, and follows later frame changes on iOS', async () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
     const nativeMethods = jest.requireActual('@react-native/jest-preset/jest/MockNativeMethods').default as { measureInWindow: jest.Mock };
     // The Ask conversation pane on an iPhone in landscape: below a 44 dp header, beside the thread list, 396 dp tall.
     nativeMethods.measureInWindow.mockImplementation((callback: (x: number, y: number, w: number, h: number) => void) => callback(380, 44, 500, 396));
@@ -353,7 +372,7 @@ describe('keyboard avoidance wherever the pane sits', () => {
     expect(lift()).toBe(0);
     // The keyboard shows (top at 260), then the predictive bar raises it to 216 dp (top at 224).
     await act(async () => {
-      DeviceEventEmitter.emit('keyboardWillShow', { endCoordinates: { screenX: 0, screenY: 260, width: 956, height: 180 }, duration: 0, easing: 'keyboard' });
+      DeviceEventEmitter.emit(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', { endCoordinates: { screenX: 0, screenY: 260, width: 956, height: 180 }, duration: 0, easing: 'keyboard' });
     });
     expect(lift()).toBe(180);
     await act(async () => {
@@ -361,10 +380,11 @@ describe('keyboard avoidance wherever the pane sits', () => {
     });
     expect(lift()).toBe(216);
     await act(async () => {
-      DeviceEventEmitter.emit('keyboardWillHide', { endCoordinates: { screenX: 0, screenY: 440, width: 956, height: 0 }, duration: 0, easing: 'keyboard' });
+      DeviceEventEmitter.emit(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', { endCoordinates: { screenX: 0, screenY: 440, width: 956, height: 0 }, duration: 0, easing: 'keyboard' });
     });
     expect(lift()).toBe(0);
     nativeMethods.measureInWindow.mockReset();
+    jest.restoreAllMocks();
   });
 });
 

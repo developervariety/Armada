@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
+import { ActivityIndicator } from 'react-native';
+import { BottomSheet } from '../../components/ui/BottomSheet';
 import {
-  createModelEndpoint, deleteModelEndpoint, getModelEndpoint, healthCheckModelEndpoints, listModelEndpoints, updateModelEndpoint, validateModelEndpoint,
+  createCaptain, createModelEndpoint, duplicateModelEndpoint, deleteModelEndpoint, getModelEndpoint, healthCheckModelEndpoints, listModelEndpoints, updateModelEndpoint, validateModelEndpoint,
 } from '@dashboard/api/client';
 import type { ModelEndpoint, ModelEndpointProbeResult } from '@dashboard/types/models';
 import { formatHealthSpan, MODEL_ENDPOINT_KINDS } from '@dashboard/lib/configuration';
@@ -34,18 +36,21 @@ interface EndpointDetailProps {
   id: string;
   inSheet: boolean;
   onEdit: (e: ModelEndpoint) => void;
+  onDuplicate: (e: ModelEndpoint) => void;
   onDelete: (e: ModelEndpoint) => void;
   onChanged: () => void;
 }
 
 /** One endpoint's health (the dashboard's health modal) plus Validate, Edit, View JSON, and Delete. */
-function EndpointDetail({ id, inSheet, onEdit, onDelete, onChanged }: EndpointDetailProps) {
+function EndpointDetail({ id, inSheet, onEdit, onDuplicate, onDelete, onChanged }: EndpointDetailProps) {
   const { t, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
   const { isAdmin, isTenantAdmin } = useAuth();
   const viewer = useViewer();
   const [probe, setProbe] = useState<ModelEndpointProbeResult | null>(null);
   const [validating, setValidating] = useState(false);
+  const [validationOpen, setValidationOpen] = useState(false);
+  const [validationError, setValidationError] = useState('');
   const [jsonOpen, setJsonOpen] = useState(false);
   const { data: endpoint, loading, error, reload } = useLoad(() => getModelEndpoint(id), [id], { fallbackError: t('Failed to load endpoints.') });
 
@@ -56,6 +61,9 @@ function EndpointDetail({ id, inSheet, onEdit, onDelete, onChanged }: EndpointDe
   const canManage = isAdmin || isTenantAdmin;
 
   async function validate() {
+    setValidationOpen(true);
+    setProbe(null);
+    setValidationError('');
     setValidating(true);
     try {
       const result = await validateModelEndpoint(e.id);
@@ -65,7 +73,9 @@ function EndpointDetail({ id, inSheet, onEdit, onDelete, onChanged }: EndpointDe
       await reload();
       onChanged();
     } catch (err: unknown) {
-      pushToast('error', errorText(err, t('Validation failed.')));
+      const message = errorText(err, t('Validation failed.'));
+      setValidationError(message);
+      pushToast('error', message);
     } finally {
       setValidating(false);
     }
@@ -81,11 +91,15 @@ function EndpointDetail({ id, inSheet, onEdit, onDelete, onChanged }: EndpointDe
         </>
       )} />
       <ActionBar>
-        {canManage || editable ? <Button label={validating ? t('Validating...') : t('Validate Now')} busy={validating} style={resourceStyles.action} onPress={() => void validate()} testID="endpoint-validate" /> : null}
+        {canManage || editable ? <Button label={t('Validate Now')} busy={validating} style={resourceStyles.action} onPress={() => void validate()} testID="endpoint-validate" /> : null}
         {editable ? <Button label={t('Edit')} variant="secondary" style={resourceStyles.action} onPress={() => onEdit(e)} /> : null}
+        {editable ? <Button label={t('Duplicate')} variant="secondary" style={resourceStyles.action} onPress={() => onDuplicate(e)} /> : null}
         <Button label={t('View JSON')} variant="ghost" style={resourceStyles.action} onPress={() => setJsonOpen(true)} />
         {editable ? <Button label={t('Delete')} variant="danger" style={resourceStyles.action} onPress={() => onDelete(e)} /> : null}
       </ActionBar>
+      <BottomSheet open={validationOpen} title={t('Validation Result')} closeLabel={t('Close')} onClose={() => setValidationOpen(false)} testID="endpoint-validation-modal">
+        {validating ? <><ActivityIndicator accessibilityLabel={t('Validating...')} /><AppText accessibilityLiveRegion="polite">{t('Validating...')}</AppText></> : null}
+        {validationError ? <AppText color="danger" accessibilityRole="alert">{validationError}</AppText> : null}
       {probe ? (
         <FieldCard title={t('Validation Result')} testID="endpoint-probe">
           <Field label={t('Result')} value={probe.success ? t('Success') : t('Failed')} />
@@ -96,6 +110,7 @@ function EndpointDetail({ id, inSheet, onEdit, onDelete, onChanged }: EndpointDe
           {probe.error ? <Field label={t('Error')} value={probe.error} /> : null}
         </FieldCard>
       ) : null}
+      </BottomSheet>
       <FieldCard>
         <Field label={t('Kind')} value={e.kind} />
         <Field label={t('Provider')} value={e.provider} />
@@ -155,6 +170,7 @@ export function EndpointsTab() {
   const [search, setSearch] = useState('');
   const [kind, setKind] = useState('all');
   const [editing, setEditing] = useState<ModelEndpoint | 'new' | null>(null);
+  const [duplicateSource, setDuplicateSource] = useState<ModelEndpoint | null>(null);
   const [sweeping, setSweeping] = useState(false);
 
   const filtered = useMemo(() => {
@@ -195,7 +211,13 @@ export function EndpointsTab() {
     });
   }
 
+  function duplicate(e: ModelEndpoint) {
+    setDuplicateSource(e);
+    setEditing('new');
+  }
+
   const existing = editing && editing !== 'new' ? editing : null;
+  const formSource = duplicateSource ?? existing;
   const selected = endpoints.find((e) => e.id === selection.selected);
   const list = (
     <ResourceList
@@ -218,7 +240,7 @@ export function EndpointsTab() {
             { label: t('Enabled'), value: endpoints.filter((e) => e.enabled).length },
           ]} />
           {canManage ? <Button label={sweeping ? t('Sweeping...') : t('Run Health Sweep')} variant="secondary" busy={sweeping} onPress={() => void sweep()} style={resourceStyles.create} testID="endpoints-sweep" /> : null}
-          {canManage ? <Button label={t('Endpoint')} icon="add" onPress={() => setEditing('new')} style={resourceStyles.create} testID="endpoints-create" /> : null}
+          {canManage ? <Button label={t('Endpoint')} icon="add" onPress={() => { setDuplicateSource(null); setEditing('new'); }} style={resourceStyles.create} testID="endpoints-create" /> : null}
         </>
       )}
       emptyTitle={t('No endpoints match the current filters.')}
@@ -235,7 +257,8 @@ export function EndpointsTab() {
             selected={selection.selected === e.id}
             onPress={() => selection.open(e.id)}
             actions={editable ? [
-              { key: 'edit', label: t('Edit'), icon: 'create-outline', onPress: () => setEditing(e) },
+              { key: 'edit', label: t('Edit'), icon: 'create-outline', onPress: () => { setDuplicateSource(null); setEditing(e); } },
+              { key: 'duplicate', label: t('Duplicate'), icon: 'copy-outline', onPress: () => duplicate(e) },
               { key: 'delete', label: t('Delete'), icon: 'trash-outline', tone: 'danger', onPress: () => remove(e) },
             ] : []}
           />
@@ -253,27 +276,44 @@ export function EndpointsTab() {
         onClose={selection.clear}
         detail={selection.selected ? (
           <EndpointDetail key={selection.selected} id={selection.selected} inSheet={!selection.isTablet}
-            onEdit={(e) => setEditing(e)} onDelete={(e) => remove(e)} onChanged={() => void reload()} />
+            onEdit={(e) => { setDuplicateSource(null); setEditing(e); }} onDuplicate={duplicate} onDelete={(e) => remove(e)} onChanged={() => void reload()} />
         ) : null}
       />
       <FormSheet
         testID="endpoint-form"
         open={editing !== null}
-        title={existing ? t('Edit Endpoint') : t('Create Endpoint')}
-        initial={endpointValues(viewer, existing)}
-        fields={(v) => endpointFields(t, viewer, v, existing)}
-        validate={(v) => endpointValidate(t, v, existing)}
+        title={duplicateSource ? t('Duplicate Endpoint') : existing ? t('Edit Endpoint') : t('Create Endpoint')}
+        initial={{ ...endpointValues(viewer, formSource), ...(duplicateSource ? { name: `${duplicateSource.name} (copy)` } : {}) }}
+        fields={(v) => endpointFields(t, viewer, v, formSource)}
+        validate={(v) => endpointValidate(t, v, formSource)}
         submitLabel={existing ? t('Save Changes') : t('Create Endpoint')}
-        onClose={() => setEditing(null)}
+        onClose={() => { setEditing(null); setDuplicateSource(null); }}
         onSubmit={async (v) => {
           if (existing) {
             const updated = await updateModelEndpoint(existing.id, endpointPayload(viewer, v, existing));
             pushToast('success', t('Endpoint "{{name}}" saved.', { name: updated.name }));
           } else {
-            const created = await createModelEndpoint(endpointPayload(viewer, v, null));
+            const payload = endpointPayload(viewer, v, formSource);
+            const created = duplicateSource ? await duplicateModelEndpoint(duplicateSource.id, payload) : await createModelEndpoint(payload);
             pushToast('success', t('Endpoint "{{name}}" created.', { name: created.name }));
+            if (created.kind === 'Inference') {
+              confirm({
+                title: t('Create a captain for this endpoint'),
+                message: t('Create an API Endpoint captain when saving, ready to select in Ask Armada and persona priorities.'),
+                confirmLabel: t('Create Captain'),
+                onConfirm: async () => {
+                  try {
+                    await createCaptain({ name: created.name, runtime: 'ApiEndpoint', modelEndpointId: created.id });
+                    pushToast('success', t('Captain created.'));
+                  } catch (err: unknown) {
+                    pushToast('error', errorText(err, t('Endpoint saved, but captain creation failed.')));
+                  }
+                },
+              });
+            }
           }
           setEditing(null);
+          setDuplicateSource(null);
           await reload();
         }}
       />

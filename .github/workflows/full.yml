@@ -168,8 +168,11 @@ jobs:
       - name: Lint (app and shared dashboard modules)
         run: npm run lint
 
-      - name: Jest
+      - name: Jest (iOS)
         run: npm run test:ci
+
+      - name: Jest (Android)
+        run: npm run test:android
 
       - name: Route screens (every dashboard route has a screen)
         run: npm run routes:check

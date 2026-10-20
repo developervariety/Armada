@@ -222,6 +222,38 @@ describe('endpoints, harbors, memories', () => {
     await waitFor(() => expect(screen.getByText('40 ms')).toBeTruthy());
   });
 
+  it('endpoints: opens validation progress before the request resolves', async () => {
+    api.listModelEndpoints.mockResolvedValue([ENDPOINT]);
+    api.getModelEndpoint.mockResolvedValue(ENDPOINT);
+    let finish!: (value: Awaited<ReturnType<typeof client.validateModelEndpoint>>) => void;
+    api.validateModelEndpoint.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    await renderW4Routes(ROUTES, '/configuration?tab=endpoints');
+    await fireEvent.press(await screen.findByTestId('endpoint-row-mep_1'));
+    await fireEvent.press(await screen.findByTestId('endpoint-validate'));
+    expect(screen.getByTestId('endpoint-validation-modal')).toBeTruthy();
+    expect(screen.getByText('Validating...')).toBeTruthy();
+    await act(async () => { finish({ success: false, baseUrl: 'https://api', latencyMs: 1, statusCode: 401, error: 'Unauthorized', embeddingDimensions: null, sampleText: null, timestampUtc: 'x' }); });
+    expect(await screen.findByText('Unauthorized')).toBeTruthy();
+  });
+
+  it('endpoints: duplicates with edits without exposing or retyping the stored credential', async () => {
+    const cloud = { ...ENDPOINT, name: 'Cloud', provider: 'OllamaCloud', kind: 'Inference', baseUrl: 'https://ollama.com' } as ModelEndpoint;
+    api.listModelEndpoints.mockResolvedValue([cloud]);
+    api.duplicateModelEndpoint.mockResolvedValue({ ...cloud, id: 'mep_copy', name: 'Cloud copy' });
+    await renderW4Routes(ROUTES, '/configuration?tab=endpoints');
+    await waitFor(() => expect(screen.getByTestId('endpoint-row-mep_1')).toBeTruthy());
+    await fireEvent(rowActionTarget(screen.getByTestId('endpoint-row-mep_1-swipe'), 'duplicate'), 'accessibilityAction', { nativeEvent: { actionName: 'duplicate' } });
+    await waitFor(() => expect(screen.getByTestId('endpoint-form-name')).toBeTruthy());
+    expect(screen.getByTestId('endpoint-form-apiKey')).toHaveProp('value', '');
+    await fireEvent.changeText(screen.getByTestId('endpoint-form-name'), 'Cloud copy');
+    await act(async () => { await fireEvent.press(screen.getByTestId('endpoint-form-submit')); });
+    expect(api.duplicateModelEndpoint).toHaveBeenCalledWith('mep_1', expect.objectContaining({ name: 'Cloud copy', provider: 'OllamaCloud' }));
+    expect(api.createModelEndpoint).not.toHaveBeenCalled();
+    expect(screen.getByText('Create a captain for this endpoint')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('endpoint-confirm-confirm'));
+    expect(api.createCaptain).toHaveBeenCalledWith({ name: 'Cloud copy', runtime: 'ApiEndpoint', modelEndpointId: 'mep_copy' });
+  });
+
   it('endpoints: the form picks an auth type, adds an extra header, and the list shows the auth type', async () => {
     const created = { ...ENDPOINT, id: 'mep_2', name: 'Gateway', authType: 'Basic', authUsername: 'svc' } as ModelEndpoint;
     api.listModelEndpoints.mockResolvedValue([{ ...ENDPOINT, authType: 'Header', authHeaderName: 'X-Token' } as ModelEndpoint]);

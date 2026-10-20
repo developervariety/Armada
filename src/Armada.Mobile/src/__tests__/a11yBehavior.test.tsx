@@ -1,3 +1,4 @@
+import { expectAnnouncement, announcementMock } from '../test/announcements';
 /**
  * Screen-reader and system-setting behavior of the UI kit: focus moves to a sheet's or dialog's title when it opens
  * and back to its opener when it closes, sheet content fades instead of sliding under Reduce Motion, toasts and error
@@ -77,6 +78,7 @@ beforeEach(async () => {
   info.isReduceMotionEnabled.mockResolvedValue(false);
   info.isScreenReaderEnabled.mockResolvedValue(false);
   info.isDarkerSystemColorsEnabled.mockResolvedValue(false);
+  info.isHighTextContrastEnabled.mockResolvedValue(false);
 });
 
 describe('focus in sheets and dialogs', () => {
@@ -188,10 +190,9 @@ describe('announcements', () => {
     await renderToasts(() => 0);
     await act(async () => { notifications!.pushToast('error', 'Mission "Fix login" - Failed'); });
     await act(async () => { notifications!.pushToast('success', 'Voyage "Batch" - Complete'); });
-    expect(info.announceForAccessibilityWithOptions.mock.calls).toEqual([
-      ['Mission "Fix login" - Failed', { queue: true }],
-      ['Voyage "Batch" - Complete', { queue: true }],
-    ]);
+    expectAnnouncement('Mission "Fix login" - Failed');
+    expectAnnouncement('Voyage "Batch" - Complete');
+    expect(announcementMock()).toHaveBeenCalledTimes(2);
   });
 
   it('toasts stay longer while a screen reader is running', async () => {
@@ -209,7 +210,7 @@ describe('announcements', () => {
 
   it('an error state is announced when it appears', async () => {
     await render(<Themed><ErrorState title="Something went wrong" message="Network request failed" /></Themed>);
-    expect(info.announceForAccessibilityWithOptions).toHaveBeenCalledWith('Something went wrong. Network request failed', { queue: true });
+    expectAnnouncement('Something went wrong. Network request failed');
   });
 });
 
@@ -224,6 +225,7 @@ describe('increased contrast', () => {
   it('the provider reads the system setting', async () => {
     const scheme = jest.spyOn(RN, 'useColorScheme').mockReturnValue('dark');
     info.isDarkerSystemColorsEnabled.mockResolvedValue(true);
+    info.isHighTextContrastEnabled.mockResolvedValue(true);
     let theme: ThemeState | null = null;
     function Probe() {
       theme = useTheme();
