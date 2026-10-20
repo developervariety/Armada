@@ -48,8 +48,12 @@ namespace Armada.Server
         private readonly Armada.Core.Services.Interfaces.ISessionTokenService? _SessionTokens;
 
         // Processes stopped on purpose. A process this handler stops because it outlived its terminal
-        // marker is registered as a completion; the admiral registers the processes it supersedes.
+        // marker is registered as a completion, a process a captain stop stops is registered as requested,
+        // and the admiral registers the processes it supersedes.
         private IntentionalProcessStops _IntentionalStops = new IntentionalProcessStops();
+
+        // Names a captain stop in its refusal record and in its process's intentional-stop registration.
+        private const string _CaptainStopContext = "captain stop";
 
         /// <summary>
         /// Maximum characters retained per mission for streamed agent output.
@@ -1959,12 +1963,33 @@ namespace Armada.Server
                 return;
             }
 
+            // The stop is registered before it is made, so the process's kill exit is read as this stop and never as an
+            // out-of-memory kill or a crash. A process the admiral already registered (superseded) keeps that record. The
+            // registration is withdrawn when this call made it and the stop did not stop the process: the process was
+            // already gone or may still be running, so its exit is not this stop's.
+            int processId = captain.ProcessId.Value;
+            bool registered = !String.IsNullOrEmpty(captain.CurrentMissionId)
+                && _IntentionalStops.TryRegister(processId, captain.Id, captain.CurrentMissionId, IntentionalStopKindEnum.Requested, _CaptainStopContext);
+
             Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
-            AgentStopResult stop = await runtime.StopAsync(captain.ProcessId.Value).ConfigureAwait(false);
+            AgentStopResult stop;
+            try
+            {
+                stop = await runtime.StopAsync(processId).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (registered) _IntentionalStops.Forget(processId);
+                throw;
+            }
+
+            if (registered && stop.Outcome != AgentStopOutcomeEnum.Stopped)
+                _IntentionalStops.Forget(processId);
+
             if (stop.IsRefused)
-                await EmitStopRefusedAsync(captain.Id, captain.CurrentMissionId, captain.ProcessId.Value, "captain stop", stop).ConfigureAwait(false);
+                await EmitStopRefusedAsync(captain.Id, captain.CurrentMissionId, processId, _CaptainStopContext, stop).ConfigureAwait(false);
             else if (stop.Outcome == AgentStopOutcomeEnum.Stopped)
-                await EmitStoppedAsync(captain.Id, captain.CurrentMissionId, captain.ProcessId.Value).ConfigureAwait(false);
+                await EmitStoppedAsync(captain.Id, captain.CurrentMissionId, processId).ConfigureAwait(false);
         }
 
         /// <summary>

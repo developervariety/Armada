@@ -1404,6 +1404,77 @@ namespace Armada.Test.Unit.Suites.Services
             });
 
             // ----------------------------------------------------------------
+            // A captain stop's kill exit is the stop, never an out-of-memory kill
+            // ----------------------------------------------------------------
+
+            await RunTest("A captain stop's kill exit is recorded as the stop and not requeued as an out-of-memory kill", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int stoppedPid = 989811;
+                    IntentionalProcessStops stops = new IntentionalProcessStops();
+                    AdmiralService admiral = CreateRealAdmiral(testDb.Driver, stops);
+                    StopRecordingRuntime runtime = new StopRecordingRuntime();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings _, null, admiral,
+                        new StopRecordingRuntimeFactory(CreateLogging(), runtime));
+                    handler.SetIntentionalStops(stops);
+                    Mission mission = await CreateWorkingMissionAsync(testDb.Driver, "stopped-captain-kill", stoppedPid).ConfigureAwait(false);
+                    Captain captain = (await testDb.Driver.Captains.ReadAsync(mission.CaptainId!).ConfigureAwait(false))!;
+                    RegisterTrackedProcess(handler, stoppedPid, captain.Id, mission.Id);
+
+                    // The stop kills the process; a recall's own stop that follows finds it already gone.
+                    runtime.NextStopResult = AgentStopResult.Stopped();
+                    await handler.HandleStopAgentAsync(captain).ConfigureAwait(false);
+                    runtime.NextStopResult = AgentStopResult.NotRunning();
+                    await handler.HandleStopAgentAsync(captain).ConfigureAwait(false);
+
+                    handler.HandleAgentProcessExited(stoppedPid, 137);
+                    await WaitForProcessExitCompletedAsync(handler, stoppedPid).ConfigureAwait(false);
+
+                    Mission after = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.InProgress, after.Status, "the stop's requester, not the kill exit, decides the mission's next state");
+                    AssertFalse((after.FailureReason ?? String.Empty).StartsWith("OOM:", StringComparison.Ordinal), "a requested stop is never recorded as an out-of-memory kill");
+                    List<ArmadaEvent> requeued = await testDb.Driver.Events.EnumerateByTypeAsync("mission.retry_requeued", 10).ConfigureAwait(false);
+                    AssertEqual(0, requeued.Count, "a requested stop is not requeued as a transient resource failure");
+                    List<ArmadaEvent> ignored = await testDb.Driver.Events.EnumerateByTypeAsync("captain.process_exit_ignored", 10).ConfigureAwait(false);
+                    AssertEqual(1, ignored.Count, "the kill exit is recorded as the stop");
+                    AssertContains("captain stop", ignored[0].Message, "the record names the stop that killed the process");
+                    AssertEqual(0, stops.Count, "the exit consumes the stop's registration");
+                }
+            });
+
+            await RunTest("A captain stop that stopped nothing leaves a later kill exit classified as an out-of-memory kill", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int killedPid = 989812;
+                    IntentionalProcessStops stops = new IntentionalProcessStops();
+                    AdmiralService admiral = CreateRealAdmiral(testDb.Driver, stops);
+                    StopRecordingRuntime runtime = new StopRecordingRuntime();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings _, null, admiral,
+                        new StopRecordingRuntimeFactory(CreateLogging(), runtime));
+                    handler.SetIntentionalStops(stops);
+                    Mission mission = await CreateWorkingMissionAsync(testDb.Driver, "unstopped-captain-kill", killedPid).ConfigureAwait(false);
+                    Captain captain = (await testDb.Driver.Captains.ReadAsync(mission.CaptainId!).ConfigureAwait(false))!;
+                    RegisterTrackedProcess(handler, killedPid, captain.Id, mission.Id);
+
+                    // The stop found no running process, so the kill that ends the process is not this stop's.
+                    runtime.NextStopResult = AgentStopResult.NotRunning();
+                    await handler.HandleStopAgentAsync(captain).ConfigureAwait(false);
+                    AssertEqual(0, stops.Count, "a stop that stopped nothing withdraws its registration");
+
+                    handler.HandleAgentProcessExited(killedPid, 137);
+                    await WaitForProcessExitCompletedAsync(handler, killedPid).ConfigureAwait(false);
+
+                    Mission after = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Pending, after.Status, "an exit 137 no Armada stop explains is requeued");
+                    AssertTrue((after.FailureReason ?? String.Empty).StartsWith("OOM:", StringComparison.Ordinal), "an exit 137 no Armada stop explains is classified as an out-of-memory kill");
+                    List<ArmadaEvent> requeued = await testDb.Driver.Events.EnumerateByTypeAsync("mission.retry_requeued", 10).ConfigureAwait(false);
+                    AssertEqual(1, requeued.Count, "the out-of-memory kill is requeued as a transient resource failure");
+                }
+            });
+
+            // ----------------------------------------------------------------
             // A superseded process's exit never clears the relaunched process's per-mission state
             // ----------------------------------------------------------------
 
@@ -2276,6 +2347,27 @@ namespace Armada.Test.Unit.Suites.Services
         private static void RegisterTrackedProcess(AgentLifecycleHandler handler, int processId, string captainId, string missionId)
         {
             handler.RegisterMissionProcess(processId, captainId, missionId, handler.TakeMissionStateOwnership(missionId));
+        }
+
+        /// <summary>
+        /// Store a Working captain running an in-progress mission on the given process.
+        /// </summary>
+        private static async Task<Mission> CreateWorkingMissionAsync(DatabaseDriver database, string captainName, int processId)
+        {
+            Captain captain = await database.Captains.CreateAsync(new Captain(captainName, AgentRuntimeEnum.ClaudeCode)
+            {
+                State = CaptainStateEnum.Working,
+                ProcessId = processId
+            }).ConfigureAwait(false);
+            Mission mission = await database.Missions.CreateAsync(new Mission("Mission of " + captainName)
+            {
+                Status = MissionStatusEnum.InProgress,
+                CaptainId = captain.Id,
+                ProcessId = processId
+            }).ConfigureAwait(false);
+            captain.CurrentMissionId = mission.Id;
+            await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+            return mission;
         }
 
         private static AdmiralService CreateRealAdmiral(DatabaseDriver database, IntentionalProcessStops stops)

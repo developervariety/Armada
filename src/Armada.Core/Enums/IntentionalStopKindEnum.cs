@@ -21,6 +21,14 @@ namespace Armada.Core.Enums
         /// not the mission's outcome: the admiral already decided what happens to the mission.
         /// </summary>
         [EnumMember(Value = "Superseded")]
-        Superseded
+        Superseded,
+
+        /// <summary>
+        /// A captain stop stopped the process (an operator stop or recall, a mission or voyage cancel, a stall-recovery
+        /// exhaustion, a shutdown). A non-zero exit after it is the stop, never a crash or an out-of-memory kill, and it is
+        /// not the mission's outcome: the path that requested the stop decides what happens to the mission.
+        /// </summary>
+        [EnumMember(Value = "Requested")]
+        Requested
     }
 }

@@ -4705,7 +4705,7 @@ A recorded event representing a state change in the system.
 - `mission.completed` - Mission completed successfully
 - `mission.failed` - Mission failed
 - `captain.launched` - Captain agent process started
-- `captain.stopped` - A captain stop stopped the agent process. A process that was already gone records nothing
+- `captain.stopped` - A captain stop stopped the agent process. A process that was already gone records nothing. The stopped process's non-zero exit (a kill reads as exit 137) is recorded as `captain.process_exit_ignored` naming the stop, never as an out-of-memory kill, and the path that requested the stop sets the mission's next state
 - `captain.stop_refused` - A stop left the agent process running; the message names the reason (`process_identity_unverified`, `process_identifier_reused`, `kill_failed`)
 - `captain.stall_confirmed` - The stall evaluator confirmed that a captain is stalled; the message names the evidence
 - `captain.stall_cleared` - The stall evaluator found a signal inside the window, so a quiet captain is not stalled

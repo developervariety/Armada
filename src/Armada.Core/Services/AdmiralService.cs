@@ -1637,6 +1637,11 @@ namespace Armada.Core.Services
             // it was stopped. The admiral already decided the mission's next state, so the exit is not its outcome.
             bool superseded = _IntentionalStops.TryTake(processId, captainId, missionId, IntentionalStopKindEnum.Superseded);
 
+            // A process a captain stop stopped (an operator stop or recall, a cancel, a stall-recovery exhaustion, a
+            // shutdown) exits with the stop's kill code. That exit is the stop, never a crash or an out-of-memory kill,
+            // and the path that requested the stop decides the mission's next state. A clean exit is still the work's own.
+            bool stopRequested = _IntentionalStops.TryTake(processId, captainId, missionId, IntentionalStopKindEnum.Requested, out string? stopReason);
+
             // System-scoped: process exit handler receives only IDs with no tenant context;
             // tenant is unknown until the entity is read.
             Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
@@ -1670,6 +1675,9 @@ namespace Armada.Core.Services
             string? ignoredReason = null;
             if (superseded)
                 ignoredReason = "the admiral stopped and superseded it";
+            else if (stopRequested && exitCode != 0)
+                ignoredReason = "Armada stopped it on request (" + (stopReason ?? "captain stop")
+                    + "); the stop's requester decides the mission's next state";
             else if (captain.ProcessId.HasValue && captain.ProcessId.Value != processId)
                 ignoredReason = "captain " + captain.Id + " now runs process " + captain.ProcessId.Value;
             if (ignoredReason != null)
@@ -3215,6 +3223,8 @@ namespace Armada.Core.Services
         /// <summary>
         /// Whether the captured process exit code is a probable resource kill. Exit 137
         /// means SIGKILL and commonly indicates OOM, but it can also be an explicit kill.
+        /// A kill Armada requested is registered in <see cref="IntentionalProcessStops"/> and
+        /// handled before this classification, so only an exit no Armada stop explains reaches it.
         /// A null code is intentionally not classified because it is still more ambiguous.
         /// </summary>
         /// <param name="exitCode">Process exit code.</param>

@@ -41,12 +41,13 @@ namespace Armada.Core.Services
         /// <param name="captainId">Captain that owns the process.</param>
         /// <param name="missionId">Mission the process was running.</param>
         /// <param name="kind">What the exit means.</param>
+        /// <param name="reason">Who requested the stop and why, recorded with the exit; null when the kind says enough.</param>
         /// <returns>True when this call registered the stop; false when the process was already registered.</returns>
-        public bool TryRegister(int processId, string captainId, string missionId, IntentionalStopKindEnum kind)
+        public bool TryRegister(int processId, string captainId, string missionId, IntentionalStopKindEnum kind, string? reason = null)
         {
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
-            return _Stops.TryAdd(processId, new StopRecord(captainId, missionId, kind));
+            return _Stops.TryAdd(processId, new StopRecord(captainId, missionId, kind, reason));
         }
 
         /// <summary>
@@ -60,9 +61,27 @@ namespace Armada.Core.Services
         /// <returns>True when a matching stop was registered and is now consumed.</returns>
         public bool TryTake(int processId, string captainId, string missionId, IntentionalStopKindEnum kind)
         {
+            return TryTake(processId, captainId, missionId, kind, out string? _);
+        }
+
+        /// <summary>
+        /// Consume the registered stop for an exiting process when it matches the captain, mission and kind, and
+        /// return the reason it was registered with. A record of another kind is left for the handler that owns that kind.
+        /// </summary>
+        /// <param name="processId">Exiting process identifier.</param>
+        /// <param name="captainId">Captain the exit was reported for.</param>
+        /// <param name="missionId">Mission the exit was reported for.</param>
+        /// <param name="kind">Kind the caller handles.</param>
+        /// <param name="reason">The registered reason when a matching stop is consumed; otherwise null.</param>
+        /// <returns>True when a matching stop was registered and is now consumed.</returns>
+        public bool TryTake(int processId, string captainId, string missionId, IntentionalStopKindEnum kind, out string? reason)
+        {
+            reason = null;
             if (!_Stops.TryGetValue(processId, out StopRecord? record)) return false;
             if (!Matches(record, captainId, missionId, kind)) return false;
-            return _Stops.TryRemove(new System.Collections.Generic.KeyValuePair<int, StopRecord>(processId, record));
+            if (!_Stops.TryRemove(new System.Collections.Generic.KeyValuePair<int, StopRecord>(processId, record))) return false;
+            reason = record.Reason;
+            return true;
         }
 
         /// <summary>
@@ -91,11 +110,12 @@ namespace Armada.Core.Services
 
         private sealed class StopRecord
         {
-            public StopRecord(string captainId, string missionId, IntentionalStopKindEnum kind)
+            public StopRecord(string captainId, string missionId, IntentionalStopKindEnum kind, string? reason)
             {
                 CaptainId = captainId;
                 MissionId = missionId;
                 Kind = kind;
+                Reason = reason;
             }
 
             public string CaptainId { get; }
@@ -103,6 +123,8 @@ namespace Armada.Core.Services
             public string MissionId { get; }
 
             public IntentionalStopKindEnum Kind { get; }
+
+            public string? Reason { get; }
         }
 
         #endregion

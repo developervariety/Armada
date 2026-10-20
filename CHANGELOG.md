@@ -211,6 +211,16 @@ upstream integrations and excludes changes already present at that baseline.
   present, but does not cancel the revisions the blocking findings require. A
   required revision that an objective non-goal forbids is not made, and the
   rescue reports the conflict.
+- A captain stop's kill exit is recorded as the stop, not as an out-of-memory
+  kill. Every captain stop (an operator stop or recall, a mission or voyage
+  cancel, stall-recovery exhaustion, a shutdown) registers the process as a
+  requested stop before it stops it. The process's non-zero exit, usually exit
+  137, is then recorded as `captain.process_exit_ignored` naming the stop, and
+  the mission is not requeued as a transient resource failure: the path that
+  requested the stop sets the mission's next state (a recall fails it, a cancel
+  keeps it cancelled). A stop that found no running process, or was refused,
+  withdraws its registration. An exit 137 that no Armada stop explains is still
+  classified as a probable out-of-memory kill and requeued.
 - Autonomous recovery dispatches no rescue in the producer for a
   definition-of-done `TestFail` on a declared consumer's test suite
   (`consumer_tests_failed: <consumer>`). The gate runs a consumer's suite only
