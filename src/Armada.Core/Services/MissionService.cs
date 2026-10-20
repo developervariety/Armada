@@ -1634,7 +1634,7 @@ namespace Armada.Core.Services
                         mission.CompletedUtc = DateTime.UtcNow;
                         mission.LastUpdateUtc = DateTime.UtcNow;
                         mission.FailureReason = blockingReason + (reworkUnavailableReason == null ? String.Empty
-                            : "\n" + reworkUnavailableReason + "\nRemediation: Read this Judge's affected-case report, correct any captain or persona configuration it identifies, then dispatch a follow-up mission using the preserved work branch and an independent Judge. Rejected work has not been approved for landing.");
+                            : "\n" + reworkUnavailableReason + "\nRemediation: Read this Judge's affected-case report and correct the identified code or configuration defects. Dispatch a follow-up mission using the preserved work branch and an independent Judge; keep strict selection unless you explicitly choose a different captain. Rejected work has not been approved for landing.");
                         mission.FailureKind = MissionFailureKindEnum.JudgeRejected;
                         await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                         _Logging.Warn(_Header + "judge mission " + mission.Id + " blocked landing: " + blockingReason);
@@ -4795,10 +4795,13 @@ namespace Armada.Core.Services
             bool stagnant = previousWorker != null && !MissionModeContract.IsReadOnly(worker.Mode);
             if (rounds == _MaxJudgeReworkRounds || stagnant)
             {
+                string escalationTrigger = rounds == _MaxJudgeReworkRounds
+                    ? "Automatic Judge rework budget exhausted for this slice (" + rounds + " of " + _MaxJudgeReworkRounds + " rounds). "
+                    : "The Worker produced the same rejected commit after " + rounds + " rework round(s). ";
                 if (await HasStrictCaptainOverrideAsync(worker, token).ConfigureAwait(false))
-                    return Unavailable("Strict captain selection prevents automatic escalation. Read the review and correct the work or explicitly change the voyage captain assignment.");
+                    return Unavailable(escalationTrigger + "Strict captain selection prevents automatic escalation; no captain substitution was made.");
                 Captain? alternative = await CaptainEscalationSelector.SelectAsync(_Database, worker, worker.CaptainId, voyageMissions, token).ConfigureAwait(false);
-                if (alternative == null) return Unavailable("No alternate eligible Worker captain is available for Judge-requested escalation. Check captain availability, scope, tier and persona priorities.");
+                if (alternative == null) return Unavailable(escalationTrigger + "No alternate eligible Worker captain is available for Judge-requested escalation. Check captain availability, scope, tier and persona priorities.");
                 escalateTo = alternative.Id;
             }
 

@@ -109,8 +109,9 @@ namespace Test.Shared.Suites.Services
                         fixture.Dock,
                         null).ConfigureAwait(false);
 
-                    AssertContains("[ARMADA:MISSION]", embeddedPrompt, "architect embedded template should use mission markers");
-                    AssertContains("Do not emit `[ARMADA:RESULT]` or `[ARMADA:VERDICT]` lines.", embeddedPrompt, "architect embedded template should forbid result and verdict lines");
+                    AssertContains("armada-plan", embeddedPrompt, "architect embedded template should use the typed plan contract");
+                    AssertContains("contractVersion:2", embeddedPrompt, "architect embedded template should require evidence-bearing plans");
+                    AssertContains("Do not emit [ARMADA:RESULT] or [ARMADA:VERDICT] lines.", embeddedPrompt, "architect embedded template should forbid result and verdict lines");
                     AssertContains("[ARMADA:MISSION]", templateParams["CaptainInstructions"], "architect captain instructions should use mission markers");
                     AssertContains("Do not emit [ARMADA:RESULT] or [ARMADA:VERDICT] lines.", templateParams["CaptainInstructions"], "architect captain instructions should forbid result and verdict lines");
                     AssertContains("[ARMADA:MISSION]", fallbackPrompt, "architect fallback prompt should use mission markers");

@@ -455,7 +455,8 @@ namespace Test.Shared.Suites.Services
                     }
                     string architect = service.GetEmbeddedDefault("persona.architect")!;
                     AssertContains("Each description must stand alone", architect, "self-contained fan-out description");
-                    AssertContains("validation commands", architect, "executable checks");
+                    AssertContains("validationCommands", architect, "executable checks are part of the typed plan");
+                    AssertContains("exact commands", architect, "executable checks retain concrete commands");
                     AssertContains("armada-plan", architect, "plan protocol preserved");
                     AssertContains("Scope exclusions", architect, "bounded architect scope");
                     AssertContains("Invariants", architect, "shared invariants");

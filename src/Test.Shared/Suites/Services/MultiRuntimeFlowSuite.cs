@@ -431,7 +431,48 @@ namespace Test.Shared.Suites.Services
                 Mission? failed = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
                 AssertEqual(MissionStatusEnum.Failed, failed!.Status);
                 AssertContains("Strict captain selection", failed.FailureReason!);
+                AssertContains("same rejected commit after 1 rework", failed.FailureReason!);
+                AssertFalse(failed.FailureReason!.Contains("budget exhausted", StringComparison.Ordinal), "Stagnation is distinct from budget exhaustion");
                 AssertContains("Remediation", failed.FailureReason!);
+            }));
+
+            cases.Add(CaseAsync("strict_rework_budget_explained", "Strict captain failure names the exhausted per-slice budget and code remediation without substituting a captain", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                h.Missions.OnGetMissionOutput = _ => "## Affected Case\nFile: redactor.cs:110\nShifted credential spans still leak.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Captain deepseek = await CreateCaptainAsync(testDb, "Deepseek", AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("bounded rework")
+                {
+                    Status = VoyageStatusEnum.InProgress,
+                    CaptainOverridesJson = MissionService.SerializeCaptainOverrides(new List<CaptainAssignmentOverride>
+                    { new CaptainAssignmentOverride("Worker", deepseek.Id, null) { StrictCaptain = true } })
+                }).ConfigureAwait(false);
+                Mission initial = await testDb.Driver.Missions.CreateAsync(new Mission("Implement", "Implement it")
+                { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CaptainId = deepseek.Id, CommitHash = "initial", BranchName = "b" }).ConfigureAwait(false);
+                Mission first = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Rework 1: Implement", "Implement it")
+                { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CaptainId = deepseek.Id, CommitHash = "first", BranchName = "b", DependsOnMissionId = initial.Id }).ConfigureAwait(false);
+                Mission second = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Rework 2: Implement", "Implement it")
+                { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CaptainId = deepseek.Id, CommitHash = "second", BranchName = "b", DependsOnMissionId = first.Id }).ConfigureAwait(false);
+                Captain reviewer = await CreateCaptainAsync(testDb, "Reviewer", AgentRuntimeEnum.Codex, CaptainStateEnum.Working).ConfigureAwait(false);
+                Mission judge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, reviewer, "Judge", false).ConfigureAwait(false);
+                judge.DependsOnMissionId = second.Id;
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                Mission recorder = await testDb.Driver.Missions.CreateAsync(new Mission("Record", "Record it")
+                { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Recorder", DependsOnMissionId = judge.Id }).ConfigureAwait(false);
+
+                await h.Missions.HandleCompletionAsync(reviewer, judge.Id).ConfigureAwait(false);
+                Mission failed = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                AssertEqual(MissionStatusEnum.Failed, failed.Status);
+                AssertEqual(MissionFailureKindEnum.JudgeRejected, failed.FailureKind);
+                AssertContains("budget exhausted for this slice (2 of 2 rounds)", failed.FailureReason!);
+                AssertContains("no captain substitution was made", failed.FailureReason!);
+                AssertContains("code or configuration defects", failed.FailureReason!);
+                AssertContains("independent Judge", failed.FailureReason!);
+                AssertEqual(MissionStatusEnum.Cancelled, (await testDb.Driver.Missions.ReadAsync(recorder.Id).ConfigureAwait(false))!.Status);
+                List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                AssertFalse(all.Exists(m => m.DependsOnMissionId == judge.Id && String.Equals(m.Persona, "Worker", StringComparison.OrdinalIgnoreCase)), "Exhaustion cannot dispatch another Worker");
             }));
 
             cases.Add(CaseAsync("judge_rework_escalates_to_planner", "When the Worker's rework rounds are used up, one escalated round goes to the captain that planned the voyage; after it the chain fails", TestTags.Positive, async () =>

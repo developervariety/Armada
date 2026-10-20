@@ -2,22 +2,22 @@
 
 ## Current full-pipeline acceptance run
 
-Started 2026-10-20 at 21:39:53 UTC on `view.homedns.org`: voyage `vyg_mvh7i6hn_Z5VjIzrlpnA`. The deployed server started at 21:38:13 UTC; all eight persona briefs match the shipped defaults exactly. Harbor is connected. Hosted CI for revision `7d820c4b` passed, including the new pipeline regression suites.
+Started 2026-10-20 at 21:39:53 UTC on `view.homedns.org`: voyage `vyg_mvh7i6hn_Z5VjIzrlpnA`. The deployed server started at 21:38:13 UTC; all eight persona briefs matched the deployed `00f45ea4` defaults exactly at dispatch. Harbor was connected. Hosted CI for revision `7d820c4b` passed, including the new pipeline regression suites.
 
 The previous Wilson acceptance voyage and its 33 completed missions were archived and deleted through the API. Confirmed zero remaining acceptance missions before dispatch. Acceptance branch reset from `49ac2ccc4e0c7f3af3364d7bd4c5848161616c2e` to pre-update baseline `8c3e8b5975cbe96e5700529fdfcfe0512d627ec2` (PolyPrompt 3.1.0), guarded by a remote force-with-lease. Prior source retained as `archive/pre-full-pipeline-retest-20261020`. Production Wilson main remains `c9ff616fd1b5262fe7edfd9ac295b9f264ed9650`.
 
-FullPipeline: Product Manager → Architect → Worker → Usability Engineer → Test Engineer → Linter → Judge → Recorder. Claude Code handles planning and verification contributors, DeepSeek handles Workers, and Codex is the independent Judge. All eight assignments persist `StrictCaptain=true`; no implicit model substitution or escalation is permitted. The objective and acceptance baseline are unchanged from the preceding test.
+FullPipeline: Product Manager → Architect → Worker → Usability Engineer → Test Engineer → Linter → Judge → Recorder. Claude Code handles planning and verification contributors, DeepSeek handles Workers, and Codex is the independent Judge. All eight assignments persist `StrictCaptain=true`; no implicit model substitution or escalation is permitted. The objective and acceptance baseline were unchanged from the preceding test; the later HF-20 addition is explicitly documented below.
 
 Authenticated API polling every 25 seconds archives full API-visible logs, mission records, instruction snapshots, status transitions, and requested/actual captains. It captures terminal records even when a stage finishes between polls. Server log rendering omits protocol noise; this is not raw provider-token capture. Full log snapshots are retained when rendered content changes, avoiding an assumption that streamed lines are append-only. Evidence: `/tmp/armada-full-pipeline-20261020` (private local artifacts, not portable repository evidence).
 
-Current state at 22:34 UTC: first slice passed independent Codex Judge on its first review (53/53 shared cases, both adapters, warning-free build), and Recorder completed. Metadata reached Judge with 62 passing cases but needed its first automatic rework: unknown/Custom providers bypassed the XAIResponses prohibition, and an OllamaCloud URL with embedded user information was accepted. DeepSeek completed the rework; the repeated Test Engineer stage is active. There have been no runtime redispatches or captain substitutions. Remaining slices are not accepted; no overall success is claimed.
+Outcome: **the run failed**, ending at about 22:56 UTC after 76 minutes. First package slice passed on its first review. Metadata failed its third Judge review after two automatic reworks: broader overlapping credential spans still exposed a suffix in the helper and actual settings validation. The prior five findings were resolved. Strict DeepSeek selection correctly prevented escalation to a different model; downstream work was cancelled. API audit: 60 mission records (22 WorkProduced, 1 Failed, 37 Cancelled), 23 launches, zero duplicate launches, zero runtime redispatches and zero captain mismatches. Six implementation slices never started. No end-to-end or hosted Wilson provider success is claimed.
+
+Terminal Judge: `msn_mvh9poa0_XHLiQnHeMz1`. It independently restored/built the branch (zero warnings/errors), ran 68 shared cases and both adapters, then reproduced `Redact("abcdefgh", ["abcdef", "cdefgh"]) == "[REDACTED]gh"` against the built assembly and the actual settings validator. This agrees with the separately observed HF-20 defect. The operator-added redaction/integration criteria were still pending when the pipeline stopped. No manual mission restart, model substitution or Wilson source edit was used.
 
 ## Open work and acceptance gates
 
 | ID | Item | Status / next evidence |
 | --- | --- | --- |
-| HF-02 | Finish live full-pipeline rework verification | First revision created Worker → Usability → Test → Linter → Judge, reparented Recorder correctly; repeated Test stage active, final routing/verdict pending |
-| HF-03 | Verify strict captain routing for all stages and fan-out/rework jobs | Persisted overrides verified; compare every actual captain with its request |
 | HF-04 | Reduce missed failure-path coverage and contradictory design decisions | Measure first-pass acceptance/reworks; require observable evidence, not passing counts alone |
 | HF-05 | Semantic plan validation | Structural validation cannot establish objective completeness, resolve contradictions, or prove tests ran; further validation remains open |
 | HF-06 | Worker context/tool exposure | 175 tools and large prompt histories remain an efficiency concern; measure before narrowing tools/context |
@@ -31,7 +31,10 @@ Current state at 22:34 UTC: first slice passed independent Codex Judge on its fi
 | HF-14 | Validation command status masking | Wrapper reproduction confirms exit 0 despite prior failure; local guidance fix pending rollout. No hidden product failure established |
 | HF-15 | Focused Wilson test selection | Low-priority Test Engineer papercut: Test.Automated has no case filter; quantify cost before adding unrelated tooling to this acceptance task |
 | HF-17 | Safe shared-branch handoff | Isolated real-Git regression reproduced stale-stage rewind; 201 targeted tests pass on .NET 8 and 10; warning-free solution build; guarded advancement/blocked-landing fix awaits rollout |
-| HF-18 | Universal validation rules need boundary combinations | First metadata Judge reproduced Custom + XAIResponses and cloud URL user-info omissions; rework in verification |
+| HF-18 | Universal validation rules need boundary combinations | Three metadata reviews; five findings corrected but shifted-overlap redaction still failed; budget exhausted |
+| HF-20 | Staggered credential-span overlaps | Independently reproduced by monitor and final Judge in actual settings validation; unresolved, blocked this run |
+| HF-21 | Explain bounded review stops | Local regression passes within 2043/2043 Services checks and 212/212 .NET 8 checks; numeric reason/remediation await server rollout |
+| HF-22 | Harbor native startup with unavailable display | Restart reproduced Avalonia render-timer error -6661; waking display restored connection; unattended-start fallback remains open |
 
 ## Findings from this run
 
@@ -61,7 +64,27 @@ Code inspection found unconditional `git update-ref` during stage hardening. An 
 
 ### HF-18 — Passing cases omitted combinations implied by universal rules
 
-Metadata Judge `msn_mvh7xiak_1iLTFnRfXYS` independently rebuilt and ran 62/62 shared cases plus both adapters, then reproduced two registry-level violations of existing D-3: `ApiType="Custom", ToolCallingApiFormat="XAIResponses"` returned no error because unknown-provider compatibility returned early; `https://user:pass@ollama.com` passed the fixed cloud endpoint check. The Judge did not claim HTTP reproduction. These are implementation/test omissions under an existing rule, not missing model tool capability. Strengthen applicable test matrices for universal prohibitions (including unknown values) and URI components, rather than adding only examples for known providers. Automatic rework 1 is running the full verification chain without operator restart. The original Recorder now depends on its replacement Judge; the next slice remains blocked behind Recorder.
+Metadata Judge `msn_mvh7xiak_1iLTFnRfXYS` independently rebuilt and ran 62/62 shared cases plus both adapters, then reproduced two registry-level violations of existing D-3: `ApiType="Custom", ToolCallingApiFormat="XAIResponses"` returned no error because unknown-provider compatibility returned early; `https://user:pass@ollama.com` passed the fixed cloud endpoint check. The Judge did not claim HTTP reproduction. These are implementation/test omissions under an existing rule, not missing model tool capability. Strengthen applicable test matrices for universal prohibitions (including unknown values) and URI components, rather than adding only examples for known providers. Automatic rework 1 ran all five verification roles without operator restart, and the next slice stayed blocked behind Recorder. The replacement Judge independently verified that both findings were fixed, then requested rework 2 for three additional reproduced defects:
+
+- Non-admin runner status leaked another configured runner's credential through an invalid format value. PUT validated against all submitted keys, but ConfigurationError only masked its own runner's key.
+- `Redact("abcdef", ["abcd", "abcdef"])` returned `[REDACTED]ef`: sequential substring replacement left a credential suffix. Aggregate redaction must operate on complete secret spans; earlier per-runner masking must not defeat it.
+- Stored `ApiType=" Ollama"` acquired canonical Ollama defaults; baseline did not recognize that padded value. This violates the plan's legacy compatibility rule, regardless of whether canonical behavior might otherwise seem preferable.
+
+The second review independently passed 65 shared cases and both adapters before these probes. Passing counts still did not establish the universal credential/compatibility rules. The same classes were already discussed in historical findings; default guidance requesting credential collisions and adjacent cases was insufficient. Require an applicable field × credential-source matrix (same/other/overlapping key) and representative baseline normalization inputs, with observable assertions. No fixed prose or one run proves exhaustive coverage. Record sequential Judge discovery as a verification limitation rather than blaming all rework solely on DeepSeek.
+
+### HF-20 — Prefix-overlap fix is not complete overlap masking
+
+Independent execution of the exact `CredentialRedactor` source retrieved through the rework-2 mission diff reproduced `Redact("abcdefgh", ["abcde", "defgh"]) == "[REDACTED]fgh"` in either key order. The helper skips an entire matched prefix and therefore misses a second credential beginning inside that span. The prior prefix example now passes. Evidence: `independent-redactor-probe.log` and API diff snapshot in the private run directory. No Wilson product file was manually edited.
+
+Operator intervention: appended AC-SEC-OVERLAP to all six pending redaction-stage contracts and all six final-integration contracts by authenticated API, then read back the result. It clarifies existing D-16/R-SEC-1: compute the union of matching spans on the original text, preserve surrounding non-secret text and short-key/header behavior, and prove the regression at helper and caller-visible boundaries. This is an external acceptance finding; do not describe eventual success as wholly unassisted. Keep it open until agents implement the fix and independent checks pass.
+
+### HF-21 — Review failure detail omitted the actual budget
+
+The deployed terminal reason said strict selection prevented escalation and suggested captain/persona configuration fixes, but did not state that this slice had used both permitted reworks. Local remediation distinguishes an exhausted budget (`2 of 2 rounds`) from unchanged rejected commits, explicitly states that no substitution occurred, and directs the user to correct the Judge's identified code or configuration defects using the preserved branch and an independent Judge. The bounded limit and strict routing policy are unchanged. A regression reproduces the exhausted strict chain, asserts the numeric reason and remediation, verifies descendant cancellation, and proves no extra Worker is dispatched. Separate stagnation coverage prevents mislabeling unchanged work as budget exhaustion. Rollout verification remains pending.
+
+### HF-22 — Harbor GUI restart can fail before connecting
+
+After this voyage was terminal and API status confirmed all five captains idle/no active voyages, two local Harbor processes were stopped and consolidated into one current Debug/net10 binary. The first relaunch exited 134 with `Avalonia.Native was not able to start the RenderTimer. Native error code is: -6661`, before Harbor connected. Waking the display (`caffeinate -u -t 5`) then relaunching succeeded; API confirmed Connected at 23:01:27 UTC. This matches the upstream [Avalonia no-display startup issue](https://github.com/AvaloniaUI/Avalonia/issues/18895), but no broader device/display matrix was tested. No active mission was interrupted, and this did not cause the completed acceptance failure. A supported unattended/headless fallback or actionable startup recovery remains open; no product fix is claimed.
 
 Record further issues with mission/stage/captain, violated requirement, reproduction/evidence, remediation, and verification status. Keep unresolved findings here; move verified fixes and finished work into the appendix.
 
@@ -75,6 +98,22 @@ Current-run milestones: HF-01 deployment fan-out verified: all eight slices have
 
 Completed items: prior acceptance cleanup/reset and autonomous 33-mission run; prompt migration and bounded-slice guidance; mobile parity fixes and Android native flows; versioned plan validation, full-chain rework, contributor exclusion, strict dispatch selection, local regression checks, CI, image publication and verified deployment. Those mechanisms are implemented; their effect on this new run is still under the open acceptance gates above. Historical recommendations below are evidence, not a claim that every recommendation has been implemented.
 
+
+### HF-02 — Full verification chain preserved during live rework
+
+First metadata rework: DeepSeek Worker `msn_mvh99zuo_cyX0HaRfjyj` → Claude Usability `msn_mvh99zvl_lcazzeHrQri` → Claude Test Engineer `msn_mvh99zwh_sU7SffWihuO` → Claude Linter `msn_mvh99zx7_AGaMHPBf48b` → independent Codex Judge `msn_mvh99zxw_OIZs95OlVNF`. Each completed and used its requested voyage captain. Recorder was reparented to the replacement Judge; dependent inference work remained blocked. The review correctly requested another revision instead of accepting green counts. Second rework also traversed all five stages on the correct captains. Its final Judge rejected the remaining defect, then the bounded policy cancelled descendants. Overall product acceptance failed.
+
+### Timing evidence for the failed full-pipeline run
+
+Launch-to-process-exit event totals by role: Product Manager 2.3 minutes; Architect 9.5; Workers 13.9; Usability 8.2; Test Engineer 25.3; Linter 7.5; Judges 5.2; Recorder 1.3. These are observed role wall times, not isolated model-compute attribution. The run spent more time in independent verification than Worker implementation. Local Services tests ran concurrently for part of the run, so host contention is a possible timing confounder. No transport failure was observed. Two review loops, repeated full-suite/mutation checks, and broad copied context explain work performed; phase telemetry is still insufficient to allocate every wait.
+
+### HF-03 — Strict routing verified throughout this run
+
+All eight roles and both five-stage rework chains used the selected captains: DeepSeek Workers, Claude planning/contributing verification, Codex independent Judge. All 23 launches match the voyage overrides; no fallback, duplicate launch or runtime redispatch. At the per-slice limit, strict mode stopped rather than silently substituting another Worker model. This establishes routing behavior for this failed run, not full product correctness.
+
+### HF-19 — Broader prompt consistency checks
+
+The initial broader local Services run finished 2040/2042 green; after corrections all 2042 existing cases passed. The final .NET 8 regression set passes 212/212, including the new budget case; the final broader .NET 10 Services run passes 2043/2043. The final solution build has zero warnings/errors. One failure expected the embedded Architect brief to require legacy mission markers; the new default requires a version-2 plan. The test was updated to assert the typed contract while retaining fallback/launch output-signal restrictions. The brief now explicitly forbids result/verdict lines as the launch instructions already did. The other failure showed that shortened memory guidance omitted the discoverable `search_memory` name; restore that name with availability/mission restrictions intact. Both suites were added to the standard CI pipeline checks. The Architect brief also names field × same/other-key and prefix/shifted-overlap negative cases, plus verification of shared safety helpers before consumers, remaining under 2400 characters. This is guidance, not proof of exhaustive verification, and is not applied to the running voyage.
 
 ### HF-16 — Metadata defaults were not covered by the Worker fixtures
 
