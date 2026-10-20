@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Diagnostics;
+    using Armada.Core;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Models;
@@ -1279,6 +1280,57 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("armada/feature", checkedOutBranch, "Fetch should not disturb the active worktree branch");
                     AssertEqual(originalLocalBranchCommit, localBranchCommit, "Fetch should not rewrite the checked-out local branch ref");
                     AssertNotEqual(remoteFeatureCommit, localBranchCommit, "The checked-out local branch should remain untouched when the remote advances");
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            await RunTest("FetchAsync and CreateWorktreeAsync record fetch and repository-lock durations with no path, branch or commit label", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string sourceDir = Path.Combine(rootDir, "source");
+                string bareDir = Path.Combine(rootDir, "bare.git");
+                string worktreeDir = Path.Combine(rootDir, "worktree");
+                string detachedDir = Path.Combine(rootDir, "detached");
+
+                try
+                {
+                    SeedTemplateRepository(sourceDir);
+                    await service.CloneBareAsync(sourceDir, bareDir).ConfigureAwait(false);
+                    string head = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                    using (ArmadaMetricsRecorder metrics = new ArmadaMetricsRecorder())
+                    {
+                        await service.FetchAsync(bareDir).ConfigureAwait(false);
+                        await service.CreateWorktreeAsync(bareDir, worktreeDir, "armada/metric-branch", "main").ConfigureAwait(false);
+                        await service.CreateDetachedWorktreeAtCommitAsync(bareDir, detachedDir, head).ConfigureAwait(false);
+
+                        List<RecordedMeasurement> fetches = metrics.Of("armada.git.fetch.seconds");
+                        AssertTrue(fetches.Any(m => m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeSuccess) && m.Has(ArmadaMetrics.TagRetried, "false")),
+                            "a fetch the remote accepted is recorded as a success without a retry");
+
+                        List<RecordedMeasurement> lockWaits = metrics.Of("armada.git.repository_lock.wait.seconds")
+                            .Where(m => m.Has(ArmadaMetrics.TagLock, ArmadaMetrics.LockGitWorktree)).ToList();
+                        AssertTrue(lockWaits.Count(m => m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeAcquired)) >= 2,
+                            "both worktree adds record the repository-lock wait they paid");
+
+                        foreach (RecordedMeasurement measurement in metrics.All())
+                        {
+                            foreach (KeyValuePair<string, string> tag in measurement.Tags)
+                            {
+                                AssertFalse(tag.Value.Contains(rootDir, StringComparison.Ordinal), "no label carries a filesystem path: " + measurement.Instrument + " " + tag.Key);
+                                AssertFalse(tag.Value.Contains("metric-branch", StringComparison.Ordinal), "no label carries a branch name: " + measurement.Instrument + " " + tag.Key);
+                                AssertFalse(tag.Value.Contains(head, StringComparison.Ordinal), "no label carries a commit: " + measurement.Instrument + " " + tag.Key);
+                            }
+                        }
+                    }
                 }
                 finally
                 {

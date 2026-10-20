@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System.Diagnostics;
     using System.IO;
     using System.Text.Json;
     using SyslogLogging;
@@ -83,6 +84,11 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <inheritdoc />
+        /// <remarks>
+        /// A landing that reaches its first attempt is recorded in <see cref="ArmadaMetrics.LandingDuration"/> with
+        /// its outcome and whether a target-branch drift sent it round again; a request refused before any attempt
+        /// is not a landing and records nothing.
+        /// </remarks>
         public async Task<bool> MergeInDedicatedWorktreeAsync(
             Vessel vessel,
             Mission mission,
@@ -91,179 +97,24 @@ namespace Armada.Core.Services
             string? commitMessage = null,
             CancellationToken token = default)
         {
-            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
-            if (mission == null) throw new ArgumentNullException(nameof(mission));
-
-            if (String.IsNullOrEmpty(vessel.LocalPath))
+            Stopwatch elapsed = Stopwatch.StartNew();
+            LandingMeasure measure = new LandingMeasure();
+            try
             {
-                _Logging.Warn(_Header + "vessel " + vessel.Id + " has no LocalPath -- cannot merge mission " + mission.Id);
-                return false;
+                bool landed = await MergeInDedicatedWorktreeCoreAsync(vessel, mission, targetBranch, sourceBranch, commitMessage, measure, token).ConfigureAwait(false);
+                if (measure.Outcome == null)
+                    measure.Outcome = landed ? ArmadaMetrics.OutcomeLanded : ArmadaMetrics.OutcomeFailure;
+                return landed;
             }
-
-            if (String.IsNullOrEmpty(targetBranch))
+            catch (OperationCanceledException)
             {
-                _Logging.Warn(_Header + "mission " + mission.Id + " has no target branch -- cannot merge");
-                return false;
+                measure.Outcome = ArmadaMetrics.OutcomeCanceled;
+                throw;
             }
-
-            string? missionBranch = !String.IsNullOrEmpty(sourceBranch) ? sourceBranch : mission.BranchName;
-            if (String.IsNullOrEmpty(missionBranch))
+            finally
             {
-                _Logging.Warn(_Header + "mission " + mission.Id + " has no branch name -- cannot merge");
-                return false;
-            }
-
-            string integrationRoot = Path.Combine(_Settings.DocksDirectory, "_integration");
-            string worktreePath = Path.Combine(integrationRoot, mission.Id);
-            Directory.CreateDirectory(integrationRoot);
-
-            while (true)
-            {
-                bool succeeded = false;
-                Exception? failure = null;
-
-                try
-                {
-                    await _Git.FetchAsync(vessel.LocalPath, token).ConfigureAwait(false);
-
-                    // The integration worktree is created DETACHED at the target tip. Checking out the
-                    // target branch by name would make git refuse whenever any other worktree of the
-                    // landing repository already holds that branch, and one stray worktree would then
-                    // block every landing for the vessel. The target ref is advanced afterwards by a
-                    // compare-and-swap from the tip this worktree started at, so a concurrent move of
-                    // the target is refused rather than overwritten.
-                    string targetRef = "refs/heads/" + targetBranch;
-                    string? targetTip = await _Git.GetRevisionCommitShaAsync(vessel.LocalPath, targetRef, token).ConfigureAwait(false);
-                    if (String.IsNullOrWhiteSpace(targetTip))
-                        throw new InvalidOperationException("Unable to resolve target branch " + targetBranch + " in landing repository " + vessel.LocalPath);
-
-                    _Logging.Info(_Header + "creating integration worktree " + worktreePath + " for mission " + mission.Id + " target " + targetBranch + " at " + targetTip + " attempt " + (mission.LandingRetryCount + 1));
-                    await _Git.CreateDetachedWorktreeAtCommitAsync(vessel.LocalPath, worktreePath, targetTip!, token).ConfigureAwait(false);
-
-                    // No target branch is passed: the worktree is detached on purpose, and checking the
-                    // branch out inside it would hit the same refusal.
-                    await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, missionBranch, null, commitMessage, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "merged branch " + missionBranch + " into integration worktree " + worktreePath);
-
-                    string? mergedHead = await _Git.GetRevisionCommitShaAsync(worktreePath, "HEAD", token).ConfigureAwait(false);
-                    if (String.IsNullOrWhiteSpace(mergedHead))
-                        throw new InvalidOperationException("Unable to resolve the merged commit in integration worktree " + worktreePath);
-
-                    // LocalMerge lands into the local repository only -- pushing to a remote is
-                    // the operator's decision, never automatic. Pushing here made every landing
-                    // fail once the local default branch diverged from the remote: git rejects
-                    // the push as non-fast-forward, IsTargetBranchDrift misclassifies that
-                    // rejection as target-branch drift, and the retry loop re-merges and
-                    // re-pushes the same divergence until maxLandingRetries is exhausted. The
-                    // mission is then marked LandingFailed and its branch is left stray even
-                    // though the local merge itself succeeded.
-                    //
-                    // Any other mode pushes BEFORE the bare target moves. Advancing the bare first
-                    // left a merge only the bare held whenever origin rejected the push, and the
-                    // branch sweep and the next sync then treated that work as landed.
-                    if (vessel.LandingMode != LandingModeEnum.LocalMerge)
-                    {
-                        await _Git.PushHeadToBranchAsync(worktreePath, "origin", targetBranch, token).ConfigureAwait(false);
-                        _Logging.Info(_Header + "pushed merged changes from integration worktree " + worktreePath);
-                    }
-                    else
-                    {
-                        _Logging.Info(_Header + "landing mode is LocalMerge -- skipping push to origin for mission " + mission.Id);
-                    }
-
-                    if (!String.Equals(mergedHead, targetTip, StringComparison.OrdinalIgnoreCase))
-                    {
-                        await _Git.CompareAndSwapBranchRefAsync(vessel.LocalPath, targetBranch, mergedHead!, targetTip!, token).ConfigureAwait(false);
-                        _Logging.Info(_Header + "advanced " + targetBranch + " from " + targetTip + " to " + mergedHead);
-                    }
-
-                    succeeded = true;
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "integration merge failed for mission " + mission.Id + " branch " + missionBranch + ": " + ex.Message);
-                    failure = ex;
-                    succeeded = false;
-
-                    string? classified = ClassifyIntegrationFailure(ex);
-                    if (classified != null)
-                    {
-                        mission.FailureReason = classified;
-                        mission.LastUpdateUtc = DateTime.UtcNow;
-                        await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
-                    }
-                }
-                finally
-                {
-                    try
-                    {
-                        await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
-                        _Logging.Info(_Header + "removed integration worktree " + worktreePath);
-                    }
-                    catch (Exception removeEx)
-                    {
-                        _Logging.Warn(_Header + "failed to remove integration worktree " + worktreePath + ": " + removeEx.Message);
-                    }
-
-                    try
-                    {
-                        await _Git.PruneWorktreesAsync(vessel.LocalPath, token).ConfigureAwait(false);
-                    }
-                    catch (Exception pruneEx)
-                    {
-                        _Logging.Warn(_Header + "failed to prune integration worktrees for " + vessel.LocalPath + ": " + pruneEx.Message);
-                    }
-                }
-
-                if (succeeded)
-                {
-                    // Ask git where the work ACTUALLY is before deciding what to report. The merge
-                    // above and the sync below are separate steps, and only the first one decides
-                    // whether the work landed.
-                    bool landed = await VerifyWorkLandedAsync(vessel, mission, targetBranch, token).ConfigureAwait(false);
-
-                    if (await SyncUserWorkingDirectoryAfterLandingAsync(vessel, mission, targetBranch, token).ConfigureAwait(false))
-                        return true;
-
-                    // The sync failed. If the work did not land, that is a real landing failure.
-                    if (!landed) return false;
-
-                    // The work landed and only the post-step failed. Reporting that as a landing
-                    // failure is not a cosmetic error: it sends the retry loop back over work that
-                    // is already on the target branch, and re-merging an already-landed branch is
-                    // how the working checkout and the bare repo diverge in the first place.
-                    // "Work landed, post-step failed" and "work lost" are opposite problems, and an
-                    // operator must not have to run git to tell them apart.
-                    mission.FailureReason = "work_landed_post_step_failed: "
-                        + (mission.FailureReason ?? "the working directory was not synced")
-                        + " -- the work IS on " + targetBranch + " (verified by ancestry); no landing "
-                        + "retry is needed. Sync the configured checkout by hand.";
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
-                    _Logging.Warn(_Header + mission.FailureReason);
-                    return true;
-                }
-
-                if (failure == null || !IsTargetBranchDrift(failure))
-                {
-                    return false;
-                }
-
-                int maxRetries = _Settings.MaxLandingRetries;
-                if (mission.LandingRetryCount >= maxRetries)
-                {
-                    mission.FailureReason = "target_branch_drift_retry_exhausted: maxLandingRetries=" + maxRetries;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
-                    _Logging.Error(_Header + "target branch drift retry exhausted for mission " + mission.Id + " after " + mission.LandingRetryCount + " retries");
-                    await RaiseLandingPushExhaustedAsync(vessel, mission, targetBranch, failure.Message, token).ConfigureAwait(false);
-                    return false;
-                }
-
-                mission.LandingRetryCount++;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
-                _Logging.Warn(_Header + "target branch drift detected for mission " + mission.Id + "; auto-rebasing and retrying landing attempt " + mission.LandingRetryCount + " of " + maxRetries);
+                if (measure.Attempted)
+                    ArmadaMetrics.RecordLanding(ArmadaMetrics.LandingLocalMerge, elapsed.Elapsed, measure.Outcome ?? ArmadaMetrics.OutcomeFailure, measure.Retried);
             }
         }
 
@@ -479,6 +330,213 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// The integration-worktree landing itself. <paramref name="measure"/> learns whether an attempt started,
+        /// whether it retried, and an outcome the boolean result cannot carry.
+        /// </summary>
+        private async Task<bool> MergeInDedicatedWorktreeCoreAsync(
+            Vessel vessel,
+            Mission mission,
+            string targetBranch,
+            string? sourceBranch,
+            string? commitMessage,
+            LandingMeasure measure,
+            CancellationToken token)
+        {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+
+            if (String.IsNullOrEmpty(vessel.LocalPath))
+            {
+                _Logging.Warn(_Header + "vessel " + vessel.Id + " has no LocalPath -- cannot merge mission " + mission.Id);
+                return false;
+            }
+
+            if (String.IsNullOrEmpty(targetBranch))
+            {
+                _Logging.Warn(_Header + "mission " + mission.Id + " has no target branch -- cannot merge");
+                return false;
+            }
+
+            string? missionBranch = !String.IsNullOrEmpty(sourceBranch) ? sourceBranch : mission.BranchName;
+            if (String.IsNullOrEmpty(missionBranch))
+            {
+                _Logging.Warn(_Header + "mission " + mission.Id + " has no branch name -- cannot merge");
+                return false;
+            }
+
+            string integrationRoot = Path.Combine(_Settings.DocksDirectory, "_integration");
+            string worktreePath = Path.Combine(integrationRoot, mission.Id);
+            Directory.CreateDirectory(integrationRoot);
+
+            measure.Attempted = true;
+            while (true)
+            {
+                bool succeeded = false;
+                Exception? failure = null;
+
+                try
+                {
+                    await _Git.FetchAsync(vessel.LocalPath, token).ConfigureAwait(false);
+
+                    // The integration worktree is created DETACHED at the target tip. Checking out the
+                    // target branch by name would make git refuse whenever any other worktree of the
+                    // landing repository already holds that branch, and one stray worktree would then
+                    // block every landing for the vessel. The target ref is advanced afterwards by a
+                    // compare-and-swap from the tip this worktree started at, so a concurrent move of
+                    // the target is refused rather than overwritten.
+                    string targetRef = "refs/heads/" + targetBranch;
+                    string? targetTip = await _Git.GetRevisionCommitShaAsync(vessel.LocalPath, targetRef, token).ConfigureAwait(false);
+                    if (String.IsNullOrWhiteSpace(targetTip))
+                        throw new InvalidOperationException("Unable to resolve target branch " + targetBranch + " in landing repository " + vessel.LocalPath);
+
+                    _Logging.Info(_Header + "creating integration worktree " + worktreePath + " for mission " + mission.Id + " target " + targetBranch + " at " + targetTip + " attempt " + (mission.LandingRetryCount + 1));
+                    await _Git.CreateDetachedWorktreeAtCommitAsync(vessel.LocalPath, worktreePath, targetTip!, token).ConfigureAwait(false);
+
+                    // No target branch is passed: the worktree is detached on purpose, and checking the
+                    // branch out inside it would hit the same refusal.
+                    await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, missionBranch, null, commitMessage, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "merged branch " + missionBranch + " into integration worktree " + worktreePath);
+
+                    string? mergedHead = await _Git.GetRevisionCommitShaAsync(worktreePath, "HEAD", token).ConfigureAwait(false);
+                    if (String.IsNullOrWhiteSpace(mergedHead))
+                        throw new InvalidOperationException("Unable to resolve the merged commit in integration worktree " + worktreePath);
+
+                    // LocalMerge lands into the local repository only -- pushing to a remote is
+                    // the operator's decision, never automatic. Pushing here made every landing
+                    // fail once the local default branch diverged from the remote: git rejects
+                    // the push as non-fast-forward, IsTargetBranchDrift misclassifies that
+                    // rejection as target-branch drift, and the retry loop re-merges and
+                    // re-pushes the same divergence until maxLandingRetries is exhausted. The
+                    // mission is then marked LandingFailed and its branch is left stray even
+                    // though the local merge itself succeeded.
+                    //
+                    // Any other mode pushes BEFORE the bare target moves. Advancing the bare first
+                    // left a merge only the bare held whenever origin rejected the push, and the
+                    // branch sweep and the next sync then treated that work as landed.
+                    if (vessel.LandingMode != LandingModeEnum.LocalMerge)
+                    {
+                        await _Git.PushHeadToBranchAsync(worktreePath, "origin", targetBranch, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "pushed merged changes from integration worktree " + worktreePath);
+                    }
+                    else
+                    {
+                        _Logging.Info(_Header + "landing mode is LocalMerge -- skipping push to origin for mission " + mission.Id);
+                    }
+
+                    if (!String.Equals(mergedHead, targetTip, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await _Git.CompareAndSwapBranchRefAsync(vessel.LocalPath, targetBranch, mergedHead!, targetTip!, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "advanced " + targetBranch + " from " + targetTip + " to " + mergedHead);
+                    }
+
+                    succeeded = true;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "integration merge failed for mission " + mission.Id + " branch " + missionBranch + ": " + ex.Message);
+                    failure = ex;
+                    succeeded = false;
+
+                    string? classified = ClassifyIntegrationFailure(ex);
+                    if (classified != null)
+                    {
+                        mission.FailureReason = classified;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "removed integration worktree " + worktreePath);
+                    }
+                    catch (Exception removeEx)
+                    {
+                        _Logging.Warn(_Header + "failed to remove integration worktree " + worktreePath + ": " + removeEx.Message);
+                    }
+
+                    try
+                    {
+                        await _Git.PruneWorktreesAsync(vessel.LocalPath, token).ConfigureAwait(false);
+                    }
+                    catch (Exception pruneEx)
+                    {
+                        _Logging.Warn(_Header + "failed to prune integration worktrees for " + vessel.LocalPath + ": " + pruneEx.Message);
+                    }
+                }
+
+                if (succeeded)
+                {
+                    // Ask git where the work ACTUALLY is before deciding what to report. The merge
+                    // above and the sync below are separate steps, and only the first one decides
+                    // whether the work landed.
+                    bool landed = await VerifyWorkLandedAsync(vessel, mission, targetBranch, token).ConfigureAwait(false);
+
+                    if (await SyncUserWorkingDirectoryAfterLandingAsync(vessel, mission, targetBranch, token).ConfigureAwait(false))
+                        return true;
+
+                    // The sync failed. If the work did not land, that is a real landing failure.
+                    if (!landed) return false;
+
+                    // The work landed and only the post-step failed. Reporting that as a landing
+                    // failure is not a cosmetic error: it sends the retry loop back over work that
+                    // is already on the target branch, and re-merging an already-landed branch is
+                    // how the working checkout and the bare repo diverge in the first place.
+                    // "Work landed, post-step failed" and "work lost" are opposite problems, and an
+                    // operator must not have to run git to tell them apart.
+                    mission.FailureReason = "work_landed_post_step_failed: "
+                        + (mission.FailureReason ?? "the working directory was not synced")
+                        + " -- the work IS on " + targetBranch + " (verified by ancestry); no landing "
+                        + "retry is needed. Sync the configured checkout by hand.";
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + mission.FailureReason);
+                    measure.Outcome = ArmadaMetrics.OutcomeLandedPostStepFailed;
+                    return true;
+                }
+
+                if (failure == null || !IsTargetBranchDrift(failure))
+                {
+                    return false;
+                }
+
+                int maxRetries = _Settings.MaxLandingRetries;
+                if (mission.LandingRetryCount >= maxRetries)
+                {
+                    mission.FailureReason = "target_branch_drift_retry_exhausted: maxLandingRetries=" + maxRetries;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Error(_Header + "target branch drift retry exhausted for mission " + mission.Id + " after " + mission.LandingRetryCount + " retries");
+                    await RaiseLandingPushExhaustedAsync(vessel, mission, targetBranch, failure.Message, token).ConfigureAwait(false);
+                    return false;
+                }
+
+                mission.LandingRetryCount++;
+                measure.Retried = true;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "target branch drift detected for mission " + mission.Id + "; auto-rebasing and retrying landing attempt " + mission.LandingRetryCount + " of " + maxRetries);
+            }
+        }
+
+        /// <summary>
+        /// What one landing call learned for its measurement.
+        /// </summary>
+        private sealed class LandingMeasure
+        {
+            /// <summary>True once the first integration attempt starts.</summary>
+            public bool Attempted { get; set; } = false;
+
+            /// <summary>True when a target-branch drift sent the landing round again.</summary>
+            public bool Retried { get; set; } = false;
+
+            /// <summary>An outcome the boolean result cannot carry, or null to derive it from the result.</summary>
+            public string? Outcome { get; set; } = null;
+        }
 
         private async Task ApplyVoyageCompletionAsync(string? voyageId, string missionId, CancellationToken token)
         {

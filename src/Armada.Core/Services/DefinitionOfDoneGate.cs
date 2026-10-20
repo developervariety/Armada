@@ -1547,12 +1547,15 @@ namespace Armada.Core.Services
             BoundedProcessResult result;
             using (commandLease)
             {
+                Stopwatch commandElapsed = Stopwatch.StartNew();
                 try
                 {
                     result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+                    ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, result);
                 }
                 catch (Exception ex)
                 {
+                    ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, commandElapsed.Elapsed, ArmadaMetrics.OutcomeError);
                     string message = label + " command could not be started or completed: " + ex.Message;
                     _Logging.Warn(_Header + label + " command infrastructure failure");
                     return DefinitionOfDoneResult.Fail(

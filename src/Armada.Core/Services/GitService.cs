@@ -87,7 +87,7 @@ namespace Armada.Core.Services
 
             string normalizedRepoPath = Path.GetFullPath(repoPath);
             SemaphoreSlim repoLock = _RepoLocks.GetOrAdd(normalizedRepoPath, _ => new SemaphoreSlim(1, 1));
-            await repoLock.WaitAsync(token).ConfigureAwait(false);
+            await ArmadaMetrics.WaitForLockAsync(repoLock, ArmadaMetrics.LockGitWorktree, token).ConfigureAwait(false);
             bool createdBranchRef = false;
 
             try
@@ -237,59 +237,81 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Fetch latest changes from remote.
+        /// Fetch latest changes from remote. The whole call, including the worktree prune before the fetch, is
+        /// recorded in <see cref="ArmadaMetrics.FetchDuration"/>; a full fetch refused by a checked-out worktree
+        /// that falls back to the narrower fetch is recorded as retried.
         /// </summary>
         public async Task FetchAsync(string repoPath, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
 
-            // Ensure the fetch refspec is configured (bare repos cloned before the fix may lack it)
+            Stopwatch elapsed = Stopwatch.StartNew();
+            string outcome = ArmadaMetrics.OutcomeFailure;
+            bool retried = false;
             try
             {
-                string currentRefspec = await RunGitAsync(repoPath, "config", "--get", "remote.origin.fetch").ConfigureAwait(false);
-                if (String.IsNullOrWhiteSpace(currentRefspec) || !String.Equals(currentRefspec.Trim(), _SafeFetchRefspec, StringComparison.Ordinal))
-                {
-                    await EnsureSafeFetchRefspecAsync(repoPath).ConfigureAwait(false);
-                }
-            }
-            catch
-            {
-                // Config key missing entirely — set it
-                await EnsureSafeFetchRefspecAsync(repoPath).ConfigureAwait(false);
-            }
-
-            // Prune stale worktree registrations before fetching to avoid
-            // "refusing to fetch into branch checked out at ..." errors
-            // from worktrees that no longer exist on disk.
-            try
-            {
-                await RunGitAsync(repoPath, "worktree", "prune").ConfigureAwait(false);
-            }
-            catch
-            {
-                // Best effort — don't let prune failure block fetch
-            }
-
-            _Logging.Debug(_Header + "fetching: " + repoPath);
-            try
-            {
-                await RunGitAsync(repoPath, "fetch", "--all", "--prune").ConfigureAwait(false);
-            }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("refusing to fetch"))
-            {
-                // A checked-out worktree is blocking the full fetch.
-                // Fall back to fetching just the remote refs without updating local branches.
-                _Logging.Warn(_Header + "full fetch blocked by checked-out worktree, trying fetch origin: " + ex.Message);
+                // Ensure the fetch refspec is configured (bare repos cloned before the fix may lack it)
                 try
                 {
-                    await RunGitAsync(repoPath, "fetch", "origin").ConfigureAwait(false);
+                    string currentRefspec = await RunGitAsync(repoPath, "config", "--get", "remote.origin.fetch").ConfigureAwait(false);
+                    if (String.IsNullOrWhiteSpace(currentRefspec) || !String.Equals(currentRefspec.Trim(), _SafeFetchRefspec, StringComparison.Ordinal))
+                    {
+                        await EnsureSafeFetchRefspecAsync(repoPath).ConfigureAwait(false);
+                    }
                 }
-                catch (Exception fallbackEx)
+                catch
                 {
-                    _Logging.Warn(_Header + "fallback fetch also failed: " + fallbackEx.Message);
-                    // Continue without fetch — worktree creation may still succeed
-                    // if the base branch is already available locally.
+                    // Config key missing entirely — set it
+                    await EnsureSafeFetchRefspecAsync(repoPath).ConfigureAwait(false);
                 }
+
+                // Prune stale worktree registrations before fetching to avoid
+                // "refusing to fetch into branch checked out at ..." errors
+                // from worktrees that no longer exist on disk.
+                try
+                {
+                    await RunGitAsync(repoPath, "worktree", "prune").ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Best effort — don't let prune failure block fetch
+                }
+
+                _Logging.Debug(_Header + "fetching: " + repoPath);
+                bool fetched = true;
+                try
+                {
+                    await RunGitAsync(repoPath, "fetch", "--all", "--prune").ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("refusing to fetch"))
+                {
+                    // A checked-out worktree is blocking the full fetch.
+                    // Fall back to fetching just the remote refs without updating local branches.
+                    _Logging.Warn(_Header + "full fetch blocked by checked-out worktree, trying fetch origin: " + ex.Message);
+                    retried = true;
+                    try
+                    {
+                        await RunGitAsync(repoPath, "fetch", "origin").ConfigureAwait(false);
+                    }
+                    catch (Exception fallbackEx)
+                    {
+                        _Logging.Warn(_Header + "fallback fetch also failed: " + fallbackEx.Message);
+                        fetched = false;
+                        // Continue without fetch — worktree creation may still succeed
+                        // if the base branch is already available locally.
+                    }
+                }
+
+                outcome = fetched ? ArmadaMetrics.OutcomeSuccess : ArmadaMetrics.OutcomeFailure;
+            }
+            catch (OperationCanceledException)
+            {
+                outcome = ArmadaMetrics.OutcomeCanceled;
+                throw;
+            }
+            finally
+            {
+                ArmadaMetrics.RecordFetch(elapsed.Elapsed, outcome, retried);
             }
         }
 
@@ -347,7 +369,7 @@ namespace Armada.Core.Services
 
             string normalizedRepoPath = Path.GetFullPath(repoPath);
             SemaphoreSlim repoLock = _RepoLocks.GetOrAdd(normalizedRepoPath, _ => new SemaphoreSlim(1, 1));
-            await repoLock.WaitAsync(token).ConfigureAwait(false);
+            await ArmadaMetrics.WaitForLockAsync(repoLock, ArmadaMetrics.LockGitWorktree, token).ConfigureAwait(false);
             try
             {
                 await RunGitAsync(repoPath, token, "worktree", "add", "--detach", worktreePath, commitSha).ConfigureAwait(false);

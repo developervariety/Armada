@@ -26,10 +26,11 @@ namespace Armada.Core.Services
         /// <param name="vesselId">Vessel identifier; a missing id shares one fallback slot.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>A lease; dispose it to release the slot.</returns>
+        /// <remarks>The wait is recorded in <see cref="ArmadaMetrics.RepositoryLockWait"/> under the vessel landing lock.</remarks>
         public static async Task<IDisposable> AcquireAsync(string? vesselId, CancellationToken token = default)
         {
             SemaphoreSlim slot = GetSlot(vesselId);
-            await slot.WaitAsync(token).ConfigureAwait(false);
+            await ArmadaMetrics.WaitForLockAsync(slot, ArmadaMetrics.LockVesselLanding, token).ConfigureAwait(false);
             return new Lease(slot);
         }
 

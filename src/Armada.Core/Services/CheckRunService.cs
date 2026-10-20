@@ -1542,6 +1542,7 @@ namespace Armada.Core.Services
                 OwnProcessGroup = true
             };
             BoundedProcessResult result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+            ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationCheck, result);
             if (result.KillError != null)
                 _Logging.Warn(_Header + "could not kill check command; it may still be running: " + result.KillError);
             if (result.Cancelled)

@@ -100,7 +100,7 @@ namespace Armada.Core.Services
 
             try
             {
-                await repoLock.WaitAsync(token).ConfigureAwait(false);
+                await ArmadaMetrics.WaitForLockAsync(repoLock, ArmadaMetrics.LockDockProvision, token).ConfigureAwait(false);
                 repoLockAcquired = true;
 
                 // Ensure bare clone exists. If the directory exists but isn't a valid repo
@@ -396,6 +396,7 @@ namespace Armada.Core.Services
                 }
 
                 _Logging.Info(_Header + "provisioned dock " + dock.Id + " at " + worktreePath);
+                ArmadaMetrics.RecordDockProvisioned();
                 return dock;
             }
             catch (Exception ex)
@@ -518,6 +519,7 @@ namespace Armada.Core.Services
             dock.CaptainId = null;
             dock.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Docks.UpdateAsync(dock, token).ConfigureAwait(false);
+            ArmadaMetrics.RecordDockReclaimed();
         }
 
         /// <inheritdoc />
@@ -949,6 +951,10 @@ namespace Armada.Core.Services
                     continue;
                 }
 
+                // A sibling checkout is timed from the resolved sibling repository (its fetch is recorded on
+                // its own) through its worktree and artifact copy.
+                Stopwatch? siblingElapsed = null;
+                string siblingOutcome = ArmadaMetrics.OutcomeFailure;
                 try
                 {
                     string? siblingRepoPath = await ResolveSiblingRepoPathAsync(sibling, token).ConfigureAwait(false);
@@ -964,6 +970,7 @@ namespace Armada.Core.Services
                     }
 
                     string siblingWorktreePath = Path.GetFullPath(Path.Combine(worktreePath, sibling.RelativePath));
+                    siblingElapsed = Stopwatch.StartNew();
 
                     // Branch-compat rule: when the strategy is MatchBranchElseDefault and the dock branch
                     // already exists in the sibling repo, check out that same-named branch so the sibling
@@ -1013,6 +1020,7 @@ namespace Armada.Core.Services
                     await ReportStaleSharedSiblingAsync(vessel, dockId, sibling, siblingRepoPath, siblingWorktreePath, siblingBranch, token).ConfigureAwait(false);
                     await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
                     await TakeSiblingLeaseAsync(dockId, vessel.Id, siblingWorktreePath, token).ConfigureAwait(false);
+                    siblingOutcome = ArmadaMetrics.OutcomeReused;
                     continue;
                 }
 
@@ -1036,9 +1044,11 @@ namespace Armada.Core.Services
 
             await ProvisionSiblingArtifactsAsync(sibling, siblingWorktreePath, token).ConfigureAwait(false);
             await TakeSiblingLeaseAsync(dockId, vessel.Id, siblingWorktreePath, token).ConfigureAwait(false);
+            siblingOutcome = ArmadaMetrics.OutcomeSuccess;
                 }
                 catch (OperationCanceledException)
                 {
+                    siblingOutcome = ArmadaMetrics.OutcomeCanceled;
                     throw;
                 }
                 catch (Exception ex)
@@ -1053,6 +1063,11 @@ namespace Armada.Core.Services
                     }
 
                     _Logging.Warn(_Header + "failed to provision sibling repo (relativePath=" + sibling.RelativePath + ") for vessel " + vessel.Id + ": " + ex.Message);
+                }
+                finally
+                {
+                    if (siblingElapsed != null)
+                        ArmadaMetrics.RecordCheckout(ArmadaMetrics.CheckoutSibling, siblingElapsed.Elapsed, siblingOutcome, false);
                 }
             }
         }
@@ -1188,6 +1203,9 @@ namespace Armada.Core.Services
                 // The comparison is a signature of the SOURCE recorded beside the copy at copy time.
                 // A refresh is built in a temporary directory and swapped in by rename, so a
                 // sibling-reading captain in another dock never sees a half-written tree.
+                // Each tree is recorded once with what it cost: compared and current, copied, refreshed, or
+                // failed. The byte count comes from the source signature the comparison already measured.
+                Stopwatch copyElapsed = Stopwatch.StartNew();
                 try
                 {
                     ArtifactTreeSignature sourceSignature = ArtifactTreeSignature.Measure(sourceDir);
@@ -1199,6 +1217,7 @@ namespace Armada.Core.Services
                         {
                             _Logging.Debug(_Header + "extraction artifacts at " + destDir + " are current (" + sourceSignature.FileCount
                                 + " files, " + sourceSignature.TotalBytes + " bytes); skipping re-copy (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + ")");
+                            ArmadaMetrics.RecordArtifactCopy(copyElapsed.Elapsed, ArmadaMetrics.OutcomeCurrent, 0);
                             continue;
                         }
 
@@ -1209,6 +1228,7 @@ namespace Armada.Core.Services
                             + " bytes -> " + sourceSignature.FileCount + " files / " + sourceSignature.TotalBytes + " bytes"
                             + (recorded == null ? " (no manifest recorded by the previous copy)" : String.Empty)
                             + " (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + ")");
+                        ArmadaMetrics.RecordArtifactCopy(copyElapsed.Elapsed, ArmadaMetrics.OutcomeRefreshed, sourceSignature.TotalBytes);
                         continue;
                     }
 
@@ -1216,9 +1236,11 @@ namespace Armada.Core.Services
                     sourceSignature.WriteManifest(destDir);
                     _Logging.Info(_Header + "provisioned extraction artifacts from " + sourceDir + " to " + destDir
                         + " (" + sourceSignature.FileCount + " files, " + sourceSignature.TotalBytes + " bytes)");
+                    ArmadaMetrics.RecordArtifactCopy(copyElapsed.Elapsed, ArmadaMetrics.OutcomeCopied, sourceSignature.TotalBytes);
                 }
                 catch (Exception ex)
                 {
+                    ArmadaMetrics.RecordArtifactCopy(copyElapsed.Elapsed, ArmadaMetrics.OutcomeFailure, 0);
                     _Logging.Warn(_Header + "failed to copy extraction artifacts (vesselRef=" + sibling.VesselRef + ", path=" + artifactPath + "): " + ex.Message);
                 }
             }
@@ -1375,7 +1397,7 @@ namespace Armada.Core.Services
 
             string normalizedRepoPath = Path.GetFullPath(repoPath);
             SemaphoreSlim repoLock = _RepoProvisionLocks.GetOrAdd(normalizedRepoPath, _ => new SemaphoreSlim(1, 1));
-            await repoLock.WaitAsync(token).ConfigureAwait(false);
+            await ArmadaMetrics.WaitForLockAsync(repoLock, ArmadaMetrics.LockSiblingProvision, token).ConfigureAwait(false);
             try
             {
                 if (Directory.Exists(repoPath) && !await _Git.IsRepositoryAsync(repoPath, token).ConfigureAwait(false))
@@ -2550,6 +2572,37 @@ namespace Armada.Core.Services
             bool detached,
             CancellationToken token)
         {
+            // The dock's primary checkout, recorded with its outcome and whether a stale holder forced a
+            // second attempt.
+            Stopwatch elapsed = Stopwatch.StartNew();
+            string outcome = ArmadaMetrics.OutcomeFailure;
+            bool retried = false;
+            try
+            {
+                await CreateWorktreeReleasingHolderCoreAsync(vessel, repoPath, worktreePath, branchName, baseBranch, detached, () => retried = true, token).ConfigureAwait(false);
+                outcome = ArmadaMetrics.OutcomeSuccess;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                outcome = ArmadaMetrics.OutcomeCanceled;
+                throw;
+            }
+            finally
+            {
+                ArmadaMetrics.RecordCheckout(ArmadaMetrics.CheckoutPrimary, elapsed.Elapsed, outcome, retried);
+            }
+        }
+
+        private async Task CreateWorktreeReleasingHolderCoreAsync(
+            Vessel vessel,
+            string repoPath,
+            string worktreePath,
+            string branchName,
+            string baseBranch,
+            bool detached,
+            Action onRetry,
+            CancellationToken token)
+        {
             try
             {
                 await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token).ConfigureAwait(false);
@@ -2577,6 +2630,7 @@ namespace Armada.Core.Services
                 try { await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false); }
                 catch (Exception pruneEx) { _Logging.Warn(_Header + "holder worktree prune failed for " + repoPath + ": " + pruneEx.Message); }
 
+                onRetry();
                 try
                 {
                     await _Git.CreateWorktreeAsync(repoPath, worktreePath, branchName, baseBranch, detached, token).ConfigureAwait(false);

@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
+    using Armada.Core;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -325,12 +326,23 @@ namespace Armada.Test.Unit.Suites.Services
                     await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
                     string integrationWorktree = IntegrationWorktreePath(settings, mission);
 
-                    bool result = await service.MergeInDedicatedWorktreeAsync(
-                        vessel,
-                        mission,
-                        "main",
-                        "armada/captain/msn_drift_retry",
-                        "Merge armada mission").ConfigureAwait(false);
+                    bool result;
+                    List<RecordedMeasurement> landings;
+                    using (ArmadaMetricsRecorder metrics = new ArmadaMetricsRecorder())
+                    {
+                        result = await service.MergeInDedicatedWorktreeAsync(
+                            vessel,
+                            mission,
+                            "main",
+                            "armada/captain/msn_drift_retry",
+                            "Merge armada mission").ConfigureAwait(false);
+                        landings = metrics.Of("armada.landing.seconds");
+                    }
+
+                    AssertTrue(landings.Any(m => m.Has(ArmadaMetrics.TagPath, ArmadaMetrics.LandingLocalMerge)
+                        && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeLanded)
+                        && m.Has(ArmadaMetrics.TagRetried, "true")),
+                        "a landing that survived one drift is recorded once as landed and retried");
 
                     Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertTrue(result, "Drift retry should succeed within the bound");
@@ -354,12 +366,23 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission mission = CreateMission("msn_drift_exhausted");
                     await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
 
-                    bool result = await service.MergeInDedicatedWorktreeAsync(
-                        vessel,
-                        mission,
-                        "main",
-                        "armada/captain/msn_drift_exhausted",
-                        "Merge armada mission").ConfigureAwait(false);
+                    bool result;
+                    List<RecordedMeasurement> landings;
+                    using (ArmadaMetricsRecorder metrics = new ArmadaMetricsRecorder())
+                    {
+                        result = await service.MergeInDedicatedWorktreeAsync(
+                            vessel,
+                            mission,
+                            "main",
+                            "armada/captain/msn_drift_exhausted",
+                            "Merge armada mission").ConfigureAwait(false);
+                        landings = metrics.Of("armada.landing.seconds");
+                    }
+
+                    AssertTrue(landings.Any(m => m.Has(ArmadaMetrics.TagPath, ArmadaMetrics.LandingLocalMerge)
+                        && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeFailure)
+                        && m.Has(ArmadaMetrics.TagRetried, "true")),
+                        "an exhausted landing keeps its false result and is recorded as a retried failure");
 
                     Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertFalse(result, "Persistent drift should fail after exhausting the retry bound");

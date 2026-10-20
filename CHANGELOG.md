@@ -9,6 +9,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Source-control phase telemetry on the `Armada` meter. Duration histograms
+  in seconds cover repository-lock wait, fetch, primary and sibling checkout,
+  sibling artifact copy, host-command-slot wait, validation commands and
+  landing, each labelled with a closed `outcome` vocabulary and, where a phase
+  retries, a `retried` label. Dock provision and reclaim and merge-queue
+  completion emit their counters, and a byte counter reports artifact data
+  copied into sibling checkouts. Labels carry no path, branch, commit or id.
+  A disabled or failing listener leaves every operation result unchanged.
+  `docs/production-metrics.md` lists the instruments and how to read them.
 - The `handoff_outcome` decision can hold a partial stage for the operator.
   With `typedDecisions.handoffOutcomeHold.enabled` set (default `false`), a
   gated `partial` at or above 0.90 holds the next stage instead of Mailing it,

@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Linq;
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using Armada.Core;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -1740,6 +1741,94 @@ namespace Armada.Test.Unit.Suites.Services
                         string expectedMedduty = Path.Combine(siblingWorktree, "output", "extracted-artifacts", "medduty-kwp", "data.bin");
                         AssertTrue(File.Exists(expectedCatalog), "vin-catalog artifact should be copied into the sibling worktree");
                         AssertTrue(File.Exists(expectedMedduty), "medduty-kwp artifact should be copied into the sibling worktree");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(artifactSourceRoot)) { try { Directory.Delete(artifactSourceRoot, true); } catch { } }
+                        if (Directory.Exists(settings.DocksDirectory)) { try { Directory.Delete(settings.DocksDirectory, true); } catch { } }
+                        if (Directory.Exists(settings.ReposDirectory)) { try { Directory.Delete(settings.ReposDirectory, true); } catch { } }
+                        if (Directory.Exists(settings.LogDirectory)) { try { Directory.Delete(settings.LogDirectory, true); } catch { } }
+                    }
+                }
+            });
+
+            await RunTest("ProvisionAsync and ReclaimAsync emit the dock counters and the lock, checkout and artifact-copy durations", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    string artifactSourceRoot = Path.Combine(Path.GetTempPath(), "armada_test_sibling_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        string catalogDir = Path.Combine(artifactSourceRoot, "output", "extracted-artifacts", "catalog");
+                        Directory.CreateDirectory(catalogDir);
+                        await File.WriteAllTextAsync(Path.Combine(catalogDir, "catalog.json"), "{\"v\":1}").ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(catalogDir, "data.bin"), "binary").ConfigureAwait(false);
+                        long sourceBytes = 13;
+
+                        Vessel siblingVessel = new Vessel("ExampleSibling", "https://github.com/test/example-sibling.git");
+                        siblingVessel.LocalPath = Path.Combine(settings.ReposDirectory, "ExampleSibling.git");
+                        siblingVessel.WorkingDirectory = artifactSourceRoot;
+                        siblingVessel = await testDb.Driver.Vessels.CreateAsync(siblingVessel).ConfigureAwait(false);
+
+                        List<SiblingRepo> siblings = new List<SiblingRepo>
+                        {
+                            new SiblingRepo
+                            {
+                                VesselRef = siblingVessel.Id,
+                                RepoUrl = "https://github.com/test/example-sibling.git",
+                                RelativePath = "../ExampleSibling",
+                                BranchStrategy = SiblingBranchStrategyEnum.DefaultOnly,
+                                DefaultBranch = "main",
+                                ExtractionArtifactPaths = new List<string> { Path.Combine("output", "extracted-artifacts") }
+                            }
+                        };
+
+                        Vessel vessel = new Vessel("metrics-vessel", "https://github.com/test/metrics-vessel.git");
+                        vessel.LocalPath = Path.Combine(settings.ReposDirectory, "metrics-vessel.git");
+                        vessel.SiblingRepos = JsonSerializer.Serialize(siblings);
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("captain-metrics")).ConfigureAwait(false);
+                        RecordingGitService git = new RecordingGitService();
+                        DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                        using (ArmadaMetricsRecorder metrics = new ArmadaMetricsRecorder())
+                        {
+                            Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/captain-metrics/msn_metrics", "msn_metrics").ConfigureAwait(false);
+                            AssertNotNull(dock, "the dock is provisioned");
+                            AssertTrue(metrics.Of("armada.docks.provisioned").Count >= 1, "a provisioned dock is counted");
+
+                            List<RecordedMeasurement> lockWaits = metrics.Of("armada.git.repository_lock.wait.seconds");
+                            AssertTrue(lockWaits.Any(m => m.Has(ArmadaMetrics.TagLock, ArmadaMetrics.LockDockProvision) && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeAcquired)),
+                                "the dock's own repository-lock wait is recorded");
+                            AssertTrue(lockWaits.Any(m => m.Has(ArmadaMetrics.TagLock, ArmadaMetrics.LockSiblingProvision) && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeAcquired)),
+                                "the sibling repository-lock wait is recorded");
+
+                            List<RecordedMeasurement> checkouts = metrics.Of("armada.dock.checkout.seconds");
+                            AssertTrue(checkouts.Any(m => m.Has(ArmadaMetrics.TagKind, ArmadaMetrics.CheckoutPrimary) && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeSuccess) && m.Has(ArmadaMetrics.TagRetried, "false")),
+                                "the primary checkout is recorded as a success without a retry");
+                            AssertTrue(checkouts.Any(m => m.Has(ArmadaMetrics.TagKind, ArmadaMetrics.CheckoutSibling) && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeSuccess)),
+                                "the sibling checkout is recorded as a success");
+
+                            AssertTrue(metrics.Of("armada.dock.artifact_copy.seconds").Any(m => m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeCopied)),
+                                "the first artifact copy is recorded as copied");
+                            AssertTrue(metrics.Of("armada.dock.artifact_copy.bytes").Any(m => m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeCopied) && m.Value == sourceBytes),
+                                "the copied bytes are the source tree's measured size");
+
+                            await service.ReclaimAsync(dock!.Id).ConfigureAwait(false);
+                            AssertTrue(metrics.Of("armada.docks.reclaimed").Count >= 1, "a reclaimed dock is counted");
+                            int reclaimedOnce = metrics.Of("armada.docks.reclaimed").Count;
+                            await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
+                            AssertEqual(reclaimedOnce, metrics.Of("armada.docks.reclaimed").Count, "reclaiming an inactive dock again counts nothing");
+                        }
                     }
                     finally
                     {

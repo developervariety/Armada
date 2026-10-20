@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Globalization;
     using System.IO;
     using System.Threading;
@@ -287,12 +288,14 @@ namespace Armada.Core.Services
         /// <param name="ownerDescription">What the requester runs, shown to anyone waiting behind it.</param>
         /// <param name="token">Cancellation token. Cancelling a waiting request removes it from the queue.</param>
         /// <returns>A disposable lease; dispose it to release the slot.</returns>
+        /// <remarks>The time from request to grant or cancellation is recorded in <see cref="ArmadaMetrics.HostSlotWait"/>.</remarks>
         public static async Task<IDisposable> AcquireAsync(string? ownerKey, string? ownerDescription, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
             LinkedListNode<Request>? node = null;
             Request request;
             List<Request> granted = new List<Request>();
+            Stopwatch wait = Stopwatch.StartNew();
 
             lock (_Sync)
             {
@@ -302,13 +305,26 @@ namespace Armada.Core.Services
             }
 
             Complete(granted);
-            if (granted.Contains(request)) return new Lease(request);
-
-            using (token.Register(() => CancelWaiting(node)))
+            if (granted.Contains(request))
             {
-                await request.Granted.Task.ConfigureAwait(false);
+                ArmadaMetrics.RecordHostSlotWait(wait.Elapsed, true);
+                return new Lease(request);
             }
 
+            try
+            {
+                using (token.Register(() => CancelWaiting(node)))
+                {
+                    await request.Granted.Task.ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                ArmadaMetrics.RecordHostSlotWait(wait.Elapsed, false);
+                throw;
+            }
+
+            ArmadaMetrics.RecordHostSlotWait(wait.Elapsed, true);
             return new Lease(request);
         }
 

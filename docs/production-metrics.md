@@ -386,6 +386,55 @@ limit. Return these fields for every entity scan:
 If a scan stops at its bound, set affected measures to `partial`. Do not
 calculate a full-fleet rate from a newest-record sample.
 
+## Source-Control Phase Telemetry
+
+The admiral records where a mission's source-control time goes on the
+`Armada` meter (`ArmadaMetrics`). Nothing is exported until `telemetry.enabled`
+is `true`; the Prometheus scrape endpoint then serves the series below on
+`telemetry.prometheusPort` (default 9464). With telemetry off, or with a
+listener that throws, every operation returns the same result it returns
+without telemetry; a refused measurement is counted in
+`ArmadaMetrics.RecordingFailures`.
+
+Every duration is a histogram in seconds. The Prometheus series are
+`<name>_bucket`, `<name>_sum` and `<name>_count`, with the dots in the name
+written as underscores.
+
+| Instrument | Owner | Labels |
+| --- | --- | --- |
+| `armada.git.repository_lock.wait.seconds` | `VesselRepositoryLock`, `DockService`, `GitService` | `lock`: `vessel_landing`, `dock_provision`, `sibling_provision`, `git_worktree`; `outcome`: `acquired`, `canceled` |
+| `armada.git.fetch.seconds` | `GitService.FetchAsync` (the whole call, worktree prune included) | `outcome`: `success`, `failure`, `canceled`; `retried`: `true` when the full fetch was refused and the narrower fetch ran |
+| `armada.dock.checkout.seconds` | `DockService` | `kind`: `primary` (the worktree add), `sibling` (from the resolved sibling repository through its worktree and artifact copy; the sibling fetch is recorded on its own); `outcome`: `success`, `reused`, `failure`, `canceled`; `retried`: `true` when a stale holder forced a second worktree add |
+| `armada.dock.artifact_copy.seconds` | `DockService` | `outcome`: `copied`, `refreshed`, `current`, `failure` |
+| `armada.hostslot.wait.seconds` | `HostWideCommandLock` | `outcome`: `granted`, `canceled` |
+| `armada.validation.seconds` | `DefinitionOfDoneGate`, `CheckRunService`, `MergeQueueService` (the command only; the slot wait is not included) | `kind`: `definition_of_done`, `check`, `merge_queue_test`; `outcome`: `passed`, `failed`, `timeout`, `canceled`, `error` |
+| `armada.landing.seconds` | `LandingService` (integration-worktree landing), `MergeQueueService` (one pass of an entry through the landing state machine) | `path`: `local_merge`, `merge_queue`; `outcome`: `landed`, `landed_post_step_failed`, `failure`, `failed`, `canceled`, `pull_request_open`, `incomplete`; `retried`: `true` after a target-branch drift retry, or for a merge-queue pass that resumed an entry past Queued or sent it back to Rebasing |
+
+Counters:
+
+| Instrument | Meaning |
+| --- | --- |
+| `armada.docks.provisioned` | One per dock a provision returns |
+| `armada.docks.reclaimed` | One per dock a reclaim moves to inactive |
+| `armada.mergequeue.processed` | One per merge-queue entry that reaches a terminal state, labelled `outcome` |
+| `armada.dock.artifact_copy.bytes` | Bytes of extraction artifacts written into sibling checkouts, labelled `outcome` (`copied`, `refreshed`) |
+
+Labels are a closed vocabulary. No label carries a path, branch, commit,
+credential, or mission, voyage, vessel or entry id, so the series count does
+not grow with the fleet. Measurement adds no scan or loop: each value comes
+from a stopwatch around work the owner already does, and the artifact byte
+count comes from the source signature the copy already measures.
+
+To compare quiet and busy windows, read the `_sum` and `_count` rates of each
+duration over the window, the `_bucket` series for its distribution, and the
+counters for volume. Repeated fetches show as a fetch count above the
+provisions and landings in the same window. A cold provision shows as a large
+`kind="primary"` checkout or a long `dock_provision` lock wait; a warm one as
+a short checkout and an `artifact_copy` outcome of `current`. End-to-end
+landing time, retries included, is `armada.landing.seconds`. Record values the
+series do not show (for example clone size on disk) as unknown rather than
+derived.
+
 ## Baseline Record
 
 Write each accepted baseline to `docs/baselines/`. The record must contain the

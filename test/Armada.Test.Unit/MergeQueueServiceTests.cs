@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit
 {
     using System.Diagnostics;
+    using Armada.Core;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Recovery;
@@ -651,6 +652,81 @@ namespace Armada.Test.Unit
                 }
             });
 
+            await RunTest("ProcessSingle_LandedEntry_RecordsFetchLocksSlotValidationLandingAndProcessedCount", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_metrics_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        GitService git = new GitService(logging);
+
+                        Vessel vessel = new Vessel("mq-metrics-vessel", repos.RemoteDir);
+                        vessel.LocalPath = repos.BareDir;
+                        vessel.WorkingDirectory = repos.WorkingDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        MergeEntry entry = new MergeEntry();
+                        entry.VesselId = vessel.Id;
+                        entry.BranchName = repos.CaptainBranch;
+                        entry.TargetBranch = "main";
+                        entry.Status = MergeStatusEnum.Queued;
+                        entry.TestCommand = "echo tests-done";
+                        entry.CreatedUtc = DateTime.UtcNow;
+                        entry.LastUpdateUtc = DateTime.UtcNow;
+                        await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+
+                        MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        using (ArmadaMetricsRecorder metrics = new ArmadaMetricsRecorder())
+                        {
+                            MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                            AssertNotNull(afterProcess, "Entry after process");
+                            AssertEqual(MergeStatusEnum.Landed, afterProcess!.Status, "The entry lands");
+
+                            AssertTrue(metrics.Of("armada.mergequeue.processed").Any(m => m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeLanded)),
+                                "the landed entry is counted as processed with its terminal state");
+                            AssertTrue(metrics.Of("armada.landing.seconds").Any(m => m.Has(ArmadaMetrics.TagPath, ArmadaMetrics.LandingMergeQueue)
+                                && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeLanded)
+                                && m.Has(ArmadaMetrics.TagRetried, "false")),
+                                "the landing pass is recorded as landed on the first attempt");
+                            AssertTrue(metrics.Of("armada.validation.seconds").Any(m => m.Has(ArmadaMetrics.TagKind, ArmadaMetrics.ValidationMergeQueueTest)
+                                && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomePassed)),
+                                "the merge-queue test command is recorded as passed");
+                            AssertTrue(metrics.Of("armada.hostslot.wait.seconds").Any(m => m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeGranted)),
+                                "the test command's host-slot wait is recorded");
+                            AssertTrue(metrics.Of("armada.git.fetch.seconds").Any(m => m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeSuccess)),
+                                "the integration fetch is recorded");
+                            List<RecordedMeasurement> lockWaits = metrics.Of("armada.git.repository_lock.wait.seconds");
+                            AssertTrue(lockWaits.Any(m => m.Has(ArmadaMetrics.TagLock, ArmadaMetrics.LockVesselLanding) && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeAcquired)),
+                                "the vessel landing lock wait is recorded");
+                            AssertTrue(lockWaits.Any(m => m.Has(ArmadaMetrics.TagLock, ArmadaMetrics.LockGitWorktree) && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeAcquired)),
+                                "the integration worktree's repository-lock wait is recorded");
+                            foreach (RecordedMeasurement measurement in metrics.All())
+                            {
+                                foreach (KeyValuePair<string, string> tag in measurement.Tags)
+                                {
+                                    AssertFalse(tag.Value.Contains(entry.Id, StringComparison.Ordinal) || tag.Value.Contains(vessel.Id, StringComparison.Ordinal),
+                                        "no label carries an entry or vessel id: " + measurement.Instrument + " " + tag.Key);
+                                }
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
             await RunTest("ProcessSingle_PostMergeTestFailure_IsSurfacedNeverRoutedToARebaseCaptain", async () =>
             {
                 if (OperatingSystem.IsWindows()) return;
@@ -685,7 +761,16 @@ namespace Armada.Test.Unit
                         await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
 
                         MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
-                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                        MergeEntry? afterProcess;
+                        using (ArmadaMetricsRecorder metrics = new ArmadaMetricsRecorder())
+                        {
+                            afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+                            AssertTrue(metrics.Of("armada.validation.seconds").Any(m => m.Has(ArmadaMetrics.TagKind, ArmadaMetrics.ValidationMergeQueueTest)
+                                && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeFailed)),
+                                "the failing test command is recorded as failed");
+                            AssertTrue(metrics.Of("armada.mergequeue.processed").Any(m => m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeFailed)),
+                                "the failed entry is counted as processed with its terminal state");
+                        }
 
                         AssertNotNull(afterProcess, "Entry after process");
                         AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "A failing post-merge test run fails the entry");
@@ -740,11 +825,19 @@ namespace Armada.Test.Unit
                         await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
 
                         MergeQueueService service = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
-                        Task<MergeEntry?> processing = service.ProcessSingleAsync(entry.Id);
-                        Task finished = await Task.WhenAny(processing, Task.Delay(TimeSpan.FromSeconds(90))).ConfigureAwait(false);
-                        AssertTrue(finished == processing, "A test command past its timeout must be stopped");
+                        MergeEntry? afterProcess;
+                        using (ArmadaMetricsRecorder metrics = new ArmadaMetricsRecorder())
+                        {
+                            Task<MergeEntry?> processing = service.ProcessSingleAsync(entry.Id);
+                            Task finished = await Task.WhenAny(processing, Task.Delay(TimeSpan.FromSeconds(90))).ConfigureAwait(false);
+                            AssertTrue(finished == processing, "A test command past its timeout must be stopped");
 
-                        MergeEntry? afterProcess = await processing.ConfigureAwait(false);
+                            afterProcess = await processing.ConfigureAwait(false);
+                            AssertTrue(metrics.Of("armada.validation.seconds").Any(m => m.Has(ArmadaMetrics.TagKind, ArmadaMetrics.ValidationMergeQueueTest)
+                                && m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeTimeout)),
+                                "the timed-out test command is recorded as a timeout");
+                        }
+
                         AssertNotNull(afterProcess, "Entry after process");
                         AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "A timed-out test run fails the entry");
                         AssertContains("merge_queue_test_timeout", afterProcess.TestOutput ?? "", "The failure names the timeout");

@@ -609,6 +609,7 @@ namespace Armada.Core.Services
                     entry.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                     await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
+                    ArmadaMetrics.RecordMergeEntryProcessed(ArmadaMetrics.OutcomeFailed);
                 }
                 return;
             }
@@ -637,6 +638,7 @@ namespace Armada.Core.Services
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                 await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
+                ArmadaMetrics.RecordMergeEntryProcessed(ArmadaMetrics.OutcomeFailed);
                 return;
             }
 
@@ -856,24 +858,85 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Drive one entry through the landing state machine. A pass over an entry still in a landing state is
+        /// recorded in <see cref="ArmadaMetrics.LandingDuration"/>: its outcome is the terminal state it reached,
+        /// or incomplete when the pass stopped first, and it counts as retried when it resumed an entry already
+        /// past Queued or sent the entry back to Rebasing. An entry that reaches a terminal state is counted in
+        /// <see cref="ArmadaMetrics.MergeEntriesProcessed"/>.
+        /// </summary>
         private async Task ProcessEntryHoldingVesselAsync(MergeEntry entry, string repoPath, CancellationToken token)
         {
             LandingJob job = await EnsureLandingJobAsync(entry, token).ConfigureAwait(false);
             entry = await SyncEntryToLandingJobAsync(entry, job, token).ConfigureAwait(false);
+            if (!IsLandingState(entry.Status)) return;
 
             _Logging.Info(_Header + "processing " + entry.Id + " branch " + entry.BranchName);
 
-            for (int i = 0; i < 10; i++)
+            Stopwatch elapsed = Stopwatch.StartNew();
+            bool retried = entry.Status != MergeStatusEnum.Queued;
+            MergeStatusEnum lastStatus = entry.Status;
+            bool canceled = false;
+            try
             {
-                if (!IsLandingState(entry.Status)) return;
+                for (int i = 0; i < 10; i++)
+                {
+                    if (!IsLandingState(entry.Status)) return;
 
-                bool advanced = await AdvanceLandingStateMachineOneStepAsync(entry, repoPath, token).ConfigureAwait(false);
-                if (!advanced) return;
+                    MergeStatusEnum before = entry.Status;
+                    bool advanced = await AdvanceLandingStateMachineOneStepAsync(entry, repoPath, token).ConfigureAwait(false);
+                    lastStatus = entry.Status;
+                    if (!advanced) return;
 
-                MergeEntry? refreshed = await _Database.MergeEntries.ReadAsync(entry.Id, token).ConfigureAwait(false);
-                if (refreshed == null) return;
-                entry = refreshed;
+                    MergeEntry? refreshed = await _Database.MergeEntries.ReadAsync(entry.Id, token).ConfigureAwait(false);
+                    if (refreshed == null) return;
+                    if (refreshed.Status == MergeStatusEnum.Rebasing
+                        && before != MergeStatusEnum.Queued
+                        && before != MergeStatusEnum.Rebasing)
+                    {
+                        retried = true;
+                    }
+
+                    entry = refreshed;
+                    lastStatus = entry.Status;
+                }
             }
+            catch (OperationCanceledException)
+            {
+                canceled = true;
+                throw;
+            }
+            finally
+            {
+                RecordLandingPass(lastStatus, elapsed.Elapsed, retried, canceled);
+            }
+        }
+
+        private static void RecordLandingPass(MergeStatusEnum status, TimeSpan elapsed, bool retried, bool canceled)
+        {
+            if (canceled)
+            {
+                ArmadaMetrics.RecordLanding(ArmadaMetrics.LandingMergeQueue, elapsed, ArmadaMetrics.OutcomeCanceled, retried);
+                return;
+            }
+
+            if (IsLandingState(status))
+            {
+                ArmadaMetrics.RecordLanding(ArmadaMetrics.LandingMergeQueue, elapsed, ArmadaMetrics.OutcomeIncomplete, retried);
+                return;
+            }
+
+            string outcome = TerminalOutcome(status);
+            ArmadaMetrics.RecordLanding(ArmadaMetrics.LandingMergeQueue, elapsed, outcome, retried);
+            ArmadaMetrics.RecordMergeEntryProcessed(outcome);
+        }
+
+        private static string TerminalOutcome(MergeStatusEnum status)
+        {
+            if (status == MergeStatusEnum.Landed) return ArmadaMetrics.OutcomeLanded;
+            if (status == MergeStatusEnum.Cancelled) return ArmadaMetrics.OutcomeCanceled;
+            if (status == MergeStatusEnum.PullRequestOpen) return ArmadaMetrics.OutcomePullRequestOpen;
+            return ArmadaMetrics.OutcomeFailed;
         }
 
         private async Task<bool> AdvanceLandingStateMachineOneStepAsync(MergeEntry entry, string repoPath, CancellationToken token)
@@ -2874,6 +2937,7 @@ namespace Armada.Core.Services
             // background. 1 MiB per stream keeps a suite's first failures and its closing totals.
             TimeSpan timeout = TimeSpan.FromSeconds(_Settings.MergeQueueTestTimeoutSeconds);
             BoundedProcessResult result = await RunBoundedProcessAsync(startInfo, timeout, _TestOutputLimitBytes, true, token).ConfigureAwait(false);
+            ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationMergeQueueTest, result);
             if (result.TimedOut)
             {
                 string message = shell + " did not finish within " + ((int)timeout.TotalSeconds) + " seconds and was stopped with its process tree";

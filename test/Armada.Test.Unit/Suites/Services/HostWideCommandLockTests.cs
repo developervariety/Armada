@@ -2,13 +2,17 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics.Metrics;
     using System.IO;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Test.Common;
+    using Armada.Test.Unit.TestHelpers;
 
     /// <summary>
     /// Order, cancellation, capacity and reporting of the host-wide build and test slots.
@@ -75,6 +79,66 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("cancel_next", HostWideCommandLock.Snapshot().HolderKey);
                     nextLease.Dispose();
                 }
+            });
+
+            await RunTest("A granted and a cancelled slot wait are each recorded with their outcome", async () =>
+            {
+                using (ArmadaMetricsRecorder metrics = new ArmadaMetricsRecorder())
+                {
+                    IDisposable holder = await HostWideCommandLock.AcquireAsync("metric_holder", "holder", CancellationToken.None).ConfigureAwait(false);
+                    Task<IDisposable> waiter = HostWideCommandLock.AcquireAsync("metric_waiter", "waiter", CancellationToken.None);
+                    using (CancellationTokenSource cancel = new CancellationTokenSource())
+                    {
+                        Task<IDisposable> cancelled = HostWideCommandLock.AcquireAsync("metric_cancelled", "cancelled request", cancel.Token);
+                        cancel.Cancel();
+                        bool threw = false;
+                        try
+                        {
+                            await cancelled.ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            threw = true;
+                        }
+
+                        AssertTrue(threw, "the cancelled request still ends with its cancellation");
+                    }
+
+                    await Task.Delay(50).ConfigureAwait(false);
+                    holder.Dispose();
+                    IDisposable waiterLease = await waiter.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                    waiterLease.Dispose();
+
+                    List<RecordedMeasurement> waits = metrics.Of("armada.hostslot.wait.seconds");
+                    AssertTrue(waits.Count(m => m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeGranted)) >= 2,
+                        "the immediate grant and the queued grant are both recorded");
+                    AssertTrue(waits.Any(m => m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeCanceled)),
+                        "the cancelled wait is recorded as canceled");
+                    AssertTrue(waits.Any(m => m.Has(ArmadaMetrics.TagOutcome, ArmadaMetrics.OutcomeGranted) && m.Value >= 0.04),
+                        "the queued grant records the time it waited behind the holder");
+                    AssertTrue(waits.All(m => m.Tags.Count == 1), "a slot wait carries only its outcome label, never its owner");
+                }
+            });
+
+            await RunTest("A telemetry listener that throws does not change a slot grant", async () =>
+            {
+                long failuresBefore = ArmadaMetrics.RecordingFailures;
+                using (MeterListener throwing = new MeterListener())
+                {
+                    throwing.InstrumentPublished = (instrument, listener) =>
+                    {
+                        if (instrument.Meter.Name == ArmadaMetrics.MeterName) listener.EnableMeasurementEvents(instrument);
+                    };
+                    throwing.SetMeasurementEventCallback<double>((instrument, value, tags, state) => throw new InvalidOperationException("listener refused the measurement"));
+                    throwing.Start();
+
+                    IDisposable lease = await HostWideCommandLock.AcquireAsync("throwing_listener", "holder", CancellationToken.None).ConfigureAwait(false);
+                    AssertEqual("throwing_listener", HostWideCommandLock.Snapshot().HolderKey, "the slot is granted although the listener threw");
+                    lease.Dispose();
+                    AssertNull(HostWideCommandLock.Snapshot().HolderKey, "the slot is released normally");
+                }
+
+                AssertTrue(ArmadaMetrics.RecordingFailures > failuresBefore, "the refused measurement is counted, not lost silently");
             });
 
             await RunTest("A lease released twice frees the slot once", async () =>
