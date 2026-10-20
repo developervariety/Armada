@@ -1,0 +1,73 @@
+# Adaptive tablet navigation and centered create/edit flows, against the isolated seeded Admiral.
+appId: ${APP_ID}
+name: 04-tablet-smoke
+---
+- runFlow: ../01-sign-in.yaml
+- assertVisible:
+    id: "sidebar-/ask"
+- assertNotVisible:
+    id: "tab-ask"
+- takeScreenshot: tablet-ask
+- tapOn:
+    id: "sidebar-toggle"
+- assertVisible:
+    id: "sidebar-/ask"
+- takeScreenshot: tablet-rail
+- tapOn:
+    id: "sidebar-toggle"
+- tapOn:
+    id: "sidebar-/home"
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 15000
+- takeScreenshot: tablet-dashboard
+- tapOn:
+    id: "sidebar-/approvals"
+- extendedWaitUntil:
+    visible: "Approvals"
+    timeout: 15000
+- takeScreenshot: tablet-approvals
+- openLink: "armada://configuration?tab=endpoints"
+- extendedWaitUntil:
+    visible:
+      id: "endpoints-create"
+    timeout: 15000
+- tapOn:
+    id: "endpoints-create"
+- extendedWaitUntil:
+    visible:
+      id: "endpoint-form-name"
+    timeout: 10000
+- tapOn:
+    id: "endpoint-form-name"
+- inputText: "Tablet draft"
+- hideKeyboard
+- tapOn:
+    id: "endpoint-form-kind"
+- tapOn:
+    id: "endpoint-form-kind-option-Inference"
+- tapOn:
+    id: "endpoint-form-provider"
+- scrollUntilVisible:
+    element:
+      id: "endpoint-form-provider-option-OllamaCloud"
+    direction: DOWN
+    visibilityPercentage: 100
+    centerElement: true
+- tapOn:
+    id: "endpoint-form-provider-option-OllamaCloud"
+- tapOn:
+    id: "endpoint-form-submit"
+- assertVisible: "API key is required."
+- takeScreenshot: tablet-endpoint-validation
+- tapOn:
+    id: "endpoint-form-cancel"
+- openLink: "armada://dispatch?prompt=Tablet%20draft"
+- extendedWaitUntil:
+    visible:
+      id: "run-approve-all"
+    timeout: 15000
+- assertVisible:
+    id: "run-approval-timeout"
+- takeScreenshot: tablet-dispatch-approvals

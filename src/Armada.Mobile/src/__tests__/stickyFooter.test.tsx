@@ -1,4 +1,5 @@
-import { act, screen, within } from '@testing-library/react-native';
+import { FormSheet } from '../components/resource/FormSheet';
+import { act, fireEvent, screen, within } from '@testing-library/react-native';
 import { DeviceEventEmitter, Platform, StyleSheet, Text } from 'react-native';
 import { BottomSheet, Button, FormActions, Screen } from '../components/ui';
 import { renderWithProviders } from '../test/render';
@@ -25,6 +26,17 @@ describe('form footers (primary action reachable without scrolling to the end)',
     const save = within(screen.getByTestId('form-footer')).getByTestId('form-save');
     expect(insideScrollView(save)).toBe(false);
     expect(insideScrollView(screen.getByText('Field 40'))).toBe(true);
+  });
+
+  it('keeps a long form validation error beside its fixed Save action', async () => {
+    await renderWithProviders(<FormSheet open title="Long form" initial={{ name: '' }}
+      fields={() => [{ key: 'name', kind: 'text', label: 'Name', required: true }, ...Array.from({ length: 40 }, (_, i) => ({ key: `extra${i}`, kind: 'text' as const, label: `Extra ${i}` }))]}
+      onClose={() => undefined} onSubmit={async () => undefined} submitLabel="Save" testID="long-form" />);
+    await fireEvent.press(screen.getByTestId('long-form-submit'));
+    const error = screen.getByTestId('long-form-error');
+    expect(error).toHaveTextContent('Name is required.');
+    expect(insideScrollView(error)).toBe(false);
+    expect(insideScrollView(screen.getByTestId('long-form-submit'))).toBe(false);
   });
 
   it('Screen lifts its footer above the keyboard by the overlap measured in the window, under a header', async () => {

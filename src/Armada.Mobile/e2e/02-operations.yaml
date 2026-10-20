@@ -77,7 +77,12 @@ name: 02-operations
       id: "home-voyage"
     direction: UP
     visibilityPercentage: 100
-    centerElement: true
+# This action is near the page's start and cannot be centered. Move to the top so it is clear of chrome.
+- swipe:
+    direction: DOWN
+    duration: 300
+- assertVisible:
+    id: "home-voyage"
 - tapOn:
     id: "home-voyage"
 - extendedWaitUntil:

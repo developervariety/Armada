@@ -220,14 +220,16 @@ function useFormSheet({ open, initial, fields, submitLabel, onSubmit, onClose, v
             );
         }
       })}
-      {error ? <AppText color="danger" accessibilityRole="alert" style={styles.error} testID={testID ? `${testID}-error` : undefined}>{error}</AppText> : null}
     </>
   );
   const actions = (
+    <>
+      {error ? <AppText color="danger" accessibilityRole="alert" style={styles.error} testID={testID ? `${testID}-error` : undefined}>{error}</AppText> : null}
     <FormActions>
-      <Button label={t('Cancel')} variant="ghost" onPress={onClose} disabled={saving} />
+      <Button label={t('Cancel')} variant="ghost" onPress={onClose} disabled={saving} testID={testID ? `${testID}-cancel` : undefined} />
       <Button label={saving ? t('Saving...') : submitLabel} onPress={() => void submit()} busy={saving} testID={testID ? `${testID}-submit` : undefined} />
     </FormActions>
+    </>
   );
   return { body, actions };
 }

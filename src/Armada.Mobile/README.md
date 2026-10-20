@@ -60,6 +60,8 @@ temp directory (never `~/.armada`), builds and installs a Release build of the a
 password-change screen, land on Ask, walk the tabs and a few routes, switch the theme, and sign out. Reports and
 screenshots go to the `--output` folder (printed at the end). It stops everything it started.
 
+For the tablet-specific suite, add `--flows src/Armada.Mobile/e2e/tablet` (and an iPad device or `--avd Armada_Tablet`). It retains list/detail and sheet checks and adds endpoint validation plus per-run approval controls. The default suite uses phone tab navigation.
+
 ## How the code is shared with the dashboard
 
 ```

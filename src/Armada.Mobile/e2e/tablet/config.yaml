@@ -10,3 +10,4 @@ executionOrder:
     - 01-tablet-sign-in
     - 02-tablet-list-detail
     - 03-tablet-sheet-ask
+    - 04-tablet-smoke

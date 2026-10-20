@@ -67,6 +67,6 @@ name: 01-sign-in
       id: "ask-screen"
     timeout: 20000
 - assertVisible:
-    id: "tab-ask"
+    id: "(tab-ask|sidebar-/ask)"
 - assertVisible: "Ask Armada"
 - takeScreenshot: ask
