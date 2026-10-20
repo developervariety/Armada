@@ -1,0 +1,9 @@
+version: 1
+name: Armada MCP session lifecycle fixture
+slug: mcp-sessions
+protocol: http
+interceptRequests: true
+scenarios:
+  - name: default
+    path: ./default.js
+    default: true

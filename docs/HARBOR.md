@@ -569,3 +569,22 @@ protects jobs when connected to an older Admiral.
 API captain `run_process` commands are noninteractive and receive EOF on standard input. Use an explicit
 heredoc or input redirection when a command needs data. A bare `cat` or `read` cannot wait on Harbor's
 inherited terminal input until the tool timeout.
+
+### API captain MCP session recovery
+
+Long-running API captains can outlive an idle MCP session. When a session-bearing
+request receives HTTP 404, the runtime initializes a replacement session without the
+expired session header, using the same scoped authentication, then replays the rejected
+request once. A second 404 is surfaced. Authentication failures, timeouts and other
+HTTP errors are not replayed by this recovery path.
+
+Reproduce the session lifecycle locally with the committed Postman fixture:
+
+```sh
+postman simulation run postman/simulations/model-providers.sim.yaml --port 4918 --no-history --output ndjson
+# In another terminal:
+ARMADA_MCP_SIMULATION=http://127.0.0.1:4918/mcp dotnet run --project src/Test.Automated -f net10.0 -- --suites Runtimes.McpToolClientProtocol
+```
+
+This exercises the actual HTTP client against expired sessions, repeated expiry, and
+permission rejection. It does not require production credentials.

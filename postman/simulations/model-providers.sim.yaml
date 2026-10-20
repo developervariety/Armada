@@ -3,3 +3,5 @@ routing: path
 mocks:
   - routeKey: xai
     path: ../mocks/model-providers/config.yaml
+  - routeKey: mcp
+    path: ../mocks/mcp-sessions/config.yaml

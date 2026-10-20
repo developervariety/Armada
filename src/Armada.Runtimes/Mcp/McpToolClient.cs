@@ -40,6 +40,7 @@ namespace Armada.Runtimes.Mcp
         private readonly string _Header = "[McpToolClient] ";
         private string? _SessionId;
         private int _RpcId;
+        private readonly SemaphoreSlim _SessionRecovery = new SemaphoreSlim(1, 1);
         private bool _Disposed;
 
         #endregion
@@ -252,8 +253,35 @@ namespace Armada.Runtimes.Mcp
 
         private async Task<T?> SendAsync<T>(string method, object parameters, CancellationToken token) where T : class
         {
+            string? session = _SessionId;
+            try
+            {
+                return await SendOnceAsync<T>(method, parameters, token).ConfigureAwait(false);
+            }
+            catch (McpClientException ex) when (ex.HttpStatusCode == 404
+                && !String.IsNullOrEmpty(session) && method != "initialize")
+            {
+                // A session-bearing 404 means the server discarded this session. It has not
+                // executed the call. Never replay ambiguous timeouts or other HTTP failures.
+                await _SessionRecovery.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    if (_SessionId == session)
+                    {
+                        _SessionId = null;
+                        await InitializeAsync(token).ConfigureAwait(false);
+                    }
+                }
+                finally { _SessionRecovery.Release(); }
+                // Bounded: another 404 is surfaced to the caller, not recursively retried.
+                return await SendOnceAsync<T>(method, parameters, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<T?> SendOnceAsync<T>(string method, object parameters, CancellationToken token) where T : class
+        {
             string id = NextId();
-            HttpRequestMessage request = BuildRequest(new
+            using HttpRequestMessage request = BuildRequest(new
             {
                 jsonrpc = "2.0",
                 id = Int64.Parse(id, CultureInfo.InvariantCulture),
@@ -307,7 +335,7 @@ namespace Armada.Runtimes.Mcp
 
         private async Task SendNotificationAsync(string method, CancellationToken token)
         {
-            HttpRequestMessage request = BuildRequest(new
+            using HttpRequestMessage request = BuildRequest(new
             {
                 jsonrpc = "2.0",
                 method = method,

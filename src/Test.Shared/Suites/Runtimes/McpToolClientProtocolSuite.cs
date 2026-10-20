@@ -178,6 +178,60 @@ namespace Test.Shared.Suites.Runtimes
                 AssertTrue(match!.Result!.IsError, "a string id matches its numeric request id");
             }));
 
+            cases.Add(CaseAsync("session_recovery_is_bounded", "A second session 404 is surfaced after exactly one replacement and replay", TestTags.Negative, async () =>
+            {
+                ToolClientStubHandler handler = new ToolClientStubHandler();
+                handler.Respond = request => request.Method == "initialize"
+                    ? ToolClientStubHandler.Json(request.Id, "{}")
+                    : ToolClientStubHandler.Raw(HttpStatusCode.NotFound, "session expired");
+                using McpToolClient client = new McpToolClient(_Endpoint, handler);
+                await client.InitializeAsync().ConfigureAwait(false);
+                McpClientException? failure = null;
+                try { await client.CallToolAsync("write_memory", "{}").ConfigureAwait(false); }
+                catch (McpClientException ex) { failure = ex; }
+                AssertEqual(404, failure!.HttpStatusCode!.Value);
+                AssertEqual(2, handler.Requests.FindAll(r => r.Method == "initialize").Count);
+                AssertEqual(2, handler.Requests.FindAll(r => r.Method == "tools/call").Count);
+            }));
+
+            foreach (HttpStatusCode status in new[] { HttpStatusCode.NotFound, HttpStatusCode.Forbidden, HttpStatusCode.ServiceUnavailable })
+            {
+                cases.Add(CaseAsync("no_session_no_replay_" + (int)status, "Uninitialized requests do not replay HTTP " + (int)status, TestTags.Negative, async () =>
+                {
+                    ToolClientStubHandler handler = new ToolClientStubHandler();
+                    handler.Respond = request => ToolClientStubHandler.Raw(status, "failed");
+                    using McpToolClient client = new McpToolClient(_Endpoint, handler);
+                    McpClientException? failure = null;
+                    try { await client.CallToolAsync("write_memory", "{}").ConfigureAwait(false); }
+                    catch (McpClientException ex) { failure = ex; }
+                    AssertEqual((int)status, failure!.HttpStatusCode!.Value);
+                    AssertEqual(1, handler.Requests.Count);
+                }));
+            }
+
+            string? simulation = Environment.GetEnvironmentVariable("ARMADA_MCP_SIMULATION");
+            if (!String.IsNullOrWhiteSpace(simulation))
+            {
+                foreach (string scenario in new[] { "expire", "always", "forbidden" })
+                {
+                    cases.Add(CaseAsync("http_session_" + scenario, "Real HTTP MCP session recovery: " + scenario, TestTags.Negative, async () =>
+                    {
+                        using McpToolClient client = new McpToolClient(simulation!.TrimEnd('/') + "/" + scenario, sessionToken: "session-fixture-token");
+                        await client.InitializeAsync().ConfigureAwait(false);
+                        McpClientException? failure = null;
+                        string? result = null;
+                        try { result = await client.CallToolAsync("update_vessel_context", "{}").ConfigureAwait(false); }
+                        catch (McpClientException ex) { failure = ex; }
+                        if (scenario == "expire")
+                        {
+                            AssertNull(failure, "expired session must be reinitialized without its old header");
+                            AssertEqual("memory persisted", result);
+                        }
+                        else AssertEqual(scenario == "always" ? 404 : 403, failure!.HttpStatusCode!.Value);
+                    }));
+                }
+            }
+
             return new TestSuiteDescriptor(
                 suiteId: _SuiteId,
                 displayName: "MCP Tool Client Protocol",
