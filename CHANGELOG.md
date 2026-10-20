@@ -28,6 +28,33 @@ upstream integrations and excludes changes already present at that baseline.
   Reads run under a 30-second deadline, a 4 MiB output limit, four concurrent
   reads, and 60 calls per mission credential; caller cancellation propagates,
   including an MCP client's cancellation of the tool call.
+- Integration validation for both landing paths. The direct landing and the
+  merge queue measure the merged commit itself before the target branch moves
+  or is pushed, through one shared validator that runs the vessel profile's
+  `BuildCommand` and `UnitTestCommand` as Checks against that commit. A Check
+  that already passed at exactly that commit with the same command is reused,
+  so a fast-forward landing of a measured tip runs no second gate. Each verdict
+  is a `landing.integration_validation` event that names the source,
+  target-base and integration commits and the linked Check IDs; the Checks link
+  no mission or voyage, so branch-review gates stay separate. A failing combined
+  tree is refused with `integration_validation_failed` and leaves the target,
+  its remote and the branch unchanged. A target that moves during validation
+  makes the candidate stale: the direct landing retries it as target-branch
+  drift, and the queue sends the entry back to `Rebasing`, both bounded by
+  `MaxLandingRetries`. The queue publishes only the commit its latest evidence
+  names, so a restart never publishes on evidence for another candidate.
+  No-test-command policy: a vessel whose profile has neither command is
+  refused with `integration_validation_command_missing`, also when the queue
+  has no `MergeQueueTestCommand` (such an entry passed with no tests before).
+  `integrationValidation.noChecksRequiredVesselIds` lists vessels that require
+  no checks (outcome `NotRequired`), and `integrationValidation.enabled: false`
+  turns the validation off (outcome `Disabled`). Live impact: a vessel with both
+  commands in its profile keeps landing, and each landing that is not a
+  fast-forward of a measured tip now runs its Build and UnitTest Checks under
+  the host-wide command slot. A vessel without either command stops landing
+  until a command is added or the vessel is listed. `docs/MERGING.md`,
+  "Integration Validation", describes the flow.
+
 - Source-control phase telemetry on the `Armada` meter. Duration histograms
   in seconds cover repository-lock wait, fetch, primary and sibling checkout,
   sibling artifact copy, host-command-slot wait, validation commands and

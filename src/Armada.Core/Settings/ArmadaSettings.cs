@@ -965,6 +965,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Whether a landing validates the actual merged commit against the vessel's required checks
+        /// before it advances or publishes the target branch, and which vessels explicitly require none.
+        /// </summary>
+        public IntegrationValidationSettings IntegrationValidation
+        {
+            get => _IntegrationValidation;
+            set => _IntegrationValidation = value ?? new IntegrationValidationSettings();
+        }
+
+        /// <summary>
         /// Disk-lifecycle settings that bound and make observable the reclamation of
         /// Armada-owned storage. Destructive periodic cleanup is off by default (dry-run
         /// observability first, per the direct-edit rollout constraint).
@@ -1060,6 +1070,7 @@ namespace Armada.Core.Settings
         private DockBoundarySettings _DockBoundary = new DockBoundarySettings();
         private DefinitionOfDoneSettings _DefinitionOfDone = new DefinitionOfDoneSettings();
         private VoyageCheckArmingSettings _VoyageCheckArming = new VoyageCheckArmingSettings();
+        private IntegrationValidationSettings _IntegrationValidation = new IntegrationValidationSettings();
         private DiskLifecycleSettings _DiskLifecycle = new DiskLifecycleSettings();
         private TelemetrySettings _Telemetry = new TelemetrySettings();
         private string _SettingsFilePath = DefaultSettingsPath;
@@ -1228,6 +1239,8 @@ namespace Armada.Core.Settings
             DockBoundary = source.DockBoundary;
             DefinitionOfDone.CopyFrom(source.DefinitionOfDone);
             VoyageCheckArming = source.VoyageCheckArming;
+            // Read through the shared settings instance on every landing.
+            IntegrationValidation = source.IntegrationValidation;
             DiskLifecycle = source.DiskLifecycle;
             Architect = source.Architect;
 

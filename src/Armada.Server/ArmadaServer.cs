@@ -436,6 +436,16 @@ namespace Armada.Server
             _VesselReadinessService = new VesselReadinessService(_Database, _WorkflowProfileService, _Logging);
             _EnvironmentService = new DeploymentEnvironmentService(_Database, _WorkflowProfileService, _Logging);
             _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging, () => _Settings.BannedDiffPatterns);
+
+            // Both landing paths validate the actual merged commit through this one validator before the
+            // target moves; it needs the check service, so it is wired after both landing services exist.
+            IntegrationCandidateValidator integrationValidator = new IntegrationCandidateValidator(
+                _Logging, _Database, _Settings, _CheckRunService, _WorkflowProfileService);
+            _LandingService.SetIntegrationValidator(integrationValidator);
+            if (_MergeQueue is MergeQueueService concreteMergeQueue)
+                concreteMergeQueue.SetIntegrationValidator(integrationValidator);
+            else
+                _Logging.Warn(_Header + "merge queue " + _MergeQueue.GetType().Name + " takes no integration validator; queue landings are measured only by the merge-queue test command");
             _ObjectiveService = new ObjectiveService(_Database);
             _ObjectiveDispatchPreviewService = new ObjectiveDispatchPreviewService(
                 _Database,

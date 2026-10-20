@@ -43,6 +43,7 @@ namespace Armada.Core.Services
         private JudgeFollowUpService _JudgeFollowUps;
         private LandingEvidenceCollector _LandingEvidence;
         private IncidentService _Incidents;
+        private IntegrationCandidateValidator? _IntegrationValidator;
 
         private bool _Processing = false;
         private readonly object _ProcessLock = new object();
@@ -117,6 +118,19 @@ namespace Armada.Core.Services
         public void SetLeakHunkAdapter(LeakHunkAdapter adapter)
         {
             _LeakHunkAdapter = adapter;
+        }
+
+        /// <summary>
+        /// Wire the shared integration-candidate validator post-construction. The validator depends on the
+        /// check service, which is built after this one. With it, the Testing step runs the vessel's
+        /// required checks against the integration commit, and the Pushing step publishes only a candidate
+        /// whose recorded evidence names that exact commit and whose target has not moved. Without it the
+        /// queue runs only its configured test command and logs a warning on every entry.
+        /// </summary>
+        /// <param name="validator">Shared integration-candidate validator.</param>
+        public void SetIntegrationValidator(IntegrationCandidateValidator validator)
+        {
+            _IntegrationValidator = validator ?? throw new ArgumentNullException(nameof(validator));
         }
 
         #endregion
@@ -1006,6 +1020,13 @@ namespace Armada.Core.Services
                     return true;
                 }
 
+                if (_IntegrationValidator != null)
+                {
+                    string? stale = await DescribeUnpublishableCandidateAsync(entry, repoPath, token).ConfigureAwait(false);
+                    if (stale != null)
+                        return await RebuildStaleCandidateAsync(entry, stale, token).ConfigureAwait(false);
+                }
+
                 await LandEntryAsync(entry, repoPath, GetIntegrationBranch(entry), token).ConfigureAwait(false);
                 await CleanupWorktreeAsync(entry, GetIntegrationPath(entry), token).ConfigureAwait(false);
 
@@ -1453,6 +1474,39 @@ namespace Armada.Core.Services
                 return;
             }
 
+            if (_IntegrationValidator != null)
+            {
+                IntegrationValidationResult validation = await ValidateQueueCandidateAsync(entry, evidence.Vessel, integrationPath, token).ConfigureAwait(false);
+                if (!validation.AllowsPublication)
+                {
+                    _Logging.Warn(_Header + "integration candidate refused for " + entryTag + ": " + validation.Reason);
+                    bool codeFailure = validation.Outcome == IntegrationValidationOutcomeEnum.Failed;
+                    if (codeFailure)
+                    {
+                        int refusedDiffLineCount = await ComputeDiffLineCountAsync(integrationPath, entry.TargetBranch, entry.BranchName, token).ConfigureAwait(false);
+                        ApplyClassification(entry, new MergeFailureContext
+                        {
+                            TestExitCode = 1,
+                            TestOutput = validation.Reason,
+                            ConflictedFiles = new List<string>(),
+                            DiffLineCount = refusedDiffLineCount
+                        });
+                    }
+
+                    // A failing combined tree is a code problem recovery can act on; a missing command or an
+                    // unrunnable check is configuration, which a rescue cannot fix.
+                    await TransitionEntryToFailureAsync(entry, TruncateOutput(validation.Reason), token, fireRecovery: codeFailure).ConfigureAwait(false);
+                    await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
+                    return;
+                }
+            }
+            else
+            {
+                _Logging.Warn(_Header + "no integration validator is wired; " + entryTag + " is measured only by the configured merge-queue test command");
+            }
+
+            // An explicitly configured queue test command still runs in the integration worktree after the
+            // shared validation: it is an extra gate the operator asked for, not a substitute for it.
             string testCommand = entry.TestCommand ?? _Settings.MergeQueueTestCommand ?? "";
             if (String.IsNullOrEmpty(testCommand)) return;
 
@@ -1488,6 +1542,132 @@ namespace Armada.Core.Services
             }
 
             _Logging.Info(_Header + "tests PASSED for " + entryTag);
+        }
+
+        /// <summary>
+        /// Validate the integration commit this entry built through the shared validator.
+        /// </summary>
+        private async Task<IntegrationValidationResult> ValidateQueueCandidateAsync(MergeEntry entry, Vessel? vessel, string integrationPath, CancellationToken token)
+        {
+            if (vessel == null && !String.IsNullOrWhiteSpace(entry.VesselId))
+                vessel = await _Database.Vessels.ReadAsync(entry.VesselId, token).ConfigureAwait(false);
+            if (vessel == null)
+            {
+                return new IntegrationValidationResult
+                {
+                    Outcome = IntegrationValidationOutcomeEnum.Unavailable,
+                    Reason = "integration_validation_unavailable: vessel " + (entry.VesselId ?? "(none)") + " could not be read, so the integration commit cannot be measured"
+                };
+            }
+
+            string integrationCommit = await ResolveCommitAsync(integrationPath, "HEAD", token).ConfigureAwait(false);
+            string? mergeRef = await ResolveMergeRefAsync(integrationPath, entry.BranchName, token).ConfigureAwait(false);
+            string? sourceCommit = String.IsNullOrEmpty(mergeRef) ? null : await TryResolveCommitAsync(integrationPath, mergeRef!, token).ConfigureAwait(false);
+
+            // A merge commit records the target it was built on as its first parent. A fast-forward has no
+            // merge commit, so the base is where the target and the candidate meet.
+            string? targetBase;
+            if (await TryResolveCommitAsync(integrationPath, "HEAD^2", token).ConfigureAwait(false) != null)
+            {
+                targetBase = await TryResolveCommitAsync(integrationPath, "HEAD^1", token).ConfigureAwait(false);
+            }
+            else
+            {
+                GitProcessResult meet = await RunGitCapturingAsync(integrationPath, token, "merge-base", "refs/heads/" + entry.TargetBranch, "HEAD").ConfigureAwait(false);
+                targetBase = meet.ExitCode == 0 && !String.IsNullOrWhiteSpace(meet.StandardOutput) ? meet.StandardOutput.Trim() : null;
+            }
+
+            IntegrationCandidate candidate = new IntegrationCandidate
+            {
+                MissionId = entry.MissionId,
+                MergeEntryId = entry.Id,
+                LandingPath = "MergeQueue",
+                TargetBranch = entry.TargetBranch,
+                SourceBranch = entry.BranchName,
+                SourceCommit = sourceCommit,
+                TargetBaseCommit = targetBase,
+                IntegrationCommit = integrationCommit,
+                TenantId = entry.TenantId,
+                UserId = entry.UserId
+            };
+            return await _IntegrationValidator!.ValidateAsync(vessel, candidate, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Why the entry's integration commit may not be published now, or null when it may.
+        /// </summary>
+        /// <remarks>
+        /// Publication pushes the integration commit itself, so the published tree is the validated tree
+        /// only when the latest recorded evidence for this entry allows publication and names exactly that
+        /// commit, and neither the remote nor the local target holds work the commit does not contain.
+        /// Evidence for a different commit, unreadable evidence, and a moved target all refuse, so a restart
+        /// between validation and publication never publishes on evidence for another candidate. Git's own
+        /// refusal of a non-fast-forward push covers a move after this read.
+        /// </remarks>
+        private async Task<string?> DescribeUnpublishableCandidateAsync(MergeEntry entry, string repoPath, CancellationToken token)
+        {
+            string integrationBranch = GetIntegrationBranch(entry);
+            string? integrationHead = await TryResolveCommitAsync(repoPath, "refs/heads/" + integrationBranch, token).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(integrationHead))
+                return "the integration branch " + integrationBranch + " does not resolve";
+
+            IntegrationValidationResult? evidence = await _IntegrationValidator!.ReadLatestMergeEntryEvidenceAsync(entry.Id, token).ConfigureAwait(false);
+            if (evidence == null)
+                return "no readable integration evidence names candidate " + integrationHead;
+            if (!evidence.AllowsPublication)
+                return "the latest integration evidence refused publication (" + evidence.Outcome + ")";
+            if (!String.Equals(evidence.Candidate.IntegrationCommit, integrationHead, StringComparison.OrdinalIgnoreCase))
+                return "the integration evidence names candidate " + evidence.Candidate.IntegrationCommit + ", not " + integrationHead;
+
+            try
+            {
+                await _Git.FetchAsync(repoPath, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return "the remote target could not be fetched to confirm it has not moved: " + ex.Message;
+            }
+
+            string? originHead = await TryResolveCommitAsync(repoPath, "refs/remotes/origin/" + entry.TargetBranch, token).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(originHead) && !await IsAncestorAsync(repoPath, originHead!, integrationHead!, token).ConfigureAwait(false))
+                return "origin/" + entry.TargetBranch + " moved to " + originHead + ", which candidate " + integrationHead + " does not contain";
+
+            string? localHead = await TryResolveCommitAsync(repoPath, "refs/heads/" + entry.TargetBranch, token).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(localHead) && !await IsAncestorAsync(repoPath, localHead!, integrationHead!, token).ConfigureAwait(false))
+                return entry.TargetBranch + " moved to " + localHead + ", which candidate " + integrationHead + " does not contain";
+
+            return null;
+        }
+
+        /// <summary>
+        /// Send an entry whose candidate may not be published back to Rebasing, so it is rebuilt on the
+        /// current target and validated again. Bounded by <see cref="ArmadaSettings.MaxLandingRetries"/>
+        /// through the landing job's retry count; past the bound the entry fails with the reason.
+        /// </summary>
+        private async Task<bool> RebuildStaleCandidateAsync(MergeEntry entry, string stale, CancellationToken token)
+        {
+            LandingJob job = await EnsureLandingJobAsync(entry, token).ConfigureAwait(false);
+            int maxRetries = _Settings.MaxLandingRetries;
+            if (job.RetryCount >= maxRetries)
+            {
+                string reason = "target_branch_drift_retry_exhausted: maxLandingRetries=" + maxRetries + "; the candidate was not published: " + stale;
+                _Logging.Warn(_Header + reason + " for " + entry.Id);
+                await TransitionEntryToFailureAsync(entry, reason, token, fireRecovery: false).ConfigureAwait(false);
+                await CleanupWorktreeAsync(entry, GetIntegrationPath(entry), token).ConfigureAwait(false);
+                return false;
+            }
+
+            job.RetryCount++;
+            job.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.LandingJobs.UpdateAsync(job, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "integration candidate for " + entry.Id + " may not be published: " + stale
+                + "; rebuilding and validating again (retry " + job.RetryCount + " of " + maxRetries + ")");
+            await PersistStatusAsync(entry, MergeStatusEnum.Rebasing, token).ConfigureAwait(false);
+            return true;
         }
 
         private async Task PersistStatusAsync(MergeEntry entry, MergeStatusEnum status, CancellationToken token, bool startedTests = false)

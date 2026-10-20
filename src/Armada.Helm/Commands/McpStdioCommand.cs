@@ -149,7 +149,12 @@ namespace Armada.Helm.Commands
                 readinessService,
                 git,
                 armadaSettings);
-            IMergeQueueService mergeQueueService = new MergeQueueService(logging, database, armadaSettings, git, mergeFailureClassifier, codeIndexService: codeIndexService);
+            MergeQueueService concreteMergeQueue = new MergeQueueService(logging, database, armadaSettings, git, mergeFailureClassifier, codeIndexService: codeIndexService);
+            IntegrationCandidateValidator integrationValidator = new IntegrationCandidateValidator(
+                logging, database, armadaSettings, checkRunService, workflowProfileService);
+            landingService.SetIntegrationValidator(integrationValidator);
+            concreteMergeQueue.SetIntegrationValidator(integrationValidator);
+            IMergeQueueService mergeQueueService = concreteMergeQueue;
 
             // The mission status transition tool refuses without the shared transition service, so the
             // stdio host builds it the same way the admiral does, over its own landing handler.

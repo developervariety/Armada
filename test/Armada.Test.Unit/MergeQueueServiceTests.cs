@@ -1,7 +1,9 @@
 namespace Armada.Test.Unit
 {
     using System.Diagnostics;
+    using System.Text.Json;
     using Armada.Core;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Recovery;
@@ -871,6 +873,326 @@ namespace Armada.Test.Unit
                     try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
                 }
             });
+
+            // The queue measures the merged candidate, not the branch. A branch that passes alone but breaks
+            // the target once merged with newer target work fails the entry by name and publishes nothing.
+            await RunTest("ProcessSingle_CombinedTreeFailsChecks_FailsEntryAndLeavesTargetsUnchanged", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_icv_red_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir, "right.flag").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repos.WorkingDir, "left.flag"), "left\n").ConfigureAwait(false);
+                    await RunGitAsync(repos.WorkingDir, "add", "left.flag").ConfigureAwait(false);
+                    await RunGitAsync(repos.WorkingDir, "commit", "-m", "Add left.flag").ConfigureAwait(false);
+                    await RunGitAsync(repos.WorkingDir, "push", "origin", "main").ConfigureAwait(false);
+                    string remoteBefore = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    QueueCheckFixture checks = await CreateQueueCheckFixtureAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        Vessel vessel = await CreateQueueVesselAsync(testDb.Driver, repos, "mq-icv-red-vessel").ConfigureAwait(false);
+                        await CreateQueueCheckProfileAsync(testDb.Driver, vessel, checks).ConfigureAwait(false);
+                        MergeEntry entry = await CreateQueuedEntryAsync(testDb.Driver, vessel, repos).ConfigureAwait(false);
+                        MergeQueueService service = CreateValidatedQueue(logging, testDb.Driver, settings);
+
+                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "A failing combined tree fails the entry");
+                        AssertStartsWith("integration_validation_failed:", afterProcess.TestOutput ?? "", "The refusal is named");
+                        AssertEqual(remoteBefore, (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(),
+                            "Nothing is published to the remote target");
+                        AssertEqual(remoteBefore, (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(),
+                            "The local target holds no unpublished candidate");
+                        AssertEqual(1, CountQueueCheckRuns(checks), "The check ran once, against the merged candidate");
+
+                        List<IntegrationValidationResult> evidence = await ReadEntryEvidenceAsync(testDb.Driver, entry.Id).ConfigureAwait(false);
+                        AssertEqual(1, evidence.Count, "The refusal is recorded as evidence");
+                        AssertEqual(IntegrationValidationOutcomeEnum.Failed, evidence[0].Outcome, "The evidence names the failure");
+                        AssertEqual(remoteBefore, evidence[0].Candidate.TargetBaseCommit, "The evidence names the target base");
+                        AssertEqual(1, evidence[0].CheckRunIds.Count, "The evidence links the deciding check");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
+            // An entry with no merge-queue test command and no Build or UnitTest command in any profile cannot be
+            // measured. It fails by name instead of landing unmeasured.
+            await RunTest("ProcessSingle_NoRequiredCommandAnywhere_FailsByNameInsteadOfLanding", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_icv_missing_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    string remoteBefore = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        Vessel vessel = await CreateQueueVesselAsync(testDb.Driver, repos, "mq-icv-missing-vessel").ConfigureAwait(false);
+                        MergeEntry entry = await CreateQueuedEntryAsync(testDb.Driver, vessel, repos).ConfigureAwait(false);
+                        MergeQueueService service = CreateValidatedQueue(logging, testDb.Driver, settings);
+
+                        MergeEntry? afterProcess = await service.ProcessSingleAsync(entry.Id).ConfigureAwait(false);
+
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Failed, afterProcess!.Status, "An unmeasurable candidate does not land");
+                        AssertStartsWith("integration_validation_command_missing:", afterProcess.TestOutput ?? "", "The missing command is named");
+                        AssertEqual(remoteBefore, (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(),
+                            "Nothing is published to the remote target");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
+            // A remote target that moves after the candidate was measured makes that candidate stale. The queue does
+            // not publish it; it rebuilds the candidate on the new target, measures it, and publishes that one.
+            await RunTest("ProcessSingle_RemoteTargetMovesAfterValidation_RebuildsAndRevalidatesBeforePublishing", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_icv_drift_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    string moverDir = Path.Combine(rootDir, "mover");
+                    await RunGitAsync(rootDir, "clone", repos.RemoteDir, moverDir).ConfigureAwait(false);
+                    await RunGitAsync(moverDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(moverDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(moverDir, "mover.txt"), "mover\n").ConfigureAwait(false);
+                    await RunGitAsync(moverDir, "add", "mover.txt").ConfigureAwait(false);
+                    await RunGitAsync(moverDir, "commit", "-m", "Move the target").ConfigureAwait(false);
+                    string moverTip = (await RunGitAsync(moverDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    string captainHead = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/" + repos.CaptainBranch).ConfigureAwait(false)).Trim();
+
+                    QueueCheckFixture checks = await CreateQueueCheckFixtureAsync(rootDir).ConfigureAwait(false);
+                    await File.WriteAllTextAsync(checks.HookFile, "git -C " + moverDir + " push origin " + moverTip + ":refs/heads/main\n").ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        settings.MaxLandingRetries = 2;
+                        Vessel vessel = await CreateQueueVesselAsync(testDb.Driver, repos, "mq-icv-drift-vessel").ConfigureAwait(false);
+                        await CreateQueueCheckProfileAsync(testDb.Driver, vessel, checks).ConfigureAwait(false);
+                        MergeEntry entry = await CreateQueuedEntryAsync(testDb.Driver, vessel, repos).ConfigureAwait(false);
+                        MergeQueueService service = CreateValidatedQueue(logging, testDb.Driver, settings);
+
+                        MergeEntry? afterProcess = await ProcessUntilSettledAsync(service, testDb.Driver, entry.Id).ConfigureAwait(false);
+
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Landed, afterProcess!.Status, "The rebuilt candidate lands: " + (afterProcess.TestOutput ?? ""));
+                        LandingJob? job = await testDb.Driver.LandingJobs.ReadByMergeEntryAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(1, job?.RetryCount ?? -1, "The stale candidate cost exactly one bounded retry");
+                        AssertEqual(2, CountQueueCheckRuns(checks), "The stale and the rebuilt candidate were each measured");
+
+                        string remoteAfter = (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        await RunGitAsync(repos.RemoteDir, "merge-base", "--is-ancestor", moverTip, remoteAfter).ConfigureAwait(false);
+                        await RunGitAsync(repos.RemoteDir, "merge-base", "--is-ancestor", captainHead, remoteAfter).ConfigureAwait(false);
+
+                        List<IntegrationValidationResult> evidence = await ReadEntryEvidenceAsync(testDb.Driver, entry.Id).ConfigureAwait(false);
+                        AssertEqual(2, evidence.Count, "Each candidate has its own evidence");
+                        AssertNotEqual(evidence[0].Candidate.IntegrationCommit, evidence[1].Candidate.IntegrationCommit,
+                            "Evidence for one candidate is never reused for another");
+                        AssertEqual(remoteAfter, evidence[1].Candidate.IntegrationCommit, "The published commit is the one the latest evidence measured");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+
+            // Publication reads the recorded evidence, so a fresh service after a restart publishes only the commit
+            // the evidence measured. An integration branch that gained an unmeasured commit is rebuilt and measured.
+            await RunTest("Reconcile_AfterRestartEvidenceNamesAnotherCandidate_RebuildsInsteadOfPublishing", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_mq_icv_restart_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    GitRepoSetup repos = await CreateGitSetupAsync(rootDir).ConfigureAwait(false);
+                    QueueCheckFixture checks = await CreateQueueCheckFixtureAsync(rootDir).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        settings.MaxLandingRetries = 2;
+                        Vessel vessel = await CreateQueueVesselAsync(testDb.Driver, repos, "mq-icv-restart-vessel").ConfigureAwait(false);
+                        await CreateQueueCheckProfileAsync(testDb.Driver, vessel, checks).ConfigureAwait(false);
+                        MergeEntry entry = await CreateQueuedEntryAsync(testDb.Driver, vessel, repos).ConfigureAwait(false);
+
+                        MergeQueueService beforeRestart = CreateValidatedQueue(logging, testDb.Driver, settings);
+                        MergeEntry? current = null;
+                        for (int step = 0; step < 6; step++)
+                        {
+                            await beforeRestart.ReconcileLandingStateMachineAsync().ConfigureAwait(false);
+                            current = await testDb.Driver.MergeEntries.ReadAsync(entry.Id).ConfigureAwait(false);
+                            if (current == null || current.Status == MergeStatusEnum.Passed || current.Status == MergeStatusEnum.Failed) break;
+                        }
+                        AssertNotNull(current, "Entry before restart");
+                        AssertEqual(MergeStatusEnum.Passed, current!.Status, "The candidate is measured and waits to be published: " + (current.TestOutput ?? ""));
+
+                        string integrationPath = Path.Combine(settings.DocksDirectory, "_merge-queue", entry.Id);
+                        await RunGitAsync(integrationPath, "commit", "--allow-empty", "-m", "Unmeasured commit").ConfigureAwait(false);
+                        string unmeasured = (await RunGitAsync(integrationPath, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+
+                        MergeQueueService afterRestart = CreateValidatedQueue(logging, testDb.Driver, settings);
+                        MergeEntry? afterProcess = await ProcessUntilSettledAsync(afterRestart, testDb.Driver, entry.Id).ConfigureAwait(false);
+
+                        AssertNotNull(afterProcess, "Entry after process");
+                        AssertEqual(MergeStatusEnum.Landed, afterProcess!.Status, "The rebuilt candidate lands: " + (afterProcess.TestOutput ?? ""));
+                        string captainHead = (await RunGitAsync(repos.BareDir, "rev-parse", "refs/heads/" + repos.CaptainBranch).ConfigureAwait(false)).Trim();
+                        string published = await RunGitAsync(repos.RemoteDir, "rev-list", "refs/heads/main").ConfigureAwait(false);
+                        AssertFalse(published.Contains(unmeasured, StringComparison.OrdinalIgnoreCase), "The unmeasured commit is never published");
+                        AssertEqual(captainHead, (await RunGitAsync(repos.RemoteDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(),
+                            "The rebuilt fast-forward candidate is published");
+
+                        // The rebuilt candidate is the commit that was measured before the restart, so its passing
+                        // check decides it again; the unmeasured commit was never measured and never decides anything.
+                        AssertEqual(1, CountQueueCheckRuns(checks), "The measured commit's passing check is reused, not run twice");
+                        List<IntegrationValidationResult> evidence = await ReadEntryEvidenceAsync(testDb.Driver, entry.Id).ConfigureAwait(false);
+                        AssertEqual(2, evidence.Count, "The rebuilt candidate has its own evidence");
+                        AssertTrue(evidence.All(e => e.Candidate.IntegrationCommit == captainHead), "No evidence names the unmeasured commit");
+                        AssertEqual(1, evidence[1].ReusedCheckRunIds.Count, "The rebuilt candidate reused the check that measured that commit");
+                        LandingJob? job = await testDb.Driver.LandingJobs.ReadByMergeEntryAsync(entry.Id).ConfigureAwait(false);
+                        AssertEqual(1, job?.RetryCount ?? -1, "The rebuild is counted against the bounded retry");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { /* best-effort */ }
+                }
+            });
+        }
+
+        private static MergeQueueService CreateValidatedQueue(LoggingModule logging, DatabaseDriver database, ArmadaSettings settings)
+        {
+            MergeQueueService service = new MergeQueueService(logging, database, settings, new GitService(logging), new MergeFailureClassifier());
+            WorkflowProfileService profiles = new WorkflowProfileService(database, logging);
+            VesselReadinessService readiness = new VesselReadinessService(database, profiles, logging);
+            CheckRunService checkRuns = new CheckRunService(database, profiles, readiness, logging);
+            service.SetIntegrationValidator(new IntegrationCandidateValidator(logging, database, settings, checkRuns, profiles));
+            return service;
+        }
+
+        private static async Task<Vessel> CreateQueueVesselAsync(DatabaseDriver database, GitRepoSetup repos, string name)
+        {
+            Vessel vessel = new Vessel(name, repos.RemoteDir);
+            vessel.LocalPath = repos.BareDir;
+            vessel.WorkingDirectory = repos.WorkingDir;
+            vessel.DefaultBranch = "main";
+            vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.None;
+            return await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+        }
+
+        private static async Task<MergeEntry> CreateQueuedEntryAsync(DatabaseDriver database, Vessel vessel, GitRepoSetup repos)
+        {
+            MergeEntry entry = new MergeEntry();
+            entry.VesselId = vessel.Id;
+            entry.BranchName = repos.CaptainBranch;
+            entry.TargetBranch = "main";
+            entry.Status = MergeStatusEnum.Queued;
+            entry.CreatedUtc = DateTime.UtcNow;
+            entry.LastUpdateUtc = DateTime.UtcNow;
+            return await database.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+        }
+
+        private static async Task CreateQueueCheckProfileAsync(DatabaseDriver database, Vessel vessel, QueueCheckFixture checks)
+        {
+            await database.WorkflowProfiles.CreateAsync(new WorkflowProfile
+            {
+                Name = "Queue Integration Check Profile",
+                Scope = WorkflowProfileScopeEnum.Vessel,
+                VesselId = vessel.Id,
+                UnitTestCommand = "sh " + checks.CheckScript,
+                IsDefault = true,
+                Active = true
+            }).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// A check that fails only when both <c>left.flag</c> and <c>right.flag</c> are in the tree, counts its runs,
+        /// and runs a one-shot hook script when one is present.
+        /// </summary>
+        private static async Task<QueueCheckFixture> CreateQueueCheckFixtureAsync(string rootDir)
+        {
+            QueueCheckFixture checks = new QueueCheckFixture(rootDir);
+            await File.WriteAllTextAsync(checks.CheckScript,
+                "echo run >> " + checks.CounterFile + "\n"
+                + "if [ -f " + checks.HookFile + " ]; then mv " + checks.HookFile + " " + checks.HookFile + ".ran; sh " + checks.HookFile + ".ran; fi\n"
+                + "if [ -f left.flag ] && [ -f right.flag ]; then echo 'left.flag and right.flag break the combined tree'; exit 1; fi\n"
+                + "exit 0\n").ConfigureAwait(false);
+            return checks;
+        }
+
+        private static int CountQueueCheckRuns(QueueCheckFixture checks)
+        {
+            return File.Exists(checks.CounterFile) ? File.ReadAllLines(checks.CounterFile).Length : 0;
+        }
+
+        private static async Task<List<IntegrationValidationResult>> ReadEntryEvidenceAsync(DatabaseDriver database, string entryId)
+        {
+            List<ArmadaEvent> events = await database.Events.EnumerateByEntityAsync("merge_entry", entryId, 50).ConfigureAwait(false);
+            List<IntegrationValidationResult> results = new List<IntegrationValidationResult>();
+            foreach (ArmadaEvent evt in events.Where(e => e.EventType == IntegrationCandidateValidator.EvidenceEventType).OrderBy(e => e.CreatedUtc))
+            {
+                IntegrationValidationResult? result = JsonSerializer.Deserialize<IntegrationValidationResult>(evt.Payload ?? "null");
+                if (result != null) results.Add(result);
+            }
+            return results;
+        }
+
+        private static async Task<MergeEntry?> ProcessUntilSettledAsync(MergeQueueService service, DatabaseDriver database, string entryId)
+        {
+            MergeEntry? current = null;
+            for (int pass = 0; pass < 3; pass++)
+            {
+                await service.ProcessSingleAsync(entryId).ConfigureAwait(false);
+                current = await database.MergeEntries.ReadAsync(entryId).ConfigureAwait(false);
+                if (current == null
+                    || current.Status == MergeStatusEnum.Landed
+                    || current.Status == MergeStatusEnum.Failed
+                    || current.Status == MergeStatusEnum.Cancelled)
+                {
+                    break;
+                }
+            }
+            return current;
+        }
+
+        private sealed class QueueCheckFixture
+        {
+            public QueueCheckFixture(string rootDir)
+            {
+                CheckScript = Path.Combine(rootDir, "check.sh");
+                CounterFile = Path.Combine(rootDir, "check-runs.log");
+                HookFile = Path.Combine(rootDir, "check-hook.sh");
+            }
+
+            public string CheckScript { get; }
+            public string CounterFile { get; }
+            public string HookFile { get; }
         }
 
         private static string BuildMarkerCommand(string markerPath)

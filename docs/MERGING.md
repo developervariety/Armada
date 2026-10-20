@@ -46,7 +46,8 @@ Terminal states: `Landed`, `Failed`, `Cancelled`.
    1. Mark the entry as `Testing`.
    2. Fetch latest refs from the remote (`git fetch`).
    3. Create a temporary worktree from the current target branch.
-   4. Merge the entry's branch into the worktree (`git merge --no-ff`).
+   4. Merge the entry's branch into the worktree (`git merge`). A branch that strictly
+      descends from the target lands as a fast-forward, with no merge commit.
    5. If the merge conflicts, read the conflicted files (`git diff --name-only -z
       --diff-filter=U`, before `git merge --abort` clears them), classify the failure
       with those files and the diff size, mark the entry `Failed`, and move on.
@@ -59,12 +60,68 @@ Terminal states: `Landed`, `Failed`, `Cancelled`.
       collector.
    7. Run the dock-boundary scan (protected paths, secrets, private identifiers) on
       that evidence. A finding marks the entry `Failed`.
-   8. Run the configured test command (if any). If tests fail, mark `Failed`.
-   9. Push the integration branch to update the target (`git push origin integration:target`).
-   10. Mark the entry `Landed`.
-   11. Clean up the temporary worktree.
+   8. Validate the integration candidate (see [Integration Validation](#integration-validation)).
+      A refused candidate marks the entry `Failed` with the named reason.
+   9. Run the configured merge-queue test command, if one is set. It is an extra
+      gate after the integration validation, not a substitute for it. If tests fail,
+      mark `Failed`.
+   10. Before publishing, confirm that the latest evidence for the entry allows
+       publication and names exactly the integration commit, and that neither
+       `origin/<target>` nor the local target holds work the commit does not contain.
+       Otherwise the entry goes back to `Rebasing`: the candidate is rebuilt on the
+       current target and validated again, at most `MaxLandingRetries` times, after
+       which the entry fails with `target_branch_drift_retry_exhausted`.
+   11. Push the integration branch to update the target (`git push origin integration:target`).
+       The push is never forced, so git refuses it when the target moved after step 10.
+   12. Mark the entry `Landed`.
+   13. Clean up the temporary worktree.
 
 Because each entry is landed immediately, the next entry in the same group always merges against the up-to-date target branch. This eliminates the cascade failures that occur with batch-style merge queues.
+
+## Integration Validation
+
+A branch's own Checks measure the branch. Two branches that each pass alone can
+still break the target once both are merged. Both landing paths therefore
+measure the merged commit itself before the target moves: the direct landing in
+its integration worktree, and the merge queue in its integration branch. They
+use one shared validator.
+
+1. The validator builds the candidate: the source branch tip, the target commit
+   the merge was built on, and the merged (integration) commit.
+2. It resolves the vessel's workflow profile. The required checks are the
+   profile's `BuildCommand` and `UnitTestCommand`.
+3. For each required check, it reuses a `Passed` Check that ran the same command
+   at exactly the integration commit. Otherwise it runs the Check through the
+   normal Check service, in an isolated checkout of the integration commit and
+   under the host-wide command slot. A fast-forward landing of a tip that already
+   passed therefore runs no second gate.
+4. It records a `landing.integration_validation` event for the mission (direct
+   landing) or the merge entry (queue). The payload names the outcome, the
+   reason, the source, target-base and integration commits, and the linked
+   Check IDs. The Checks link no mission and no voyage, so they never decide a
+   branch-review gate.
+
+| Outcome | Publishes | Meaning |
+|---|---|---|
+| `Passed` | yes | Every required check passed at the integration commit. |
+| `NotRequired` | yes | The vessel is listed in `integrationValidation.noChecksRequiredVesselIds`. |
+| `Disabled` | yes | `integrationValidation.enabled` is `false`. |
+| `CommandMissing` | no | The profile has no `BuildCommand` and no `UnitTestCommand`, or no profile resolves. Reason `integration_validation_command_missing`. |
+| `Failed` | no | A required check did not pass. Reason `integration_validation_failed`. |
+| `Unavailable` | no | The profile or a check could not run. Reason `integration_validation_unavailable`. |
+
+A refusal leaves the target branch, its remote and the source branch unchanged.
+A direct landing records the reason as the mission's failure reason. The queue
+marks the entry `Failed`; only a `Failed` outcome is a code failure that starts
+recovery.
+
+When the target moves while a direct landing validates its candidate, the
+candidate is stale. It is not published. The landing treats the move as
+target-branch drift: the bounded retry rebuilds the merge on the new tip and
+validates the new candidate. The compare-and-swap that advances the target
+refuses a move that happens after that check. Evidence always names one
+integration commit, so evidence for one candidate never decides another, also
+after a restart.
 
 ---
 
@@ -127,8 +184,9 @@ These are observed behaviors that the entry status alone does not make obvious.
   bare target to origin while it holds landed commits: those commits are then
   reachable only from mission and preserved refs. Retry the failed landing
   afterwards.
-- **A direct landing pushes before it moves the bare target.** Outside
-  `LocalMerge`, the merged commit is pushed to origin first and the bare target
+- **A direct landing pushes before it moves the bare target.** The merged
+  commit is validated first (see [Integration Validation](#integration-validation)).
+  Outside `LocalMerge`, the merged commit is then pushed to origin and the bare target
   advances only after the push succeeds, so a refused push leaves the bare
   unchanged. When target-branch drift exhausts the landing retries, the
   landing records `landing.origin_push_failed` and opens one High incident per
@@ -274,7 +332,8 @@ commit SHA before an operator retires a parked ref.
 
 - **`LandingMode`** (in `ArmadaSettings`) -- global landing policy. Can be overridden per-vessel (`Vessel.LandingMode`) or per-voyage (`Voyage.LandingMode`).
 - **`BranchCleanupPolicy`** (in `ArmadaSettings`) -- global branch cleanup policy. Can be overridden per-vessel (`Vessel.BranchCleanupPolicy`).
-- **`MergeQueueTestCommand`** (in `ArmadaSettings`) -- default test command to run for entries that don't specify their own. Can be overridden per entry via the `testCommand` parameter on `armada_enqueue_merge`.
+- **`IntegrationValidation`** (in `ArmadaSettings`) -- policy for the shared integration validation. `enabled` (default `true`) runs it on every landing; `false` turns it off and records the `Disabled` outcome. `noChecksRequiredVesselIds` (default empty) lists vessels that require no integration checks; they record `NotRequired` and land. Any other vessel without a `BuildCommand` or `UnitTestCommand` in its workflow profile is refused with `integration_validation_command_missing`.
+- **`MergeQueueTestCommand`** (in `ArmadaSettings`) -- extra test command the queue runs in the integration worktree after the integration validation, for entries that don't specify their own. Can be overridden per entry via the `testCommand` parameter on `armada_enqueue_merge`. When neither is set, the integration validation is the only test gate.
 - **`MergeQueueTestTimeoutSeconds`** (in `ArmadaSettings`, default `3600`, clamped to 1-86400) -- longest time a merge-queue test command may run before the queue stops it with its process tree and fails the entry.
 - **`DocksDirectory`** -- parent directory for temporary merge worktrees. Worktrees are created under `_merge-queue/` within this directory.
 - **`ReposDirectory`** -- fallback repository path when a vessel's `LocalPath` is not set.

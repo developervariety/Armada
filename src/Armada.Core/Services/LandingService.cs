@@ -41,6 +41,7 @@ namespace Armada.Core.Services
         private ArmadaSettings _Settings;
         private IGitService _Git;
         private IncidentService _Incidents;
+        private IntegrationCandidateValidator? _IntegrationValidator;
 
         #endregion
 
@@ -77,6 +78,17 @@ namespace Armada.Core.Services
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _Incidents = new IncidentService(database);
+        }
+
+        /// <summary>
+        /// Wire the shared integration-candidate validator. The validator depends on the check service,
+        /// which is built after this one, so it is supplied post-construction. Without it a landing
+        /// advances the target without validating the merged commit and logs a warning saying so.
+        /// </summary>
+        /// <param name="validator">Shared integration-candidate validator.</param>
+        public void SetIntegrationValidator(IntegrationCandidateValidator validator)
+        {
+            _IntegrationValidator = validator ?? throw new ArgumentNullException(nameof(validator));
         }
 
         #endregion
@@ -374,6 +386,7 @@ namespace Armada.Core.Services
             while (true)
             {
                 bool succeeded = false;
+                bool refusedByValidation = false;
                 Exception? failure = null;
 
                 try
@@ -403,35 +416,68 @@ namespace Armada.Core.Services
                     if (String.IsNullOrWhiteSpace(mergedHead))
                         throw new InvalidOperationException("Unable to resolve the merged commit in integration worktree " + worktreePath);
 
-                    // LocalMerge lands into the local repository only -- pushing to a remote is
-                    // the operator's decision, never automatic. Pushing here made every landing
-                    // fail once the local default branch diverged from the remote: git rejects
-                    // the push as non-fast-forward, IsTargetBranchDrift misclassifies that
-                    // rejection as target-branch drift, and the retry loop re-merges and
-                    // re-pushes the same divergence until maxLandingRetries is exhausted. The
-                    // mission is then marked LandingFailed and its branch is left stray even
-                    // though the local merge itself succeeded.
-                    //
-                    // Any other mode pushes BEFORE the bare target moves. Advancing the bare first
-                    // left a merge only the bare held whenever origin rejected the push, and the
-                    // branch sweep and the next sync then treated that work as landed.
-                    if (vessel.LandingMode != LandingModeEnum.LocalMerge)
-                    {
-                        await _Git.PushHeadToBranchAsync(worktreePath, "origin", targetBranch, token).ConfigureAwait(false);
-                        _Logging.Info(_Header + "pushed merged changes from integration worktree " + worktreePath);
-                    }
-                    else
-                    {
-                        _Logging.Info(_Header + "landing mode is LocalMerge -- skipping push to origin for mission " + mission.Id);
-                    }
-
+                    // The merged commit is validated before anything is published or advanced. A refused
+                    // candidate leaves the target, the remote and the mission branch exactly as they were.
                     if (!String.Equals(mergedHead, targetTip, StringComparison.OrdinalIgnoreCase))
                     {
-                        await _Git.CompareAndSwapBranchRefAsync(vessel.LocalPath, targetBranch, mergedHead!, targetTip!, token).ConfigureAwait(false);
-                        _Logging.Info(_Header + "advanced " + targetBranch + " from " + targetTip + " to " + mergedHead);
+                        IntegrationValidationResult? validation = await ValidateCandidateAsync(
+                            vessel, mission, targetBranch, missionBranch, targetTip!, mergedHead!, token).ConfigureAwait(false);
+                        if (validation != null && !validation.AllowsPublication)
+                        {
+                            mission.FailureReason = validation.Reason;
+                            mission.LastUpdateUtc = DateTime.UtcNow;
+                            await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                            measure.Outcome = ArmadaMetrics.OutcomeFailure;
+                            refusedByValidation = true;
+                        }
+
+                        // A target that moved while the candidate was validated makes the candidate stale:
+                        // the validated tree is not the tree the target would get. Refuse it as drift so the
+                        // bounded retry rebuilds and validates the merge against the new target tip. The
+                        // compare-and-swap below refuses the same race when it happens after this read.
+                        if (!refusedByValidation)
+                        {
+                            string? tipAfterValidation = await _Git.GetRevisionCommitShaAsync(vessel.LocalPath, targetRef, token).ConfigureAwait(false);
+                            if (!String.Equals(tipAfterValidation, targetTip, StringComparison.OrdinalIgnoreCase))
+                            {
+                                throw new InvalidOperationException("target branch drift: " + targetBranch + " moved from " + targetTip + " to "
+                                    + (tipAfterValidation ?? "(unresolved)") + " while merged commit " + mergedHead + " was validated; the stale candidate is not published");
+                            }
+                        }
                     }
 
-                    succeeded = true;
+                    if (!refusedByValidation)
+                    {
+                        // LocalMerge lands into the local repository only -- pushing to a remote is
+                        // the operator's decision, never automatic. Pushing here made every landing
+                        // fail once the local default branch diverged from the remote: git rejects
+                        // the push as non-fast-forward, IsTargetBranchDrift misclassifies that
+                        // rejection as target-branch drift, and the retry loop re-merges and
+                        // re-pushes the same divergence until maxLandingRetries is exhausted. The
+                        // mission is then marked LandingFailed and its branch is left stray even
+                        // though the local merge itself succeeded.
+                        //
+                        // Any other mode pushes BEFORE the bare target moves. Advancing the bare first
+                        // left a merge only the bare held whenever origin rejected the push, and the
+                        // branch sweep and the next sync then treated that work as landed.
+                        if (vessel.LandingMode != LandingModeEnum.LocalMerge)
+                        {
+                            await _Git.PushHeadToBranchAsync(worktreePath, "origin", targetBranch, token).ConfigureAwait(false);
+                            _Logging.Info(_Header + "pushed merged changes from integration worktree " + worktreePath);
+                        }
+                        else
+                        {
+                            _Logging.Info(_Header + "landing mode is LocalMerge -- skipping push to origin for mission " + mission.Id);
+                        }
+
+                        if (!String.Equals(mergedHead, targetTip, StringComparison.OrdinalIgnoreCase))
+                        {
+                            await _Git.CompareAndSwapBranchRefAsync(vessel.LocalPath, targetBranch, mergedHead!, targetTip!, token).ConfigureAwait(false);
+                            _Logging.Info(_Header + "advanced " + targetBranch + " from " + targetTip + " to " + mergedHead);
+                        }
+
+                        succeeded = true;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -521,6 +567,55 @@ namespace Armada.Core.Services
                 await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "target branch drift detected for mission " + mission.Id + "; auto-rebasing and retrying landing attempt " + mission.LandingRetryCount + " of " + maxRetries);
             }
+        }
+
+        /// <summary>
+        /// Run the shared integration validation for the merged commit this attempt built. Returns null
+        /// when no validator is wired, which is logged, never silent.
+        /// </summary>
+        private async Task<IntegrationValidationResult?> ValidateCandidateAsync(
+            Vessel vessel,
+            Mission mission,
+            string targetBranch,
+            string missionBranch,
+            string targetTip,
+            string mergedHead,
+            CancellationToken token)
+        {
+            if (_IntegrationValidator == null)
+            {
+                _Logging.Warn(_Header + "no integration validator is wired; merged commit " + mergedHead + " for mission " + mission.Id
+                    + " advances " + targetBranch + " without integration checks");
+                return null;
+            }
+
+            string? sourceCommit = null;
+            try
+            {
+                sourceCommit = await _Git.GetRevisionCommitShaAsync(vessel.LocalPath!, "refs/heads/" + missionBranch, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not resolve the tip of " + missionBranch + " for the integration evidence of mission " + mission.Id + ": " + ex.Message);
+            }
+
+            IntegrationCandidate candidate = new IntegrationCandidate
+            {
+                MissionId = mission.Id,
+                LandingPath = "LocalMerge",
+                TargetBranch = targetBranch,
+                SourceBranch = missionBranch,
+                SourceCommit = String.IsNullOrWhiteSpace(sourceCommit) ? mission.CommitHash : sourceCommit,
+                TargetBaseCommit = targetTip,
+                IntegrationCommit = mergedHead,
+                TenantId = mission.TenantId,
+                UserId = mission.UserId
+            };
+            return await _IntegrationValidator.ValidateAsync(vessel, candidate, token).ConfigureAwait(false);
         }
 
         /// <summary>

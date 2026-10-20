@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
+    using System.Text.Json;
     using Armada.Core;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
@@ -606,6 +607,219 @@ namespace Armada.Test.Unit.Suites.Services
                         "target must advance by compare-and-swap from the tip the integration worktree started at; calls: " + String.Join(", ", git.CompareAndSwapCalls));
                 }
             });
+
+            // Two branches that each pass the vessel's checks alone can still break the target together. The
+            // merged commit is measured before the target moves, so the second landing is refused by name and
+            // the target and the refused branch stay exactly as they were.
+            await RunTest("MergeInDedicatedWorktreeAsync_CombinedTreeFailsChecks_RefusesAndLeavesTargetUnchanged", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_icv_red_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    IntegrationFixture fixture = await CreateIntegrationFixtureAsync(rootDir).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        ArmadaSettings settings = CreateSettings();
+                        settings.DocksDirectory = Path.Combine(rootDir, "docks");
+                        LandingService service = CreateValidatedService(testDb.Driver, settings);
+                        Vessel vessel = await CreateIntegrationVesselAsync(testDb.Driver, fixture).ConfigureAwait(false);
+                        await CreateCheckProfileAsync(testDb.Driver, vessel, fixture).ConfigureAwait(false);
+
+                        Mission left = CreateMission("msn_icv_left");
+                        await testDb.Driver.Missions.CreateAsync(left).ConfigureAwait(false);
+                        bool leftLanded = await service.MergeInDedicatedWorktreeAsync(
+                            vessel, left, "main", fixture.LeftBranch, "Merge armada mission").ConfigureAwait(false);
+                        AssertTrue(leftLanded, "the left branch passes alone and lands; failure reason: " + (left.FailureReason ?? "(none)"));
+                        string mainAfterLeft = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        string rightTip = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/" + fixture.RightBranch).ConfigureAwait(false)).Trim();
+
+                        Mission right = CreateMission("msn_icv_right");
+                        await testDb.Driver.Missions.CreateAsync(right).ConfigureAwait(false);
+                        bool rightLanded = await service.MergeInDedicatedWorktreeAsync(
+                            vessel, right, "main", fixture.RightBranch, "Merge armada mission").ConfigureAwait(false);
+
+                        AssertFalse(rightLanded, "a merged commit whose checks fail must not land");
+                        Mission? read = await testDb.Driver.Missions.ReadAsync(right.Id).ConfigureAwait(false);
+                        AssertStartsWith("integration_validation_failed:", read?.FailureReason ?? "", "the refusal is named");
+                        AssertEqual(mainAfterLeft, (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(),
+                            "the refused candidate leaves the target where it was");
+                        AssertEqual(rightTip, (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/" + fixture.RightBranch).ConfigureAwait(false)).Trim(),
+                            "the refused branch is left in place");
+                        AssertEqual(2, CountCheckRuns(fixture), "each landing ran the check once against its merged commit");
+
+                        List<IntegrationValidationResult> evidence = await ReadMissionEvidenceAsync(testDb.Driver, right.Id).ConfigureAwait(false);
+                        AssertEqual(1, evidence.Count, "the refusal is recorded as evidence");
+                        AssertEqual(IntegrationValidationOutcomeEnum.Failed, evidence[0].Outcome, "the evidence names the failure");
+                        AssertEqual(mainAfterLeft, evidence[0].Candidate.TargetBaseCommit, "the evidence names the target base");
+                        AssertEqual(rightTip, evidence[0].Candidate.SourceCommit, "the evidence names the source commit");
+                        AssertEqual(1, evidence[0].CheckRunIds.Count, "the evidence links the check that decided it");
+
+                        CheckRun? decidingRun = await testDb.Driver.CheckRuns.ReadAsync(evidence[0].CheckRunIds[0]).ConfigureAwait(false);
+                        AssertNotNull(decidingRun, "the linked check exists");
+                        AssertEqual(CheckRunStatusEnum.Failed, decidingRun!.Status, "the linked check failed");
+                        AssertEqual(evidence[0].Candidate.IntegrationCommit, decidingRun.CommitHash, "the check measured the merged commit");
+                        AssertNull(decidingRun.MissionId, "an integration check links no mission, so it never decides a branch-review gate");
+                        AssertNull(decidingRun.VoyageId, "an integration check links no voyage");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            // A vessel whose policy requires checks but whose profile defines no Build or UnitTest command cannot
+            // be measured; that is a named refusal, never a silent pass. An explicit no-checks policy lands.
+            await RunTest("MergeInDedicatedWorktreeAsync_RequiredCommandMissing_RefusesByNameUnlessPolicyRequiresNone", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_icv_missing_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    IntegrationFixture fixture = await CreateIntegrationFixtureAsync(rootDir).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        ArmadaSettings settings = CreateSettings();
+                        settings.DocksDirectory = Path.Combine(rootDir, "docks");
+                        LandingService service = CreateValidatedService(testDb.Driver, settings);
+                        Vessel vessel = await CreateIntegrationVesselAsync(testDb.Driver, fixture).ConfigureAwait(false);
+                        await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        {
+                            Name = "Lint Only Profile",
+                            Scope = WorkflowProfileScopeEnum.Vessel,
+                            VesselId = vessel.Id,
+                            LintCommand = "sh " + fixture.CheckScript,
+                            IsDefault = true,
+                            Active = true
+                        }).ConfigureAwait(false);
+                        string mainBefore = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                        Mission mission = CreateMission("msn_icv_missing");
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                        bool refusedLanded = await service.MergeInDedicatedWorktreeAsync(
+                            vessel, mission, "main", fixture.LeftBranch, "Merge armada mission").ConfigureAwait(false);
+
+                        AssertFalse(refusedLanded, "a candidate that cannot be measured does not land");
+                        AssertStartsWith("integration_validation_command_missing:", mission.FailureReason ?? "", "the missing command is named");
+                        AssertEqual(mainBefore, (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(),
+                            "the target does not move");
+                        AssertEqual(0, CountCheckRuns(fixture), "no check ran");
+
+                        settings.IntegrationValidation.NoChecksRequiredVesselIds.Add(vessel.Id);
+                        bool landed = await service.MergeInDedicatedWorktreeAsync(
+                            vessel, mission, "main", fixture.LeftBranch, "Merge armada mission").ConfigureAwait(false);
+
+                        AssertTrue(landed, "a vessel whose policy requires no checks lands; failure reason: " + (mission.FailureReason ?? "(none)"));
+                        List<IntegrationValidationResult> evidence = await ReadMissionEvidenceAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
+                        AssertTrue(evidence.Any(e => e.Outcome == IntegrationValidationOutcomeEnum.CommandMissing), "the refusal is recorded");
+                        AssertTrue(evidence.Any(e => e.Outcome == IntegrationValidationOutcomeEnum.NotRequired), "the explicit no-checks policy is recorded separately");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            // A target that moves while a candidate is measured makes that candidate stale. It is not published;
+            // the bounded retry rebuilds the merge on the new tip and measures the new candidate.
+            await RunTest("MergeInDedicatedWorktreeAsync_TargetMovesDuringValidation_RevalidatesTheNewCandidate", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_icv_drift_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    IntegrationFixture fixture = await CreateIntegrationFixtureAsync(rootDir).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        ArmadaSettings settings = CreateSettings();
+                        settings.DocksDirectory = Path.Combine(rootDir, "docks");
+                        settings.MaxLandingRetries = 2;
+                        LandingService service = CreateValidatedService(testDb.Driver, settings);
+                        Vessel vessel = await CreateIntegrationVesselAsync(testDb.Driver, fixture).ConfigureAwait(false);
+                        await CreateCheckProfileAsync(testDb.Driver, vessel, fixture).ConfigureAwait(false);
+
+                        string baseTip = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        string moverTip = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/" + fixture.MoverBranch).ConfigureAwait(false)).Trim();
+                        await File.WriteAllTextAsync(fixture.HookFile,
+                            "git -C " + fixture.BareDir + " update-ref refs/heads/main " + moverTip + " " + baseTip + "\n").ConfigureAwait(false);
+
+                        Mission mission = CreateMission("msn_icv_drift");
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                        bool landed = await service.MergeInDedicatedWorktreeAsync(
+                            vessel, mission, "main", fixture.LeftBranch, "Merge armada mission").ConfigureAwait(false);
+
+                        AssertTrue(landed, "the rebuilt candidate lands; failure reason: " + (mission.FailureReason ?? "(none)"));
+                        AssertEqual(1, mission.LandingRetryCount, "the stale candidate cost exactly one bounded retry");
+                        AssertEqual(2, CountCheckRuns(fixture), "the stale candidate and the rebuilt candidate were each measured");
+                        await RunGitAsync(fixture.BareDir, "merge-base", "--is-ancestor", moverTip, "refs/heads/main").ConfigureAwait(false);
+
+                        List<IntegrationValidationResult> evidence = await ReadMissionEvidenceAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
+                        AssertEqual(2, evidence.Count, "each candidate has its own evidence");
+                        AssertTrue(evidence.Any(e => e.Candidate.TargetBaseCommit == baseTip), "the stale candidate was built on the old tip");
+                        AssertTrue(evidence.Any(e => e.Candidate.TargetBaseCommit == moverTip), "the rebuilt candidate was built on the new tip");
+                        AssertNotEqual(evidence[0].Candidate.IntegrationCommit, evidence[1].Candidate.IntegrationCommit,
+                            "evidence for one candidate is never reused for another");
+                        string mainAfter = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        AssertTrue(evidence.Any(e => e.Candidate.IntegrationCommit == mainAfter), "the published commit is the one the last evidence measured");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            // A Check that already passed at exactly the candidate commit with the same command decides the
+            // candidate, so a fast-forward landing of a measured tip runs no second gate.
+            await RunTest("MergeInDedicatedWorktreeAsync_FastForwardOfMeasuredTip_ReusesThePassingCheck", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_icv_reuse_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    IntegrationFixture fixture = await CreateIntegrationFixtureAsync(rootDir).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        ArmadaSettings settings = CreateSettings();
+                        settings.DocksDirectory = Path.Combine(rootDir, "docks");
+                        LandingService service = CreateValidatedService(testDb.Driver, settings);
+                        Vessel vessel = await CreateIntegrationVesselAsync(testDb.Driver, fixture).ConfigureAwait(false);
+                        WorkflowProfile profile = await CreateCheckProfileAsync(testDb.Driver, vessel, fixture).ConfigureAwait(false);
+                        string leftTip = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/" + fixture.LeftBranch).ConfigureAwait(false)).Trim();
+                        CheckRun earlier = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                        {
+                            VesselId = vessel.Id,
+                            WorkflowProfileId = profile.Id,
+                            Type = CheckRunTypeEnum.UnitTest,
+                            Source = CheckRunSourceEnum.Armada,
+                            Status = CheckRunStatusEnum.Passed,
+                            Command = profile.UnitTestCommand!,
+                            CommitHash = leftTip,
+                            ExitCode = 0,
+                            CreatedUtc = DateTime.UtcNow,
+                            LastUpdateUtc = DateTime.UtcNow
+                        }).ConfigureAwait(false);
+
+                        Mission mission = CreateMission("msn_icv_reuse");
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                        bool landed = await service.MergeInDedicatedWorktreeAsync(
+                            vessel, mission, "main", fixture.LeftBranch, "Merge armada mission").ConfigureAwait(false);
+
+                        AssertTrue(landed, "the measured tip lands; failure reason: " + (mission.FailureReason ?? "(none)"));
+                        AssertEqual(0, CountCheckRuns(fixture), "no second check ran");
+                        List<IntegrationValidationResult> evidence = await ReadMissionEvidenceAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
+                        AssertEqual(1, evidence.Count, "the landing is recorded");
+                        AssertEqual(IntegrationValidationOutcomeEnum.Passed, evidence[0].Outcome, "the reused check passes the candidate");
+                        AssertTrue(evidence[0].ReusedCheckRunIds.Contains(earlier.Id), "the evidence names the reused check");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
@@ -672,6 +886,124 @@ namespace Armada.Test.Unit.Suites.Services
         private static string IntegrationWorktreePath(ArmadaSettings settings, Mission mission)
         {
             return Path.Combine(settings.DocksDirectory, "_integration", mission.Id);
+        }
+
+        private static LandingService CreateValidatedService(SqliteDatabaseDriver database, ArmadaSettings settings)
+        {
+            LoggingModule logging = CreateLogging();
+            LandingService service = new LandingService(logging, database, settings, new GitService(logging));
+            WorkflowProfileService profiles = new WorkflowProfileService(database, logging);
+            VesselReadinessService readiness = new VesselReadinessService(database, profiles, logging);
+            CheckRunService checkRuns = new CheckRunService(database, profiles, readiness, logging);
+            service.SetIntegrationValidator(new IntegrationCandidateValidator(logging, database, settings, checkRuns, profiles));
+            return service;
+        }
+
+        private static async Task<Vessel> CreateIntegrationVesselAsync(SqliteDatabaseDriver database, IntegrationFixture fixture)
+        {
+            Vessel vessel = new Vessel("integration-vessel", fixture.SourceDir);
+            vessel.LocalPath = fixture.BareDir;
+            vessel.WorkingDirectory = fixture.WorkingDir;
+            vessel.DefaultBranch = "main";
+            vessel.LandingMode = LandingModeEnum.LocalMerge;
+            return await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+        }
+
+        private static async Task<WorkflowProfile> CreateCheckProfileAsync(SqliteDatabaseDriver database, Vessel vessel, IntegrationFixture fixture)
+        {
+            return await database.WorkflowProfiles.CreateAsync(new WorkflowProfile
+            {
+                Name = "Integration Check Profile",
+                Scope = WorkflowProfileScopeEnum.Vessel,
+                VesselId = vessel.Id,
+                UnitTestCommand = "sh " + fixture.CheckScript,
+                IsDefault = true,
+                Active = true
+            }).ConfigureAwait(false);
+        }
+
+        private static async Task<List<IntegrationValidationResult>> ReadMissionEvidenceAsync(SqliteDatabaseDriver database, string missionId)
+        {
+            List<ArmadaEvent> events = await database.Events.EnumerateByEntityAsync("mission", missionId, 50).ConfigureAwait(false);
+            List<IntegrationValidationResult> results = new List<IntegrationValidationResult>();
+            foreach (ArmadaEvent evt in events.Where(e => e.EventType == IntegrationCandidateValidator.EvidenceEventType).OrderBy(e => e.CreatedUtc))
+            {
+                IntegrationValidationResult? result = JsonSerializer.Deserialize<IntegrationValidationResult>(evt.Payload ?? "null");
+                if (result != null) results.Add(result);
+            }
+            return results;
+        }
+
+        private static int CountCheckRuns(IntegrationFixture fixture)
+        {
+            return File.Exists(fixture.CounterFile) ? File.ReadAllLines(fixture.CounterFile).Length : 0;
+        }
+
+        /// <summary>
+        /// A landing repository whose check fails only when both <c>left.flag</c> and <c>right.flag</c> are in
+        /// the tree, so the left and right branches each pass alone and fail together. The check counts its
+        /// runs and runs a one-shot hook script when one is present.
+        /// </summary>
+        private static async Task<IntegrationFixture> CreateIntegrationFixtureAsync(string rootDir)
+        {
+            IntegrationFixture fixture = new IntegrationFixture(rootDir);
+            Directory.CreateDirectory(fixture.SourceDir);
+            await RunGitAsync(fixture.SourceDir, "init", "-b", "main").ConfigureAwait(false);
+            await RunGitAsync(fixture.SourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(fixture.SourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(fixture.SourceDir, "README.md"), "# integration\n").ConfigureAwait(false);
+            await RunGitAsync(fixture.SourceDir, "add", "README.md").ConfigureAwait(false);
+            await RunGitAsync(fixture.SourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+
+            await CommitBranchFileAsync(fixture.SourceDir, fixture.LeftBranch, "left.flag").ConfigureAwait(false);
+            await CommitBranchFileAsync(fixture.SourceDir, fixture.RightBranch, "right.flag").ConfigureAwait(false);
+            await CommitBranchFileAsync(fixture.SourceDir, fixture.MoverBranch, "mover.txt").ConfigureAwait(false);
+
+            await RunGitAsync(rootDir, "clone", "--bare", fixture.SourceDir, fixture.BareDir).ConfigureAwait(false);
+            await RunGitAsync(fixture.BareDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(fixture.BareDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+            await RunGitAsync(rootDir, "clone", fixture.BareDir, fixture.WorkingDir).ConfigureAwait(false);
+            await RunGitAsync(fixture.WorkingDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await RunGitAsync(fixture.WorkingDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+            await File.WriteAllTextAsync(fixture.CheckScript,
+                "echo run >> " + fixture.CounterFile + "\n"
+                + "if [ -f " + fixture.HookFile + " ]; then mv " + fixture.HookFile + " " + fixture.HookFile + ".ran; sh " + fixture.HookFile + ".ran; fi\n"
+                + "if [ -f left.flag ] && [ -f right.flag ]; then echo 'left.flag and right.flag break the combined tree'; exit 1; fi\n"
+                + "exit 0\n").ConfigureAwait(false);
+            return fixture;
+        }
+
+        private static async Task CommitBranchFileAsync(string repoDir, string branch, string fileName)
+        {
+            await RunGitAsync(repoDir, "checkout", "-b", branch, "main").ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(repoDir, fileName), fileName + "\n").ConfigureAwait(false);
+            await RunGitAsync(repoDir, "add", fileName).ConfigureAwait(false);
+            await RunGitAsync(repoDir, "commit", "-m", "Add " + fileName).ConfigureAwait(false);
+            await RunGitAsync(repoDir, "checkout", "main").ConfigureAwait(false);
+        }
+
+        private sealed class IntegrationFixture
+        {
+            public IntegrationFixture(string rootDir)
+            {
+                SourceDir = Path.Combine(rootDir, "source");
+                BareDir = Path.Combine(rootDir, "bare.git");
+                WorkingDir = Path.Combine(rootDir, "working");
+                CheckScript = Path.Combine(rootDir, "check.sh");
+                CounterFile = Path.Combine(rootDir, "check-runs.log");
+                HookFile = Path.Combine(rootDir, "check-hook.sh");
+            }
+
+            public string SourceDir { get; }
+            public string BareDir { get; }
+            public string WorkingDir { get; }
+            public string CheckScript { get; }
+            public string CounterFile { get; }
+            public string HookFile { get; }
+            public string LeftBranch { get; } = "armada/captain/left";
+            public string RightBranch { get; } = "armada/captain/right";
+            public string MoverBranch { get; } = "armada/captain/mover";
         }
     }
 }
