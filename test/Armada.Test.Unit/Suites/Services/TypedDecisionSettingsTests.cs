@@ -148,6 +148,28 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(45, current.TypedDecisions.Retention.RetentionDays, "and the retention window");
                 AssertEqual(25, current.TypedDecisions.Retention.MinimumSamplesPerDecision, "and the minimum sample count");
             });
+
+            await RunTest("HotReloadSwap_CarriesHandoffOutcomeHold_OffByDefault", () =>
+            {
+                // The operator turns the hold on after deploy, so a reload must carry the switch, and the
+                // code default must keep today's Mail-and-continue handoff.
+                ArmadaSettings current = new ArmadaSettings();
+                AssertFalse(current.TypedDecisions.HandoffOutcomeHold.Enabled, "the hold is off by default");
+                AssertEqual(240, current.TypedDecisions.HandoffOutcomeHold.TimeoutMinutes, "the default timeout is four hours");
+
+                ArmadaSettings incoming = new ArmadaSettings();
+                incoming.TypedDecisions.HandoffOutcomeHold.Enabled = true;
+                incoming.TypedDecisions.HandoffOutcomeHold.TimeoutMinutes = 90;
+
+                current.ApplyHotReloadableFrom(incoming);
+
+                AssertTrue(current.TypedDecisions.HandoffOutcomeHold.Enabled, "a hot reload carries the hold switch");
+                AssertEqual(90, current.TypedDecisions.HandoffOutcomeHold.TimeoutMinutes, "and the timeout");
+                incoming.TypedDecisions.HandoffOutcomeHold.Enabled = false;
+                AssertTrue(current.TypedDecisions.HandoffOutcomeHold.Enabled, "the live section is a copy, not the file's instance");
+                incoming.TypedDecisions.HandoffOutcomeHold.TimeoutMinutes = 0;
+                AssertEqual(1, incoming.TypedDecisions.HandoffOutcomeHold.TimeoutMinutes, "a timeout below one minute is clamped to one");
+            });
         }
     }
 }

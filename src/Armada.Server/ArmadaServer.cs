@@ -2429,6 +2429,18 @@ namespace Armada.Server
                     }
                 }),
 
+                // A handoff-outcome hold no operator answered within its timeout is released here with
+                // the unmet-criteria Mail, the handoff the decision makes without a hold.
+                HealthLoopMaintenanceStep.EveryCycles("handoff outcome hold timeout", () => 1, async stepToken =>
+                {
+                    if (_MissionService is MissionService missions)
+                    {
+                        int released = await missions.ReleaseExpiredHandoffOutcomeHoldsAsync(stepToken).ConfigureAwait(false);
+                        if (released > 0)
+                            _Logging.Info(_Header + "released " + released + " handoff-outcome hold(s) at their timeout");
+                    }
+                }),
+
                 HealthLoopMaintenanceStep.EveryCycles("log rotation", () => 10, stepToken =>
                 {
                     _LogRotation.RotateAllInDirectory(Path.Combine(_Settings.LogDirectory, "captains"));

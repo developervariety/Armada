@@ -59,7 +59,7 @@ namespace Armada.Server.Mcp
         /// <param name="captainQuarantine">Optional captain quarantine service enabling the bench and unbench tools.</param>
         /// <param name="unlandedBranches">Optional unlanded-branch reporting service enabling armada_unlanded_branches.</param>
         /// <param name="objectiveDispatchPreviewService">Optional read-only objective dispatch preview service.</param>
-        /// <param name="missionService">Optional mission service enabling armada_review_hold.</param>
+        /// <param name="missionService">Optional mission service enabling armada_review_hold and armada_handoff_hold.</param>
         /// <param name="captainAdministration">Shared captain stop-all and deletion service. When null, one is built from <paramref name="admiral"/> and the supplied session coordinators.</param>
         /// <param name="missionOperations">Shared mission and voyage operations (cancel, purge, restart). When null, one is built from <paramref name="admiral"/>, <paramref name="settings"/> and <paramref name="dockService"/> that writes no events.</param>
         public static void RegisterAll(
@@ -239,6 +239,7 @@ namespace Armada.Server.Mcp
             if (terminalVoyageMissions != null) McpTerminalVoyageMissionTools.Register(register, terminalVoyageMissions, longRunningJobs);
             if (harborJobs != null) McpHarborJobTools.Register(register, harborJobs);
             if (missionService != null) McpReviewHoldTools.Register(register, missionService);
+            if (missionService != null) McpHandoffHoldTools.Register(register, missionService);
         }
     }
 }

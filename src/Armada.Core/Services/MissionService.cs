@@ -1487,6 +1487,15 @@ namespace Armada.Core.Services
         public async Task<Mission> ClearOperatorReviewHoldAsync(string missionId, string operatorName, string reason, CancellationToken token = default)
         {
             Mission mission = await RequireHeldMissionAsync(missionId, operatorName, reason, token).ConfigureAwait(false);
+
+            // A handoff-outcome hold has its own three choices, each recorded as a label on the decision.
+            if (HandoffOutcomeHold.IsReason(mission.HeldForOperatorReviewReason))
+            {
+                throw new InvalidOperationException(HandoffOutcomeHold.ReasonPrefix + ": mission " + missionId
+                    + " is holding its handoff for an operator choice, not a Judge PASS. Use armada_handoff_hold with release, mail_release or rescue. Hold: "
+                    + mission.HeldForOperatorReviewReason);
+            }
+
             string operatorText = operatorName.Trim();
             string reasonText = reason.Trim();
             string previousHold = mission.HeldForOperatorReviewReason ?? "no reason recorded";
@@ -1866,6 +1875,15 @@ namespace Armada.Core.Services
         public async Task<Mission> FailOperatorReviewHoldAsync(string missionId, string operatorName, string reason, CancellationToken token = default)
         {
             Mission mission = await RequireHeldMissionAsync(missionId, operatorName, reason, token).ConfigureAwait(false);
+
+            // A handoff-outcome hold has its own three choices, each recorded as a label on the decision.
+            if (HandoffOutcomeHold.IsReason(mission.HeldForOperatorReviewReason))
+            {
+                throw new InvalidOperationException(HandoffOutcomeHold.ReasonPrefix + ": mission " + missionId
+                    + " is holding its handoff for an operator choice, not a Judge PASS. Use armada_handoff_hold with release, mail_release or rescue. Hold: "
+                    + mission.HeldForOperatorReviewReason);
+            }
+
             string operatorText = operatorName.Trim();
             string reasonText = reason.Trim();
             string previousHold = mission.HeldForOperatorReviewReason ?? "no reason recorded";
@@ -6657,7 +6675,17 @@ namespace Armada.Core.Services
         /// After a mission produces work, check if any missions in the same voyage depend on it
         /// and prepare them for assignment (inject prior stage context into description).
         /// </summary>
-        private async Task<bool> TryHandoffToNextStageAsync(Mission completedMission, CancellationToken token)
+        private Task<bool> TryHandoffToNextStageAsync(Mission completedMission, CancellationToken token)
+        {
+            return TryHandoffToNextStageAsync(completedMission, null, token);
+        }
+
+        /// <summary>
+        /// Hand a finished stage off to its pending dependents. With <paramref name="heldRelease"/> set,
+        /// the handoff ends a handoff-outcome hold: the decision is not consulted again, and the unmet
+        /// criteria are Mailed to the next stage only when the release asks for it.
+        /// </summary>
+        private async Task<bool> TryHandoffToNextStageAsync(Mission completedMission, HandoffHoldRelease? heldRelease, CancellationToken token)
         {
             if (String.IsNullOrEmpty(completedMission.VoyageId)) return false;
 
@@ -6781,9 +6809,19 @@ namespace Armada.Core.Services
             // stage actually did its job. A blocked or off-premise outcome halts the voyage now (cancel
             // the pending stages, open one incident, preserve the branch) instead of passing the block
             // down to fail at the Judge; a partial outcome Mails the next stage the unmet criteria and
-            // lets it run. When the adapter is not wired the deterministic handoff below stands
-            // unchanged, which is the operationally-off state.
-            if (HandoffOutcomeAdapter != null
+            // lets it run, or holds it for an operator choice when the handoff-outcome hold is on. When
+            // the adapter is not wired the deterministic handoff below stands unchanged, which is the
+            // operationally-off state. A released hold already has its decision: it Mails as the operator
+            // or the timeout chose and hands off without asking again.
+            if (heldRelease != null)
+            {
+                if (heldRelease.Mail)
+                {
+                    await MailPartialUnmetCriteriaAsync(completedMission, dependentMissions,
+                        HandoffOutcomeVerdict.MailPartial(heldRelease.UnmetCriterionIndices), token).ConfigureAwait(false);
+                }
+            }
+            else if (HandoffOutcomeAdapter != null
                 && await ApplyHandoffOutcomeDecisionAsync(completedMission, dependentMissions, token).ConfigureAwait(false))
             {
                 return false;
@@ -6843,14 +6881,17 @@ namespace Armada.Core.Services
         /// finished stage's output tail as the question text, an owner-addressed board note is posted
         /// for a blocked owner question, and the finished stage's branch is left untouched (preserved).
         /// A partial outcome does not halt: the unmet acceptance criteria are prepended to each
-        /// dependent's brief as an orchestrator note, and the caller continues the normal handoff. The
-        /// decision never approves work, never lands, and never bypasses the Judge — a halt opens an
-        /// incident rather than passing work through. Never throws into the handoff.
+        /// dependent's brief as an orchestrator note, and the caller continues the normal handoff. When
+        /// the handoff-outcome hold is enabled and the partial confidence is at least
+        /// <see cref="HandoffOutcomeHold.MinimumConfidence"/>, the finished stage is held for an operator
+        /// choice instead and the caller skips the handoff. The decision never approves work, never
+        /// lands, and never bypasses the Judge — a halt opens an incident rather than passing work
+        /// through. Never throws into the handoff.
         /// </summary>
         /// <param name="completedMission">The finished stage.</param>
         /// <param name="dependentMissions">The pending dependents about to receive the handoff.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>True when the voyage was halted and the caller must skip the normal handoff; false otherwise.</returns>
+        /// <returns>True when the voyage was halted or the handoff is held and the caller must skip the normal handoff; false otherwise.</returns>
         private async Task<bool> ApplyHandoffOutcomeDecisionAsync(Mission completedMission, List<Mission> dependentMissions, CancellationToken token)
         {
             if (HandoffOutcomeAdapter == null) return false;
@@ -6892,6 +6933,9 @@ namespace Armada.Core.Services
 
             if (verdict.Action == HandoffOutcomeAction.MailPartial)
             {
+                if (await TryEngageHandoffOutcomeHoldAsync(completedMission, verdict, token).ConfigureAwait(false))
+                    return true;
+
                 await MailPartialUnmetCriteriaAsync(completedMission, dependentMissions, verdict, token).ConfigureAwait(false);
             }
 
@@ -8133,7 +8177,7 @@ namespace Armada.Core.Services
         /// (agent output, diff) into its description. Applicable unread mailbox signals are prepended
         /// at the top of the brief and their ids accumulated into <paramref name="appliedSignalIds"/>
         /// for the caller to mark read once the batch (or single lazy handoff) is complete. This is
-        /// the shared core used by both the batch handoff (<see cref="TryHandoffToNextStageAsync"/>)
+        /// the shared core used by both the batch handoff (<see cref="TryHandoffToNextStageAsync(Mission, CancellationToken)"/>)
         /// and the lazy self-heal path in <see cref="TryAssignAsync"/>, so a handoff missed by the
         /// creation-order race is reconstructed identically rather than duplicated.
         /// </summary>

@@ -145,6 +145,21 @@ namespace Armada.Core.Services.Interfaces
         Task<Mission> FailOperatorReviewHoldAsync(string missionId, string operatorName, string reason, CancellationToken token = default);
 
         /// <summary>
+        /// Resolve a stage handoff held by the <c>handoff_outcome</c> hold. Release hands the stage off
+        /// unchanged; MailAndRelease prepends the unmet-criteria note to the next stage's brief and hands
+        /// the stage off; Rescue fails the held stage and cancels its dependent stages, so autonomous
+        /// recovery decides a rescue. Each choice records a <c>typed_decision.labelled</c> event that names
+        /// the decision event and carries its <c>state_sha256</c>. Only an operator calls this.
+        /// </summary>
+        /// <param name="missionId">Held mission identifier.</param>
+        /// <param name="choice">The operator choice.</param>
+        /// <param name="operatorName">Operator making the choice. Required.</param>
+        /// <param name="reason">Why. Required.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The mission after the choice is applied.</returns>
+        Task<Mission> ResolveHandoffOutcomeHoldAsync(string missionId, HandoffOutcomeHoldChoiceEnum choice, string operatorName, string reason, CancellationToken token = default);
+
+        /// <summary>
         /// Deny a mission that is waiting at a review gate.
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>

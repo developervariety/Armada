@@ -44,7 +44,8 @@ namespace Armada.Core.Database
             new KeyValuePair<string, string>("incident_latest", LatestSnapshot("@snapshot_event_type", "@incident_entity_type")),
             new KeyValuePair<string, string>("runbook_latest", LatestSnapshot("@runbook_snapshot_event_type", "@runbook_entity_type")),
             new KeyValuePair<string, string>("tombstones", "COALESCE(event_type, '') = @tombstone_event_type"),
-            new KeyValuePair<string, string>("reversals", "COALESCE(event_type, '') = @reversal_event_type")
+            new KeyValuePair<string, string>("reversals", "COALESCE(event_type, '') = @reversal_event_type"),
+            new KeyValuePair<string, string>("labels", "COALESCE(event_type, '') = @label_event_type")
         };
 
         private readonly Func<DbConnection> _ConnectionFactory;
@@ -135,8 +136,9 @@ namespace Armada.Core.Database
                 // dispatch attempt records inside the reconciliation look-back (an attempt whose process
                 // stopped before closing it stays visible), the newest snapshot of each incident and of
                 // each runbook execution (its current record; older snapshots of it still expire),
-                // objective deletion tombstones (they stop a deleted objective being resurrected), and
-                // typed-decision reversals (the operator correction linked to its decision).
+                // objective deletion tombstones (they stop a deleted objective being resurrected),
+                // typed-decision reversals (the operator correction linked to its decision), and
+                // typed-decision outcome labels (the outcome a decision's action reached, linked to it).
                 string anyKept = String.Join(" OR ", _KeptEventClasses.Select(item => "(" + item.Value + ")"));
                 await ExecuteAsync(connection, "events", result, "DELETE FROM events WHERE created_utc < @cutoff AND NOT (" + anyKept + ");",
                     "events", cutoff, cutoffs, token).ConfigureAwait(false);
@@ -225,6 +227,7 @@ namespace Armada.Core.Database
             if (sql.Contains("@runbook_entity_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@runbook_entity_type", RunbookService.ExecutionEntityType);
             if (sql.Contains("@tombstone_event_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@tombstone_event_type", ObjectiveService.DeletedEventType);
             if (sql.Contains("@reversal_event_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@reversal_event_type", TypedDecisionRecorder.EventTypeReversed);
+            if (sql.Contains("@label_event_type", StringComparison.Ordinal)) ProductionFactSql.Add(command, "@label_event_type", TypedDecisionRecorder.EventTypeLabelled);
             if (sql.Contains("@true", StringComparison.Ordinal)) ProductionFactSql.AddBool(command, "@true", true, _Provider);
             if (sql.Contains("@false", StringComparison.Ordinal)) ProductionFactSql.AddBool(command, "@false", false, _Provider);
             return command;

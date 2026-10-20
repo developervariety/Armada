@@ -97,7 +97,9 @@ namespace Armada.Server.Mcp.Tools
                             ? "mission_not_found"
                             : ex.Message.StartsWith(MissionService.GateRerunRunningReason, StringComparison.Ordinal)
                                 ? MissionService.GateRerunRunningReason
-                                : "not_held";
+                                : ex.Message.StartsWith(HandoffOutcomeHold.ReasonPrefix + ":", StringComparison.Ordinal)
+                                    ? HandoffOutcomeHold.ReasonPrefix
+                                    : "not_held";
                         return (object)new { Error = ex.Message, Reason = reason };
                     }
                 });

@@ -2040,6 +2040,9 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<Mission> FailOperatorReviewHoldAsync(string missionId, string operatorName, string reason, CancellationToken token = default)
                 => throw new NotImplementedException();
 
+            public Task<Mission> ResolveHandoffOutcomeHoldAsync(string missionId, HandoffOutcomeHoldChoiceEnum choice, string operatorName, string reason, CancellationToken token = default)
+                => throw new NotImplementedException();
+
             public Task<Mission> DenyReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, ReviewDenyActionEnum? actionOverride = null, CancellationToken token = default)
                 => throw new NotImplementedException();
 

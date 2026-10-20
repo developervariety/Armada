@@ -9,6 +9,18 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- The `handoff_outcome` decision can hold a partial stage for the operator.
+  With `typedDecisions.handoffOutcomeHold.enabled` set (default `false`), a
+  gated `partial` at or above 0.90 holds the next stage instead of Mailing it,
+  and the inbox lists the hold as `handoff_outcome_hold` with the unmet
+  acceptance criteria. The operator answers with the new `armada_handoff_hold`
+  tool: `release`, `mail_release`, or `rescue`. A hold nobody answers is
+  released with the Mail after `typedDecisions.handoffOutcomeHold.timeoutMinutes`
+  (default 240). Each ending writes a `typed_decision.labelled` event (`release`,
+  `mail_release`, `rescue`, or `hold_timeout`) joined to the decision on
+  `state_sha256`, and retention keeps these events whatever their age. Below
+  0.90, with the decision unavailable, or with the hold off, the partial Mail is
+  unchanged. The hold never cancels, rescues, lands, or dispatches.
 - A definition-of-done gate that fails with a `Timeout` failure class while
   the host is overloaded runs once more before the mission is failed. The host
   is overloaded when the 1-minute load average in `/proc/loadavg` is above 2

@@ -315,6 +315,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string[] serviceTools = new[]
                     {
                         "armada_review_hold",
+                        "armada_handoff_hold",
                         "armada_agentwake_status",
                         "create_release",
                         "create_deployment",

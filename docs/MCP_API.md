@@ -232,7 +232,30 @@ writes `mission.hold_cleared` and `fail` writes `mission.hold_failed`, each
 naming the operator and the reason. A cleared hold that has dependent stages
 hands off to them and releases the mission's dock, so the next stage can check
 out the branch. The model never resolves a hold; the only automatic release is
-the gate re-run.
+the gate re-run. A `handoff_outcome` hold is refused with `handoff_outcome_hold`;
+resolve it with `armada_handoff_hold`.
+
+The inbox lists a stage handoff held by the `handoff_outcome` hold as kind
+`handoff_outcome_hold`; its detail lists the unmet acceptance criteria. Resolve
+it with `armada_handoff_hold`:
+
+| Argument | Required | Meaning |
+| --- | --- | --- |
+| `action` | yes | `release` hands the stage off unchanged; `mail_release` prepends the unmet-criteria note to the next stage's brief and hands off; `rescue` fails the held stage and cancels its dependent stages, so autonomous recovery decides a rescue |
+| `missionId` | yes | Held mission (`msn_` prefix) |
+| `reason` | yes | Recorded on the label |
+| `operator` | yes | Recorded on the label |
+
+The tool refuses any caller other than a global administrator
+(`global_administrator_required`), a missing or unknown argument
+(`missing_reason`, `missing_operator`, `missing_mission_id`, `invalid_action`),
+a mission without this hold (`not_held`), and a hold another choice or the
+timeout release is already ending (`handoff_hold_busy`). Each choice writes one
+`typed_decision.labelled` event with `label` `release`, `mail_release` or
+`rescue`, the operator and reason, the decision event id, and its
+`state_sha256`. A hold nobody answers is released with the note after
+`typedDecisions.handoffOutcomeHold.timeoutMinutes` and labelled `hold_timeout`.
+The model never resolves this hold.
 
 When the `inbox_triage` typed decision is enabled (`Gate`), the `inbox`
 tool's items and the `armada_coordination_read` notes each carry an extra

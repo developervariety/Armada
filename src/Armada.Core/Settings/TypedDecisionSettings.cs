@@ -99,6 +99,16 @@ namespace Armada.Core.Settings
         public TypedDecisionRetentionSettings Retention { get; set; } = new TypedDecisionRetentionSettings();
 
         /// <summary>
+        /// The <c>handoff_outcome</c> hold: whether a confident <c>partial</c> outcome holds the next stage for
+        /// an operator choice, and how long it waits before it is released with the Mail. Off by default.
+        /// </summary>
+        public TypedDecisionHandoffHoldSettings HandoffOutcomeHold
+        {
+            get => _HandoffOutcomeHold;
+            set => _HandoffOutcomeHold = value ?? new TypedDecisionHandoffHoldSettings();
+        }
+
+        /// <summary>
         /// Price table for the estimated cost recorded on every call event. Ships empty, so every call
         /// records a null cost with a named reason until an operator sets the provider's prices.
         /// </summary>
@@ -213,6 +223,7 @@ namespace Armada.Core.Settings
         private Dictionary<string, TypedDecisionRuleSettings> _Decisions = DefaultDecisions();
         private TypedDecisionPriceTable _Pricing = new TypedDecisionPriceTable();
         private TypedDecisionCaptainToolSettings _CaptainTool = new TypedDecisionCaptainToolSettings();
+        private TypedDecisionHandoffHoldSettings _HandoffOutcomeHold = new TypedDecisionHandoffHoldSettings();
         private Dictionary<string, CustomTypedDecisionSettings> _Custom = new Dictionary<string, CustomTypedDecisionSettings>(StringComparer.Ordinal);
 
         /// <summary>
@@ -321,6 +332,7 @@ namespace Armada.Core.Settings
             CaptainTool = source.CaptainTool;
             Custom = CloneCustom(source.Custom);
             Retention = source.Retention;
+            HandoffOutcomeHold = (source.HandoffOutcomeHold ?? new TypedDecisionHandoffHoldSettings()).Clone();
             Pricing = source.Pricing;
         }
 

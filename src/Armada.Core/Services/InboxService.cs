@@ -173,7 +173,7 @@ namespace Armada.Core.Services
                 // A Judge PASS held for operator review waits on the operator: it neither hands off nor
                 // lands until armada_review_hold clears or fails it.
                 List<Mission> produced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
-                foreach (Mission mission in produced.Concat(reviews).Where(m => m.HeldForOperatorReview).Take(_MaxPerCategory))
+                foreach (Mission mission in produced.Concat(reviews).Where(m => m.HeldForOperatorReview && !HandoffOutcomeHold.IsHeld(m)).Take(_MaxPerCategory))
                 {
                     items.Add(new InboxItem
                     {
@@ -182,6 +182,24 @@ namespace Armada.Core.Services
                         Title = "Judge PASS held: " + mission.Title,
                         Detail = "Held for operator review: " + (mission.HeldForOperatorReviewReason ?? "no reason recorded")
                             + ". Clear it to proceed, or fail it, with armada_review_hold.",
+                        EntityType = "mission",
+                        EntityId = mission.Id,
+                        VesselIds = VesselsOf(mission.VesselId),
+                        Href = "/missions/" + mission.Id
+                    });
+                }
+
+                // A stage the handoff-outcome check read as partial waits on the operator's choice: release,
+                // mail_release or rescue with armada_handoff_hold. The reason lists the unmet criteria.
+                foreach (Mission mission in produced.Where(m => HandoffOutcomeHold.IsHeld(m)).Take(_MaxPerCategory))
+                {
+                    items.Add(new InboxItem
+                    {
+                        Kind = "handoff_outcome_hold",
+                        Severity = InboxSeverityEnum.Warning,
+                        Title = "Handoff held: " + mission.Title,
+                        Detail = (mission.HeldForOperatorReviewReason ?? "no reason recorded")
+                            + " Choose release, mail_release or rescue with armada_handoff_hold.",
                         EntityType = "mission",
                         EntityId = mission.Id,
                         VesselIds = VesselsOf(mission.VesselId),

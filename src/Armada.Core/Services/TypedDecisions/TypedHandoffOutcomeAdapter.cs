@@ -22,7 +22,11 @@ namespace Armada.Core.Services
         /// <summary>Halt the voyage before the next stage starts: cancel pending missions, open an incident, preserve the branch.</summary>
         Halt,
 
-        /// <summary>Do not halt; Mail the next stage the unmet acceptance criteria and continue.</summary>
+        /// <summary>
+        /// Do not halt; Mail the next stage the unmet acceptance criteria and continue. When the
+        /// handoff-outcome hold is enabled and the partial is confident enough, the handoff seam holds
+        /// the next stage for an operator choice instead.
+        /// </summary>
         MailPartial
     }
 
@@ -54,13 +58,21 @@ namespace Armada.Core.Services
         /// <summary>The 1-based acceptance-criteria indices the model marks unmet, for the partial Mail.</summary>
         public IReadOnlyList<int> UnmetCriterionIndices { get; }
 
+        /// <summary>
+        /// The model's confidence in the gated outcome, for a partial verdict. Zero for the rule verdict and
+        /// for a halt. The handoff seam reads it to decide whether a partial outcome is confident enough to
+        /// hold the next stage.
+        /// </summary>
+        public double Confidence { get; }
+
         private HandoffOutcomeVerdict(
             HandoffOutcomeAction action,
             string outcome,
             string? haltReason,
             bool ownerNote,
             bool preserveBranch,
-            IReadOnlyList<int>? unmetCriterionIndices)
+            IReadOnlyList<int>? unmetCriterionIndices,
+            double confidence = 0.0)
         {
             Action = action;
             Outcome = outcome ?? "unclear";
@@ -68,6 +80,7 @@ namespace Armada.Core.Services
             OwnerNote = ownerNote;
             PreserveBranch = preserveBranch;
             UnmetCriterionIndices = unmetCriterionIndices ?? new List<int>();
+            Confidence = confidence;
         }
 
         /// <summary>A short label for the effective outcome: <c>proceed</c>, <c>halt</c>, or <c>mail_partial</c>.</summary>
@@ -102,10 +115,11 @@ namespace Armada.Core.Services
 
         /// <summary>Build a partial-Mail verdict carrying the unmet criteria indices.</summary>
         /// <param name="unmetCriterionIndices">The 1-based acceptance-criteria indices the model marks unmet.</param>
+        /// <param name="confidence">The model's confidence in the partial outcome; zero when not known.</param>
         /// <returns>A mail-partial verdict that does not halt.</returns>
-        public static HandoffOutcomeVerdict MailPartial(IReadOnlyList<int> unmetCriterionIndices)
+        public static HandoffOutcomeVerdict MailPartial(IReadOnlyList<int> unmetCriterionIndices, double confidence = 0.0)
         {
-            return new HandoffOutcomeVerdict(HandoffOutcomeAction.MailPartial, "partial", null, false, false, unmetCriterionIndices);
+            return new HandoffOutcomeVerdict(HandoffOutcomeAction.MailPartial, "partial", null, false, false, unmetCriterionIndices, confidence);
         }
     }
 
@@ -197,7 +211,10 @@ namespace Armada.Core.Services
     /// pending missions, opens one incident carrying the question text, posts an owner-addressed board
     /// note for a <c>blocked_owner_question</c>, and preserves the branch.</item>
     /// <item>A <c>partial</c> outcome at or above threshold does NOT halt; the seam Mails the next
-    /// stage the unmet acceptance criteria and the voyage continues.</item>
+    /// stage the unmet acceptance criteria and the voyage continues. When the handoff-outcome hold is
+    /// enabled and the partial confidence is at least <see cref="HandoffOutcomeHold.MinimumConfidence"/>,
+    /// the seam holds the next stage and asks the operator to release it, Mail and release it, or send
+    /// it to rescue; an unanswered hold is released with the Mail after the configured timeout.</item>
     /// <item>Every other outcome (<c>achieved</c>, <c>unclear</c>, or a below-threshold answer) leaves
     /// the deterministic handoff standing.</item>
     /// </list>
@@ -341,7 +358,7 @@ namespace Armada.Core.Services
                 case _OutcomeOffPremise:
                     return HandoffOutcomeVerdict.Halt(_OutcomeOffPremise, ownerNote: false);
                 case _OutcomePartial:
-                    return HandoffOutcomeVerdict.MailPartial(model.UnmetCriterionIndices);
+                    return HandoffOutcomeVerdict.MailPartial(model.UnmetCriterionIndices, model.Confidence);
                 default:
                     // achieved, unclear, or anything unexpected: the deterministic handoff stands. The
                     // Judge is never bypassed and work is never approved by this decision.

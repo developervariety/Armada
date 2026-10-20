@@ -140,6 +140,7 @@ namespace Armada.Test.Database
                 ArmadaEvent recentSnapshot = await CreateDurableEventAsync(created, IncidentService.SnapshotEventType, IncidentService.IncidentEntityType, recentIncident, now, token).ConfigureAwait(false);
                 ArmadaEvent tombstone = await CreateDurableEventAsync(created, ObjectiveService.DeletedEventType, "objective", "obj_deleted_" + suffix, now.AddDays(-30), token).ConfigureAwait(false);
                 ArmadaEvent reversal = await CreateDurableEventAsync(created, TypedDecisionRecorder.EventTypeReversed, "mission", "msn_reversed_" + suffix, now.AddDays(-30), token).ConfigureAwait(false);
+                ArmadaEvent label = await CreateDurableEventAsync(created, TypedDecisionRecorder.EventTypeLabelled, "mission", "msn_labelled_" + suffix, now.AddDays(-30), token).ConfigureAwait(false);
                 ArmadaEvent ordinary = await CreateDurableEventAsync(created, "mission.created", "mission", "msn_ordinary_" + suffix, now.AddDays(-30), token).ConfigureAwait(false);
 
                 LoggingModule logging = new LoggingModule();
@@ -153,10 +154,12 @@ namespace Armada.Test.Database
                 DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(recentSnapshot.Id, token).ConfigureAwait(false), "A recent snapshot is kept");
                 DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(tombstone.Id, token).ConfigureAwait(false), "An objective deletion tombstone is kept whatever its age");
                 DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(reversal.Id, token).ConfigureAwait(false), "A typed-decision reversal is kept whatever its age");
+                DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(label.Id, token).ConfigureAwait(false), "A typed-decision outcome label is kept whatever its age");
                 DatabaseAssert.True(await _Driver.Events.ReadAsync(ordinary.Id, token).ConfigureAwait(false) == null, "An ordinary old event still expires");
                 DatabaseAssert.True(purged.Kept("incident_latest") >= 2, "The summary counts kept incident snapshots: " + purged);
                 DatabaseAssert.True(purged.Kept("tombstones") >= 1, "The summary counts kept tombstones: " + purged);
                 DatabaseAssert.True(purged.Kept("reversals") >= 1, "The summary counts kept reversals: " + purged);
+                DatabaseAssert.True(purged.Kept("labels") >= 1, "The summary counts kept outcome labels: " + purged);
                 DatabaseAssert.True(purged.ToString().Contains("kept_incident_latest=", StringComparison.Ordinal), "The summary names the kept classes: " + purged);
             }
             finally

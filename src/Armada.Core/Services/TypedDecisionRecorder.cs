@@ -61,6 +61,13 @@ namespace Armada.Core.Services
         public const string EventTypeReversed = "typed_decision.reversed";
 
         /// <summary>
+        /// Event type for the outcome a gated decision's action reached: the choice a person made on what
+        /// the decision held, or a timeout that ended the hold without one. It names the decision event and
+        /// carries its <c>state_sha256</c>, so it joins to the decision and its retained state.
+        /// </summary>
+        public const string EventTypeLabelled = "typed_decision.labelled";
+
+        /// <summary>
         /// Event type for a decision answered from stored answers to the same state, question contract and
         /// model, with no new provider call. It records no tokens and is not a typed-decision call.
         /// </summary>
@@ -344,6 +351,118 @@ namespace Armada.Core.Services
             }
 
             return TypedDecisionReversalResult.Recorded(recorded, decisionPoint, labelled);
+        }
+
+        /// <summary>
+        /// Record the outcome a gated decision's action reached. Writes one <see cref="EventTypeLabelled"/>
+        /// event that names the decision event and copies its <c>state_sha256</c>, objective id, rule verdict
+        /// and gate outcome, so the label joins to the decision and its retained state. When the decision
+        /// event cannot be read the label is still written, with a null digest and the reason named. It
+        /// changes no decision, gate or other record. Never throws.
+        /// </summary>
+        /// <param name="decisionPoint">The decision the label belongs to.</param>
+        /// <param name="decisionEventId">The gated decision event, when known.</param>
+        /// <param name="label">The outcome label, in the decision's own vocabulary.</param>
+        /// <param name="decidedBy">Who reached the outcome: an operator name, or a fixed value for an automatic outcome.</param>
+        /// <param name="reason">Why, in the decider's words; may be empty.</param>
+        /// <param name="mission">The mission the decision judged.</param>
+        /// <param name="details">Further label fields; must carry no state and no credential.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The created event, or null when recording failed.</returns>
+        public async Task<ArmadaEvent?> RecordOutcomeLabelAsync(
+            string decisionPoint,
+            string? decisionEventId,
+            string label,
+            string decidedBy,
+            string? reason,
+            Mission? mission,
+            IReadOnlyDictionary<string, object?>? details,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(decisionPoint) || String.IsNullOrWhiteSpace(label)) return null;
+
+            ArmadaEvent? original = null;
+            string? lookupFailure = null;
+            if (String.IsNullOrWhiteSpace(decisionEventId) || !decisionEventId!.StartsWith("evt_", StringComparison.Ordinal))
+            {
+                lookupFailure = "no decision event id was recorded";
+            }
+            else
+            {
+                try
+                {
+                    original = await _Database.Events.ReadAsync(decisionEventId!, token).ConfigureAwait(false);
+                    if (original == null) lookupFailure = "the decision event was not found";
+                    else if (!IsTypedDecisionEvent(original.EventType))
+                    {
+                        lookupFailure = "event " + decisionEventId + " is not a typed-decision event";
+                        original = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "label lookup failed for " + decisionEventId + ": " + ex.Message);
+                    lookupFailure = "the decision event could not be read";
+                }
+            }
+
+            Dictionary<string, object?> payload = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["decision"] = decisionPoint,
+                ["original_event_id"] = original?.Id ?? (String.IsNullOrWhiteSpace(decisionEventId) ? null : decisionEventId),
+                ["original_event_type"] = original?.EventType,
+                ["rule_verdict"] = original != null ? ReadPayloadString(original.Payload, "rule_verdict") : null,
+                ["gate_outcome"] = original != null ? ReadPayloadString(original.Payload, "gate_outcome") : null,
+                ["state_sha256"] = original != null ? ReadPayloadString(original.Payload, "state_sha256") : null,
+                ["objective_id"] = original != null ? ReadPayloadString(original.Payload, "objective_id") : null,
+                ["mission_id"] = mission?.Id ?? original?.MissionId,
+                ["label"] = label,
+                ["decided_by"] = decidedBy ?? String.Empty,
+                ["reason"] = reason ?? String.Empty,
+                ["join_unavailable_reason"] = lookupFailure
+            };
+            if (details != null)
+            {
+                foreach (KeyValuePair<string, object?> entry in details)
+                {
+                    if (String.IsNullOrWhiteSpace(entry.Key) || payload.ContainsKey(entry.Key)) continue;
+                    payload[entry.Key] = entry.Value;
+                }
+            }
+
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(EventTypeLabelled, "decision=" + decisionPoint + " label=" + label + " by=" + (decidedBy ?? String.Empty))
+                {
+                    Payload = JsonSerializer.Serialize(payload)
+                };
+                if (mission != null)
+                {
+                    evt.EntityType = "mission";
+                    evt.EntityId = mission.Id;
+                    evt.MissionId = mission.Id;
+                    evt.VesselId = mission.VesselId;
+                    evt.VoyageId = mission.VoyageId;
+                    EventOwnerScope.ApplyFromMission(evt, mission);
+                }
+                else
+                {
+                    evt.TenantId = original?.TenantId ?? Constants.DefaultTenantId;
+                    evt.UserId = original?.UserId;
+                    evt.EntityType = original?.EntityType;
+                    evt.EntityId = original?.EntityId;
+                    evt.MissionId = original?.MissionId;
+                    evt.VesselId = original?.VesselId;
+                    evt.VoyageId = original?.VoyageId;
+                }
+
+                return await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to record " + EventTypeLabelled + ": " + ex.Message);
+                return null;
+            }
         }
 
         #endregion

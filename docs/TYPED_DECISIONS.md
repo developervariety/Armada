@@ -177,7 +177,8 @@ byte count and never the state, and nothing extra leaves the host.
   gated outcome was wrong and writes the corrected answer beside the call, joined
   by the state hash. That pair — what the rule said, what the model said, what a
   person decided — is the labelled example a local model is trained and reviewed
-  against.
+  against. An operator's choice on a `handoff_outcome` hold, or its timeout, is
+  a `typed_decision.labelled` event joined the same way.
 - **Retention never changes an outcome.** Every write is best effort; a failure is
   logged and swallowed, exactly like a recorder failure.
 - **Samples are grouped by redaction rules.** Each sample carries
@@ -569,7 +570,34 @@ Two decision points recover captain time at the pipeline level (both ship
   acceptance criteria and the voyage continues. An Implementation Worker or
   TestEngineer is told to complete them; every other stage, including every
   Judge and every Research or Audit stage, is told to check them and report each
-  one still unmet as a finding, not to do the prior stage's work. The decision never approves work,
+  one still unmet as a finding, not to do the prior stage's work.
+
+  **The handoff hold.** With `typedDecisions.handoffOutcomeHold.enabled` set
+  (default `false`), a gated `partial` at or above `0.90` holds the next stage
+  instead of Mailing it. Below `0.90`, with the decision unavailable or below
+  its gate threshold, or with the hold off, the partial Mail above stands. The
+  finished stage stays `WorkProduced` with `HeldForOperatorReview` set and a
+  reason that opens `handoff_outcome_hold since <time> event <decision event>
+  unmet <indices>:` and lists the unmet criteria. Its dependents wait, the
+  voyage stays open, and `mission.handoff_hold_engaged` is recorded. The inbox
+  lists it as `handoff_outcome_hold`. The operator answers with
+  `armada_handoff_hold`: `release` hands off unchanged, `mail_release` Mails the
+  unmet criteria and hands off, and `rescue` fails the stage with reason
+  `handoff_outcome_hold_rescue: ...` and cancels its dependents, so autonomous
+  recovery decides the rescue under its own rules. `armada_review_hold` refuses
+  this hold. A hold no operator answers within
+  `typedDecisions.handoffOutcomeHold.timeoutMinutes` (default 240, range 1 to
+  10080) is released by the health loop with the Mail. The sweep runs whether
+  or not the hold is enabled, so turning the flag off stops new holds and lets
+  open ones end at their timeout. Each ending writes one
+  `typed_decision.labelled` event: `release`, `mail_release`, `rescue`, or
+  `hold_timeout`. The event names the operator (or `timeout`), the reason, the
+  decision event, and its `state_sha256`, so it joins to the decision and its
+  retained state. Retention keeps label events whatever their age. The hold only
+  holds and escalates. It never cancels, rescues, lands, or dispatches; the
+  decision's own mode remains the kill switch.
+
+  The decision never approves work,
   never lands, and never bypasses the Judge — a halt opens an incident rather than
   passing work through, and work that reaches the Judge is still judged. With the
   decision `Off` the deterministic handoff stands. A stage whose final result is a

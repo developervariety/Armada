@@ -28,7 +28,9 @@ of item qualify:
 
 - **Human-in-the-loop**: a mission in Review to approve or reject, a Judge PASS
   held for operator review (`judge_pass_held`; resolve it with
-  `armada_review_hold`), or a deployment pending approval.
+  `armada_review_hold`), a stage handoff held by the `handoff_outcome` hold
+  (`handoff_outcome_hold`; resolve it with `armada_handoff_hold`), or a
+  deployment pending approval.
 - **Human-out-of-the-loop**: a failed mission, a mission whose work could not
   land, a failed merge, a failed or verification-failed deployment, or a
   stalled captain.
@@ -93,8 +95,8 @@ expiry and offer **Quarantine** and **Lift Quarantine**.
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_voyage_status`, `armada_mission_status`, `armada_mission_output`, `armada_get_mission_diff`, `armada_get_mission_log` |
-| Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status`, `armada_reconcile_terminal_voyage_missions` (`dryRun=false`; see 8.26), `armada_review_hold` (`action=fail`) |
-| Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing`, `armada_review_hold` (`action=clear` lands or hands off the held PASS) |
+| Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status`, `armada_reconcile_terminal_voyage_missions` (`dryRun=false`; see 8.26), `armada_review_hold` (`action=fail`), `armada_handoff_hold` (`action=rescue`) |
+| Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing`, `armada_review_hold` (`action=clear` lands or hands off the held PASS), `armada_handoff_hold` (`action=release` or `mail_release` hands off the held stage) |
 | Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |
 | Destructive | `armada_purge_mission`, `armada_delete_missions`, `armada_purge_voyage`, `armada_delete_voyages` |
 
@@ -118,6 +120,18 @@ naming the operator and reason. A mission that is not held is refused with
 `not_held`. A held mission keeps its voyage open. Under a voyage that has
 already ended, the decision settles the mission and leaves the voyage status
 and completion time unchanged.
+
+`armada_handoff_hold` resolves a stage handoff held by the `handoff_outcome`
+hold. It takes `action` (`release`, `mail_release` or `rescue`), `missionId`,
+`reason`, and `operator`, all required, and refuses any caller other than a
+global administrator. `release` hands the stage off unchanged; `mail_release`
+prepends the unmet-criteria note to the next stage's brief and hands off;
+`rescue` fails the held stage and cancels its dependent stages, and autonomous
+recovery decides the rescue. Each choice records a `typed_decision.labelled`
+event joined to the decision on `state_sha256`. A hold nobody answers is
+released with the note after the configured timeout and labelled
+`hold_timeout`. `armada_review_hold` refuses this hold with
+`handoff_outcome_hold`.
 
 One rule decides when a voyage ends. Three paths apply it: mission state
 changes, the health-loop completion check, and the landing drain. They all
