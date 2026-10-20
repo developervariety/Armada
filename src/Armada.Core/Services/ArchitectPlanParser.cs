@@ -83,7 +83,7 @@ namespace Armada.Core.Services
         {
             return "Respond only with real mission definitions: preferably one fenced ```" + FenceInfo + " block containing " +
                 "{\"missions\":[{\"title\":...,\"description\":...,\"dependsOn\":<earlier mission number or null>," +
-                "\"waitForOtherMissions\":<true|false>}]}, otherwise real [ARMADA:MISSION] blocks.";
+                "\"waitForOtherMissions\":<true|false>}]}, otherwise real [ARMADA:MISSION] blocks. Each description must define one bounded outcome, components, approach, scope exclusions, invariants, acceptance IDs with failure cases, validation commands, dependencies, and uncertainties. Include a final integration slice after implementation pipelines settle.";
         }
 
         #endregion

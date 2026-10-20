@@ -370,6 +370,29 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("bounded_slice_upgrade_preserves_operator_edits", "Prior brief defaults upgrade while custom briefs survive reseeding", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, new LoggingModule());
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    foreach (string name in new[] { "persona.architect", "persona.worker", "persona.judge" })
+                    {
+                        PromptTemplate row = (await testDb.Driver.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false))!;
+                        row.Content = PersonaPromptImprovements.PreviousBriefs[name];
+                        await testDb.Driver.PromptTemplates.UpdateAsync(row).ConfigureAwait(false);
+                        await service.SeedDefaultsAsync().ConfigureAwait(false);
+                        row = (await testDb.Driver.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false))!;
+                        AssertEqual(service.GetEmbeddedDefault(name), row.Content, name + " previous brief upgraded");
+                        row.Content = PersonaPromptImprovements.PreviousBriefs[name] + "Operator-specific instruction";
+                        await testDb.Driver.PromptTemplates.UpdateAsync(row).ConfigureAwait(false);
+                        await service.SeedDefaultsAsync().ConfigureAwait(false);
+                        row = (await testDb.Driver.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false))!;
+                        AssertTrue(row.Content.EndsWith("Operator-specific instruction"), name + " custom brief preserved");
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("persona_guidance_rendered_for_limited_tools", "All persona briefs carry tool honesty; role-specific evidence and implementation contracts render without changing output protocols", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -379,7 +402,7 @@ namespace Test.Shared.Suites.Services
                     foreach (string name in PersonaPromptImprovements.Additions.Keys)
                     {
                         string rendered = await service.RenderAsync(name, new Dictionary<string, string> { ["MissionDescription"] = "A bounded offline task", ["Diff"] = "a verified diff", ["PreviousStageOutput"] = "supplied evidence" }).ConfigureAwait(false);
-                        AssertTrue(rendered.Length < 1800, name + " stays succinct");
+                        AssertTrue(rendered.Length < 2400, name + " stays succinct");
                         AssertContains("Report unavailable tools", rendered, name + " unavailable checks are explicit");
                         AssertContains("Never claim an inspection", rendered, name + " evidence honesty");
                         AssertFalse(rendered.Contains("{MissionDescription}"), name + " objective rendered");
@@ -388,7 +411,12 @@ namespace Test.Shared.Suites.Services
                     AssertContains("Each description must stand alone", architect, "self-contained fan-out description");
                     AssertContains("validation commands", architect, "executable checks");
                     AssertContains("armada-plan", architect, "plan protocol preserved");
+                    AssertContains("Scope exclusions", architect, "bounded architect scope");
+                    AssertContains("Invariants", architect, "shared invariants");
+                    AssertContains("final integration slice", architect, "end-to-end acceptance");
                     string worker = service.GetEmbeddedDefault("persona.worker")!;
+                    AssertContains("substantial redesign", worker, "worker returns design blockers");
+                    AssertContains("each acceptance ID", worker, "criterion evidence handoff");
                     AssertContains("changed files", worker, "worker handoff");
                     AssertContains("precise blocker", worker, "bounded escalation");
                     string product = service.GetEmbeddedDefault("persona.product_manager")!;
