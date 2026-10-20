@@ -14,6 +14,8 @@ Outcome: **the run failed**, ending at about 22:56 UTC after 76 minutes. First p
 
 Terminal Judge: `msn_mvh9poa0_XHLiQnHeMz1`. It independently restored/built the branch (zero warnings/errors), ran 68 shared cases and both adapters, then reproduced `Redact("abcdefgh", ["abcdef", "cdefgh"]) == "[REDACTED]gh"` against the built assembly and the actual settings validator. This agrees with the separately observed HF-20 defect. The operator-added redaction/integration criteria were still pending when the pipeline stopped. No manual mission restart, model substitution or Wilson source edit was used.
 
+Deployment checkpoint: product fixes are committed through `8c2fd584` (including scoped handoffs `3f9fa9ab` and safe Git advancement `dde29ea9`). GitHub CI passed. `build-all.sh v1.1.0` succeeded; server/dashboard/proxy multi-architecture `v1.1.0` and `latest` images are published and verified below. **Server deployment is pending operator confirmation.** Harbor has been rebuilt and reconnected with the guarded Git code. After deployment: verify briefs/server startup, archive/delete this failed run, reset the same acceptance baseline, and rerun FullPipeline with the same strict assignments. Preserve production main and image tags. Carry HF-20 as an explicit acceptance boundary; do not silently relax the Judge or expand the retry budget.
+
 ## Open work and acceptance gates
 
 | ID | Item | Status / next evidence |
@@ -279,3 +281,16 @@ Rollout artifact: product changes committed as `00f45ea4`; `build-all.sh v1.1.0`
 | `jchristn77/armada-proxy` | `sha256:17f872c50d443147b6c38b188a340f3bba7430845e09329fcb44266bae0d41b2` |
 
 That deployment checkpoint is complete: rollout prompts were verified, the 33-mission voyage was archived/deleted, the repository was reset, and the full-pipeline run was launched. Hosted CI for `7d820c4b` passed. Current open work and progress are maintained above, rather than in this historical appendix.
+
+
+### Completed publication checkpoint — 2026-10-20 23:07 UTC
+
+Product revision `8c2fd584215947c0852e4d9e3fd15db229847f26`: warning-free solution build, 2043/2043 .NET 10 Services tests, 212/212 targeted .NET 8 tests, and successful [GitHub CI](https://github.com/jchristn/Armada/actions/runs/39512438792). `./build-all.sh v1.1.0` exited 0, pushing and pulling all three images. Registry inspection confirms Linux AMD64/ARM64 and equal `v1.1.0`/`latest` manifests:
+
+| Image (`jchristn77/`) | Manifest digest |
+| --- | --- |
+| armada-server | `sha256:4679ead5404ac1f3ddd3013357e1846ab21420edc4b6200d15765cc244d87228` |
+| armada-dashboard | `sha256:dd694d9e8d9c4c5f30f52c4f0bbc393e140ec81b0b91353c2b321341c97b597d` |
+| armada-proxy | `sha256:13fbe46539155b24b5d1b6a2f6c266fc635007af43118d03cfbd3ad3415695e4` |
+
+This publication completes image preparation; it does not establish that the server has been recreated or that Wilson passed end to end. The server update was requested. No acceptance voyage is active.
