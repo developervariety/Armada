@@ -92,6 +92,25 @@ describe('MissionDetail waiting and landing', () => {
     expect(screen.getByText(/The inference response hit the output-token limit/)).toHaveTextContent('Remediation: Increase Max Output Tokens');
   });
 
+  it('links a failed API captain to the relevant configuration surfaces', async () => {
+    vi.mocked(listCaptains).mockResolvedValue({ ...emptyPage, objects: [{ id: 'cpt_api', name: 'DeepSeek', runtime: 'ApiEndpoint', modelEndpointId: 'mep_deepseek' }] } as never);
+    vi.mocked(getMission).mockResolvedValue(mission({ status: 'Failed', captainId: 'cpt_api', failureReason: 'Provider error HTTP 401. Remediation: Check endpoint credentials.' }));
+    vi.mocked(getMissionLandingPreview).mockResolvedValue(preview({ missionStatus: 'Failed' }));
+    renderPage();
+    expect(await screen.findByRole('link', { name: 'Open inference endpoints' })).toHaveAttribute('href', '/configuration?tab=endpoints');
+    expect(screen.getByRole('link', { name: 'Open captain configuration' })).toHaveAttribute('href', '/captains/cpt_api');
+    expect(screen.getByRole('link', { name: 'Open vessel configuration' })).toHaveAttribute('href', '/vessels/vsl_1');
+  });
+
+  it('does not offer an inference endpoint link for a CLI captain', async () => {
+    vi.mocked(listCaptains).mockResolvedValue({ ...emptyPage, objects: [{ id: 'cpt_cli', name: 'Codex', runtime: 'Codex' }] } as never);
+    vi.mocked(getMission).mockResolvedValue(mission({ status: 'Failed', captainId: 'cpt_cli', failureReason: 'CLI is not installed.' }));
+    vi.mocked(getMissionLandingPreview).mockResolvedValue(preview({ missionStatus: 'Failed' }));
+    renderPage();
+    expect(await screen.findByRole('link', { name: 'Open captain configuration' })).toHaveAttribute('href', '/captains/cpt_cli');
+    expect(screen.queryByRole('link', { name: 'Open inference endpoints' })).not.toBeInTheDocument();
+  });
+
   it('explains why a Pending mission waits and never shows Ready To Land (F11)', async () => {
     vi.mocked(getMission).mockResolvedValue(mission({
       status: 'Pending',

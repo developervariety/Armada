@@ -111,6 +111,8 @@ export default function MissionDetail() {
 
   const formatDuration = useCallback((totalRuntimeMs: number | null | undefined): string => formatMissionDuration(totalRuntimeMs, t), [t]);
 
+  const missionCaptain = captains.find(captain => captain.id === mission?.captainId);
+
   // Lookup maps
   const vesselName = useMemo(() => {
     const m = new Map<string, string>();
@@ -763,7 +765,7 @@ export default function MissionDetail() {
         {mission.failureReason && (
           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
             <span className="detail-label" title={t('Why the mission failed or could not land, as recorded when it failed.')}>{t('Failure Reason')}</span>
-            <span className="text-dim">{t('Runtime limits and remediation are recorded here when reported by the captain. See the mission log for the individual inference turns and tool calls.')}</span>
+            <span className="text-dim">{t('The failure reason and available remediation are recorded here. Correct configuration problems before restarting; see the mission log for inference turns and tool calls.')}</span>
             <pre style={{
               margin: 0,
               padding: '0.75rem',
@@ -776,6 +778,11 @@ export default function MissionDetail() {
               wordBreak: 'break-word',
               fontFamily: 'monospace'
             }}>{mission.failureReason}</pre>
+            <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+              {mission.captainId && <Link className="btn btn-sm" to={`/captains/${mission.captainId}`}>{t('Open captain configuration')}</Link>}
+              {missionCaptain?.modelEndpointId && <Link className="btn btn-sm" to="/configuration?tab=endpoints">{t('Open inference endpoints')}</Link>}
+              {mission.vesselId && <Link className="btn btn-sm" to={`/vessels/${mission.vesselId}`}>{t('Open vessel configuration')}</Link>}
+            </div>
           </div>
         )}
         {mission.reviewComment && (

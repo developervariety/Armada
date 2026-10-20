@@ -76,6 +76,22 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("configuration_failure_keeps_actionable_reason", "Dashboard inbox preserves provider failure and remediation with a mission link", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    string reason = RuntimeFailureClassifier.Decide(1, RuntimeProviderErrorParser.FromHttpStatus(401, "Invalid endpoint credentials")).Describe();
+                    Mission mission = new Mission("Inference endpoint authentication failed") { Status = MissionStatusEnum.Failed, FailureReason = reason };
+                    await testDb.Driver.Missions.CreateAsync(mission);
+                    InboxService inbox = new InboxService(testDb.Driver, CreateLogging());
+                    List<InboxItem> items = await inbox.GetInboxAsync(AuthContext.Authenticated("ten_inbox", "usr_inbox", true, false, "Test"));
+                    InboxItem item = items.Single(i => i.EntityId == mission.Id);
+                    AssertEqual(reason, item.Detail);
+                    AssertContains("Remediation:", item.Detail);
+                    AssertEqual("/missions/" + mission.Id, item.Href);
+                }
+            }));
+
             cases.Add(CaseAsync("orders_critical_first", "Inbox OrdersCriticalFirst", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

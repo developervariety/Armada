@@ -105,6 +105,22 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(Case("rejected_request_has_configuration_and_integration_guidance", "Rejected requests preserve provider detail and explain configuration and SDK checks", TestTags.Negative, () =>
+            {
+                foreach (int status in new[] { 400, 405, 415, 422 })
+                {
+                    RuntimeExitInfo info = RuntimeFailureClassifier.Decide(1, RuntimeProviderErrorParser.FromHttpStatus(status, "Unsupported tool request shape"));
+                    AssertContains("HTTP " + status, info.Describe());
+                    AssertContains("Unsupported tool request shape", info.Describe());
+                    AssertContains("Remediation:", info.Describe());
+                    AssertContains("inference options and tool support", info.Describe());
+                    AssertContains("integration defect", info.Describe());
+                }
+                AssertFalse(RuntimeFailureClassifier.Decide(1, new RuntimeProviderError { Message = "HTTP 400 in ordinary output" }).Describe().Contains("provider rejected"), "guidance requires a structured status, not message keywords");
+                AssertContains("credentials", RuntimeFailureClassifier.Decide(1, new RuntimeProviderError { HttpStatusCode = 401 }).Describe());
+                AssertContains("quota", RuntimeFailureClassifier.Decide(1, new RuntimeProviderError { HttpStatusCode = 429 }).Describe());
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.RuntimeFailureClassifier",
                 displayName: "Runtime Failure Classifier",

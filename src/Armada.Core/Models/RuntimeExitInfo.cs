@@ -69,7 +69,11 @@ namespace Armada.Core.Models
                     RuntimeFailureKindEnum.UsageLimit => "Check provider quota, billing and rate limits; wait for the limit to reset or select an available endpoint.",
                     RuntimeFailureKindEnum.ModelUnavailable => "Check the endpoint URL, model identifier and account access to that model.",
                     RuntimeFailureKindEnum.Transient => "Check provider availability, connectivity and request timeout settings.",
-                    _ => null
+                    _ => ProviderError?.HttpStatusCode switch
+                    {
+                        400 or 405 or 415 or 422 => "The provider rejected the request. Check the endpoint URL, provider, model, inference options and tool support. If these are correct, inspect the provider error and SDK compatibility; a rejected request can also be an integration defect. Validate the endpoint after correcting the cause before restarting the mission.",
+                        _ => null
+                    }
                 }
             };
             return guidance == null ? String.Empty : "\nRemediation: " + guidance;

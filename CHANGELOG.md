@@ -24,6 +24,8 @@ All notable changes to Armada are documented in this file.
 - Persona create/edit priority pickers in dashboard, mobile, and TUI list individual inference endpoints alongside CLI harnesses. REST, MCP, and SDK priorities accept `Runtime: ApiEndpoint` with the exact inference endpoint ID in `Endpoint`; dispatch matches `Captain.ModelEndpointId`, preserving order and fallback policies. Existing broad API runtime priorities and Mux endpoint names remain supported.
 - Endpoint Validate opens its modal immediately with progress, then shows the result or request error in place. The action menu label stays Validate.
 
+- Mission failure details link directly to captain, endpoint, and vessel configuration. Rejected inference requests include configuration and SDK compatibility guidance; tests verify dashboard inbox retention of provider errors and remediation.
+
 ### Model providers and dependencies
 - Updated PolyPrompt to 3.4.1, preserving native provider continuation state through tool loops. Added a real Harbor/SDK HTTP regression that checks unchanged Ollama thinking across sequential and parallel tool results.
 - Upgrade PolyPrompt to 3.4.0 and SyslogLogging to 2.4.1.
