@@ -267,7 +267,8 @@ decides none of them. See [Check rules on a split voyage](armada-ops.md#check-ru
 These three return a BOUNDED view: status, exit code, parsed test and coverage
 totals, artifacts, the last lines of output, and `testOutcomes`: every failing
 test with its first exception line and the skipped tests, read from the whole
-log rather than the tail. They do not return the whole
+log rather than the tail. Failing tests are read with the built-in matchers plus
+the `failedTestLinePattern` of the workflow profile the check run recorded. They do not return the whole
 command log, which for a real vessel runs to megabytes and overruns the tool
 output limit. Pass `includeOutput=true` to `get_check_run` for the complete
 record, or `outputTailLines` to widen the tail. A truncated view states the

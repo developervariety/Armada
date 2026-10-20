@@ -264,7 +264,7 @@ The bounded view carries what answers that question:
 | `testSummary`, `coverageSummary` | Parsed totals, replacing a count grepped from the log |
 | `artifacts` | Paths to the per-project `.trx` files, which name individual failures |
 | `outputTail` | The last 40 lines, where a failure's cause almost always is |
-| `testOutcomes` | Every failing test with its first exception line, and the skipped tests, read from the whole log (standard output and standard error); a skip list longer than 100 gives the count and the call for the full log |
+| `testOutcomes` | Every failing test with its first exception line, and the skipped tests, read from the whole log (standard output and standard error), with the built-in matchers plus the recorded workflow profile's `failedTestLinePattern`; a skip list longer than 100 gives the count and the call for the full log |
 | `outputLength`, `outputTruncated` | How much was withheld |
 | `outputRetrieval` | The exact call that returns the rest |
 

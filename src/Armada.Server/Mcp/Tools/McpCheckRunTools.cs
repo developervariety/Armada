@@ -83,7 +83,8 @@ namespace Armada.Server.Mcp.Tools
                     // routinely runs to megabytes, which overruns the tool output limit and gives
                     // the caller a truncation error in place of the verdict it wanted.
                     if (request.IncludeOutput) return (object)run;
-                    return (object)CheckRunSummaryView.From(run, request.OutputTailLines ?? _DefaultOutputTailLines, HostWideCommandLock.Snapshot());
+                    string? runPattern = await ReadFailedTestLinePatternAsync(database, run).ConfigureAwait(false);
+                    return (object)CheckRunSummaryView.From(run, request.OutputTailLines ?? _DefaultOutputTailLines, HostWideCommandLock.Snapshot(), runPattern);
                 });
 
             register(
@@ -120,7 +121,8 @@ namespace Armada.Server.Mcp.Tools
                         // tool timeout reads to a captain as a failed check, so the call returns the unfinished
                         // record after a bounded wait; the check keeps running and finishes its own record.
                         CheckRun executed = await checkRunService.RunWithinAsync(auth, request, wait).ConfigureAwait(false);
-                        return (object)CheckRunSummaryView.From(executed, _DefaultOutputTailLines, HostWideCommandLock.Snapshot());
+                        string? executedPattern = await ReadFailedTestLinePatternAsync(database, executed).ConfigureAwait(false);
+                        return (object)CheckRunSummaryView.From(executed, _DefaultOutputTailLines, HostWideCommandLock.Snapshot(), executedPattern);
                     }
                     catch (JsonException ex)
                     {
@@ -157,7 +159,8 @@ namespace Armada.Server.Mcp.Tools
                         // Same bounded wait as run_check: a retry waiting for the host-wide slot returns the
                         // unfinished record with its slot wait, and finishes its own record in the background.
                         CheckRun retried = await checkRunService.RetryWithinAsync(auth, request.CheckRunId, wait).ConfigureAwait(false);
-                        return (object)CheckRunSummaryView.From(retried, _DefaultOutputTailLines, HostWideCommandLock.Snapshot());
+                        string? retriedPattern = await ReadFailedTestLinePatternAsync(database, retried).ConfigureAwait(false);
+                        return (object)CheckRunSummaryView.From(retried, _DefaultOutputTailLines, HostWideCommandLock.Snapshot(), retriedPattern);
                     }
                     catch (Exception ex) when (IsExpectedToolFailure(ex))
                     {
@@ -218,6 +221,18 @@ namespace Armada.Server.Mcp.Tools
             // armada_resolve_check is kept as a back-compat alias (2026-07-26 prefix normalization).
             register("resolve_check", "Update a structured check run status and optional output (no re-execution, unlike run_check/retry_check_run).", resolveCheckSchema, resolveCheckHandler);
             register("armada_resolve_check", "Alias of resolve_check (back-compat).", resolveCheckSchema, resolveCheckHandler);
+        }
+
+        /// <summary>
+        /// Read the failing-test line pattern of the workflow profile a check run recorded, so the bounded view
+        /// names failing tests in the runner's own line shape. A run with no recorded profile, or whose profile
+        /// is gone or sets no pattern, yields null and the view reads the output with the built-in matchers.
+        /// </summary>
+        private static async Task<string?> ReadFailedTestLinePatternAsync(DatabaseDriver database, CheckRun run)
+        {
+            if (String.IsNullOrWhiteSpace(run.WorkflowProfileId)) return null;
+            WorkflowProfile? profile = await database.WorkflowProfiles.ReadAsync(run.WorkflowProfileId!).ConfigureAwait(false);
+            return profile?.FailedTestLinePattern;
         }
 
         private static T DeserializeArgs<T>(JsonElement? args, string toolName)

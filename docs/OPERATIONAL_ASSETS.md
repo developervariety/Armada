@@ -186,7 +186,9 @@ real defect fails again. Two optional fields let a vessel whose runner is not
   `name` that reads one failing test name from one output line, for example
   `^FAIL (?<name>.+?): ` for a runner that prints `FAIL <test name>: <message>`.
   The gate tries it on each line after its built-in matchers (dotnet VSTest,
-  pytest, unittest). A save keeps the pattern exactly as written, without
+  pytest, unittest). The `testOutcomes` of a check run's bounded view
+  (`get_check_run`, `run_check`, `retry_check_run`) reads the same way, with
+  the pattern of the profile the run recorded. A save keeps the pattern exactly as written, without
   trimming, and refuses a pattern that does not compile or has no
   `name` group. Each match has a 250 ms timeout; a pattern that exceeds it marks
   the names unreadable, and nothing is re-run.

@@ -184,6 +184,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The bounded check-run view that `get_check_run`, `run_check` and
+  `retry_check_run` return reads failing test names in `testOutcomes` with the
+  `failedTestLinePattern` of the workflow profile the check run recorded, as
+  the definition-of-done gate does. A vessel whose runner prints
+  `FAIL <name>: <message>` gets its failing tests named in the check run
+  summary. A run with no recorded profile, or a profile without a pattern,
+  reads the output with the built-in matchers only.
 - Autonomous recovery dispatches no rescue in the producer for a
   definition-of-done `TestFail` on a declared consumer's test suite
   (`consumer_tests_failed: <consumer>`). The gate runs a consumer's suite only

@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System;
     using System.Collections.Generic;
+    using System.Text.RegularExpressions;
     using Armada.Core.Enums;
     using Armada.Core.Services;
 
@@ -117,8 +118,10 @@ namespace Armada.Core.Models
         /// <summary>
         /// Every failing test with the first exception line printed after it, and the skipped tests,
         /// read from the complete log (standard output and standard error) rather than from the tail.
-        /// The skip list is complete, or gives the count and names where the full list is. Null when the
-        /// log names no failing or skipped test.
+        /// Failing tests are read with the built-in runner matchers plus the workflow profile's
+        /// <c>FailedTestLinePattern</c> when the projection is given one. The skip list is complete, or
+        /// gives the count and names where the full list is. Null when the log names no failing or
+        /// skipped test.
         /// </summary>
         public string? TestOutcomes { get; set; } = null;
 
@@ -165,11 +168,29 @@ namespace Armada.Core.Models
         /// <returns>The bounded view.</returns>
         public static CheckRunSummaryView From(CheckRun run, int tailLines, HostSlotSnapshot? slot)
         {
+            return From(run, tailLines, slot, null);
+        }
+
+        /// <summary>
+        /// Project a check run into its bounded view, reading failing test names with the workflow profile's
+        /// extra line matcher as well as the built-in ones.
+        /// </summary>
+        /// <param name="run">The check run to project.</param>
+        /// <param name="tailLines">How many trailing output lines to keep; at least one.</param>
+        /// <param name="slot">A snapshot of the host-wide slot, or null to describe the wait from the record alone.</param>
+        /// <param name="failedTestLinePattern">
+        /// The workflow profile's <c>FailedTestLinePattern</c>, or null when the profile sets none. A pattern
+        /// that does not build is ignored, so the built-in matchers still read the output.
+        /// </param>
+        /// <returns>The bounded view.</returns>
+        public static CheckRunSummaryView From(CheckRun run, int tailLines, HostSlotSnapshot? slot, string? failedTestLinePattern)
+        {
             if (run == null) throw new ArgumentNullException(nameof(run));
             if (tailLines < 1) tailLines = 1;
 
             string output = run.Output ?? String.Empty;
             string tail = TakeTailLines(output, tailLines);
+            Regex? profilePattern = BuildProfilePattern(failedTestLinePattern);
 
             return new CheckRunSummaryView
             {
@@ -200,7 +221,7 @@ namespace Armada.Core.Models
                 OutputLength = output.Length,
                 OutputTruncated = tail.Length < output.Length,
                 OutputTail = tail.Length == 0 ? null : tail,
-                TestOutcomes = TestOutcomeDigest.Render(output, null, _FullLogPointer),
+                TestOutcomes = TestOutcomeDigest.Render(output, profilePattern, _FullLogPointer),
                 OutputRetrieval = tail.Length < output.Length
                     ? "Full log omitted (" + output.Length + " chars). Call get_check_run with includeOutput=true for the complete output."
                     : null,
@@ -211,6 +232,14 @@ namespace Armada.Core.Models
         #endregion
 
         #region Private-Methods
+
+        private static Regex? BuildProfilePattern(string? failedTestLinePattern)
+        {
+            if (String.IsNullOrWhiteSpace(failedTestLinePattern)) return null;
+            if (FailedTestLinePattern.TryCreate(failedTestLinePattern, FailedTestLinePattern.MatchTimeout, out Regex? regex, out string? _))
+                return regex;
+            return null;
+        }
 
         private static string TakeTailLines(string text, int lines)
         {

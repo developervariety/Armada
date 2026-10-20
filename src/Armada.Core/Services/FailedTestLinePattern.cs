@@ -7,9 +7,10 @@ namespace Armada.Core.Services
     /// <summary>
     /// The rule for a workflow profile's <c>FailedTestLinePattern</c>: a .NET regular expression with a named
     /// group <c>name</c> that reads one failing test name from one line of a test runner's output. A profile
-    /// save validates the pattern with <see cref="Validate"/>, and the definition-of-done gate builds the
-    /// runnable expression with <see cref="TryCreate"/>, so both apply the same rule. Every match runs under
-    /// <see cref="MatchTimeout"/>, so a pattern that backtracks without end cannot hang the gate.
+    /// save validates the pattern with <see cref="Validate"/>, and the definition-of-done gate and the bounded
+    /// check-run view build the runnable expression with <see cref="TryCreate"/>, so all apply the same rule.
+    /// Every match runs under <see cref="MatchTimeout"/>, so a pattern that backtracks without end cannot hang
+    /// the gate.
     /// </summary>
     public static class FailedTestLinePattern
     {

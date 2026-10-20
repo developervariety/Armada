@@ -15,6 +15,13 @@ namespace Armada.Test.Unit.Suites.Services
     /// </summary>
     public class McpCheckRunToolsTests : TestSuite
     {
+        private const string _CustomRunnerOutput =
+            "running 3 tests\n"
+            + "PASS First test name\n"
+            + "FAIL Some test name: assertion text\n"
+            + "FAIL Another test name: second assertion text\n"
+            + "1 passed, 2 failed\n";
+
         /// <inheritdoc />
         public override string Name => "MCP Check Run Tools";
 
@@ -177,6 +184,83 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         try { Directory.Delete(workingDirectory, true); } catch (IOException) { }
                     }
+                }
+            }).ConfigureAwait(false);
+
+            // A runner that prints "FAIL <name>: <message>" is readable only through the workflow profile's
+            // FailedTestLinePattern, so the bounded view reads the output with the pattern of the profile the
+            // check run recorded.
+            await RunTest("get_check_run names failing tests through the recorded workflow profile's failed-test line pattern", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    WorkflowProfile profile = await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                    {
+                        Name = "Example Runner Profile",
+                        Scope = WorkflowProfileScopeEnum.Global,
+                        UnitTestCommand = "./run-tests.sh",
+                        FailedTestLinePattern = "^FAIL (?<name>.+?): "
+                    }).ConfigureAwait(false);
+                    CheckRun run = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Failed,
+                        ExitCode = 1,
+                        Output = _CustomRunnerOutput,
+                        CompletedUtc = DateTime.UtcNow
+                    }).ConfigureAwait(false);
+
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver);
+                    object result = await handlers["get_check_run"](JsonSerializer.SerializeToElement(new { checkRunId = run.Id })).ConfigureAwait(false);
+                    CheckRunSummaryView? view = result as CheckRunSummaryView;
+                    AssertNotNull(view, "get_check_run returns the bounded view: " + JsonSerializer.Serialize(result));
+                    AssertNotNull(view!.TestOutcomes, "the profile pattern reads the failing tests");
+                    AssertContains("--- FAILING TESTS (2) ---", view.TestOutcomes!, "both failing tests are counted");
+                    AssertContains("Some test name: assertion text", view.TestOutcomes!, "the first failing test is named with its message");
+                    AssertContains("Another test name: second assertion text", view.TestOutcomes!, "the second failing test is named with its message");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("get_check_run without a failed-test line pattern reads the output with the built-in matchers only", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    WorkflowProfile profile = await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                    {
+                        Name = "Example Plain Profile",
+                        Scope = WorkflowProfileScopeEnum.Global,
+                        UnitTestCommand = "./run-tests.sh"
+                    }).ConfigureAwait(false);
+                    CheckRun withProfile = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Failed,
+                        ExitCode = 1,
+                        Output = _CustomRunnerOutput,
+                        CompletedUtc = DateTime.UtcNow
+                    }).ConfigureAwait(false);
+                    CheckRun builtIn = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Failed,
+                        ExitCode = 1,
+                        Output = "  Failed Example.Tests.BuiltInShape [12 ms]\n  Error Message:\n   Assert.Equal() Failure\n",
+                        CompletedUtc = DateTime.UtcNow
+                    }).ConfigureAwait(false);
+
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver);
+                    CheckRunSummaryView? unmatched = await handlers["get_check_run"](JsonSerializer.SerializeToElement(new { checkRunId = withProfile.Id })).ConfigureAwait(false) as CheckRunSummaryView;
+                    AssertNotNull(unmatched, "get_check_run returns the bounded view for the run with a pattern-less profile");
+                    AssertNull(unmatched!.TestOutcomes, "a line shape no built-in matcher reads names no failing test when the profile sets no pattern");
+
+                    CheckRunSummaryView? matched = await handlers["get_check_run"](JsonSerializer.SerializeToElement(new { checkRunId = builtIn.Id })).ConfigureAwait(false) as CheckRunSummaryView;
+                    AssertNotNull(matched, "get_check_run returns the bounded view for the run with no profile");
+                    AssertContains("Example.Tests.BuiltInShape: Assert.Equal() Failure", matched!.TestOutcomes ?? String.Empty, "the built-in matchers still name a failing test");
                 }
             }).ConfigureAwait(false);
 
