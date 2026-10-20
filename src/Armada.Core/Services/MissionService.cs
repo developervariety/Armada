@@ -3203,6 +3203,9 @@ namespace Armada.Core.Services
             // Each Worker gets one slice of the plan; give it the overall objective and the shape of the whole plan so
             // it neither drifts from the goal nor redoes a sibling's part.
             StringBuilder sb = new StringBuilder();
+            sb.Append("\n\n## Full plan reference\nArchitect mission: ").Append(architectMission.Id)
+                .Append(". Retrieve its complete output with mission_status or GET /api/v1/missions/")
+                .Append(architectMission.Id).Append(" when relevant context is missing; do only your assigned slice.\n");
             Voyage? voyage = String.IsNullOrEmpty(architectMission.VoyageId) ? null : await _Database.Voyages.ReadAsync(architectMission.VoyageId!, token).ConfigureAwait(false);
             string objective = voyage != null && !String.IsNullOrWhiteSpace(voyage.Description) ? voyage.Description! : (voyage?.Title ?? String.Empty);
             if (!String.IsNullOrWhiteSpace(objective))

@@ -18,6 +18,10 @@ namespace Armada.Core.Models
         [JsonPropertyName("acceptanceCriteria")]
         public List<ArchitectAcceptanceCriterion> AcceptanceCriteria { get; set; } = new List<ArchitectAcceptanceCriterion>();
 
+        /// <summary>1-based indexes of relevant plan decisions. Null preserves legacy all-decision context; empty means none.</summary>
+        [JsonPropertyName("decisionIndexes")]
+        public List<int>? DecisionIndexes { get; set; }
+
         /// <summary>Exact commands whose original exit status must be checked.</summary>
         [JsonPropertyName("validationCommands")]
         public List<string> ValidationCommands { get; set; } = new List<string>();

@@ -1,6 +1,69 @@
 # Prompt and handoff reliability findings
 
-## Test setup — 2026-10-20
+## Current full-pipeline acceptance run
+
+Started 2026-10-20 at 21:39:53 UTC on `view.homedns.org`: voyage `vyg_mvh7i6hn_Z5VjIzrlpnA`. The deployed server started at 21:38:13 UTC; all eight persona briefs match the shipped defaults exactly. Harbor is connected. Hosted CI for revision `7d820c4b` passed, including the new pipeline regression suites.
+
+The previous Wilson acceptance voyage and its 33 completed missions were archived and deleted through the API. Confirmed zero remaining acceptance missions before dispatch. Acceptance branch reset from `49ac2ccc4e0c7f3af3364d7bd4c5848161616c2e` to pre-update baseline `8c3e8b5975cbe96e5700529fdfcfe0512d627ec2` (PolyPrompt 3.1.0), guarded by a remote force-with-lease. Prior source retained as `archive/pre-full-pipeline-retest-20261020`. Production Wilson main remains `c9ff616fd1b5262fe7edfd9ac295b9f264ed9650`.
+
+FullPipeline: Product Manager → Architect → Worker → Usability Engineer → Test Engineer → Linter → Judge → Recorder. Claude Code handles planning and verification contributors, DeepSeek handles Workers, and Codex is the independent Judge. All eight assignments persist `StrictCaptain=true`; no implicit model substitution or escalation is permitted. The objective and acceptance baseline are unchanged from the preceding test.
+
+Authenticated API polling every 25 seconds archives full API-visible logs, mission records, instruction snapshots, status transitions, and requested/actual captains. It captures terminal records even when a stage finishes between polls. Server log rendering omits protocol noise; this is not raw provider-token capture. Full log snapshots are retained when rendered content changes, avoiding an assumption that streamed lines are append-only. Evidence: `/tmp/armada-full-pipeline-20261020` (private local artifacts, not portable repository evidence).
+
+Current state: the Architect emitted its version-2 plan at approximately 21:51:52 UTC after 9m33s. Eight slices expanded into 48 downstream missions (50 total). The first Worker handed off package upgrade commit `87aad329`, reporting 47 shared cases and both test adapters passing. Usability independently reran validation and a deliberate wrong-route mutation, restored the tree, and passed its assessment. Test Engineer is adding `/v1` model/embedding endpoint variants and real SSE parsing coverage. No end-to-end success is claimed yet.
+
+## Open work and acceptance gates
+
+| ID | Item | Status / next evidence |
+| --- | --- | --- |
+| HF-02 | Verify full-pipeline rework and independent Judge routing in deployment | Local regressions pass; observe if this run needs rework; do not manufacture a defect merely to trigger it |
+| HF-03 | Verify strict captain routing for all stages and fan-out/rework jobs | Persisted overrides verified; compare every actual captain with its request |
+| HF-04 | Reduce missed failure-path coverage and contradictory design decisions | Measure first-pass acceptance/reworks; require observable evidence, not passing counts alone |
+| HF-05 | Semantic plan validation | Structural validation cannot establish objective completeness, resolve contradictions, or prove tests ran; further validation remains open |
+| HF-06 | Worker context/tool exposure | 175 tools and large prompt histories remain an efficiency concern; measure before narrowing tools/context |
+| HF-07 | In-flight phase observability | Provider request/tool/validation phases, wall-clock deadlines and attempts remain insufficiently exposed |
+| HF-08 | Wilson configuration/SDK contract boundaries | Recheck cloud health-auth silent rewriting and nested C# health enablement parity on the fresh implementation; do not copy prior product changes |
+| HF-09 | Independent final workflow verification | Repeat local HTTP/redaction/persistence/validation and C#/Python/JavaScript SDK checks after the full pipeline passes; hosted provider inference remains separately unverified |
+| HF-10 | Mobile native coverage limits | Android phone/tablet flows passed before strict-selection UI; iOS native-device testing remains unavailable on this host |
+| HF-11 | Complete CLI interaction diagnostics through API | New: mission and captain APIs expose abbreviated tool commands and omit tool-result payloads; retain an access-controlled, appropriately redacted diagnostic transcript alongside readable logs |
+| HF-12 | Dependency connectivity-probe documentation | Product Manager found installed PolyPrompt 3.4.1 README probe table omits xAI/OllamaCloud routes; first slice now captures actual clients |
+| HF-13 | Slice breadth and copied global decisions | New plan still groups discovery with inference/tools; all 19 decisions are copied into every slice. Needs per-slice decision references and stronger scope review |
+| HF-14 | Validation command status masking | Worker used a final echo after a pipeline; reproduce wrapper exit 0 despite an earlier exit 1. No hidden product failure established yet |
+
+## Findings from this run
+
+### HF-11 — API-visible CLI transcript is incomplete
+
+Observed during Product Manager `msn_mvh7i6ia_rdjA0ADcCWh` on Claude Code. Both mission and captain log APIs return readable `> Running ...` lines whose longer commands end in ellipses; tool-result payloads are absent. Fetching all lines does not restore those details. This limits the requested review of every interaction: the monitor archives every API-visible log update, but cannot reconstruct omitted tool arguments/results. It is an observability gap, not evidence that the commands failed or caused a product defect. Recommended remediation: preserve a diagnostic structured transcript with existing access controls/redaction, independent of readable summaries, and expose paginated reads. No fix or new image is claimed yet.
+
+### HF-12 — Dependency probe documentation gap
+
+Product Manager emitted a MissingDoc papercut: installed PolyPrompt 3.4.1 README connectivity table does not specify xAI/OllamaCloud probe routes. This is a dependency-documentation gap, not a reproduced package failure. The next stage is explicitly responsible for verifying actual client behavior and recording supported routes/authentication; an unsupported hosted capability must remain reported as unverified. No external package fix is claimed.
+
+### HF-13 — Declared contracts remain broad and over-copied
+
+Architect output is 53,885 characters, with 19 global decisions totaling 10,302 characters. Slice 3 still combines chat, streaming, tool protocols, embeddings validation and discovery despite the default prompt requesting separation. The structural gate accepts declared coverage; it cannot evaluate this semantic boundary. `DescribeMission` also copies every global decision into every slice, including unrelated decisions. First Worker description: 18,132 characters; instruction file: 28,560. Initial inference prompt: 35,398 tokens before reading the file; by iteration 27 it reached 96,087 tokens. These are observed sizes, not a measurement that attributes all growth to the decisions.
+
+Remediation: support explicit per-slice decision references, keep full-plan artifacts retrievable, and render only relevant resolved decisions in each handoff. Add a plan scope/contradiction review before fan-out rather than treating schema validity as design approval. Retain acceptance assertions and failure cases; remove unrelated copied context first. A local fix is now implemented and under validation: optional per-slice `decisionIndexes` render only selected decisions, with range/duplicate checks; omitted indexes retain older plan behavior. New default prompts request explicit scoped indexes. This is not deployed to the current run. Semantic slice-boundary review remains open.
+
+### HF-14 — A trailing echo can defeat pipefail
+
+Worker `msn_mvh7i8d0_gflbLdMm6eM` ran `dotnet run ... | tail -60; echo EXIT:${PIPESTATUS[0]}`. Armada already enables Bash pipefail, but the final echo returns zero. A local negative reproduction, `/bin/bash -o pipefail -c 'false | tail -n 1; echo EXIT:${PIPESTATUS[0]}'`, prints EXIT:1 and exits 0. This is a command/evidence risk; no actual failed Wilson suite has yet been established as concealed. Prefer executable-plus-argument-vector validation through `run_process`, with tool-side output truncation and its original exit code. If a shell is necessary, save and explicitly return the validation status. Require independent verification rather than accepting the tool's success flag as the test verdict. A local prompt update now tells Worker and verification personas to prefer executable/argument-vector tools and explicitly return shell validation status; this is guidance, not enforcement over arbitrary CLI shell scripts, and is not deployed yet.
+
+Recoverable Worker exploration errors so far: one mistyped absolute path (corrected next turn) and two ad-hoc reflection probes that lacked assembly-loading dependencies. They did not fail the mission or indicate a PolyPrompt transport/tool failure. Distinguish these from Judge rework and runtime redispatch.
+
+Record further issues with mission/stage/captain, violated requirement, reproduction/evidence, remediation, and verification status. Keep unresolved findings here; move verified fixes and finished work into the appendix.
+
+## Appendix — completed work and historical evidence
+
+Local remediation prepared during this run: per-slice `decisionIndexes`, range/duplicate validation, compatibility fallback for older plans, latest-brief migration preserving operator edits, and validation-status guidance. The final 155 targeted service tests pass on .NET 8 and 10, including migration and rendered-prompt checks. Every new slice also retains a full-plan mission/API reference. This code has not been published as images or applied to this voyage. HF-13 semantic scope review and HF-14 shell-status enforcement remain open.
+
+Current-run milestones: HF-01 deployment fan-out verified: all eight slices have six downstream stages, and every acceptance ID plus verification text is retained in all 48 descriptions (`fanout-contract-check.json`). Rejection behavior remains locally tested, not deliberately triggered on production. Cleanup/reset verified; strict assignments persisted; Product Manager `msn_mvh7i6ia_rdjA0ADcCWh` produced stable R-/AC-/U- requirements with no source changes or unperformed-test claims. Planning has begun; product implementation is not yet accepted.
+
+Completed items: prior acceptance cleanup/reset and autonomous 33-mission run; prompt migration and bounded-slice guidance; mobile parity fixes and Android native flows; versioned plan validation, full-chain rework, contributor exclusion, strict dispatch selection, local regression checks, CI, image publication and verified deployment. Those mechanisms are implemented; their effect on this new run is still under the open acceptance gates above. Historical recommendations below are evidence, not a claim that every recommendation has been implemented.
+
+
+### Test setup — 2026-10-20
 
 This is an observed acceptance test, not a claim of deterministic agent execution.
 
@@ -13,7 +76,7 @@ This is an observed acceptance test, not a claim of deterministic agent executio
 - Monitoring uses authenticated REST because Armada MCP tools are unavailable in this session. No dashboard/browser polling.
 - Evidence directory: `/tmp/armada-bounded-slices-20261020` (machine-local, not a portable artifact).
 
-## Baseline and hypothesis
+### Baseline and hypothesis
 
 The preceding run eventually passed, but needed six automatic reworks, a corrective voyage, and one manual Judge restart. Findings included credential exposure, health snapshot association, stale probes, and editor-state preservation. Zero runtime redispatches did not mean zero review retries or operator intervention.
 
@@ -21,7 +84,7 @@ The new briefs assign design and acceptance-definition responsibility to the Arc
 
 These are prompt requirements, not enforced structured-schema fields or a guarantee that an Architect follows them. The plan parser remains backward compatible. Judge checks are independent verification, not proof of exhaustive coverage.
 
-## Observations
+### Observations
 
 - The test request itself previously said “prefer a small coherent plan.” That competed with the new instruction to split independent behaviors. The new request removes this wording and explicitly invokes the bounded slice contract.
 - New built-in briefs remain short (Architect 1,775 characters; Worker 1,573; Judge 1,634). Startup migrates exact prior defaults and preserves operator-customized prompts. Targeted tests passed 59/59 on .NET 10 and 59/59 on .NET 8.
@@ -31,7 +94,7 @@ These are prompt requirements, not enforced structured-schema fields or a guaran
 - Worker commands visibly used `dotnet build ... | tail` and `dotnet test ... | tail`. Subsequent source inspection confirmed Armada API `run_process` already selects Bash with `-o pipefail` on this Unix host, so absence of a visible inline setting is not evidence of masked failures here. Explicit nested shells/argument-vector execution remain responsible for their own pipeline semantics. Preserve original exit status and prefer tool-layer truncation; no hidden build failure was established.
 - The live instruction snapshot contains the new exclusions, stable-ID acceptance, and final-integration guidance. Judge handoffs retain bounded prior evidence and do not reintroduce the legacy inline cumulative diff.
 
-### First metadata review: prompt guidance still leaves specification gaps
+#### First metadata review: prompt guidance still leaves specification gaps
 
 Codex rejected metadata commit `9ff3da8` despite all 47 shared tests passing. Two concrete findings were returned together:
 
@@ -42,11 +105,11 @@ Independent real HTTP testing reproduced a contract mismatch: submitting `health
 
 Automatic metadata rework was scheduled without operator intervention. The metadata rework was accepted on its next review (commit `1de738b`). No manual mission restart has been used in this run.
 
-### Observability gap
+#### Observability gap
 
 The inference Worker `msn_mvh0tprt_8f8tmvzjK3c` started at 18:44:17 UTC, logged one successful inference and a successful instruction-file read, then had a multi-minute interval with no new result. The API still reported InProgress and zero redispatches, without a failure reason. This does not establish whether provider queueing, transport, SDK retries, or execution scheduling caused the delay. At 18:48:55 UTC the Worker had resumed and reached inference iteration 13, with no recorded failed response or redispatch. The provider-reported compute durations did not explain the multi-minute wall-clock gap. Per-result provider timing does not explain an in-flight wait. Recommend exposing request/tool/validation phase, phase start time, wall-clock duration, timeout deadline, and attempt count in mission details and telemetry, rather than inferring a stall from silence.
 
-### Inference slice: unresolved dependency contracts reached the Worker
+#### Inference slice: unresolved dependency contracts reached the Worker
 
 DeepSeek completed the inference slice as `e1b5287`, reporting 55/55 shared cases plus both adapter tests. Its recorded loop reached 98 successful responses and approximately 193,000 prompt tokens at peak. Codex subsequently reproduced a discovery failure: HTTP 401 from both xAI capability catalogs becomes an empty sequence, and Wilson reports Connected/Online=true without invoking the required `/v1/models` fallback. The unchanged branch still passed all 55 cases; the success-path fixture did not cover this failure. Two automatic reworks were needed: first to handle failed catalogs/fallback, then to enforce endpoint validation before sending requests. The final inference review passed. This is a materially larger worker effort than the package slice; the title still groups several independent behaviors.
 
@@ -54,7 +117,7 @@ The Worker emitted two concrete papercuts: the plan's proposed `MaxCallDetails=0
 
 Timing comparisons are observational: mobile native builds/tests ran concurrently on the Harbor host, and provider/transport wall time is not decomposed by current telemetry. Do not attribute total elapsed time solely to prompts or model compute.
 
-## Why the eight reworks happened, and how to reduce them
+### Why the eight reworks happened, and how to reduce them
 
 The dominant pattern was incomplete behavioral verification, not inability to execute tools. Workers often delivered passing tests that omitted the failure path the Judge subsequently reproduced. Two of eight slices passed first review; six needed rework, and inference and dashboard each needed a second revision. These are review-driven revisions, not eight infrastructure retries. Neither the records nor this single mixed-captain run establish an intrinsic DeepSeek capability limit.
 
@@ -66,7 +129,7 @@ Three causes overlap; they should not be assigned mutually exclusive percentages
 
 The final integration review was especially avoidable: its contract already explicitly limited the credential exception to administrator GET, required capture of invalid-input traffic, and required live-status listing. This was a Worker implementation/evidence failure, not missing instructions. Likewise, “incomplete streamed function call is not executed” was already stated; the missing EOF case needed an explicit fixture and self-check. More prose alone would not fix either failure.
 
-### Concrete prevention gates
+#### Concrete prevention gates
 
 | Gate | Required evidence before advancing | Reworks it targets |
 | --- | --- | --- |
@@ -83,7 +146,7 @@ Split the broad inference slice into discovery/status and inference execution, w
 
 Prioritize contract checks and trustworthy failure-path tests ahead of additional prompt tuning. Captain pinning and phase telemetry are also needed for reproducible evaluation and diagnosis, but neither is proven to have caused these defects. Keep the Judge independent: reducing revisions by weakening its checks would hide the exact failures it caught here.
 
-## Mobile/tablet review
+### Mobile/tablet review
 
 The React Native app shares the dashboard API client, types, and pure logic. Review found real gaps despite that sharing:
 
@@ -101,19 +164,7 @@ Native Android tablet coverage passed all four flows: sign-in, list/detail, shee
 
 Native tooling limitation: iOS `simctl` hangs on this host. Maestro 2.11 enumerates iOS devices even with Android platform/device flags, confirmed by JVM thread dumps. A local-only runner makes Apple tool discovery fail fast for Maestro subprocesses only; it does not change global Xcode settings. Explicit `--platform` alone does not resolve this environment problem. Android tests use isolated temporary Admirals and synthetic records; they do not dispatch production jobs. No iOS simulator/device or App Store/Play publication is claimed. Phone operations also exposed an impossible page-edge centering assertion; the target was visibly present, and the flow now scrolls without requiring centering.
 
-## Prioritized follow-up work
-
-These are recommendations from observed evidence, not implemented fixes or proven causes of every delay:
-
-1. **Make captain selection explicit.** One dashboard rework requested DeepSeek but actually ran on GLM. Add a strict captain/model pin option and show requested captain, actual captain, and fallback reason together. Existing preference/fallback behavior prevents a controlled model comparison.
-2. **Validate the Architect contract before dispatch.** Check coverage of the overall objective, contradictions between defaults and explicit overrides, intended compatibility behavior, dependencies, and a final integration gate. Required prompt headings are not a structured schema or semantic validation. Reject an incomplete plan before workers spend time on it.
-3. **Give each invariant an explicit negative-case matrix.** Credential secrecy needs field-collision and transport/provider-error cases; editor preservation needs explicit false/empty/custom values plus row removal and identity changes. Preserve the same acceptance IDs through implementation, review, and rework.
-4. **Reduce default worker context and tool exposure.** Measure system/tool schema tokens separately from instructions and history. The runtime announced 175 MCP tools for a narrow implementation slice. Prefer a role-appropriate tool set, artifact references for full evidence, and only necessary dependency context. Do not shorten away acceptance cases to meet a prose budget.
-5. **Preserve command exit status.** Prevent successful tail commands from masking failed builds/tests; return bounded output and the original exit code from the execution tool. Tests should distinguish command completion from successful validation.
-6. **Expose in-flight phases.** Show provider request wall time, timeout/attempt information, tool execution, and validation state so silent periods have an actionable explanation.
-7. **Measure total workflow cost.** Compare architecture time, source-changing worker time, review time, repeated validations, rework count, and operator intervention. More slices reduce scope but add dispatch, restore, and review overhead. First-pass acceptance and end-to-end acceptance are separate metrics.
-
-## Outcome
+### Outcome
 
 Voyage `vyg_mvh0jgzv_8StF48Imx3k` completed from 18:24:56 to 20:16:01 UTC on 2026-10-20: approximately 111 minutes. All 33 missions are Complete. The pipeline needed eight automatic reworks, with zero runtime redispatches and no manual mission restart or corrective voyage this round. Complete status on a superseded review does not mean its original verdict passed.
 
@@ -136,7 +187,7 @@ Remaining coverage gaps: dashboard reload-after-save was reviewed/built but lack
 
 The previous run took roughly 71 minutes but required operator intervention. This run completed autonomously, with more automatic rework and greater total elapsed time. Better containment is promising; faster execution or deterministic model selection is not established. Concurrent mobile builds on the Harbor host also confound timing. Monitoring used API snapshots and retained logs; a gap between conversational turns was reconstructed from server timestamps rather than continuously observed.
 
-## Implementation round after the completed acceptance run
+### Implementation round after the completed acceptance run
 
 The next rollout adds these prevention mechanisms; their effect on Wilson rework counts is not yet measured:
 
@@ -162,4 +213,4 @@ Rollout artifact: product changes committed as `00f45ea4`; `build-all.sh v1.1.0`
 | `jchristn77/armada-dashboard` | `sha256:bfbcb1beeb952d0350a56ca79744a4501e05d394a7d10ddd38e333621b510c35` |
 | `jchristn77/armada-proxy` | `sha256:17f872c50d443147b6c38b188a340f3bba7430845e09329fcb44266bae0d41b2` |
 
-Awaiting operator deployment confirmation before cleanup/reset and the fresh full-pipeline run. The existing acceptance voyage has 33 Complete missions and no active jobs; its records and accepted source remain preserved until rollout verification. The prepared request retains the previous objective and uses strict assignments for every FullPipeline persona. Evidence and request: `/tmp/armada-full-pipeline-20261020` (local). CI adds the targeted suites; hosted CI results are not claimed as complete while the latest run is pending.
+That deployment checkpoint is complete: rollout prompts were verified, the 33-mission voyage was archived/deleted, the repository was reset, and the full-pipeline run was launched. Hosted CI for `7d820c4b` passed. Current open work and progress are maintained above, rather than in this historical appendix.

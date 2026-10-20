@@ -1177,6 +1177,7 @@ namespace Test.Shared.Suites.Services
                     AssertContains("run dotnet run --project", coreWorker.Description ?? String.Empty, "fan-out retains execution instructions");
                     AssertNotNull(coreJudge, "Primary judge stage should exist");
                     AssertContains("REQ-PERSIST", coreJudge!.Description!, "Judge retains objective traceability");
+                    AssertContains("GET /api/v1/missions/" + architect.Id, coreWorker.Description!, "Full plan remains retrievable without copying it");
                     AssertContains("Invalid input does not change stored settings", coreJudge.Description!, "Judge retains negative cases");
                     AssertContains("Preserve explicit stored values", coreWorker.Description!, "Worker retains resolved decisions");
                     AssertNotNull(backendWorker, "Dependent worker should exist");

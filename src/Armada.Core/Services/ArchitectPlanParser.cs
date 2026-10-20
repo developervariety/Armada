@@ -96,7 +96,7 @@ namespace Armada.Core.Services
             if (plan.ContractVersion != 2) return mission.Description ?? mission.Title ?? String.Empty;
             StringBuilder text = new StringBuilder(mission.Description);
             text.Append("\n\n## Resolved plan decisions\n");
-            foreach (string decision in plan.Decisions) text.Append("- ").Append(decision).Append('\n');
+            foreach (string decision in mission.DecisionIndexes == null ? plan.Decisions : mission.DecisionIndexes.Select(index => plan.Decisions[index - 1])) text.Append("- ").Append(decision).Append('\n');
             text.Append("\n## Acceptance evidence contract\n");
             foreach (ArchitectAcceptanceCriterion criterion in mission.AcceptanceCriteria)
             {
@@ -138,6 +138,8 @@ namespace Armada.Core.Services
                 if (mission.Kind != "implementation" && mission.Kind != "investigation" && mission.Kind != "integration") errors.Add(prefix + "kind must be implementation, investigation or integration");
                 if (mission.DependsOn.HasValue && (mission.DependsOn.Value < 1 || mission.DependsOn.Value > i)) errors.Add(prefix + "dependsOn must name an earlier mission");
                 if (mission.WaitForOtherMissions && i != plan.Missions.Count - 1) errors.Add(prefix + "only final integration may wait for all missions");
+                if (mission.DecisionIndexes != null && (mission.DecisionIndexes.Any(index => index < 1 || index > (plan.Decisions?.Count ?? 0))
+                    || mission.DecisionIndexes.Distinct().Count() != mission.DecisionIndexes.Count)) errors.Add(prefix + "decisionIndexes must be unique 1-based plan decision indexes");
                 if (mission.ValidationCommands == null || mission.ValidationCommands.Count == 0 || mission.ValidationCommands.Any(String.IsNullOrWhiteSpace)) errors.Add(prefix + "validationCommands are required");
                 if (mission.AcceptanceCriteria == null || mission.AcceptanceCriteria.Count == 0) { errors.Add(prefix + "acceptanceCriteria are required"); continue; }
                 foreach (ArchitectAcceptanceCriterion? criterion in mission.AcceptanceCriteria)
@@ -170,7 +172,7 @@ namespace Armada.Core.Services
         {
             return "Respond with one fenced ```" + FenceInfo + " JSON block using contractVersion:2, requirements:[stable objective IDs], decisions:[resolved compatibility/default/override choices], " +
                 "missions:[{title,description,kind:implementation|investigation|integration,dependsOn:earlier 1-based index or null,waitForOtherMissions:false," +
-                "validationCommands:[exact commands],acceptanceCriteria:[{id,requirementIds:[objective IDs],scenario,expected,verification,negativeCases:[inputs and expected failures],negativeCasesNotApplicableReason:only if none apply}]}]. " +
+                "decisionIndexes:[1-based indexes of only relevant decisions; empty if none],validationCommands:[exact commands],acceptanceCriteria:[{id,requirementIds:[objective IDs],scenario,expected,verification,negativeCases:[inputs and expected failures],negativeCasesNotApplicableReason:only if none apply}]}]. " +
                 "Descriptions define one bounded outcome, components, approach, scope exclusions, invariants, dependencies and uncertainties. Every objective ID must be covered. " +
                 "Resolve correctness-critical uncertainty before implementation. Last mission must be integration with waitForOtherMissions:true. Invalid versioned plans are rejected before dispatch; " +
                 "legacy [ARMADA:MISSION] blocks remain supported for customized templates.";

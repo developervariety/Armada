@@ -113,6 +113,26 @@ namespace Test.Shared.Suites.Services
                 AssertContains("explicit false is retained", description);
             }));
 
+            cases.Add(Case("slice_decisions_are_scoped", "Explicit decision indexes omit unrelated context without dropping acceptance evidence", TestTags.Positive, () =>
+            {
+                ArchitectPlan input = ValidContract();
+                input.Decisions.Add("Unrelated dashboard design decision");
+                input.Missions[0].DecisionIndexes = new List<int> { 1 };
+                AssertTrue(ArchitectPlanParser.TryParse(Fence(input), out ArchitectPlan? plan, out _));
+                string description = ArchitectPlanParser.DescribeMission(plan!, plan!.Missions[0]);
+                AssertContains("explicit false is retained", description);
+                AssertFalse(description.Contains("Unrelated dashboard"));
+                AssertContains("AC-READ", description);
+                AssertContains("HTTP 401 must report disconnected", description);
+                AssertContains("Capture before request", description);
+                AssertContains("dotnet test", description);
+                AssertContains("Unrelated dashboard", ArchitectPlanParser.DescribeMission(plan, plan.Missions[1]), "Omitted indexes preserve older plans");
+                plan.Missions[0].DecisionIndexes.Clear();
+                description = ArchitectPlanParser.DescribeMission(plan, plan.Missions[0]);
+                AssertFalse(description.Contains("explicit false is retained"));
+                AssertContains("AC-READ", description);
+            }));
+
             cases.Add(Case("versioned_contract_rejects_unsafe_plans", "Incomplete coverage, vacuous checks, invalid dependencies and missing integration never dispatch", TestTags.Negative, () =>
             {
                 List<Action<ArchitectPlan>> defects = new List<Action<ArchitectPlan>>
@@ -120,6 +140,9 @@ namespace Test.Shared.Suites.Services
                     p => p.ContractVersion = 99,
                     p => p.Requirements.Add("UNOWNED"),
                     p => p.Decisions.Clear(),
+                    p => p.Missions[0].DecisionIndexes = new List<int> { 0 },
+                    p => p.Missions[0].DecisionIndexes = new List<int> { 2 },
+                    p => p.Missions[0].DecisionIndexes = new List<int> { 1, 1 },
                     p => p.Missions[0].DependsOn = 2,
                     p => p.Missions[0].WaitForOtherMissions = true,
                     p => p.Missions[0].ValidationCommands.Clear(),
