@@ -41,6 +41,13 @@ namespace Armada.Core.Services
             @"(?<![\w/.])(?:[\w.\-]+/)+[\w.\-]+\.[A-Za-z0-9]{1,6}(?![\w/])",
             RegexOptions.Compiled);
 
+        // A bare file name is a subject only when the text cites lines in it (`Name.ext:12`): prose names
+        // plenty of dotted words, but a line number says the writer meant a file. The name may not continue
+        // a word, a path, a host name or a URL.
+        private static readonly Regex _BareCitedFilePattern = new Regex(
+            @"(?<![A-Za-z0-9_./:@\-])[A-Za-z0-9_][A-Za-z0-9_\-]*(?:\.[A-Za-z0-9_\-]+)*\.[A-Za-z][A-Za-z0-9]{0,5}(?=:\d)",
+            RegexOptions.Compiled);
+
         private static readonly Regex _IdentifierPattern = new Regex(
             @"\b[A-Z][A-Za-z0-9]*(?:[A-Z][A-Za-z0-9]*)+\b",
             RegexOptions.Compiled);
@@ -80,7 +87,9 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Extract repository-relative paths named in the supplied mission text, in first-appearance
-        /// order, de-duplicated, and capped at <see cref="MaxPaths"/>.
+        /// order, de-duplicated, and capped at <see cref="MaxPaths"/>. A path that names a directory is
+        /// taken as written; a bare file name is taken only when the text cites lines in it, and the
+        /// caller resolves it against the tracked files.
         /// </summary>
         /// <param name="missionText">Mission title and description, concatenated by the caller.</param>
         /// <returns>Paths named by the mission; empty when none are found.</returns>
@@ -98,7 +107,13 @@ namespace Armada.Core.Services
             // a repo that genuinely owns a top-level `a/` or `b/` folder must keep those paths intact.
             bool embedsDiff = missionText.IndexOf("diff --git ", StringComparison.Ordinal) >= 0;
 
-            foreach (Match match in _PathPattern.Matches(missionText))
+            // Directory paths and cited bare file names are taken together in the order the text names them.
+            List<Match> matches = new List<Match>();
+            foreach (Match match in _PathPattern.Matches(missionText)) matches.Add(match);
+            foreach (Match match in _BareCitedFilePattern.Matches(missionText)) matches.Add(match);
+            matches.Sort((left, right) => left.Index.CompareTo(right.Index));
+
+            foreach (Match match in matches)
             {
                 string candidate = match.Value.Trim().TrimEnd('.', ',', ')', ';', ':');
                 if (String.IsNullOrEmpty(candidate)) continue;

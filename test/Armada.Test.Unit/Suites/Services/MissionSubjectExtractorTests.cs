@@ -63,6 +63,16 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, paths.Count, "sibling path outside the repository is skipped");
             });
 
+            await RunTest("A bare file name is a path subject only when the text cites lines in it", () =>
+            {
+                List<string> paths = MissionSubjectExtractor.ExtractPaths(
+                    "Read Ledger.cs:12-14 and src/Main.cs, then see Notes.md, https://example.com:8443/x and host.example.com.");
+
+                AssertEqual(2, paths.Count, "only the cited bare name and the directory path are subjects: " + string.Join(", ", paths));
+                AssertEqual("Ledger.cs", paths[0], "the cited bare name is taken in text order");
+                AssertEqual("src/Main.cs", paths[1], "the directory path follows");
+            });
+
             await RunTest("Diff hunk markers and index lines produce no paths", () =>
             {
                 List<string> paths = MissionSubjectExtractor.ExtractPaths(

@@ -84,8 +84,10 @@ exactly or as a unique suffix. A path that resolves only after ignoring letter
 case fails the question and names the tracked spelling. Question 1 also reads
 each cited line range: a range past the end of its file fails, and so does a
 range that no longer holds the symbol the text pairs with it, written as
-`` `Symbol` (`path:line`) `` or `` `Symbol` at `path:line` ``. The detail names
-the line where the symbol is now.
+`` `Symbol` (`path:line`) `` or `` `Symbol` at `path:line` ``, or named as the
+one backticked identifier or call expression in a sentence that cites nothing
+else. The symbol is matched as a whole word. The detail names the line where
+the symbol is now.
 
 ## Execution
 

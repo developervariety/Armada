@@ -221,6 +221,18 @@ upstream integrations and excludes changes already present at that baseline.
   keeps it cancelled). A stop that found no running process, or was refused,
   withdraws its registration. An exit 137 that no Armada stop explains is still
   classified as a probable out-of-memory kill and requeued.
+- The Git Anchors block checks every line range a brief cites. A bare file
+  name cited with lines (`Name.cs:12-20`) is resolved against the files the
+  dock's start commit tracks: a unique match is anchored at its tracked path,
+  several matches are reported as ambiguous, and none is a stale citation. A
+  citation into a declared sibling checkout (`../Sibling/src/Name.cs:96-111`)
+  is resolved and read at that checkout's provisioned HEAD; one that names an
+  undeclared or unprovisioned sibling is listed as unchecked with the reason.
+  A citation's symbol is the backticked identifier written beside it, or the
+  one backticked identifier or call expression (`Math.Min(...)`) in the same
+  sentence when that sentence cites nothing else, and it is matched as a whole
+  word. A range that no longer holds its symbol is listed under "Cited line
+  ranges to recheck" with the symbol's current line.
 - Autonomous recovery dispatches no rescue in the producer for a
   definition-of-done `TestFail` on a declared consumer's test suite
   (`consumer_tests_failed: <consumer>`). The gate runs a consumer's suite only

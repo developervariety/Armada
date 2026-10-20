@@ -4823,7 +4823,12 @@ namespace Armada.Core.Services
                         }
                         else
                         {
-                            history.IsExternalSourceTree = MissionSubjectExtractor.IsExternalSourceTreePath(path);
+                            // A name several tracked paths end with is ambiguous, never absent.
+                            TrackedPathMatch? match = await TryMatchTrackedPathAsync(worktreePath, "HEAD", path, token).ConfigureAwait(false);
+                            if (match != null && String.IsNullOrEmpty(match.Path) && match.CandidateCount > 1)
+                                history.MatchingPathCount = match.CandidateCount;
+                            else
+                                history.IsExternalSourceTree = MissionSubjectExtractor.IsExternalSourceTreePath(path);
                         }
                     }
 
@@ -4834,7 +4839,7 @@ namespace Armada.Core.Services
                     anchors.Files.Add(history);
                 }
 
-                await AddCitationChecksAsync(anchors, missionText, worktreePath, "HEAD", token).ConfigureAwait(false);
+                await AddCitationChecksAsync(anchors, missionText, worktreePath, "HEAD", vessel, token).ConfigureAwait(false);
 
                 foreach (string term in terms)
                 {

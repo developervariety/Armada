@@ -179,9 +179,16 @@ A brief carries only what the mission's mode and persona can use:
   as a file or a directory, exactly, by a unique suffix, or ignoring letter
   case, and names the tracked path. A name that matches several paths is
   reported as ambiguous, and an absent path the text cites with line numbers is
-  reported as a stale citation; neither reads as new work. A cited range past
-  the end of its file, or one that no longer holds its named symbol, is listed
-  under "Cited line ranges to recheck" with where the symbol is now.
+  reported as a stale citation; neither reads as new work. A bare file name
+  the text cites with line numbers (`Name.cs:12`) is a named path too. Every
+  cited range is checked: a range past the end of its file, or one that no
+  longer holds its symbol, is listed under "Cited line ranges to recheck" with
+  where the symbol is now. The symbol is the backticked identifier written
+  beside the citation, or the one backticked identifier or call expression in
+  the same sentence when that sentence cites nothing else. A citation into a
+  declared sibling checkout (`../Sibling/path:line`) is read at that
+  checkout's provisioned HEAD; one into an undeclared or unprovisioned sibling
+  is listed in the same section as unchecked, with the reason.
 - The Runtime Signals verdict lines reach only a Judge, and the Architect
   signal rule reaches only an Architect.
 - The read-only rules forbid editing, committing and pushing. By default they

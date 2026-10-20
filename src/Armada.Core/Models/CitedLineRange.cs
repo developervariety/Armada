@@ -4,8 +4,9 @@ namespace Armada.Core.Models
 
     /// <summary>
     /// A file and line range cited in mission or objective text, such as <c>Services/Foo.cs:12-20</c>,
-    /// with the symbol the text names for it when the citation is written as <c>`Symbol` (`path:line`)</c>
-    /// or <c>`Symbol` at `path:line`</c>.
+    /// <c>Foo.cs:12</c> or <c>../Sibling/Foo.cs:12</c>, with the symbol the text names for it: written as
+    /// <c>`Symbol` (`path:line`)</c> or <c>`Symbol` at `path:line`</c>, or the one backticked identifier or
+    /// call expression in a sentence that cites nothing else.
     /// </summary>
     public class CitedLineRange
     {

@@ -35,36 +35,164 @@ namespace Armada.Core.Services
         private const int MaxCitationIssueLength = 2400;
 
         /// <summary>
-        /// Check the line ranges the mission text cites in its anchored paths against the revision the
-        /// anchors describe. A path cited with lines is marked, so an absent one reads as a stale citation
-        /// rather than as a file to create; a range past the end of its file, or one that no longer holds
-        /// its named symbol, is stated with where the symbol is now.
+        /// Check every line range the mission text cites against the revision the anchors describe. A
+        /// path cited with lines is marked, so an absent one reads as a stale citation rather than as a
+        /// file to create; a range past the end of its file, or one that no longer holds its named symbol,
+        /// is stated with where the symbol is now. A citation the anchors did not resolve is resolved here
+        /// the same way, and a citation into a sibling checkout is read from that checkout. A citation that
+        /// cannot be resolved is stated with the reason, so silence always means the citation held.
         /// </summary>
         private async Task AddCitationChecksAsync(GitAnchors anchors, string missionText, string worktreePath,
-            string revision, CancellationToken token)
+            string revision, Vessel vessel, CancellationToken token)
         {
             List<CitedLineRange> ranges = CitedLineRangeChecker.Parse(missionText);
             if (ranges.Count == 0 || _Git == null) return;
 
             foreach (GitAnchorFileHistory file in anchors.Files)
             {
-                string named = String.IsNullOrEmpty(file.RequestedPath) ? file.Path : file.RequestedPath;
+                string named = AnchorNamedPath(file);
                 file.CitedWithLines = ranges.Exists(range => String.Equals(range.Path, named, StringComparison.Ordinal));
             }
 
             foreach (CitedLineRange range in ranges)
             {
                 if (anchors.CitationIssues.Count >= MaxCitationIssues) break;
-                GitAnchorFileHistory? file = anchors.Files.Find(candidate => candidate.ExistsOnRevision
-                    && String.Equals(String.IsNullOrEmpty(candidate.RequestedPath) ? candidate.Path : candidate.RequestedPath,
-                        range.Path, StringComparison.Ordinal));
-                if (file == null) continue;
-                IReadOnlyList<string>? lines = await _Git.ReadFileLinesOnRevisionAsync(worktreePath, revision, file.Path, token).ConfigureAwait(false);
-                if (lines == null) continue;
-                string? issue = CitedLineRangeChecker.Evaluate(range, lines);
+                string? issue = IsSiblingCitation(range.Path)
+                    ? await CheckSiblingCitationAsync(range, worktreePath, vessel, token).ConfigureAwait(false)
+                    : await CheckRepositoryCitationAsync(anchors, range, worktreePath, revision, token).ConfigureAwait(false);
                 if (issue != null && issue.Length <= MaxCitationIssueLength && RuntimeLogFormatter.RedactSecrets(issue) == issue)
                     anchors.CitationIssues.Add(issue);
             }
+        }
+
+        /// <summary>
+        /// The path a git anchor was named by in the mission text.
+        /// </summary>
+        private static string AnchorNamedPath(GitAnchorFileHistory file)
+        {
+            return String.IsNullOrEmpty(file.RequestedPath) ? file.Path : file.RequestedPath;
+        }
+
+        /// <summary>
+        /// Whether a cited path leaves this checkout for a checkout beside it.
+        /// </summary>
+        private static bool IsSiblingCitation(string path)
+        {
+            return path.StartsWith("../", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Check one citation of a file in this checkout. An anchored path is read where the anchors resolved
+        /// it, and the anchors section already states an absent or ambiguous one; any other cited path is
+        /// matched against the tracked files with the same rules the anchors use.
+        /// </summary>
+        private async Task<string?> CheckRepositoryCitationAsync(GitAnchors anchors, CitedLineRange range,
+            string worktreePath, string revision, CancellationToken token)
+        {
+            string trackedPath;
+            GitAnchorFileHistory? file = anchors.Files.Find(candidate =>
+                String.Equals(AnchorNamedPath(candidate), range.Path, StringComparison.Ordinal));
+            if (file != null)
+            {
+                if (!file.ExistsOnRevision) return null;
+                trackedPath = file.Path;
+            }
+            else
+            {
+                TrackedPathMatch? match = await TryMatchTrackedPathAsync(worktreePath, revision, range.Path, token).ConfigureAwait(false);
+                if (match == null) return null;
+                if (String.IsNullOrEmpty(match.Path) && match.CandidateCount > 1)
+                    return "`" + range.Text + "`: `" + range.Path + "` matches " + match.CandidateCount +
+                        " tracked paths on this checkout; find the one meant before relying on the cited lines.";
+                if (String.IsNullOrEmpty(match.Path))
+                    return "`" + range.Text + "`: `" + range.Path + "` is not tracked on this checkout, so the citation is stale; find where that code lives now.";
+                if (match.IsDirectory) return null;
+                trackedPath = match.Path!;
+            }
+
+            IReadOnlyList<string>? lines = await _Git!.ReadFileLinesOnRevisionAsync(worktreePath, revision, trackedPath, token).ConfigureAwait(false);
+            return lines == null ? null : CitedLineRangeChecker.Evaluate(range, lines);
+        }
+
+        /// <summary>
+        /// Check one citation of a file in a sibling checkout. The vessel's sibling declarations are the
+        /// checkouts provisioned beside a dock, and the provisioned HEAD is the tree a captain reads, so a
+        /// cited path is resolved and read there. A citation that names no declared sibling, or a sibling
+        /// that is not provisioned, is stated as unchecked with the reason.
+        /// </summary>
+        private async Task<string?> CheckSiblingCitationAsync(CitedLineRange range, string worktreePath,
+            Vessel vessel, CancellationToken token)
+        {
+            string cited = NormalizeCitationPath(range.Path);
+            SiblingRepo? owner = null;
+            string declaredPath = "";
+            foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
+            {
+                if (sibling == null) continue;
+                string declared = NormalizeCitationPath(sibling.RelativePath);
+                if (declared.Length == 0 || declared.Length <= declaredPath.Length) continue;
+                if (!cited.StartsWith(declared + "/", StringComparison.OrdinalIgnoreCase)) continue;
+                owner = sibling;
+                declaredPath = declared;
+            }
+
+            if (owner == null)
+                return "`" + range.Text + "` is outside this checkout and in no sibling checkout this vessel declares, so it was not checked.";
+
+            string inner = cited.Substring(declaredPath.Length + 1);
+            if (inner.Length == 0 || Array.Exists(inner.Split('/'), segment => segment.Length == 0 || segment == "." || segment == ".."))
+                return "`" + range.Text + "` leaves the sibling checkout `" + declaredPath + "`, so it was not checked.";
+
+            string siblingRoot = Path.GetFullPath(Path.Combine(worktreePath, owner.RelativePath));
+            if (!Directory.Exists(siblingRoot) || !Directory.EnumerateFileSystemEntries(siblingRoot).Any())
+                return "`" + range.Text + "` is in the sibling checkout `" + declaredPath + "`, which is not provisioned beside this dock, so it was not checked.";
+
+            try
+            {
+                TrackedPathMatch? match = await TryMatchTrackedPathAsync(siblingRoot, "HEAD", inner, token).ConfigureAwait(false);
+                if (match == null) return null;
+                if (String.IsNullOrEmpty(match.Path) && match.CandidateCount > 1)
+                    return "`" + range.Text + "`: `" + inner + "` matches " + match.CandidateCount + " tracked paths in the sibling checkout `" +
+                        declaredPath + "`; find the one meant before relying on the cited lines.";
+                if (String.IsNullOrEmpty(match.Path))
+                    return "`" + range.Text + "`: `" + inner + "` is not tracked at the HEAD of the sibling checkout `" + declaredPath +
+                        "`, so the citation is stale; find where that code lives now.";
+                if (match.IsDirectory) return null;
+                IReadOnlyList<string>? lines = await _Git!.ReadFileLinesOnRevisionAsync(siblingRoot, "HEAD", match.Path!, token).ConfigureAwait(false);
+                return lines == null ? null : CitedLineRangeChecker.Evaluate(range, lines);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                // A sibling is a separate checkout: one that cannot be read leaves this checkout's evidence
+                // intact and is named, rather than failing every anchor.
+                return "`" + range.Text + "` is in the sibling checkout `" + declaredPath + "`, whose HEAD could not be read, so it was not checked.";
+            }
+        }
+
+        /// <summary>
+        /// Match a cited path against the files a revision tracks, or null when the git seam offers no
+        /// revision path query.
+        /// </summary>
+        private async Task<TrackedPathMatch?> TryMatchTrackedPathAsync(string repositoryPath, string revision,
+            string path, CancellationToken token)
+        {
+            try
+            {
+                return await _Git!.MatchAnchorPathOnRevisionAsync(repositoryPath, revision, path, token).ConfigureAwait(false);
+            }
+            catch (NotSupportedException)
+            {
+                return null;
+            }
+        }
+
+        private static string NormalizeCitationPath(string? value)
+        {
+            return (value ?? String.Empty).Trim().Replace('\\', '/').TrimEnd('/');
         }
 
         internal async Task<GitAnchors> ResolveDispatchGitAnchorsAsync(string path, Mission mission,
@@ -157,7 +285,7 @@ namespace Armada.Core.Services
                         path, seed.ProvisionedCommit, history.Path, MaxAnchorCommitsPerPath, token).ConfigureAwait(false));
                     result.Anchors.Files.Add(history);
                 }
-                await AddCitationChecksAsync(result.Anchors, text, path, seed.ProvisionedCommit, token).ConfigureAwait(false);
+                await AddCitationChecksAsync(result.Anchors, text, path, seed.ProvisionedCommit, vessel, token).ConfigureAwait(false);
                 foreach (string term in MissionSubjectExtractor.ExtractTerms(text))
                 {
                     if (term.Length > 120 || RuntimeLogFormatter.RedactSecrets(term) != term)

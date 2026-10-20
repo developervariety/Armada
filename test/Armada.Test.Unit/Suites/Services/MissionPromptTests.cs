@@ -2725,6 +2725,135 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dock Git anchors resolve a bare cited file name and flag a stale range with the symbol's current line", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_bare_citation_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "src/Ledger/Ledger.cs", LedgerFixture);
+
+                    GitAnchors anchors = await ResolveRealDockAnchorsAsync(worktree,
+                        "The cap comes from Ledger.cs:3-4 for a `Math.Min(...)` deadline.", null);
+
+                    AssertNull(anchors.ResolutionError, "the anchors resolve completely");
+                    GitAnchorFileHistory file = anchors.Files.Single();
+                    AssertEqual("src/Ledger/Ledger.cs", file.Path, "a unique bare name is anchored at its tracked path");
+                    AssertEqual("Ledger.cs", file.RequestedPath, "the anchor keeps the name the text used");
+                    AssertTrue(file.ExistsOnRevision, "a present file is never called absent");
+                    AssertEqual(1, anchors.CitationIssues.Count, "the stale range is the only issue: " + String.Join(" | ", anchors.CitationIssues));
+                    AssertEqual("`Math.Min` is not within `Ledger.cs:3-4`; it is at line 7.", anchors.CitationIssues[0],
+                        "the call expression named after the citation is found at its current line");
+                    string section = MissionService.BuildGitAnchorsSection(anchors);
+                    AssertContains("### Cited line ranges to recheck", section, "the stale range is listed in the existing section");
+                    AssertContains("`src/Ledger/Ledger.cs` (the mission names it `Ledger.cs`", section, "the brief names the tracked path");
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
+            await RunTest("Dock Git anchors leave bare-name ranges that still hold their symbols unflagged", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_bare_citation_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "src/Ledger/Ledger.cs", LedgerFixture);
+
+                    GitAnchors anchors = await ResolveRealDockAnchorsAsync(worktree,
+                        "Change `Total` at Ledger.cs:5 so it rounds. Ledger.cs:7 keeps the `Math.Min(...)` cap.", null);
+
+                    AssertNull(anchors.ResolutionError, "the anchors resolve completely");
+                    AssertEqual("src/Ledger/Ledger.cs", anchors.Files.Single().Path, "the bare name resolves once");
+                    AssertEqual(0, anchors.CitationIssues.Count, "ranges that hold their symbols are not flagged: " + String.Join(" | ", anchors.CitationIssues));
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
+            await RunTest("Dock Git anchors call a bare file name that several tracked files share ambiguous, never absent", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_bare_citation_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "src/Alpha/Widget.cs", LedgerFixture);
+                    Directory.CreateDirectory(Path.Combine(worktree, "src", "Beta"));
+                    await File.WriteAllTextAsync(Path.Combine(worktree, "src", "Beta", "Widget.cs"), LedgerFixture);
+                    await RunGitAsync(worktree, "add", "-A");
+                    await RunGitAsync(worktree, "commit", "-q", "-m", "second widget");
+
+                    GitAnchors anchors = await ResolveRealDockAnchorsAsync(worktree, "Widget.cs:5 declares `Total`.", null);
+
+                    GitAnchorFileHistory file = anchors.Files.Single();
+                    AssertEqual(2, file.MatchingPathCount, "both tracked files are counted");
+                    AssertFalse(file.ExistsOnRevision, "an ambiguous name resolves to neither file");
+                    AssertEqual(0, anchors.CitationIssues.Count, "an ambiguous name is not also reported as untracked");
+                    string section = MissionService.BuildGitAnchorsSection(anchors);
+                    AssertContains("- `Widget.cs` matches 2 tracked paths on this checkout", section, "the name is reported as ambiguous");
+                    AssertFalse(section.Contains("`Widget.cs` does not exist"), "an ambiguous name is never called absent");
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
+            await RunTest("Dock Git anchors check a citation into a provisioned sibling checkout at its HEAD", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_sibling_citation_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "README.md", "target\n");
+                    await CreateFixtureRepositoryAsync(Path.Combine(root, "Shared"), "lib/Codec.cs", CodecFixture);
+                    string siblings = JsonSerializer.Serialize(new List<SiblingRepo> { new SiblingRepo { RelativePath = "../Shared" } });
+
+                    GitAnchors anchors = await ResolveRealDockAnchorsAsync(worktree,
+                        "`Encode` (../Shared/lib/Codec.cs:1-2) adds one. The sibling file ../Shared/lib/Codec.cs:5 declares `Encode` as well.",
+                        siblings);
+
+                    AssertNull(anchors.ResolutionError, "the anchors resolve completely");
+                    AssertEqual(1, anchors.CitationIssues.Count, "only the stale sibling range is flagged: " + String.Join(" | ", anchors.CitationIssues));
+                    AssertEqual("`Encode` is not within `../Shared/lib/Codec.cs:1-2`; it is at line 5.", anchors.CitationIssues[0],
+                        "the sibling file is read at its HEAD and the symbol's current line is named");
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
+            await RunTest("Dock Git anchors list a sibling citation they cannot check with the reason", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_sibling_citation_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "README.md", "target\n");
+                    string siblings = JsonSerializer.Serialize(new List<SiblingRepo> { new SiblingRepo { RelativePath = "../Shared" } });
+
+                    GitAnchors anchors = await ResolveRealDockAnchorsAsync(worktree,
+                        "Read ../Shared/lib/Codec.cs:5 first. Then compare ../Other/src/Tool.cs:3 with it.", siblings);
+
+                    AssertEqual(2, anchors.CitationIssues.Count, "each unchecked sibling citation is listed: " + String.Join(" | ", anchors.CitationIssues));
+                    AssertEqual("`../Shared/lib/Codec.cs:5` is in the sibling checkout `../Shared`, which is not provisioned beside this dock, so it was not checked.",
+                        anchors.CitationIssues[0], "a declared sibling that is absent is named as unprovisioned");
+                    AssertEqual("`../Other/src/Tool.cs:3` is outside this checkout and in no sibling checkout this vessel declares, so it was not checked.",
+                        anchors.CitationIssues[1], "an undeclared sibling is named as undeclared");
+                    AssertContains("### Cited line ranges to recheck", MissionService.BuildGitAnchorsSection(anchors),
+                        "unchecked citations are listed in the existing section");
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
             await RunTest("GitAnchors Section Is Omitted When Nothing Resolved", () =>
             {
                 GitAnchors anchors = GitAnchors.Unresolved("no git service is configured on this admiral");
@@ -3322,6 +3451,86 @@ namespace Armada.Test.Unit.Suites.Services
                     try { Directory.Delete(worktree, true); } catch { }
                     try { Directory.Delete(memoryRoot, true); } catch { }
                 }
+            }
+        }
+
+        private const string LedgerFixture =
+            "namespace Example.Ledger\n" +
+            "{\n" +
+            "    public class Ledger\n" +
+            "    {\n" +
+            "        public int Total(int a, int b)\n" +
+            "        {\n" +
+            "            int capped = Math.Min(a, b);\n" +
+            "            return capped;\n" +
+            "        }\n" +
+            "    }\n" +
+            "}\n";
+
+        private const string CodecFixture =
+            "namespace Example.Shared\n" +
+            "{\n" +
+            "    public static class Codec\n" +
+            "    {\n" +
+            "        public static int Encode(int value)\n" +
+            "        {\n" +
+            "            return value + 1;\n" +
+            "        }\n" +
+            "    }\n" +
+            "}\n";
+
+        /// <summary>
+        /// Create a git repository on <c>main</c> whose one commit holds a single file.
+        /// </summary>
+        private static async Task CreateFixtureRepositoryAsync(string repository, string relativePath, string content)
+        {
+            string file = Path.Combine(repository, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            await File.WriteAllTextAsync(file, content);
+            await RunGitAsync(repository, "init", "-q", "-b", "main");
+            await RunGitAsync(repository, "config", "user.email", "test@example.invalid");
+            await RunGitAsync(repository, "config", "user.name", "Test");
+            await RunGitAsync(repository, "config", "commit.gpgsign", "false");
+            await RunGitAsync(repository, "add", "-A");
+            await RunGitAsync(repository, "commit", "-q", "-m", "fixture");
+        }
+
+        /// <summary>
+        /// Record a dock provisioned at the repository's HEAD for a mission with the given description, and
+        /// resolve its git anchors the way dispatch does.
+        /// </summary>
+        private async Task<GitAnchors> ResolveRealDockAnchorsAsync(string worktree, string description, string? siblingRepos)
+        {
+            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+            {
+                LoggingModule logging = CreateLogging();
+                ArmadaSettings settings = CreateSettings();
+                GitService git = new GitService(logging);
+                IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                MissionService service = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git,
+                    resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("citations", "https://example.invalid/repo"));
+                vessel.SiblingRepos = siblingRepos;
+                Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("citations"));
+                Mission mission = new Mission
+                {
+                    Title = "Recheck the cited code",
+                    Description = description,
+                    VesselId = vessel.Id,
+                    CaptainId = captain.Id
+                };
+                string source = (await RunGitAsync(worktree, "rev-parse", "HEAD")).Trim();
+                Dock dock = new Dock(vessel.Id) { CaptainId = captain.Id, WorktreePath = worktree, BranchName = "mission" };
+                dock.GitAnchorsSnapshot = new DockGitAnchorSnapshot
+                {
+                    DockId = dock.Id, MissionId = mission.Id, VesselId = vessel.Id,
+                    ProvisionedCommit = source, ProvisionedUtc = DateTime.UtcNow,
+                    Anchors = new GitAnchors { BaseCommit = source }
+                };
+                dock = await testDb.Driver.Docks.CreateAsync(dock);
+                mission.DockId = dock.Id;
+                return await service.ResolveDispatchGitAnchorsAsync(worktree, mission, vessel, default);
             }
         }
 
