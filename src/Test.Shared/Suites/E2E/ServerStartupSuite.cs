@@ -288,6 +288,101 @@ namespace Test.Shared.Suites.E2E
                 }
             }));
 
+            cases.Add(CaseAsync("mission_diff_uses_harbor_host", "Mission diff uses its Harbor over WebSocket, distinguishes offline from missing, and keeps saved snapshots", TestTags.Reliability, async () =>
+            {
+                ArmadaSettings settings = CreateSettings(out string tempDir);
+                ArmadaServer? server = null;
+                using CancellationTokenSource deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                LoggingModule quiet = new LoggingModule();
+                quiet.Settings.EnableConsole = false;
+                try
+                {
+                    Mission mission;
+                    Dock dock;
+                    using (Armada.Core.Database.DatabaseDriver db = Armada.Core.Database.DatabaseDriverFactory.Create(settings.Database, quiet))
+                    {
+                        await db.InitializeAsync().ConfigureAwait(false);
+                        Harbor harbor = await db.Harbors.CreateAsync(new Harbor { Name = "Diff Harbor" }).ConfigureAwait(false);
+                        Vessel vessel = await db.Vessels.CreateAsync(new Vessel("Diff vessel", "https://github.com/test/diff.git") { DefaultBranch = "acceptance-base" }).ConfigureAwait(false);
+                        dock = await db.Docks.CreateAsync(new Dock(vessel.Id) { HarborId = harbor.Id, RepositoryPath = "/remote/repo", BranchName = "armada/remote", WorktreePath = Path.Combine(tempDir, "only-on-harbor") }).ConfigureAwait(false);
+                        Captain captain = await db.Captains.CreateAsync(new Captain("Remote diff captain", AgentRuntimeEnum.ApiEndpoint) { State = CaptainStateEnum.Working, ProcessId = 2000000007, CurrentDockId = dock.Id }).ConfigureAwait(false);
+                        mission = await db.Missions.CreateAsync(new Mission("Read remote diff") { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id, VesselId = vessel.Id, DockId = dock.Id, BranchName = dock.BranchName, StartedUtc = DateTime.UtcNow, ProcessId = captain.ProcessId }).ConfigureAwait(false);
+                        captain.CurrentMissionId = mission.Id;
+                        await db.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                        await db.HarborJobs.CreateAsync(new HarborJobRecord { JobId = "rollout-existing-job", HarborId = harbor.Id, MissionId = mission.Id, CaptainId = captain.Id, Kind = Armada.Core.Harbor.HarborJobKindEnum.Mission, Runtime = captain.Runtime.ToString(), StartedUtc = mission.StartedUtc }).ConfigureAwait(false);
+                    }
+                    AssertFalse(Directory.Exists(dock.WorktreePath), "remote path deliberately does not exist on Admiral");
+                    server = await StartOnFreePortsAsync(settings).ConfigureAwait(false);
+                    using HttpClient client = new HttpClient();
+                    client.DefaultRequestHeaders.Add("X-Api-Key", settings.ApiKey);
+                    string url = "http://127.0.0.1:" + settings.AdmiralPort + "/api/v1/missions/" + mission.Id + "/diff";
+                    using HttpResponseMessage offline = await client.GetAsync(url, deadline.Token).ConfigureAwait(false);
+                    AssertStatusCode(HttpStatusCode.ServiceUnavailable, offline);
+                    AssertContains("Connect that Harbor", await offline.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    using WebSocketHarborTransport link = await ConnectRolloutHarborAsync(settings, dock.HarborId!, deadline.Token).ConfigureAwait(false);
+                    bool exists = true;
+                    bool diffRequested = false;
+                    const string expectedDiff = "diff --git a/change.cs b/change.cs\n+remote change\n";
+                    Task responder = Task.Run(async () =>
+                    {
+                        while (!deadline.IsCancellationRequested)
+                        {
+                            string? payload = await link.ReceiveAsync(deadline.Token).ConfigureAwait(false);
+                            if (payload == null) break;
+                            Armada.Core.Harbor.HarborMessage message = Armada.Core.Harbor.HarborProtocol.Deserialize(payload);
+                            if (message is Armada.Core.Harbor.HarborFileRequest file)
+                            {
+                                AssertEqual(dock.WorktreePath, file.Path);
+                                await link.SendAsync(Armada.Core.Harbor.HarborProtocol.Serialize(new Armada.Core.Harbor.HarborFileResult { RequestId = file.RequestId, Success = true, Exists = exists, IsDirectory = exists }), deadline.Token).ConfigureAwait(false);
+                            }
+                            else if (message is Armada.Core.Harbor.HarborGitRequest git)
+                            {
+                                AssertEqual(dock.WorktreePath, git.WorkingDirectory);
+                                bool isDiff = git.Arguments.Contains("diff");
+                                if (isDiff) diffRequested = true;
+                                await link.SendAsync(Armada.Core.Harbor.HarborProtocol.Serialize(new Armada.Core.Harbor.HarborGitResult { RequestId = git.RequestId, StandardOutput = isDiff ? expectedDiff : new string('a', 40) }), deadline.Token).ConfigureAwait(false);
+                            }
+                        }
+                    }, deadline.Token);
+                    try
+                    {
+                        using HttpResponseMessage live = await client.GetAsync(url, deadline.Token).ConfigureAwait(false);
+                        AssertStatusCode(HttpStatusCode.OK, live);
+                        using System.Text.Json.JsonDocument diff = System.Text.Json.JsonDocument.Parse(await live.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        AssertEqual(expectedDiff, diff.RootElement.GetProperty("Diff").GetString());
+                        AssertTrue(diffRequested, "git diff actually ran through the Harbor protocol");
+                        using Armada.Runtimes.Mcp.McpToolClient mcp = new Armada.Runtimes.Mcp.McpToolClient("http://127.0.0.1:" + settings.McpPort + "/mcp", null, new Dictionary<string, string> { ["X-Api-Key"] = settings.ApiKey! }, quiet);
+                        await mcp.InitializeAsync(deadline.Token).ConfigureAwait(false);
+                        string toolResult = await mcp.CallToolAsync("get_mission_diff", System.Text.Json.JsonSerializer.Serialize(new { missionId = mission.Id }), deadline.Token).ConfigureAwait(false);
+                        AssertContains("remote change", toolResult, "MCP also delegates to the owning Harbor");
+                        exists = false;
+                        using HttpResponseMessage missing = await client.GetAsync(url, deadline.Token).ConfigureAwait(false);
+                        AssertStatusCode(HttpStatusCode.NotFound, missing);
+                        using (Armada.Core.Database.DatabaseDriver db = Armada.Core.Database.DatabaseDriverFactory.Create(settings.Database, quiet))
+                        {
+                            await db.InitializeAsync().ConfigureAwait(false);
+                            Mission stored = (await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                            stored.DiffSnapshot = expectedDiff;
+                            await db.Missions.UpdateAsync(stored).ConfigureAwait(false);
+                        }
+                        using HttpResponseMessage saved = await client.GetAsync(url, deadline.Token).ConfigureAwait(false);
+                        AssertStatusCode(HttpStatusCode.OK, saved);
+                        using System.Text.Json.JsonDocument snapshot = System.Text.Json.JsonDocument.Parse(await saved.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        AssertEqual(expectedDiff, snapshot.RootElement.GetProperty("Diff").GetString());
+                    }
+                    finally
+                    {
+                        deadline.Cancel();
+                        try { await responder.ConfigureAwait(false); } catch (OperationCanceledException) { }
+                    }
+                }
+                finally
+                {
+                    if (server != null) { try { server.Stop(); } catch (Exception) { } }
+                    TestTemp.TryDelete(tempDir);
+                }
+            }));
+
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Server Startup", cases: cases);
         }
 
@@ -303,7 +398,7 @@ namespace Test.Shared.Suites.E2E
             {
                 await link.ConnectAsync(token).ConfigureAwait(false);
                 await link.SendAsync(Armada.Core.Harbor.HarborProtocol.Serialize(new Armada.Core.Harbor.HarborHandshake
-                { HarborId = harborId, Name = "Rollout Harbor", LiveJobIds = new List<string> { "rollout-existing-job" }, JobOutboxEpoch = "unchanged-harbor-process" }), token).ConfigureAwait(false);
+                { HarborId = harborId, Name = "Rollout Harbor", Capabilities = new List<HarborCapability> { new HarborCapability { Name = Armada.Core.Harbor.HarborProtocol.DockCapability } }, LiveJobIds = new List<string> { "rollout-existing-job" }, JobOutboxEpoch = "unchanged-harbor-process" }), token).ConfigureAwait(false);
                 Armada.Core.Harbor.HarborMessage message = Armada.Core.Harbor.HarborProtocol.Deserialize((await link.ReceiveAsync(token).ConfigureAwait(false))!);
                 AssertTrue(message is Armada.Core.Harbor.HarborHandshakeAck, "real endpoint accepts reconnect");
                 Armada.Core.Harbor.HarborHandshakeAck ack = (Armada.Core.Harbor.HarborHandshakeAck)message;

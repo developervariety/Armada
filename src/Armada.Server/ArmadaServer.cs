@@ -1391,7 +1391,7 @@ namespace Armada.Server
 
             // Missions
             new MissionRoutes(_Database, _Admiral, _MissionService, _Settings, _Git, _LandingService, _LandingPreviewService, _GitHubIntegrationService, EmitEventAsync, EmitMissionStatusChangedAsync, _MissionLanding.HandleMissionCompleteAsync, _WebSocketHub, _Logging, _JsonOptions)
-                { MissionActivityLookup = _AgentLifecycle.MissionActivity.Get }
+                { MissionActivityLookup = _AgentLifecycle.MissionActivity.Get, DockHosts = new DockHostResolver(_Git, _Logging, _HarborConnectionManager) }
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains

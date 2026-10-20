@@ -2921,7 +2921,7 @@ generated from the same source.
 
 ### get_mission_diff
 
-Get the git diff of changes made by a captain for a mission. Returns saved diff if available, otherwise live worktree diff.
+Get the git diff of changes made by a captain for a mission. Returns a saved diff when available; otherwise reads the live worktree on its owning Admiral or Harbor host. An offline or unsupported Harbor returns an actionable Unavailable error rather than claiming its worktree was reclaimed.
 
 **Input Schema:**
 

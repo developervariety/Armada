@@ -3505,7 +3505,7 @@ Dry-run the vessel's auto-land predicate against the mission's captured diff wit
 
 #### GET /api/v1/missions/{id}/diff
 
-Returns the git diff of changes made by a captain in the mission's worktree. Checks for a saved diff file first (captured at completion), then falls back to a live worktree diff.
+Returns the git diff of changes made by a captain in the mission's worktree. Checks for a saved diff file first (captured at completion), then the database snapshot, then a live worktree diff on the dock's owning Admiral or Harbor host. An unavailable Harbor returns HTTP 503 with connection guidance; an inaccessible worktree without a saved diff returns HTTP 404. A Harbor path does not need to exist on the Admiral host.
 
 **Permission:** Authenticated
 

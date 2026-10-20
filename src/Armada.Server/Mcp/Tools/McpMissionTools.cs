@@ -11,6 +11,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
 
@@ -569,8 +570,29 @@ namespace Armada.Server.Mcp.Tools
                             dock = docks.FirstOrDefault(d => d.BranchName == mission.BranchName && d.Active);
                         }
 
-                        if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
-                            return (object)McpToolError.Unavailable("No diff available: the worktree was already reclaimed and no saved diff exists");
+                        if (dock == null || String.IsNullOrEmpty(dock.WorktreePath))
+                            return (object)McpToolError.Unavailable("No diff available: no mission worktree or saved diff exists");
+
+                        DockHost? host = null;
+                        bool remote = DockHostResolver.IsHarborDock(dock);
+                        try
+                        {
+                            if (remote)
+                            {
+                                DockHostResolver? hosts = (missionService as MissionService)?.DockHosts;
+                                if (hosts == null) throw new InvalidOperationException("Harbor delegation is not available.");
+                                host = hosts.ForDock(dock);
+                            }
+                            bool exists = host != null
+                                ? await host.Files.DirectoryExistsAsync(dock.WorktreePath).ConfigureAwait(false)
+                                : Directory.Exists(dock.WorktreePath);
+                            if (!exists)
+                                return (object)McpToolError.Unavailable("No diff available: the worktree is not accessible on its owning host and no saved diff exists");
+                        }
+                        catch (Exception ex) when (remote && (ex is InvalidOperationException || ex is TimeoutException || ex is IOException))
+                        {
+                            return (object)McpToolError.Unavailable("The mission worktree is on Harbor " + dock.HarborId + ". Connect that Harbor, ensure it supports mission docks, and try again; its diff is currently unavailable.");
+                        }
 
                         string baseBranch = "main";
                         if (!String.IsNullOrEmpty(mission.VesselId))
@@ -579,8 +601,15 @@ namespace Armada.Server.Mcp.Tools
                             if (vessel != null) baseBranch = vessel.DefaultBranch;
                         }
 
-                        string diff = await git.DiffAsync(dock.WorktreePath, baseBranch).ConfigureAwait(false);
-                        return (object)new { MissionId = missionId, Branch = dock.BranchName ?? "", Diff = diff };
+                        try
+                        {
+                            string diff = await (host?.Git ?? git).DiffAsync(dock.WorktreePath, baseBranch).ConfigureAwait(false);
+                            return (object)new { MissionId = missionId, Branch = dock.BranchName ?? "", Diff = diff };
+                        }
+                        catch (Exception ex) when (remote && (ex is InvalidOperationException || ex is TimeoutException || ex is IOException))
+                        {
+                            return (object)McpToolError.Unavailable("The mission diff could not be read on Harbor " + dock.HarborId + ". Check its connection and mission log, then try again.");
+                        }
                     });
 
                 register(

@@ -55,6 +55,9 @@ namespace Armada.Server.Routes
         /// </summary>
         public Func<string, RuntimeActivity?>? MissionActivityLookup { get; set; } = null;
 
+        /// <summary>Resolve file and git operations on the dock's owning host.</summary>
+        public DockHostResolver? DockHosts { get; set; } = null;
+
         /// <summary>
         /// Instantiate.
         /// </summary>
@@ -1154,8 +1157,30 @@ namespace Armada.Server.Routes
                     dock = docks.FirstOrDefault(d => d.BranchName == mission.BranchName && d.Active);
                 }
 
-                if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
-                    { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "No diff available: the worktree was already reclaimed and no saved diff exists" }; }
+                if (dock == null || String.IsNullOrEmpty(dock.WorktreePath))
+                    { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "No diff available: no mission worktree or saved diff exists" }; }
+
+                DockHost? host = null;
+                bool remote = DockHostResolver.IsHarborDock(dock);
+                try
+                {
+                    if (remote)
+                    {
+                        if (DockHosts == null) throw new InvalidOperationException("Harbor delegation is not available.");
+                        host = DockHosts.ForDock(dock);
+                    }
+                    bool exists = host != null
+                        ? await host.Files.DirectoryExistsAsync(dock.WorktreePath).ConfigureAwait(false)
+                        : Directory.Exists(dock.WorktreePath);
+                    if (!exists)
+                        { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "No diff available: the worktree is not accessible on its owning host and no saved diff exists" }; }
+                }
+                catch (Exception ex) when (remote && (ex is InvalidOperationException || ex is TimeoutException || ex is IOException))
+                {
+                    _logging.Warn("Could not read mission diff on Harbor " + dock.HarborId + ": " + ex.Message);
+                    req.Http.Response.StatusCode = 503;
+                    return new ApiStatusErrorResponse(ApiStatusErrorCodeEnum.ServiceUnavailable, "The mission worktree is on Harbor " + dock.HarborId + ". Connect that Harbor, ensure it supports mission docks, and try again; its diff is currently unavailable.");
+                }
 
                 string baseBranch = "main";
                 if (!String.IsNullOrEmpty(mission.VesselId))
@@ -1164,14 +1189,24 @@ namespace Armada.Server.Routes
                     if (vessel != null) baseBranch = vessel.DefaultBranch;
                 }
 
-                string diff = await _git.DiffAsync(dock.WorktreePath, baseBranch).ConfigureAwait(false);
-                return (object)new { MissionId = id, Branch = dock.BranchName ?? "", Diff = diff };
+                try
+                {
+                    string diff = await (host?.Git ?? _git).DiffAsync(dock.WorktreePath, baseBranch).ConfigureAwait(false);
+                    return (object)new { MissionId = id, Branch = dock.BranchName ?? "", Diff = diff };
+                }
+                catch (Exception ex) when (remote && (ex is InvalidOperationException || ex is TimeoutException || ex is IOException))
+                {
+                    _logging.Warn("Could not diff mission worktree on Harbor " + dock.HarborId + ": " + ex.Message);
+                    req.Http.Response.StatusCode = 503;
+                    return new ApiStatusErrorResponse(ApiStatusErrorCodeEnum.ServiceUnavailable, "The mission diff could not be read on Harbor " + dock.HarborId + ". Check its connection and mission log, then try again.");
+                }
             },
             api => api
                 .WithResponse(200, OpenApiResponseMetadata.Create("Successful response"))
                 .WithTag("Missions")
                 .WithSummary("Get diff for a mission")
-                .WithDescription("Returns the git diff of changes made by a captain in the mission's worktree.")
+                .WithDescription("Returns a saved diff or reads the mission worktree on its owning Admiral or Harbor host. An unavailable Harbor returns 503; a missing worktree without a saved diff returns 404.")
+                .WithResponse(503, OpenApiJson.For<ApiStatusErrorResponse>("The owning Harbor is unavailable"))
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
