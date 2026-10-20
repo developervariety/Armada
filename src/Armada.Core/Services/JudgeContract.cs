@@ -190,6 +190,8 @@ namespace Armada.Core.Services
         public static string OutputContract()
         {
             return
+                "Review the cumulative mission changes against the original acceptance requirements, including on re-review; do not limit review to the latest rework commit or assume previously unreported paths are correct. " +
+                "Check whether executed tests cover the behavior advertised by the change, rather than only construction or compilation. List all concrete blocking cases found, and distinguish reviewed source from unverified publication or delivery. " +
                 "Review the work through exactly three lenses, each as its own section: " +
                 "`## Correctness` (is the change logically correct for the inputs it can receive?), " +
                 "`## Blast Radius` (what else could this change break, and how far do its effects reach?), and " +

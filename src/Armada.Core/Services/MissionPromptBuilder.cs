@@ -340,7 +340,7 @@ namespace Armada.Core.Services
                 PersonaCatalog.UsabilityEngineer =>
                     "Before your result line, include `## Usability`, `## Consistency`, `## Edge Cases`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.Worker =>
-                    "Stay within scope, make the requested changes, and end with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
+                    "Stay within scope and make the requested changes. Derive acceptance cases from the behaviors the change advertises, including configuration create/edit/save transitions and negative paths when applicable. For provider or API integrations, exercise the actual request path against a local HTTP fixture and verify URL, authentication, payload, and response handling; successful compilation or client construction alone does not establish working integration. Report executed checks separately from unverified behavior. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.TestEngineer =>
                     "Before your result line, include short `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.Linter =>

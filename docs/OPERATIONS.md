@@ -277,6 +277,10 @@ disconnected are not moved to another Harbor: the stall watchdog (`stallThreshol
 once it is back; while it is still offline and the policy is on, each recovery attempt waits another stall interval, and
 the mission fails with `StallRecoveryExhausted` when `maxRecoveryAttempts` run out.
 
+**A reviewed provider upgrade passes tests but still fails in use.** Client-construction tests and a green build do not verify provider URLs, authentication, payloads, health probes, or configuration create/edit/save transitions. Exercise those paths through the actual client against local HTTP fixtures, and distinguish them from live-provider validation. Worker guidance now requests this evidence; Judge re-review must check cumulative mission changes against the original requirements, rather than only the last correction. These instructions improve coverage but do not prove that every case was tested.
+
+**Images do not include a reviewed rework.** A mission that runs a publishing `build-all` script can overwrite image tags before its Judge runs, and a later source rework does not automatically republish those tags. Verify publication separately from source landing. Run the build/publish command through a Command fleet action against the reviewed default branch after landing; a source-review PASS alone does not establish which revision is deployed.
+
 **Old recovery work reappears after cleanup.** A recovery incident can dispatch another rescue while its budget remains. Cancelling or deleting the original mission or its latest rescue now closes the recovery chain, with an operator-stop note rather than a claim that a fix landed. On older images, close the related recovery incident before stopping and deleting its missions; deleting only the voyage leaves standalone rescues outside that voyage.
 
 **A captain launched from a Harbor cannot reach MCP.** The Harbor hands captains the URL in
