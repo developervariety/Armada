@@ -844,6 +844,10 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "error stopping agent processes on shutdown: " + ex.ToString());
             }
 
+            // In-process hosts and tests may start another Admiral before this process exits. Release local
+            // append handles now (especially on Windows), without stopping their Harbor-owned agents.
+            _AgentLifecycle?.DetachHarborMissions();
+
             // Keep the Harbors' last minute of heartbeat samples.
             try
             {

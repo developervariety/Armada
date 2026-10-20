@@ -97,6 +97,8 @@ namespace Armada.Server
         /// decoding), so the runtime's own usage report (Claude Code's result event, Codex's turn.completed, Mux's
         /// run_completed) and model are known when the mission completes. Taken by <see cref="TakeMissionTelemetry"/>.
         /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, RemoteAgentRuntime> _RemoteMissionRuntimes = new System.Collections.Concurrent.ConcurrentDictionary<string, RemoteAgentRuntime>(StringComparer.Ordinal);
+
         private System.Collections.Concurrent.ConcurrentDictionary<string, ChatTurnTelemetryRecorder> _MissionTelemetry = new System.Collections.Concurrent.ConcurrentDictionary<string, ChatTurnTelemetryRecorder>(StringComparer.Ordinal);
 
         /// <summary>
@@ -689,9 +691,23 @@ namespace Armada.Server
             }
         }
 
+        /// <summary>Release local observers while leaving Harbor mission processes running.</summary>
+        public void DetachHarborMissions()
+        {
+            foreach (KeyValuePair<string, RemoteAgentRuntime> pair in _RemoteMissionRuntimes)
+            {
+                if (_RemoteMissionRuntimes.TryRemove(pair)) pair.Value.Detach();
+            }
+        }
+
         private void ObserveMissionRuntime(Armada.Runtimes.Interfaces.IAgentRuntime runtime, Captain captain, Mission mission,
             out ChatTurnTelemetryRecorder missionTelemetry, out LatestValueThrottle<RuntimeActivity> missionActivity)
         {
+            if (runtime is RemoteAgentRuntime remote)
+            {
+                _RemoteMissionRuntimes[mission.Id] = remote;
+                runtime.OnProcessExited += (_, _) => _RemoteMissionRuntimes.TryRemove(new KeyValuePair<string, RemoteAgentRuntime>(mission.Id, remote));
+            }
             ChatTurnTelemetryRecorder telemetry = new ChatTurnTelemetryRecorder();
             AgentRuntimeEnum telemetryRuntime = captain.Runtime;
             _MissionTelemetry[mission.Id] = telemetry;
@@ -938,6 +954,11 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
+                if (runtime is RemoteAgentRuntime failedRemote)
+                {
+                    _RemoteMissionRuntimes.TryRemove(new KeyValuePair<string, RemoteAgentRuntime>(mission.Id, failedRemote));
+                    failedRemote.Detach();
+                }
                 _PendingLaunches.TryRemove(launchKey, out _);
                 _MissionFinalMessageFiles.TryRemove(mission.Id, out _);
                 _MissionTelemetry.TryRemove(new KeyValuePair<string, ChatTurnTelemetryRecorder>(mission.Id, telemetry));
@@ -1549,6 +1570,7 @@ namespace Armada.Server
         {
             if (!captain.ProcessId.HasValue) return;
             _Logging.Info(_Header + "stopping agent process " + captain.ProcessId.Value + " for captain " + captain.Id);
+            if (captain.CurrentMissionId != null && _RemoteMissionRuntimes.TryRemove(captain.CurrentMissionId, out RemoteAgentRuntime? remote)) remote.Detach();
             lock (_ProcessToCaptain)
             {
                 _ProcessToCaptain.Remove(captain.ProcessId.Value);

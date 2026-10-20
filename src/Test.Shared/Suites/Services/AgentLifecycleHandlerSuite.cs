@@ -820,6 +820,25 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("shutdown_detaches_log_without_stopping_harbor_job", "Shutdown closes the old log handle without stopping or unowning the Harbor agent", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    var seed = await SeedHarborMissionAsync(testDb.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                    HarborConnectionManager manager = new HarborConnectionManager(new HarborService(testDb.Driver, CreateLogging()), CreateLogging(), null);
+                    handler.SetHarborConnections(manager);
+                    await handler.RestoreHarborMissionsAsync().ConfigureAwait(false);
+                    handler.DetachHarborMissions();
+                    handler.DetachHarborMissions();
+                    AssertTrue(manager.IsProcessTracked(seed.Captain.ProcessId!.Value), "detach is not a remote stop");
+                    AssertTrue(manager.OwnedJobIds(seed.Dock.HarborId!).Contains(seed.Job.JobId));
+                    using (FileStream exclusive = File.Open(Path.Combine(settings.LogDirectory, "missions", seed.Mission.Id + ".log"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                        AssertTrue(exclusive.Length > 0, "old observer releases its write handle, including on Windows");
+                    await manager.OnMessageAsync(seed.Dock.HarborId!, new Armada.Core.Harbor.HarborExited { JobId = seed.Job.JobId, ExitCode = 0 }).ConfigureAwait(false);
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Agent Lifecycle Handler",

@@ -185,6 +185,14 @@ namespace Armada.Runtimes
             if (!alreadyExited) _Manager.RestoreJob(_HarborId, jobId, processId, this);
         }
 
+        /// <summary>
+        /// Release Admiral-local log resources on shutdown without sending a stop to the Harbor.
+        /// </summary>
+        public void Detach()
+        {
+            CloseLog();
+        }
+
         /// <inheritdoc />
         public async Task<int> StartAsync(
             string workingDirectory,
