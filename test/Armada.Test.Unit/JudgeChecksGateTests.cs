@@ -1384,6 +1384,68 @@ namespace Armada.Test.Unit
                 }
             }).ConfigureAwait(false);
 
+            // A runner can print the failing test far above the last output lines (or in stderr, which
+            // follows stdout in the record), so the rejection reads failing tests from the whole log.
+            await RunTest("JudgeGate_RejectedPass_NamesFailingTestPrintedAboveTheTail", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage, Mission judge) = await SeedVoyageWithMeasurableWorkAsync(
+                        testDb, MissionModeEnum.Implementation, MissionStatusEnum.Pending).ConfigureAwait(false);
+                    CheckRun failed = await AddExecutedCheckAsync(testDb, voyage.Id, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Failed, _ReviewedCommit).ConfigureAwait(false);
+                    List<string> lines = new List<string>();
+                    lines.Add("  Failed Example.Tests.Widget_rejects_empty_input [12 ms]");
+                    lines.Add("  Error Message:");
+                    lines.Add("   Assert.Equal() Failure: expected 1, actual 0");
+                    for (int i = 0; i < 80; i++) lines.Add("passing test output line " + i);
+                    failed.Output = String.Join("\n", lines);
+                    await testDb.Driver.CheckRuns.UpdateAsync(failed).ConfigureAwait(false);
+
+                    Captain captain = await StartJudgeAsync(testDb, judge, "rejected-pass-early-failure-captain").ConfigureAwait(false);
+                    svc.OnGetMissionOutput = _ => ImplementationJudgePassOutput;
+                    await svc.HandleCompletionAsync(captain, judge.Id).ConfigureAwait(false);
+
+                    Mission? rejected = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                    string reason = rejected!.FailureReason ?? String.Empty;
+                    AssertContains("Example.Tests.Widget_rejects_empty_input", reason,
+                        "the reason names the failing test printed above the output tail");
+                    AssertContains("Assert.Equal() Failure", reason, "the reason carries the failing test's first exception line");
+                    AssertContains("passing test output line 79", reason, "the reason still carries the output tail");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("JudgeGate_RejectedPass_NamesFailingTestThroughRecordedProfilePattern", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage, Mission judge) = await SeedVoyageWithMeasurableWorkAsync(
+                        testDb, MissionModeEnum.Implementation, MissionStatusEnum.Pending).ConfigureAwait(false);
+                    WorkflowProfile profile = await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                    {
+                        Name = "Example Runner Profile",
+                        Scope = WorkflowProfileScopeEnum.Global,
+                        UnitTestCommand = "./run-tests.sh",
+                        FailedTestLinePattern = "^FAIL (?<name>.+?): "
+                    }).ConfigureAwait(false);
+                    CheckRun failed = await AddExecutedCheckAsync(testDb, voyage.Id, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Failed, _ReviewedCommit).ConfigureAwait(false);
+                    List<string> lines = new List<string>();
+                    lines.Add("FAIL Widget totals match the ledger: off by one");
+                    for (int i = 0; i < 80; i++) lines.Add("ok case " + i);
+                    failed.Output = String.Join("\n", lines);
+                    failed.WorkflowProfileId = profile.Id;
+                    await testDb.Driver.CheckRuns.UpdateAsync(failed).ConfigureAwait(false);
+
+                    Captain captain = await StartJudgeAsync(testDb, judge, "rejected-pass-profile-pattern-captain").ConfigureAwait(false);
+                    svc.OnGetMissionOutput = _ => ImplementationJudgePassOutput;
+                    await svc.HandleCompletionAsync(captain, judge.Id).ConfigureAwait(false);
+
+                    Mission? rejected = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                    string reason = rejected!.FailureReason ?? String.Empty;
+                    AssertContains("Widget totals match the ledger", reason,
+                        "the reason names a failing test that only the recorded profile's pattern can read");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("JudgeGate_GreenCheckAtAnotherCommit_DoesNotCountAsGreen", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -1665,7 +1665,7 @@ namespace Armada.Core.Services
                     return await ReleaseCheckWaitPassAsync(mission, operatorReview, token).ConfigureAwait(false);
 
                 case JudgeCheckGate.HasFailed:
-                    await RejectCheckWaitPassAsync(mission, BuildFailedCheckRejectionReason(_LastJudgeGateChecks), token).ConfigureAwait(false);
+                    await RejectCheckWaitPassAsync(mission, BuildFailedCheckRejectionReason(_LastJudgeGateChecks, _LastJudgeGatePatterns), token).ConfigureAwait(false);
                     return true;
 
                 case JudgeCheckGate.NoChecksNoExclusion:
@@ -3043,7 +3043,7 @@ namespace Armada.Core.Services
                                 mission.Status = MissionStatusEnum.Failed;
                                 mission.CompletedUtc = DateTime.UtcNow;
                                 mission.LastUpdateUtc = DateTime.UtcNow;
-                                mission.FailureReason = BuildFailedCheckRejectionReason(_LastJudgeGateChecks);
+                                mission.FailureReason = BuildFailedCheckRejectionReason(_LastJudgeGateChecks, _LastJudgeGatePatterns);
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 ClearOperatorReviewHold(mission);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
@@ -10278,6 +10278,7 @@ namespace Armada.Core.Services
                 if (VoyageReportOnlyClassifier.IsFullyReportOnly(voyageMissions))
                 {
                     _LastJudgeGateChecks = new List<CheckRun>();
+                    _LastJudgeGatePatterns = null;
                     _LastJudgeReviewedCommit = judgeMission.CommitHash;
                     return JudgeCheckGate.GreenChecks;
                 }
@@ -10309,6 +10310,7 @@ namespace Armada.Core.Services
             List<CheckRun> collected = VoyageLanes.ChecksForLaneOf(judgeMission, voyageMissions, checks.Values);
             await StampArmedChecksAtReviewedCommitAsync(collected, judgeMission, token).ConfigureAwait(false);
             _LastJudgeGateChecks = CheckRunGateRules.SelectLatestPerCheck(collected);
+            _LastJudgeGatePatterns = await ReadFailedTestLinePatternsAsync(_LastJudgeGateChecks, token).ConfigureAwait(false);
             _LastJudgeReviewedCommit = judgeMission.CommitHash;
             return ClassifyJudgeCheckGate(collected, judgeMission.AgentOutput, judgeMission.CommitHash);
         }
@@ -10362,6 +10364,42 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Read the failed-test line pattern of each workflow profile a failed Check recorded. A profile that
+        /// cannot be read is logged and skipped, so its Check is read with the built-in matchers and the
+        /// rejection still carries the rest of its evidence.
+        /// </summary>
+        /// <param name="checks">The Checks the gate selected.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Pattern per workflow profile id; profiles that set none are absent.</returns>
+        private async Task<Dictionary<string, string?>> ReadFailedTestLinePatternsAsync(List<CheckRun> checks, CancellationToken token)
+        {
+            Dictionary<string, string?> patterns = new Dictionary<string, string?>(StringComparer.Ordinal);
+            HashSet<string> profileIds = new HashSet<string>(
+                checks.Where(c => c != null && c.Status == CheckRunStatusEnum.Failed && !String.IsNullOrWhiteSpace(c.WorkflowProfileId))
+                    .Select(c => c.WorkflowProfileId!),
+                StringComparer.Ordinal);
+            foreach (string profileId in profileIds)
+            {
+                try
+                {
+                    WorkflowProfile? profile = await _Database.WorkflowProfiles.ReadAsync(profileId, null, token).ConfigureAwait(false);
+                    if (!String.IsNullOrWhiteSpace(profile?.FailedTestLinePattern))
+                        patterns[profileId] = profile!.FailedTestLinePattern;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not read workflow profile " + profileId
+                        + " for failing-test names in a rejection; built-in matchers apply: " + ex.Message);
+                }
+            }
+            return patterns;
+        }
+
+        /// <summary>
         /// The commit the most recent Judge gate evaluation compared its Checks against: the tip the
         /// Judge reviewed. Retained beside <see cref="_LastJudgeGateChecks"/> so a hold message can
         /// say WHICH commit a stale green measured and which one the review is about.
@@ -10378,15 +10416,25 @@ namespace Armada.Core.Services
         private List<CheckRun>? _LastJudgeGateChecks = null;
 
         /// <summary>
+        /// Failed-test line pattern per workflow profile id for the failed Checks in
+        /// <see cref="_LastJudgeGateChecks"/>, so a rejection names failing tests in each runner's own line shape.
+        /// </summary>
+        private Dictionary<string, string?>? _LastJudgeGatePatterns = null;
+
+        /// <summary>
         /// The FailureReason for a Judge PASS rejected by a failed independent Check: the rule, the
         /// failed records, and each one's commit and output tail.
         /// </summary>
         /// <param name="checks">The Checks collected by the gate. Null names no records.</param>
+        /// <param name="failedTestLinePatterns">Failed-test line pattern per workflow profile id. Null reads every
+        /// Check with the built-in matchers.</param>
         /// <returns>The failure reason.</returns>
-        internal static string BuildFailedCheckRejectionReason(List<CheckRun>? checks)
+        internal static string BuildFailedCheckRejectionReason(
+            List<CheckRun>? checks,
+            Dictionary<string, string?>? failedTestLinePatterns = null)
         {
             string blocking = DescribeBlockingChecks(checks, CheckRunStatusEnum.Failed);
-            string blockingEvidence = DescribeRejectingCheckEvidence(checks, CheckRunStatusEnum.Failed);
+            string blockingEvidence = DescribeRejectingCheckEvidence(checks, CheckRunStatusEnum.Failed, failedTestLinePatterns);
             return "Judge PASS rejected: an independent Check failed (real-signal gate; Judge self-report cannot override real command output)."
                 + (String.IsNullOrEmpty(blocking)
                     ? String.Empty
@@ -10433,15 +10481,28 @@ namespace Armada.Core.Services
         private const int _RejectingCheckEvidenceCount = 3;
 
         /// <summary>
-        /// Renders, for each Check that rejected a Judge PASS, the commit it measured and a bounded
-        /// tail of its output. The id alone tells an operator which record to open; the commit and the
-        /// tail say what failed and against which tip, so the incident carries the diagnosis instead of
-        /// a pointer to it. Output is redacted and capped, because it is copied into a record.
+        /// Character budget per rejecting Check test-outcome digest. The digest lists failing tests first,
+        /// so the head is kept: a cut drops trailing skip names, never the failure.
+        /// </summary>
+        private const int _RejectingCheckOutcomeChars = 1500;
+
+        /// <summary>
+        /// Renders, for each Check that rejected a Judge PASS, the commit it measured, the failing tests
+        /// read from its whole output, and a bounded tail of that output. The id alone tells an operator
+        /// which record to open; the commit, the failing tests and the tail say what failed and against
+        /// which tip, so the incident carries the diagnosis instead of a pointer to it. Failing tests come
+        /// from the whole log because a runner can print the failure in stderr or far above the tail.
+        /// Output is redacted and capped, because it is copied into a record.
         /// </summary>
         /// <param name="checks">The Checks collected by the gate. Null renders as empty.</param>
         /// <param name="status">Status that rejected the PASS.</param>
+        /// <param name="failedTestLinePatterns">Failed-test line pattern per workflow profile id, read from the
+        /// profile each Check recorded. A Check with no entry is read with the built-in matchers.</param>
         /// <returns>The evidence text, or an empty string when nothing matches.</returns>
-        internal static string DescribeRejectingCheckEvidence(List<CheckRun>? checks, CheckRunStatusEnum status)
+        internal static string DescribeRejectingCheckEvidence(
+            List<CheckRun>? checks,
+            CheckRunStatusEnum status,
+            Dictionary<string, string?>? failedTestLinePatterns = null)
         {
             if (checks == null) return String.Empty;
             List<CheckRun> matching = checks
@@ -10455,12 +10516,19 @@ namespace Armada.Core.Services
             foreach (CheckRun c in matching)
             {
                 string commit = String.IsNullOrWhiteSpace(c.CommitHash) ? "(no commit recorded)" : c.CommitHash!;
-                CheckRunSummaryView view = CheckRunSummaryView.From(c, _RejectingCheckTailLines);
+                string? pattern = null;
+                if (failedTestLinePatterns != null && !String.IsNullOrWhiteSpace(c.WorkflowProfileId))
+                    failedTestLinePatterns.TryGetValue(c.WorkflowProfileId!, out pattern);
+                CheckRunSummaryView view = CheckRunSummaryView.From(c, _RejectingCheckTailLines, null, pattern);
+                string outcomes = RuntimeLogFormatter.RedactSecrets(view.TestOutcomes ?? String.Empty).Trim();
+                if (outcomes.Length > _RejectingCheckOutcomeChars)
+                    outcomes = outcomes.Substring(0, _RejectingCheckOutcomeChars) + " ...";
                 string tail = RuntimeLogFormatter.RedactSecrets(view.OutputTail ?? String.Empty).Trim();
                 if (tail.Length > _RejectingCheckTailChars)
                     tail = tail.Substring(tail.Length - _RejectingCheckTailChars);
 
                 parts.Add(c.Id + " measured " + commit
+                    + (outcomes.Length == 0 ? String.Empty : ", test outcomes: " + outcomes)
                     + (tail.Length == 0
                         ? ", no output recorded"
                         : ", last output lines: " + tail));

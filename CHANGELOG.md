@@ -283,6 +283,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A Judge PASS rejected by a failed Check names the failing tests. The
+  rejection reason, and the incident that copies it, carries each rejecting
+  Check's test-outcome digest (every failing test with its first exception line,
+  and the skips) read from the whole log, ahead of the output tail. A failure
+  printed in stderr or far above the last lines is no longer lost. The digest
+  reads the output with the failed-test line pattern of the workflow profile the
+  Check recorded, and is redacted and bounded like the tail.
 - The readiness and dispatch-preview command probe skips a leading `NAME=value`
   environment assignment whose value is a path (for example
   `JAVA_HOME=/usr/lib/jvm/... bash ./gradlew build`) and probes the program after
