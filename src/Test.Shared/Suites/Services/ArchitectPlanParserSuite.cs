@@ -179,6 +179,49 @@ namespace Test.Shared.Suites.Services
                 AssertContains("last mission", error!);
             }));
 
+            cases.Add(Case("decision_checks_are_traceable", "Version 3 links named checks to numbered slice decisions and permits explicit general checks", TestTags.Positive, () =>
+            {
+                ArchitectPlan input = ValidDecisionContract();
+                input.Decisions.Add("Optional transport injection must be available.");
+                input.Missions[0].DecisionIndexes = new List<int> { 2 };
+                input.Missions[0].AcceptanceCriteria[0].DecisionIndexes = new List<int> { 2 };
+                AssertTrue(ArchitectPlanParser.TryParse(Fence(input), out ArchitectPlan? plan, out string? error), error);
+                string description = ArchitectPlanParser.DescribeMission(plan!, plan!.Missions[0]);
+                AssertContains("- D2: Optional transport injection", description);
+                AssertContains("Decisions checked: D2", description);
+                AssertFalse(description.Contains("- D1:"), "unrelated decisions stay outside this slice");
+                plan.Missions[0].AcceptanceCriteria[0].DecisionIndexes!.Clear();
+                AssertContains("none (general check)", ArchitectPlanParser.DescribeMission(plan, plan.Missions[0]));
+            }));
+
+            cases.Add(Case("orphaned_or_mislinked_decisions_reject_plan", "Missing, duplicate, invalid, out-of-scope or orphaned decision links reject version 3 with remediation", TestTags.Negative, () =>
+            {
+                List<Action<ArchitectPlan>> defects = new List<Action<ArchitectPlan>>
+                {
+                    p => p.Missions[0].AcceptanceCriteria[0].DecisionIndexes = null,
+                    p => p.Missions[0].AcceptanceCriteria[0].DecisionIndexes = new List<int> { 0 },
+                    p => p.Missions[0].AcceptanceCriteria[0].DecisionIndexes = new List<int> { 2 },
+                    p => p.Missions[0].AcceptanceCriteria[0].DecisionIndexes = new List<int> { 1, 1 },
+                    p => p.Missions[0].DecisionIndexes = new List<int>(),
+                    p => p.Decisions.Add("Missing injection interface"),
+                    p => { foreach (ArchitectPlanMission m in p.Missions) m.AcceptanceCriteria[0].DecisionIndexes!.Clear(); }
+                };
+                foreach (Action<ArchitectPlan> defect in defects)
+                {
+                    ArchitectPlan input = ValidDecisionContract();
+                    defect(input);
+                    AssertFalse(ArchitectPlanParser.TryParse(Fence(input), out ArchitectPlan? plan, out string? error));
+                    AssertNull(plan);
+                    AssertContains("decision", error!);
+                    AssertContains("Remediation", error!);
+                }
+                ArchitectPlan orphaned = ValidDecisionContract();
+                orphaned.Decisions.Add("Missing injection interface");
+                AssertFalse(ArchitectPlanParser.TryParse(Fence(orphaned), out _, out string? diagnostic));
+                AssertContains("decision D2 has no acceptance check", diagnostic!);
+                AssertFalse(ArchitectPlanParser.TryParse(Fence(ValidDecisionContract()) + "\n" + Fence(orphaned), out _), "invalid final revision never reuses an older plan");
+            }));
+
             cases.Add(Case("negative_cases_can_be_inapplicable", "A specific non-applicability reason is accepted instead of fabricated failure cases", TestTags.Positive, () =>
             {
                 ArchitectPlan input = ValidContract();
@@ -198,6 +241,15 @@ namespace Test.Shared.Suites.Services
         #region Private-Methods
 
         private static string Fence(ArchitectPlan plan) => "```armada-plan\n" + JsonSerializer.Serialize(plan) + "\n```";
+
+        private static ArchitectPlan ValidDecisionContract()
+        {
+            ArchitectPlan plan = ValidContract();
+            plan.ContractVersion = 3;
+            foreach (ArchitectPlanMission mission in plan.Missions)
+                mission.AcceptanceCriteria[0].DecisionIndexes = new List<int> { 1 };
+            return plan;
+        }
 
         private static ArchitectPlan ValidContract()
         {

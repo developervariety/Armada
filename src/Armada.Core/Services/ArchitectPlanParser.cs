@@ -93,22 +93,25 @@ namespace Armada.Core.Services
         /// <summary>Render validated structured criteria into the persisted slice, so every downstream stage sees the same contract.</summary>
         public static string DescribeMission(ArchitectPlan plan, ArchitectPlanMission mission)
         {
-            if (plan.ContractVersion != 2) return mission.Description ?? mission.Title ?? String.Empty;
+            if (plan.ContractVersion != 2 && plan.ContractVersion != 3) return mission.Description ?? mission.Title ?? String.Empty;
             StringBuilder text = new StringBuilder(mission.Description);
             text.Append("\n\n## Resolved plan decisions\n");
-            foreach (string decision in mission.DecisionIndexes == null ? plan.Decisions : mission.DecisionIndexes.Select(index => plan.Decisions[index - 1])) text.Append("- ").Append(decision).Append('\n');
+            foreach (int index in mission.DecisionIndexes ?? Enumerable.Range(1, plan.Decisions.Count).ToList())
+                text.Append("- D").Append(index).Append(": ").Append(plan.Decisions[index - 1]).Append('\n');
             text.Append("\n## Acceptance evidence contract\n");
             foreach (ArchitectAcceptanceCriterion criterion in mission.AcceptanceCriteria)
             {
                 text.Append("- ").Append(criterion.Id).Append(" [").Append(String.Join(", ", criterion.RequirementIds))
                     .Append("]: ").Append(criterion.Scenario).Append("\n  Expected: ").Append(criterion.Expected)
                     .Append("\n  Verify: ").Append(criterion.Verification).Append('\n');
+                if (plan.ContractVersion == 3) text.Append("  Decisions checked: ").Append(criterion.DecisionIndexes!.Count == 0
+                    ? "none (general check)" : String.Join(", ", criterion.DecisionIndexes.Select(index => "D" + index))).Append('\n');
                 foreach (string negative in criterion.NegativeCases) text.Append("  Failure/boundary: ").Append(negative).Append('\n');
                 if (criterion.NegativeCases.Count == 0) text.Append("  Negative cases not applicable: ").Append(criterion.NegativeCasesNotApplicableReason).Append('\n');
             }
             text.Append("\n## Required validation commands\n");
             foreach (string command in mission.ValidationCommands) text.Append("- ").Append(command).Append('\n');
-            text.Append("For every acceptance ID, report the named check, observed result, and unverified paths. "
+            text.Append("For every acceptance ID and linked decision, report the named check, observed result, and unverified paths. "
                 + "Attach request capture before the action and prove it observes requests. Preserve original command exit status; "
                 + "test counts and inherited claims do not establish an omitted guarantee.\n");
             return text.ToString();
@@ -117,7 +120,7 @@ namespace Armada.Core.Services
         private static List<string> ValidateContract(ArchitectPlan plan)
         {
             List<string> errors = new List<string>();
-            if (plan.ContractVersion != 2) { errors.Add("unsupported contractVersion (expected 2)"); return errors; }
+            if (plan.ContractVersion != 2 && plan.ContractVersion != 3) { errors.Add("unsupported contractVersion (expected 2 or 3)"); return errors; }
             if (plan.Missions == null || plan.Missions.Count == 0) { errors.Add("missions are required"); return errors; }
             if (plan.Requirements == null || plan.Requirements.Count == 0 || plan.Requirements.Any(String.IsNullOrWhiteSpace))
                 errors.Add("nonempty objective requirements are required");
@@ -125,6 +128,7 @@ namespace Armada.Core.Services
             if (requirements.Count != plan.Requirements?.Count) errors.Add("objective requirement IDs must be unique");
             if (plan.Decisions == null || plan.Decisions.Count == 0 || plan.Decisions.Any(String.IsNullOrWhiteSpace))
                 errors.Add("resolved design decisions are required (including compatibility and explicit settings)");
+            HashSet<int> checkedDecisions = new HashSet<int>();
             HashSet<string> covered = new HashSet<string>(StringComparer.Ordinal);
             HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
             HashSet<string> titles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -153,6 +157,23 @@ namespace Armada.Core.Services
                         if (id == null || !requirements.Contains(id)) errors.Add(prefix + "unknown objective requirement ID");
                         else covered.Add(id);
                     }
+                    if (plan.ContractVersion == 3)
+                    {
+                        if (criterion.DecisionIndexes == null) errors.Add(prefix + "criterion " + criterion.Id + " requires decisionIndexes ([] for a general check)");
+                        else
+                        {
+                            if (criterion.DecisionIndexes.Distinct().Count() != criterion.DecisionIndexes.Count)
+                                errors.Add(prefix + "criterion " + criterion.Id + " decisionIndexes must be unique");
+                            foreach (int index in criterion.DecisionIndexes)
+                            {
+                                if (index < 1 || index > (plan.Decisions?.Count ?? 0))
+                                    errors.Add(prefix + "criterion " + criterion.Id + " decisionIndexes must name 1-based plan decisions");
+                                else if (mission.DecisionIndexes != null && !mission.DecisionIndexes.Contains(index))
+                                    errors.Add(prefix + "criterion " + criterion.Id + " references D" + index + " outside this slice's decisionIndexes");
+                                else checkedDecisions.Add(index);
+                            }
+                        }
+                    }
                     if (criterion.NegativeCases == null || criterion.NegativeCases.Any(String.IsNullOrWhiteSpace)
                         || (criterion.NegativeCases.Count == 0 && String.IsNullOrWhiteSpace(criterion.NegativeCasesNotApplicableReason)))
                         errors.Add(prefix + "negativeCases or a specific non-applicability reason required");
@@ -161,6 +182,9 @@ namespace Armada.Core.Services
             ArchitectPlanMission? final = plan.Missions[plan.Missions.Count - 1];
             if (final?.Kind != "integration" || !final.WaitForOtherMissions) errors.Add("last mission must be integration with waitForOtherMissions=true");
             foreach (string requirement in requirements.Where(r => !covered.Contains(r))) errors.Add("uncovered objective requirement " + requirement);
+            if (plan.ContractVersion == 3)
+                for (int index = 1; index <= (plan.Decisions?.Count ?? 0); index++)
+                    if (!checkedDecisions.Contains(index)) errors.Add("decision D" + index + " has no acceptance check; link it to a named verification before dispatch");
             return errors;
         }
 
@@ -170,10 +194,10 @@ namespace Armada.Core.Services
         /// <returns>Contract text.</returns>
         public static string FormatInstructions()
         {
-            return "Respond with one fenced ```" + FenceInfo + " JSON block using contractVersion:2, requirements:[stable objective IDs], decisions:[resolved compatibility/default/override choices], " +
+            return "Respond with one fenced ```" + FenceInfo + " JSON block using contractVersion:3, requirements:[stable objective IDs], decisions:[atomic resolved compatibility/default/override rules], " +
                 "missions:[{title,description,kind:implementation|investigation|integration,dependsOn:earlier 1-based index or null,waitForOtherMissions:false," +
-                "decisionIndexes:[1-based indexes of only relevant decisions; empty if none],validationCommands:[exact commands],acceptanceCriteria:[{id,requirementIds:[objective IDs],scenario,expected,verification,negativeCases:[inputs and expected failures],negativeCasesNotApplicableReason:only if none apply}]}]. " +
-                "Descriptions define one bounded outcome, components, approach, scope exclusions, invariants, dependencies and uncertainties. Every objective ID must be covered. " +
+                "decisionIndexes:[1-based indexes of only relevant decisions; empty if none],validationCommands:[exact commands],acceptanceCriteria:[{id,requirementIds:[objective IDs],decisionIndexes:[plan decisions verified by this check; [] for general checks],scenario,expected,verification,negativeCases:[inputs and expected failures],negativeCasesNotApplicableReason:only if none apply}]}]. " +
+                "Descriptions define one bounded outcome, components, approach, scope exclusions, invariants, dependencies and uncertainties. Split compound decisions into separately verifiable rules. Every objective ID and decision must have a named acceptance check. Criterion decision indexes must be within its slice scope. " +
                 "Resolve correctness-critical uncertainty before implementation. Last mission must be integration with waitForOtherMissions:true. Invalid versioned plans are rejected before dispatch; " +
                 "legacy [ARMADA:MISSION] blocks remain supported for customized templates.";
         }

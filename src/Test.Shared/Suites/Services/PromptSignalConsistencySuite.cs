@@ -110,7 +110,7 @@ namespace Test.Shared.Suites.Services
                         null).ConfigureAwait(false);
 
                     AssertContains("armada-plan", embeddedPrompt, "architect embedded template should use the typed plan contract");
-                    AssertContains("contractVersion:2", embeddedPrompt, "architect embedded template should require evidence-bearing plans");
+                    AssertContains("contractVersion:3", embeddedPrompt, "architect embedded template should require evidence-bearing plans");
                     AssertContains("Do not emit [ARMADA:RESULT] or [ARMADA:VERDICT] lines.", embeddedPrompt, "architect embedded template should forbid result and verdict lines");
                     AssertContains("[ARMADA:MISSION]", templateParams["CaptainInstructions"], "architect captain instructions should use mission markers");
                     AssertContains("Do not emit [ARMADA:RESULT] or [ARMADA:VERDICT] lines.", templateParams["CaptainInstructions"], "architect captain instructions should forbid result and verdict lines");

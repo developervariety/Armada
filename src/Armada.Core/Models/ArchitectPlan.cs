@@ -11,7 +11,7 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
-        /// <summary>Version 2 enables contract validation before any Worker is dispatched. Null preserves legacy plans.</summary>
+        /// <summary>Versions 2 and 3 validate contracts before Worker dispatch; version 3 also requires decision-to-check links. Null preserves legacy plans.</summary>
         [JsonPropertyName("contractVersion")]
         public int? ContractVersion { get; set; }
 

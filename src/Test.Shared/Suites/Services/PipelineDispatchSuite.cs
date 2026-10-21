@@ -669,6 +669,101 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("orphaned_decision_never_fans_out", "Invalid structured contract blocks fan-out, cancels dependents and reports remediation", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+
+                    int landingCalls = 0;
+                    missionService.OnMissionComplete = (Mission mission, Dock dock) =>
+                    {
+                        landingCalls++;
+                        return Task.CompletedTask;
+                    };
+                    missionService.OnGetMissionOutput = _ => "```armada-plan\n{\"contractVersion\": 3, \"requirements\": [\"R1\"], \"decisions\": [\"Transport injection seam is required.\"], \"missions\": [{\"title\": \"Integration\", \"description\": \"Validate all paths\", \"kind\": \"integration\", \"waitForOtherMissions\": true, \"validationCommands\": [\"dotnet test\"], \"acceptanceCriteria\": [{\"id\": \"AC1\", \"requirementIds\": [\"R1\"], \"decisionIndexes\": [], \"scenario\": \"Read response\", \"expected\": \"Success\", \"verification\": \"ReadResponse test\", \"negativeCases\": [\"401 rejected\"]}]}]}\n```\n[ARMADA:MISSION] Never fall back";
+
+                    Vessel vessel = new Vessel("architect-failure-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("architect-failure-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("architect-failure-voyage");
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.CaptainId = captain.Id;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_wt_" + Guid.NewGuid().ToString("N"));
+                    dock.BranchName = "armada/architect-failure/msn_arch";
+                    dock.Active = true;
+                    dock = await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    Mission architectMission = new Mission("[Architect] Plan work", "Break this down");
+                    architectMission.VesselId = vessel.Id;
+                    architectMission.VoyageId = voyage.Id;
+                    architectMission.CaptainId = captain.Id;
+                    architectMission.DockId = dock.Id;
+                    architectMission.Persona = "Architect";
+                    architectMission.Status = MissionStatusEnum.InProgress;
+                    architectMission.BranchName = dock.BranchName;
+                    architectMission = await testDb.Driver.Missions.CreateAsync(architectMission).ConfigureAwait(false);
+
+                    Mission workerMission = new Mission("[Worker] Placeholder", "Original dispatch description");
+                    workerMission.VesselId = vessel.Id;
+                    workerMission.VoyageId = voyage.Id;
+                    workerMission.Persona = "Worker";
+                    workerMission.Status = MissionStatusEnum.Pending;
+                    workerMission.DependsOnMissionId = architectMission.Id;
+                    workerMission = await testDb.Driver.Missions.CreateAsync(workerMission).ConfigureAwait(false);
+
+                    captain.CurrentMissionId = architectMission.Id;
+                    captain.CurrentDockId = dock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    try
+                    {
+                        await missionService.HandleCompletionAsync(captain, architectMission.Id).ConfigureAwait(false);
+
+                        Mission? updatedArchitect = await testDb.Driver.Missions.ReadAsync(architectMission.Id).ConfigureAwait(false);
+                        Mission? updatedWorker = await testDb.Driver.Missions.ReadAsync(workerMission.Id).ConfigureAwait(false);
+                        Voyage? updatedVoyage = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                        Captain? updatedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        Dock? updatedDock = await testDb.Driver.Docks.ReadAsync(dock.Id).ConfigureAwait(false);
+
+                        AssertNotNull(updatedArchitect, "Architect mission should still exist");
+                        AssertEqual(MissionStatusEnum.Failed, updatedArchitect!.Status, "Architect mission should fail when no mission markers are produced");
+                        AssertContains("Architect plan contract rejected", updatedArchitect.FailureReason ?? String.Empty);
+                        AssertContains("decision D1 has no acceptance check", updatedArchitect.FailureReason ?? String.Empty);
+                        AssertEqual(MissionFailureKindEnum.InvalidOutput, updatedArchitect.FailureKind, "failure kind is recorded where the failure happens");
+                        AssertNotNull(updatedWorker, "Dependent worker mission should still exist");
+                        AssertEqual(MissionStatusEnum.Cancelled, updatedWorker!.Status, "Dependent worker mission should be cancelled when architect handoff fails");
+                        AssertContains("Blocked by failed dependency", updatedWorker.FailureReason ?? String.Empty);
+                        AssertEqual(MissionFailureKindEnum.DependencyFailed, updatedWorker.FailureKind, "failure kind is recorded where the failure happens");
+                        AssertNotNull(updatedVoyage, "Voyage should still exist");
+                        AssertEqual(VoyageStatusEnum.Failed, updatedVoyage!.Status, "Voyage should fail when architect handoff failure blocks the remaining pipeline");
+                        AssertEqual(0, landingCalls, "Landing should not run when handoff fails");
+                        AssertNotNull(updatedCaptain, "Captain should still exist");
+                        AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State, "Captain should be released after architect handoff failure");
+                        AssertNotNull(updatedDock, "Dock should still exist");
+                        AssertFalse(updatedDock!.Active, "Dock should be reclaimed after architect handoff failure");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(settings.DocksDirectory, true); } catch { }
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("architect_numbered_summary_without_markers_fans_out_cleanly", "Architect numbered summary without markers fans out cleanly", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1139,7 +1234,7 @@ namespace Test.Shared.Suites.Services
 
                     ArchitectPlan plan = new ArchitectPlan
                     {
-                        ContractVersion = 2,
+                        ContractVersion = 3,
                         Requirements = new List<string> { "REQ-PERSIST" },
                         Decisions = new List<string> { "Preserve explicit stored values." }
                     };
@@ -1154,6 +1249,7 @@ namespace Test.Shared.Suites.Services
                         ValidationCommands = new List<string> { "dotnet run --project src/Test.Automated" },
                         AcceptanceCriteria = new List<ArchitectAcceptanceCriterion> { new ArchitectAcceptanceCriterion
                         {
+                            DecisionIndexes = new List<int> { 1 },
                             Id = "AC-" + (i + 1), RequirementIds = new List<string> { "REQ-PERSIST" },
                             Scenario = "Save and reload explicit false", Expected = "False remains false",
                             Verification = "SettingsRoundTrip checks the persisted value",
@@ -1173,6 +1269,8 @@ namespace Test.Shared.Suites.Services
                     Mission? ignored = afterArchitect.FirstOrDefault(m => m.Title == "Ignored legacy block [Worker]");
 
                     AssertNotNull(coreWorker, "Primary worker should exist");
+                    AssertContains("Decisions checked: D1", coreWorker!.Description!);
+                    AssertContains("Decisions checked: D1", coreJudge!.Description!);
                     AssertContains("AC-1", coreWorker!.Description ?? String.Empty, "fan-out retains acceptance criteria inside parsed description");
                     AssertContains("run dotnet run --project", coreWorker.Description ?? String.Empty, "fan-out retains execution instructions");
                     AssertNotNull(coreJudge, "Primary judge stage should exist");

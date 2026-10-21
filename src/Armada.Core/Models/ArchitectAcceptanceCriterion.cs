@@ -14,6 +14,10 @@ namespace Armada.Core.Models
         [JsonPropertyName("requirementIds")]
         public List<string> RequirementIds { get; set; } = new List<string>();
 
+        /// <summary>One-based plan decisions verified by this check. Required in version 3; empty means a general check.</summary>
+        [JsonPropertyName("decisionIndexes")]
+        public List<int>? DecisionIndexes { get; set; }
+
         /// <summary>Concrete inputs and action.</summary>
         [JsonPropertyName("scenario")]
         public string? Scenario { get; set; }

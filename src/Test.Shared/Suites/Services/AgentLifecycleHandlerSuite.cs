@@ -132,7 +132,12 @@ namespace Test.Shared.Suites.Services
                         AssertTrue(cancelled, "Caller cancellation must propagate.");
                     }
                     if (selectedOutcome != "rejected")
-                        AssertTrue(harbor.Runner.Stops.Contains(job), "A still-running job must be stopped with a live token even if the request is cancelled.");
+                    {
+                        // StopAsync awaits sending the stop command, not its receipt on the Harbor link.
+                        // Observe bounded remote delivery before asserting cleanup; never race the transport.
+                        await WaitForConditionAsync(() => Task.FromResult(jobs.Stopped.Contains(job))).ConfigureAwait(false);
+                        AssertTrue(harbor.Runner.StopSnapshot().Contains(job), "A still-running job must be stopped with a live token even if the request is cancelled.");
+                    }
                 }));
             }
 
