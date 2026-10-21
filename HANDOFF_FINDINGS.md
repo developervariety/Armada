@@ -1,20 +1,14 @@
 # Prompt and handoff reliability findings
 
-## Current full-pipeline acceptance run
+## Current full-pipeline acceptance retest
 
-Started 2026-10-20 at 21:39:53 UTC on `view.homedns.org`: voyage `vyg_mvh7i6hn_Z5VjIzrlpnA`. The deployed server started at 21:38:13 UTC; all eight persona briefs matched the deployed `00f45ea4` defaults exactly at dispatch. Harbor was connected. Hosted CI for revision `7d820c4b` passed, including the new pipeline regression suites.
+Voyage `vyg_mvhed41p_WAfNMv3i4AY`, started 2026-10-21 at about 00:51 UTC after operator-confirmed image deployment. API health reports server startup `2026-10-21T00:50:26.332359Z`, healthy version 1.1.0; Harbor Connected. All eight deployed persona briefs match current source exactly. Initial state: all five captains idle, no active voyages.
 
-The previous Wilson acceptance voyage and its 33 completed missions were archived and deleted through the API. Confirmed zero remaining acceptance missions before dispatch. Acceptance branch reset from `49ac2ccc4e0c7f3af3364d7bd4c5848161616c2e` to pre-update baseline `8c3e8b5975cbe96e5700529fdfcfe0512d627ec2` (PolyPrompt 3.1.0), guarded by a remote force-with-lease. Prior source retained as `archive/pre-full-pipeline-retest-20261020`. Production Wilson main remains `c9ff616fd1b5262fe7edfd9ac295b9f264ed9650`.
+Archived and deleted previous failed voyage `vyg_mvh7i6hn_Z5VjIzrlpnA` and all 60 associated missions; confirmed zero acceptance-vessel missions before dispatch. Preserved rejected work head `c44094a7c2c879acec4eafd3156778d9ccfc2024` on local archive branch `archive/failed-full-pipeline-20261021`. Acceptance local/remote branch verified at baseline `8c3e8b5975cbe96e5700529fdfcfe0512d627ec2` (PolyPrompt 3.1.0), clean; production main remains `c9ff616fd1b5262fe7edfd9ac295b9f264ed9650`.
 
-FullPipeline: Product Manager → Architect → Worker → Usability Engineer → Test Engineer → Linter → Judge → Recorder. Claude Code handles planning and verification contributors, DeepSeek handles Workers, and Codex is the independent Judge. All eight assignments persist `StrictCaptain=true`; no implicit model substitution or escalation is permitted. The objective and acceptance baseline were unchanged from the preceding test; the later HF-20 addition is explicitly documented below.
+Same FullPipeline and strict assignments: Claude Product Manager/Architect/Usability/Test/Linter/Recorder, DeepSeek Worker, independent Codex Judge. Same objective with the known prefix/shifted credential-overlap regression made explicit at dispatch, as recorded in the prior checkpoint. No source implementation is copied from earlier attempts. API collector polls every 25 seconds, checking routing and duplicate launches and saving all API-visible transcripts/events; the HF-11 transcript completeness limit remains. Evidence: `/tmp/armada-full-pipeline-retest-20261021`.
 
-Authenticated API polling every 25 seconds archives full API-visible logs, mission records, instruction snapshots, status transitions, and requested/actual captains. It captures terminal records even when a stage finishes between polls. Server log rendering omits protocol noise; this is not raw provider-token capture. Full log snapshots are retained when rendered content changes, avoiding an assumption that streamed lines are append-only. Evidence: `/tmp/armada-full-pipeline-20261020` (private local artifacts, not portable repository evidence).
-
-Outcome: **the run failed**, ending at about 22:56 UTC after 76 minutes. First package slice passed on its first review. Metadata failed its third Judge review after two automatic reworks: broader overlapping credential spans still exposed a suffix in the helper and actual settings validation. The prior five findings were resolved. Strict DeepSeek selection correctly prevented escalation to a different model; downstream work was cancelled. API audit: 60 mission records (22 WorkProduced, 1 Failed, 37 Cancelled), 23 launches, zero duplicate launches, zero runtime redispatches and zero captain mismatches. Six implementation slices never started. No end-to-end or hosted Wilson provider success is claimed.
-
-Terminal Judge: `msn_mvh9poa0_XHLiQnHeMz1`. It independently restored/built the branch (zero warnings/errors), ran 68 shared cases and both adapters, then reproduced `Redact("abcdefgh", ["abcdef", "cdefgh"]) == "[REDACTED]gh"` against the built assembly and the actual settings validator. This agrees with the separately observed HF-20 defect. The operator-added redaction/integration criteria were still pending when the pipeline stopped. No manual mission restart, model substitution or Wilson source edit was used.
-
-Deployment checkpoint: product fixes are committed through `8c2fd584` (including scoped handoffs `3f9fa9ab` and safe Git advancement `dde29ea9`). GitHub CI passed. `build-all.sh v1.1.0` succeeded; server/dashboard/proxy multi-architecture `v1.1.0` and `latest` images are published and verified below. **Server deployment is pending operator confirmation.** Harbor has been rebuilt and reconnected with the guarded Git code. After deployment: verify briefs/server startup, archive/delete this failed run, reset the same acceptance baseline, and rerun FullPipeline with the same strict assignments. Preserve production main and image tags. Carry HF-20 as an explicit acceptance boundary; do not silently relax the Judge or expand the retry budget.
+Product Manager started successfully on the requested Claude captain; later stages remain pending. No success or failure outcome yet. Stale Recorder-written ProjectContext was discovered after launch and cleared before Architect dispatch (HF-23); the Product Manager had received that stale context and is instructed to verify against current source. Do not call this a perfectly uncontaminated context-reset control. No mission has been restarted.
 
 ## Open work and acceptance gates
 
@@ -29,14 +23,15 @@ Deployment checkpoint: product fixes are committed through `8c2fd584` (including
 | HF-10 | Mobile native coverage limits | Android phone/tablet flows passed before strict-selection UI; iOS native-device testing remains unavailable on this host |
 | HF-11 | Complete CLI interaction diagnostics through API | New: mission and captain APIs expose abbreviated tool commands and omit tool-result payloads; retain an access-controlled, appropriately redacted diagnostic transcript alongside readable logs |
 | HF-12 | Dependency connectivity-probe documentation | Package routes now independently verified; external README omission remains. Current verification details are in the completed appendix |
-| HF-13 | Slice breadth and copied global decisions | New plan still groups discovery with inference/tools; all 19 decisions are copied into every slice. Needs per-slice decision references and stronger scope review |
-| HF-14 | Validation command status masking | Wrapper reproduction confirms exit 0 despite prior failure; local guidance fix pending rollout. No hidden product failure established |
+| HF-13 | Slice breadth/context efficiency | Optional scoped decision references are deployed; verify new plan uses them and measure rendered context. Semantic scope review remains open |
+| HF-14 | Validation command status masking | Wrapper reproduction confirms exit 0 despite prior failure; guidance deployed; arbitrary shell exit-status enforcement remains open. No hidden product failure established |
 | HF-15 | Focused Wilson test selection | Low-priority Test Engineer papercut: Test.Automated has no case filter; quantify cost before adding unrelated tooling to this acceptance task |
-| HF-17 | Safe shared-branch handoff | Isolated real-Git regression reproduced stale-stage rewind; 201 targeted tests pass on .NET 8 and 10; warning-free solution build; guarded advancement/blocked-landing fix awaits rollout |
+| HF-17 | Safe shared-branch handoff | Isolated real-Git regression reproduced stale-stage rewind; 201 targeted tests pass on .NET 8 and 10; warning-free solution build; guarded advancement/blocked-landing fix deployed to server and Harbor |
 | HF-18 | Universal validation rules need boundary combinations | Three metadata reviews; five findings corrected but shifted-overlap redaction still failed; budget exhausted |
 | HF-20 | Staggered credential-span overlaps | Independently reproduced by monitor and final Judge in actual settings validation; unresolved, blocked this run |
-| HF-21 | Explain bounded review stops | Local regression passes within 2043/2043 Services checks and 212/212 .NET 8 checks; numeric reason/remediation await server rollout |
+| HF-21 | Explain bounded review stops | Local regression passes within 2043/2043 Services checks and 212/212 .NET 8 checks; numeric reason/remediation deployed; verify on any naturally occurring bounded stop |
 | HF-22 | Harbor native startup with unavailable display | Restart reproduced Avalonia render-timer error -6661; waking display restored connection; unattended-start fallback remains open |
+| HF-23 | Revision-aware vessel context | Recorder context survived Git reset with obsolete package/test facts; cleared before new Architect dispatch; automatic invalidation remains open |
 
 ## Findings from this run
 
@@ -88,9 +83,29 @@ The deployed terminal reason said strict selection prevented escalation and sugg
 
 After this voyage was terminal and API status confirmed all five captains idle/no active voyages, two local Harbor processes were stopped and consolidated into one current Debug/net10 binary. The first relaunch exited 134 with `Avalonia.Native was not able to start the RenderTimer. Native error code is: -6661`, before Harbor connected. Waking the display (`caffeinate -u -t 5`) then relaunching succeeded; API confirmed Connected at 23:01:27 UTC. This matches the upstream [Avalonia no-display startup issue](https://github.com/AvaloniaUI/Avalonia/issues/18895), but no broader device/display matrix was tested. No active mission was interrupted, and this did not cause the completed acceptance failure. A supported unattended/headless fallback or actionable startup recovery remains open; no product fix is claimed.
 
+### HF-23 — Resetting source does not invalidate Recorder facts
+
+The next dispatch inherited ProjectContext saying PolyPrompt was now 3.4.1 with 53 cases and a new contract-test file, although the acceptance repository was reset to 3.1.0 baseline. EnableModelContext=false did not prevent this separate ProjectContext injection. Archived then cleared only the Recorder-generated ProjectContext through the API while Product Manager was running, before Architect dispatch. Product Manager had already received it, so source inspection must take precedence; no restart or claim of uncontaminated context is appropriate. The objective already prohibits reusing old implementation/memory. Durable context should carry source revision/provenance and be invalidated or clearly labeled historical after repository reset. This is an observed handoff-risk gap, not yet evidence that it caused a failed mission.
+
 Record further issues with mission/stage/captain, violated requirement, reproduction/evidence, remediation, and verification status. Keep unresolved findings here; move verified fixes and finished work into the appendix.
 
 ## Appendix — completed work and historical evidence
+
+### Previous full-pipeline run — failed at metadata review
+
+Started 2026-10-20 at 21:39:53 UTC on `view.homedns.org`: voyage `vyg_mvh7i6hn_Z5VjIzrlpnA`. The deployed server started at 21:38:13 UTC; all eight persona briefs matched the deployed `00f45ea4` defaults exactly at dispatch. Harbor was connected. Hosted CI for revision `7d820c4b` passed, including the new pipeline regression suites.
+
+The previous Wilson acceptance voyage and its 33 completed missions were archived and deleted through the API. Confirmed zero remaining acceptance missions before dispatch. Acceptance branch reset from `49ac2ccc4e0c7f3af3364d7bd4c5848161616c2e` to pre-update baseline `8c3e8b5975cbe96e5700529fdfcfe0512d627ec2` (PolyPrompt 3.1.0), guarded by a remote force-with-lease. Prior source retained as `archive/pre-full-pipeline-retest-20261020`. Production Wilson main remains `c9ff616fd1b5262fe7edfd9ac295b9f264ed9650`.
+
+FullPipeline: Product Manager → Architect → Worker → Usability Engineer → Test Engineer → Linter → Judge → Recorder. Claude Code handles planning and verification contributors, DeepSeek handles Workers, and Codex is the independent Judge. All eight assignments persist `StrictCaptain=true`; no implicit model substitution or escalation is permitted. The objective and acceptance baseline were unchanged from the preceding test; the later HF-20 addition is explicitly documented below.
+
+Authenticated API polling every 25 seconds archives full API-visible logs, mission records, instruction snapshots, status transitions, and requested/actual captains. It captures terminal records even when a stage finishes between polls. Server log rendering omits protocol noise; this is not raw provider-token capture. Full log snapshots are retained when rendered content changes, avoiding an assumption that streamed lines are append-only. Evidence: `/tmp/armada-full-pipeline-20261020` (private local artifacts, not portable repository evidence).
+
+Outcome: **the run failed**, ending at about 22:56 UTC after 76 minutes. First package slice passed on its first review. Metadata failed its third Judge review after two automatic reworks: broader overlapping credential spans still exposed a suffix in the helper and actual settings validation. The prior five findings were resolved. Strict DeepSeek selection correctly prevented escalation to a different model; downstream work was cancelled. API audit: 60 mission records (22 WorkProduced, 1 Failed, 37 Cancelled), 23 launches, zero duplicate launches, zero runtime redispatches and zero captain mismatches. Six implementation slices never started. No end-to-end or hosted Wilson provider success is claimed.
+
+Terminal Judge: `msn_mvh9poa0_XHLiQnHeMz1`. It independently restored/built the branch (zero warnings/errors), ran 68 shared cases and both adapters, then reproduced `Redact("abcdefgh", ["abcdef", "cdefgh"]) == "[REDACTED]gh"` against the built assembly and the actual settings validator. This agrees with the separately observed HF-20 defect. The operator-added redaction/integration criteria were still pending when the pipeline stopped. No manual mission restart, model substitution or Wilson source edit was used.
+
+
 
 Local remediation prepared during this run: per-slice `decisionIndexes`, range/duplicate validation, compatibility fallback for older plans, latest-brief migration preserving operator edits, and validation-status guidance. The final 155 targeted service tests pass on .NET 8 and 10, including migration and rendered-prompt checks. Every new slice also retains a full-plan mission/API reference. This code has not been published as images or applied to this voyage. HF-13 semantic scope review and HF-14 shell-status enforcement remain open.
 
