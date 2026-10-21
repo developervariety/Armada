@@ -8,7 +8,7 @@ Archived and deleted previous failed voyage `vyg_mvh7i6hn_Z5VjIzrlpnA` and all 6
 
 Same FullPipeline and strict assignments: Claude Product Manager/Architect/Usability/Test/Linter/Recorder, DeepSeek Worker, independent Codex Judge. Same objective with the known prefix/shifted credential-overlap regression made explicit at dispatch, as recorded in the prior checkpoint. No source implementation is copied from earlier attempts. API collector polls every 25 seconds, checking routing and duplicate launches and saving all API-visible transcripts/events; the HF-11 transcript completeness limit remains. Evidence: `/tmp/armada-full-pipeline-retest-20261021`.
 
-Product Manager started successfully on the requested Claude captain; later stages remain pending. No success or failure outcome yet. Stale Recorder-written ProjectContext was discovered after launch and cleared before Architect dispatch (HF-23); the Product Manager had received that stale context and is instructed to verify against current source. Do not call this a perfectly uncontaminated context-reset control. No mission has been restarted.
+Product Manager and Architect completed. The version-2 plan has eight slices, including a separate shared-redaction prerequisite, and uses scoped decision indexes. DeepSeek package Worker committed 72bf77c; Usability tightened its exception assertions as 745cd23. Test Engineer is active; no Judge acceptance yet and no overall success or failure outcome. Routing remains correct, with no duplicate launches or runtime redispatches observed. Stale Recorder-written ProjectContext was discovered after launch and cleared before Architect dispatch (HF-23); the Product Manager had received that stale context and is instructed to verify against current source. Do not call this a perfectly uncontaminated context-reset control. No mission has been restarted.
 
 ## Open work and acceptance gates
 
@@ -16,7 +16,7 @@ Product Manager started successfully on the requested Claude captain; later stag
 | --- | --- | --- |
 | HF-04 | Reduce missed failure-path coverage and contradictory design decisions | Measure first-pass acceptance/reworks; require observable evidence, not passing counts alone |
 | HF-05 | Semantic plan validation | Structural validation cannot establish objective completeness, resolve contradictions, or prove tests ran; further validation remains open |
-| HF-06 | Worker context/tool exposure | 175 tools and large prompt histories remain an efficiency concern; measure before narrowing tools/context |
+| HF-06 | Worker context/tool exposure | Initial prompt still ~35,400 tokens. One whole-file read added ~60,000 prompt tokens; bounded default reads/pagination are a concrete next fix |
 | HF-07 | In-flight phase observability | Provider request/tool/validation phases, wall-clock deadlines and attempts remain insufficiently exposed |
 | HF-08 | Wilson configuration/SDK contract boundaries | Recheck cloud health-auth silent rewriting and nested C# health enablement parity on the fresh implementation; do not copy prior product changes |
 | HF-09 | Independent final workflow verification | Repeat local HTTP/redaction/persistence/validation and C#/Python/JavaScript SDK checks after the full pipeline passes; hosted provider inference remains separately unverified |
@@ -40,6 +40,12 @@ Observed during Product Manager `msn_mvh7i6ia_rdjA0ADcCWh` on Claude Code. Both 
 ### HF-12 — Dependency probe documentation gap
 
 Product Manager emitted a MissingDoc papercut: installed PolyPrompt 3.4.1 README connectivity table does not specify xAI/OllamaCloud probe routes. This is a dependency-documentation gap, not a reproduced package failure. The next stage is explicitly responsible for verifying actual client behavior and recording supported routes/authentication; an unsupported hosted capability must remain reported as unverified. No external package fix is claimed.
+
+### Current retest — scoped handoff improvement and remaining read amplification
+
+The new Architect plan selects relevant decisions (14 total); first slice references only [1,9,14]. Worker description fell from 18,132 to 10,162 characters. Redaction is a separate prerequisite before metadata consumers, with explicit prefix/shifted overlaps and union-of-original-spans acceptance. Inference/discovery/tools/embeddings are still grouped into one broad slice; semantic scope review remains open.
+
+Initial DeepSeek prompt was 35,385 tokens. After a single unrestricted `read_file` of `src/Test.Shared/WilsonSuites.cs`, the next inference increased by 60,036 tokens to 100,885. Later it reached 158,399 tokens. This identifies a concrete separate amplification path: the built-in reader defaults to the whole file, up to 1 MB. Introduce bounded default pages/output and explicit continuation, preserving complete instruction-file reading and small-file compatibility. No read-tool fix is implemented or deployed yet. Evidence: `package-context-growth.json` and API-visible package mission log. Smaller handoffs alone do not resolve it.
 
 ### HF-13 — Declared contracts remain broad and over-copied
 
