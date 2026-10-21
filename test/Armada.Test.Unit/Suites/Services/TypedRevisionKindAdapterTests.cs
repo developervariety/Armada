@@ -102,7 +102,7 @@ namespace Armada.Test.Unit.Suites.Services
                 RevisionKindVerdict result = await adapter.DecideAsync(BuildInput(), RevisionKindVerdict.Proceed(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(RevisionKindAction.Proceed, result.Action);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 AssertEqual(1, client.CallCount);
             }).ConfigureAwait(false);
 
@@ -130,7 +130,7 @@ namespace Armada.Test.Unit.Suites.Services
                 RevisionKindVerdict result = await adapter.DecideAsync(BuildInput(), RevisionKindVerdict.Proceed(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(RevisionKindAction.Proceed, result.Action);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("Gate_ATestItem_ReturnsProceed_NeverBlocks", async () =>
@@ -153,7 +153,7 @@ namespace Armada.Test.Unit.Suites.Services
                 RevisionKindVerdict result = await adapter.DecideAsync(BuildInput(), RevisionKindVerdict.Proceed(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(RevisionKindAction.Proceed, result.Action);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("RuleHardBlock_RescueRequired_IsNeverOverturned", async () =>

@@ -62,7 +62,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Attention(2, 0.40),
                     ExpectCalls = 1,
-                    ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectEventType = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectEventCount = 3,
                     ExpectAnnotated = false
                 },
@@ -84,7 +84,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Attention(3, 0.95),
                     ExpectCalls = 1,
-                    ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectEventType = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectEventCount = 3,
                     ExpectAnnotated = false
                 }
@@ -252,7 +252,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             List<ArmadaEvent> all = new List<ArmadaEvent>();
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeGated, 50).ConfigureAwait(false));
-            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow, 50).ConfigureAwait(false));
+            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeRuleKept, 50).ConfigureAwait(false));
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeUnavailable, 50).ConfigureAwait(false));
             return all;
         }

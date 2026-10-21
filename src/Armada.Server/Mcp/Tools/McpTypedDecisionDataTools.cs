@@ -15,9 +15,10 @@ namespace Armada.Server.Mcp.Tools
 
     /// <summary>
     /// Operator-facing tools over the typed-decision training data: record that a gated outcome was
-    /// wrong, and report what has been retained per decision. Operator-scoped, so a mission captain
-    /// cannot reach them. Neither tool changes a decision, a gate, or any other Armada record: one
-    /// writes a reversal event (plus its label in the host-local store), the other only counts.
+    /// wrong, report what has been retained per decision, read one retained sample, and join recorded
+    /// calls to later outcomes. Operator-scoped, so a mission captain cannot reach them. None changes a
+    /// decision, a gate, or any other Armada record: the reversal tool writes a reversal event (plus its
+    /// label in the host-local store), and the others only read.
     /// </summary>
     public static class McpTypedDecisionDataTools
     {
@@ -32,6 +33,9 @@ namespace Armada.Server.Mcp.Tools
 
         /// <summary>Registered name of the retained-data report.</summary>
         public const string LabelsToolName = "armada_typed_decision_labels";
+
+        /// <summary>Registered name of the outcome-join report.</summary>
+        public const string OutcomesToolName = "armada_typed_decision_outcomes";
 
         /// <summary>Registered name of the bounded retained preflight sample tool.</summary>
         public const string SampleToolName = "armada_typed_decision_sample";
@@ -268,6 +272,56 @@ namespace Armada.Server.Mcp.Tools
                         Q4RationaleStatus = "not_recorded"
                     };
                 });
+
+            register(
+                OutcomesToolName,
+                "Join recorded typed-decision calls to what later happened to the record each one judged, per decision: the share of calls that name a subject, the share whose subject reached a known outcome, and the landing result, linked incidents and rescues of mission subjects, also split by the model's confidence band. Use it to score a decision's answers against outcomes. Requires a global operator. Reading only; nothing changes and nothing leaves the host. Operator tool.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        sinceDays = new { type = "integer", minimum = 1, maximum = 365, description = "Window length in days, ending now; defaults to 30." },
+                        decision = new { type = "string", description = "One decision point to report; omit for every decision." },
+                        maxEvents = new { type = "integer", minimum = 1, maximum = TypedDecisionOutcomeJoin.DefaultMaxEvents, description = "Most calls to read, newest first; defaults to the maximum." }
+                    },
+                    required = Array.Empty<string>()
+                },
+                async (JsonElement? args) =>
+                {
+                    // The join reads missions, objectives and incidents across tenants, so only a global
+                    // operator outside a mission may run it.
+                    AuthContext? caller = McpCallerContext.Current;
+                    if (caller == null || !caller.IsAuthenticated || caller.IsAdmin == false
+                        || !String.IsNullOrEmpty(caller.MissionId))
+                        return Error("forbidden: the outcome join requires a global operator outside a mission.");
+
+                    OutcomesRequest request = new OutcomesRequest();
+                    if (args != null && args.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        try
+                        {
+                            request = JsonSerializer.Deserialize<OutcomesRequest>(args.Value, _JsonOptions) ?? new OutcomesRequest();
+                        }
+                        catch (JsonException ex)
+                        {
+                            return Error("The arguments are not valid: " + ex.Message);
+                        }
+                    }
+
+                    int days = Math.Clamp(request.SinceDays ?? 30, 1, 365);
+                    TypedDecisionOutcomeReport report = await new TypedDecisionOutcomeJoin(database)
+                        .BuildAsync(DateTime.UtcNow.AddDays(-days), request.Decision, request.MaxEvents ?? TypedDecisionOutcomeJoin.DefaultMaxEvents)
+                        .ConfigureAwait(false);
+                    return new
+                    {
+                        Success = true,
+                        SinceUtc = report.SinceUtc,
+                        EventsRead = report.EventsRead,
+                        Truncated = report.Truncated,
+                        Decisions = report.Decisions
+                    };
+                });
         }
 
         private static object Error(string message)
@@ -282,10 +336,7 @@ namespace Armada.Server.Mcp.Tools
 
         private static bool IsTypedDecisionEvent(string? eventType)
         {
-            return String.Equals(eventType, TypedDecisionRecorder.EventTypeGated, StringComparison.Ordinal)
-                || String.Equals(eventType, TypedDecisionRecorder.EventTypeShadow, StringComparison.Ordinal)
-                || String.Equals(eventType, TypedDecisionRecorder.EventTypeUnavailable, StringComparison.Ordinal)
-                || String.Equals(eventType, TypedDecisionRecorder.EventTypeCaptain, StringComparison.Ordinal);
+            return TypedDecisionRecorder.IsDecisionCallEventType(eventType);
         }
 
         private static bool TryReadEventPayload(string? payload, out TypedDecisionEventPayload? result)
@@ -315,6 +366,13 @@ namespace Armada.Server.Mcp.Tools
             public string? CorrectedVerdict { get; set; }
             public string? Reason { get; set; }
             public string? ReversedBy { get; set; }
+        }
+
+        private sealed class OutcomesRequest
+        {
+            public int? SinceDays { get; set; }
+            public string? Decision { get; set; }
+            public int? MaxEvents { get; set; }
         }
 
         private sealed class SampleRequest

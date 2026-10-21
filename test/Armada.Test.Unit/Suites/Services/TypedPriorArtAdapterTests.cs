@@ -154,7 +154,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(0, preview.Issues.Count);
                 AssertEqual(1, client.CallCount);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("Preflight_Gate_AlreadyDone_AddsErrorIssue_RecordsGated", async () =>
@@ -196,7 +196,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await adapter.EvaluatePreflightAsync(SmallObjective(), BuildVessel(), preview, CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(0, preview.Issues.Count);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("Preflight_UncertainBand_LargeObjective_RecommendsAnalystStage", async () =>
@@ -250,7 +250,7 @@ namespace Armada.Test.Unit.Suites.Services
                 string? instruction = await adapter.EvaluateJudgeInstructionAsync(mission, BuildVessel(), "public class NewThing()", CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(instruction == null, "a low reimplements returns no instruction");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("NeverThrows_ClientThrows_NoIssue_RecordsUnavailable", async () =>

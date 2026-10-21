@@ -110,7 +110,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HandoffOutcomeVerdict result = await adapter.DecideAsync(BuildInput(), HandoffOutcomeVerdict.Proceed(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(HandoffOutcomeAction.Proceed, result.Action);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 AssertEqual(1, client.CallCount);
             }).ConfigureAwait(false);
 
@@ -125,7 +125,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HandoffOutcomeVerdict result = await adapter.DecideAsync(BuildInput(), HandoffOutcomeVerdict.Proceed(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(HandoffOutcomeAction.Proceed, result.Action);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("BlockedMissingContext_AboveThreshold_Halts_PreservesBranch_NoOwnerNote", async () =>
@@ -196,7 +196,7 @@ namespace Armada.Test.Unit.Suites.Services
                 HandoffOutcomeVerdict result = await adapter.DecideAsync(BuildInput(), HandoffOutcomeVerdict.Proceed(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(HandoffOutcomeAction.Proceed, result.Action);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("NeverBypassesJudge_HaltNeverApprovesOrLands", async () =>

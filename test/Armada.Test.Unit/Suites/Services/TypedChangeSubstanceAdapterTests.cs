@@ -79,7 +79,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ChangeSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), ChangeSubstanceVerdict.Rule(ChangeSubstanceEnum.DocumentationOnly), CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(ChangeSubstanceEnum.DocumentationOnly, result.Substance);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("RaisesDocsToBehaviour_AboveThreshold_RecordsGated", async () =>

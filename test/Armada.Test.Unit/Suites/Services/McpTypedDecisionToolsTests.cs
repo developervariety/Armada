@@ -709,7 +709,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("\"available\":false", Compact(response), "Shadow quiets the custom runner");
                     AssertContains("shadow", response, "and says why");
                     AssertEqual(1, client.CallCount, "Shadow still consults the provider");
-                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false);
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false);
                     AssertEqual(1, events.Count, "one shadow event");
                     AssertNull(events[0].CaptainId, "A session key must not become a captain id");
                     AssertContains("\"participant_key\":\"operator-session-test\"", events[0].Payload ?? "");

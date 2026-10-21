@@ -130,7 +130,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ContextLeafSort sort = await adapter.SortAsync(BuildMission(), BuildLeaves(), CancellationToken.None).ConfigureAwait(false);
 
                     AssertEqual(0, sort.ReferenceTopics.Count, "no leaf moves when every leaf may apply");
-                    AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                    AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 }
             }).ConfigureAwait(false);
 
@@ -144,7 +144,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ContextLeafSort sort = await adapter.SortAsync(BuildMission(), BuildLeaves(), CancellationToken.None).ConfigureAwait(false);
 
                     AssertEqual(0, sort.ReferenceTopics.Count, "shadow moves no leaf");
-                    AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                    AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                     AssertEqual(1, client.CallCount);
                 }
             }).ConfigureAwait(false);

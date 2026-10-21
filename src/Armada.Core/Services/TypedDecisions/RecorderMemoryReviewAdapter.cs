@@ -261,7 +261,7 @@ namespace Armada.Core.Services
             TypedGateOutcome gate = TypedDecisionGate.Classify(cfg, available: true, confidence: confidence);
             if (gate != TypedGateOutcome.Gated || !anyProposed)
             {
-                await _Recorder.RecordShadowAsync(Context(mission, "keep", modelVerdict, confidence, result, redacted), TypedDecisionGate.ShadowOutcomeLabel(gate), token).ConfigureAwait(false);
+                await _Recorder.RecordRuleKeptAsync(Context(mission, "keep", modelVerdict, confidence, result, redacted), TypedDecisionGate.ShadowOutcomeLabel(gate), token).ConfigureAwait(false);
                 return true;
             }
 
@@ -286,7 +286,7 @@ namespace Armada.Core.Services
             if (changed)
                 await _Recorder.RecordGatedAsync(Context(mission, "keep", modelVerdict, confidence, result, redacted), token).ConfigureAwait(false);
             else
-                await _Recorder.RecordShadowAsync(Context(mission, "keep", modelVerdict, confidence, result, redacted), "no_change", token).ConfigureAwait(false);
+                await _Recorder.RecordRuleKeptAsync(Context(mission, "keep", modelVerdict, confidence, result, redacted), "no_change", token).ConfigureAwait(false);
             return true;
         }
 

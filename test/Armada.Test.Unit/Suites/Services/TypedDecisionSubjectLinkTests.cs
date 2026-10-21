@@ -39,7 +39,8 @@ namespace Armada.Test.Unit.Suites.Services
         private const string MissionId = TypedDecisionSeams.MissionId;
         private const string VesselId = TypedDecisionSeams.AllowedVesselId;
 
-        // The decisions whose subject is not one objective or one mission, and why. Each still records its call.
+        // The decisions whose subject is not one objective or one mission, and why. Each records its call with the
+        // papercut group it judged as its subject; their own adapter suites assert that subject.
         private static readonly Dictionary<string, string> NoSubject = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["papercut_merge"] = "it compares two papercut groups, each gathered across many missions",
@@ -62,6 +63,15 @@ namespace Armada.Test.Unit.Suites.Services
 
             [JsonPropertyName("state_sha256")]
             public string? StateSha256 { get; set; }
+
+            [JsonPropertyName("subject_type")]
+            public string? SubjectType { get; set; }
+
+            [JsonPropertyName("subject_id")]
+            public string? SubjectId { get; set; }
+
+            [JsonPropertyName("subject_unavailable_reason")]
+            public string? SubjectUnavailableReason { get; set; }
 
             [JsonIgnore]
             public string? MissionColumn { get; set; }
@@ -99,7 +109,7 @@ namespace Armada.Test.Unit.Suites.Services
         private static readonly string[] _EventTypes =
         {
             TypedDecisionRecorder.EventTypeGated,
-            TypedDecisionRecorder.EventTypeShadow,
+            TypedDecisionRecorder.EventTypeRuleKept,
             TypedDecisionRecorder.EventTypeUnavailable,
             TypedDecisionRecorder.EventTypeCaptain
         };
@@ -237,6 +247,23 @@ namespace Armada.Test.Unit.Suites.Services
                                 AssertEqual(driver.ExpectedObjectiveId, subject.ObjectiveId, label + " event objective_id");
                                 AssertEqual(expectedMission, subject.MissionColumn, label + " event mission column");
                                 AssertEqual(expectedMission, subject.PayloadMissionId, label + " event payload mission_id");
+                                // The outcome join reads one subject: the mission when known, else the objective,
+                                // else the record the seam names, else the stated reason it has none.
+                                if (expectedMission != null)
+                                {
+                                    AssertEqual(TypedDecisionRecorder.SubjectTypeMission, subject.SubjectType, label + " subject_type");
+                                    AssertEqual(expectedMission, subject.SubjectId, label + " subject_id");
+                                }
+                                else if (driver.ExpectedObjectiveId != null)
+                                {
+                                    AssertEqual(TypedDecisionRecorder.SubjectTypeObjective, subject.SubjectType, label + " subject_type");
+                                    AssertEqual(driver.ExpectedObjectiveId, subject.SubjectId, label + " subject_id");
+                                }
+                                else
+                                {
+                                    AssertTrue(subject.SubjectType != null || subject.SubjectUnavailableReason == TypedDecisionRecorder.SubjectUnavailableReason,
+                                        label + " names a subject or the reason it has none");
+                                }
                             }
 
                             List<RetainedSubject> samples = RetainedSamples(store, driver.DecisionPoint);

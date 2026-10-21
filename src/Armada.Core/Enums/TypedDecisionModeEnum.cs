@@ -23,7 +23,7 @@ namespace Armada.Core.Enums
         /// <summary>
         /// The model is consulted and its answer is recorded, but the deterministic rule stands.
         /// Also the demotion target for a decision whose gated outcomes operators reverse too often.
-        /// Every Shadow-mode call emits a <c>typed_decision.shadow</c> event.
+        /// Every Shadow-mode call emits a <c>typed_decision.rule_kept</c> event.
         /// </summary>
         [EnumMember(Value = "Shadow")]
         Shadow,
@@ -33,7 +33,7 @@ namespace Armada.Core.Enums
         /// only ever makes recovery more conservative (for example Rescue to Blocked); it never
         /// converts a rule hard-block into a rescue. A gate at or above threshold emits a loud
         /// <c>typed_decision.gated</c> event; a call below threshold records
-        /// <c>typed_decision.shadow</c> and leaves the rule in place.
+        /// <c>typed_decision.rule_kept</c> and leaves the rule in place.
         /// </summary>
         [EnumMember(Value = "Gate")]
         Gate

@@ -41,10 +41,35 @@ namespace Armada.Core.Services
         public const string EventTypeGated = "typed_decision.gated";
 
         /// <summary>
-        /// Event type for a recorded call that made no change: a Shadow-mode call, or a Gate-mode
-        /// call whose confidence was below the threshold. The rule stands.
+        /// Event type for a recorded call that made no change: the rule's verdict stands. Its
+        /// <c>gate_outcome</c> says why: <c>shadow_mode</c> for a decision in Shadow mode, and
+        /// <c>below_threshold</c> or <c>advisory_only</c> for a Gate-mode call that took no action.
         /// </summary>
-        public const string EventTypeShadow = "typed_decision.shadow";
+        public const string EventTypeRuleKept = "typed_decision.rule_kept";
+
+        /// <summary>
+        /// Earlier name of <see cref="EventTypeRuleKept"/>. Events written before the rename keep it, so
+        /// every reader that selects typed-decision calls by type accepts both names.
+        /// </summary>
+        public const string EventTypeRuleKeptLegacy = "typed_decision.shadow";
+
+        /// <summary><c>subject_type</c> for a call that judged one mission.</summary>
+        public const string SubjectTypeMission = "mission";
+
+        /// <summary><c>subject_type</c> for a call that judged one objective.</summary>
+        public const string SubjectTypeObjective = "objective";
+
+        /// <summary><c>subject_type</c> for a call that judged one papercut group.</summary>
+        public const string SubjectTypePapercutGroup = "papercut_group";
+
+        /// <summary><c>subject_type</c> for a call that judged one merge entry with no mission.</summary>
+        public const string SubjectTypeMergeEntry = "merge_entry";
+
+        /// <summary><c>subject_type</c> for a call that judged one coordination board note.</summary>
+        public const string SubjectTypeBoardNote = "board_note";
+
+        /// <summary><c>subject_unavailable_reason</c> when the caller named no record the call judged.</summary>
+        public const string SubjectUnavailableReason = "caller_named_no_subject";
 
         /// <summary>Event type for a call whose model answer was unavailable.</summary>
         public const string EventTypeUnavailable = "typed_decision.unavailable";
@@ -119,8 +144,8 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Record a call that made no change: a Shadow-mode call, or a Gate-mode call whose
-        /// confidence was below the threshold. Emits <see cref="EventTypeShadow"/>. The
+        /// Record a call that made no change: a Shadow-mode call, or a Gate-mode call that took no
+        /// action. Emits <see cref="EventTypeRuleKept"/>. The
         /// <paramref name="gateOutcome"/> distinguishes the two cases (for example <c>shadow_mode</c>
         /// or <c>below_threshold</c>).
         /// </summary>
@@ -128,10 +153,10 @@ namespace Armada.Core.Services
         /// <param name="gateOutcome">The reason no change was made.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The created event, or null when recording failed.</returns>
-        public Task<ArmadaEvent?> RecordShadowAsync(TypedDecisionEventContext context, string gateOutcome, CancellationToken token)
+        public Task<ArmadaEvent?> RecordRuleKeptAsync(TypedDecisionEventContext context, string gateOutcome, CancellationToken token)
         {
             string outcome = String.IsNullOrWhiteSpace(gateOutcome) ? "shadow" : gateOutcome;
-            return RecordAsync(EventTypeShadow, outcome, context, token);
+            return RecordAsync(EventTypeRuleKept, outcome, context, token);
         }
 
         /// <summary>
@@ -467,14 +492,40 @@ namespace Armada.Core.Services
 
         #endregion
 
+        #region Public-Static-Methods
+
+        /// <summary>
+        /// Whether an event type names one typed-decision call: gated, rule kept (under its current or
+        /// earlier name), unavailable, or a captain-tool call.
+        /// </summary>
+        /// <param name="eventType">The event type.</param>
+        /// <returns>True for a typed-decision call event.</returns>
+        public static bool IsDecisionCallEventType(string? eventType)
+        {
+            return String.Equals(eventType, EventTypeGated, StringComparison.Ordinal)
+                || IsRuleKeptEventType(eventType)
+                || String.Equals(eventType, EventTypeUnavailable, StringComparison.Ordinal)
+                || String.Equals(eventType, EventTypeCaptain, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Whether an event type names a call that kept the rule, under its current or earlier name.
+        /// </summary>
+        /// <param name="eventType">The event type.</param>
+        /// <returns>True for a rule-kept event.</returns>
+        public static bool IsRuleKeptEventType(string? eventType)
+        {
+            return String.Equals(eventType, EventTypeRuleKept, StringComparison.Ordinal)
+                || String.Equals(eventType, EventTypeRuleKeptLegacy, StringComparison.Ordinal);
+        }
+
+        #endregion
+
         #region Private-Methods
 
         private static bool IsTypedDecisionEvent(string? eventType)
         {
-            return String.Equals(eventType, EventTypeGated, StringComparison.Ordinal)
-                || String.Equals(eventType, EventTypeShadow, StringComparison.Ordinal)
-                || String.Equals(eventType, EventTypeUnavailable, StringComparison.Ordinal)
-                || String.Equals(eventType, EventTypeCaptain, StringComparison.Ordinal);
+            return IsDecisionCallEventType(eventType);
         }
 
         private static string? ReadPayloadString(string? payload, string property)
@@ -586,6 +637,21 @@ namespace Armada.Core.Services
             return String.IsNullOrWhiteSpace(context.ObjectiveId) ? null : context.ObjectiveId!.Trim();
         }
 
+        /// <summary>
+        /// The record the call judged, for the outcome join: the subject the caller names, else the mission,
+        /// else the objective. Both halves are null when the caller knows none of them.
+        /// </summary>
+        private static TypedDecisionSubject SubjectOf(TypedDecisionEventContext context)
+        {
+            if (!String.IsNullOrWhiteSpace(context.SubjectType) && !String.IsNullOrWhiteSpace(context.SubjectId))
+                return new TypedDecisionSubject(context.SubjectType!.Trim(), context.SubjectId!.Trim());
+            string? missionId = MissionIdOf(context);
+            if (missionId != null) return new TypedDecisionSubject(SubjectTypeMission, missionId);
+            string? objectiveId = ObjectiveIdOf(context);
+            if (objectiveId != null) return new TypedDecisionSubject(SubjectTypeObjective, objectiveId);
+            return new TypedDecisionSubject(null, null);
+        }
+
         private static string BuildMessage(string eventType, TypedDecisionEventContext context)
         {
             StringBuilder sb = new StringBuilder();
@@ -640,6 +706,8 @@ namespace Armada.Core.Services
                 ["decision"] = context.DecisionPoint,
                 ["rule_verdict"] = context.RuleVerdict,
                 ["model"] = result?.Model,
+                ["model_verdict"] = context.ModelVerdict,
+                ["confidence"] = context.Confidence,
                 ["answers"] = answers,
                 ["confidences"] = confidences,
                 ["input_tokens"] = result?.InputTokens ?? 0,
@@ -662,8 +730,14 @@ namespace Armada.Core.Services
                 ["unavailable_reason"] = result?.UnavailableReason,
                 ["unavailable_detail"] = result?.UnavailableDetail,
                 ["objective_id"] = ObjectiveIdOf(context),
-                ["mission_id"] = MissionIdOf(context)
+                ["mission_id"] = MissionIdOf(context),
+                ["rule_answers"] = context.RuleAnswers
             };
+
+            TypedDecisionSubject subject = SubjectOf(context);
+            payload["subject_type"] = subject.Type;
+            payload["subject_id"] = subject.Id;
+            if (subject.Type == null) payload["subject_unavailable_reason"] = SubjectUnavailableReason;
 
             if (!String.IsNullOrWhiteSpace(context.ParticipantKey)) payload["participant_key"] = context.ParticipantKey;
             if (!String.IsNullOrWhiteSpace(context.ToolName)) payload["tool_name"] = context.ToolName;
@@ -748,6 +822,44 @@ namespace Armada.Core.Services
 
         /// <summary>The tool that requested this decision, when called through a tool.</summary>
         public string? ToolName { get; init; }
+
+        /// <summary>
+        /// The kind of record this call judged when it is not one mission or one objective, for example
+        /// <c>papercut_group</c> or <c>board_note</c>. Set together with <see cref="SubjectId"/>. A record link
+        /// only: it is never part of the state.
+        /// </summary>
+        public string? SubjectType { get; init; }
+
+        /// <summary>The id of the record named by <see cref="SubjectType"/>.</summary>
+        public string? SubjectId { get; init; }
+
+        /// <summary>
+        /// The deterministic rule's answer to each question the model was asked, keyed by question id, so
+        /// rule-versus-model agreement is computable per question. A question the rule has no answer for maps
+        /// to null; a decision that supplies no per-question answers leaves this null.
+        /// </summary>
+        public IReadOnlyDictionary<string, object?>? RuleAnswers { get; init; }
+    }
+
+    /// <summary>
+    /// The record one typed-decision call judged: its kind and id, or both null when the caller knew none.
+    /// </summary>
+    public sealed class TypedDecisionSubject
+    {
+        /// <summary>The subject kind, for example <c>mission</c>, <c>objective</c> or <c>papercut_group</c>.</summary>
+        public string? Type { get; }
+
+        /// <summary>The subject id.</summary>
+        public string? Id { get; }
+
+        /// <summary>Create a subject.</summary>
+        /// <param name="type">The subject kind.</param>
+        /// <param name="id">The subject id.</param>
+        public TypedDecisionSubject(string? type, string? id)
+        {
+            Type = type;
+            Id = id;
+        }
     }
 
     /// <summary>

@@ -1191,7 +1191,7 @@ its threshold. A decision in `Shadow` consults and records, then returns
 `unavailableReason: shadow`. An unknown or `Off` decision, or a disabled
 captain tool, returns `unavailable` and records one `typed_decision.captain`
 event (`not_found`, `dormant`, or `disabled`). A call that reaches the
-provider records one `typed_decision.gated`, `typed_decision.shadow`, or
+provider records one `typed_decision.gated`, `typed_decision.rule_kept`, or
 `typed_decision.unavailable` event under the decision point `custom:<name>`.
 A `MissionDiff` decision also runs by itself when a Worker stage hands off,
 on the vessels its `vessels` list names (every vessel when empty). A call by
@@ -1235,6 +1235,32 @@ A returned state must have the current
 redactor version, match the event digest and byte count, and pass current
 redaction unchanged. This tool changes no gate or preparation state and
 records no provider call.
+
+## Typed Decision Outcomes
+
+### armada_typed_decision_outcomes
+
+This operator-only tool joins recorded typed-decision calls to what later
+happened to the record each one judged. It requires a global administrator
+outside a mission; any other caller receives `forbidden`.
+
+| Argument | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `sinceDays` | integer | no | Window length in days, ending now; defaults to `30`, clamped to 1-365. |
+| `decision` | string | no | One decision point to report; omit for every decision. |
+| `maxEvents` | integer | no | Most calls to read, newest first; defaults to and is capped at `20000`. |
+
+The response gives `sinceUtc`, `eventsRead`, `truncated`, and one row per
+decision. A row counts `events`, `withSubject`, `joined`, `subjectMissing`,
+`landed`, `failed`, `cancelled`, `objectiveCompleted`, `withIncident` and
+`rescued`, gives `subjectShare` and `joinedShare`, and breaks the calls down
+`bySubjectType` and `byEventType`. `byConfidenceBand` repeats the join for the
+model's action confidence bands `<0.50`, `0.50-0.80`, `0.80-0.90`, `>=0.90` and
+`none`. A mission subject joins when it is terminal; an objective subject when
+it is completed or cancelled. A call recorded without `subject_type` falls back
+to its mission, then its objective. Both rule-kept event names are read. The
+response holds counts only, never record ids or state. Reading only; nothing
+changes and nothing leaves the host.
 
 ## Typed Decision Evaluation
 

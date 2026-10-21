@@ -154,7 +154,7 @@ namespace Armada.Test.Unit.Suites.Services
                 TestCoversVerdict result = await adapter.DecideAsync(BuildInput(), TestCoversVerdict.NoInstructions(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(!result.HasInstructions, "shadow adds no instruction");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 AssertEqual(1, client.CallCount);
             }).ConfigureAwait(false);
 
@@ -183,7 +183,7 @@ namespace Armada.Test.Unit.Suites.Services
                 TestCoversVerdict result = await adapter.DecideAsync(BuildInput(), TestCoversVerdict.NoInstructions(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(!result.HasInstructions, "well-covered tests add no instruction");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("Gate_AssertsSourceText_AboveThreshold_AddsInstruction", async () =>

@@ -60,7 +60,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Result = FakeTypedDecisionClient.Noul("same_issue", 0.50),
                     ExpectMerged = false,
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectMergeProposed = false
                 },
                 new MergeCase
@@ -82,7 +82,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Result = FakeTypedDecisionClient.NoulConfidenceOnly("same_issue", 0.97),
                     ExpectMerged = false,
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectMergeProposed = false
                 },
                 new MergeCase
@@ -93,7 +93,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Result = FakeTypedDecisionClient.Noul("same_issue", 0.97),
                     ExpectMerged = false,
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectMergeProposed = true
                 }
             };
@@ -136,6 +136,9 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         AssertEqual(1, typed.Count, "exactly one typed-decision event for the pair");
                         AssertEqual(testCase.ExpectTypedEvent, typed[0].EventType, "typed-decision event type");
+                        SubjectPayload subject = System.Text.Json.JsonSerializer.Deserialize<SubjectPayload>(typed[0].Payload ?? "{}")!;
+                        AssertEqual(TypedDecisionRecorder.SubjectTypePapercutGroup, subject.SubjectType, "the subject is the papercut group");
+                        AssertEqual(_Vessel + "|BriefContradiction|a," + _Vessel + "|BriefContradiction|b", subject.SubjectId, "the subject id names the judged group");
                     }
 
                     List<ArmadaEvent> proposed = await testDb.Driver.Events
@@ -336,7 +339,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             List<ArmadaEvent> all = new List<ArmadaEvent>();
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeGated, 50).ConfigureAwait(false));
-            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow, 50).ConfigureAwait(false));
+            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeRuleKept, 50).ConfigureAwait(false));
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeUnavailable, 50).ConfigureAwait(false));
             return all;
         }
@@ -351,6 +354,15 @@ namespace Armada.Test.Unit.Suites.Services
             public required int ExpectClientCalls { get; init; }
             public required string? ExpectTypedEvent { get; init; }
             public required bool ExpectMergeProposed { get; init; }
+        }
+
+        private sealed class SubjectPayload
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("subject_type")]
+            public string? SubjectType { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("subject_id")]
+            public string? SubjectId { get; set; }
         }
     }
 }

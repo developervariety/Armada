@@ -588,7 +588,7 @@ namespace Armada.Test.Unit.Suites.Services
         private static async Task<int> CountTypedEventsAsync(DatabaseDriver database)
         {
             int total = 0;
-            foreach (string type in new[] { TypedDecisionRecorder.EventTypeGated, TypedDecisionRecorder.EventTypeShadow, TypedDecisionRecorder.EventTypeUnavailable })
+            foreach (string type in new[] { TypedDecisionRecorder.EventTypeGated, TypedDecisionRecorder.EventTypeRuleKept, TypedDecisionRecorder.EventTypeUnavailable })
                 total += (await database.Events.EnumerateByTypeAsync(type, 50).ConfigureAwait(false)).Count;
             return total;
         }

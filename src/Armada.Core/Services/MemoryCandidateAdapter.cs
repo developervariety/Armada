@@ -159,7 +159,7 @@ namespace Armada.Core.Services
             }
 
             string outcomeLabel = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
-            await _Recorder.RecordShadowAsync(
+            await _Recorder.RecordRuleKeptAsync(
                 BuildContext(group, "no_memory", modelVerdict, durable, result, redacted),
                 outcomeLabel,
                 token).ConfigureAwait(false);
@@ -265,7 +265,9 @@ namespace Armada.Core.Services
                 ModelVerdict = modelVerdict,
                 Confidence = confidence,
                 Result = result,
-                RedactedState = redactedState
+                RedactedState = redactedState,
+                SubjectType = TypedDecisionRecorder.SubjectTypePapercutGroup,
+                SubjectId = String.IsNullOrWhiteSpace(group?.Key) ? null : group!.Key
             };
         }
 

@@ -30,6 +30,9 @@ namespace Armada.Core.Services
         private readonly ArmadaSettings _Settings;
         private readonly ICaptainExecutionEnvironmentProbe _ExecutionEnvironment;
 
+        // The general-purpose tools a brief most often assumes; each is reported as available or missing.
+        private static readonly string[] _DockProbeTools = { "git", "bash", "python3", "node", "npm", "dotnet", "rg", "jq", "curl" };
+
         // Deterministic-fact parsing. The preflight facts read only what the description already
         // states, so the patterns match the shapes an operator writes: a recover/ ref, a full commit
         // SHA, a path:line citation, and a backticked code identifier. Facts are best-effort and
@@ -259,7 +262,7 @@ namespace Armada.Core.Services
             // resolved the pipeline, so its state carries both. The model only adds issues; the
             // deterministic issues already in the preview stand regardless of what the model returns.
             if (PreflightAdapter != null)
-                await PreflightAdapter.EvaluateAsync(objective, vessel, pipeline, result, token).ConfigureAwait(false);
+                await PreflightAdapter.EvaluateAsync(objective, vessel, pipeline, result, token, BuildDockContext(objective, vessel)).ConfigureAwait(false);
 
             // D19 stage necessity. Runs on the resolved pipeline stages and lists a stage_optional
             // warning per non-Judge stage the model proposes the objective does not need. It only adds
@@ -959,6 +962,52 @@ namespace Armada.Core.Services
                 AddIssue(result, "preparation_" + label + "_revision_changed", "provisioning", ReadinessSeverityEnum.Error,
                     "The prepared " + label + " ref no longer resolves to the recorded commit.", anchor.Ref);
             }
+        }
+
+        /// <summary>
+        /// What a captain dock for this objective provides, for the preflight text half: the declared sibling
+        /// checkouts, the probed tools, and the evidence roots that apply to the vessel. Names and dock-relative
+        /// paths only, so no host path reaches the model.
+        /// </summary>
+        internal PreflightDockContext BuildDockContext(Objective objective, Vessel vessel)
+        {
+            PreflightDockContext dock = new PreflightDockContext
+            {
+                OperatingSystem = _ExecutionEnvironment.OperatingSystem,
+                IsContainer = _ExecutionEnvironment.IsContainer
+            };
+
+            foreach (SiblingRepo sibling in vessel.GetSiblingRepos() ?? new List<SiblingRepo>())
+            {
+                if (sibling == null || String.IsNullOrWhiteSpace(sibling.RelativePath)) continue;
+                List<string> artifacts = (sibling.ExtractionArtifactPaths ?? new List<string>())
+                    .Where(item => !String.IsNullOrWhiteSpace(item)).ToList();
+                dock.SiblingCheckouts.Add(artifacts.Count == 0
+                    ? sibling.RelativePath
+                    : sibling.RelativePath + " (artifacts: " + String.Join(", ", artifacts) + ")");
+            }
+
+            IEnumerable<string> requiredTools = objective.Preparation?.ExecutionRequirements?.Executables ?? new List<string>();
+            foreach (string tool in _DockProbeTools.Concat(requiredTools)
+                .Where(item => !String.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim())
+                .Distinct(StringComparer.Ordinal))
+            {
+                // A required executable may be named by path; only its file name is reported.
+                string name = Path.GetFileName(tool);
+                if (_ExecutionEnvironment.ResolveExecutable(tool) != null) dock.AvailableTools.Add(name);
+                else dock.MissingTools.Add(name);
+            }
+
+            foreach (CaptainEvidenceRoot evidence in _Settings.CaptainEvidenceRoots)
+            {
+                if (evidence == null || String.IsNullOrWhiteSpace(evidence.Path) || !evidence.AppliesTo(vessel.Id)) continue;
+                string name = Path.GetFileName(evidence.Path.TrimEnd('/', '\\'));
+                if (Path.IsPathRooted(evidence.Path) && _ExecutionEnvironment.PathExists(evidence.Path)) dock.EvidenceRoots.Add(name);
+                else dock.MissingEvidenceRoots.Add(name);
+            }
+
+            return dock;
         }
 
         private async Task EvaluateSiblingProvisioningAsync(

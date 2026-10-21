@@ -104,12 +104,16 @@ namespace Armada.Core.Services
     }
 
     /// <summary>
-    /// The D1 reading: the model's cause choice, whether it is a non-work fault the rule should hold
-    /// a rescue for, and the confidence of the single hold action proposed.
+    /// The D1 reading: the cause the separate answers combine to, whether it is a non-work fault the
+    /// rule should hold a rescue for, and the confidence of the single hold action proposed.
     /// </summary>
     public sealed class FailureCauseReading : TypedModelReading
     {
-        /// <summary>The model's cause choice, or <c>unclear</c>.</summary>
+        /// <summary>
+        /// The combined cause: <c>work_defect</c> when the model reads a code defect, <c>environmental</c>
+        /// when evidence the work needs was unavailable, <c>verdict_form</c> when a Judge verdict is
+        /// malformed, otherwise the model's cause choice, or <c>unclear</c>.
+        /// </summary>
         public string Cause { get; init; } = "unclear";
 
         /// <summary>The reason to block a rescue, or null when the model warrants no hold.</summary>
@@ -137,25 +141,33 @@ namespace Armada.Core.Services
     /// read-only, an auto-rescue or repeated-identical-test-failure, a policy refusal, an
     /// Infra/Timeout definition-of-done class, an environmental or serious reason — all return a
     /// Blocked verdict and win unchanged, because the model may only hold a rescue the rule would
-    /// have dispatched, never convert a block into a rescue. When the rule would rescue and the
-    /// model reads the failure as a non-work fault (contention, provider, environmental, or a
-    /// verdict-form defect) at or above threshold, or a repeat as very likely, the adapter holds the
-    /// rescue as <c>typed_decision:&lt;cause&gt;</c> so an operator reviews it.
+    /// have dispatched, never convert a block into a rescue.
+    /// <para>
+    /// The model answers separate closed questions: the cause class, whether evidence the work needed
+    /// was unavailable, whether the produced work holds a code defect, and, for a Judge only, whether
+    /// the Judge's verdict is well formed. Code combines them. A code defect suppresses every hold,
+    /// because a rescue can repair it. Otherwise, when the rule would rescue and the model reads a
+    /// non-work fault (contention, provider or environmental cause, unavailable evidence, a malformed
+    /// Judge verdict) at or above threshold, or a repeat as very likely, the adapter holds the rescue as
+    /// <c>typed_decision:&lt;cause&gt;</c> so an operator reviews it.
+    /// </para>
     /// </summary>
     public sealed class TypedFailureCauseAdapter : TypedDecisionAdapterBase<FailureCauseDecisionInput, TypedRecoveryVerdict, FailureCauseReading>
     {
         #region Private-Members
 
-        // The causes that name a host, provider, or verdict-form fault rather than a work defect: a
-        // rescue on the same host repeats them, so the model holding one only ever makes recovery
-        // more conservative.
+        // The cause choices that name a host or provider fault rather than a work defect: a rescue on
+        // the same host repeats them, so the model holding one only ever makes recovery more
+        // conservative. A malformed verdict and unavailable evidence are separate questions.
         private static readonly HashSet<string> _HoldCauses = new HashSet<string>(StringComparer.Ordinal)
         {
             "contention",
             "provider",
-            "environmental",
-            "verdict_form"
+            "environmental"
         };
+
+        // A noul at or above this score reads as true.
+        private const double _NoulTrue = 0.5;
 
         // A repeat this likely holds the rescue on its own, per the D1 gate.
         private const double _RepeatLikelyGate = 0.9;
@@ -263,6 +275,22 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(FailureCauseDecisionInput input)
+        {
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(BuildQuestions(), StringComparer.Ordinal);
+            // Only a Judge writes a verdict, so verdict validity is a question for a Judge failure alone.
+            if (IsJudge(input))
+            {
+                questions["verdict_valid"] = new NoulQuestion(
+                    "The Judge's verdict is well formed: it carries a recognised verdict and its required sections. "
+                    + "A NEEDS_REVISION or FAIL verdict that reports a gap is still well formed.",
+                    TrueMeaning: "The verdict is well formed, whatever it decided.",
+                    FalseMeaning: "The verdict itself is malformed: a missing verdict marker or missing required sections.");
+            }
+            return questions;
+        }
+
+        /// <inheritdoc />
         protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions()
         {
             return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
@@ -277,9 +305,16 @@ namespace Armada.Core.Services
                         ["refusal"] = "The captain declined the work.",
                         ["contention"] = "A load or host-contention flake: the same command passes on a quiet host.",
                         ["work_defect"] = "A real defect in the produced work that a fresh captain could fix.",
-                        ["verdict_form"] = "The Judge verdict was only missing required sections or wording, not a work fault.",
                         ["unclear"] = "The cause cannot be determined from the state."
                     }),
+                ["evidence_unavailable"] = new NoulQuestion(
+                    "The failure reports that evidence or an input the work needs (a file, a sibling checkout, a source drop, a tool) was not available in the environment.",
+                    TrueMeaning: "Evidence or an input the work needs was not available, so a captain could not complete it here.",
+                    FalseMeaning: "Everything the work needs was available; the failure is about the work or the run."),
+                ["code_defect"] = new NoulQuestion(
+                    "The produced work contains a real code or content defect that a fresh captain could fix.",
+                    TrueMeaning: "The produced work holds a defect a rescue can repair.",
+                    FalseMeaning: "The produced work holds no defect a rescue could repair."),
                 ["repeat_likely"] = new NoulQuestion(
                     "A rescue on the same host would repeat this exact failure.",
                     TrueMeaning: "A rescue on the same host would repeat this exact failure.",
@@ -303,22 +338,42 @@ namespace Armada.Core.Services
             }
 
             double repeatLikely = TypedAnswerReader.ReadNoul(result, "repeat_likely");
+            double evidenceUnavailable = TypedAnswerReader.ReadNoul(result, "evidence_unavailable");
+            double codeDefect = TypedAnswerReader.ReadNoul(result, "code_defect");
+            // Asked only for a Judge; any other failure reads as a well-formed verdict.
+            double verdictValid = TypedAnswerReader.ReadNoul(result, "verdict_valid", fallback: 1.0);
+
+            // A defect a rescue can repair suppresses every hold: the rule's rescue stands.
+            if (codeDefect >= _NoulTrue)
+                return new FailureCauseReading(0.0) { Cause = "work_defect" };
 
             // Contribution of each independent hold driver. A non-hold cause (work_defect, refusal,
-            // unclear) contributes nothing, so the generic gate records a shadow and the rule's rescue
-            // stands: the model agreeing the work is real never manufactures a hold.
-            double causeContribution = _HoldCauses.Contains(cause) ? causeConfidence : 0.0;
+            // unclear) contributes nothing, so the generic gate records the rule kept and the rule's
+            // rescue stands: the model agreeing the work is real never manufactures a hold.
+            string holdCause = cause;
+            double holdContribution = _HoldCauses.Contains(cause) ? causeConfidence : 0.0;
+            if (evidenceUnavailable >= _NoulTrue && evidenceUnavailable > holdContribution)
+            {
+                holdCause = "environmental";
+                holdContribution = evidenceUnavailable;
+            }
+            double verdictMalformed = 1.0 - verdictValid;
+            if (verdictMalformed >= _NoulTrue && verdictMalformed > holdContribution)
+            {
+                holdCause = "verdict_form";
+                holdContribution = verdictMalformed;
+            }
             double repeatContribution = repeatLikely >= _RepeatLikelyGate ? repeatLikely : 0.0;
 
             string? blockReason = null;
-            if (causeContribution > 0.0 && causeContribution >= repeatContribution)
-                blockReason = "typed_decision:" + cause + ": held for operator review; a rescue on the same host would not repair a " + cause + " fault";
+            if (holdContribution > 0.0 && holdContribution >= repeatContribution)
+                blockReason = "typed_decision:" + holdCause + ": held for operator review; a rescue on the same host would not repair a " + holdCause + " fault";
             else if (repeatContribution > 0.0)
                 blockReason = "typed_decision:repeat_likely: held for operator review; a rescue would very likely repeat this exact failure";
 
-            return new FailureCauseReading(Math.Max(causeContribution, repeatContribution))
+            return new FailureCauseReading(Math.Max(holdContribution, repeatContribution))
             {
-                Cause = cause,
+                Cause = holdContribution > 0.0 ? holdCause : cause,
                 BlockReason = blockReason
             };
         }
@@ -341,6 +396,28 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(FailureCauseDecisionInput input) => input.Mission;
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// A rule rescue asserts that a fresh captain can repair the failure: a work defect that will not
+        /// simply repeat. A rule block carries a reason, not one answer per question, so it answers none.
+        /// </remarks>
+        protected override object? RuleAnswerOf(FailureCauseDecisionInput input, TypedRecoveryVerdict ruleVerdict, string questionId)
+        {
+            if (!ruleVerdict.DispatchRescue) return null;
+            switch (questionId)
+            {
+                case "cause": return "work_defect";
+                case "code_defect": return true;
+                case "repeat_likely": return false;
+                default: return null;
+            }
+        }
+
+        private static bool IsJudge(FailureCauseDecisionInput input)
+        {
+            return String.Equals(input.Persona?.Trim(), "Judge", StringComparison.OrdinalIgnoreCase);
+        }
 
         #endregion
     }

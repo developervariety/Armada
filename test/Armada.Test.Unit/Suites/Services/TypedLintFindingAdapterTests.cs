@@ -108,7 +108,7 @@ namespace Armada.Test.Unit.Suites.Services
                 LintFindingVerdict result = await adapter.DecideAsync(BuildInput(), LintFindingVerdict.Unrouted(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(!result.HasRouting, "shadow routes nothing");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 AssertEqual(1, client.CallCount);
             }).ConfigureAwait(false);
 
@@ -148,7 +148,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(0, result.BlockingFindings.Count);
                 AssertTrue(!result.HasRouting, "a below-must_fix correctness finding routes nothing and the rule stands");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("Gate_StylePreference_BecomesEvidenceNote_NotBlocking", async () =>

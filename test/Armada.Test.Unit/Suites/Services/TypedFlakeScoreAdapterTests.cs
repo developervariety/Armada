@@ -84,7 +84,7 @@ namespace Armada.Test.Unit.Suites.Services
                 FlakeScoreVerdict result = await adapter.DecideAsync(BuildInput(), FlakeScoreVerdict.NoRerun(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(!result.RerunRecommended, "a deterministic failure is never re-run");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("LikelyLoad_BelowThreshold_ReturnsRule", async () =>
@@ -97,7 +97,7 @@ namespace Armada.Test.Unit.Suites.Services
                 FlakeScoreVerdict result = await adapter.DecideAsync(BuildInput(), FlakeScoreVerdict.NoRerun(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(!result.RerunRecommended, "a below-threshold flake read does not trigger a re-run");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("LikelyLoad_AboveThreshold_RecommendsRerun_NeverGreen_RecordsGated", async () =>

@@ -259,7 +259,7 @@ description, and the three model lists, after redaction. The answers are:
 The decision ships in `Gate` mode at threshold 0.90. Below the threshold,
 in `Off` mode, with no key, on a timeout, 429, 529, parse error, or a client
 fault, the result is `default`. Every call records the rule verdict and the
-model verdict (`typed_decision.gated`, `typed_decision.shadow`, or
+model verdict (`typed_decision.gated`, `typed_decision.rule_kept`, or
 `typed_decision.unavailable`). Armada keeps the reading per mission in
 memory for 30 minutes (at most 1024 missions), so another assignment
 attempt does not ask again. The reading only orders the groups. It never

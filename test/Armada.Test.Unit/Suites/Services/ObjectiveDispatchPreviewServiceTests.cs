@@ -152,6 +152,65 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("The preflight text half receives the dock's sibling checkouts, tools and evidence roots", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    // The model judges dock observability, so it must see what a dock holds: a sibling checkout
+                    // beside the dock, the tools on the captain PATH, the mounted evidence, and the claims.
+                    FakeCaptainExecutionEnvironmentProbe environment = new FakeCaptainExecutionEnvironmentProbe { OperatingSystem = "Linux", IsContainer = true };
+                    environment.Executables.Add("git");
+                    environment.Executables.Add("python3");
+                    environment.Paths.Add("/srv/example/evidence-drop");
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.CaptainEvidenceRoots.Add(new CaptainEvidenceRoot { Path = "/srv/example/evidence-drop" });
+                    settings.CaptainEvidenceRoots.Add(new CaptainEvidenceRoot { Path = "/srv/example/absent-drop" });
+                    settings.CaptainEvidenceRoots.Add(new CaptainEvidenceRoot { Path = "/srv/example/other-vessel-drop", VesselIds = new List<string> { "vsl_other" } });
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true, settings: settings, executionEnvironment: environment).ConfigureAwait(false);
+                    harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { RelativePath = "../SharedSource", RepoUrl = "https://example.test/shared-source.git" }
+                    });
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+
+                    TypedDecisionSettings typed = new TypedDecisionSettings { Mode = TypedDecisionModeEnum.Gate };
+                    typed.Decisions[PreflightTextAdapter.DecisionPoint].Mode = TypedDecisionModeEnum.Gate;
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient(new TypedDecisionResult
+                    {
+                        Available = true,
+                        Answers = new Dictionary<string, TypedAnswer> { ["q4"] = new TypedAnswer { Type = "noul", Noul = 0.05 } }
+                    });
+                    harness.Service.PreflightAdapter = new PreflightTextAdapter(typed, client, new TypedDecisionRecorder(testDb.Driver, new LoggingModule()), new LoggingModule());
+
+                    Objective objective = harness.CreateReadyObjective("dock-context-preview");
+                    objective.EvidenceLinks = new List<string> { "evidence-drop/capture-summary" };
+                    objective.Preparation.ExecutionRequirements = new ObjectiveExecutionRequirements { Executables = new List<string> { "example-format-loader" } };
+                    objective.Preparation.Claims.Add(new ObjectivePreparationClaim
+                    {
+                        Kind = ObjectivePreparationClaimKindEnum.SourcePath,
+                        Text = "The reference capture sits in the mounted evidence drop.",
+                        EvidenceLinks = new List<string> { "evidence-drop/reference-capture" }
+                    });
+                    await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertEqual(1, client.Calls, "the preflight text half was consulted");
+                    string state = FakeTypedDecisionClient.StateText(client.LastRequest);
+                    AssertContains("\"measured\":true", state, "the dock was measured");
+                    AssertContains("../SharedSource", state, "the provisioned sibling checkout is listed");
+                    AssertContains("\"available_tools\":[\"git\",\"python3\"]", state, "the tools on the captain PATH are listed");
+                    AssertContains("\"missing_tools\":[\"bash\",\"node\",\"npm\",\"dotnet\",\"rg\",\"jq\",\"curl\",\"example-format-loader\"]", state,
+                        "every probed tool that does not resolve, the required executable included, is listed as missing");
+                    AssertContains("\"evidence_roots\":[\"evidence-drop\"]", state, "the mounted evidence root is listed by name");
+                    AssertContains("\"missing_evidence_roots\":[\"absent-drop\"]", state, "a configured root that does not exist is listed as missing");
+                    AssertFalse(state.Contains("other-vessel-drop", StringComparison.Ordinal), "a root for another vessel is not listed");
+                    AssertFalse(state.Contains("/srv/example", StringComparison.Ordinal), "no host path reaches the model");
+                    AssertContains("The reference capture sits in the mounted evidence drop.", state, "the claim text is in the state");
+                    AssertContains("evidence-drop/capture-summary", state, "the objective's evidence links are in the state");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("The captain environment probe resolves executables without running them", () =>
             {
                 string directory = Path.Combine(Path.GetTempPath(), "armada-probe-" + Guid.NewGuid().ToString("N"));

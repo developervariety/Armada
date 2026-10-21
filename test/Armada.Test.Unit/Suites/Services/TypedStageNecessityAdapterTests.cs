@@ -96,7 +96,7 @@ namespace Armada.Test.Unit.Suites.Services
                 StageNecessityVerdict result = await adapter.DecideAsync(BuildInput(), rule, CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(0, result.OptionalStages.Count);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("AboveThreshold_BelowAutoSkip_MarkedOptional_NotAutoSkip", async () =>

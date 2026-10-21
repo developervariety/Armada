@@ -91,7 +91,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0.96, payload.Answers!["cause"].Probabilities!["environmental"]);
             });
 
-            await RunTest("RecordShadowAsync_BelowThreshold_WritesShadowEvent", async () =>
+            await RunTest("RecordRuleKeptAsync_BelowThreshold_WritesRuleKeptEvent", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule());
@@ -104,10 +104,10 @@ namespace Armada.Test.Unit.Suites.Services
                     RedactedState = "state"
                 };
 
-                ArmadaEvent? evt = await recorder.RecordShadowAsync(context, "below_threshold", CancellationToken.None).ConfigureAwait(false);
+                ArmadaEvent? evt = await recorder.RecordRuleKeptAsync(context, "below_threshold", CancellationToken.None).ConfigureAwait(false);
 
                 AssertNotNull(evt);
-                AssertEqual(TypedDecisionRecorder.EventTypeShadow, evt!.EventType);
+                AssertEqual(TypedDecisionRecorder.EventTypeRuleKept, evt!.EventType);
                 RecorderPayload? payload = System.Text.Json.JsonSerializer.Deserialize<RecorderPayload>(evt.Payload!);
                 AssertEqual("below_threshold", payload!.GateOutcome);
             });
@@ -189,7 +189,7 @@ namespace Armada.Test.Unit.Suites.Services
                 double total = 0;
                 foreach (TypedDecisionResult result in results)
                 {
-                    ArmadaEvent? evt = await recorder.RecordShadowAsync(new TypedDecisionEventContext
+                    ArmadaEvent? evt = await recorder.RecordRuleKeptAsync(new TypedDecisionEventContext
                     {
                         DecisionPoint = "failure_cause",
                         RuleVerdict = "Infra",
@@ -215,7 +215,7 @@ namespace Armada.Test.Unit.Suites.Services
                 TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule(), null, () => settings);
 
                 TypedDecisionResult unpriced = new TypedDecisionResult { Available = true, Model = "other-model-2", InputTokens = 500, OutputTokens = 10 };
-                ArmadaEvent? evt = await recorder.RecordShadowAsync(new TypedDecisionEventContext
+                ArmadaEvent? evt = await recorder.RecordRuleKeptAsync(new TypedDecisionEventContext
                 {
                     DecisionPoint = "failure_cause",
                     RuleVerdict = "Infra",
@@ -239,7 +239,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(TypedDecisionCostEstimator.CallUnavailableReason, unavailablePayload.CostUnavailableReason, "the reason names the unavailable call");
 
                 TypedDecisionRecorder unconfigured = new TypedDecisionRecorder(testDb.Driver, new LoggingModule());
-                ArmadaEvent? noTable = await unconfigured.RecordShadowAsync(new TypedDecisionEventContext
+                ArmadaEvent? noTable = await unconfigured.RecordRuleKeptAsync(new TypedDecisionEventContext
                 {
                     DecisionPoint = "failure_cause",
                     RuleVerdict = "Infra",

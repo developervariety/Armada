@@ -415,7 +415,7 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Samples one decision needs before it is reported as trainable. Default 200.
+        /// Verified samples one decision needs before it is reported as trainable. Default 50.
         /// </summary>
         public int MinimumSamplesPerDecision
         {
@@ -424,7 +424,7 @@ namespace Armada.Core.Settings
         }
 
         private int _RetentionDays = 90;
-        private int _MinimumSamplesPerDecision = 200;
+        private int _MinimumSamplesPerDecision = 50;
     }
 
     /// <summary>

@@ -91,7 +91,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ReviewSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), MissingSectionsRule(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(!result.Validated, "one weak section keeps the rule (still rejected)");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("HeadingFormOnly_Accept_AboveThreshold_RecordsGated", async () =>
@@ -147,7 +147,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ReviewSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), ValidRule(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(result.Validated && !result.Held, "a low-confidence thin score does not hold the PASS");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("ThinPass_SplitScoreJustAboveLimit_HeldOnThinProbability", async () =>
@@ -178,7 +178,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ReviewSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), ValidRule(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(result.Validated && !result.Held, "a review mostly read as evidenced is not held");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("StrongPass_RuleStands_NotHeld", async () =>

@@ -189,7 +189,7 @@ namespace Armada.Core.Services
             if (applied)
                 await RecordGatedAsync(retrieval, redacted, decision, reading, null, objective.Id, token).ConfigureAwait(false);
             else
-                await RecordShadowAsync(retrieval, redacted, decision, reading, cfg.Mode, null, objective.Id, token).ConfigureAwait(false);
+                await RecordRuleKeptAsync(retrieval, redacted, decision, reading, cfg.Mode, null, objective.Id, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -251,7 +251,7 @@ namespace Armada.Core.Services
                     + "re-implementation as a finding. Candidates: " + PriorArtDecisionShapes.RenderCandidates(retrieval);
             }
 
-            await RecordShadowAsync(retrieval, redacted, decision, reading, cfg.Mode, mission, null, token).ConfigureAwait(false);
+            await RecordRuleKeptAsync(retrieval, redacted, decision, reading, cfg.Mode, mission, null, token).ConfigureAwait(false);
             return null;
         }
 
@@ -348,10 +348,10 @@ namespace Armada.Core.Services
                 BuildContext(retrieval, redacted, result ?? TypedDecisionResult.Exception(), null, mission, objectiveId), token));
         }
 
-        private Task RecordShadowAsync(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult decision, PriorArtReading reading, TypedDecisionModeEnum mode, Mission? mission, string? objectiveId, CancellationToken token)
+        private Task RecordRuleKeptAsync(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult decision, PriorArtReading reading, TypedDecisionModeEnum mode, Mission? mission, string? objectiveId, CancellationToken token)
         {
             string outcome = mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
-            return SafeRecordAsync(() => _Recorder.RecordShadowAsync(
+            return SafeRecordAsync(() => _Recorder.RecordRuleKeptAsync(
                 BuildContext(retrieval, redacted, decision, reading, mission, objectiveId), outcome, token));
         }
 

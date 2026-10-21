@@ -57,7 +57,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Result = FakeTypedDecisionClient.NoulAndChoice("durable_lesson", 0.40, "scope", "shared"),
                     ExpectNominated = false,
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectWritten = false
                 },
                 new CandidateCase
@@ -68,7 +68,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Result = FakeTypedDecisionClient.NoulAndChoice("durable_lesson", 0.99, "scope", "not_memory"),
                     ExpectNominated = false,
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectWritten = false
                 },
                 new CandidateCase
@@ -90,7 +90,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Result = DurableConfidenceOnly(0.95),
                     ExpectNominated = false,
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectWritten = false
                 },
                 new CandidateCase
@@ -101,7 +101,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Result = FakeTypedDecisionClient.NoulAndChoice("durable_lesson", 0.95, "scope", "shared"),
                     ExpectNominated = false,
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectWritten = false
                 }
             };
@@ -138,6 +138,9 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         AssertEqual(1, typed.Count, "exactly one typed-decision event");
                         AssertEqual(testCase.ExpectTypedEvent, typed[0].EventType, "typed-decision event type");
+                        SubjectPayload subject = System.Text.Json.JsonSerializer.Deserialize<SubjectPayload>(typed[0].Payload ?? "{}")!;
+                        AssertEqual(TypedDecisionRecorder.SubjectTypePapercutGroup, subject.SubjectType, "the subject is the papercut group");
+                        AssertEqual("vsl_example|BriefContradiction|k1", subject.SubjectId, "the subject id names the judged group");
                     }
                 });
             }
@@ -217,7 +220,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             List<ArmadaEvent> all = new List<ArmadaEvent>();
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeGated, 50).ConfigureAwait(false));
-            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow, 50).ConfigureAwait(false));
+            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeRuleKept, 50).ConfigureAwait(false));
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeUnavailable, 50).ConfigureAwait(false));
             return all;
         }
@@ -253,6 +256,15 @@ namespace Armada.Test.Unit.Suites.Services
             public required int ExpectClientCalls { get; init; }
             public required string? ExpectTypedEvent { get; init; }
             public required bool ExpectWritten { get; init; }
+        }
+
+        private sealed class SubjectPayload
+        {
+            [System.Text.Json.Serialization.JsonPropertyName("subject_type")]
+            public string? SubjectType { get; set; }
+
+            [System.Text.Json.Serialization.JsonPropertyName("subject_id")]
+            public string? SubjectId { get; set; }
         }
     }
 }

@@ -169,7 +169,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(0, flags.Count);
                 AssertEqual(1, client.CallCount);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("Gate_BelowThreshold_NoFlag_RecordsShadow", async () =>
@@ -183,7 +183,7 @@ namespace Armada.Test.Unit.Suites.Services
                     OneHunkDiff("string note = \"placeholder\";"), "ExampleVessel", null, scan, CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(0, flags.Count);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
             await RunTest("Gate_AtThreshold_AttachesFlag_CleanScanStillPasses", async () =>

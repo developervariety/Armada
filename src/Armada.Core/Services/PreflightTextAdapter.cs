@@ -29,7 +29,7 @@ namespace Armada.Core.Services
     /// Other flagged text questions can add blocking Errors in Gate mode. The deterministic preview is the
     /// fallback in every non-gate case: Off adds nothing and makes no call; an unavailable model adds
     /// nothing and records one unavailable event; a below-threshold answer adds nothing and records one
-    /// shadow event. In Gate mode a blocking question answered at or above the decision threshold becomes
+    /// rule-kept event. In Gate mode a blocking question answered at or above the decision threshold becomes
     /// an Error issue <see cref="ModelFlagIssueCode"/> that the autonomous scheduler already skips on. A
     /// Q4 or Q13 model flag never blocks dispatch or posts an owner-addressed board note. The adapter never
     /// throws into the caller.
@@ -96,7 +96,9 @@ namespace Armada.Core.Services
                 "A concrete claim in the objective's premise does not hold at the target tip; the deterministic preflight facts contradict it.",
                 "the premise contradicts the facts", "the premise matches the facts"),
             new PreflightNoul("q4", 4,
-                "A premise or a deliverable is not observable from a dock: it is gitignored, in an unprovisioned sibling, or behind a tool the container lacks.",
+                "A premise or a deliverable is not observable from a dock: it is gitignored, in a sibling checkout the dock context does not list, "
+                + "or needs a tool the dock context lists as missing. A sibling checkout, a tool or an evidence root the dock context lists is "
+                + "observable, and so is a claim whose evidence link names one of them.",
                 "a premise or deliverable is unobservable from a dock", "everything is observable from a dock", blocksDispatch: false),
             new PreflightNoul("q5", 5,
                 "A stage section permits for one artifact class what another stage section forbids for the same class.",
@@ -111,7 +113,9 @@ namespace Armada.Core.Services
                 "The brief makes success depend on a count that will not hold: a pass or skip total, or a coverage figure, that legitimately varies between host and dock, so a healthy run could read as failing it. Only a failure count measured at a named commit is a stable contract.",
                 "success depends on a legitimately varying count, so a healthy run could fail it", "every count the brief depends on is a stable failure count"),
             new PreflightNoul("q9", 9,
-                "An example expected value does not change between the defective and the corrected code, so a green test that copies it would prove nothing.",
+                "An example expected value offered as proof of one fix does not change between the defective and the corrected code, so a green "
+                + "test that copies it would prove nothing. A value the brief states stays unchanged on purpose (a parity or control value), and "
+                + "a value that guards a different defect, are not this defect.",
                 "an example value does not distinguish the fix", "every example value distinguishes the fix"),
             new PreflightNoul("q12", 12,
                 "A public API reshape does not name every consumer test class it breaks, so their update is not in the same wave.",
@@ -156,13 +160,15 @@ namespace Armada.Core.Services
         /// <param name="pipeline">The resolved pipeline, or null for the Worker-only path.</param>
         /// <param name="result">The dispatch preview built by the deterministic block; mutated in place.</param>
         /// <param name="token">Cancellation token, forwarded to the client so its timeout links to the caller.</param>
+        /// <param name="dock">What a captain dock for this objective provides, when the caller measured it.</param>
         /// <returns>A task that completes when the decision has been consulted and applied.</returns>
         public async Task EvaluateAsync(
             Objective objective,
             Vessel vessel,
             Pipeline? pipeline,
             ObjectiveDispatchPreview result,
-            CancellationToken token)
+            CancellationToken token,
+            PreflightDockContext? dock = null)
         {
             if (objective == null || vessel == null || result == null) return;
 
@@ -172,11 +178,11 @@ namespace Armada.Core.Services
             // The shared egress guard: an objective naming an excluded vessel, a target vessel on the list, or a
             // state naming an excluded marker sends nothing. The preview stays deterministic and records why.
             string? refusal = TypedDecisionEgress.Refusal(_Settings, DecisionPoint, TypedDecisionEgress.VesselsOf(objective.VesselIds, vessel.Id),
-                () => BuildState(objective, vessel, pipeline, result));
+                () => BuildState(objective, vessel, pipeline, result, dock));
             if (refusal != null)
             {
                 await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                    BuildContext(objective, vessel, TypedDecisionEgress.Refused(refusal), null, null, String.Empty), token)).ConfigureAwait(false);
+                    BuildContext(objective, result, TypedDecisionEgress.Refused(refusal), null, null, String.Empty), token)).ConfigureAwait(false);
                 return;
             }
 
@@ -184,7 +190,7 @@ namespace Armada.Core.Services
             TypedDecisionRequest request;
             try
             {
-                RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(BuildState(objective, vessel, pipeline, result), _Settings.MaxStateChars);
+                RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(BuildState(objective, vessel, pipeline, result, dock), _Settings.MaxStateChars);
                 object state = redactedState.State;
                 redacted = redactedState.Text;
                 request = new TypedDecisionRequest
@@ -220,7 +226,7 @@ namespace Armada.Core.Services
                 {
                     _Logging.Warn(_Header + "client threw, deterministic preview stands: " + ex.Message);
                     await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                        BuildContext(objective, vessel, TypedDecisionResult.Exception(), null, null, redacted), token)).ConfigureAwait(false);
+                        BuildContext(objective, result, TypedDecisionResult.Exception(), null, null, redacted), token)).ConfigureAwait(false);
                     return;
                 }
 
@@ -230,7 +236,7 @@ namespace Armada.Core.Services
             if (decision == null || !decision.Available)
             {
                 await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                    BuildContext(objective, vessel, decision ?? TypedDecisionResult.Exception(), null, null, redacted), token)).ConfigureAwait(false);
+                    BuildContext(objective, result, decision ?? TypedDecisionResult.Exception(), null, null, redacted), token)).ConfigureAwait(false);
                 return;
             }
 
@@ -274,20 +280,20 @@ namespace Armada.Core.Services
                         ? "shadow_mode"
                         : reading.HasAdvisory ? "advisory_only" : "below_threshold";
                 await SafeRecordAsync(() => _Recorder.RecordCacheHitAsync(
-                    BuildContext(objective, vessel, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), cachedOutcome, token)).ConfigureAwait(false);
+                    BuildContext(objective, result, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), cachedOutcome, token)).ConfigureAwait(false);
             }
             else if (applied)
             {
                 await SafeRecordAsync(() => _Recorder.RecordGatedAsync(
-                    BuildContext(objective, vessel, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), token)).ConfigureAwait(false);
+                    BuildContext(objective, result, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), token)).ConfigureAwait(false);
             }
             else
             {
                 string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow
                     ? "shadow_mode"
                     : reading.HasAdvisory ? "advisory_only" : "below_threshold";
-                await SafeRecordAsync(() => _Recorder.RecordShadowAsync(
-                    BuildContext(objective, vessel, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), outcome, token)).ConfigureAwait(false);
+                await SafeRecordAsync(() => _Recorder.RecordRuleKeptAsync(
+                    BuildContext(objective, result, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), outcome, token)).ConfigureAwait(false);
             }
         }
 
@@ -366,7 +372,7 @@ namespace Armada.Core.Services
             return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text ?? String.Empty))).ToLowerInvariant();
         }
 
-        private static object BuildState(Objective objective, Vessel vessel, Pipeline? pipeline, ObjectiveDispatchPreview result)
+        private static object BuildState(Objective objective, Vessel vessel, Pipeline? pipeline, ObjectiveDispatchPreview result, PreflightDockContext? dock)
         {
             List<object> facts = new List<object>();
             foreach (ObjectiveDispatchPreflightFact fact in result.Preflight?.Facts ?? new List<ObjectiveDispatchPreflightFact>())
@@ -398,7 +404,37 @@ namespace Armada.Core.Services
                 ["kind"] = objective.Kind.ToString(),
                 ["vessel"] = vessel.Name,
                 ["pipeline_stages"] = stages,
-                ["facts"] = facts
+                ["facts"] = facts,
+                ["evidence_links"] = (objective.EvidenceLinks ?? new List<string>())
+                    .Where(item => !String.IsNullOrWhiteSpace(item)).ToList(),
+                ["claims"] = (objective.Preparation?.Claims ?? new List<ObjectivePreparationClaim>())
+                    .Where(claim => claim != null && !String.IsNullOrWhiteSpace(claim.Text))
+                    .Select(claim => new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["kind"] = claim.Kind.ToString(),
+                        ["state"] = claim.State.ToString(),
+                        ["text"] = claim.Text,
+                        ["evidence_links"] = (claim.EvidenceLinks ?? new List<string>()).Where(item => !String.IsNullOrWhiteSpace(item)).ToList()
+                    }).ToList(),
+                ["dock"] = DockState(dock)
+            };
+        }
+
+        // The dock a captain receives. Unmeasured is stated, so the model never reads an absent list as an empty dock.
+        private static object DockState(PreflightDockContext? dock)
+        {
+            if (dock == null)
+                return new Dictionary<string, object?>(StringComparer.Ordinal) { ["measured"] = false };
+            return new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["measured"] = true,
+                ["operating_system"] = dock.OperatingSystem,
+                ["container"] = dock.IsContainer,
+                ["sibling_checkouts"] = dock.SiblingCheckouts.ToList(),
+                ["available_tools"] = dock.AvailableTools.ToList(),
+                ["missing_tools"] = dock.MissingTools.ToList(),
+                ["evidence_roots"] = dock.EvidenceRoots.ToList(),
+                ["missing_evidence_roots"] = dock.MissingEvidenceRoots.ToList()
             };
         }
 
@@ -465,7 +501,7 @@ namespace Armada.Core.Services
 
         private static TypedDecisionEventContext BuildContext(
             Objective objective,
-            Vessel vessel,
+            ObjectiveDispatchPreview preview,
             TypedDecisionResult result,
             string? modelVerdict,
             double? confidence,
@@ -479,8 +515,26 @@ namespace Armada.Core.Services
                 Confidence = confidence,
                 Result = result,
                 RedactedState = redactedState,
-                ObjectiveId = objective.Id
+                ObjectiveId = objective.Id,
+                RuleAnswers = RuleAnswers(preview)
             };
+        }
+
+        /// <summary>
+        /// The deterministic preflight's answer to each text-half question, in the question's defect polarity.
+        /// Only Q1 has a deterministic fact (the citations resolve at the target tip): a failed fact answers true
+        /// and a passed fact false. Every other question, and an unknown fact, has no deterministic answer.
+        /// </summary>
+        private static IReadOnlyDictionary<string, object?> RuleAnswers(ObjectiveDispatchPreview preview)
+        {
+            Dictionary<string, object?> answers = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (PreflightNoul noul in _Nouls) answers[noul.Id] = null;
+            answers[_Q13Id] = null;
+            ObjectiveDispatchPreflightFact? q1 = (preview?.Preflight?.Facts ?? new List<ObjectiveDispatchPreflightFact>())
+                .FirstOrDefault(fact => fact != null && fact.QuestionNumber == 1);
+            if (q1 != null && q1.Status != PreflightFactStatusEnum.Unknown)
+                answers["q1"] = q1.Status == PreflightFactStatusEnum.Fail;
+            return answers;
         }
 
         private static void AddIssue(

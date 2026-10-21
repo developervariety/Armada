@@ -200,7 +200,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(!result.Held, "Off must keep the rule (allow)");
                 AssertEqual(0, client.CallCount, "Off must not call the model");
-                AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
                 AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false));
             });
@@ -232,7 +232,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ProbeVerdict result = await adapter.DecideAsync(new ProbeInput(), new ProbeVerdict(false), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(!result.Held, "Shadow keeps the rule even at high confidence");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
             });
 
@@ -245,7 +245,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ProbeVerdict result = await adapter.DecideAsync(new ProbeInput(), new ProbeVerdict(false), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(!result.Held, "a below-threshold confidence keeps the rule");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
             });
 
@@ -259,7 +259,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(result.Held, "at or above threshold the model may hold");
                 AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
-                AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
             });
         }
 
@@ -303,7 +303,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ProbeVerdict result = await adapter.DecideAsync(new ProbeInput(), new ProbeVerdict(false), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(!result.Held, "the global cap holds the decision in Shadow");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
             });
 

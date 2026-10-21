@@ -26,6 +26,12 @@ namespace Armada.Core.Services
         /// <summary>The vessel the scanned change belongs to, for the egress vessel rule; never part of the state.</summary>
         public string? VesselId { get; init; }
 
+        /// <summary>
+        /// The merge entry whose change is scanned, recorded as the subject when no mission is known; never part of
+        /// the state.
+        /// </summary>
+        public string? MergeEntryId { get; init; }
+
         /// <summary>The vessel's public display name. Never the vessel identifier.</summary>
         public string VesselName { get; init; } = String.Empty;
 
@@ -200,6 +206,8 @@ namespace Armada.Core.Services
         /// held; recorded on each decision event and never sent.</param>
         /// <param name="vesselId">The vessel the change belongs to, when <paramref name="mission"/> is not held; the
         /// egress vessel rule reads it, so an excluded vessel's hunks never leave the host.</param>
+        /// <param name="mergeEntryId">The merge entry whose change is scanned, recorded as the subject of each decision
+        /// event when no mission is known; never sent.</param>
         /// <returns>The flags attached by this pass, in order; never null.</returns>
         public async Task<IReadOnlyList<DockBoundaryAdvisoryFlag>> EvaluateAsync(
             string? unifiedDiff,
@@ -208,12 +216,13 @@ namespace Armada.Core.Services
             DockBoundaryScanResult scanResult,
             CancellationToken token,
             string? missionId = null,
-            string? vesselId = null)
+            string? vesselId = null,
+            string? mergeEntryId = null)
         {
             List<DockBoundaryAdvisoryFlag> attached = new List<DockBoundaryAdvisoryFlag>();
             if (scanResult == null) return attached;
 
-            List<LeakHunkDecisionInput> hunks = ExtractHunks(unifiedDiff, vesselName, mission, missionId, vesselId);
+            List<LeakHunkDecisionInput> hunks = ExtractHunks(unifiedDiff, vesselName, mission, missionId, vesselId, mergeEntryId);
             if (hunks.Count == 0) return attached;
 
             List<LeakHunkVerdict> rules = new List<LeakHunkVerdict>(hunks.Count);
@@ -343,6 +352,13 @@ namespace Armada.Core.Services
         protected override string? MissionIdOf(LeakHunkDecisionInput input) => input.Mission?.Id ?? input.MissionId;
 
         /// <inheritdoc />
+        protected override TypedDecisionSubject? SubjectOf(LeakHunkDecisionInput input)
+        {
+            if (!String.IsNullOrWhiteSpace(MissionIdOf(input)) || String.IsNullOrWhiteSpace(input.MergeEntryId)) return null;
+            return new TypedDecisionSubject(TypedDecisionRecorder.SubjectTypeMergeEntry, input.MergeEntryId!.Trim());
+        }
+
+        /// <inheritdoc />
         protected override IEnumerable<string?> VesselIdsOf(LeakHunkDecisionInput input)
             => new[] { input.VesselId, input.Mission?.VesselId };
 
@@ -392,7 +408,7 @@ namespace Armada.Core.Services
             return bestNoul > 0.0 ? best : KindNone;
         }
 
-        private static List<LeakHunkDecisionInput> ExtractHunks(string? unifiedDiff, string? vesselName, Mission? mission, string? missionId, string? vesselId)
+        private static List<LeakHunkDecisionInput> ExtractHunks(string? unifiedDiff, string? vesselName, Mission? mission, string? missionId, string? vesselId, string? mergeEntryId)
         {
             // Files and hunks come from the shared diff reader: each file is named once by its decoded
             // path, and an added line whose content starts with "++" belongs to its hunk.
@@ -414,7 +430,7 @@ namespace Armada.Core.Services
                         added.Add(line.Text);
                     }
 
-                    Flush(hunks, currentFile, added, vesselName, mission, missionId, vesselId, ref hunksInFile);
+                    Flush(hunks, currentFile, added, vesselName, mission, missionId, vesselId, mergeEntryId, ref hunksInFile);
                 }
             }
 
@@ -429,6 +445,7 @@ namespace Armada.Core.Services
             Mission? mission,
             string? missionId,
             string? vesselId,
+            string? mergeEntryId,
             ref int hunksInFile)
         {
             if (added.Count == 0) return;
@@ -446,6 +463,7 @@ namespace Armada.Core.Services
                 Mission = mission,
                 MissionId = missionId,
                 VesselId = vesselId,
+                MergeEntryId = mergeEntryId,
                 VesselName = vesselName ?? String.Empty,
                 FilePath = filePath,
                 HunkText = text

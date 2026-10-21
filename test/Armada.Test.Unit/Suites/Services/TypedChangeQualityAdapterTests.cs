@@ -69,7 +69,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(1, outcome.Weaknesses.Count, "below threshold, only the rule weakness stands");
                 List<ArmadaEvent> events = await TypedEventsAsync(testDb.Driver).ConfigureAwait(false);
-                AssertTrue(events.Any(e => e.EventType == TypedDecisionRecorder.EventTypeShadow), "a shadow event is recorded below threshold");
+                AssertTrue(events.Any(e => e.EventType == TypedDecisionRecorder.EventTypeRuleKept), "a shadow event is recorded below threshold");
             });
 
             await RunTest("Gate at threshold adds model weaknesses and keeps the deterministic MustFix", async () =>
@@ -132,7 +132,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             List<ArmadaEvent> all = new List<ArmadaEvent>();
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeGated, 50).ConfigureAwait(false));
-            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow, 50).ConfigureAwait(false));
+            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeRuleKept, 50).ConfigureAwait(false));
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeUnavailable, 50).ConfigureAwait(false));
             return all;
         }

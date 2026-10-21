@@ -19,9 +19,9 @@ namespace Armada.Test.Unit.Suites.Services
     /// deterministic preflight block, so every case seeds the preview with one deterministic Error
     /// issue and proves it still stands: the model only ADDS issues. Off makes no call and changes
     /// nothing; an unavailable model records one unavailable event and changes nothing; a below-
-    /// threshold answer records one shadow event and changes nothing; a Gate answer at or above the
+    /// threshold answer records one rule-kept event and changes nothing; a Gate answer at or above the
     /// threshold adds blocking questions as Error issues and keeps Q4/Q13 as advisory Warnings. An
-    /// advisory-only result records a shadow event; a blocking result records a gated event. Q13 does
+    /// advisory-only result records a rule-kept event; a blocking result records a gated event. Q13 does
     /// not post an owner-addressed note. The adapter never throws into the caller and
     /// forwards the caller's token so the client timeout links to it.
     /// </summary>
@@ -66,7 +66,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = ModelResult(new Dictionary<string, double> { ["q1"] = 0.50, ["q9"] = 0.40 }, "none", 0.10),
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectModelErrorIssues = 0,
                     ExpectModelWarningIssues = 0
                 },
@@ -88,7 +88,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = ModelResult(new Dictionary<string, double> { ["q1"] = 0.10 }, "needs_owner_ruling", 0.92),
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectGateOutcome = "advisory_only",
                     ExpectModelErrorIssues = 0,
                     ExpectModelWarningIssues = 1
@@ -100,7 +100,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = ModelResult(new Dictionary<string, double> { ["q1"] = 0.10 }, "needs_repo_fact", 0.90),
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectGateOutcome = "advisory_only",
                     ExpectModelErrorIssues = 0,
                     ExpectModelWarningIssues = 1
@@ -112,7 +112,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = ModelResult(new Dictionary<string, double> { ["q4"] = 0.91 }, "none", 0.10),
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectGateOutcome = "advisory_only",
                     ExpectModelErrorIssues = 0,
                     ExpectModelWarningIssues = 1
@@ -136,7 +136,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = ModelResult(new Dictionary<string, double> { ["q1"] = 0.95 }, "needs_owner_ruling", 0.95),
                     ExpectClientCalls = 1,
-                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectModelErrorIssues = 0,
                     ExpectModelWarningIssues = 2
                 }
@@ -311,6 +311,60 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(client.LastRequest.Questions.ContainsKey("q13"), "the Q13 owner-question choice is asked");
                 AssertTrue(client.LastRequest.Questions.ContainsKey("q1"), "the Q1 premise-versus-facts noul is asked");
             });
+
+            await RunTest("Preflight_DockObservability_AndExampleValue_QuestionsJudgeAgainstTheDockAndExemptControls", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(ModelResult(new Dictionary<string, double> { ["q1"] = 0.10 }, "none", 0.10));
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+
+                // Q4 judges observability against what the dock holds, and Q9 exempts a stated control value.
+                NoulQuestion q4 = (NoulQuestion)client.LastRequest!.Questions["q4"];
+                AssertContains("dock context", q4.Instructions, "Q4 judges observability against the dock context");
+                AssertContains("evidence root", q4.Instructions, "a listed evidence root is observable");
+                NoulQuestion q9 = (NoulQuestion)client.LastRequest.Questions["q9"];
+                AssertContains("unchanged on purpose", q9.Instructions, "a stated control value is not the Q9 defect");
+                AssertContains("different defect", q9.Instructions, "a value guarding a separate defect is not the Q9 defect");
+            });
+
+            await RunTest("Preflight_WithoutDockContext_StateSaysTheDockWasNotMeasured", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(ModelResult(new Dictionary<string, double> { ["q1"] = 0.10 }, "none", 0.10));
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertContains("\"dock\":{\"measured\":false}", FakeTypedDecisionClient.StateText(client.LastRequest),
+                    "an unmeasured dock is stated, never sent as an empty dock");
+            });
+
+            await RunTest("Preflight_RuleAnswers_MapTheQ1FactAndLeaveUnansweredQuestionsNull", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(ModelResult(new Dictionary<string, double> { ["q1"] = 0.10 }, "none", 0.10));
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+                ObjectiveDispatchPreview preview = SeededPreview();
+                preview.Preflight.Facts.Add(new ObjectiveDispatchPreflightFact
+                {
+                    QuestionNumber = 1,
+                    Status = PreflightFactStatusEnum.Fail,
+                    Detail = "A cited path does not resolve at the target tip."
+                });
+
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), preview, CancellationToken.None).ConfigureAwait(false);
+
+                List<ArmadaEvent> typed = await AllTypedDecisionEventsAsync(testDb.Driver).ConfigureAwait(false);
+                AssertEqual(1, typed.Count, "one call was recorded");
+                string payload = typed[0].Payload ?? String.Empty;
+                AssertContains("\"rule_answers\":{", payload, "the rule's answers are recorded");
+                AssertContains("\"q1\":true", payload, "a failed Q1 fact answers the Q1 defect true");
+                AssertContains("\"q4\":null", payload, "a question with no deterministic fact records null");
+                AssertContains("\"q13\":null", payload, "the Q13 choice has no deterministic answer");
+                AssertContains("\"subject_type\":\"objective\"", payload, "the preflight subject is the objective");
+            });
         }
 
         private static PreflightTextAdapter BuildAdapter(
@@ -435,7 +489,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             List<ArmadaEvent> all = new List<ArmadaEvent>();
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeGated, 50).ConfigureAwait(false));
-            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow, 50).ConfigureAwait(false));
+            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeRuleKept, 50).ConfigureAwait(false));
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeUnavailable, 50).ConfigureAwait(false));
             return all;
         }

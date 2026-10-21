@@ -1056,10 +1056,10 @@ reconciles it. Until then its branch counts as kept for active missions.
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_typed_decision_labels` |
+| Read | `armada_typed_decision_labels`, `armada_typed_decision_outcomes` |
 | Write | `armada_typed_decision_reversal` |
 
-Both are operator tools; a mission captain reaches neither.
+All are operator tools; a mission captain reaches none.
 
 `armada_typed_decision_reversal` records that a gated decision was wrong. Give
 the decision event id, the answer that was correct, and why. It writes one
@@ -1072,6 +1072,11 @@ record changes.
 retained calls, recorded reversals, and whether the decision has reached the
 minimum sample count. A decision below the minimum is named with its reason,
 never left out, so "nothing to train on" is always visible rather than silent.
+
+`armada_typed_decision_outcomes` joins recorded calls to the later outcome of the
+record each one judged: a mission's landing result, linked incidents and rescues,
+or an objective's final status, per decision and per confidence band. It needs a
+global operator and returns counts only.
 
 ### 8.26 Terminal Voyage Mission Reconciliation
 

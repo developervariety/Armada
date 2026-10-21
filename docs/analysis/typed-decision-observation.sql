@@ -1,11 +1,13 @@
 -- Aggregate-only observation report. Replace the two ISO UTC markers before execution.
 -- Calls are events, not unique training examples. Captains and operator probes may mix.
 -- A cache hit (typed_decision.cache_hit) reuses stored answers and is not a call; it is counted apart.
+-- A call that kept the rule is typed_decision.rule_kept; rows written before that name exist carry
+-- typed_decision.shadow, so both names are read.
 -- estimated_cost_usd is an estimate from the configured price table; calls_without_cost counts the
 -- calls whose event names why no estimate exists (no price for the model, or an unavailable call).
 with calls as (
  select *, payload::jsonb p, payload::jsonb->>'decision' decision_key from events
- where event_type in ('typed_decision.gated','typed_decision.shadow','typed_decision.unavailable','typed_decision.captain')
+ where event_type in ('typed_decision.gated','typed_decision.rule_kept','typed_decision.shadow','typed_decision.unavailable','typed_decision.captain')
  and created_utc::timestamptz >= '__SINCE__'::timestamptz and created_utc::timestamptz < '__UNTIL__'::timestamptz
 ), reversals as (
  select payload::jsonb p from events where event_type='typed_decision.reversed'
@@ -20,6 +22,7 @@ with calls as (
 select json_build_object('kind','decision','decision',decision_key,
  'calls',count(*),'unique_states',count(distinct nullif(p->>'state_sha256','')),
  'mission_attributed_calls',count(*) filter(where nullif(mission_id,'') is not null),
+ 'subject_attributed_calls',count(*) filter(where nullif(p->>'subject_type','') is not null or nullif(mission_id,'') is not null or nullif(p->>'objective_id','') is not null),
  'first',min(created_utc::timestamptz),'last',max(created_utc::timestamptz),
  'applied',count(*) filter(where event_type='typed_decision.gated'),
  'unavailable',count(*) filter(where event_type='typed_decision.unavailable'),

@@ -136,6 +136,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // the old one forever: enabling retention in settings would silently retain nothing.
                 ArmadaSettings current = new ArmadaSettings();
                 AssertFalse(current.TypedDecisions.Retention.Enabled, "retention is off by default");
+                AssertEqual(50, current.TypedDecisions.Retention.MinimumSamplesPerDecision, "a decision is trainable from 50 verified samples by default");
 
                 ArmadaSettings incoming = new ArmadaSettings();
                 incoming.TypedDecisions.Retention.Enabled = true;

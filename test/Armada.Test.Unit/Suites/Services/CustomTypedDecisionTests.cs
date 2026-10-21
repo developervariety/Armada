@@ -211,7 +211,7 @@ namespace Armada.Test.Unit.Suites.Services
                 CustomDecisionOutcome outcome = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
                 AssertEqual("shadow", outcome.Status, "a Shadow decision consults and records, and says it is Shadow");
                 AssertFalse(outcome.DidFlag, "and never flags");
-                AssertEqual(1, (await db.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false)).Count, "one shadow event");
+                AssertEqual(1, (await db.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false)).Count, "one shadow event");
             });
 
             await RunTest("RunMissionDiff_RunsOnlyMissionDiffDecisionsThatAreOn_OverTheMissionFields", async () =>
@@ -283,7 +283,7 @@ namespace Armada.Test.Unit.Suites.Services
                 List<ArmadaEvent> gated = await db.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false);
                 AssertEqual(1, gated.Count, "a flag is one typed_decision.gated event");
                 AssertContains("\"decision\":\"custom:example_decision\"", gated[0].Payload ?? "", "under the custom decision point");
-                List<ArmadaEvent> shadow = await db.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false);
+                List<ArmadaEvent> shadow = await db.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false);
                 AssertEqual(0, shadow.Count, "and no second event");
             });
 

@@ -2173,7 +2173,7 @@ namespace Armada.Core.Services
             // The D7 advisory pass reads the same added text afterwards. It can only append advisory
             // flags: the pass verdict and the findings above are never changed, so a flagged entry that
             // passed the deterministic scan still lands and a deterministic finding still fails it.
-            await AttachLeakHunkFlagsAsync(result, unifiedDiff, vessel?.Name, entry.MissionId, vessel?.Id ?? entry.VesselId, token).ConfigureAwait(false);
+            await AttachLeakHunkFlagsAsync(result, unifiedDiff, vessel?.Name, entry.MissionId, vessel?.Id ?? entry.VesselId, entry.Id, token).ConfigureAwait(false);
             return result;
         }
 
@@ -2183,13 +2183,14 @@ namespace Armada.Core.Services
             string? vesselName,
             string? missionId,
             string? vesselId,
+            string? mergeEntryId,
             CancellationToken token)
         {
             LeakHunkAdapter? adapter = _LeakHunkAdapter;
             if (adapter == null) return;
 
             IReadOnlyList<DockBoundaryAdvisoryFlag> flags = await adapter
-                .EvaluateAsync(unifiedDiff, vesselName, null, result, token, missionId, vesselId)
+                .EvaluateAsync(unifiedDiff, vesselName, null, result, token, missionId, vesselId, mergeEntryId)
                 .ConfigureAwait(false);
 
             foreach (DockBoundaryAdvisoryFlag flag in flags)

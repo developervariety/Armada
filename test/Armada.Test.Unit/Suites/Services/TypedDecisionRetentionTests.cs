@@ -253,6 +253,44 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A call recorded under the earlier rule-kept event name is still reversed and labelled", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string dataDirectory = NewTempDir("legacy-reversal");
+                    try
+                    {
+                        ArmadaSettings settings = RetainingSettings("failure_cause");
+                        TypedDecisionSampleStore store = new TypedDecisionSampleStore(dataDirectory, new LoggingModule());
+                        TypedDecisionRecorder recorder = new TypedDecisionRecorder(
+                            testDb.Driver, new LoggingModule(), store, () => settings.TypedDecisions);
+
+                        // A new call is written under the current name; a row from before the rename keeps the old one.
+                        ArmadaEvent? kept = await recorder.RecordRuleKeptAsync(
+                            Context("failure_cause", "a build log tail"), "below_threshold", default).ConfigureAwait(false);
+                        AssertEqual("typed_decision.rule_kept", kept!.EventType, "a call that keeps the rule is written as typed_decision.rule_kept");
+                        ArmadaEvent legacy = await testDb.Driver.Events.CreateAsync(new ArmadaEvent("typed_decision.shadow", "decision=failure_cause rule=Rescue model=verdict_form conf=0.92")
+                        {
+                            Payload = "{\"decision\":\"failure_cause\",\"rule_verdict\":\"Rescue\",\"gate_outcome\":\"below_threshold\",\"state_sha256\":\"" + new string('a', 64) + "\"}"
+                        }).ConfigureAwait(false);
+
+                        TypedDecisionReversalResult result = await recorder.RecordReversalAsync(
+                            legacy.Id, "environmental", "a valid verdict reported missing evidence", "operator-1").ConfigureAwait(false);
+
+                        AssertTrue(result.Success, "an older row under typed_decision.shadow is still a typed-decision call");
+                        AssertEqual("failure_cause", result.DecisionPoint, "its decision is read from the older payload");
+                        AssertTrue(result.Labelled, "and its correction is kept as a label");
+                        List<ArmadaEvent> reversals = await testDb.Driver.Events
+                            .EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeReversed).ConfigureAwait(false);
+                        AssertEqual(1, reversals.Count, "exactly one reversal event");
+                        AssertContains("\"original_event_type\":\"typed_decision.shadow\"", reversals[0].Payload ?? "", "the reversal names the older event type");
+                        AssertTrue(TypedDecisionRecorder.IsRuleKeptEventType("typed_decision.shadow"), "readers accept the earlier name");
+                        AssertTrue(TypedDecisionRecorder.IsRuleKeptEventType("typed_decision.rule_kept"), "and the current one");
+                    }
+                    finally { SafeDelete(dataDirectory); }
+                }
+            });
+
             await RunTest("A reversal is refused for an unknown or non-decision event", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -128,7 +128,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(rule.CostLevel, result.CostLevel, "Off must keep the deterministic cost");
                 AssertEqual("rule", result.Outcome);
                 AssertEqual(0, client.CallCount, "Off must not call the client");
-                AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
@@ -175,7 +175,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, rule.CostLevel, "a fresh, unchained candidate is deterministically cost 0");
                 AssertEqual(rule.CostLevel, result.CostLevel, "below threshold must keep the rule cost");
                 AssertEqual("rule", result.Outcome);
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
@@ -190,7 +190,7 @@ namespace Armada.Test.Unit.Suites.Services
                 OwnerDigestEntry result = await adapter.DecideAsync(candidate, rule, CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(rule.CostLevel, result.CostLevel, "Shadow must keep the rule even at high confidence");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false));
                 AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
@@ -331,7 +331,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(result.Posted, "candidates must produce a post");
                 AssertEqual(2, result.CandidateCount);
                 AssertEqual(1, client.Calls, "independent candidates are ranked in one request");
-                AssertEqual(2, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false),
+                AssertEqual(2, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false),
                     "each candidate still records its own decision event");
                 AssertEqual(1, poster.Posts.Count, "exactly one owner-addressed note per pass");
                 AssertEqual(1, await CountEventsAsync(db, OwnerDigestRunner.DigestEventType).ConfigureAwait(false));

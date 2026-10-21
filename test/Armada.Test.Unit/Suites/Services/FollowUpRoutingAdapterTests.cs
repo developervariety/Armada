@@ -68,7 +68,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Home(FollowUpRoutingAdapter.HomeTriaged, 0.40, 0.0),
                     ExpectCalls = 1,
-                    ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectEventType = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectCreated = 0,
                     ExpectEvidence = 0,
                     ExpectLinked = 0,
@@ -133,7 +133,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Home(FollowUpRoutingAdapter.HomeTriaged, 0.95, 0.0),
                     ExpectCalls = 1,
-                    ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectEventType = TypedDecisionRecorder.EventTypeRuleKept,
                     ExpectCreated = 0,
                     ExpectEvidence = 0,
                     ExpectLinked = 0,
@@ -337,7 +337,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             List<ArmadaEvent> all = new List<ArmadaEvent>();
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeGated, 50).ConfigureAwait(false));
-            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow, 50).ConfigureAwait(false));
+            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeRuleKept, 50).ConfigureAwait(false));
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeUnavailable, 50).ConfigureAwait(false));
             return all;
         }

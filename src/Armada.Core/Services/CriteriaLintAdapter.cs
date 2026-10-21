@@ -233,7 +233,7 @@ namespace Armada.Core.Services
             else
             {
                 string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
-                await SafeRecordAsync(() => _Recorder.RecordShadowAsync(
+                await SafeRecordAsync(() => _Recorder.RecordRuleKeptAsync(
                     BuildContext("criteria_clean", modelVerdict, worst, result, redacted, objectiveId), outcome, token)).ConfigureAwait(false);
             }
 

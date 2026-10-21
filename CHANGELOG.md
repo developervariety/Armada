@@ -9,6 +9,22 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Typed-decision quality is measurable against outcomes. Every recorded call
+  names its subject (`subject_type`, `subject_id`): the mission, else the
+  objective, else the record the seam judged (`papercut_group`, `board_note`,
+  `merge_entry`, or the record an inbox item is about), with
+  `subject_unavailable_reason` when there is none. Each call also records the
+  rule's answer per question (`rule_answers`) and the model's verdict and action
+  confidence. The global-operator tool `armada_typed_decision_outcomes` joins
+  calls to the subject's later landing result, linked incidents, rescues or
+  objective status, per decision and per confidence band, and reads older rows
+  through their mission or objective id.
+- The `preflight` state carries a `dock` section (provisioned sibling checkouts,
+  tools that do and do not resolve on the captain PATH, and the vessel's
+  evidence roots by name) and the objective's evidence links and preparation
+  claims. Q4 judges dock observability against that section, and Q9 exempts a
+  value the brief keeps unchanged on purpose or that guards a different defect.
+
 - A challenge round can test a Judge NEEDS_REVISION before its rescue. With
   `autonomousRecovery.judgeChallenge.enabled` (off by default; hot-reloads),
   autonomous recovery dispatches a read-only `Challenger` persona on a model
@@ -313,6 +329,16 @@ upstream integrations and excludes changes already present at that baseline.
   from the prompt cache whichever vessel warmed it, instead of writing a
   vessel-specific copy. `ClaudeCodeRuntime.ExcludeDynamicSystemPromptSections`
   turns the flag off for a CLI that does not accept it.
+- A typed-decision call that keeps the rule records `typed_decision.rule_kept`;
+  its `gate_outcome` says whether the decision was in Shadow or the Gate-mode
+  call took no action. Every reader, the observation SQL and the docs accept
+  rows written under the earlier name `typed_decision.shadow`.
+- `failure_cause` asks separate closed questions for the cause class, evidence
+  availability, code defect and, for a Judge failure only, verdict validity,
+  and combines them in code. A code defect suppresses every hold; a well-formed
+  NEEDS_REVISION verdict that reports missing evidence holds as environmental,
+  never as verdict form. Thresholds are unchanged.
+- `typedDecisions.retention.minimumSamplesPerDecision` defaults to 50.
 - The Git Service and Dock Service unit suites take their base repository
   (branch `main`, one "Initial commit" adding `README.md`, test user
   configured) from the shared `TestGitRepoHelper` template, moved into place,

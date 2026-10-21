@@ -110,7 +110,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(CodeIndexDispatchStalenessPolicyEnum.RefreshInline, outcome, "below threshold, the rule stands");
                 List<ArmadaEvent> events = await TypedEventsAsync(testDb.Driver).ConfigureAwait(false);
-                AssertTrue(events.Any(e => e.EventType == TypedDecisionRecorder.EventTypeShadow), "a shadow event is recorded below threshold");
+                AssertTrue(events.Any(e => e.EventType == TypedDecisionRecorder.EventTypeRuleKept), "a shadow event is recorded below threshold");
             });
 
             await RunTest("Gate at threshold demotes RefreshInline to Proceed and never lifts Block", async () =>
@@ -195,7 +195,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             List<ArmadaEvent> all = new List<ArmadaEvent>();
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeGated, 50).ConfigureAwait(false));
-            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow, 50).ConfigureAwait(false));
+            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeRuleKept, 50).ConfigureAwait(false));
             all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeUnavailable, 50).ConfigureAwait(false));
             return all;
         }

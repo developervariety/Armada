@@ -275,7 +275,7 @@ namespace Armada.Core.Services
             }
 
             bool shadow = cfg.Mode == TypedDecisionModeEnum.Shadow;
-            await _Recorder.RecordShadowAsync(eventContext, shadow ? "shadow_mode" : "below_threshold", token).ConfigureAwait(false);
+            await _Recorder.RecordRuleKeptAsync(eventContext, shadow ? "shadow_mode" : "below_threshold", token).ConfigureAwait(false);
             return shadow
                 ? CustomDecisionOutcome.Shadow(name, result, gateValue)
                 : CustomDecisionOutcome.Recorded(name, result, gateValue);

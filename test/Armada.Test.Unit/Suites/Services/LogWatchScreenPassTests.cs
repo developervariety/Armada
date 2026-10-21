@@ -150,7 +150,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Context("Rebased onto the tip and continued."), CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(0, findings.Count, "below threshold reports nothing");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false), "one shadow event");
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false), "one shadow event");
                 AssertEqual(0, await CountEventsAsync(db, TypedLogWatchAdapter.CourseFlagEventType).ConfigureAwait(false), "no course flag below threshold");
             }).ConfigureAwait(false);
 
@@ -164,7 +164,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Context("Assuming the parser already handles the frame."), CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(0, findings.Count, "shadow mode reports nothing");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false), "one shadow event");
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false), "one shadow event");
                 AssertEqual(0, await CountEventsAsync(db, TypedLogWatchAdapter.CourseFlagEventType).ConfigureAwait(false), "no course flag in shadow mode");
             }).ConfigureAwait(false);
 
@@ -179,7 +179,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(0, findings.Count, "an on-track reading is never a finding");
                 AssertEqual(0, await CountEventsAsync(db, TypedLogWatchAdapter.CourseFlagEventType).ConfigureAwait(false), "no course flag when on track");
-                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false),
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false),
                     "on track proposes no action, so it records as below threshold rather than gating");
             }).ConfigureAwait(false);
 
@@ -219,7 +219,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "the flag payload names the drift class");
 
                 AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false), "one gated bookkeeping event");
-                AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false), "no shadow event when gated");
+                AssertEqual(0, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept).ConfigureAwait(false), "no shadow event when gated");
             }).ConfigureAwait(false);
 
             await RunTest("CourseFlagEventType_IsDistinctFromTheTypedDecisionBookkeepingEvents", async () =>
@@ -236,7 +236,7 @@ namespace Armada.Test.Unit.Suites.Services
                 foreach (ArmadaEvent flag in flags)
                 {
                     AssertFalse(String.Equals(flag.EventType, TypedDecisionRecorder.EventTypeGated, StringComparison.Ordinal), "not the gated event");
-                    AssertFalse(String.Equals(flag.EventType, TypedDecisionRecorder.EventTypeShadow, StringComparison.Ordinal), "not the shadow event");
+                    AssertFalse(String.Equals(flag.EventType, TypedDecisionRecorder.EventTypeRuleKept, StringComparison.Ordinal), "not the shadow event");
                     AssertFalse(String.Equals(flag.EventType, TypedDecisionRecorder.EventTypeUnavailable, StringComparison.Ordinal), "not the unavailable event");
                 }
             }).ConfigureAwait(false);

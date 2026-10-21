@@ -167,8 +167,8 @@ byte count and never the state, and nothing extra leaves the host.
   is written once and read in bulk by a trainer, and a retention window is a file
   delete.
 - **`retentionDays`** (default 90) bounds it; files outside the window are deleted
-  at startup. **`minimumSamplesPerDecision`** (default 200) decides when a
-  decision reaches the sample-count minimum. This count alone does not establish
+  at startup. **`minimumSamplesPerDecision`** (default 50 verified rows) decides
+  when a decision reaches the sample-count minimum. This count alone does not establish
   independent labels, compatible question/model cohorts, or a held-out test set;
   all three are needed before training or threshold selection. The report exposes
   `MinimumSampleCountMet` separately. `Trainable` stays false because a count-only
@@ -193,6 +193,19 @@ byte count and never the state, and nothing extra leaves the host.
   strict JSON-lines reader accepts every line.
 - **Report before you train.** `armada_typed_decision_labels` names every decision
   with retained data and says which are short of the minimum and by how much.
+- **Score answers against outcomes.** The global-operator tool
+  `armada_typed_decision_outcomes` joins each recorded call in a window (default
+  30 days) to what later happened to its subject: a mission's landing result
+  (`Landed`, `Failed`, `Cancelled`), an incident linked to the mission, a rescue
+  mission that names it as its parent, or an objective's final status. Per
+  decision it reports `SubjectShare` (calls that name a subject) and
+  `JoinedShare` (calls whose subject reached a known outcome), the counts behind
+  them, and the same join by the model's confidence band (`<0.50`,
+  `0.50-0.80`, `0.80-0.90`, `>=0.90`, `none`). A subject that is not a mission or
+  objective (a papercut group, a board note, a merge entry) is named but has no
+  landing outcome to join. The report holds counts, never record ids or state,
+  and reads at most 20000 calls, newest first; `Truncated` says when the window
+  held more.
 - **Inspect one preflight sample by event.** The global-operator tool
   `armada_typed_decision_sample` accepts a typed-decision event id and returns
   pages of the matching retained `preflight` state. Both the retention switch
@@ -259,11 +272,19 @@ these values say. `mode` and `decisions` hot-reload in place — a change reache
 every decision point without a restart and survives an MCP settings write.
 
 Every enabled call emits one event: `typed_decision.gated` when a gate at or
-above threshold changed the outcome, `typed_decision.shadow` when the rule stood
-(a Shadow-mode call, or a Gate-mode call below the threshold), and
-`typed_decision.unavailable` otherwise. Each event carries the decision, the
-rule verdict, the model version the provider reported (`model`), the model's
-answers with their confidences and probability distributions, tokens, latency,
+above threshold changed the outcome, `typed_decision.rule_kept` when the rule
+stood, and `typed_decision.unavailable` otherwise. A rule-kept event's
+`gate_outcome` says why the rule stood: `shadow_mode` for a decision in
+`Shadow`, `below_threshold` for a Gate-mode call under the threshold, and
+`advisory_only` for a Gate-mode call that added only advisory notes. Rows
+written under the earlier name `typed_decision.shadow` keep it; every reader
+(the reversal, sample and outcome tools, and the observation SQL) accepts both
+names. Each event carries the decision, the rule verdict, the rule's answer to
+each question it was asked (`rule_answers`, keyed by question id, null where
+the rule has no answer of its own), the model version the provider reported
+(`model`), the model's verdict label and action confidence (`model_verdict`,
+`confidence`), the model's answers with their confidences and probability
+distributions, tokens, latency,
 `batch_size`, the gate outcome, the provider's redacted explanation when it
 rejected the request (`unavailable_detail`), and the state's SHA-256 and byte
 count — the state itself is never recorded. Each event also carries
@@ -278,15 +299,21 @@ is null, never zero, and `cost_unavailable_reason` names why:
 `no_price_for_model` (the table, which ships empty, has no price for the
 model), `model_not_reported`, or `call_unavailable`. Each event also names its subject:
 `objective_id` and `mission_id` in the payload (the mission id also fills the
-event's mission column), set wherever the calling seam knows them. They are
-record links for joining a call to its objective or mission; they are never
-part of the state, so they change neither the state hash nor what leaves the
-host. A decision whose subject is not one objective or mission leaves them
-null: `papercut_merge` and `memory_candidate` judge papercut groups gathered
-across many missions, `inbox_triage` names a mission only for a mission item or
-a board note that relates to one, and `dispatch_staleness` names an objective
-only when the dispatch is about exactly one. A mission-scoped decision records
-the mission and not its objective, because the seam holds only the mission.
+event's mission column), set wherever the calling seam knows them, and one
+`subject_type` with its `subject_id` for the outcome join. The subject is the
+record the seam names when it judged neither one mission nor one objective,
+else the mission, else the objective; with none, both are null and
+`subject_unavailable_reason` is `caller_named_no_subject`. These are record
+links only; they are never part of the state, so they change neither the state
+hash nor what leaves the host. `papercut_merge` names the compared pair of
+papercut groups and `memory_candidate` the one group (`papercut_group`), each
+gathered across many missions. `inbox_triage` names the mission for a mission
+item, the incident, objective or other record an item is about, and the note
+itself (`board_note`) for a board note that relates to no mission. A
+`leak_hunk` scan on the merge-queue path with no mission names its merge entry
+(`merge_entry`). `dispatch_staleness` names an objective only when the dispatch
+is about exactly one. A mission-scoped decision records the mission and not its
+objective, because the seam holds only the mission.
 Read the flow with:
 
 ```sql
@@ -452,7 +479,7 @@ calls use the same distinction, including their shadow and unavailable events.
 Each wired decision holds an adapter over the shared client, never the raw
 client, and every adapter follows one skeleton: Off returns the rule with no
 call; unavailable returns the rule; Shadow or below threshold returns the rule
-and records a shadow event; at or above threshold it combines the rule and the
+and records a rule-kept event; at or above threshold it combines the rule and the
 model, where a rule hard-block always wins. Which decisions hold one is asserted
 by the `Typed Decision Wiring` suite, never counted here. The decisions,
 described in turn:
@@ -460,9 +487,21 @@ described in turn:
 - `failure_cause` — autonomous recovery consults the model only for a failure
   the rule would rescue; the repeated-identical-test and Infra/Timeout blocks
   stay hard-blocks that win first. The state joins the voyage Checks and the
-  parent's failing test names. A contention, provider, environmental, or
-  verdict-form read at or above threshold, or a very likely repeat, holds the
-  rescue for operator review as `typed_decision:<cause>`.
+  parent's failing test names. The model answers separate closed questions: the
+  cause class (`environmental`, `provider`, `refusal`, `contention`,
+  `work_defect`, `unclear`), whether evidence or an input the work needs was
+  unavailable (`evidence_unavailable`), whether the produced work holds a defect
+  a rescue can repair (`code_defect`), whether a rescue would repeat the failure
+  (`repeat_likely`), whether the failing test belongs to other work
+  (`foreign_test`), and, for a Judge failure only, whether the Judge's verdict is
+  well formed (`verdict_valid`). Code combines them. A `code_defect` reading
+  suppresses every hold. Otherwise a contention, provider or environmental cause,
+  unavailable evidence (held as `environmental`), or a malformed Judge verdict
+  (held as `verdict_form`) at or above threshold, or a very likely repeat, holds
+  the rescue for operator review as `typed_decision:<cause>`. A well-formed
+  `NEEDS_REVISION` verdict that reports missing evidence is an environmental
+  fault, never a verdict-form one. A rule rescue records the rule answers
+  `cause: work_defect`, `code_defect: true` and `repeat_likely: false`.
 - `refusal` — the structured refusal marker and a provider safeguard block stay
   authoritative; the model may promote a prose refusal the phrase rules missed
   or demote a quoted phrase at very high confidence. The criteria state the
@@ -493,7 +532,21 @@ One decision point reads the objective dispatch preview:
   the deterministic facts), Q4, Q5, Q6, Q7, Q8, Q9 and Q12, plus a Q13 choice
   `{none, needs_owner_ruling, needs_repo_fact}`. Its state carries the title,
   description, acceptance criteria, non-goals, refinement summary, Kind, vessel
-  name, pipeline stages, and the deterministic `facts`, redacted before egress.
+  name, pipeline stages, the deterministic `facts`, the objective's evidence
+  links and preparation claims (kind, state, text and evidence links), and a
+  `dock` section that says what a captain dock provides: the operating system
+  and container boundary, the sibling checkouts the vessel provisions beside the
+  dock (with their extraction artifact paths), the tools that resolve on the
+  captain PATH and those that do not (a fixed set of common tools plus the
+  objective's required executables), and the evidence roots mounted for the
+  vessel, present or missing, by directory name. No host path is sent. A preview
+  that did not measure the dock says so (`measured: false`). The state is
+  redacted before egress. Q4 judges dock observability against that section: a
+  listed sibling, tool or evidence root is observable. Q9 does not count a value
+  the brief states stays unchanged on purpose, or one that guards a different
+  defect. The rule answers only Q1 from the deterministic citation fact (`true`
+  for a failed fact, `false` for a passed one); every other question records
+  null.
   In `Gate`, high Q4 (dock observability) and Q13 (owner question) readings add
   visible `preflight_q4_model` and `preflight_q13_model` Warning issues. They do
   not block dispatch, and Q13 does not post an owner-addressed note. A high
@@ -997,7 +1050,7 @@ Each custom decision defines `questions` (choice, score, or noul, exactly like t
 `stateFields` (which context fields go into the state, in order), a `description`, and
 `retainState`. A call that consults the provider records one event through the shared
 recorder under the decision point `custom:<name>`: `typed_decision.gated` when it flags,
-`typed_decision.shadow` (`gate_outcome` `shadow_mode` or `below_threshold`) when it only
+`typed_decision.rule_kept` (`gate_outcome` `shadow_mode` or `below_threshold`) when it only
 records, and `typed_decision.unavailable` when the provider does not answer. A tool call
 that never reaches the provider records one `typed_decision.captain` event under the same
 decision point, with `gate_outcome` `disabled` (the captain tool is off),

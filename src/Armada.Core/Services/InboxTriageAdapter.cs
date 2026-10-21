@@ -112,7 +112,7 @@ namespace Armada.Core.Services
             List<AttentionOutcome> outcomes;
             try
             {
-                outcomes = await ScoreAttentionAsync(scored.Select(BuildInboxState).ToList(), scored.Select(MissionIdOf).ToList(),
+                outcomes = await ScoreAttentionAsync(scored.Select(BuildInboxState).ToList(), scored.Select(MissionIdOf).ToList(), scored.Select(SubjectOf).ToList(),
                     scored.Select(item => (IEnumerable<string?>)(item.VesselIds ?? new List<string>())).ToList(), "severity_order", null, cfg, token).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -168,6 +168,7 @@ namespace Armada.Core.Services
             try
             {
                 outcomes = await ScoreAttentionAsync(scored.Select(BuildNoteState).ToList(), scored.Select(note => note.MissionId).ToList(),
+                    scored.Select(NoteSubjectOf).ToList(),
                     scored.Select(note => (IEnumerable<string?>)(note.VesselIds ?? new List<string>())).ToList(), "unsorted", NoteKindQuestion(), cfg, token).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -195,6 +196,7 @@ namespace Armada.Core.Services
         private async Task<List<AttentionOutcome>> ScoreAttentionAsync(
             List<object> rawStates,
             List<string?> missionIds,
+            List<TypedDecisionSubject?> subjects,
             List<IEnumerable<string?>> vesselIds,
             string ruleVerdict,
             TypedQuestion? extraQuestion,
@@ -228,11 +230,12 @@ namespace Armada.Core.Services
                 TypedDecisionResult result = results[index];
                 string redacted = batch[index]?.State.Text ?? String.Empty;
                 string? missionId = missionIds[index];
+                TypedDecisionSubject? subject = subjects[index];
 
                 if (TypedDecisionEgress.IsRefusal(result))
                 {
                     await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                        BuildContext(ruleVerdict, null, null, result, redacted, missionId), token)).ConfigureAwait(false);
+                        BuildContext(ruleVerdict, null, null, result, redacted, missionId, subject), token)).ConfigureAwait(false);
                     outcomes.Add(new AttentionOutcome { Available = true, Applied = false });
                     continue;
                 }
@@ -241,7 +244,7 @@ namespace Armada.Core.Services
                 {
                     // Record the unavailable call once; the caller stops at the first unavailable item.
                     await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                        BuildContext(ruleVerdict, null, null, result ?? TypedDecisionResult.Exception(), redacted, missionId), token)).ConfigureAwait(false);
+                        BuildContext(ruleVerdict, null, null, result ?? TypedDecisionResult.Exception(), redacted, missionId, subject), token)).ConfigureAwait(false);
                     outcomes.Add(new AttentionOutcome { Available = false });
                     return outcomes;
                 }
@@ -254,13 +257,13 @@ namespace Armada.Core.Services
                 if (apply)
                 {
                     await SafeRecordAsync(() => _Recorder.RecordGatedAsync(
-                        BuildContext(ruleVerdict, verdict, confidence, result, redacted, missionId), token)).ConfigureAwait(false);
+                        BuildContext(ruleVerdict, verdict, confidence, result, redacted, missionId, subject), token)).ConfigureAwait(false);
                 }
                 else
                 {
                     string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
-                    await SafeRecordAsync(() => _Recorder.RecordShadowAsync(
-                        BuildContext(ruleVerdict, verdict, confidence, result, redacted, missionId), outcome, token)).ConfigureAwait(false);
+                    await SafeRecordAsync(() => _Recorder.RecordRuleKeptAsync(
+                        BuildContext(ruleVerdict, verdict, confidence, result, redacted, missionId, subject), outcome, token)).ConfigureAwait(false);
                 }
 
                 outcomes.Add(new AttentionOutcome { Available = true, Applied = apply, Attention = attention, NoteKind = noteKind });
@@ -282,6 +285,22 @@ namespace Armada.Core.Services
         }
 
         // The mission an inbox item is about, when the item names one; a record link, never part of the state.
+        // A note about a mission records the mission; any other note records itself.
+        private static TypedDecisionSubject? NoteSubjectOf(BoardNoteTriageInput note)
+        {
+            if (!String.IsNullOrWhiteSpace(note.MissionId) || String.IsNullOrWhiteSpace(note.Id)) return null;
+            return new TypedDecisionSubject(TypedDecisionRecorder.SubjectTypeBoardNote, note.Id.Trim());
+        }
+
+        // An item about a mission records the mission; an item about another record (an incident, an
+        // objective, a check) records that record; an item about no record has no subject.
+        private static TypedDecisionSubject? SubjectOf(InboxItem item)
+        {
+            if (String.IsNullOrWhiteSpace(item.EntityType) || String.IsNullOrWhiteSpace(item.EntityId)) return null;
+            if (String.Equals(item.EntityType, "mission", StringComparison.OrdinalIgnoreCase)) return null;
+            return new TypedDecisionSubject(item.EntityType.Trim().ToLowerInvariant(), item.EntityId.Trim());
+        }
+
         private static string? MissionIdOf(InboxItem item)
         {
             if (!String.Equals(item.EntityType, "mission", StringComparison.OrdinalIgnoreCase)) return null;
@@ -354,10 +373,13 @@ namespace Armada.Core.Services
             double? confidence,
             TypedDecisionResult result,
             string redactedState,
-            string? missionId)
+            string? missionId,
+            TypedDecisionSubject? subject)
         {
             return new TypedDecisionEventContext
             {
+                SubjectType = subject?.Type,
+                SubjectId = subject?.Id,
                 DecisionPoint = DecisionPoint,
                 RuleVerdict = ruleVerdict,
                 ModelVerdict = modelVerdict,

@@ -252,7 +252,7 @@ namespace Armada.Core.Services
             else
             {
                 string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
-                await _Recorder.RecordShadowAsync(
+                await _Recorder.RecordRuleKeptAsync(
                     BuildContext(a, b, "no_merge", modelVerdict, scalar, result, redacted),
                     outcome,
                     token).ConfigureAwait(false);
@@ -321,8 +321,18 @@ namespace Armada.Core.Services
                 ModelVerdict = modelVerdict,
                 Confidence = confidence,
                 Result = result,
-                RedactedState = redactedState
+                RedactedState = redactedState,
+                // The call compares two groups; the subject is the pair, keyed in a stable order.
+                SubjectType = TypedDecisionRecorder.SubjectTypePapercutGroup,
+                SubjectId = PairKey(a, b)
             };
+        }
+
+        private static string PairKey(PapercutGroup a, PapercutGroup b)
+        {
+            List<string> keys = new List<string> { a?.Key ?? String.Empty, b?.Key ?? String.Empty };
+            keys.Sort(StringComparer.Ordinal);
+            return keys[0] + "," + keys[1];
         }
 
         private static PapercutGroup CopyGroup(PapercutGroup group)

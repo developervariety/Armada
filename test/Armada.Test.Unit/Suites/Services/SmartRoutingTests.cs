@@ -251,7 +251,7 @@ namespace Armada.Test.Unit.Suites.Services
                     FakeTypedDecisionClient below = new FakeTypedDecisionClient(CapacityResult("stronger", 0.89));
                     UsageRoutingDecision belowDecision = await SelectAsync(policy, Pool(), capacity: Resolver(db, below));
                     AssertEqual("cpt-luna", belowDecision.Candidates[0].Id, "below threshold");
-                    AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow), "below threshold records the model verdict");
+                    AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeRuleKept), "below threshold records the model verdict");
 
                     FakeTypedDecisionClient off = new FakeTypedDecisionClient(CapacityResult("stronger", 0.99));
                     UsageRoutingDecision offDecision = await SelectAsync(policy, Pool(), capacity: Resolver(db, off, TypedDecisionModeEnum.Off));

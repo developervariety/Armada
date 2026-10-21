@@ -38,7 +38,7 @@ namespace Armada.Core.Services
     /// <list type="bullet">
     /// <item>Off — return the rule, no call.</item>
     /// <item>unavailable — return the rule, record <c>typed_decision.unavailable</c>.</item>
-    /// <item>Shadow, or Gate below threshold — return the rule, record <c>typed_decision.shadow</c>.</item>
+    /// <item>Shadow, or Gate below threshold — return the rule, record <c>typed_decision.rule_kept</c>.</item>
     /// <item>Gate at or above threshold — <c>Combine</c> the rule and the model, where rule
     /// hard-blocks always win, and record <c>typed_decision.gated</c>.</item>
     /// </list>
@@ -284,6 +284,32 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// The deterministic rule's answer to one question, in the question's own answer form (a choice
+        /// string, a noul boolean or a score), recorded beside the model's answer so agreement is computable
+        /// per question. The default is null: the rule has no answer of its own for that question.
+        /// </summary>
+        /// <param name="input">The decision input.</param>
+        /// <param name="ruleVerdict">The rule's verdict.</param>
+        /// <param name="questionId">The question id.</param>
+        /// <returns>The rule's answer, or null.</returns>
+        protected virtual object? RuleAnswerOf(TInput input, TVerdict ruleVerdict, string questionId)
+        {
+            return null;
+        }
+
+        /// <summary>
+        /// The record this decision judged when it is not one mission or one objective, as a kind and an id
+        /// (for example <c>papercut_group</c>). The default is null, so the recorder falls back to the mission,
+        /// then the objective. A record link only: it never enters the state.
+        /// </summary>
+        /// <param name="input">The decision input.</param>
+        /// <returns>The subject, or null.</returns>
+        protected virtual TypedDecisionSubject? SubjectOf(TInput input)
+        {
+            return null;
+        }
+
+        /// <summary>
         /// Every vessel this decision concerns, for the egress vessel rule. The default is the mission's vessel; a
         /// decision about an objective adds the objective's vessels and its target vessel.
         /// </summary>
@@ -429,7 +455,7 @@ namespace Armada.Core.Services
             TypedGateOutcome outcome = TypedDecisionGate.Classify(cfg, available: true, confidence: model.Confidence);
             if (outcome != TypedGateOutcome.Gated)
             {
-                await RecordShadowAsync(input, ruleVerdict, model, result, TypedDecisionGate.ShadowOutcomeLabel(outcome), redacted, token).ConfigureAwait(false);
+                await RecordRuleKeptAsync(input, ruleVerdict, model, result, TypedDecisionGate.ShadowOutcomeLabel(outcome), redacted, token).ConfigureAwait(false);
                 return ruleVerdict;
             }
 
@@ -444,9 +470,9 @@ namespace Armada.Core.Services
                 BuildContext(input, ruleVerdict, null, result, redacted), token));
         }
 
-        private Task RecordShadowAsync(TInput input, TVerdict ruleVerdict, TModel model, TypedDecisionResult result, string outcome, string redacted, CancellationToken token)
+        private Task RecordRuleKeptAsync(TInput input, TVerdict ruleVerdict, TModel model, TypedDecisionResult result, string outcome, string redacted, CancellationToken token)
         {
-            return SafeRecordAsync(() => _Recorder.RecordShadowAsync(
+            return SafeRecordAsync(() => _Recorder.RecordRuleKeptAsync(
                 BuildContext(input, ruleVerdict, model, result, redacted), outcome, token));
         }
 
@@ -463,8 +489,12 @@ namespace Armada.Core.Services
 
         private TypedDecisionEventContext BuildContext(TInput input, TVerdict ruleVerdict, TModel? model, TypedDecisionResult result, string redacted)
         {
+            TypedDecisionSubject? subject = SafeSubjectOf(input);
             return new TypedDecisionEventContext
             {
+                SubjectType = subject?.Type,
+                SubjectId = subject?.Id,
+                RuleAnswers = RuleAnswersOf(input, ruleVerdict),
                 DecisionPoint = DecisionPoint,
                 RuleVerdict = RuleLabel(ruleVerdict),
                 ModelVerdict = model?.Label,
@@ -475,6 +505,40 @@ namespace Armada.Core.Services
                 MissionId = MissionIdOf(input),
                 ObjectiveId = ObjectiveIdOf(input)
             };
+        }
+
+        private TypedDecisionSubject? SafeSubjectOf(TInput input)
+        {
+            try
+            {
+                return SubjectOf(input);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "decision '" + DecisionPoint + "' subject read failed, recorded without one: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The rule's answer to every question this input asks, keyed by question id; null for a question the
+        /// rule has no answer for. A failure records no rule answers rather than breaking the record.
+        /// </summary>
+        private IReadOnlyDictionary<string, object?>? RuleAnswersOf(TInput input, TVerdict ruleVerdict)
+        {
+            try
+            {
+                IReadOnlyDictionary<string, TypedQuestion> questions = BuildQuestions(input);
+                if (questions == null || questions.Count == 0) return null;
+                Dictionary<string, object?> answers = new Dictionary<string, object?>(StringComparer.Ordinal);
+                foreach (string id in questions.Keys) answers[id] = RuleAnswerOf(input, ruleVerdict, id);
+                return answers;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "decision '" + DecisionPoint + "' rule answers failed, recorded without them: " + ex.Message);
+                return null;
+            }
         }
 
         #endregion

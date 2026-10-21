@@ -201,7 +201,7 @@ namespace Armada.Core.Services
             if (!apply)
             {
                 string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
-                await SafeRecordAsync(() => _Recorder.RecordShadowAsync(
+                await SafeRecordAsync(() => _Recorder.RecordRuleKeptAsync(
                     BuildContext(followUp, "unrouted", home, homeConfidence, result, redacted), outcome, token)).ConfigureAwait(false);
                 return new FollowUpItemOutcome { Available = true, Applied = false };
             }

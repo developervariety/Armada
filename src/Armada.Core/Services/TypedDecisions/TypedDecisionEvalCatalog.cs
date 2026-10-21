@@ -164,6 +164,37 @@ namespace Armada.Core.Services
                 adapter.DescribeRequest(workDefect),
                 adapter.DescribeRequest(otherPersona),
                 "cause"));
+
+            FailureCauseDecisionInput evidenceGap = new FailureCauseDecisionInput
+            {
+                Mission = EvalMission("Review the frame encoder checksum", "Judge"),
+                FailureReason = "Judge verdict NEEDS_REVISION",
+                AgentOutputTail = "[ARMADA:VERDICT] NEEDS_REVISION\nThe acceptance criteria cite a reference capture that is not present in the dock, so the checksum parity claim cannot be verified. The code itself matches the brief.",
+                Persona = "Judge",
+                MissionMode = "Review"
+            };
+            FailureCauseDecisionInput judgedDefect = new FailureCauseDecisionInput
+            {
+                Mission = EvalMission("Review the frame encoder checksum", "Judge"),
+                FailureReason = "Judge verdict NEEDS_REVISION",
+                AgentOutputTail = "[ARMADA:VERDICT] NEEDS_REVISION\nFrameEncoder adds the checksum before the length byte, so every encoded frame is rejected by the decoder test the brief names.",
+                Persona = "Judge",
+                MissionMode = "Review"
+            };
+            cases.Add(Pair(
+                "failure_cause.valid_verdict_evidence_gap_vs_code_defect",
+                "failure_cause",
+                TypedDecisionEvalCaseKindEnum.Reference,
+                "Both Judge verdicts are well formed; the first reports evidence the dock lacks, the second a defect a rescue can repair.",
+                adapter.DescribeRequest(evidenceGap),
+                adapter.DescribeRequest(judgedDefect),
+                Expect(
+                    "verdict_valid", new TypedDecisionExpectation { NoulAtLeast = 0.6 },
+                    "evidence_unavailable", new TypedDecisionExpectation { NoulAtLeast = 0.6 },
+                    "code_defect", new TypedDecisionExpectation { NoulAtMost = 0.4 }),
+                Expect(
+                    "verdict_valid", new TypedDecisionExpectation { NoulAtLeast = 0.6 },
+                    "code_defect", new TypedDecisionExpectation { NoulAtLeast = 0.6 })));
         }
 
         private static void AddRefusal(List<TypedDecisionEvalCase> cases, TypedRefusalAdapter adapter)
