@@ -20,6 +20,9 @@ namespace Armada.Runtimes
     /// silently activated for every captain, causing unpredictable tool availability and
     /// potential side effects.
     ///
+    /// Prompt cache: <c>--exclude-dynamic-system-prompt-sections</c> keeps the system prompt identical
+    /// across docks and vessels, so captains on one model share its cache entry.
+    ///
     /// Reasoning effort: mapped from <c>CaptainRuntimeOptions.ReasoningEffort</c> to
     /// MAX_THINKING_TOKENS env var (low=4096, medium=16384, high=128000).
     /// Accepted values: low|medium|high.
@@ -72,6 +75,13 @@ namespace Armada.Runtimes
         /// Whether to use --dangerously-skip-permissions flag.
         /// </summary>
         public bool SkipPermissions { get; set; } = true;
+
+        /// <summary>
+        /// Whether to pass --exclude-dynamic-system-prompt-sections, which keeps the system prompt
+        /// identical across working directories so its prompt-cache entry is shared by every
+        /// captain on the same model. Requires a Claude Code CLI that accepts the flag.
+        /// </summary>
+        public bool ExcludeDynamicSystemPromptSections { get; set; } = true;
 
         /// <summary>
         /// When true, add --include-partial-messages so the runtime emits incremental text deltas and
@@ -175,6 +185,15 @@ namespace Armada.Runtimes
             args.Add("--disallowedTools");
             args.AddRange(EnvironmentListingDenyRules);
             args.Add("--strict-mcp-config");
+
+            if (ExcludeDynamicSystemPromptSections)
+            {
+                // The per-repository sections (memory path, environment, git status) move out of the
+                // system prompt into the first user message, so every captain on the same model sends
+                // one identical system prompt and reads it from the prompt cache whichever vessel
+                // warmed it. The sections reach the captain unchanged.
+                args.Add("--exclude-dynamic-system-prompt-sections");
+            }
 
             if (!String.IsNullOrEmpty(model))
             {

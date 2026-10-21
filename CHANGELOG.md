@@ -306,6 +306,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Changed
 
+- Claude Code captains launch with `--exclude-dynamic-system-prompt-sections`,
+  so the per-repository system-prompt sections (memory path, environment, git
+  status) reach the captain in its first message instead of the system prompt.
+  Every captain on one model then sends the same system prompt and reads it
+  from the prompt cache whichever vessel warmed it, instead of writing a
+  vessel-specific copy. `ClaudeCodeRuntime.ExcludeDynamicSystemPromptSections`
+  turns the flag off for a CLI that does not accept it.
 - The Git Service and Dock Service unit suites take their base repository
   (branch `main`, one "Initial commit" adding `README.md`, test user
   configured) from the shared `TestGitRepoHelper` template, moved into place,

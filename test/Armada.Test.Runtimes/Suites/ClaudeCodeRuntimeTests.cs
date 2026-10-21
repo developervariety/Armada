@@ -22,6 +22,9 @@ namespace Armada.Test.Runtimes.Suites
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null, Captain? captain = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, captain);
 
+            public List<string> ArgsIn(string workingDirectory, string prompt, string? model, Captain? captain) =>
+                BuildArguments(workingDirectory, prompt, model, null, captain);
+
             public bool PromptViaStdin => UsePromptStdin;
 
             public ProcessStartInfo StartInfoWithEnvironment(Captain? captain, string? existingThinkingBudget = null)
@@ -86,6 +89,26 @@ namespace Armada.Test.Runtimes.Suites
                 AssertTrue(settingSourcesIndex >= 0, "--setting-sources flag missing");
                 AssertEqual("project,local", args[settingSourcesIndex + 1]);
                 AssertTrue(args.Contains("--strict-mcp-config"), "--strict-mcp-config flag missing");
+            });
+
+            await RunTest("Two missions on one captain launch with identical arguments that keep the system prompt cache-shared", () =>
+            {
+                // The prompt cache is shared only up to the first byte that differs, so a launch must
+                // carry nothing mission-specific before the brief, and must ask the CLI to keep the
+                // per-repository sections out of the system prompt.
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                Captain captain = new Captain { Name = "example-captain", Runtime = AgentRuntimeEnum.ClaudeCode, Model = "claude-example-1" };
+                string firstDock = Path.Combine(Path.GetTempPath(), "docks", "ExampleVessel", "msn_first", "ExampleVessel");
+                string secondDock = Path.Combine(Path.GetTempPath(), "docks", "OtherVessel", "msn_second", "OtherVessel");
+                List<string> first = runtime.ArgsIn(firstDock, "Mission: first", captain.Model, captain);
+                List<string> second = runtime.ArgsIn(secondDock, "Mission: second", captain.Model, captain);
+
+                AssertEqual(String.Join("\n", first), String.Join("\n", second), "launch arguments must not vary by mission, dock or prompt");
+                AssertTrue(first.Contains("--exclude-dynamic-system-prompt-sections"), "the dynamic system-prompt sections must be excluded");
+
+                runtime.ExcludeDynamicSystemPromptSections = false;
+                AssertFalse(runtime.ArgsIn(firstDock, "Mission: first", captain.Model, captain).Contains("--exclude-dynamic-system-prompt-sections"),
+                    "the flag can be turned off for a CLI that does not accept it");
             });
 
             await RunTest("ValidateReasoningEffort_High_ReturnsNull", () =>
