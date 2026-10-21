@@ -8,7 +8,7 @@ The version 3 frontier cohort failed at 16:05:12 UTC: 22 WorkProduced, one Faile
 
 All recorded work was archived on remote Wilson branch `armada/acceptance/archive-frontier-v3-polyprompt350-20261021` at `63cf889fe65c23e8a59d7c3c2e062f9a229adc7f`; the voyage and all 72 missions were deleted and read back 404 before pause. Prior frontier work remains archived at `32aad1b088e2a26c06f6aef0082027fae419008e`. Private evidence roots are `/tmp/armada-frontier-v3-retest-20261021` and `/tmp/armada-frontier-retest-20261021`. Do not monitor deleted cohorts.
 
-The acceptance checkout has not yet been reset after the latest cohort. Baseline readiness is unverified. Reviewed fixes remain uncommitted in `/private/tmp/armada-stop-delivery-20261021`, branch `codex/harbor-job-ownership`, based on `cc9ccfe9`. Review and final net10/net8 validation plus clean Release build are complete (details below); commit/push and rollout must precede another cohort. No new deployment exists yet.
+The acceptance checkout has not yet been reset after the latest cohort. Baseline readiness is unverified. Reviewed lifecycle fixes were committed as `2adfcfbb`, fast-forwarded and pushed to main; the preserved worktree is `/private/tmp/armada-stop-delivery-20261021`, branch `codex/harbor-job-ownership`. Review and final net10/net8 validation plus clean Release build are complete (details below); rollout must precede another cohort. No new deployment exists yet.
 
 ## Continuous cross-model and workload campaign
 
@@ -589,3 +589,6 @@ This completes the disabled/empty-policy guard, not a guarantee that every nonem
 
 
 Native Harbor rollout assessment: changed production methods are Admiral-side connection management/metrics, mission runtime observers, captain recovery/recall and prompt generation. No Harbor link client/job-runner/native CLI implementation changed. Those callers send the existing lifecycle protocol unchanged, so this revision requires server deployment but no native Harbor restart. Native startup/display behavior (HF-22) remains unverified/open. Docker context is the reviewed worktree, where RESTART_TESTING.md is absent; its `.dockerignore` also excludes Markdown except README. No credentials are staged.
+
+
+Publication check correction: commit 2adfcfbb passed all behavioral tests but the first clean Docker compile and GitHub CI 39643680830 found CS1571 (duplicate XML jobId parameter documentation added during the async stop-intent edit). The earlier incremental solution build emitted zero warnings because its outputs were already current; that did not establish a clean warning-free compilation. The first images were published but not deployed. The duplicate line is removed. A full Release solution Rebuild with warnings as errors now passes with zero warnings/errors (`/tmp/armada-resumed-clean-rebuild.log`, 6.45s). Republish before rollout. No behavioral production code changed for this correction; the 2,247/521 behavioral results remain applicable.

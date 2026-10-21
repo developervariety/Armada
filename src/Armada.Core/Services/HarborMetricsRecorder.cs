@@ -223,7 +223,6 @@ namespace Armada.Core.Services
         /// Note that the Admiral asked a Harbor to stop a job, so its exit counts as stopped rather than failed.
         /// </summary>
         /// <param name="jobId">Job identifier.</param>
-        /// <param name="jobId">The job whose stop was requested.</param>
         /// <param name="token">Cancellation token.</param>
         public async Task OnStopRequestedAsync(string jobId, CancellationToken token = default)
         {
