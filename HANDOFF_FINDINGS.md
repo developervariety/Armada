@@ -8,7 +8,11 @@ The version 3 frontier cohort failed at 16:05:12 UTC: 22 WorkProduced, one Faile
 
 All recorded work was archived on remote Wilson branch `armada/acceptance/archive-frontier-v3-polyprompt350-20261021` at `63cf889fe65c23e8a59d7c3c2e062f9a229adc7f`; the voyage and all 72 missions were deleted and read back 404 before pause. Prior frontier work remains archived at `32aad1b088e2a26c06f6aef0082027fae419008e`. Private evidence roots are `/tmp/armada-frontier-v3-retest-20261021` and `/tmp/armada-frontier-retest-20261021`. Do not monitor deleted cohorts.
 
-The acceptance checkout has not yet been reset after the latest cohort. Baseline readiness is unverified. Reviewed lifecycle fixes were committed as `2adfcfbb`, fast-forwarded and pushed to main; the preserved worktree is `/private/tmp/armada-stop-delivery-20261021`, branch `codex/harbor-job-ownership`. Review and final net10/net8 validation plus clean Release build are complete (details below); rollout must precede another cohort. No new deployment exists yet.
+Fresh voyage `vyg_mvie4xff_SFw4LAZp71R` was dispatched at 17:33:18 UTC after verified lifecycle rollout. The eight-stage pipeline and all strict captain assignments are unchanged: Claude Worker `claude-opus-5-5`, independent Codex Judge `gpt-6.1-sol`, Claude planning/contributors (saved Model null; actual telemetry must establish their model). Product Manager started on its requested captain at 17:33:20; initial collector reports no routing/redispatch alerts. Approval remains ApproveAll, 600 seconds, Deny. Private evidence/25-second collector: `/tmp/armada-frontier-v4-retest-20261021`.
+
+Clean local/remote acceptance baseline `8c3e8b5` (PolyPrompt 3.1.0), archived work `63cf889f` and unchanged production main `c9ff616f` were verified at 17:32:35. Acceptance push used the observed lease; only the dedicated ref was reset. ProjectContext/ModelContext were cleared and read back. Eighteen vessel memories remain preserved; objective prohibits reusing old implementation or tenant memory, so this is not an erased-memory/blind benchmark. NuGet still lists 3.5.0 latest stable. The saved objective is retained with explicit new Token/Digest/header/CRLF/query/word-boundary, status-URL and malformed-JSON secrecy regression expectations; exact changes and payload are archived.
+
+Reviewed behavioral fixes `2adfcfbb` and documentation-only correction `f027b8dc` are pushed to main and deployed. Final behavioral checks: net10 2,247/2,247, affected net8 521/521. Fresh full Release Rebuild with warnings as errors: zero warnings/errors. Both services are healthy on final published image digests; all mounts/environment/ports/networks/restart policies preserved; 27 template contents verified (Worker/Judge migrated, others preserved), Harbor connected/enabled. No acceptance voyage was active during this rollout; no in-flight continuity claim is made. Details and limits follow.
 
 ## Continuous cross-model and workload campaign
 
@@ -47,9 +51,9 @@ Coverage must include the full Wilson upgrade objective and smaller held-out rep
 | HF-23 | Revision-aware vessel context | Recorder context survived Git reset with obsolete package/test facts; cleared before new Architect dispatch; automatic invalidation remains open |
 | HF-25 | Known blocking defects pass through verification stages as COMPLETE | Test Engineer and Linter reported nested-Bearer leak, then Judge independently requested rework; need a structured blocking-outcome/earlier routing contract |
 | HF-29 | Native Claude future timers outlive completed missions | Real noop timer reproduced a successful terminal result with a still-running CLI; bounded-mission guard and owned recovery diagnostics implemented/tested, 2,222 regression checks passed; deployed and verified; fresh no-retry run pending |
-| HF-31 | Stop acknowledgement and recovery overlap | Pending local fix waits for actual owner exit, retains tracking on timeout/disconnect and defers replacement; final revision validation and rollout pending. No live duplicate-execution claim |
-| HF-32 | Harbor lifecycle ownership | Isolated transport reproduction permitted another Harbor to mutate a known job; local ownership checks cover active/durable lookup before callbacks/metrics. Final validation/deployment pending; ordinary RPC isolation needs separate review |
-| HF-33 | Cross-Harbor process identity collisions | Same native/synthetic PID can overwrite global mappings; local unique-handle and restored-assignment persistence fix pending review, validation and rollout |
+| HF-31 | Stop acknowledgement and recovery overlap | Implemented/tested/deployed actual owner-exit wait, durable intent, retained tracking and deferred replacement; overlapping waiters, replay and recall regressions pass. Expanded live fault matrix remains pending. No live duplicate-execution claim |
+| HF-32 | Harbor lifecycle ownership | Isolated transport reproduction permitted another Harbor to mutate a known job; local ownership checks cover active/durable lookup before callbacks/metrics. Final isolated regression validation and image deployment verified; ordinary RPC isolation needs separate review |
+| HF-33 | Cross-Harbor process identity collisions | Same native/synthetic PID can overwrite global mappings; unique-handle and restored-assignment persistence fix reviewed, regression-tested and deployed; mixed local/remote allocator and wider live boundaries remain unverified |
 | HF-26 | DocMon native Compose path mapping | Native action still cannot access discovered Compose paths. Data-preserving helper pull/recreate was successfully exercised and is in the appendix; no DocMon product fix claimed |
 
 ## Resumed lifecycle review — 2026-10-21
@@ -68,7 +72,7 @@ Recall-path review additionally reproduced swallowed stop errors followed by cap
 
 Focused final lifecycle/metrics/runtime checks passed 72/72 on net8; the pre-recall broad net8 run passed 516/516 and solution built warning-free. Final source including recall correction passes Services/Runtimes net10 **2,247/2,247** (225.087s), affected net8 **521/521** (99.953s), and a Release solution build with **zero warnings/errors**. Commands/results: `/tmp/armada-resumed-release-net{8,10}.{json,log}` and `/tmp/armada-resumed-release-solution.log`. CRLF-aware diff check passes. No failures or skips in final runs. Added lifecycle, metrics, outbox, reconnect/reconciliation, dock-affinity and captain-recall suites to regular CI.
 
-No new image or acceptance voyage has been dispatched. Live services retain StartUtc 15:02:30 UTC. Read-only Git reconciliation found the dedicated checkout and remote acceptance ref already clean at `8c3e8b5`; archive `63cf889f` and production main `c9ff616f` remain intact. This is observed current source state, not yet the fresh dispatch/context preflight proof.
+At initial resume no new image or acceptance voyage had been dispatched; live services still had StartUtc 15:02:30 UTC. Read-only Git reconciliation found the dedicated checkout and remote acceptance ref already clean at `8c3e8b5`; archive `63cf889f` and production main `c9ff616f` remain intact. This is observed current source state, not yet the fresh dispatch/context preflight proof.
 
 ## Findings from this run
 
@@ -592,3 +596,16 @@ Native Harbor rollout assessment: changed production methods are Admiral-side co
 
 
 Publication check correction: commit 2adfcfbb passed all behavioral tests but the first clean Docker compile and GitHub CI 39643680830 found CS1571 (duplicate XML jobId parameter documentation added during the async stop-intent edit). The earlier incremental solution build emitted zero warnings because its outputs were already current; that did not establish a clean warning-free compilation. The first images were published but not deployed. The duplicate line is removed. A full Release solution Rebuild with warnings as errors now passes with zero warnings/errors (`/tmp/armada-resumed-clean-rebuild.log`, 6.45s). Republish before rollout. No behavioral production code changed for this correction; the 2,247/521 behavioral results remain applicable.
+
+
+### Resumed lifecycle publication and deployment — 2026-10-21 17:32 UTC
+
+Corrected image-source revision `f027b8dc636ac1553f2b6f142b0274599762c797` completed `./build-all.sh v1.1.0` with no compiler warnings/errors. First images from `2adfcfbb` were never deployed; they were superseded after the duplicate XML-comment correction. Final manifests:
+
+| Image | Digest |
+| --- | --- |
+| server | `sha256:98166deb55d84c171720f340612198e93169f95974ede4450c11b24338e6536a` |
+| dashboard | `sha256:2869888a35afcf2379b8fcc3a35f0e2d7a422a3a1d3088db5b5955a9717b9ef1` |
+| proxy | `sha256:51a9a272a48bd49cf08817d7314ea54c021c9e419915f2b9fa8b7d1182b1758f` |
+
+DocMon pull and up each returned exitCode=0. Verification confirms both actual running service digests match the final build and exact mount source/destination/RW triples are unchanged. Read-only Compose inspection separately verifies environment, published ports, networks and restart policies. Server StartUtc advanced to 17:31:47 UTC. Worker/Judge live brief content matches new embedded defaults; all other 25 template contents match before, including customized content. Harbor is connected/enabled; no native Harbor code-path update was required. No voyage was active during rollout. Evidence: `/tmp/armada-resumed-20261021/{build-proof,compose-config-preservation,prompt-and-harbor-rollout}.json`, `docmon/rollout-verification.json`, build logs `/tmp/armada-resumed-build-all-final.log`; evidence is private. The new Wilson run still requires full independent completion/verification.
