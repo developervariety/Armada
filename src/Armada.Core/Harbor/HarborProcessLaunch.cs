@@ -1,6 +1,7 @@
 namespace Armada.Core.Harbor
 {
     using System;
+    using System.Collections.Generic;
 
     /// <summary>A mission launch bound for a Harbor runner.</summary>
     public sealed class HarborProcessLaunch
@@ -28,8 +29,25 @@ namespace Armada.Core.Harbor
         /// <summary>Working directory on the runner.</summary>
         public string WorkingDirectory { get; set; } = String.Empty;
 
+        /// <summary>
+        /// Arguments appended after the runtime's own, in the place a local launch appends its isolation arguments.
+        /// The Admiral sets only workspace-root arguments, with paths as the runner resolves them; nothing that
+        /// carries a credential travels here.
+        /// </summary>
+        public List<string> ExtraArguments
+        {
+            get => _ExtraArguments;
+            set => _ExtraArguments = value ?? new List<string>();
+        }
+
         /// <summary>Launch plan the runtime built. Set by the runtime before the host is called.</summary>
         public HarborLaunchRequest? Request { get; set; } = null;
+
+        #endregion
+
+        #region Private-Members
+
+        private List<string> _ExtraArguments = new List<string>();
 
         #endregion
     }

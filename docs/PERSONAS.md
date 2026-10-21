@@ -262,6 +262,12 @@ A brief also matches the dock it lands in and the tools the captain has:
   checkout as a workspace root (`--add-dir`), so built-in search and file tools
   reach it. Other runtimes keep their tools inside the dock, and the section
   names the shell search to use instead.
+- `captainEvidenceRoots` (a list of `{ "path", "vesselIds" }`, empty by
+  default) declares read-only evidence directories that captains read beside
+  the dock, such as an exported source tree the host mounts. Each root whose
+  `vesselIds` is empty or names the mission's vessel is registered as a
+  workspace root the same way as a sibling checkout. A declared root that does
+  not exist on the Admiral is left out with a logged warning.
 - `briefPathRewrites` (a list of `{ "from", "to" }` prefixes, empty by default)
   rewrites host paths in the mission description and the objective scope to the
   paths a captain resolves, such as a host volume and its container mount.

@@ -514,6 +514,21 @@ namespace Armada.Core.Settings
         private List<BriefPathRewrite> _BriefPathRewrites = new List<BriefPathRewrite>();
 
         /// <summary>
+        /// Read-only evidence directories that captains read beside their dock, such as an exported source tree the
+        /// host mounts into the captain environment. Each applicable root is registered as an extra workspace root
+        /// for runtimes that accept one (<c>--add-dir</c>), on a local launch and on a Harbor launch alike. A declared
+        /// root that does not exist on the Admiral is left out with a logged warning. The list ships empty and is
+        /// read at each launch.
+        /// </summary>
+        public List<CaptainEvidenceRoot> CaptainEvidenceRoots
+        {
+            get => _CaptainEvidenceRoots;
+            set => _CaptainEvidenceRoots = value ?? new List<CaptainEvidenceRoot>();
+        }
+
+        private List<CaptainEvidenceRoot> _CaptainEvidenceRoots = new List<CaptainEvidenceRoot>();
+
+        /// <summary>
         /// Absolute path to the shared AI-Memory root on the host where captains run, or null to omit
         /// the AI-Memory module from captain instructions.
         ///

@@ -9,6 +9,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Captains reach declared evidence directories with built-in search and file
+  tools. The `captainEvidenceRoots` setting (a list of `{ "path", "vesselIds" }`,
+  empty by default) names read-only directories, such as a mounted export tree;
+  each root whose `vesselIds` is empty or names the mission's vessel is passed as
+  an extra workspace root (`--add-dir`) to Claude Code, Codex and Cursor. A
+  declared root that does not exist is left out with a logged warning. Harbor
+  launches register the same sibling and evidence roots as local launches, mapped
+  to the runner's paths through the route's working-directory roots; a root the
+  route cannot map is left out with a logged reason.
 - Deployments pin one immutable candidate. A deployment resolves its
   `SourceRef` once, at create, to the full commit in the vessel's own
   repository and stores it as `SourceCommit`, with an optional

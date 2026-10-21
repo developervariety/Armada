@@ -551,6 +551,55 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MissionLaunch_RegistersSiblingAndEvidenceRootsAtTheRunnersPaths", async () =>
+            {
+                string outsideEvidence = Path.Combine(Path.GetTempPath(), "armada_harbor_outside_evidence_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(outsideEvidence);
+                try
+                {
+                    await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
+                    {
+                        await harness.EnrollBothAsync().ConfigureAwait(false);
+                        await using (FakeRunner runner = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false))
+                        using (MissionScope scope = await MissionScope.CreateAsync(harness, harness.OwnerA, "hbr_a", prepare: async (root, settings, mission) =>
+                        {
+                            Directory.CreateDirectory(Path.Combine(root, "sibling"));
+                            Directory.CreateDirectory(Path.Combine(root, "evidence"));
+                            Vessel vessel = new Vessel("HarborRootsVessel", "https://example.invalid/harbor-roots.git");
+                            vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo> { new SiblingRepo { RelativePath = "../sibling" } });
+                            vessel = await harness.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                            mission.VesselId = vessel.Id;
+                            settings.CaptainEvidenceRoots.Add(new CaptainEvidenceRoot { Path = Path.Combine(root, "evidence") });
+                            settings.CaptainEvidenceRoots.Add(new CaptainEvidenceRoot { Path = outsideEvidence });
+                            settings.Harbor.MissionRoutes[0].AdmiralWorkingDirectoryRoot = root;
+                            settings.Harbor.MissionRoutes[0].RunnerWorkingDirectoryRoot = "/runner/work";
+                        }).ConfigureAwait(false))
+                        {
+                            AssertTrue((await runner.HandshakeAsync("hbr_a").ConfigureAwait(false)).Accepted, "runner connected");
+                            await scope.Handler.HandleLaunchAgentAsync(scope.Captain, scope.Mission, scope.Dock).ConfigureAwait(false);
+                            HarborLaunchRequest launch = await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
+
+                            AssertEqual("/runner/work/dock", launch.WorkingDirectory, "the runner works in its own path for the dock");
+                            List<string> roots = new List<string>();
+                            for (int i = 0; i + 1 < launch.Arguments.Count; i++)
+                                if (launch.Arguments[i] == "--add-dir") roots.Add(launch.Arguments[i + 1]);
+                            AssertTrue(roots.Contains("/runner/work/sibling"), "the provisioned sibling travels as a runner-side workspace root: " + String.Join(", ", roots));
+                            AssertTrue(roots.Contains("/runner/work/evidence"), "the evidence root travels as a runner-side workspace root: " + String.Join(", ", roots));
+                            AssertEqual(2, roots.Count, "a root the route cannot map is left out: " + String.Join(", ", roots));
+                            AssertFalse(String.Join(" ", launch.Arguments).Contains(outsideEvidence), "an unmapped Admiral path never reaches the runner");
+
+                            await runner.SendAsync(new HarborStarted { JobId = launch.JobId, ProcessId = 9002 }).ConfigureAwait(false);
+                            await runner.SendAsync(new HarborExited { JobId = launch.JobId, ExitCode = 0 }).ConfigureAwait(false);
+                            await scope.Admiral.NextExitAsync(Wait).ConfigureAwait(false);
+                        }
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(outsideEvidence, true); } catch (IOException) { }
+                }
+            });
+
             await RunTest("MissionStop_ReachesItsRunnerAndTheExitFlowsBack", async () =>
             {
                 await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
@@ -1203,7 +1252,7 @@ namespace Armada.Test.Unit.Suites.Services
                 LogFilePath = logFilePath;
             }
 
-            public static async Task<MissionScope> CreateAsync(Harness harness, Principal missionOwner, string runnerId, Action<Captain>? configureCaptain = null, Func<LoggingModule, ArmadaSettings, AgentRuntimeFactory>? runtimeFactory = null)
+            public static async Task<MissionScope> CreateAsync(Harness harness, Principal missionOwner, string runnerId, Action<Captain>? configureCaptain = null, Func<LoggingModule, ArmadaSettings, AgentRuntimeFactory>? runtimeFactory = null, Func<string, ArmadaSettings, Mission, Task>? prepare = null)
             {
                 string root = Path.Combine(Path.GetTempPath(), "armada_harbor_mission_" + Guid.NewGuid().ToString("N"));
                 string worktree = Path.Combine(root, "dock");
@@ -1231,6 +1280,7 @@ namespace Armada.Test.Unit.Suites.Services
                 configureCaptain?.Invoke(captain);
                 mission.CaptainId = captain.Id;
                 settings.Harbor.MissionRoutes.Add(new HarborMissionRoute { RunnerId = runnerId, CaptainId = captain.Id });
+                if (prepare != null) await prepare(root, settings, mission).ConfigureAwait(false);
                 await harness.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
                 await harness.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
                 Dock dock = new Dock { BranchName = mission.BranchName, WorktreePath = worktree };

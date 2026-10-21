@@ -185,7 +185,10 @@ jobs with `harbor_runner_disconnected`. A stop for a job whose runner is not con
 ## Mission execution
 
 A routed mission launch builds the runtime's command and arguments on the Admiral, exactly as for a local launch,
-and sends them in `launch` with the dock path as `workingDirectory`. The Admiral keeps the dock, branch and landing;
+and sends them in `launch` with the dock path as `workingDirectory`. The arguments register the same extra
+workspace roots as a local launch (provisioned sibling checkouts and `captainEvidenceRoots`), each mapped through the
+route's working-directory roots to the path the runner resolves. A root the route cannot map is left out, and the
+Admiral logs the root and the mapping reason. The Admiral keeps the dock, branch and landing;
 the runner never lands or pushes, and the protocol has no git command. Only non-secret variables travel in
 `environment`: a launch that needs a provider key, an account login or any other variable is refused with
 `harbor_launch_environment_unsupported` before a job exists. The Admiral's MCP launch credential never travels.

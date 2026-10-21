@@ -364,6 +364,7 @@ namespace Armada.Runtimes
 
             string command = GetCommand();
             List<string> args = BuildArguments(launch.WorkingDirectory, prompt, model, null, captain);
+            args.AddRange(launch.ExtraArguments);
             Dictionary<string, string> environment = HarborLaunchEnvironment.Select(CollectLaunchVariables(model, captain));
             launch.Request = new HarborLaunchRequest
             {

@@ -936,6 +936,21 @@ namespace Armada.Server
                 OwnerUserId = mission.UserId!,
                 WorkingDirectory = runnerDirectory
             };
+
+            // A routed launch registers the same sibling and evidence roots as a local launch, at the paths the runner
+            // resolves. A root the route cannot map is left out by name rather than sent as a path the runner lacks.
+            List<string> runnerRoots = new List<string>();
+            foreach (string root in await ReadWorkspaceRootsAsync(mission, dock).ConfigureAwait(false))
+            {
+                if (HarborMissionRouting.TryMapWorkingDirectory(route, root, out string runnerRoot, out string rootReason))
+                    runnerRoots.Add(runnerRoot);
+                else
+                    _Logging.Warn(_Header + "mission " + mission.Id + " workspace root " + root + " is not sent to Harbor runner "
+                        + launch.RunnerId + ": " + rootReason);
+            }
+            CaptainLaunchIsolationPlan rootsPlan = new CaptainLaunchIsolationPlan();
+            CaptainLaunchIsolationPlanner.AddWorkspaceRoots(rootsPlan, captain.Runtime, runnerRoots);
+            launch.ExtraArguments = rootsPlan.ExtraArguments;
             _Logging.Info(_Header + "mission " + mission.Id + " is routed to Harbor runner " + launch.RunnerId);
             int processId = await processRuntime.StartOnHarborAsync(_HarborHost, launch, prompt, logFilePath, captain.Model, captain).ConfigureAwait(false);
             await _EmitEventAsync("captain.harbor_launched", "Mission " + mission.Id + " runs on Harbor runner " + launch.RunnerId,
@@ -979,6 +994,40 @@ namespace Armada.Server
             return roots;
         }
 
+        /// <summary>
+        /// The configured evidence roots that apply to a mission's vessel, as absolute directories. A declared root
+        /// that does not exist is left out with a warning, so a runtime is never pointed at a missing directory and the
+        /// omission is visible.
+        /// </summary>
+        internal List<string> ReadEvidenceWorkspaceRoots(Mission mission)
+        {
+            List<string> roots = new List<string>();
+            foreach (CaptainEvidenceRoot evidence in _Settings.CaptainEvidenceRoots)
+            {
+                if (evidence == null || !evidence.AppliesTo(mission.VesselId)) continue;
+                if (!Path.IsPathRooted(evidence.Path))
+                {
+                    _Logging.Warn(_Header + "evidence root " + evidence.Path + " is not an absolute path; mission " + mission.Id + " does not receive it");
+                    continue;
+                }
+                string path = Path.GetFullPath(evidence.Path);
+                if (Directory.Exists(path)) roots.Add(path);
+                else _Logging.Warn(_Header + "evidence root " + path + " does not exist; mission " + mission.Id + " does not receive it");
+            }
+            return roots;
+        }
+
+        /// <summary>
+        /// Every extra workspace root a mission launch registers: its provisioned sibling checkouts, then its
+        /// evidence roots.
+        /// </summary>
+        internal async Task<List<string>> ReadWorkspaceRootsAsync(Mission mission, Dock? dock, CancellationToken token = default)
+        {
+            List<string> roots = await ReadSiblingWorkspaceRootsAsync(mission, dock, token).ConfigureAwait(false);
+            roots.AddRange(ReadEvidenceWorkspaceRoots(mission));
+            return roots;
+        }
+
         internal async Task<CaptainLaunchIsolationPlan?> PrepareCaptainLaunchIsolationAsync(
             Captain captain,
             Mission mission,
@@ -1009,10 +1058,10 @@ namespace Armada.Server
                 if (loginProblem != null) throw new CaptainAccountLaunchException(loginProblem, account.Id);
             }
 
-            // Sibling checkouts sit beside the dock, outside the runtime's working directory, so built-in search
+            // Sibling checkouts and evidence roots sit outside the runtime's working directory, so built-in search
             // and file tools never reach them unless they are registered as workspace roots.
             CaptainLaunchIsolationPlanner.AddWorkspaceRoots(plan, captain.Runtime,
-                await ReadSiblingWorkspaceRootsAsync(mission, dock, token).ConfigureAwait(false));
+                await ReadWorkspaceRootsAsync(mission, dock, token).ConfigureAwait(false));
             if (plan.IsEmpty) return null;
 
             Directory.CreateDirectory(scopedDirectory);

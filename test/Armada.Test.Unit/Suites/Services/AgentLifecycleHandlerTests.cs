@@ -271,6 +271,61 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A launch registers each declared evidence root for its vessel as a workspace root and leaves out a missing or other-vessel root", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    string root = Path.Combine(Path.GetTempPath(), "armada_evidence_roots_" + Guid.NewGuid().ToString("N"));
+                    string worktree = Path.Combine(root, "target");
+                    string everyVessel = Path.Combine(root, "evidence-all");
+                    string thisVessel = Path.Combine(root, "evidence-this");
+                    string otherVessel = Path.Combine(root, "evidence-other");
+                    Directory.CreateDirectory(worktree);
+                    Directory.CreateDirectory(everyVessel);
+                    Directory.CreateDirectory(thisVessel);
+                    Directory.CreateDirectory(otherVessel);
+
+                    try
+                    {
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("EvidenceVessel", "https://example.invalid/evidence.git")).ConfigureAwait(false);
+                        settings.CaptainEvidenceRoots = new List<CaptainEvidenceRoot>
+                        {
+                            new CaptainEvidenceRoot { Path = everyVessel + "/" },
+                            new CaptainEvidenceRoot { Path = thisVessel, VesselIds = new List<string> { vessel.Id } },
+                            new CaptainEvidenceRoot { Path = otherVessel, VesselIds = new List<string> { "vsl_another" } },
+                            new CaptainEvidenceRoot { Path = Path.Combine(root, "never-mounted") }
+                        };
+                        Mission mission = new Mission("Evidence mission")
+                        {
+                            VesselId = vessel.Id,
+                            TenantId = Armada.Core.Constants.DefaultTenantId,
+                            UserId = Armada.Core.Constants.DefaultUserId
+                        };
+                        Dock dock = new Dock(vessel.Id) { WorktreePath = worktree };
+
+                        foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Cursor })
+                        {
+                            CaptainLaunchIsolationPlan? plan = await handler.PrepareCaptainLaunchIsolationAsync(new Captain("evidence-" + runtime, runtime), mission, dock).ConfigureAwait(false);
+                            AssertNotNull(plan, runtime + " launch produces a plan");
+                            List<string> roots = new List<string>();
+                            for (int i = 0; i + 1 < plan!.ExtraArguments.Count; i++)
+                                if (plan.ExtraArguments[i] == "--add-dir") roots.Add(plan.ExtraArguments[i + 1]);
+                            AssertTrue(roots.Contains(Path.GetFullPath(everyVessel)), runtime + " receives an evidence root declared for every vessel");
+                            AssertTrue(roots.Contains(Path.GetFullPath(thisVessel)), runtime + " receives an evidence root declared for its vessel");
+                            AssertEqual(2, roots.Count, runtime + " receives no root for another vessel or a missing directory: " + String.Join(", ", roots));
+                        }
+
+                        CaptainLaunchIsolationPlan? openCode = await handler.PrepareCaptainLaunchIsolationAsync(new Captain("evidence-opencode", AgentRuntimeEnum.OpenCode), mission, dock).ConfigureAwait(false);
+                        AssertFalse(openCode != null && openCode.ExtraArguments.Contains("--add-dir"), "a runtime without workspace roots is left unchanged");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(root, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("A mission launch plan never carries the admiral launch credential value in its environment", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
