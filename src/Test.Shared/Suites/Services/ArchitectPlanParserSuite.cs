@@ -99,6 +99,26 @@ namespace Test.Shared.Suites.Services
                 AssertContains("waitForOtherMissions", text);
             }));
 
+            cases.Add(Case("descriptive_requirement_ids_are_rejected_actionably", "An ID plus description cannot match its bare reference; errors name the mismatch once without normalizing the plan", TestTags.Negative, () =>
+            {
+                ArchitectPlan input = ValidContract();
+                input.Requirements[0] = "REQ-READ: handle HTTP errors";
+                input.Missions[1].AcceptanceCriteria.Add(input.Missions[0].AcceptanceCriteria[0]);
+                input.Missions[1].AcceptanceCriteria[^1] = new ArchitectAcceptanceCriterion
+                {
+                    Id = "AC-READ-AGAIN", RequirementIds = new List<string> { "REQ-READ" }, Scenario = "Repeat coverage",
+                    Expected = "HTTP errors rejected", Verification = "HTTP fixture", NegativeCases = new List<string> { "HTTP 401 fails" }
+                };
+                AssertFalse(ArchitectPlanParser.TryParse(Fence(input), out ArchitectPlan? parsed, out string? error));
+                AssertNull(parsed);
+                AssertContains("unknown objective requirement ID \"REQ-READ\"", error!);
+                AssertContains("requirements contains IDs only", error!);
+                AssertEqual(1, error!.Split("unknown objective requirement ID \"REQ-READ\"").Length - 1, "Repeated references need one actionable ID diagnostic.");
+                AssertContains("requirements:[\"REQ-1\"]", ArchitectPlanParser.FormatInstructions());
+                AssertContains("match exactly", ArchitectPlanParser.FormatInstructions());
+                AssertEqual("REQ-READ: handle HTTP errors", input.Requirements[0], "Never silently rewrite a rejected plan.");
+            }));
+
             cases.Add(Case("versioned_contract_preserves_evidence", "Versioned plans retain objective traceability and evidence in every slice", TestTags.Positive, () =>
             {
                 ArchitectPlan input = ValidContract();

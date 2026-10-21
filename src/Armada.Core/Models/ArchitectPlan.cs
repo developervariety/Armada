@@ -15,7 +15,7 @@ namespace Armada.Core.Models
         [JsonPropertyName("contractVersion")]
         public int? ContractVersion { get; set; }
 
-        /// <summary>Stable objective requirement identifiers, each owned by at least one acceptance criterion.</summary>
+        /// <summary>Stable objective requirement IDs only (not ID plus description); acceptance criterion references match these strings exactly.</summary>
         [JsonPropertyName("requirements")]
         public List<string> Requirements { get; set; } = new List<string>();
 

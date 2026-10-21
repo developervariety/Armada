@@ -130,6 +130,7 @@ namespace Armada.Core.Services
                 errors.Add("resolved design decisions are required (including compatibility and explicit settings)");
             HashSet<int> checkedDecisions = new HashSet<int>();
             HashSet<string> covered = new HashSet<string>(StringComparer.Ordinal);
+            HashSet<string> unknownRequirements = new HashSet<string>(StringComparer.Ordinal);
             HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
             HashSet<string> titles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < plan.Missions.Count; i++)
@@ -154,7 +155,13 @@ namespace Armada.Core.Services
                     if (criterion.RequirementIds == null || criterion.RequirementIds.Count == 0) errors.Add(prefix + "each criterion must cover objective requirement IDs");
                     else foreach (string id in criterion.RequirementIds)
                     {
-                        if (id == null || !requirements.Contains(id)) errors.Add(prefix + "unknown objective requirement ID");
+                        if (id == null || !requirements.Contains(id))
+                        {
+                            string referenced = JsonSerializer.Serialize(id);
+                            if (unknownRequirements.Add(referenced))
+                                errors.Add(prefix + "criterion " + criterion.Id + " references unknown objective requirement ID " + referenced
+                                    + "; requirements contains IDs only (for example \"REQ-1\", not \"REQ-1: explanation\"); requirementIds must match exactly and explanations belong in descriptions");
+                        }
                         else covered.Add(id);
                     }
                     if (plan.ContractVersion == 3)
@@ -194,9 +201,10 @@ namespace Armada.Core.Services
         /// <returns>Contract text.</returns>
         public static string FormatInstructions()
         {
-            return "Respond with one fenced ```" + FenceInfo + " JSON block using contractVersion:3, requirements:[stable objective IDs], decisions:[atomic resolved compatibility/default/override rules], " +
+            return "Respond with one fenced ```" + FenceInfo + " JSON block using contractVersion:3, requirements:[\"REQ-1\"], decisions:[atomic resolved compatibility/default/override rules], " +
                 "missions:[{title,description,kind:implementation|investigation|integration,dependsOn:earlier 1-based index or null,waitForOtherMissions:false," +
                 "decisionIndexes:[1-based indexes of only relevant decisions; empty if none],validationCommands:[exact commands],acceptanceCriteria:[{id,requirementIds:[objective IDs],decisionIndexes:[plan decisions verified by this check; [] for general checks],scenario,expected,verification,negativeCases:[inputs and expected failures],negativeCasesNotApplicableReason:only if none apply}]}]. " +
+                "requirements contains IDs only, never \"REQ-1: explanation\"; put requirement text in descriptions. Each requirementIds entry must match exactly a requirements string, including case. " +
                 "Descriptions define one bounded outcome, components, approach, scope exclusions, invariants, dependencies and uncertainties. Split compound decisions into separately verifiable rules. Every objective ID and decision must have a named acceptance check. Criterion decision indexes must be within its slice scope. " +
                 "Resolve correctness-critical uncertainty before implementation. Last mission must be integration with waitForOtherMissions:true. Invalid versioned plans are rejected before dispatch; " +
                 "legacy [ARMADA:MISSION] blocks remain supported for customized templates.";
