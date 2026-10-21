@@ -8,7 +8,7 @@ Archived and deleted previous failed voyage `vyg_mvh7i6hn_Z5VjIzrlpnA` and all 6
 
 Same FullPipeline and strict assignments: Claude Product Manager/Architect/Usability/Test/Linter/Recorder, DeepSeek Worker, independent Codex Judge. Same objective with the known prefix/shifted credential-overlap regression made explicit at dispatch, as recorded in the prior checkpoint. No source implementation is copied from earlier attempts. API collector polls every 25 seconds, checking routing and duplicate launches and saving all API-visible transcripts/events; the HF-11 transcript completeness limit remains. Evidence: `/tmp/armada-full-pipeline-retest-20261021`.
 
-Product Manager and Architect completed. The version-2 plan has eight slices, including a separate shared-redaction prerequisite, and uses scoped decision indexes. DeepSeek package Worker committed 72bf77c; Usability tightened its exception assertions as 745cd23. Test Engineer is active; no Judge acceptance yet and no overall success or failure outcome. Routing remains correct, with no duplicate launches or runtime redispatches observed. Stale Recorder-written ProjectContext was discovered after launch and cleared before Architect dispatch (HF-23); the Product Manager had received that stale context and is instructed to verify against current source. Do not call this a perfectly uncontaminated context-reset control. No mission has been restarted.
+Product Manager and Architect completed. The version-2 plan has eight slices, including a separate shared-redaction prerequisite, and uses scoped decision indexes. DeepSeek package Worker committed 72bf77c; Usability tightened its exception assertions as 745cd23. First Judge requested revision for six missing model-field assertions despite passing tests. DeepSeek added all six as eb17e7d and proved each via individual mutations. Repeated Usability is active; no Judge acceptance yet and no overall success or failure outcome. Routing remains correct, with no duplicate launches or runtime redispatches observed. Stale Recorder-written ProjectContext was discovered after launch and cleared before Architect dispatch (HF-23); the Product Manager had received that stale context and is instructed to verify against current source. Do not call this a perfectly uncontaminated context-reset control. No mission has been restarted.
 
 ## Open work and acceptance gates
 
@@ -30,6 +30,7 @@ Product Manager and Architect completed. The version-2 plan has eight slices, in
 | HF-20 | Staggered credential-span overlaps | Independently reproduced by monitor and final Judge in actual settings validation; unresolved, blocked this run |
 | HF-22 | Harbor native startup with unavailable display | Restart reproduced Avalonia render-timer error -6661; waking display restored connection; unattended-start fallback remains open |
 | HF-23 | Revision-aware vessel context | Recorder context survived Git reset with obsolete package/test facts; cleared before new Architect dispatch; automatic invalidation remains open |
+| HF-24 | PolyPrompt Ollama Cloud incomplete-stream success | Test Engineer reproduced missing-terminal/malformed NDJSON returning Success=true in 3.4.1; consumer mitigation and upstream correction remain unverified |
 
 ## Findings from this run
 
@@ -84,6 +85,16 @@ After this voyage was terminal and API status confirmed all five captains idle/n
 ### HF-23 — Resetting source does not invalidate Recorder facts
 
 The next dispatch inherited ProjectContext saying PolyPrompt was now 3.4.1 with 53 cases and a new contract-test file, although the acceptance repository was reset to 3.1.0 baseline. EnableModelContext=false did not prevent this separate ProjectContext injection. Archived then cleared only the Recorder-generated ProjectContext through the API while Product Manager was running, before Architect dispatch. Product Manager had already received it, so source inspection must take precedence; no restart or claim of uncontaminated context is appropriate. The objective already prohibits reusing old implementation/memory. Durable context should carry source revision/provenance and be invalidated or clearly labeled historical after repository reset. The Product Manager explicitly noticed that project context did not match the actual baseline during source inspection, which mitigates this instance. This is an observed handoff-risk gap, not evidence that it caused a failed mission.
+
+### Current retest — first review revision and dependency stream finding
+
+First Judge `msn_mvhed60p_r0BXr4fnALf` independently restored/built commit fc1d4c2 (zero warnings/errors), passed 43 shared cases and both adapters, then found six missing `model` assertions in streaming/tool payload captures. This was an explicit UPG-2 guarantee omitted by Worker and intervening verification, not a transport failure. Rework Worker eb17e7d added all six and mutated each expectation independently: each mutant failed 42/43 and restored code passed 43/43. Full verification chain repeats. API audit at 01:18 UTC: nine launches, no duplicate launches, no routing mismatch, no runtime redispatches.
+
+### HF-24 — Incomplete Ollama Cloud streams are reported successful
+
+Test Engineer fc1d4c2 captured PolyPrompt 3.4.1 OllamaCloudCompletionClient.ChatStreamingAsync with an injected handler returning either valid NDJSON ending after done=false (no done=true), or NDJSON cut mid-JSON record. After enumerating Chunks, Success remained true, with partial/empty text and no error. The executable `ollamacloud-stream-incomplete` checks pin this observed behavior; they do not certify it as correct. xAI's valid stream without its terminal response event correctly reports failure. No hosted provider was contacted. Later inference work must prevent incomplete output from being reported as completed; upstream correction and Wilson mitigation remain unverified. Evidence: package Test Engineer output and captured source in the private retest directory.
+
+A rework Worker papercut also claimed a branch-header/anchor mismatch. Independent checks found the persisted instructions, repository anchors, mission BranchName and original launch-log header all naming the same inherited branch. The claimed mismatch is **not reproduced** and is not queued as a confirmed Armada bug. Agent reports require evidence checks.
 
 Record further issues with mission/stage/captain, violated requirement, reproduction/evidence, remediation, and verification status. Keep unresolved findings here; move verified fixes and finished work into the appendix.
 
