@@ -278,6 +278,84 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual(true, (await RunShellAsync(null, null).ConfigureAwait(false)).Ok, "no policy keeps the previous behavior");
             }));
 
+            cases.Add(CaseAsync("large_mcp_catalog_discovers_then_routes", "Large MCP catalogs load exact schemas on demand and preserve scoped calls and isError", TestTags.Positive, async () =>
+            {
+                foreach (bool remoteError in new[] { false, true })
+                {
+                    var run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"REMOTE_31\"}"), CatalogCall("remote_31", "{\"target\":\"fixture\"}") }, remoteError: remoteError).ConfigureAwait(false);
+                    AssertTrue(run.Client.ToolHistory[0].Contains("armada_discover_mcp_tools"));
+                    AssertFalse(run.Client.ToolHistory[0].Contains("remote_31"));
+                    AssertEqual(1, run.Client.ToolHistory[1].Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
+                    AssertTrue(run.Client.ToolHistory[1].Contains("remote_31"));
+                    var rpc = run.Stub.Requests.Where(r => r.Method == "tools/call").ToList();
+                    AssertEqual(1, rpc.Count, "Discovery itself must not invoke a remote tool.");
+                    AssertEqual("remote_31", rpc[0].Params!.Name);
+                    AssertContains("fixture", rpc[0].Params!.Arguments!);
+                    AssertEqual(!remoteError, run.Events.Single(e => e.Phase == ApiRuntimeToolPhaseEnum.Completed && e.Name == "remote_31").Ok!.Value);
+                }
+            }));
+
+            cases.Add(CaseAsync("large_mcp_catalog_pages_without_duplicate_schemas", "Discovery browsing is bounded, repeatable, and does not duplicate or execute tools", TestTags.Positive, async () =>
+            {
+                var run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\"}"), CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\"}"), CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\",\"offset\":4}") }).ConfigureAwait(false);
+                AssertEqual(4, run.Client.ToolHistory[1].Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
+                AssertEqual(4, run.Client.ToolHistory[2].Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
+                AssertEqual(8, run.Client.ToolHistory[3].Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
+                AssertEqual(run.Client.ToolNames.Count, run.Client.ToolNames.Distinct(StringComparer.Ordinal).Count());
+                AssertEqual(0, run.Stub.Requests.Count(r => r.Method == "tools/call"));
+                AssertContains("\"nextOffset\":4", run.Events.First(e => e.Phase == ApiRuntimeToolPhaseEnum.Completed).Result!);
+            }));
+
+            cases.Add(CaseAsync("large_mcp_catalog_invalid_discovery_arguments", "Malformed discovery queries fail as tool results without executing remote actions", TestTags.Negative, async () =>
+            {
+                string[] inputs = { "[]", "{}", "{\"query\":null}", "{\"query\":\" \"}", "{\"query\":\"*\",\"offset\":\"4\"}", "{\"query\":\"*\",\"offset\":null}", "{\"query\":\"*\",\"offset\":-1}", "{\"query\":\"*\",\"offset\":2147483648}", "{\"query\":\"" + new string('x', 257) + "\"}" };
+                var run = await RunCatalogAsync(50, inputs.Select(input => CatalogCall("armada_discover_mcp_tools", input)).ToArray()).ConfigureAwait(false);
+                var completed = run.Events.Where(e => e.Phase == ApiRuntimeToolPhaseEnum.Completed).ToList();
+                AssertEqual(inputs.Length, completed.Count);
+                AssertTrue(completed.All(e => e.Ok == false && e.Result!.Contains("invalid_arguments", StringComparison.Ordinal)));
+                AssertTrue(run.Client.ToolHistory.All(ts => !ts.Any(n => n.StartsWith("remote_", StringComparison.Ordinal))));
+                AssertEqual(0, run.Stub.Requests.Count(r => r.Method == "tools/call"));
+            }));
+
+            cases.Add(CaseAsync("large_mcp_catalog_empty_matches_and_past_end", "Unmatched and past-end discovery preserve the catalog and give bounded empty results", TestTags.Negative, async () =>
+            {
+                var run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"no-such-capability\"}"), CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\",\"offset\":2147483647}") }).ConfigureAwait(false);
+                AssertTrue(run.Events.Where(e => e.Phase == ApiRuntimeToolPhaseEnum.Completed).All(e => e.Ok == true && e.Result!.Contains("\"tools\":[]", StringComparison.Ordinal)));
+                AssertTrue(run.Client.ToolHistory.All(ts => !ts.Any(n => n.StartsWith("remote_", StringComparison.Ordinal))));
+            }));
+
+            cases.Add(CaseAsync("mcp_catalog_explicit_allowlist_stays_eager", "Explicit policy keeps eager schemas and rejects forged discovery and excluded remote calls", TestTags.Negative, async () =>
+            {
+                var policy = new InferenceOptions { AllowedTools = new List<string> { "read_file", "remote_31" } };
+                var run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\"}"), CatalogCall("remote_32", "{}"), CatalogCall("remote_31", "{}") }, policy).ConfigureAwait(false);
+                AssertEqual(2, run.Client.ToolHistory[0].Count);
+                AssertTrue(run.Client.ToolHistory[0].Contains("remote_31"));
+                AssertFalse(run.Client.ToolNames.Contains("armada_discover_mcp_tools"));
+                AssertEqual(2, run.Events.Count(e => e.Phase == ApiRuntimeToolPhaseEnum.Completed && e.PermissionDenied == true));
+                AssertEqual(1, run.Stub.Requests.Count(r => r.Method == "tools/call"));
+            }));
+
+            cases.Add(CaseAsync("mcp_catalog_threshold_and_reserved_collision", "Small catalogs and a real remote discovery-name collision retain eager behavior", TestTags.Positive, async () =>
+            {
+                var small = await RunCatalogAsync(32, Array.Empty<ToolCall>()).ConfigureAwait(false);
+                AssertFalse(small.Client.ToolNames.Contains("armada_discover_mcp_tools"));
+                AssertEqual(32, small.Client.ToolNames.Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
+                var large = await RunCatalogAsync(33, Array.Empty<ToolCall>()).ConfigureAwait(false);
+                AssertTrue(large.Client.ToolNames.Contains("armada_discover_mcp_tools"));
+                AssertEqual(0, large.Client.ToolNames.Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
+                var collision = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{}") }, reservedCollision: true).ConfigureAwait(false);
+                AssertEqual(50, collision.Client.ToolNames.Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
+                AssertEqual(1, collision.Stub.Requests.Count(r => r.Method == "tools/call" && r.Params!.Name == "armada_discover_mcp_tools"));
+            }));
+
+            cases.Add(CaseAsync("deferred_mcp_named_directly_remains_callable", "Schema deferral does not revoke a permitted tool named directly by a mission", TestTags.Positive, async () =>
+            {
+                var run = await RunCatalogAsync(50, new[] { CatalogCall("remote_31", "{}") }).ConfigureAwait(false);
+                AssertFalse(run.Client.ToolNames.Contains("remote_31"));
+                AssertEqual(1, run.Stub.Requests.Count(r => r.Method == "tools/call" && r.Params!.Name == "remote_31"));
+                AssertTrue(run.Events.Single(e => e.Phase == ApiRuntimeToolPhaseEnum.Completed).Ok == true);
+            }));
+
             cases.Add(CaseAsync("mcp_is_error_reported_on_typed_tool_channel", "An MCP tool result with isError is a failed tool event on the typed channel; stdout carries only model text", TestTags.Negative, async () =>
             {
                 string dir = NewTempDir();
@@ -629,6 +707,41 @@ namespace Test.Shared.Suites.Runtimes
             }
         }
 
+        private static ToolCall CatalogCall(string name, string arguments) => new ToolCall { Id = Guid.NewGuid().ToString("N"), Name = name, ArgumentsJson = arguments };
+
+        private static async Task<(ScriptedClient Client, ToolClientStubHandler Stub, List<ApiRuntimeToolEvent> Events)> RunCatalogAsync(
+            int count, ToolCall[] calls, InferenceOptions? policy = null, bool reservedCollision = false, bool remoteError = false)
+        {
+            string dir = NewTempDir();
+            try
+            {
+                var names = Enumerable.Range(0, count).Select(i => "remote_" + i.ToString("00")).ToList();
+                // Remote tools cannot shadow built-ins, even when the catalog is deferred.
+                names.Add("read_file");
+                if (reservedCollision) names.Add("armada_discover_mcp_tools");
+                string catalog = System.Text.Json.JsonSerializer.Serialize(new { tools = names.Select(n => new { name = n, description = "Managed workload " + n, inputSchema = new { type = "object", properties = new { target = new { type = "string" } } } }) });
+                ToolClientStubHandler stub = new ToolClientStubHandler();
+                stub.Respond = request => request.Method == "tools/list" ? ToolClientStubHandler.Json(request.Id, catalog)
+                    : request.Method == "tools/call" ? ToolClientStubHandler.Json(request.Id, "{\"content\":[{\"type\":\"text\",\"text\":\"remote result\"}],\"isError\":" + (remoteError ? "true" : "false") + "}")
+                    : ToolClientStubHandler.Json(request.Id, "{}");
+                Queue<ToolChatResponse> script = new Queue<ToolChatResponse>(calls.Select(c => new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { c } }));
+                script.Enqueue(new ToolChatResponse { Success = true, Text = "done", ToolCalls = new List<ToolCall>() });
+                ScriptedClient client = new ScriptedClient(script, CreateLogging());
+                ModelEndpoint endpoint = new ModelEndpoint { Name = "catalog", Provider = ModelProviderEnum.OpenAICompatible, Kind = ModelEndpointKindEnum.Inference, BaseUrl = "http://localhost:1", InferenceOptions = policy ?? new InferenceOptions() };
+                ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => client, (url, key, log) => new McpToolClient(url, stub));
+                List<ApiRuntimeToolEvent> events = new List<ApiRuntimeToolEvent>();
+                using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                int exitCode = -1;
+                runtime.OnToolEvent += (pid, e) => events.Add(e);
+                runtime.OnProcessExited += (pid, value) => { exitCode = value ?? -1; exited.Set(); };
+                await runtime.StartAsync(dir, "exercise catalog", new Dictionary<string, string> { ["ARMADA_MCP_URL"] = "http://stub.invalid/mcp" }).ConfigureAwait(false);
+                AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "catalog loop must finish");
+                AssertEqual(0, exitCode);
+                return (client, stub, events);
+            }
+            finally { Cleanup(dir); }
+        }
+
         private static System.Text.Json.JsonElement ParseArgs(string json)
         {
             using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(json);
@@ -671,6 +784,7 @@ namespace Test.Shared.Suites.Runtimes
         private sealed class ScriptedClient : CompletionClientBase
         {
             public List<string> ToolNames { get; private set; } = new List<string>();
+            public List<List<string>> ToolHistory { get; } = new List<List<string>>();
             public CompletionOptions? Settings { get; private set; }
             public bool PlainChatCalled { get; private set; }
             private readonly Queue<ToolChatResponse> _Script;
@@ -687,6 +801,7 @@ namespace Test.Shared.Suites.Runtimes
             protected override Task<ToolChatResponse> ToolChatCoreAsync(ToolChatRequest request, List<ChatMessage> messages, ResolvedCompletion settings, CancellationToken token)
             {
                 ToolNames = request.Tools.Select(t => t.Name).ToList();
+                ToolHistory.Add(ToolNames.ToList());
                 Settings = new CompletionOptions { Model = settings.Model, MaxTokens = settings.MaxTokens, Temperature = settings.Temperature, TopP = settings.TopP, ReasoningEffort = settings.ReasoningEffort };
                 if (_Script.Count == 0) return Task.FromResult(new ToolChatResponse { Success = true, Text = "", ToolCalls = new List<ToolCall>() });
                 return Task.FromResult(_Script.Dequeue());

@@ -335,6 +335,7 @@ namespace Armada.Runtimes
                 // routing map records which tool names must be dispatched to the MCP client rather than the
                 // local registry.
                 Dictionary<string, McpToolClient> mcpRouting = new Dictionary<string, McpToolClient>(StringComparer.Ordinal);
+                DeferredMcpToolCatalog? deferredCatalog = null;
                 if (settings.McpToolsEnabled && !settings.ReadOnlyTools && !String.IsNullOrWhiteSpace(mcpUrl))
                 {
                     HashSet<string> builtInNames = new HashSet<string>(StringComparer.Ordinal);
@@ -346,18 +347,30 @@ namespace Armada.Runtimes
                         await mcpClient.InitializeAsync(token).ConfigureAwait(false);
                         List<McpRemoteTool> remoteTools = await mcpClient.ListToolsAsync(token).ConfigureAwait(false);
 
-                        int added = 0;
+                        List<PolyToolDefinition> remoteDefinitions = new List<PolyToolDefinition>();
                         foreach (McpRemoteTool remote in remoteTools)
                         {
                             if (settings.AllowedTools != null && !settings.AllowedTools.Contains(remote.Name, StringComparer.Ordinal)) continue;
                             if (builtInNames.Contains(remote.Name) || mcpRouting.ContainsKey(remote.Name)) continue;
                             Dictionary<string, object> parameters = SchemaJsonToDictionary(remote.InputSchemaJson);
-                            tools.Add(PolyToolDefinition.Function(remote.Name, remote.Description, parameters));
+                            remoteDefinitions.Add(PolyToolDefinition.Function(remote.Name, remote.Description, parameters));
                             mcpRouting[remote.Name] = mcpClient;
-                            added++;
                         }
 
-                        EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.McpStatus, "[mcp] connected to " + mcpUrl + "; " + added + " tool(s) available");
+                        // Explicit allowlists and small catalogs keep eager exposure. Large default catalogs
+                        // remain callable under the same policy, with schemas discovered only when needed.
+                        // A real remote tool with the discovery name keeps its original meaning.
+                        if (settings.AllowedTools == null && remoteDefinitions.Count > DeferredMcpToolCatalog.EagerCatalogLimit
+                            && !mcpRouting.ContainsKey(DeferredMcpToolCatalog.DiscoveryName)
+                            && !builtInNames.Contains(DeferredMcpToolCatalog.DiscoveryName))
+                        {
+                            deferredCatalog = new DeferredMcpToolCatalog(remoteDefinitions, tools);
+                            tools.Add(DeferredMcpToolCatalog.Definition());
+                        }
+                        else tools.AddRange(remoteDefinitions);
+
+                        EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.McpStatus, "[mcp] connected to " + mcpUrl + "; " + remoteDefinitions.Count + " tool(s) available"
+                            + (deferredCatalog == null ? String.Empty : "; schemas deferred, use " + DeferredMcpToolCatalog.DiscoveryName));
                     }
                     catch (Exception ex)
                     {
@@ -375,10 +388,15 @@ namespace Armada.Runtimes
                 }
 
                 List<ChatMessage> messages = new List<ChatMessage>();
-                messages.Add(ChatMessage.System(BuildSystemPrompt(workingDirectory)));
+                messages.Add(ChatMessage.System(BuildSystemPrompt(workingDirectory)
+                    + (deferredCatalog == null ? String.Empty : " Additional Armada MCP tools are available through "
+                        + DeferredMcpToolCatalog.DiscoveryName + ". Search by tool name or task keywords to load the required schemas before calling them.")));
                 messages.Add(ChatMessage.User(prompt));
 
                 HashSet<string> permittedTools = tools.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
+                // Deferral is a context optimization, not an authorization change. A permitted tool named
+                // directly in mission instructions can still be called without a discovery round trip.
+                permittedTools.UnionWith(mcpRouting.Keys);
                 int maxIterations = Math.Min(_MaxIterations, settings.MaxIterations);
                 int incompleteResponses = 0;
                 RuntimeProviderError? tokenLimitFailure = null;
@@ -451,7 +469,7 @@ namespace Armada.Runtimes
                             resultContent = JsonSerializer.Serialize(new { error = "tool_not_allowed", message = "This tool is disabled by the endpoint's inference policy." });
                             EmitToolEvent(processId, new ApiRuntimeToolEvent { Phase = ApiRuntimeToolPhaseEnum.Completed, Id = call.Id, Name = call.Name, Ok = false, PermissionDenied = true, Result = resultContent });
                         }
-                        else resultContent = await ExecuteToolAsync(processId, registry, mcpRouting, call, workingDirectory, token).ConfigureAwait(false);
+                        else resultContent = await ExecuteToolAsync(processId, registry, mcpRouting, call, workingDirectory, deferredCatalog, token).ConfigureAwait(false);
                         messages.Add(ChatMessage.ToolResult(call.Id, call.Name, resultContent));
                     }
 
@@ -505,6 +523,7 @@ namespace Armada.Runtimes
             Dictionary<string, McpToolClient> mcpRouting,
             ToolCall call,
             string workingDirectory,
+            DeferredMcpToolCatalog? deferredCatalog,
             CancellationToken token)
         {
             string argsJson = String.IsNullOrWhiteSpace(call.ArgumentsJson) ? "{}" : call.ArgumentsJson;
@@ -563,7 +582,9 @@ namespace Armada.Runtimes
             try
             {
                 using JsonDocument document = JsonDocument.Parse(argsJson);
-                ToolResult result = await registry.ExecuteAsync(call.Id ?? String.Empty, call.Name, document.RootElement, workingDirectory, token).ConfigureAwait(false);
+                ToolResult result = deferredCatalog != null && call.Name == DeferredMcpToolCatalog.DiscoveryName
+                    ? deferredCatalog.Discover(call.Id ?? String.Empty, document.RootElement)
+                    : await registry.ExecuteAsync(call.Id ?? String.Empty, call.Name, document.RootElement, workingDirectory, token).ConfigureAwait(false);
                 long elapsed = Environment.TickCount64 - startTicks;
                 EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.ToolResult, "[tool:result] " + call.Name + " " + (result.Success ? "ok" : "failed") + " " + Truncate(result.Content, 500));
                 EmitToolEvent(processId, new ApiRuntimeToolEvent { Phase = ApiRuntimeToolPhaseEnum.Completed, Id = call.Id, Name = call.Name, Ok = result.Success, ElapsedMs = elapsed, Result = Truncate(result.Content, 16000) });

@@ -6,6 +6,10 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### API captain tool context
+
+- Load large default MCP tool catalogs on demand instead of including every schema in each initial request. The runtime discovery tool loads four matching schemas per query, keeps original authorization/routing and supports direct calls to permitted names. Explicit allowlists, small catalogs and discovery-name collisions retain eager behavior.
+
 ### Local model validation
 
 - Give Mux inference probes a bounded two-minute deadline, separate from ten-second endpoint metadata reads, so local model loading and generation are not prematurely terminated as metadata timeouts.
