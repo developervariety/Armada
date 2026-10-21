@@ -3818,7 +3818,7 @@ Lift a captain's quarantine, returning it to `Idle` and clearing the quarantine 
 
 #### POST /api/v1/captains/{id}/stop
 
-Stop a running captain agent. Kills its OS process and recalls it to idle state.
+Stop a running captain through its owning lifecycle. The captain is recalled to idle only after exit is confirmed; a Harbor process handle is never treated as an Admiral-local PID.
 
 **Permission:** TenantAdmin
 
@@ -3835,13 +3835,13 @@ Stop a running captain agent. Kills its OS process and recalls it to idle state.
 }
 ```
 
-**Error:** `404` - Captain not found
+**Errors:** `404` - Captain not found; `409 Conflict` - exit was not confirmed or the captain is reserved by another coordinated session. An unconfirmed stop retains the captain/mission assignment and returns remediation.
 
 ---
 
 #### POST /api/v1/captains/stop-all
 
-Emergency stop all running captains, recalling them to idle state.
+Attempts all accessible working captains and active planning/refinement sessions. Global admins act across tenants; tenant admins act only within their own tenant.
 
 **Permission:** TenantAdmin
 
@@ -3852,6 +3852,8 @@ Emergency stop all running captains, recalling them to idle state.
   "Status": "all_stopped"
 }
 ```
+
+**Error:** `409 Conflict` - one or more stops did not complete or confirm exit. The server attempts the remaining accessible stops and never reports `all_stopped` on partial failure. Unconfirmed captain assignments remain owned.
 
 ---
 

@@ -520,6 +520,7 @@ namespace Armada.Core.Services
 
             List<Captain> workingCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
 
+            List<Exception> failures = new List<Exception>();
             foreach (Captain captain in workingCaptains)
             {
                 try
@@ -529,8 +530,11 @@ namespace Armada.Core.Services
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "error recalling captain " + captain.Id + ": " + ex.ToString());
+                    failures.Add(ex);
                 }
             }
+            if (failures.Count > 0)
+                throw new InvalidOperationException("Some captain recalls did not complete or confirm exit. Check the affected assignments and their owning hosts before retrying.", new AggregateException(failures));
         }
 
         /// <inheritdoc />

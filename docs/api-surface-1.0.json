@@ -559,7 +559,10 @@
       "resource": "Captain:Execute",
       "requestType": null,
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "",
+        "409": "ApiErrorResponse"
+      },
       "tags": [
         "Captains"
       ],
@@ -2651,7 +2654,8 @@
       "requestRequired": false,
       "responses": {
         "200": "",
-        "404": ""
+        "404": "",
+        "503": "ApiStatusErrorResponse"
       },
       "tags": [
         "Missions"

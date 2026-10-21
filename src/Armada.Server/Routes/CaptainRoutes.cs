@@ -14,7 +14,6 @@ namespace Armada.Server.Routes
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
-    using Armada.Runtimes;
 
     /// <summary>
     /// REST API routes for captain management.
@@ -24,7 +23,6 @@ namespace Armada.Server.Routes
         private readonly DatabaseDriver _database;
         private readonly IAdmiralService _admiral;
         private readonly ArmadaSettings _settings;
-        private readonly AgentRuntimeFactory _runtimeFactory;
         private readonly AgentLifecycleHandler _agentLifecycle;
         private readonly CaptainToolService _captainTools;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
@@ -38,7 +36,6 @@ namespace Armada.Server.Routes
         /// <param name="database">Database driver.</param>
         /// <param name="admiral">Admiral coordination service.</param>
         /// <param name="settings">Application settings.</param>
-        /// <param name="runtimeFactory">Agent runtime factory.</param>
         /// <param name="agentLifecycle">Agent lifecycle handler used for model validation.</param>
         /// <param name="captainTools">Captain tool availability service.</param>
         /// <param name="emitEvent">Event broadcast callback.</param>
@@ -49,7 +46,6 @@ namespace Armada.Server.Routes
             DatabaseDriver database,
             IAdmiralService admiral,
             ArmadaSettings settings,
-            AgentRuntimeFactory runtimeFactory,
             AgentLifecycleHandler agentLifecycle,
             CaptainToolService captainTools,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
@@ -60,7 +56,6 @@ namespace Armada.Server.Routes
             _database = database;
             _admiral = admiral;
             _settings = settings;
-            _runtimeFactory = runtimeFactory;
             _agentLifecycle = agentLifecycle;
             _captainTools = captainTools;
             _emitEvent = emitEvent;
@@ -363,21 +358,20 @@ namespace Armada.Server.Routes
                     return new { Status = "stopped", ObjectiveRefinementSessionId = stopped.Id };
                 }
 
-                // Kill the process if running
-                if (captain.ProcessId.HasValue)
+                // Recall invokes the owner-aware lifecycle and requires its stop confirmation before releasing state.
+                try { await _admiral.RecallCaptainAsync(id).ConfigureAwait(false); }
+                catch (InvalidOperationException ex)
                 {
-                    Armada.Runtimes.Interfaces.IAgentRuntime runtime = _runtimeFactory.Create(captain.Runtime);
-                    await runtime.StopAsync(captain.ProcessId.Value).ConfigureAwait(false);
+                    req.Http.Response.StatusCode = 409;
+                    return (object)new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = ex.Message };
                 }
-
-                await _admiral.RecallCaptainAsync(id).ConfigureAwait(false);
                 return new { Status = "stopped" };
             },
             api => api
                 .WithResponse(200, OpenApiResponseMetadata.Create("Successful response"))
                 .WithTag("Captains")
                 .WithSummary("Stop a captain")
-                .WithDescription("Stops a running captain agent, killing its process and recalling it to idle state.")
+                .WithDescription("Stops a running captain through its owning lifecycle and recalls it to idle only after confirmed exit. An unconfirmed stop returns Conflict and retains its assignment.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("Conflicts with the current state"))
@@ -391,22 +385,38 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                await _admiral.RecallAllAsync().ConfigureAwait(false);
+                List<Exception> failures = new List<Exception>();
+                if (ctx.IsAdmin)
+                {
+                    try { await _admiral.RecallAllAsync().ConfigureAwait(false); }
+                    catch (Exception ex) { failures.Add(ex); }
+                }
+                else
+                {
+                    List<Captain> working = await _database.Captains.EnumerateByStateAsync(ctx.TenantId!, CaptainStateEnum.Working).ConfigureAwait(false);
+                    foreach (Captain owned in working)
+                    {
+                        try { await _admiral.RecallCaptainAsync(owned.Id).ConfigureAwait(false); }
+                        catch (Exception ex) { failures.Add(ex); }
+                    }
+                }
 
                 if (_planningSessions != null)
                 {
                     List<PlanningSession> planningSessions = await _database.PlanningSessions.EnumerateAsync().ConfigureAwait(false);
                     foreach (PlanningSession planningSession in planningSessions.Where(s =>
-                        s.Status == PlanningSessionStatusEnum.Active ||
+                        (ctx.IsAdmin || s.TenantId == ctx.TenantId) &&
+                        (s.Status == PlanningSessionStatusEnum.Active ||
                         s.Status == PlanningSessionStatusEnum.Responding ||
-                        s.Status == PlanningSessionStatusEnum.Stopping))
+                        s.Status == PlanningSessionStatusEnum.Stopping)))
                     {
                         try
                         {
                             await _planningSessions.StopAsync(planningSession).ConfigureAwait(false);
                         }
-                        catch
+                        catch (Exception ex)
                         {
+                            failures.Add(ex);
                         }
                     }
                 }
@@ -415,26 +425,36 @@ namespace Armada.Server.Routes
                 {
                     List<ObjectiveRefinementSession> refinementSessions = await _database.ObjectiveRefinementSessions.EnumerateAsync().ConfigureAwait(false);
                     foreach (ObjectiveRefinementSession refinementSession in refinementSessions.Where(s =>
-                        s.Status == ObjectiveRefinementSessionStatusEnum.Active ||
+                        (ctx.IsAdmin || s.TenantId == ctx.TenantId) &&
+                        (s.Status == ObjectiveRefinementSessionStatusEnum.Active ||
                         s.Status == ObjectiveRefinementSessionStatusEnum.Responding ||
-                        s.Status == ObjectiveRefinementSessionStatusEnum.Stopping))
+                        s.Status == ObjectiveRefinementSessionStatusEnum.Stopping)))
                     {
                         try
                         {
                             await _objectiveRefinementSessions.StopAsync(refinementSession).ConfigureAwait(false);
                         }
-                        catch
+                        catch (Exception ex)
                         {
+                            failures.Add(ex);
                         }
                     }
                 }
 
+                if (failures.Count > 0)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return (object)new ApiErrorResponse { Error = ApiResultEnum.Conflict,
+                        Message = "Some stops did not complete or confirm exit. Check the affected assignments and their owning hosts before retrying." };
+                }
                 return (object)new { Status = "all_stopped" };
             },
             api => api
                 .WithTag("Captains")
                 .WithSummary("Stop all captains")
-                .WithDescription("Emergency stop all running captains, recalling them to idle state.")
+                .WithResponse(200, OpenApiResponseMetadata.Create("All accessible stops completed"))
+                .WithDescription("Attempts coordinated captain/session stops globally for an admin or within the caller tenant for a tenant admin. Returns Conflict if any stop fails instead of reporting all_stopped; unconfirmed captain stops retain their assignments.")
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("One or more stops did not complete or confirm exit"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/captains/{id}/log", async (ApiRequest req) =>

@@ -4040,7 +4040,7 @@
                                 "stop"
                             ]
                         },
-                        "description": "Stops a running captain agent. Kills its OS process and recalls it to idle state."
+                        "description": "Stops a captain through its owning lifecycle and recalls it only after confirmed exit. Returns 409 Conflict while an exit remains unconfirmed, retaining the assignment."
                     },
                     "response": [
                         {
@@ -4188,7 +4188,7 @@
                                 "stop-all"
                             ]
                         },
-                        "description": "Stops all running captain agents and recalls them to idle state."
+                        "description": "Stops accessible captains and planning/refinement sessions, limited to the caller tenant for tenant admins. Returns 409 Conflict on incomplete stops; unconfirmed captain assignments remain owned."
                     }
                 },
                 {

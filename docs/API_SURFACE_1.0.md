@@ -72,7 +72,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/captains` | TenantAdmin | `Captain` | 201 `Captain`, 400, 409 `ApiErrorResponse` |  |
 | POST | `/api/v1/captains/delete/multiple` | TenantAdmin | `DeleteMultipleRequest` | 200 `DeleteMultipleResult`, 400 |  |
 | POST | `/api/v1/captains/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
-| POST | `/api/v1/captains/stop-all` | TenantAdmin |  |  |  |
+| POST | `/api/v1/captains/stop-all` | TenantAdmin |  | 200, 409 `ApiErrorResponse` |  |
 | DELETE | `/api/v1/captains/{id}` | TenantAdmin |  | 204, 404, 409 `Object` |  |
 | GET | `/api/v1/captains/{id}` | Authenticated |  | 200 `Captain`, 404 |  |
 | PUT | `/api/v1/captains/{id}` | TenantAdmin | `Captain` | 200 `Captain`, 400, 404, 409 `ApiErrorResponse` |  |
@@ -197,7 +197,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | DELETE | `/api/v1/missions/{id}` | TenantAdmin |  | 200 `Mission`, 404 |  |
 | GET | `/api/v1/missions/{id}` | Authenticated |  | 200 `Mission`, 404 |  |
 | PUT | `/api/v1/missions/{id}` | TenantAdmin | `Mission` | 200 `Mission`, 404 |  |
-| GET | `/api/v1/missions/{id}/diff` | Authenticated |  | 200, 404 |  |
+| GET | `/api/v1/missions/{id}/diff` | Authenticated |  | 200, 404, 503 `ApiStatusErrorResponse` |  |
 | GET | `/api/v1/missions/{id}/evaluate-autoland` | Authenticated |  | 200 `AutoLandDecision`, 400, 404 |  |
 | GET | `/api/v1/missions/{id}/github/pull-request` | Authenticated |  | 200 `GitHubPullRequestDetail`, 404 |  |
 | GET | `/api/v1/missions/{id}/instructions` | Authenticated |  | 200, 404 |  |
