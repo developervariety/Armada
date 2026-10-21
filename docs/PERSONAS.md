@@ -146,8 +146,25 @@ reviewed commit. Its brief holds the numbered findings, the Judge's output and
 the reviewed stage's brief with the objective. Routing skips every captain on the
 Judge's model. The Challenger classifies each finding (FACT, MISSING, DEFECT,
 SCOPE, PROOF, BOUNDARY, FORMAT, PROCESS, PENDING or CONFLICT), rules by kind, and
-ends with one `[ARMADA:CHALLENGE] {"findings":[...]}` line. No incident or
-rescue is created while it runs.
+ends with one `[ARMADA:CHALLENGE] {"findings":[...]}` line.
+
+The pass that dispatches the Challenger opens the Judge failure's incident (or
+reuses the active one) with a note that a Challenger is ruling and the rescue
+follows its ruling, and posts one broadcast board note, "Challenger review
+pending for Judge <id>; rescue will follow", so no operator rescues the failure
+by hand. No rescue is created while the Challenger runs, and the passes that only
+wait write nothing. The rescue that follows the ruling records on the same
+incident.
+
+A Challenger never lands. Its branch starts at the commit the Judge blocked, so
+every landing entry point (completion, review approve, hold release, retry
+landing, merge queue enqueue and the landing drain) consults one rule,
+`MissionLandingEligibility`, and refuses it. The same rule refuses a read-only
+(`Audit` or `Research`) mission dispatched outside a voyage. Completion of a
+refused mission sets it `Complete`, records `mission.landing_skipped` with the
+reason, and merges, pushes and enqueues nothing; enqueue throws, retry landing
+returns false, and the landing drain skips it. Inside a voyage a read-only stage
+is left to the pipeline, whose final stage owns the landing decision.
 
 The rulings are settled in code:
 

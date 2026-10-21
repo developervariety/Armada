@@ -144,6 +144,13 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            string? noLanding = MissionLandingEligibility.RefusalReason(mission);
+            if (noLanding != null)
+            {
+                _Logging.Warn(_Header + "mission " + missionId + " cannot be landed: " + noLanding);
+                return false;
+            }
+
             if (mission.Status != MissionStatusEnum.LandingFailed && mission.Status != MissionStatusEnum.WorkProduced)
             {
                 _Logging.Warn(_Header + "mission " + missionId + " is in status " + mission.Status + ", not LandingFailed or WorkProduced -- cannot retry");

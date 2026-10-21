@@ -9,7 +9,7 @@ namespace Armada.Server
 
     /// <summary>
     /// Posts a broadcast coordination-board note through <see cref="CoordinationService"/> for a typed
-    /// decision that surfaced a condition every operator session should see. The note is authored by
+    /// decision or a recovery step that surfaced a condition every operator session should see. The note is authored by
     /// the system and addressed to no participant. The poster is best-effort and never throws into the
     /// caller: it changes no other Armada record and carries no authority.
     /// </summary>
@@ -18,9 +18,10 @@ namespace Armada.Server
         #region Private-Members
 
         private const string _Header = "[CoordinationBroadcastNotePoster] ";
-        private const string _AuthorName = "Typed Decision";
+        private const string _DefaultAuthorName = "Typed Decision";
 
         private readonly CoordinationService _Coordination;
+        private readonly string _AuthorName;
         private readonly LoggingModule _Logging;
 
         #endregion
@@ -32,10 +33,12 @@ namespace Armada.Server
         /// </summary>
         /// <param name="coordination">Coordination service used to post the note.</param>
         /// <param name="logging">Logging module.</param>
-        public CoordinationBroadcastNotePoster(CoordinationService coordination, LoggingModule logging)
+        /// <param name="authorName">Name the note is posted under; a typed decision when not given.</param>
+        public CoordinationBroadcastNotePoster(CoordinationService coordination, LoggingModule logging, string? authorName = null)
         {
             _Coordination = coordination ?? throw new ArgumentNullException(nameof(coordination));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _AuthorName = String.IsNullOrWhiteSpace(authorName) ? _DefaultAuthorName : authorName;
         }
 
         #endregion

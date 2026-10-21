@@ -345,6 +345,20 @@ upstream integrations and excludes changes already present at that baseline.
   `partial` against the objective's acceptance criteria because it does not build
   them, so it keeps the partial Mail and its next stage starts without waiting for
   an operator.
+- A Challenger mission never lands the work it reviews. A Challenger is
+  dispatched outside a voyage at the commit a Judge blocked, so its completion
+  took the normal landing path and merged that commit onto the vessel's main
+  branch. Every landing entry point (completion, review approve, hold release,
+  retry landing, merge queue enqueue and the landing drain) now consults one
+  rule, `MissionLandingEligibility`, which refuses a Challenger and any read-only
+  (`Audit` or `Research`) mission dispatched outside a voyage. Completion of a
+  refused mission records its result, sets it `Complete` and emits
+  `mission.landing_skipped`; enqueue throws, retry landing returns false and the
+  landing drain skips it.
+- The pass that dispatches a Challenger opens the Judge failure's incident with a
+  pending-review note and posts one broadcast board note, "Challenger review
+  pending for Judge <id>; rescue will follow", so an operator does not rescue the
+  failure by hand while the Challenger rules.
 
 - An Architect mission block that writes its brief on one line,
   `description: <text>`, keeps that text. The fallback block parser treats the

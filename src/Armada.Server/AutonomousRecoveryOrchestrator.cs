@@ -104,6 +104,12 @@ namespace Armada.Server
         /// </summary>
         public DispatchContextPackStager? ContextPackStager { get; set; }
 
+        /// <summary>
+        /// Posts recovery notes every operator session should see on the coordination board, such as a
+        /// pending Challenger review. Set by the server after construction; when null, no note is posted.
+        /// </summary>
+        public IBoardNotePoster? BoardNotePoster { get; set; }
+
         // Missions whose withheld nudge already produced an event, so a finished captain yields one
         // event rather than one per sweep tick; every withheld nudge is still counted and logged.
         // An entry is dropped once no Working captain holds the mission.
@@ -621,6 +627,12 @@ namespace Armada.Server
                     if (result.Outcome == SafetyNetEnqueueOutcomeEnum.SkippedNoBranch)
                     {
                         _Logging.Debug(_Header + "landing-drain skipped mission " + mission.Id + ": no branch");
+                        continue;
+                    }
+
+                    if (result.Outcome == SafetyNetEnqueueOutcomeEnum.SkippedNotLandable)
+                    {
+                        _Logging.Info(_Header + "landing-drain skipped mission " + mission.Id + ": " + result.Detail);
                         continue;
                     }
 
@@ -1148,13 +1160,17 @@ namespace Armada.Server
                     }
                 }
 
-                // The challenge round runs before any incident or runbook work, so a challenge that is
-                // still being ruled on writes nothing on each sweep tick. It only narrows a rescue: a
-                // block whose every finding is refuted becomes an operator decision, never a pass.
+                // The challenge round runs before any runbook work. The tick that dispatches the Challenger
+                // opens the failure's incident and tells the board a rescue will follow, so no operator
+                // rescues the failure by hand meanwhile; a challenge still being ruled on writes nothing
+                // on later ticks. It only narrows a rescue: a block whose every finding is refuted becomes
+                // an operator decision, never a pass.
                 JudgeChallengeOutcome challenge = JudgeChallengeOutcome.NotApplicable;
                 if (decision.DispatchRescue && !latest.IsReadOnlyMode)
                 {
                     challenge = await ApplyJudgeChallengeAsync(latest, owningObjective, token).ConfigureAwait(false);
+                    if (challenge.JustDispatched)
+                        await AnnounceJudgeChallengePendingAsync(auth, latest, decision, challenge, token).ConfigureAwait(false);
                     if (challenge.IsPending) return false;
                     if (challenge.Result != null && challenge.Result.Upheld.Count == 0)
                         decision = RecoveryDecision.Blocked(JudgeChallengeRefutedAllReason);
@@ -3807,7 +3823,35 @@ namespace Armada.Server
             };
             EventOwnerScope.ApplyFromMission(evt, failed);
             await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
-            return JudgeChallengeOutcome.Pending;
+            return JudgeChallengeOutcome.Dispatched(created.Id, findings);
+        }
+
+        private async Task AnnounceJudgeChallengePendingAsync(
+            AuthContext auth,
+            Mission failed,
+            RecoveryDecision decision,
+            JudgeChallengeOutcome challenge,
+            CancellationToken token)
+        {
+            Incident incident = await EnsureIncidentAsync(auth, failed, decision, token).ConfigureAwait(false);
+            await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+            {
+                RecoveryNotes = AppendNote(incident.RecoveryNotes,
+                    "Challenger review pending: Challenger " + challenge.ChallengerMissionId + " is ruling on "
+                    + challenge.Findings.Count + " blocking findings of Judge " + failed.Id
+                    + "; the rescue follows its ruling. Do not rescue this failure by hand.")
+            }, token).ConfigureAwait(false);
+
+            IBoardNotePoster? poster = BoardNotePoster;
+            if (poster != null)
+            {
+                await poster.PostBroadcastAsync(
+                    "Challenger review pending for Judge " + failed.Id + "; rescue will follow (incident " + incident.Id
+                    + ", Challenger " + challenge.ChallengerMissionId + ").",
+                    failed.VesselId,
+                    failed.Id,
+                    token).ConfigureAwait(false);
+            }
         }
 
         private async Task<ArmadaEvent?> ReadJudgeChallengeDispatchAsync(Mission failed, CancellationToken token)
@@ -4727,14 +4771,15 @@ namespace Armada.Server
         internal sealed class JudgeChallengeOutcome
         {
             /// <summary>The round does not apply, or cannot be used: the rescue carries every finding.</summary>
-            public static readonly JudgeChallengeOutcome NotApplicable = new JudgeChallengeOutcome(false, String.Empty, new List<string>(), null);
+            public static readonly JudgeChallengeOutcome NotApplicable = new JudgeChallengeOutcome(false, false, String.Empty, new List<string>(), null);
 
             /// <summary>A Challenger is ruling: recovery waits.</summary>
-            public static readonly JudgeChallengeOutcome Pending = new JudgeChallengeOutcome(true, String.Empty, new List<string>(), null);
+            public static readonly JudgeChallengeOutcome Pending = new JudgeChallengeOutcome(true, false, String.Empty, new List<string>(), null);
 
-            private JudgeChallengeOutcome(bool isPending, string challengerMissionId, List<string> findings, JudgeChallengeResult? result)
+            private JudgeChallengeOutcome(bool isPending, bool justDispatched, string challengerMissionId, List<string> findings, JudgeChallengeResult? result)
             {
                 IsPending = isPending;
+                JustDispatched = justDispatched;
                 ChallengerMissionId = challengerMissionId;
                 Findings = findings;
                 Result = result;
@@ -4742,6 +4787,9 @@ namespace Armada.Server
 
             /// <summary>Whether a Challenger is still ruling.</summary>
             public bool IsPending { get; }
+
+            /// <summary>Whether this pass dispatched the Challenger, so the round's first tick announces it.</summary>
+            public bool JustDispatched { get; }
 
             /// <summary>Challenger mission that ruled.</summary>
             public string ChallengerMissionId { get; }
@@ -4755,7 +4803,13 @@ namespace Armada.Server
             /// <summary>A settled challenge.</summary>
             public static JudgeChallengeOutcome Ruled(string challengerMissionId, List<string> findings, JudgeChallengeResult result)
             {
-                return new JudgeChallengeOutcome(false, challengerMissionId, findings, result);
+                return new JudgeChallengeOutcome(false, false, challengerMissionId, findings, result);
+            }
+
+            /// <summary>A Challenger dispatched on this pass: recovery waits for its ruling.</summary>
+            public static JudgeChallengeOutcome Dispatched(string challengerMissionId, List<string> findings)
+            {
+                return new JudgeChallengeOutcome(true, true, challengerMissionId, findings, null);
             }
         }
 

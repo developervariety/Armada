@@ -142,6 +142,17 @@ namespace Armada.Core.Services
         {
             if (entry == null) throw new ArgumentNullException(nameof(entry));
 
+            if (!String.IsNullOrEmpty(entry.MissionId))
+            {
+                Mission? mission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+                string? noLanding = MissionLandingEligibility.RefusalReason(mission);
+                if (noLanding != null)
+                {
+                    _Logging.Warn(_Header + "refusing to enqueue branch " + entry.BranchName + " for mission " + entry.MissionId + ": " + noLanding);
+                    throw new InvalidOperationException("Mission " + entry.MissionId + " cannot be enqueued: " + noLanding + ".");
+                }
+            }
+
             entry.Status = MergeStatusEnum.Queued;
             entry.CreatedUtc = DateTime.UtcNow;
             entry.LastUpdateUtc = DateTime.UtcNow;
@@ -203,6 +214,12 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(mission.BranchName))
             {
                 return new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.SkippedNoBranch, null, "mission has no branch name");
+            }
+
+            string? noLanding = MissionLandingEligibility.RefusalReason(mission);
+            if (noLanding != null)
+            {
+                return new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.SkippedNotLandable, null, noLanding);
             }
 
             if (await HasActiveMergeEntryForMissionAsync(mission.Id, token).ConfigureAwait(false))

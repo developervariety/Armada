@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Globalization;
     using System.IO;
     using System.Linq;
+    using Armada.Core;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -1228,6 +1229,132 @@ namespace Armada.Test.Unit.Suites.Services
 
             // === D7 leak_hunk advisory pass on the landing gate ===
 
+            await RunTest("A mission whose deliverable is a ruling or a report is refused by every landing entry point; a voyage-less Worker still lands", async () =>
+            {
+                List<NotLandableCase> cases = new List<NotLandableCase>
+                {
+                    new NotLandableCase("standalone Challenger", PersonaCatalog.Challenger, MissionModeEnum.Audit, false),
+                    new NotLandableCase("standalone Audit", "Judge", MissionModeEnum.Audit, false),
+                    new NotLandableCase("standalone Research", "Worker", MissionModeEnum.Research, false),
+                    new NotLandableCase("standalone Worker", "Worker", MissionModeEnum.Implementation, true)
+                };
+
+                foreach (NotLandableCase item in cases)
+                {
+                    // Completion: the landing handler that completion, review approve, hold release and
+                    // retry landing all reach.
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        StubGitService git = new StubGitService();
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+                        LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
+                        git.ExistingBranches.Add(entities.Dock.BranchName!);
+                        Mission mission = await ShapeMissionAsync(testDb, entities, item).ConfigureAwait(false);
+
+                        await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
+
+                        Mission? after = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Complete, after!.Status, item.Name + ": completion ends Complete");
+                        AssertEqual(item.Lands ? 1 : 0, git.MergeBranchCalls.Count(c => c.StartsWith(entities.Dock.BranchName + " -> ", StringComparison.Ordinal)),
+                            item.Name + ": merges the mission branch. Calls: " + String.Join(", ", git.MergeBranchCalls));
+                        if (!item.Lands)
+                        {
+                            AssertEqual(0, git.MergeBranchCalls.Count, item.Name + ": runs no merge at all");
+                            AssertEqual(0, git.PushCalls.Count, item.Name + ": pushes nothing. Calls: " + String.Join(", ", git.PushCalls));
+                            AssertEqual(0, git.CompareAndSwapCalls.Count + git.ForceUpdateBranchRefCalls.Count, item.Name + ": moves no ref");
+                            await AssertScopedEventAsync(testDb, mission.Id, MissionLandingEligibility.SkippedEvent).ConfigureAwait(false);
+                            AssertEqual(0, await CountEventsAsync(testDb, mission.Id, "mission.completed").ConfigureAwait(false),
+                                item.Name + ": records no landing");
+                        }
+                        AssertEqual(0, await CountMergeEntriesAsync(testDb, mission.Id).ConfigureAwait(false),
+                            item.Name + ": a local merge vessel enqueues nothing");
+                    }
+
+                    // Merge queue enqueue (REST, MCP, WebSocket and the landing handler) and the landing-drain safety net.
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        StubGitService git = new StubGitService();
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        MergeQueueService mergeQueue = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+                        LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue, null,
+                            Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId);
+                        Mission mission = await ShapeMissionAsync(testDb, entities, item).ConfigureAwait(false);
+
+                        bool enqueued = true;
+                        try
+                        {
+                            await mergeQueue.EnqueueAsync(new MergeEntry(entities.Dock.BranchName!, entities.Vessel.DefaultBranch)
+                            {
+                                MissionId = mission.Id,
+                                VesselId = entities.Vessel.Id,
+                                TenantId = mission.TenantId,
+                                UserId = mission.UserId
+                            }).ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            enqueued = false;
+                            AssertContains("cannot be enqueued", ex.Message, item.Name + ": the refusal says why");
+                        }
+                        AssertEqual(item.Lands, enqueued, item.Name + ": enqueue accepts the mission");
+
+                        if (!item.Lands)
+                        {
+                            SafetyNetEnqueueResult result = await mergeQueue.TrySafetyNetEnqueueAsync(
+                                mission, entities.Vessel, "diff --git a/src/Foo.cs b/src/Foo.cs",
+                                new AutoLandEvaluator(), new ConventionChecker(), new CriticalTriggerEvaluator()).ConfigureAwait(false);
+                            AssertEqual(SafetyNetEnqueueOutcomeEnum.SkippedNotLandable, result.Outcome, item.Name + ": the landing drain skips it");
+                        }
+                        AssertEqual(item.Lands ? 1 : 0, await CountMergeEntriesAsync(testDb, mission.Id).ConfigureAwait(false),
+                            item.Name + ": merge entries");
+                    }
+
+                    // Retry landing. The voyage-less Worker's retry is covered by the landing service's own suite.
+                    if (item.Lands) continue;
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        StubGitService git = new StubGitService();
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+                        LandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+                        int landingCalls = 0;
+                        landingService.OnPerformLanding = (retriedMission, retryDock) =>
+                        {
+                            landingCalls++;
+                            return handler.HandleMissionCompleteAsync(retriedMission, retryDock);
+                        };
+                        LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
+                        git.ExistingBranches.Add(entities.Dock.BranchName!);
+                        Mission mission = await ShapeMissionAsync(testDb, entities, item).ConfigureAwait(false);
+                        mission.Status = MissionStatusEnum.LandingFailed;
+                        await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                        bool retried = await landingService.RetryLandingAsync(mission.Id).ConfigureAwait(false);
+
+                        AssertFalse(retried, item.Name + ": retry landing refuses");
+                        AssertEqual(0, landingCalls, item.Name + ": retry never reaches the landing handler");
+                        AssertEqual(0, await CountEventsAsync(testDb, mission.Id, "mission.landing_retry").ConfigureAwait(false),
+                            item.Name + ": retry starts no landing attempt");
+                        Mission? after = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.LandingFailed, after!.Status, item.Name + ": retry leaves the status alone");
+                        AssertEqual(0, git.MergeBranchCalls.Count + git.PushCalls.Count, item.Name + ": retry merges and pushes nothing");
+                    }
+                }
+            });
+
+            await RunTest("A read-only mission inside a voyage is left to the pipeline's landing decision", () =>
+            {
+                Mission judge = new Mission("Final Judge") { Persona = "Judge", Mode = MissionModeEnum.Audit, VoyageId = "vyg_example" };
+                AssertNull(MissionLandingEligibility.RefusalReason(judge), "A voyage's final read-only stage may land the shared branch");
+                Mission challenger = new Mission("Challenge") { Persona = PersonaCatalog.Challenger, Mode = MissionModeEnum.Audit, VoyageId = "vyg_example" };
+                AssertNotNull(MissionLandingEligibility.RefusalReason(challenger), "A Challenger never lands, even inside a voyage");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Landing gate advisory leak flag does not hold the landing", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1351,6 +1478,48 @@ namespace Armada.Test.Unit.Suites.Services
                 null);
             if (leakHunkAdapter != null) handler.SetLeakHunkAdapter(leakHunkAdapter);
             return handler;
+        }
+
+        private sealed class NotLandableCase
+        {
+            public NotLandableCase(string name, string persona, MissionModeEnum mode, bool lands)
+            {
+                Name = name;
+                Persona = persona;
+                Mode = mode;
+                Lands = lands;
+            }
+
+            public string Name { get; }
+            public string Persona { get; }
+            public MissionModeEnum Mode { get; }
+            public bool Lands { get; }
+        }
+
+        // A voyage-less WorkProduced mission on the dock's branch, carrying a commit, shaped by the case.
+        private static async Task<Mission> ShapeMissionAsync(TestDatabase testDb, LandingTestEntitiesResult entities, NotLandableCase item)
+        {
+            Mission mission = entities.Mission;
+            mission.Persona = item.Persona;
+            mission.Mode = item.Mode;
+            mission.VoyageId = null;
+            mission.BranchName = entities.Dock.BranchName;
+            if (!item.Lands) mission.CommitHash = "0123456789abcdef0123456789abcdef01234567";
+            return await OwnMissionAsync(testDb, mission, "diff --git a/src/Foo.cs b/src/Foo.cs").ConfigureAwait(false);
+        }
+
+        private static async Task<int> CountMergeEntriesAsync(TestDatabase testDb, string missionId)
+        {
+            EnumerationResult<MergeEntry> entries = await testDb.Driver.MergeEntries.EnumerateAsync(
+                new EnumerationQuery { MissionId = missionId }).ConfigureAwait(false);
+            return entries.Objects.Count;
+        }
+
+        private static async Task<int> CountEventsAsync(TestDatabase testDb, string missionId, string eventType)
+        {
+            EnumerationResult<ArmadaEvent> events = await testDb.Driver.Events.EnumerateAsync(
+                new EnumerationQuery { MissionId = missionId, EventType = eventType }).ConfigureAwait(false);
+            return events.Objects.Count;
         }
 
         private static async Task<Mission> OwnMissionAsync(TestDatabase testDb, Mission mission, string diffSnapshot)

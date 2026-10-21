@@ -798,6 +798,7 @@ namespace Armada.Server
                 _DispatchStalenessAdapter));
 
             _CoordinationService = new CoordinationService(_Logging, _Database, _WebSocketHub);
+            _AutonomousRecovery.BoardNotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "Autonomous Recovery");
             _AgentLifecycle.SetCoordinationService(_CoordinationService);
             // Every stored fleet event of a mirrored type becomes a board note, whichever service wrote it.
             CoordinationFleetEventMirror.Attach(_Database, _CoordinationService, _Logging);

@@ -197,6 +197,15 @@ namespace Armada.Server
                 return;
             }
 
+            // A mission whose deliverable is a ruling or a report is never merged, pushed or enqueued.
+            // Its completion records the result only.
+            string? noLanding = Armada.Core.Services.MissionLandingEligibility.RefusalReason(mission);
+            if (noLanding != null)
+            {
+                await CompleteWithoutLandingAsync(mission, noLanding).ConfigureAwait(false);
+                return;
+            }
+
             _Logging.Info(_Header + "handling landing for mission " + mission.Id);
 
             // Landing evidence: the change, its paths and the vessel's rules, read from the dock before
@@ -894,6 +903,44 @@ namespace Armada.Server
             // NOTE: Dock reclaim is NOT done here. MissionService.HandleCompletionAsync
             // owns the full finalization sequence (reclaim dock, release captain, dispatch next)
             // to prevent duplicate reclaim calls from racing.
+        }
+
+        private async Task CompleteWithoutLandingAsync(Mission mission, string reason)
+        {
+            _Logging.Info(_Header + "mission " + mission.Id + " is not landed: " + reason);
+            if (mission.Status == MissionStatusEnum.WorkProduced || mission.Status == MissionStatusEnum.LandingFailed)
+            {
+                mission.Status = MissionStatusEnum.Complete;
+                mission.FailureReason = null;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+            }
+
+            try
+            {
+                ArmadaEvent skipped = new ArmadaEvent(Armada.Core.Services.MissionLandingEligibility.SkippedEvent,
+                    "Mission not landed: " + reason);
+                Armada.Core.Services.EventOwnerScope.ApplyFromMission(skipped, mission);
+                skipped.EntityType = "mission";
+                skipped.EntityId = mission.Id;
+                skipped.CaptainId = mission.CaptainId;
+                skipped.MissionId = mission.Id;
+                skipped.VesselId = mission.VesselId;
+                skipped.VoyageId = mission.VoyageId;
+                await _Database.Events.CreateAsync(skipped).ConfigureAwait(false);
+            }
+            catch (Exception evtEx)
+            {
+                _Logging.Warn(_Header + "error emitting " + Armada.Core.Services.MissionLandingEligibility.SkippedEvent
+                    + " event for " + mission.Id + ": " + evtEx.Message);
+            }
+
+            if (_WebSocketHub != null)
+            {
+                _WebSocketHub.BroadcastMissionChange(mission.Id, mission.Status.ToString(), mission.Title, mission.VoyageId,
+                    WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId));
+            }
         }
 
         private async Task RefuseLandingAsync(Mission mission, MissionStatusEnum status, string reason)

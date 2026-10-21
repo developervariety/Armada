@@ -15,7 +15,10 @@ namespace Armada.Core.Models
         AlreadyEnqueued,
 
         /// <summary>Mission has no branch name to enqueue.</summary>
-        SkippedNoBranch
+        SkippedNoBranch,
+
+        /// <summary>Mission's deliverable is a ruling or a report, so it is never landed.</summary>
+        SkippedNotLandable
     }
 
     /// <summary>
