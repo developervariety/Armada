@@ -573,9 +573,12 @@ Two decision points recover captain time at the pipeline level (both ship
   one still unmet as a finding, not to do the prior stage's work.
 
   **The handoff hold.** With `typedDecisions.handoffOutcomeHold.enabled` set
-  (default `false`), a gated `partial` at or above `0.90` holds the next stage
-  instead of Mailing it. Below `0.90`, with the decision unavailable or below
-  its gate threshold, or with the hold off, the partial Mail above stands. The
+  (default `false`), a gated `partial` at or above `0.90` on a delivery stage (a
+  `Worker`, or a stage with no persona) holds the next stage instead of Mailing
+  it. The acceptance criteria describe what the delivery stages build, so a test,
+  lint, record or review stage is never held; its partial Mail stands. Below
+  `0.90`, with the decision unavailable or below its gate threshold, or with the
+  hold off, the partial Mail above stands. The
   finished stage stays `WorkProduced` with `HeldForOperatorReview` set and a
   reason that opens `handoff_outcome_hold since <time> event <decision event>
   unmet <indices>:` and lists the unmet criteria. Its dependents wait, the

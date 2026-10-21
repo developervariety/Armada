@@ -159,7 +159,8 @@ namespace Armada.Core.Services
         /// <summary>
         /// Hold the finished stage instead of Mailing its partial outcome, when the hold is enabled, the
         /// gated partial confidence is at least <see cref="HandoffOutcomeHold.MinimumConfidence"/>, the
-        /// stage is WorkProduced and not already held, and the gated decision event can be read. Any other
+        /// stage is a delivery stage (<see cref="HandoffOutcomeHold.HoldsStage"/>), WorkProduced and not
+        /// already held, and the gated decision event can be read. Any other
         /// case returns false and the caller Mails the next stage as it does without a hold. The hold only
         /// sets the operator-review flag and records why; it never cancels, rescues, lands or dispatches.
         /// Never throws into the handoff.
@@ -174,6 +175,7 @@ namespace Armada.Core.Services
             if (settings == null || !settings.Enabled) return false;
             if (verdict.Action != HandoffOutcomeAction.MailPartial) return false;
             if (verdict.Confidence < HandoffOutcomeHold.MinimumConfidence) return false;
+            if (!HandoffOutcomeHold.HoldsStage(completedMission.Persona)) return false;
             if (completedMission.Status != MissionStatusEnum.WorkProduced) return false;
             if (completedMission.HeldForOperatorReview) return false;
 

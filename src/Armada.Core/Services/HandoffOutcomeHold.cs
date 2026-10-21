@@ -74,6 +74,19 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
+        /// Whether a finished stage of this persona may be held. Only a delivery stage (a Worker, or a
+        /// stage with no persona) is held: the objective's acceptance criteria describe what the delivery
+        /// stages build, so a test, lint, record or review stage always reads partial against them and a
+        /// hold would only wait on an operator release. Those stages keep the partial Mail.
+        /// </summary>
+        /// <param name="persona">The finished stage's persona.</param>
+        /// <returns>True when the stage may be held.</returns>
+        public static bool HoldsStage(string? persona)
+        {
+            return String.IsNullOrWhiteSpace(persona) || PersonaCatalog.Matches(persona, PersonaCatalog.Worker);
+        }
+
+        /// <summary>
         /// Build the hold reason. The reason names the unmet criteria in full, so the operator inbox shows
         /// them, and opens with a header the timeout sweep and the release read back.
         /// </summary>

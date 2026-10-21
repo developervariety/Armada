@@ -333,6 +333,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The `handoff_outcome` hold holds only a delivery stage (a `Worker`, or a stage
+  with no persona). A Test Engineer, Linter, Recorder or review stage reads
+  `partial` against the objective's acceptance criteria because it does not build
+  them, so it keeps the partial Mail and its next stage starts without waiting for
+  an operator.
+
 - An Architect mission block that writes its brief on one line,
   `description: <text>`, keeps that text. The fallback block parser treats the
   value as the first line of the mission description and strips only the

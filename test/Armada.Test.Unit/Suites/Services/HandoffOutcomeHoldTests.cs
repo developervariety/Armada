@@ -241,6 +241,26 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A confident partial on a test, lint or record stage Mails the next stage and never holds it", async () =>
+            {
+                foreach (string persona in new[] { "Test Engineer", "TestEngineer", "Linter", "Recorder" })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        HoldScenario scenario = await CreateScenarioAsync(testDb.Driver, true, PartialResult(0.95), persona).ConfigureAwait(false);
+
+                        await scenario.Missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+
+                        Mission finished = await ReadAsync(testDb.Driver, scenario.Worker.Id).ConfigureAwait(false);
+                        Mission judge = await ReadAsync(testDb.Driver, scenario.Judge.Id).ConfigureAwait(false);
+                        AssertFalse(finished.HeldForOperatorReview, persona + ": the stage is not held");
+                        AssertEqual(_WorkerBranch, judge.BranchName, persona + ": the next stage is handed the branch");
+                        AssertContains("handoff-outcome check", judge.Description ?? String.Empty, persona + ": the unmet-criteria Mail is sent");
+                        AssertEqual(0, await CountEventsAsync(testDb.Driver, finished.Id, "mission.handoff_hold_engaged").ConfigureAwait(false), persona + ": no hold engaged");
+                    }
+                }
+            });
+
             await RunTest("armada_handoff_hold refuses a non-administrator and resolves a hold for an operator", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -321,7 +341,7 @@ namespace Armada.Test.Unit.Suites.Services
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }
 
-        private static async Task<HoldScenario> CreateScenarioAsync(SqliteDatabaseDriver db, bool holdEnabled, TypedDecisionResult result)
+        private static async Task<HoldScenario> CreateScenarioAsync(SqliteDatabaseDriver db, bool holdEnabled, TypedDecisionResult result, string finishedPersona = "Worker")
         {
             ArmadaSettings settings = CreateSettings(holdEnabled);
             LoggingModule logging = Quiet();
@@ -351,7 +371,7 @@ namespace Armada.Test.Unit.Suites.Services
             Mission worker = new Mission("Write the export report", "Write the report.");
             worker.VesselId = vessel.Id;
             worker.VoyageId = voyage.Id;
-            worker.Persona = "Worker";
+            worker.Persona = finishedPersona;
             worker.BranchName = _WorkerBranch;
             worker.Status = MissionStatusEnum.WorkProduced;
             worker.AgentOutput = "Wrote the report; the failing test is not written yet.";
