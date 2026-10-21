@@ -504,6 +504,8 @@ and never matches.
 
 ### API captain limits and failure details
 
+API missions require tool execution. If the endpoint disables tool calls or explicitly supplies an empty allowed-tool list, dispatch fails before creating a runtime or calling the provider. Mission details and the mission API retain the configuration problem and corrective action; the captain/dock are released and dependent stages are cancelled. Enable tools under **Configuration > Endpoints**, allow the tools needed for the task, then restart the mission. Blank/unrestricted and nonempty allowlists remain supported, as do read-only policies for appropriate tasks. This guard does not require a particular tool name, widen permissions, or disable plain Ask Armada chats that intentionally have no tools.
+
 Inference endpoints configure `inferenceOptions.maxIterations` (model turns, not individual tool calls),
 `maxTokens` (reasoning and visible output share the provider's output budget), and `timeoutMs` per request.
 An unset output limit uses PolyPrompt's provider defaults; a reasoning model may consume that limit before

@@ -6,6 +6,11 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### API mission configuration failures
+
+- Reject API mission launches with disabled tool calls or an empty allowlist before creating a runtime. Preserve plain Ask chat and nonempty/read-only tool policies.
+- Persist actionable configuration failures in mission details, release resources, cancel dependent stages and stop automatic launch loops. Existing failureReason/Infra API fields remain compatible.
+
 ### Architect decision coverage
 
 - Require explicit decision-to-check references in built-in version 3 Architect plans; reject orphaned or out-of-scope decisions before Worker dispatch and carry the links into downstream instructions. Legacy and version 2 plans remain compatible.

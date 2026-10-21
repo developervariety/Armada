@@ -64,7 +64,7 @@ namespace Armada.Core.Enums
         EndpointProbeFailed,
 
         /// <summary>
-        /// The Mux endpoint is not tool-enabled.
+        /// The endpoint is not tool-enabled for the requested execution.
         /// </summary>
         EndpointNotToolEnabled
     }

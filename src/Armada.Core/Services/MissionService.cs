@@ -732,6 +732,35 @@ namespace Armada.Core.Services
                     _LaunchFailures.TryRemove(mission.Id, out MissionLaunchFailure? _);
                     _Logging.Info(_Header + "launched agent process " + processId + " for captain " + captain.Id);
                 }
+                catch (MissionLaunchConfigurationException configuration)
+                {
+                    // A deterministic policy/configuration problem cannot be repaired by repeatedly launching.
+                    // Keep it visible as a terminal operational failure, without a provider call or rescue loop.
+                    _LaunchFailures.TryRemove(mission.Id, out MissionLaunchFailure? _);
+                    await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.FailureKind = MissionFailureKindEnum.Infra;
+                    mission.FailureReason = configuration.Message;
+                    mission.CaptainId = null;
+                    mission.DockId = null;
+                    mission.ProcessId = null;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    ArmadaMetrics.MissionsFailed.Add(1);
+                    try { await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false); }
+                    catch (Exception reclaimEx) { _Logging.Warn(_Header + "failed to reclaim dock " + dock.Id + " after configuration failure: " + reclaimEx.Message); }
+                    Signal failedSignal = new Signal(SignalTypeEnum.Error, "Mission " + mission.Id + " failed: " + configuration.Message)
+                    {
+                        TenantId = mission.TenantId,
+                        UserId = mission.UserId,
+                        FromCaptainId = captain.Id
+                    };
+                    await _Database.Signals.CreateAsync(failedSignal, token).ConfigureAwait(false);
+                    await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
+                    await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+                    return false;
+                }
                 catch (HarborDockNotFoundException dockMissing)
                 {
                     // The Harbor chosen for the mission does not have its dock, and the mission cannot run on the Admiral

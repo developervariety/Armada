@@ -3432,6 +3432,82 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("configuration_failure_is_terminal_owned_and_cancels_dependents", "A mission configuration failure persists remediation, releases resources and cancels dependents without retry", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => throw new MissionLaunchConfigurationException("Enable tool calls in Configuration > Endpoints, then restart this mission.");
+
+                    Vessel vessel = new Vessel("launch-failure-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain workerCaptain = new Captain("launch-failure-worker");
+                    workerCaptain.State = CaptainStateEnum.Idle;
+                    workerCaptain.AllowedPersonas = "[\"Worker\"]";
+                    workerCaptain = await testDb.Driver.Captains.CreateAsync(workerCaptain).ConfigureAwait(false);
+
+                    Mission workerMission = new Mission("Launch failure mission");
+                    workerMission.VesselId = vessel.Id;
+                    workerMission.Persona = "Worker";
+                    workerMission.Status = MissionStatusEnum.Pending;
+                    UserMaster owner = await testDb.Driver.Users.CreateAsync(new UserMaster
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId, Email = "configuration-fixture@acceptance.invalid"
+                    }).ConfigureAwait(false);
+                    workerMission.TenantId = Armada.Core.Constants.DefaultTenantId;
+                    workerMission.UserId = owner.Id;
+                    workerCaptain.TenantId = workerMission.TenantId;
+                    workerCaptain.UserId = owner.Id;
+                    await testDb.Driver.Captains.UpdateAsync(workerCaptain).ConfigureAwait(false);
+                    vessel.TenantId = workerMission.TenantId;
+                    vessel.UserId = owner.Id;
+                    await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Configuration failure") { TenantId = workerMission.TenantId, UserId = workerMission.UserId, Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    workerMission.VoyageId = voyage.Id;
+                    workerMission = await testDb.Driver.Missions.CreateAsync(workerMission).ConfigureAwait(false);
+                    Mission dependent = await testDb.Driver.Missions.CreateAsync(new Mission("Dependent Judge")
+                    {
+                        TenantId = workerMission.TenantId, VesselId = vessel.Id, VoyageId = voyage.Id, UserId = workerMission.UserId,
+                        Persona = "Judge", Status = MissionStatusEnum.Pending, DependsOnMissionId = workerMission.Id
+                    }).ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(workerMission, vessel).ConfigureAwait(false);
+
+                    Mission? reloadedMission = await testDb.Driver.Missions.ReadAsync(workerMission.Id).ConfigureAwait(false);
+                    Captain? reloadedCaptain = await testDb.Driver.Captains.ReadAsync(workerCaptain.Id).ConfigureAwait(false);
+                    List<Dock> docks = await testDb.Driver.Docks.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+
+                    AssertFalse(assigned, "Assignment should fail when the runtime launch throws");
+                    AssertNotNull(reloadedMission, "Mission should remain readable after launch failure");
+                    AssertEqual(MissionStatusEnum.Failed, reloadedMission!.Status, "Configuration failure must not loop through Pending.");
+                    AssertEqual(MissionFailureKindEnum.Infra, reloadedMission.FailureKind);
+                    AssertContains("Configuration > Endpoints", reloadedMission.FailureReason!);
+                    AssertNotNull(reloadedMission.CompletedUtc);
+                    AssertEqual(0, reloadedMission.RedispatchAttempts);
+                    AssertFalse(await missionService.TryAssignAsync(reloadedMission, vessel).ConfigureAwait(false), "Terminal configuration failure is not dispatched again.");
+                    AssertEqual(MissionStatusEnum.Cancelled, (await testDb.Driver.Missions.ReadAsync(dependent.Id).ConfigureAwait(false))!.Status);
+                    AssertEqual(VoyageStatusEnum.Failed, (await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false))!.Status);
+                    List<Signal> signals = await testDb.Driver.Signals.EnumerateAsync(workerMission.TenantId, workerMission.UserId).ConfigureAwait(false);
+                    Signal owned = signals.Single(x => x.Payload != null && x.Payload.Contains("Configuration > Endpoints"));
+                    AssertEqual(workerMission.TenantId, owned.TenantId);
+                    AssertEqual(workerMission.UserId, owned.UserId);
+                    AssertNull(reloadedMission.CaptainId, "Mission should clear the captain after launch failure");
+                    AssertNull(reloadedMission.DockId, "Mission should clear the dock after launch failure");
+                    AssertNotNull(reloadedCaptain, "Captain should remain readable after launch failure");
+                    AssertEqual(CaptainStateEnum.Idle, reloadedCaptain!.State, "Captain should be released back to Idle after launch failure");
+                    AssertEqual(0, docks.Count(d => d.Active), "Launch failure should not leave behind an active dock");
+                }
+            }));
+
             cases.Add(CaseAsync("duplicate_try_assign_async_does_not_reprovision_same_mission", "Duplicate TryAssignAsync does not reprovision same mission", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

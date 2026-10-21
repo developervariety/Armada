@@ -545,8 +545,9 @@ namespace Armada.Server
         /// </summary>
         /// <param name="captain">Captain to validate.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="forMission">Require tool execution for mission bootstrap; plain-chat validation remains permissive.</param>
         /// <returns>Null when valid, otherwise an error message.</returns>
-        private async Task<CaptainModelValidationFailure?> ValidateApiEndpointCaptainAsync(Captain captain, CancellationToken token = default)
+        private async Task<CaptainModelValidationFailure?> ValidateApiEndpointCaptainAsync(Captain captain, CancellationToken token = default, bool forMission = false)
         {
             if (String.IsNullOrEmpty(captain.ModelEndpointId))
                 return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointRequired, "An API-endpoint captain must reference an inference model endpoint. Choose one under Configuration > Endpoints.");
@@ -558,6 +559,13 @@ namespace Armada.Server
                 return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointNotInference, "The referenced model endpoint '" + endpoint.Name + "' is an " + endpoint.Kind + " endpoint; an API-endpoint captain requires an Inference endpoint.");
             if (!endpoint.Enabled)
                 return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointDisabled, "The referenced model endpoint '" + endpoint.Name + "' is disabled. Enable it or choose another.");
+
+            if (forMission && (!endpoint.InferenceOptions.ToolsEnabled || endpoint.InferenceOptions.AllowedTools?.Count == 0))
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointNotToolEnabled,
+                    "This API endpoint cannot run an Armada mission because tool calls are disabled or its allowed-tool list is empty. "
+                    + "Missions need tools to read local instructions and perform their assigned work. In Configuration > Endpoints, "
+                    + "enable tool calls and allow the tools needed by the mission (or leave the allowlist unrestricted), then restart the mission. "
+                    + "Plain Ask Armada chats may keep tools disabled.");
 
             return null;
         }
@@ -840,6 +848,11 @@ namespace Armada.Server
         public async Task<int> HandleLaunchAgentAsync(Captain captain, Mission mission, Dock dock)
         {
             _Logging.Info(_Header + "launching " + captain.Runtime + " agent for captain " + captain.Id);
+            if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
+            {
+                CaptainModelValidationFailure? configuration = await ValidateApiEndpointCaptainAsync(captain, forMission: true).ConfigureAwait(false);
+                if (configuration != null) throw new MissionLaunchConfigurationException(configuration.Message);
+            }
             LaunchExecutorResolution resolution = await ResolveLaunchExecutorAsync(captain, mission, dock).ConfigureAwait(false);
             Armada.Runtimes.Interfaces.IAgentRuntime runtime = resolution.Executor.CreateRuntime(captain.Runtime);
             string launchKey = captain.Id + ":" + mission.Id;

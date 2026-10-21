@@ -90,6 +90,101 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(0, harbor.Runner.Launches.Count);
                 }));
             }
+            foreach (string mode in new[] { "disabled", "empty" })
+            {
+                string policyMode = mode;
+                cases.Add(CaseAsync("api_mission_requires_tools_" + policyMode,
+                    "An API mission with " + policyMode + " tools fails before runtime creation while its chat captain stays valid", TestTags.Negative, async () =>
+                {
+                    using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.RequireHarborForLaunch = false;
+                    AgentRuntimeFactory factory = new AgentRuntimeFactory(logging);
+                    int creations = 0;
+                    factory.Override(AgentRuntimeEnum.ApiEndpoint, () =>
+                    {
+                        creations++;
+                        throw new InvalidOperationException("Runtime creation reached before mission configuration validation.");
+                    });
+                    AgentLifecycleHandler handler = new AgentLifecycleHandler(logging, db.Driver, settings, factory,
+                        new StubAdmiralService(), new MessageTemplateService(logging), null, null,
+                        (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
+                    InferenceOptions options = new InferenceOptions
+                    {
+                        ToolsEnabled = policyMode != "disabled",
+                        AllowedTools = policyMode == "empty" ? new List<string>() : null
+                    };
+                    ModelEndpoint endpoint = await db.Driver.ModelEndpoints.CreateAsync(new ModelEndpoint
+                    {
+                        Name = "No instruction access", Provider = ModelProviderEnum.OpenAICompatible,
+                        Kind = ModelEndpointKindEnum.Inference, Enabled = true, BaseUrl = "http://127.0.0.1:1",
+                        Model = "fixture-no-network", InferenceOptions = options
+                    }).ConfigureAwait(false);
+                    Captain captain = new Captain("plain-chat captain", AgentRuntimeEnum.ApiEndpoint) { ModelEndpointId = endpoint.Id };
+                    AssertNull(await handler.ValidateCaptainModelDetailedAsync(captain).ConfigureAwait(false), "Plain chat remains valid; do not reject this captain globally.");
+                    Exception? failure = null;
+                    try
+                    {
+                        await handler.HandleLaunchAgentAsync(captain, new Mission("Read local instructions") { Persona = "Worker" },
+                            new Dock { WorktreePath = settings.LogDirectory, BranchName = "armada/configuration-fixture" }).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex) { failure = ex; }
+                    AssertNotNull(failure, "A mission cannot bootstrap without instruction-file access.");
+                    AssertEqual(0, creations, "Configuration rejection must precede runtime creation/provider calls.");
+                    AssertContains("tool", failure!.Message);
+                    AssertContains("Configuration > Endpoints", failure.Message);
+                }));
+            }
+
+            foreach (string mode in new[] { "unrestricted", "read_only", "process_only", "mcp_only" })
+            {
+                string policyMode = mode;
+                cases.Add(CaseAsync("api_mission_preserves_policy_" + policyMode,
+                    "Mission readiness preserves the nonempty " + policyMode + " tool policy", TestTags.Positive, async () =>
+                {
+                    using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.RequireHarborForLaunch = false;
+                    AgentRuntimeFactory factory = new AgentRuntimeFactory(logging);
+                    int creations = 0;
+                    factory.Override(AgentRuntimeEnum.ApiEndpoint, () =>
+                    {
+                        creations++;
+                        throw new InvalidOperationException("Runtime creation reached before mission configuration validation.");
+                    });
+                    AgentLifecycleHandler handler = new AgentLifecycleHandler(logging, db.Driver, settings, factory,
+                        new StubAdmiralService(), new MessageTemplateService(logging), null, null,
+                        (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
+                    InferenceOptions options = new InferenceOptions
+                    {
+                        ToolsEnabled = true,
+                        ReadOnlyTools = policyMode == "read_only",
+                        AllowedTools = policyMode == "unrestricted" || policyMode == "read_only" ? null
+                            : new List<string> { policyMode == "process_only" ? "run_process" : "status" }
+                    };
+                    ModelEndpoint endpoint = await db.Driver.ModelEndpoints.CreateAsync(new ModelEndpoint
+                    {
+                        Name = "No instruction access", Provider = ModelProviderEnum.OpenAICompatible,
+                        Kind = ModelEndpointKindEnum.Inference, Enabled = true, BaseUrl = "http://127.0.0.1:1",
+                        Model = "fixture-no-network", InferenceOptions = options
+                    }).ConfigureAwait(false);
+                    Captain captain = new Captain("plain-chat captain", AgentRuntimeEnum.ApiEndpoint) { ModelEndpointId = endpoint.Id };
+                    AssertNull(await handler.ValidateCaptainModelDetailedAsync(captain).ConfigureAwait(false), "Plain chat remains valid; do not reject this captain globally.");
+                    Exception? failure = null;
+                    try
+                    {
+                        await handler.HandleLaunchAgentAsync(captain, new Mission("Read local instructions") { Persona = "Worker" },
+                            new Dock { WorktreePath = settings.LogDirectory, BranchName = "armada/configuration-fixture" }).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex) { failure = ex; }
+                    AssertNotNull(failure, "The instrumented runtime factory should be reached, without a provider call.");
+                    AssertEqual(1, creations, "Do not invent a mandatory read_file allowlist or broaden read-only policy.");
+                    AssertContains("Runtime creation reached", failure!.Message);
+                }));
+            }
+
             foreach (string outcome in new[] { "rejected", "timeout", "cancelled" })
             {
                 string selectedOutcome = outcome;
