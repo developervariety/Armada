@@ -21,6 +21,15 @@ namespace Armada.Core.Settings
         public bool SendStallMailNudges { get; set; } = true;
 
         /// <summary>
+        /// The challenge round a Judge NEEDS_REVISION passes through before it becomes a rescue.
+        /// </summary>
+        public JudgeChallengeSettings JudgeChallenge
+        {
+            get => _JudgeChallenge;
+            set => _JudgeChallenge = value ?? new JudgeChallengeSettings();
+        }
+
+        /// <summary>
         /// Maximum number of autonomous rescue missions Armada may create for one failed mission.
         /// </summary>
         public int MaxMissionRecoveryAttempts
@@ -109,5 +118,6 @@ namespace Armada.Core.Settings
         private int _StuckOpenVoyageMinutes = 60;
         private int _LandingDrainMaxVoyagesPerSweep = 10;
         private int _RecoverySweepMaxFailedMissionAgeHours = 6;
+        private JudgeChallengeSettings _JudgeChallenge = new JudgeChallengeSettings();
     }
 }

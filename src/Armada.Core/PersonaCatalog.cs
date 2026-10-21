@@ -61,11 +61,18 @@ namespace Armada.Core
         public const string PriorArtAnalyst = "PriorArtAnalyst";
 
         /// <summary>
+        /// Read-only persona that rules UPHOLD or REFUTE on each blocking finding of a Judge NEEDS_REVISION
+        /// before the rescue starts. Autonomous recovery dispatches it on a model other than the Judge's;
+        /// it commits nothing and joins no built-in pipeline.
+        /// </summary>
+        public const string Challenger = "Challenger";
+
+        /// <summary>
         /// Whether a persona cannot do its job without running commands in its dock.
         /// </summary>
         /// <remarks>
         /// A Worker builds and commits, a Test Engineer runs the suite it writes, a Judge reads the diff
-        /// and runs the vessel's gate before it votes, and a Linter runs the checks it reports on. A
+        /// and runs the vessel's gate before it votes, a Linter runs the checks it reports on, and a Challenger reads the reviewed change with git. A
         /// runtime that offers file tools only can occupy one of these seats and produce a confident,
         /// unfounded result: an API-endpoint Judge reported "I have no shell/execution tool in this
         /// session" and reviewed from file reads alone. The analysis personas are absent from this list on
@@ -84,7 +91,8 @@ namespace Armada.Core
             return Matches(name, Worker)
                 || Matches(name, TestEngineer)
                 || Matches(name, Judge)
-                || Matches(name, Linter);
+                || Matches(name, Linter)
+                || Matches(name, Challenger);
         }
 
         /// <summary>
@@ -124,7 +132,7 @@ namespace Armada.Core
         /// Whether a persona's successful completion legitimately produces no repository commit and
         /// can finish quickly, so the no-op completion gate must not read its empty diff as a
         /// false-complete. The Architect delivers a downstream mission plan; the Recorder writes
-        /// native memory; the PriorArtAnalyst writes its finding into its report. Each delivers its
+        /// native memory; the PriorArtAnalyst and the Challenger write their findings into their reports. Each delivers its
         /// result outside the repository diff, so an empty diff is
         /// their normal outcome whatever the voyage mission mode. Reviewer personas are judged by
         /// their own output instead and are deliberately not listed here.
@@ -133,7 +141,8 @@ namespace Armada.Core
         /// <returns>True when an empty diff is a legitimate completion for this persona.</returns>
         public static bool IsNoOpCompletionExempt(string? persona)
         {
-            return Matches(persona, Architect) || Matches(persona, Recorder) || Matches(persona, PriorArtAnalyst);
+            return Matches(persona, Architect) || Matches(persona, Recorder) || Matches(persona, PriorArtAnalyst)
+                || Matches(persona, Challenger);
         }
 
         /// <summary>

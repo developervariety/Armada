@@ -75,6 +75,7 @@ namespace Armada.Core.Services
             await SeedPersonaAsync(PersonaCatalog.Linter, "Evaluates changed code and documentation for style and correctness, fixes clear in-scope violations, and reports findings.", "persona.linter", token).ConfigureAwait(false);
             await SeedPersonaAsync(PersonaCatalog.Recorder, "Reviews the finished work of a voyage and records what is worth remembering into native captain memory.", "persona.recorder", token).ConfigureAwait(false);
             await SeedPersonaAsync(PersonaCatalog.PriorArtAnalyst, "Read-only research analyst that settles whether an objective's deliverable already exists before a Worker builds it; commits nothing.", "persona.prior_art_analyst", token).ConfigureAwait(false);
+            await SeedPersonaAsync(PersonaCatalog.Challenger, "Read-only reviewer that rules UPHOLD or REFUTE on each blocking finding of a Judge NEEDS_REVISION before a rescue starts; commits nothing.", "persona.challenger", token).ConfigureAwait(false);
 
             foreach (AdditionalPersonaSettings extra in _AdditionalPersonas)
             {
@@ -131,7 +132,8 @@ namespace Armada.Core.Services
             if (PersonaCatalog.Matches(name, "Architect")
                 || PersonaCatalog.Matches(name, "Product Manager")
                 || PersonaCatalog.Matches(name, "Usability Engineer")
-                || PersonaCatalog.Matches(name, "Judge")) return CaptainTierEnum.Premium;
+                || PersonaCatalog.Matches(name, "Judge")
+                || PersonaCatalog.Matches(name, PersonaCatalog.Challenger)) return CaptainTierEnum.Premium;
             return null;
         }
 

@@ -9,6 +9,20 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- A challenge round can test a Judge NEEDS_REVISION before its rescue. With
+  `autonomousRecovery.judgeChallenge.enabled` (off by default; hot-reloads),
+  autonomous recovery dispatches a read-only `Challenger` persona on a model
+  other than the Judge's to rule UPHOLD or REFUTE on each numbered blocking
+  finding. The rescue then lists only the upheld findings and names the refuted
+  ones with their evidence; a block whose every finding is refuted dispatches no
+  rescue and waits for an operator. A REFUTE below `refuteMinimumConfidence`
+  (default 0.70) or without evidence stands as UPHOLD, and a finding that names
+  an `unchallengeableMarkers` entry or a protected path always stands. A FAIL, a
+  red Check, a criterion conflict and a comment-only revision are never
+  challenged. A Challenger that fails, times out, runs on the Judge's model or
+  writes an unusable ruling line leaves the rescue with every finding.
+  `excludedVesselIds` turns the round off per vessel. Each outcome is a
+  `judge_challenge.*` event, listed in the mission recovery report.
 - Captains reach declared evidence directories with built-in search and file
   tools. The `captainEvidenceRoots` setting (a list of `{ "path", "vesselIds" }`,
   empty by default) names read-only directories, such as a mounted export tree;

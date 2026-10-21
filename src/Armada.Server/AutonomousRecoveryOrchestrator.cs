@@ -115,6 +115,11 @@ namespace Armada.Server
         private readonly ConcurrentDictionary<string, byte> _ClosedIncidentSkippedMissions =
             new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
+        // Challenge-round events already written, keyed by mission, Challenger and event type, so a
+        // challenge deferred across sweep ticks records each outcome once.
+        private readonly ConcurrentDictionary<string, byte> _JudgeChallengeEventsRecorded =
+            new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+
         // Missions whose operator-mitigated incident already produced a skip event, so the skip is
         // recorded once rather than once per sweep tick.
         private readonly ConcurrentDictionary<string, byte> _MitigatedIncidentSkippedMissions =
@@ -1064,6 +1069,12 @@ namespace Armada.Server
                     return false;
                 }
 
+                // A Challenger belongs to the Judge failure it rules on. That failure's recovery reads
+                // the Challenger's outcome, including its failure, so the Challenger opens no incident
+                // and receives no rescue of its own.
+                if (PersonaCatalog.Matches(latest.Persona, PersonaCatalog.Challenger))
+                    return false;
+
                 if (await SuppressCancelledVoyageRecoveryAsync(latest, token).ConfigureAwait(false))
                     return true;
 
@@ -1076,6 +1087,12 @@ namespace Armada.Server
                 // matches its parent's; every other case leaves the classification untouched.
                 RepeatedFailureCheck repeated = await ReadRepeatedIdenticalTestFailureAsync(latest, token).ConfigureAwait(false);
                 RecoveryDecision decision = Classify(latest, repeated.IsRepeated);
+
+                // While a Challenger is still ruling, each sweep tick stops here, before the typed
+                // failure_cause call and any write.
+                if (decision.DispatchRescue && await IsJudgeChallengePendingAsync(latest, token).ConfigureAwait(false))
+                    return false;
+
                 decision = await RefineFailureCauseAsync(latest, decision, repeated, token).ConfigureAwait(false);
                 AuthContext auth = BuildAuth(latest);
 
@@ -1131,8 +1148,28 @@ namespace Armada.Server
                     }
                 }
 
+                // The challenge round runs before any incident or runbook work, so a challenge that is
+                // still being ruled on writes nothing on each sweep tick. It only narrows a rescue: a
+                // block whose every finding is refuted becomes an operator decision, never a pass.
+                JudgeChallengeOutcome challenge = JudgeChallengeOutcome.NotApplicable;
+                if (decision.DispatchRescue && !latest.IsReadOnlyMode)
+                {
+                    challenge = await ApplyJudgeChallengeAsync(latest, owningObjective, token).ConfigureAwait(false);
+                    if (challenge.IsPending) return false;
+                    if (challenge.Result != null && challenge.Result.Upheld.Count == 0)
+                        decision = RecoveryDecision.Blocked(JudgeChallengeRefutedAllReason);
+                }
+
                 Incident incident = await EnsureIncidentAsync(auth, latest, decision, token).ConfigureAwait(false);
                 await LinkIncidentToOwningObjectivesAsync(auth, latest, incident, token).ConfigureAwait(false);
+
+                if (challenge.Result != null)
+                {
+                    incident = await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+                    {
+                        RecoveryNotes = AppendNote(incident.RecoveryNotes, BuildJudgeChallengeNote(challenge))
+                    }, token).ConfigureAwait(false);
+                }
 
                 // A failure whose tests live in a consumer repository names that consumer and its failing
                 // tests on the incident, so the operator acts in the repository that owns the fix.
@@ -1197,7 +1234,7 @@ namespace Armada.Server
                 Mission rescue;
                 try
                 {
-                    rescue = await DispatchRescueMissionAsync(latest, incident, rescueStartFromRef, owningObjective, token).ConfigureAwait(false);
+                    rescue = await DispatchRescueMissionAsync(latest, incident, rescueStartFromRef, owningObjective, challenge, token).ConfigureAwait(false);
                 }
                 catch (UnassignableRescueException refused)
                 {
@@ -2067,6 +2104,7 @@ namespace Armada.Server
             Incident incident,
             string? startFromRef,
             Objective? owningObjective,
+            JudgeChallengeOutcome challenge,
             CancellationToken token)
         {
             int attemptNumber = failedMission.RecoveryAttempts + 1;
@@ -2099,7 +2137,7 @@ namespace Armada.Server
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Title = "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 100),
                 Description = AppendCurrentObjectiveBrief(
-                    BuildRescueDescription(failedMission, incident, attemptNumber),
+                    BuildRescueDescription(failedMission, incident, attemptNumber, challenge),
                     owningObjective),
                 StartFromRef = startFromRef,
                 Mode = failedMission.Mode,
@@ -3583,7 +3621,359 @@ namespace Armada.Server
             + "When a required revision would change something an objective non-goal forbids, the non-goal wins: do not make that revision, and report the "
             + "conflict in one line naming the finding and the non-goal.";
 
-        internal static string BuildRescueDescription(Mission failedMission, Incident incident, int attemptNumber)
+        /// <summary>
+        /// Recovery reason when the challenge round refuted every blocking finding of a Judge NEEDS_REVISION.
+        /// </summary>
+        internal const string JudgeChallengeRefutedAllReason =
+            "judge_challenge_refuted_all: a Challenger on a different model refuted every blocking finding of the Judge NEEDS_REVISION. "
+            + "No rescue was dispatched and the Judge verdict stands until an operator decides: restart the Judge, land by hand, or close the incident";
+
+        /// <summary>
+        /// Run the challenge round for a failed mission. A Judge NEEDS_REVISION on an enabled vessel gets one
+        /// read-only Challenger on a model other than the Judge's; while it runs the outcome is pending, and once
+        /// it finishes its rulings are settled. Every way the challenge cannot be used is recorded and falls back
+        /// to the unchanged rescue with every finding. Never throws into the sweep.
+        /// </summary>
+        private async Task<JudgeChallengeOutcome> ApplyJudgeChallengeAsync(Mission failed, Objective? owningObjective, CancellationToken token)
+        {
+            try
+            {
+                JudgeChallengeSettings settings = _Settings.AutonomousRecovery.JudgeChallenge;
+                if (!JudgeChallenge.IsChallengeableFailure(failed)) return JudgeChallengeOutcome.NotApplicable;
+                if (!settings.AppliesTo(failed.VesselId)) return JudgeChallengeOutcome.NotApplicable;
+
+                MissionOutputArtifactPage artifact = MissionOutputArtifact.Build(failed, 0, MissionOutputArtifact.MaximumPageLength);
+                string review = artifact.Content ?? String.Empty;
+                List<string> findings = JudgeChallenge.ExtractFindings(review, out bool findingsComplete);
+                Vessel? vessel = await _Database.Vessels.ReadAsync(failed.VesselId!, token).ConfigureAwait(false);
+
+                ArmadaEvent? dispatched = await ReadJudgeChallengeDispatchAsync(failed, token).ConfigureAwait(false);
+                if (dispatched == null)
+                {
+                    string? reviewedCommit = await ResolveRescueStartFromRefAsync(failed, token).ConfigureAwait(false);
+                    string? skip = null;
+                    if (!artifact.Complete || artifact.HasMore) skip = "judge_output_incomplete";
+                    else if (findings.Count == 0) skip = "no_blocking_findings";
+                    else if (!findingsComplete) skip = "findings_incomplete";
+                    else if (findings.Count > settings.MaxFindings) skip = "too_many_findings: " + findings.Count + " exceed the limit of " + settings.MaxFindings;
+                    else if (vessel == null) skip = "vessel_missing";
+                    else if (String.IsNullOrWhiteSpace(reviewedCommit)) skip = "no_reviewed_commit";
+                    else if (await HasFailedCheckOnReviewedWorkAsync(failed, reviewedCommit!, token).ConfigureAwait(false))
+                        skip = "failed_check: a red Check on the reviewed work is never challenged";
+                    if (skip != null)
+                    {
+                        await RecordJudgeChallengeEventOnceAsync(JudgeChallenge.SkippedEvent, failed, String.Empty,
+                            "Challenge round skipped for Judge mission " + failed.Id + ": " + skip + ". The rescue carries every finding.",
+                            null, token).ConfigureAwait(false);
+                        return JudgeChallengeOutcome.NotApplicable;
+                    }
+
+                    return await DispatchJudgeChallengerAsync(failed, vessel!, reviewedCommit!, review, findings, owningObjective, token).ConfigureAwait(false);
+                }
+
+                JudgeChallengeDispatchRecord record = ReadDispatchRecord(dispatched);
+                Mission? challenger = String.IsNullOrWhiteSpace(record.ChallengerMissionId)
+                    ? null
+                    : await ReadMissionAsync(failed.TenantId, record.ChallengerMissionId, token).ConfigureAwait(false);
+                if (challenger == null)
+                    return await JudgeChallengeUnavailableAsync(failed, record.ChallengerMissionId, findings, "challenger_missing", token).ConfigureAwait(false);
+
+                if (!IsChallengerTerminal(challenger.Status))
+                {
+                    if (DateTime.UtcNow - dispatched.CreatedUtc < TimeSpan.FromMinutes(settings.TimeoutMinutes))
+                        return JudgeChallengeOutcome.Pending;
+                    return await JudgeChallengeUnavailableAsync(failed, challenger.Id, findings,
+                        "timeout: the Challenger did not finish within " + settings.TimeoutMinutes + " minutes", token).ConfigureAwait(false);
+                }
+
+                if (challenger.Status != MissionStatusEnum.Complete)
+                    return await JudgeChallengeUnavailableAsync(failed, challenger.Id, findings,
+                        "challenger_" + challenger.Status.ToString().ToLowerInvariant() + ": " + (challenger.FailureReason ?? "no reason recorded"), token).ConfigureAwait(false);
+
+                if (findings.Count != record.FindingCount)
+                    return await JudgeChallengeUnavailableAsync(failed, challenger.Id, findings,
+                        "findings_changed: the Challenger ruled on " + record.FindingCount + " findings and the review now yields " + findings.Count, token).ConfigureAwait(false);
+
+                string? sameModel = await DescribeSameModelAsync(failed, challenger, token).ConfigureAwait(false);
+                if (sameModel != null)
+                    return await JudgeChallengeUnavailableAsync(failed, challenger.Id, findings, sameModel, token).ConfigureAwait(false);
+
+                List<string>? protectedPaths = vessel?.ProtectedPaths;
+                JudgeChallengeResult result = JudgeChallenge.Settle(
+                    challenger.AgentOutput,
+                    findings,
+                    settings.RefuteMinimumConfidence,
+                    finding => JudgeChallenge.IsUnchallengeable(finding, settings.UnchallengeableMarkers, protectedPaths));
+                if (!result.IsValid)
+                    return await JudgeChallengeUnavailableAsync(failed, challenger.Id, findings, result.Error!, token).ConfigureAwait(false);
+
+                JudgeChallengeOutcome outcome = JudgeChallengeOutcome.Ruled(challenger.Id, findings, result);
+                await RecordJudgeChallengeEventOnceAsync(JudgeChallenge.RuledEvent, failed, challenger.Id,
+                    "Challenge round for Judge mission " + failed.Id + ": Challenger " + challenger.Id + " upheld "
+                    + result.Upheld.Count + " and refuted " + result.Refuted.Count + " of " + findings.Count + " findings.",
+                    System.Text.Json.JsonSerializer.Serialize(new JudgeChallengeRuledPayload(challenger.Id, findings.Count, result)), token).ConfigureAwait(false);
+                return outcome;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "challenge round failed for mission " + failed.Id + ", the rescue carries every finding: " + ex.Message);
+                await RecordJudgeChallengeEventOnceAsync(JudgeChallenge.UnavailableEvent, failed, String.Empty,
+                    "Challenge round unavailable for Judge mission " + failed.Id + ": error: " + ex.Message + ". The rescue carries every finding.",
+                    null, token).ConfigureAwait(false);
+                return JudgeChallengeOutcome.NotApplicable;
+            }
+        }
+
+        private async Task<bool> IsJudgeChallengePendingAsync(Mission failed, CancellationToken token)
+        {
+            JudgeChallengeSettings settings = _Settings.AutonomousRecovery.JudgeChallenge;
+            if (!JudgeChallenge.IsChallengeableFailure(failed) || !settings.AppliesTo(failed.VesselId)) return false;
+
+            ArmadaEvent? dispatched = await ReadJudgeChallengeDispatchAsync(failed, token).ConfigureAwait(false);
+            if (dispatched == null) return false;
+            JudgeChallengeDispatchRecord record = ReadDispatchRecord(dispatched);
+            if (String.IsNullOrWhiteSpace(record.ChallengerMissionId)) return false;
+            Mission? challenger = await ReadMissionAsync(failed.TenantId, record.ChallengerMissionId, token).ConfigureAwait(false);
+            if (challenger == null || IsChallengerTerminal(challenger.Status)) return false;
+            return DateTime.UtcNow - dispatched.CreatedUtc < TimeSpan.FromMinutes(settings.TimeoutMinutes);
+        }
+
+        private static bool IsChallengerTerminal(MissionStatusEnum status)
+        {
+            return status == MissionStatusEnum.Complete
+                || status == MissionStatusEnum.Failed
+                || status == MissionStatusEnum.LandingFailed
+                || status == MissionStatusEnum.Cancelled;
+        }
+
+        private async Task<JudgeChallengeOutcome> DispatchJudgeChallengerAsync(
+            Mission failed,
+            Vessel vessel,
+            string reviewedCommit,
+            string review,
+            List<string> findings,
+            Objective? owningObjective,
+            CancellationToken token)
+        {
+            Mission challenger = new Mission
+            {
+                TenantId = failed.TenantId,
+                UserId = failed.UserId,
+                VesselId = failed.VesselId,
+                Persona = PersonaCatalog.Challenger,
+                Mode = MissionModeEnum.Audit,
+                PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    null,
+                    null,
+                    _Settings.ModelTier.MinimumTierForPersona(PersonaCatalog.Challenger)),
+                Priority = failed.Priority,
+                Title = "Challenge: " + Truncate(failed.Title, 100),
+                Description = AppendCurrentObjectiveBrief(
+                    JudgeChallenge.BuildBrief(failed, review, findings, vessel.DefaultBranch),
+                    owningObjective),
+                StartFromRef = reviewedCommit,
+                RetrySkipCaptainIds = await BuildSameModelSkipListAsync(failed, token).ConfigureAwait(false)
+            };
+
+            Mission created;
+            try
+            {
+                created = await _Admiral.DispatchMissionAsync(challenger, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                return await JudgeChallengeUnavailableAsync(failed, String.Empty, findings, "dispatch_failed: " + ex.Message, token).ConfigureAwait(false);
+            }
+
+            JudgeChallengeDispatchRecord record = new JudgeChallengeDispatchRecord
+            {
+                ChallengerMissionId = created.Id,
+                JudgeCompletedUtc = failed.CompletedUtc,
+                FindingCount = findings.Count
+            };
+            ArmadaEvent evt = new ArmadaEvent(JudgeChallenge.DispatchedEvent,
+                "Challenger " + created.Id + " dispatched to rule on " + findings.Count + " blocking findings of Judge mission " + failed.Id + ".")
+            {
+                EntityType = "mission",
+                EntityId = failed.Id,
+                MissionId = failed.Id,
+                VesselId = failed.VesselId,
+                VoyageId = failed.VoyageId,
+                Payload = System.Text.Json.JsonSerializer.Serialize(record)
+            };
+            EventOwnerScope.ApplyFromMission(evt, failed);
+            await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            return JudgeChallengeOutcome.Pending;
+        }
+
+        private async Task<ArmadaEvent?> ReadJudgeChallengeDispatchAsync(Mission failed, CancellationToken token)
+        {
+            List<ArmadaEvent> events = await _Database.Events.EnumerateByMissionAsync(failed.Id, 200, token).ConfigureAwait(false);
+            return events
+                .Where(evt => String.Equals(evt.EventType, JudgeChallenge.DispatchedEvent, StringComparison.Ordinal))
+                .Where(evt => BelongsToFailure(ReadDispatchRecord(evt), failed))
+                .OrderByDescending(evt => evt.CreatedUtc)
+                .FirstOrDefault();
+        }
+
+        // A challenge belongs to the failure it was dispatched for. A Judge restarted and failed again is a
+        // new failure with a new completion time, and gets its own challenge.
+        private static bool BelongsToFailure(JudgeChallengeDispatchRecord record, Mission failed)
+        {
+            if (!record.JudgeCompletedUtc.HasValue || !failed.CompletedUtc.HasValue)
+                return record.JudgeCompletedUtc.HasValue == failed.CompletedUtc.HasValue;
+            return Math.Abs((record.JudgeCompletedUtc.Value - failed.CompletedUtc.Value).TotalSeconds) < 1.0;
+        }
+
+        private static JudgeChallengeDispatchRecord ReadDispatchRecord(ArmadaEvent evt)
+        {
+            if (String.IsNullOrWhiteSpace(evt.Payload)) return new JudgeChallengeDispatchRecord();
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<JudgeChallengeDispatchRecord>(evt.Payload)
+                    ?? new JudgeChallengeDispatchRecord();
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return new JudgeChallengeDispatchRecord();
+            }
+        }
+
+        private async Task<bool> HasFailedCheckOnReviewedWorkAsync(Mission failed, string reviewedCommit, CancellationToken token)
+        {
+            CheckRunQuery query = new CheckRunQuery
+            {
+                TenantId = failed.TenantId,
+                PageNumber = 1,
+                PageSize = 200
+            };
+            if (!String.IsNullOrWhiteSpace(failed.VoyageId)) query.VoyageId = failed.VoyageId;
+            else query.MissionId = failed.Id;
+
+            EnumerationResult<CheckRun> runs = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
+            return runs.Objects
+                .Where(run => String.IsNullOrWhiteSpace(run.CommitHash)
+                    || String.Equals(run.CommitHash.Trim(), reviewedCommit, StringComparison.OrdinalIgnoreCase))
+                .GroupBy(run => run.Type + "|" + (run.Label ?? String.Empty) + "|" + (run.WorkflowProfileId ?? String.Empty), StringComparer.Ordinal)
+                .Select(group => group.OrderByDescending(run => run.CreatedUtc).First())
+                .Any(run => run.Status == CheckRunStatusEnum.Failed);
+        }
+
+        // The captains that run the Judge's model, so routing prefers a Challenger on another model.
+        private async Task<string?> BuildSameModelSkipListAsync(Mission failed, CancellationToken token)
+        {
+            Captain? judge = String.IsNullOrWhiteSpace(failed.CaptainId)
+                ? null
+                : await _Database.Captains.ReadAsync(failed.CaptainId, token).ConfigureAwait(false);
+            if (judge == null) return null;
+
+            string judgeModel = ModelKey(judge);
+            List<Captain> captains = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+            List<string> sameModel = captains
+                .Where(captain => String.Equals(ModelKey(captain), judgeModel, StringComparison.Ordinal))
+                .Select(captain => captain.Id)
+                .ToList();
+            if (!sameModel.Contains(judge.Id, StringComparer.Ordinal)) sameModel.Add(judge.Id);
+            return String.Join(",", sameModel);
+        }
+
+        // Routing only prefers another model, so the model is checked again once the Challenger has run.
+        private async Task<string?> DescribeSameModelAsync(Mission failed, Mission challenger, CancellationToken token)
+        {
+            Captain? judge = String.IsNullOrWhiteSpace(failed.CaptainId)
+                ? null
+                : await _Database.Captains.ReadAsync(failed.CaptainId, token).ConfigureAwait(false);
+            Captain? ruling = String.IsNullOrWhiteSpace(challenger.CaptainId)
+                ? null
+                : await _Database.Captains.ReadAsync(challenger.CaptainId, token).ConfigureAwait(false);
+            if (judge == null || ruling == null)
+                return "model_unknown: the Judge or Challenger captain record is missing, so the models cannot be compared";
+            if (String.Equals(ModelKey(judge), ModelKey(ruling), StringComparison.Ordinal))
+                return "same_model: the Challenger ran on the Judge's model (" + ModelKey(ruling) + ")";
+            return null;
+        }
+
+        private static string ModelKey(Captain captain)
+        {
+            return (captain.Runtime + ":" + (captain.Model ?? String.Empty).Trim()).ToLowerInvariant();
+        }
+
+        private async Task<JudgeChallengeOutcome> JudgeChallengeUnavailableAsync(
+            Mission failed,
+            string challengerId,
+            List<string> findings,
+            string reason,
+            CancellationToken token)
+        {
+            await RecordJudgeChallengeEventOnceAsync(JudgeChallenge.UnavailableEvent, failed, challengerId,
+                "Challenge round unavailable for Judge mission " + failed.Id + ": " + reason + ". The rescue carries all "
+                + findings.Count + " findings.",
+                null, token).ConfigureAwait(false);
+            return JudgeChallengeOutcome.NotApplicable;
+        }
+
+        private async Task RecordJudgeChallengeEventOnceAsync(
+            string eventType,
+            Mission failed,
+            string challengerId,
+            string message,
+            string? payload,
+            CancellationToken token)
+        {
+            string key = failed.Id + "|" + challengerId + "|" + eventType + "|" + (failed.CompletedUtc?.Ticks ?? 0);
+            if (!_JudgeChallengeEventsRecorded.TryAdd(key, 0)) return;
+
+            ArmadaEvent evt = new ArmadaEvent(eventType, message)
+            {
+                EntityType = "mission",
+                EntityId = failed.Id,
+                MissionId = failed.Id,
+                VesselId = failed.VesselId,
+                VoyageId = failed.VoyageId,
+                Payload = payload
+            };
+            EventOwnerScope.ApplyFromMission(evt, failed);
+            await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+        }
+
+        private static string BuildJudgeChallengeNote(JudgeChallengeOutcome challenge)
+        {
+            JudgeChallengeResult result = challenge.Result!;
+            StringBuilder sb = new StringBuilder();
+            sb.Append("Challenge round: Challenger " + challenge.ChallengerMissionId + " upheld " + result.Upheld.Count
+                + " and refuted " + result.Refuted.Count + " of " + challenge.Findings.Count + " blocking findings.");
+            foreach (JudgeChallengeRuling refuted in result.Refuted)
+            {
+                sb.Append(Environment.NewLine + "- Refuted " + refuted.Index + " (" + (refuted.Kind ?? "unclassified") + ", confidence "
+                    + refuted.Confidence.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + "): "
+                    + TruncateForBrief(challenge.Findings[refuted.Index - 1], 300) + " Evidence: " + TruncateForBrief(refuted.Evidence ?? String.Empty, 500));
+            }
+            return sb.ToString();
+        }
+
+        internal static string BuildChallengedFindingsForBrief(JudgeChallengeOutcome challenge)
+        {
+            JudgeChallengeResult result = challenge.Result!;
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Blocking findings to fix (upheld by the challenge round; complete list):");
+            foreach (int index in result.Upheld)
+                sb.AppendLine("- " + challenge.Findings[index - 1]);
+            if (result.Refuted.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Findings the challenge round refuted. A Challenger on a different model showed with the evidence below "
+                    + "that they do not block; do not change code for them, even where the reviewer feedback repeats them:");
+                foreach (JudgeChallengeRuling refuted in result.Refuted)
+                    sb.AppendLine("- " + challenge.Findings[refuted.Index - 1] + " Refuted: " + TruncateForBrief(refuted.Evidence ?? String.Empty, 800));
+            }
+            return sb.ToString().TrimEnd();
+        }
+
+        internal static string BuildRescueDescription(Mission failedMission, Incident incident, int attemptNumber, JudgeChallengeOutcome? challenge = null)
         {
             MissionOutputArtifactPage outputArtifact = MissionOutputArtifact.Build(
                 failedMission,
@@ -3618,7 +4008,16 @@ namespace Armada.Server
                 sb.AppendLine("Original branch: " + failedMission.BranchName);
             if (!String.IsNullOrWhiteSpace(review))
             {
-                string blocking = BuildBlockingFindingsForBrief(review.Trim(), _MaxRescueBlockingFindingsChars);
+                // A settled challenge replaces the extracted list: only the findings it upheld are to be
+                // fixed, and the refuted ones are named with the evidence that refuted them.
+                string blocking = challenge?.Result != null
+                    ? String.Empty
+                    : BuildBlockingFindingsForBrief(review.Trim(), _MaxRescueBlockingFindingsChars);
+                if (challenge?.Result != null)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine(BuildChallengedFindingsForBrief(challenge));
+                }
                 bool findingsComplete = outputArtifactComplete
                     && !blocking.Contains(StageReportEssentials.IncompleteFindingsMarker, StringComparison.Ordinal);
                 if (!outputArtifactComplete && blocking.Length > 0
@@ -4320,6 +4719,69 @@ namespace Armada.Server
             {
                 Reason = reason;
             }
+        }
+
+        /// <summary>
+        /// Where the challenge round stands for one Judge failure.
+        /// </summary>
+        internal sealed class JudgeChallengeOutcome
+        {
+            /// <summary>The round does not apply, or cannot be used: the rescue carries every finding.</summary>
+            public static readonly JudgeChallengeOutcome NotApplicable = new JudgeChallengeOutcome(false, String.Empty, new List<string>(), null);
+
+            /// <summary>A Challenger is ruling: recovery waits.</summary>
+            public static readonly JudgeChallengeOutcome Pending = new JudgeChallengeOutcome(true, String.Empty, new List<string>(), null);
+
+            private JudgeChallengeOutcome(bool isPending, string challengerMissionId, List<string> findings, JudgeChallengeResult? result)
+            {
+                IsPending = isPending;
+                ChallengerMissionId = challengerMissionId;
+                Findings = findings;
+                Result = result;
+            }
+
+            /// <summary>Whether a Challenger is still ruling.</summary>
+            public bool IsPending { get; }
+
+            /// <summary>Challenger mission that ruled.</summary>
+            public string ChallengerMissionId { get; }
+
+            /// <summary>The numbered findings; finding N is element N-1.</summary>
+            public List<string> Findings { get; }
+
+            /// <summary>Settled rulings, or null when the round does not apply.</summary>
+            public JudgeChallengeResult? Result { get; }
+
+            /// <summary>A settled challenge.</summary>
+            public static JudgeChallengeOutcome Ruled(string challengerMissionId, List<string> findings, JudgeChallengeResult result)
+            {
+                return new JudgeChallengeOutcome(false, challengerMissionId, findings, result);
+            }
+        }
+
+        // Payload of the judge_challenge.ruled event: counts and per-finding readings, never finding text.
+        private sealed class JudgeChallengeRuledPayload
+        {
+            public JudgeChallengeRuledPayload(string challengerMissionId, int findingCount, JudgeChallengeResult result)
+            {
+                ChallengerMissionId = challengerMissionId;
+                FindingCount = findingCount;
+                Upheld = result.Upheld;
+                UpheldBelowFloor = result.UpheldBelowFloor;
+                UpheldUnchallengeable = result.UpheldUnchallengeable;
+                Refuted = result.Refuted.Select(ruling => ruling.Index).ToList();
+                RefutedKinds = result.Refuted.Select(ruling => ruling.Kind ?? String.Empty).ToList();
+                RefutedConfidences = result.Refuted.Select(ruling => ruling.Confidence).ToList();
+            }
+
+            public string ChallengerMissionId { get; }
+            public int FindingCount { get; }
+            public List<int> Upheld { get; }
+            public List<int> UpheldBelowFloor { get; }
+            public List<int> UpheldUnchallengeable { get; }
+            public List<int> Refuted { get; }
+            public List<string> RefutedKinds { get; }
+            public List<double> RefutedConfidences { get; }
         }
 
         private readonly struct RecoveryDecision

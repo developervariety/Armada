@@ -289,6 +289,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ObjectiveDependencyAnalyzerTests());
             runner.AddSuite(new ObjectiveBriefRendererTests());
             runner.AddSuite(new AutonomousRecoveryOrchestratorTests());
+            runner.AddSuite(new JudgeChallengeTests());
             runner.AddSuite(new LandingDrainSafetyNetTests());
             runner.AddSuite(new AutonomousObjectiveSchedulerTests());
             runner.AddSuite(new IncidentLifecycleOrchestratorTests());

@@ -199,6 +199,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission mission = await CreateMissionAsync(testDb.Driver, null, null, _User, DateTime.UtcNow).ConfigureAwait(false);
                     DateTime now = DateTime.UtcNow;
                     await CreateEventAsync(testDb.Driver, mission.Id, "autonomous_recovery.rescue_dispatched", "Rescue dispatched with token=abcdefghijk999", now.AddMinutes(-3), _Tenant).ConfigureAwait(false);
+                    await CreateEventAsync(testDb.Driver, mission.Id, "judge_challenge.ruled", "Challenger upheld 2 and refuted 1 of 3 findings", now.AddMinutes(-2.5), _Tenant).ConfigureAwait(false);
                     await CreateEventAsync(testDb.Driver, mission.Id, "landing_drain.enqueued", "Landing drain enqueued", now.AddMinutes(-2), _Tenant).ConfigureAwait(false);
                     await CreateEventAsync(testDb.Driver, mission.Id, "mission.completed", "Mission completed", now.AddMinutes(-1), _Tenant).ConfigureAwait(false);
                     await CreateEventAsync(testDb.Driver, mission.Id, "mission.landing_retry", "Unscoped landing retry", now, null).ConfigureAwait(false);
@@ -207,13 +208,14 @@ namespace Armada.Test.Unit.Suites.Services
 
                     MissionRecoveryReport member = await service.GetForMissionAsync(_Member, mission).ConfigureAwait(false);
                     List<string> memberTypes = member.Events.Select(item => item.EventType).ToList();
-                    AssertEqual(2, member.Events.Count, "Two scoped recovery events; completion and the unscoped retry are excluded");
+                    AssertEqual(3, member.Events.Count, "Three scoped recovery events; completion and the unscoped retry are excluded");
                     AssertEqual("landing_drain.enqueued", memberTypes[0], "Newest first");
-                    AssertEqual("autonomous_recovery.rescue_dispatched", memberTypes[1], "Older second");
-                    AssertFalse(member.Events[1].Message.Contains("abcdefghijk999", StringComparison.Ordinal), "Messages are redacted");
+                    AssertEqual("judge_challenge.ruled", memberTypes[1], "A challenge-round event is a recovery event");
+                    AssertEqual("autonomous_recovery.rescue_dispatched", memberTypes[2], "Oldest last");
+                    AssertFalse(member.Events[2].Message.Contains("abcdefghijk999", StringComparison.Ordinal), "Messages are redacted");
 
                     MissionRecoveryReport admin = await service.GetForMissionAsync(_Admin, mission).ConfigureAwait(false);
-                    AssertEqual(3, admin.Events.Count, "An unscoped admin also sees the unscoped retry event");
+                    AssertEqual(4, admin.Events.Count, "An unscoped admin also sees the unscoped retry event");
 
                     AuthContext otherTenant = AuthContext.Authenticated("ten_recovery_other", "usr_recovery_other", false, true, "Test");
                     MissionRecoveryReport other = await service.GetForMissionAsync(otherTenant, mission).ConfigureAwait(false);

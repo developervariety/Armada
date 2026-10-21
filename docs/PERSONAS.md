@@ -16,8 +16,9 @@ A persona has a stable ID, tenant, unique name, description, prompt-template
 name, built-in flag, active flag, and default playbooks. A prompt template has
 its own versioned content. A pipeline stage refers to a persona by name.
 
-Armada seeds twelve built-in personas on startup: the eleven in this table plus
-`PriorArtAnalyst` (documented under *Prior-art analyst stage* below). Three
+Armada seeds the thirteen built-in personas in this table on startup.
+`PriorArtAnalyst` and `Challenger` are conditional stages, documented under
+*Prior-art analyst stage* and *Challenge round* below. Three
 earlier specialist reviewers, `MigrationDataReviewer`, `PerformanceMemoryReviewer`
 and `FrontendWorkflowReviewer`, were retired on 2026-09-17 (deactivated, not
 deleted) together with their `*Tested` pipelines; no voyage used them:
@@ -36,11 +37,12 @@ deleted) together with their `*Tested` pipelines; no voyage used them:
 | `PortingReferenceAnalyst` | Compare approved references and parity evidence. |
 | `Recorder` | Review the finished work of a voyage and record what is worth remembering into native captain memory. Writes memory only; never changes the repository or shared memory. When the objective forbids native memory (tag `no-native-memory`, or a rollout constraint saying the work writes no memory), the memory tools refuse with `native_memory_forbidden` and the Recorder reports only. |
 | `PriorArtAnalyst` | Read-only Research analyst that settles whether an objective’s deliverable already exists before a Worker builds it; commits nothing. Conditional stage, not in a default pipeline (see below). |
+| `Challenger` | Read-only reviewer that rules UPHOLD or REFUTE on each blocking finding of a Judge NEEDS_REVISION before a rescue starts; commits nothing. Dispatched by autonomous recovery, not in a pipeline (see below). |
 
 A stage that commits holds the mission branch in its dock: Worker, TestEngineer,
 Linter and PortingReferenceAnalyst, which commits parity fixes. Judge, Architect,
-Product Manager, Usability Engineer, the specialist reviewers, PriorArtAnalyst and
-Recorder get a checkout detached at the same commit, so same-stage reviewers can
+Product Manager, Usability Engineer, the specialist reviewers, PriorArtAnalyst,
+Challenger and Recorder get a checkout detached at the same commit, so same-stage reviewers can
 run together. A commit made on a detached checkout still reaches the branch:
 Armada moves the mission branch to the dock's commit at handoff, and landing uses
 the commit captured from the dock. The no-push mission rules, which LocalMerge
@@ -128,6 +130,53 @@ stage is read-only (it commits nothing) and runs only in that band, which is the
 DRY answer to "more personas": the analyst runs when the question is genuinely
 open and never otherwise. The recommendation is advisory — the operator confirms
 it; the adapter never inserts a stage by itself. The decision ships `Gate`.
+
+### Challenge round (`autonomousRecovery.judgeChallenge`)
+
+A Judge NEEDS_REVISION can name findings that do not block the work: a criterion
+read too literally, a limit the report already states, or a check that has not
+finished. The challenge round tests each blocking finding before a rescue is
+spent on it. It is off by default (`enabled: false`) and hot-reloads.
+
+When the round is enabled and a Judge mission fails with `Judge verdict:
+NEEDS_REVISION`, autonomous recovery numbers the review's blocking findings with
+the same extraction the rescue brief uses, and dispatches one `Challenger`
+mission (template `persona.challenger`, mode `Audit`) checked out at the
+reviewed commit. Its brief holds the numbered findings, the Judge's output and
+the reviewed stage's brief with the objective. Routing skips every captain on the
+Judge's model. The Challenger classifies each finding (FACT, MISSING, DEFECT,
+SCOPE, PROOF, BOUNDARY, FORMAT, PROCESS, PENDING or CONFLICT), rules by kind, and
+ends with one `[ARMADA:CHALLENGE] {"findings":[...]}` line. No incident or
+rescue is created while it runs.
+
+The rulings are settled in code:
+
+- A REFUTE stands only at or above `refuteMinimumConfidence` (default `0.70`,
+  never below `0.5`) and with evidence. Any other REFUTE counts as UPHOLD.
+- A finding that contains one of `unchallengeableMarkers`, or names one of the
+  vessel's protected paths, is always upheld.
+- When at least one finding is upheld, the rescue brief lists only the upheld
+  findings to fix, and names each refuted finding with its evidence so the
+  Worker does not change code for it.
+- When every finding is refuted, no rescue is dispatched. The Judge mission
+  stays failed and the incident carries `judge_challenge_refuted_all` and every
+  refutation, for an operator to restart the Judge, land by hand, or close.
+
+The round never passes work, and it never challenges a Judge FAIL, a PASS
+rejected by a red Check, a criterion conflict or a comment-only revision. It
+skips a review with no findings, more than `maxFindings` (default 20) findings,
+an incomplete output, or a failed Check on the reviewed commit. A Challenger
+that fails, times out (`timeoutMinutes`, default 180), ran on the Judge's model,
+or writes a ruling line that does not rule every finding exactly once makes the
+round unavailable: the rescue then carries every finding, as with the round off.
+`excludedVesselIds` turns the round off for a vessel.
+
+Each outcome is an event on the Judge mission: `judge_challenge.dispatched`
+(payload: the Challenger id, the Judge completion time and the finding count),
+`judge_challenge.ruled` (counts, and the index, kind and confidence of each
+refuted finding, never finding text), `judge_challenge.unavailable` and
+`judge_challenge.skipped`, each with its reason. The mission recovery report
+lists them. A failed Challenger opens no incident and gets no rescue of its own.
 
 ## Prompt Assembly
 

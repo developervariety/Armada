@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -4767,12 +4768,258 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildBlockingFindingsForBrief_ParagraphUnderDefectLeadIn_IsCarried).ConfigureAwait(false);
             await RunTest("BuildRescueDescription keeps unmet criteria from omitted review sections and names those sections",
                 BuildRescueDescription_OversizedJudgeReview_KeepsUnmetCriteriaFromOmittedSections).ConfigureAwait(false);
+            await RunTest("Challenge round: a Judge NEEDS_REVISION waits for a Challenger on another model, then the rescue carries only upheld findings", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ChallengeFixture fixture = await CreateChallengeFixtureAsync(testDb, "ten_challenge_upheld").ConfigureAwait(false);
+                fixture.Settings.TypedDecisions.Mode = TypedDecisionModeEnum.Gate;
+                fixture.Settings.TypedDecisions.Decisions["failure_cause"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate };
+                FakeTypedDecisionClient failureCause = new FakeTypedDecisionClient(new TypedDecisionResult { Available = false, UnavailableReason = "test" });
+                fixture.Orchestrator.FailureCauseAdapter = new TypedFailureCauseAdapter(
+                    failureCause, new TypedDecisionRecorder(testDb.Driver, new LoggingModule()), fixture.Settings.TypedDecisions, new LoggingModule());
+
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                AssertEqual(1, fixture.Admiral.DispatchedMissions.Count, "The first pass dispatches only the Challenger.");
+                int failureCauseCalls = failureCause.Calls;
+                AssertTrue(failureCauseCalls > 0, "The first pass asks failure_cause before a Challenger is spent.");
+                Mission challenger = fixture.Admiral.DispatchedMissions[0];
+                AssertEqual(PersonaCatalog.Challenger, challenger.Persona, "The dispatched mission is the Challenger.");
+                AssertEqual(MissionModeEnum.Audit, challenger.Mode, "The Challenger is read-only.");
+                AssertEqual(fixture.Failed.CommitHash, challenger.StartFromRef, "The Challenger reads the reviewed commit.");
+                AssertTrue(MissionService.IsCaptainOnRetrySkipList(challenger.RetrySkipCaptainIds, fixture.Failed.CaptainId),
+                    "Routing avoids the Judge's captain.");
+                AssertContains("1. src/Parser.cs:12", challenger.Description ?? "", "The brief numbers finding 1.");
+                AssertContains("3. src/Parser.cs:60", challenger.Description ?? "", "The brief numbers finding 3.");
+                AssertEqual(0, (await ActiveIncidentsAsync(testDb, fixture.Failed).ConfigureAwait(false)).Count,
+                    "No incident is opened while the challenge is pending.");
+
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                AssertEqual(1, fixture.Admiral.DispatchedMissions.Count, "A pending challenge dispatches nothing more.");
+                AssertEqual(failureCauseCalls, failureCause.Calls, "A pending challenge makes no further failure_cause call.");
+
+                await CompleteChallengerAsync(testDb, challenger, fixture.OtherModelCaptainId, "{\"findings\":["
+                    + ChallengeRuling(1, "UPHOLD", 0.9) + "," + ChallengeRuling(2, "REFUTE", 0.85) + "," + ChallengeRuling(3, "REFUTE", 0.65) + "]}").ConfigureAwait(false);
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+
+                AssertEqual(2, fixture.Admiral.DispatchedMissions.Count, "The settled challenge dispatches the rescue.");
+                Mission rescue = fixture.Admiral.DispatchedMissions[1];
+                AssertEqual("Worker", rescue.Persona, "The rescue is a Worker.");
+                string description = rescue.Description ?? "";
+                int refutedAt = description.IndexOf("Findings the challenge round refuted", StringComparison.Ordinal);
+                AssertTrue(refutedAt > 0, "The brief names the refuted findings.");
+                string upheld = description.Substring(0, refutedAt);
+                AssertContains("upheld by the challenge round", upheld, "The brief labels the upheld list.");
+                AssertContains("src/Parser.cs:12", upheld, "Finding 1 was upheld.");
+                AssertContains("src/Parser.cs:60", upheld, "Finding 3 stands: its refute is below the confidence floor.");
+                AssertFalse(upheld.Contains("src/Parser.cs:40", StringComparison.Ordinal), "Finding 2 was refuted and is not to be fixed.");
+                AssertContains("src/Parser.cs:40", description.Substring(refutedAt), "The refuted finding is listed with its evidence.");
+
+                List<ArmadaEvent> ruled = await testDb.Driver.Events.EnumerateByTypeAsync(JudgeChallenge.RuledEvent, 10).ConfigureAwait(false);
+                AssertEqual(1, ruled.Count, "One ruled event is recorded.");
+                AssertContains("upheld 2 and refuted 1 of 3", ruled[0].Message, "The event states the counts.");
+                List<Incident> active = await ActiveIncidentsAsync(testDb, fixture.Failed).ConfigureAwait(false);
+                AssertTrue(active.Any(item => (item.RecoveryNotes ?? "").Contains("refuted 1 of 3", StringComparison.Ordinal)),
+                    "The incident records the challenge.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Challenge round: a block whose every finding is refuted dispatches no rescue and waits for an operator", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ChallengeFixture fixture = await CreateChallengeFixtureAsync(testDb, "ten_challenge_refuted").ConfigureAwait(false);
+
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                await CompleteChallengerAsync(testDb, fixture.Admiral.DispatchedMissions[0], fixture.OtherModelCaptainId, "{\"findings\":["
+                    + ChallengeRuling(1, "REFUTE", 0.9) + "," + ChallengeRuling(2, "REFUTE", 0.9) + "," + ChallengeRuling(3, "REFUTE", 0.9) + "]}").ConfigureAwait(false);
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, fixture.Admiral.DispatchedMissions.Count, "No rescue follows a fully refuted block.");
+                Mission? judge = await testDb.Driver.Missions.ReadAsync(fixture.Failed.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Failed, judge!.Status, "The Judge verdict stands; nothing passes.");
+                List<Incident> active = await ActiveIncidentsAsync(testDb, fixture.Failed).ConfigureAwait(false);
+                AssertEqual(1, active.Count, "One incident is open for the operator.");
+                AssertContains("judge_challenge_refuted_all", active[0].Summary ?? "", "The incident names the refuted block.");
+                AssertContains("refuted 3 of 3", active[0].RecoveryNotes ?? "", "The incident lists the refutations.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Challenge round: a Challenger that cannot be used leaves the rescue with every finding and records why", async () =>
+            {
+                Dictionary<string, Func<ChallengeFixture, TestDatabase, Task>> cases = new Dictionary<string, Func<ChallengeFixture, TestDatabase, Task>>
+                {
+                    ["challenger_failed"] = async (fixture, testDb) =>
+                    {
+                        Mission challenger = (await testDb.Driver.Missions.ReadAsync(fixture.Admiral.DispatchedMissions[0].Id).ConfigureAwait(false))!;
+                        challenger.Status = MissionStatusEnum.Failed;
+                        challenger.FailureReason = "Agent process exited with code 1";
+                        challenger.CaptainId = fixture.OtherModelCaptainId;
+                        await testDb.Driver.Missions.UpdateAsync(challenger).ConfigureAwait(false);
+                    },
+                    ["same_model"] = (fixture, testDb) => CompleteChallengerAsync(testDb, fixture.Admiral.DispatchedMissions[0], fixture.Failed.CaptainId!,
+                        "{\"findings\":[" + ChallengeRuling(1, "REFUTE", 0.9) + "," + ChallengeRuling(2, "REFUTE", 0.9) + "," + ChallengeRuling(3, "REFUTE", 0.9) + "]}"),
+                    ["missing_ruling"] = (fixture, testDb) => CompleteChallengerAsync(testDb, fixture.Admiral.DispatchedMissions[0], fixture.OtherModelCaptainId,
+                        "{\"findings\":[" + ChallengeRuling(1, "REFUTE", 0.9) + "]}")
+                };
+
+                foreach (KeyValuePair<string, Func<ChallengeFixture, TestDatabase, Task>> item in cases)
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    ChallengeFixture fixture = await CreateChallengeFixtureAsync(testDb, "ten_challenge_" + item.Key.Replace("_", "")).ConfigureAwait(false);
+                    await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                    await item.Value(fixture, testDb).ConfigureAwait(false);
+                    await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+
+                    AssertEqual(2, fixture.Admiral.DispatchedMissions.Count, item.Key + ": the rescue is dispatched.");
+                    string description = fixture.Admiral.DispatchedMissions[1].Description ?? "";
+                    AssertContains("Blocking findings to fix (complete list from the full review):", description, item.Key + ": the unchanged list is used.");
+                    AssertContains("src/Parser.cs:40", description, item.Key + ": every finding reaches the rescue.");
+                    List<ArmadaEvent> unavailable = await testDb.Driver.Events.EnumerateByTypeAsync(JudgeChallenge.UnavailableEvent, 10).ConfigureAwait(false);
+                    AssertEqual(1, unavailable.Count, item.Key + ": one unavailable event.");
+                    AssertContains(item.Key, unavailable[0].Message, item.Key + ": the event names the reason.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Challenge round: off, an excluded vessel, or a red Check on the reviewed commit keeps the unchanged rescue", async () =>
+            {
+                foreach (string variant in new[] { "off", "excluded", "red_check" })
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    ChallengeFixture fixture = await CreateChallengeFixtureAsync(testDb, "ten_challenge_" + variant.Replace("_", "")).ConfigureAwait(false);
+                    JudgeChallengeSettings challenge = fixture.Settings.AutonomousRecovery.JudgeChallenge;
+                    if (variant == "off") challenge.Enabled = false;
+                    if (variant == "excluded") challenge.ExcludedVesselIds = new List<string> { fixture.Failed.VesselId! };
+                    if (variant == "red_check")
+                    {
+                        await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                        {
+                            TenantId = fixture.Failed.TenantId,
+                            UserId = fixture.Failed.UserId,
+                            VesselId = fixture.Failed.VesselId,
+                            MissionId = fixture.Failed.Id,
+                            Label = "Unit tests",
+                            Type = CheckRunTypeEnum.UnitTest,
+                            Status = CheckRunStatusEnum.Failed,
+                            CommitHash = fixture.Failed.CommitHash
+                        }).ConfigureAwait(false);
+                    }
+
+                    await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                    AssertEqual(1, fixture.Admiral.DispatchedMissions.Count, variant + ": one mission is dispatched.");
+                    AssertEqual("Worker", fixture.Admiral.DispatchedMissions[0].Persona, variant + ": it is the rescue, with no Challenger.");
+                    int skipped = (await testDb.Driver.Events.EnumerateByTypeAsync(JudgeChallenge.SkippedEvent, 10).ConfigureAwait(false)).Count;
+                    AssertEqual(variant == "red_check" ? 1 : 0, skipped, variant + ": only an enabled round records a skip.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Challenge round: a finding that names an unchallengeable marker stands even when the Challenger refutes it", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ChallengeFixture fixture = await CreateChallengeFixtureAsync(testDb, "ten_challenge_guard").ConfigureAwait(false);
+                fixture.Settings.AutonomousRecovery.JudgeChallenge.UnchallengeableMarkers = new List<string> { "row count" };
+
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                await CompleteChallengerAsync(testDb, fixture.Admiral.DispatchedMissions[0], fixture.OtherModelCaptainId, "{\"findings\":["
+                    + ChallengeRuling(1, "REFUTE", 0.9) + "," + ChallengeRuling(2, "REFUTE", 0.9) + "," + ChallengeRuling(3, "REFUTE", 0.9) + "]}").ConfigureAwait(false);
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+
+                AssertEqual(2, fixture.Admiral.DispatchedMissions.Count, "The guarded finding keeps the rescue.");
+                string description = fixture.Admiral.DispatchedMissions[1].Description ?? "";
+                string upheld = description.Substring(0, description.IndexOf("Findings the challenge round refuted", StringComparison.Ordinal));
+                AssertContains("src/Parser.cs:40", upheld, "The guarded finding is upheld.");
+                AssertFalse(upheld.Contains("src/Parser.cs:12", StringComparison.Ordinal), "An ordinary refuted finding is not.");
+            }).ConfigureAwait(false);
+
             await RunTest("BuildBlockingFindingsForBrief keeps passing and minor lists out, so required items are not shortened",
                 BuildBlockingFindingsForBrief_PassingAndMinorLists_DoNotCrowdOutRequiredItems).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief drops plain reviewed items before shortening a named defect",
                 BuildBlockingFindingsForBrief_PlainReviewedItems_GoBeforeNamedDefectsAreShortened).ConfigureAwait(false);
             await RunTest("TruncateReviewerFeedbackForBrief drops an over-budget narration preamble so the findings survive",
                 TruncateReviewerFeedbackForBrief_NarrationPreambleOverBudget_KeepsTheFindingsNotTheChatter).ConfigureAwait(false);
+        }
+
+        private sealed class ChallengeFixture
+        {
+            public Mission Failed { get; set; } = null!;
+            public RecordingAdmiralService Admiral { get; set; } = null!;
+            public AutonomousRecoveryOrchestrator Orchestrator { get; set; } = null!;
+            public ArmadaSettings Settings { get; set; } = null!;
+            public string OtherModelCaptainId { get; set; } = String.Empty;
+        }
+
+        // A failed Judge NEEDS_REVISION with three blocking findings, judged on one model, with an idle
+        // Challenger captain on another model and the challenge round enabled.
+        private static async Task<ChallengeFixture> CreateChallengeFixtureAsync(TestDatabase testDb, string tenantId)
+        {
+            string userId = "usr_" + tenantId;
+            await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+            Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+            await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
+            Captain judgeCaptain = await testDb.Driver.Captains.CreateAsync(new Captain("challenge-judge-" + Guid.NewGuid().ToString("N"))
+            {
+                TenantId = tenantId,
+                UserId = userId,
+                Model = "gpt-5.6-luna",
+                Tier = CaptainTierEnum.Premium,
+                State = CaptainStateEnum.Idle
+            }).ConfigureAwait(false);
+            Captain otherModel = await testDb.Driver.Captains.CreateAsync(new Captain("challenge-other-" + Guid.NewGuid().ToString("N"))
+            {
+                TenantId = tenantId,
+                UserId = userId,
+                Model = "claude-opus-5-5",
+                Tier = CaptainTierEnum.Premium,
+                State = CaptainStateEnum.Idle,
+                AllowedPersonas = System.Text.Json.JsonSerializer.Serialize(new[] { PersonaCatalog.Challenger })
+            }).ConfigureAwait(false);
+
+            Mission failed = await CreateFailedMissionAsync(testDb, vessel, JudgeChallenge.NeedsRevisionReason).ConfigureAwait(false);
+            failed.Persona = "Judge";
+            failed.CaptainId = judgeCaptain.Id;
+            failed.AgentOutput = "## Completeness\n"
+                + "- src/Parser.cs:12 -- empty input is handled. NOT MET.\n"
+                + "- src/Parser.cs:40 -- the row count is reported. NOT MET.\n"
+                + "- src/Parser.cs:60 -- the summary names the source. NOT MET.\n"
+                + "- src/Parser.cs:80 -- delivered behaviour. MET.\n";
+            failed.ReviewComment = failed.AgentOutput;
+            await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.AutonomousRecovery.JudgeChallenge.Enabled = true;
+            RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+            AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                testDb.Driver, admiral, new IncidentService(testDb.Driver), new RunbookService(testDb.Driver, new LoggingModule()), settings);
+            return new ChallengeFixture
+            {
+                Failed = failed,
+                Admiral = admiral,
+                Orchestrator = orchestrator,
+                Settings = settings,
+                OtherModelCaptainId = otherModel.Id
+            };
+        }
+
+        private static async Task CompleteChallengerAsync(TestDatabase testDb, Mission dispatched, string captainId, string rulingJson)
+        {
+            Mission challenger = (await testDb.Driver.Missions.ReadAsync(dispatched.Id).ConfigureAwait(false))!;
+            challenger.Status = MissionStatusEnum.Complete;
+            challenger.CaptainId = captainId;
+            challenger.AgentOutput = "## Rulings\nSee the line below.\n[ARMADA:CHALLENGE] " + rulingJson + "\n[ARMADA:RESULT] COMPLETE";
+            challenger.CompletedUtc = DateTime.UtcNow;
+            await testDb.Driver.Missions.UpdateAsync(challenger).ConfigureAwait(false);
+        }
+
+        private static string ChallengeRuling(int index, string ruling, double confidence)
+        {
+            return "{\"index\":" + index + ",\"kind\":\"MISSING\",\"ruling\":\"" + ruling + "\",\"confidence\":"
+                + confidence.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + ",\"evidence\":\"src/Parser.cs:" + (index * 20) + " already shows it\"}";
+        }
+
+        private static async Task<List<Incident>> ActiveIncidentsAsync(TestDatabase testDb, Mission failed)
+        {
+            IncidentService incidents = new IncidentService(testDb.Driver);
+            AuthContext auth = AuthContext.Authenticated(failed.TenantId!, failed.UserId!, false, true, "UnitTest");
+            return await incidents.EnumerateActiveAsync(auth, new IncidentQuery { MissionId = failed.Id }).ConfigureAwait(false);
         }
 
         private static AutonomousRecoveryOrchestrator CreateOrchestrator(

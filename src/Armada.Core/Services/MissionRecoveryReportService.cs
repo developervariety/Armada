@@ -288,6 +288,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(eventType)) return false;
             if (eventType.StartsWith("autonomous_recovery.", StringComparison.Ordinal)) return true;
             if (eventType.StartsWith("landing_drain.", StringComparison.Ordinal)) return true;
+            if (eventType.StartsWith("judge_challenge.", StringComparison.Ordinal)) return true;
             return _RecoveryEventTypes.Contains(eventType);
         }
 

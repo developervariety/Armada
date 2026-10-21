@@ -226,25 +226,32 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Seed creates the read-only PriorArtAnalyst persona and adds it to no pipeline", async () =>
+            await RunTest("Seed creates the read-only PriorArtAnalyst and Challenger personas and adds them to no pipeline", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
                     await service.SeedAsync().ConfigureAwait(false);
-
-                    Persona? analyst = await testDb.Driver.Personas.ReadByNameAsync(PersonaCatalog.PriorArtAnalyst).ConfigureAwait(false);
-                    AssertNotNull(analyst, "PriorArtAnalyst persona should be seeded");
-                    AssertEqual("persona.prior_art_analyst", analyst!.PromptTemplateName, "Persona prompt template");
-                    AssertTrue(analyst.IsBuiltIn, "Persona should be built in");
-                    AssertTrue(analyst.Active, "Persona should be active");
-                    AssertFalse(MissionService.PersonaRequiresBranchAttachment(PersonaCatalog.PriorArtAnalyst), "The analyst runs detached because it commits nothing");
-                    AssertTrue(PersonaCatalog.IsNoOpCompletionExempt(PersonaCatalog.PriorArtAnalyst), "An empty diff is the analyst's expected result");
-
                     List<Pipeline> pipelines = await testDb.Driver.Pipelines.EnumerateAsync().ConfigureAwait(false);
-                    foreach (Pipeline pipeline in pipelines)
-                        AssertFalse(pipeline.Stages.Any(s => PersonaCatalog.Matches(s.PersonaName, PersonaCatalog.PriorArtAnalyst)),
-                            "The analyst is conditional and joins no built-in pipeline: " + pipeline.Name);
+
+                    foreach (KeyValuePair<string, string> readOnly in new Dictionary<string, string>
+                    {
+                        [PersonaCatalog.PriorArtAnalyst] = "persona.prior_art_analyst",
+                        [PersonaCatalog.Challenger] = "persona.challenger"
+                    })
+                    {
+                        Persona? persona = await testDb.Driver.Personas.ReadByNameAsync(readOnly.Key).ConfigureAwait(false);
+                        AssertNotNull(persona, readOnly.Key + " persona should be seeded");
+                        AssertEqual(readOnly.Value, persona!.PromptTemplateName, readOnly.Key + " prompt template");
+                        AssertTrue(persona.IsBuiltIn, readOnly.Key + " should be built in");
+                        AssertTrue(persona.Active, readOnly.Key + " should be active");
+                        AssertFalse(MissionService.PersonaRequiresBranchAttachment(readOnly.Key), readOnly.Key + " runs detached because it commits nothing");
+                        AssertTrue(PersonaCatalog.IsNoOpCompletionExempt(readOnly.Key), "An empty diff is the expected result of " + readOnly.Key);
+
+                        foreach (Pipeline pipeline in pipelines)
+                            AssertFalse(pipeline.Stages.Any(s => PersonaCatalog.Matches(s.PersonaName, readOnly.Key)),
+                                readOnly.Key + " is conditional and joins no built-in pipeline: " + pipeline.Name);
+                    }
                 }
             });
 
@@ -422,8 +429,8 @@ namespace Armada.Test.Unit.Suites.Services
                     await service.SeedAsync().ConfigureAwait(false);
 
                     List<Persona> personasAfter = await testDb.Driver.Personas.EnumerateAsync().ConfigureAwait(false);
-                    // The previous build seeded neither the Linter nor the PriorArtAnalyst.
-                    AssertEqual(personasBefore + 2, personasAfter.Count, "The upgrade adds the Linter and PriorArtAnalyst personas and duplicates none");
+                    // The previous build seeded none of the Linter, the PriorArtAnalyst and the Challenger.
+                    AssertEqual(personasBefore + 3, personasAfter.Count, "The upgrade adds the Linter, PriorArtAnalyst and Challenger personas and duplicates none");
                     AssertEqual(1, personasAfter.Count(p => String.Equals(p.Name, LinterPersonaName, StringComparison.Ordinal)), "Exactly one Linter persona exists after two seeds");
                     foreach (Persona persona in personasAfter)
                         AssertEqual(1, personasAfter.Count(p => String.Equals(p.Name, persona.Name, StringComparison.Ordinal)), "Persona name is unique: " + persona.Name);

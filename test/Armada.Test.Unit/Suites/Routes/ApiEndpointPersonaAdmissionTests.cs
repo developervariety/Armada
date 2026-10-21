@@ -41,7 +41,8 @@ namespace Armada.Test.Unit.Suites.Routes
                     PersonaCatalog.Worker,
                     PersonaCatalog.TestEngineer,
                     PersonaCatalog.LegacyTestEngineer,
-                    PersonaCatalog.Linter
+                    PersonaCatalog.Linter,
+                    PersonaCatalog.Challenger
                 })
                 {
                     AssertNull(AgentLifecycleHandler.ValidateRuntimeSupportsPersona(captain, persona),
@@ -134,7 +135,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     PersonaCatalog.Worker, PersonaCatalog.TestEngineer, PersonaCatalog.LegacyTestEngineer,
                     PersonaCatalog.Judge, PersonaCatalog.Linter, PersonaCatalog.Architect,
                     PersonaCatalog.ProductManager, PersonaCatalog.UsabilityEngineer, PersonaCatalog.Recorder,
-                    PersonaCatalog.PriorArtAnalyst, "SomeCustomPersona"
+                    PersonaCatalog.PriorArtAnalyst, PersonaCatalog.Challenger, "SomeCustomPersona"
                 };
 
                 List<string> disagreements = new List<string>();

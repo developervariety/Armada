@@ -17,7 +17,7 @@ lifecycle and runbooks keep their existing behavior.
 | `ParentMissionId`, `IsRescue` | Set only by rescue dispatch. |
 | `Rescues` | Missions on the same vessel whose `ParentMissionId` is this mission, oldest first, at most 50. |
 | `Incidents` | Incidents linked to the mission through the scoped incident service, most recently updated first, at most 50, each with at most 20 runbook executions from the scoped runbook service. Recovery notes are redacted and bounded. |
-| `Events` | Recovery events among the mission's 100 most recent events: `autonomous_recovery.*`, `landing_drain.*`, orphan recovery, recoverable-work failure, retry requeue, restart and landing retry. Messages are redacted and bounded. |
+| `Events` | Recovery events among the mission's 100 most recent events: `autonomous_recovery.*`, `landing_drain.*`, `judge_challenge.*` (the challenge round, `docs/PERSONAS.md`), orphan recovery, recoverable-work failure, retry requeue, restart and landing retry. Messages are redacted and bounded. |
 
 ## Scope
 
