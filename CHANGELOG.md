@@ -6,6 +6,10 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### PolyPrompt 3.5.0
+
+- Upgrade the Core and Server dependency to PolyPrompt 3.5.0. Its native Ollama and Ollama Cloud streams now expose final completion/failure state, reject malformed/incomplete streams, and preserve in-stream provider errors. Armada currently uses nonstreaming completion/tool-chat methods; callers of SDK streaming methods must check the final streaming state rather than open-success alone.
+
 ### Concise pipeline prompts
 
 - Replace the eight built-in persona briefs with concise requirements, evidence, and role-specific output contracts. Untouched legacy defaults upgrade automatically; customized templates remain unchanged.
