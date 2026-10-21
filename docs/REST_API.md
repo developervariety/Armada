@@ -5353,7 +5353,7 @@ Response from `GET /api/v1/missions/{id}/change-summary` and MCP `armada_mission
 | `Reason` | string? | Why the summary is unavailable or incomplete (`path_limit`); null when available and complete |
 | `Message` | string? | Short explanation of `Reason` |
 | `StartCommit` | string? | Full id of the commit the stage started from, when recorded |
-| `StartCommitSource` | string? | `dock_anchor_snapshot`, `dock_start_record` or `start_ref_commit` |
+| `StartCommitSource` | string? | `stage_start_record`, `dock_anchor_snapshot`, `dock_start_record` or `start_ref_commit` |
 | `FinalCommit` | string? | Full id of the stage's recorded final commit |
 | `Paths` | array | Each entry: `Status` (`Added`, `Modified`, `Deleted`, `Renamed`, `TypeChanged`), `Path`, `PreviousPath` (rename only) |
 | `PathCount` | int | Number of entries in `Paths` |

@@ -1087,6 +1087,8 @@ namespace Armada.Core.Services
                 return false;
             _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
 
+            await RecordStageStartAsync(mission, dock, token).ConfigureAwait(false);
+
             // Stage any prestaged files into the worktree before the captain is launched.
             // The validator already ran at dispatch time; this is the host-side copy step.
             // Failures here mark the mission Failed and reclaim the dock without ever
@@ -11654,6 +11656,38 @@ namespace Armada.Core.Services
         private string? TryReadDockStartCommit(string dockId)
         {
             return MissionStageStartCommitResolver.ReadDockStartRecord(_Settings.LogDirectory, dockId, _Logging);
+        }
+
+        /// <summary>
+        /// Record, keyed by mission id, the commit the stage's dock sat at when the stage was assigned. The dock's
+        /// own evidence is cleared when the dock is reclaimed, so without this record an ended stage cannot name its
+        /// start. A dock that names no full commit records nothing, and the stage then answers that its start is
+        /// not recorded rather than a guessed commit.
+        /// </summary>
+        private async Task RecordStageStartAsync(Mission mission, Dock dock, CancellationToken token)
+        {
+            DockGitAnchorSnapshot? snapshot = dock.GitAnchorsSnapshot;
+            string? commit = snapshot != null && String.Equals(snapshot.MissionId, mission.Id, StringComparison.Ordinal)
+                ? snapshot.ProvisionedCommit
+                : TryReadDockStartCommit(dock.Id);
+            if (!MissionStageStartCommitResolver.IsFullCommitId(commit))
+            {
+                _Logging.Warn(_Header + "mission " + mission.Id + " dock " + dock.Id + " names no full start commit; the stage start is not recorded");
+                return;
+            }
+
+            try
+            {
+                await MissionStageStartCommitResolver.WriteStageStartRecordAsync(_Settings.LogDirectory, mission.Id, commit!.Trim(), token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not write the stage start record for mission " + mission.Id + ": " + ex.Message);
+            }
         }
 
         /// <summary>

@@ -167,6 +167,73 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("MissionChangeSummary_ChainedStagesAnswerFromTheStartRecordedAtAssignment_AfterTheirDocksAreReclaimed", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                using (CommitPairFixture fixture = await CommitPairFixture.CreateAsync().ConfigureAwait(false))
+                {
+                    UseRealCommitPairReads(harness);
+                    MissionService missions = BuildAssigningMissionService(harness);
+                    Vessel vessel = await harness.Driver.Vessels.CreateAsync(new Vessel("chained " + Guid.NewGuid().ToString("N"), "https://example.invalid/repo.git")
+                    {
+                        LocalPath = fixture.BarePath,
+                        DefaultBranch = "main"
+                    }).ConfigureAwait(false);
+                    string branch = "armada/chain-" + Guid.NewGuid().ToString("N");
+                    Mission upstream = await harness.Driver.Missions.CreateAsync(new Mission("[Worker] first stage")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        VesselId = vessel.Id,
+                        Persona = "Worker",
+                        Status = MissionStatusEnum.WorkProduced,
+                        BranchName = branch,
+                        CommitHash = fixture.StageCommit
+                    }).ConfigureAwait(false);
+                    HashSet<string> ownPaths = await fixture.GitChangedPathsAsync(fixture.StageCommit, fixture.BulkCommit).ConfigureAwait(false);
+
+                    // Each later stage starts on the first stage's commit; the Judge adds nothing, the others add the bulk commit.
+                    Dictionary<string, string> finals = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["Judge"] = fixture.StageCommit,
+                        ["Linter"] = fixture.BulkCommit,
+                        ["Worker"] = fixture.BulkCommit
+                    };
+                    foreach (KeyValuePair<string, string> stage in finals)
+                    {
+                        harness.Git.HeadCommitHashResult = fixture.StageCommit;
+                        Mission ended = await AssignAndEndStageAsync(harness, missions, vessel, upstream, branch, stage.Key, stage.Value).ConfigureAwait(false);
+
+                        Dock reclaimed = (await harness.Driver.Docks.ReadAsync(ended.DockId!).ConfigureAwait(false))!;
+                        AssertNull(reclaimed.GitAnchorsSnapshot, stage.Key + ": the reclaim cleared the dock's own anchor snapshot");
+                        AssertFalse(File.Exists(Path.Combine(harness.Settings.LogDirectory, "docks", reclaimed.Id + ".start")), stage.Key + ": the reclaim removed the dock start record");
+
+                        foreach (SurfaceReply reply in await ReadChangeSummaryAsync(harness, ended.Id, null).ConfigureAwait(false))
+                        {
+                            MissionChangeSummary summary = ParseSummary(reply);
+                            AssertTrue(summary.Available, stage.Key + " answers after its dock is reclaimed: " + reply);
+                            AssertTrue(summary.Complete, reply.ToString());
+                            AssertEqual(fixture.StageCommit, summary.StartCommit, stage.Key + " starts where its dock sat at assignment: " + reply);
+                            AssertEqual(MissionStageStartCommit.StageStartRecordSource, summary.StartCommitSource, reply.ToString());
+                            HashSet<string> listed = new HashSet<string>(summary.Paths.Select(entry => entry.Path), StringComparer.Ordinal);
+                            HashSet<string> expected = stage.Value == fixture.StageCommit ? new HashSet<string>(StringComparer.Ordinal) : ownPaths;
+                            AssertTrue(expected.SetEquals(listed), stage.Key + " lists only its own changes, never the first stage's: " + reply);
+                        }
+                    }
+
+                    // A dock that names no full commit records no start, so the stage says so instead of guessing one.
+                    harness.Git.HeadCommitHashResult = "abc123def456";
+                    Mission unknown = await AssignAndEndStageAsync(harness, missions, vessel, upstream, branch, "Linter", fixture.BulkCommit).ConfigureAwait(false);
+                    foreach (SurfaceReply reply in await ReadChangeSummaryAsync(harness, unknown.Id, null).ConfigureAwait(false))
+                    {
+                        MissionChangeSummary summary = ParseSummary(reply);
+                        AssertFalse(summary.Available, "an unknown start is unavailable: " + reply);
+                        AssertEqual(MissionChangeSummary.StartCommitNotRecordedReason, summary.Reason, reply.ToString());
+                        AssertNull(summary.StartCommit, "no start commit is guessed: " + reply);
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("MissionChangeSummary_MissionCredentialReadsOnlyItsOwnMission_AndOtherOwnersAndTenantsAreRefused", async () =>
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
@@ -278,6 +345,54 @@ namespace Armada.Test.Unit.Suites.Routes
             PropertyNameCaseInsensitive = true,
             Converters = { new JsonStringEnumConverter() }
         };
+
+        private static MissionService BuildAssigningMissionService(SurfaceParityHarness harness)
+        {
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            CaptainService captains = new CaptainService(logging, harness.Driver, harness.Settings, harness.Git, harness.Docks);
+            captains.OnLaunchAgent = (_, _, _) => Task.FromResult(54321);
+            return new MissionService(logging, harness.Driver, harness.Settings, harness.Docks, captains,
+                resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(harness.Settings));
+        }
+
+        // A later stage assigned through the real assignment path on its own captain, ended at a recorded final
+        // commit, and its dock reclaimed the way a finished stage's dock is.
+        private async Task<Mission> AssignAndEndStageAsync(
+            SurfaceParityHarness harness,
+            MissionService missions,
+            Vessel vessel,
+            Mission upstream,
+            string branch,
+            string persona,
+            string finalCommit)
+        {
+            await harness.Driver.Captains.CreateAsync(new Captain(persona.ToLowerInvariant() + "-" + Guid.NewGuid().ToString("N").Substring(0, 8))
+            {
+                State = CaptainStateEnum.Idle
+            }).ConfigureAwait(false);
+            Mission stage = await harness.Driver.Missions.CreateAsync(new Mission("[" + persona + "] later stage")
+            {
+                TenantId = Constants.DefaultTenantId,
+                UserId = Constants.DefaultUserId,
+                VesselId = vessel.Id,
+                Persona = persona,
+                DependsOnMissionId = upstream.Id,
+                BranchName = branch,
+                Status = MissionStatusEnum.Pending
+            }).ConfigureAwait(false);
+
+            AssertTrue(await missions.TryAssignAsync(stage, vessel).ConfigureAwait(false), persona + " is assigned through the assignment path");
+            Mission assigned = (await harness.Driver.Missions.ReadAsync(stage.Id).ConfigureAwait(false))!;
+            AssertNotNull(assigned.DockId, persona + " has a dock");
+
+            assigned.Status = MissionStatusEnum.Complete;
+            assigned.CommitHash = finalCommit;
+            assigned.CompletedUtc = DateTime.UtcNow;
+            await harness.Driver.Missions.UpdateAsync(assigned).ConfigureAwait(false);
+            await harness.Docks.ReclaimAsync(assigned.DockId!).ConfigureAwait(false);
+            return assigned;
+        }
 
         private static void UseRealCommitPairReads(SurfaceParityHarness harness)
         {

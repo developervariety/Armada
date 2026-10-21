@@ -9,6 +9,9 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>The stage start record written for this mission when its dock was assigned named the commit.</summary>
+        public const string StageStartRecordSource = "stage_start_record";
+
         /// <summary>The dock's stored Git anchor snapshot for this mission named the commit.</summary>
         public const string DockAnchorSnapshotSource = "dock_anchor_snapshot";
 

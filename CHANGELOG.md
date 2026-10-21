@@ -338,6 +338,14 @@ upstream integrations and excludes changes already present at that baseline.
   value as the first line of the mission description and strips only the
   front-matter keys around it (`id:`, `title:`, `preferredModel:`,
   `dependsOnMissionId:`). A `description: |` block body reads as before.
+- The mission change summary answers for every pipeline stage after its dock is
+  reclaimed. When a stage is assigned, Armada writes the commit its dock sat at
+  to a stage start record keyed by mission id (`<logDirectory>/stage-starts/`),
+  which the dock reclaim leaves in place and `diskLifecycle.dockMetadataRetentionDays`
+  expires. The summary reads that record first, so a chained Judge, Linter or
+  later Worker lists only its own changes with `StartCommitSource`
+  `stage_start_record`. A dock that names no full commit records nothing, and
+  the stage still answers `start_commit_not_recorded`.
 - A Judge PASS rejected by a failed Check names the failing tests. The
   rejection reason, and the incident that copies it, carries each rejecting
   Check's test-outcome digest (every failing test with its first exception line,

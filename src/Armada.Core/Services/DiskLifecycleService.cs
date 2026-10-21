@@ -529,6 +529,9 @@ namespace Armada.Core.Services
             string root = Path.Combine(_Settings.LogDirectory, "docks");
             TimeSpan retention = TimeSpan.FromDays(Math.Max(0, section.DockMetadataRetentionDays));
             await ScanExpiredFiles(root, "*.start", retention, delete, report, category, token).ConfigureAwait(false);
+            // Stage start records outlive their dock by design, so the same retention bounds them.
+            string stageStarts = Path.Combine(_Settings.LogDirectory, MissionStageStartCommitResolver.StageStartDirectoryName);
+            await ScanExpiredFiles(stageStarts, "*.start", retention, delete, report, category, token).ConfigureAwait(false);
             report.Categories.Add(category);
         }
 

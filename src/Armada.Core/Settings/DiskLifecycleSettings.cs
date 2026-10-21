@@ -88,7 +88,7 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Retention in days for dock start-commit metadata files. Defaults to 30.
+        /// Retention in days for dock start-commit metadata files and per-mission stage start records. Defaults to 30.
         /// </summary>
         public int DockMetadataRetentionDays
         {

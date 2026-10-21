@@ -1114,9 +1114,11 @@ surfaces share one authorization rule, one set of bounds and one answer.
 
 The tool compares the stage's recorded start commit with its recorded final
 commit (`Mission.CommitHash`) in the vessel's bare repository. The start commit
-is the dock's stored Git anchor snapshot for that mission, then the dock start
+is the stage start record written for that mission when its dock was assigned,
+then the dock's stored Git anchor snapshot for that mission, then the dock start
 record written at provisioning, then a mission start ref that is itself a full
-commit id; `StartCommitSource` names which. Only full commit ids are compared,
+commit id; `StartCommitSource` names which. The stage start record outlives the
+dock, so a stage that has ended still answers. Only full commit ids are compared,
 so moving a branch never changes an answer's commit pair, and the tool needs no
 dock. The answer is not a diff against the current target branch and holds no
 uncommitted files.
