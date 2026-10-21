@@ -26,10 +26,8 @@ Product Manager started successfully on the requested Claude captain; later stag
 | HF-13 | Slice breadth/context efficiency | Optional scoped decision references are deployed; verify new plan uses them and measure rendered context. Semantic scope review remains open |
 | HF-14 | Validation command status masking | Wrapper reproduction confirms exit 0 despite prior failure; guidance deployed; arbitrary shell exit-status enforcement remains open. No hidden product failure established |
 | HF-15 | Focused Wilson test selection | Low-priority Test Engineer papercut: Test.Automated has no case filter; quantify cost before adding unrelated tooling to this acceptance task |
-| HF-17 | Safe shared-branch handoff | Isolated real-Git regression reproduced stale-stage rewind; 201 targeted tests pass on .NET 8 and 10; warning-free solution build; guarded advancement/blocked-landing fix deployed to server and Harbor |
 | HF-18 | Universal validation rules need boundary combinations | Three metadata reviews; five findings corrected but shifted-overlap redaction still failed; budget exhausted |
 | HF-20 | Staggered credential-span overlaps | Independently reproduced by monitor and final Judge in actual settings validation; unresolved, blocked this run |
-| HF-21 | Explain bounded review stops | Local regression passes within 2043/2043 Services checks and 212/212 .NET 8 checks; numeric reason/remediation deployed; verify on any naturally occurring bounded stop |
 | HF-22 | Harbor native startup with unavailable display | Restart reproduced Avalonia render-timer error -6661; waking display restored connection; unattended-start fallback remains open |
 | HF-23 | Revision-aware vessel context | Recorder context survived Git reset with obsolete package/test facts; cleared before new Architect dispatch; automatic invalidation remains open |
 
@@ -55,9 +53,6 @@ Worker `msn_mvh7i8d0_gflbLdMm6eM` ran `dotnet run ... | tail -60; echo EXIT:${PI
 
 Recoverable Worker exploration errors so far: one mistyped absolute path (corrected next turn) and two ad-hoc reflection probes that lacked assembly-loading dependencies. They did not fail the mission or indicate a PolyPrompt transport/tool failure. Distinguish these from Judge rework and runtime redispatch.
 
-### HF-17 — A stale stage could rewind the shared branch
-
-Code inspection found unconditional `git update-ref` during stage hardening. An isolated real-Git test failed against the existing implementation: an older completed stage moved a branch back behind newer committed work. This is a reproduced product bug, **not an observed cause in the current serialized voyage**. The local fix keeps already-contained commits, permits only compare-and-swap fast-forwards, and preserves divergent stage commits under `refs/armada/stage-commits/<SHA>`. An explicitly refused handoff becomes a failed mission with the commit, branch and remediation visible in mission details; downstream stages are cancelled, including during recovery redrive. Transport exceptions retain the existing best-effort behavior and remain a limitation. The guarded Git implementation must reach Harbor as well as the server; server-side ancestry checking additionally protects common stale handoffs with older Harbors. Regression tests cover normal advancement, stale heads, divergence, downstream cancellation and recovery. Not deployed to this run.
 
 ### HF-18 — Passing cases omitted combinations implied by universal rules
 
@@ -75,9 +70,6 @@ Independent execution of the exact `CredentialRedactor` source retrieved through
 
 Operator intervention: appended AC-SEC-OVERLAP to all six pending redaction-stage contracts and all six final-integration contracts by authenticated API, then read back the result. It clarifies existing D-16/R-SEC-1: compute the union of matching spans on the original text, preserve surrounding non-secret text and short-key/header behavior, and prove the regression at helper and caller-visible boundaries. This is an external acceptance finding; do not describe eventual success as wholly unassisted. Keep it open until agents implement the fix and independent checks pass.
 
-### HF-21 — Review failure detail omitted the actual budget
-
-The deployed terminal reason said strict selection prevented escalation and suggested captain/persona configuration fixes, but did not state that this slice had used both permitted reworks. Local remediation distinguishes an exhausted budget (`2 of 2 rounds`) from unchanged rejected commits, explicitly states that no substitution occurred, and directs the user to correct the Judge's identified code or configuration defects using the preserved branch and an independent Judge. The bounded limit and strict routing policy are unchanged. A regression reproduces the exhausted strict chain, asserts the numeric reason and remediation, verifies descendant cancellation, and proves no extra Worker is dispatched. Separate stagnation coverage prevents mislabeling unchanged work as budget exhaustion. Rollout verification remains pending.
 
 ### HF-22 — Harbor GUI restart can fail before connecting
 
@@ -85,7 +77,7 @@ After this voyage was terminal and API status confirmed all five captains idle/n
 
 ### HF-23 — Resetting source does not invalidate Recorder facts
 
-The next dispatch inherited ProjectContext saying PolyPrompt was now 3.4.1 with 53 cases and a new contract-test file, although the acceptance repository was reset to 3.1.0 baseline. EnableModelContext=false did not prevent this separate ProjectContext injection. Archived then cleared only the Recorder-generated ProjectContext through the API while Product Manager was running, before Architect dispatch. Product Manager had already received it, so source inspection must take precedence; no restart or claim of uncontaminated context is appropriate. The objective already prohibits reusing old implementation/memory. Durable context should carry source revision/provenance and be invalidated or clearly labeled historical after repository reset. This is an observed handoff-risk gap, not yet evidence that it caused a failed mission.
+The next dispatch inherited ProjectContext saying PolyPrompt was now 3.4.1 with 53 cases and a new contract-test file, although the acceptance repository was reset to 3.1.0 baseline. EnableModelContext=false did not prevent this separate ProjectContext injection. Archived then cleared only the Recorder-generated ProjectContext through the API while Product Manager was running, before Architect dispatch. Product Manager had already received it, so source inspection must take precedence; no restart or claim of uncontaminated context is appropriate. The objective already prohibits reusing old implementation/memory. Durable context should carry source revision/provenance and be invalidated or clearly labeled historical after repository reset. The Product Manager explicitly noticed that project context did not match the actual baseline during source inspection, which mitigates this instance. This is an observed handoff-risk gap, not evidence that it caused a failed mission.
 
 Record further issues with mission/stage/captain, violated requirement, reproduction/evidence, remediation, and verification status. Keep unresolved findings here; move verified fixes and finished work into the appendix.
 
@@ -123,6 +115,16 @@ First metadata rework: DeepSeek Worker `msn_mvh99zuo_cyX0HaRfjyj` → Claude Usa
 ### Timing evidence for the failed full-pipeline run
 
 Launch-to-process-exit event totals by role: Product Manager 2.3 minutes; Architect 9.5; Workers 13.9; Usability 8.2; Test Engineer 25.3; Linter 7.5; Judges 5.2; Recorder 1.3. These are observed role wall times, not isolated model-compute attribution. The run spent more time in independent verification than Worker implementation. Local Services tests ran concurrently for part of the run, so host contention is a possible timing confounder. No transport failure was observed. Two review loops, repeated full-suite/mutation checks, and broad copied context explain work performed; phase telemetry is still insufficient to allocate every wait.
+
+### HF-17 — A stale stage could rewind the shared branch
+
+Code inspection found unconditional `git update-ref` during stage hardening. An isolated real-Git test failed against the existing implementation: an older completed stage moved a branch back behind newer committed work. This is a reproduced product bug, **not an observed cause in the current serialized voyage**. The local fix keeps already-contained commits, permits only compare-and-swap fast-forwards, and preserves divergent stage commits under `refs/armada/stage-commits/<SHA>`. An explicitly refused handoff becomes a failed mission with the commit, branch and remediation visible in mission details; downstream stages are cancelled, including during recovery redrive. Transport exceptions retain the existing best-effort behavior and remain a limitation. The guarded Git implementation must reach Harbor as well as the server; server-side ancestry checking additionally protects common stale handoffs with older Harbors. Regression tests cover normal advancement, stale heads, divergence, downstream cancellation and recovery. The fix is deployed to the restarted server and updated Harbor for the current retest; no unsafe production ref update was deliberately injected.
+
+
+### HF-21 — Review failure detail omitted the actual budget
+
+The deployed terminal reason said strict selection prevented escalation and suggested captain/persona configuration fixes, but did not state that this slice had used both permitted reworks. Local remediation distinguishes an exhausted budget (`2 of 2 rounds`) from unchanged rejected commits, explicitly states that no substitution occurred, and directs the user to correct the Judge's identified code or configuration defects using the preserved branch and an independent Judge. The bounded limit and strict routing policy are unchanged. A regression reproduces the exhausted strict chain, asserts the numeric reason and remediation, verifies descendant cancellation, and proves no extra Worker is dispatched. Separate stagnation coverage prevents mislabeling unchanged work as budget exhaustion. The fix is deployed for the current retest; a live bounded-stop message will be checked only if one naturally occurs.
+
 
 ### HF-03 — Strict routing verified throughout this run
 
