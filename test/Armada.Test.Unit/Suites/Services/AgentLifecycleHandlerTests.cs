@@ -326,6 +326,52 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("An evidence root declared by a settings reload reaches the next launch without a restart", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                    string root = Path.Combine(Path.GetTempPath(), "armada_evidence_reload_" + Guid.NewGuid().ToString("N"));
+                    string worktree = Path.Combine(root, "target");
+                    string evidence = Path.Combine(root, "evidence");
+                    Directory.CreateDirectory(worktree);
+                    Directory.CreateDirectory(evidence);
+
+                    try
+                    {
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("ReloadVessel", "https://example.invalid/reload.git")).ConfigureAwait(false);
+                        Mission mission = new Mission("Reload mission")
+                        {
+                            VesselId = vessel.Id,
+                            TenantId = Armada.Core.Constants.DefaultTenantId,
+                            UserId = Armada.Core.Constants.DefaultUserId
+                        };
+                        Dock dock = new Dock(vessel.Id) { WorktreePath = worktree };
+                        Captain captain = new Captain("evidence-reload", AgentRuntimeEnum.ClaudeCode);
+
+                        CaptainLaunchIsolationPlan? before = await handler.PrepareCaptainLaunchIsolationAsync(captain, mission, dock).ConfigureAwait(false);
+                        AssertFalse(before != null && before.ExtraArguments.Contains(Path.GetFullPath(evidence)), "no evidence root is registered before the reload");
+
+                        ArmadaSettings candidate = new ArmadaSettings();
+                        candidate.CaptainEvidenceRoots = new List<CaptainEvidenceRoot>
+                        {
+                            new CaptainEvidenceRoot { Path = evidence, VesselIds = new List<string> { vessel.Id } }
+                        };
+                        settings.ApplyHotReloadableFrom(candidate);
+                        candidate.CaptainEvidenceRoots[0].VesselIds.Clear();
+                        candidate.CaptainEvidenceRoots[0].VesselIds.Add("vsl_another");
+
+                        CaptainLaunchIsolationPlan? after = await handler.PrepareCaptainLaunchIsolationAsync(captain, mission, dock).ConfigureAwait(false);
+                        AssertNotNull(after, "the launch after the reload produces a plan");
+                        AssertTrue(after!.ExtraArguments.Contains(Path.GetFullPath(evidence)), "the reloaded evidence root is registered: " + String.Join(" ", after.ExtraArguments));
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(root, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("A mission launch plan never carries the admiral launch credential value in its environment", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

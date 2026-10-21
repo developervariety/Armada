@@ -1245,6 +1245,11 @@ namespace Armada.Core.Settings
             BannedDiffPatterns = patterns;
             CaptainEnvironmentScrubNames = new List<string>(source.CaptainEnvironmentScrubNames);
             BriefPathRewrites = new List<BriefPathRewrite>(source.BriefPathRewrites);
+            // Read through the shared settings instance on every captain launch.
+            List<CaptainEvidenceRoot> evidenceRoots = new List<CaptainEvidenceRoot>();
+            foreach (CaptainEvidenceRoot root in source.CaptainEvidenceRoots)
+                if (root != null) evidenceRoots.Add(new CaptainEvidenceRoot { Path = root.Path, VesselIds = new List<string>(root.VesselIds) });
+            CaptainEvidenceRoots = evidenceRoots;
             // The crash-loop tracker and the definition-of-done gate are constructed with a reference to
             // these sections, so both are copied in place: a replaced object would leave them reading
             // the startup values while the admiral reads the reloaded ones.

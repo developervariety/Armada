@@ -14,7 +14,9 @@ upstream integrations and excludes changes already present at that baseline.
   empty by default) names read-only directories, such as a mounted export tree;
   each root whose `vesselIds` is empty or names the mission's vessel is passed as
   an extra workspace root (`--add-dir`) to Claude Code, Codex and Cursor. A
-  declared root that does not exist is left out with a logged warning. Harbor
+  declared root that does not exist is left out with a logged warning. The list
+  hot-reloads, so a settings reload applies it to the next launch without a
+  restart. Harbor
   launches register the same sibling and evidence roots as local launches, mapped
   to the runner's paths through the route's working-directory roots; a root the
   route cannot map is left out with a logged reason.

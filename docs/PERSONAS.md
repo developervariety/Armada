@@ -267,7 +267,8 @@ A brief also matches the dock it lands in and the tools the captain has:
   the dock, such as an exported source tree the host mounts. Each root whose
   `vesselIds` is empty or names the mission's vessel is registered as a
   workspace root the same way as a sibling checkout. A declared root that does
-  not exist on the Admiral is left out with a logged warning.
+  not exist on the Admiral is left out with a logged warning. The list
+  hot-reloads: a settings reload applies it to the next launch without a restart.
 - `briefPathRewrites` (a list of `{ "from", "to" }` prefixes, empty by default)
   rewrites host paths in the mission description and the objective scope to the
   paths a captain resolves, such as a host volume and its container mount.
