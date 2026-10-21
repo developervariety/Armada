@@ -1456,6 +1456,17 @@ namespace Armada.Core.Services
                     {
                         _Logging.Warn(_Header + "captain " + captain.Id + " appears stalled (" + elapsed.TotalMinutes.ToString("F1") + " min since last heartbeat)");
                         ArmadaMetrics.CaptainStalls.Add(1);
+                        string stallReason = "No activity for " + elapsed.TotalMinutes.ToString("F1")
+                            + " min (configured stall threshold: " + _Settings.StallThresholdMinutes + " min).";
+                        string stallRemediation = "Remediation: inspect provider/tool progress and pending background work; correct blocked configuration or job lifetime before restarting.";
+                        await EmitEventAsync("captain.stalled", stallReason + " "
+                            + (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts
+                                ? "Automatic recovery " + (captain.RecoveryAttempts + 1) + " of " + _Settings.MaxRecoveryAttempts + " will be attempted. "
+                                : "Automatic stall recovery is exhausted. ") + stallRemediation,
+                            entityType: "captain", entityId: captain.Id, captainId: captain.Id,
+                            missionId: mission?.Id, vesselId: mission?.VesselId, voyageId: mission?.VoyageId,
+                            token: token, tenantId: mission?.TenantId ?? captain.TenantId,
+                            userId: mission?.UserId ?? captain.UserId).ConfigureAwait(false);
 
                         // Attempt auto-recovery if under the limit
                         if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts)
@@ -1477,7 +1488,7 @@ namespace Armada.Core.Services
                                 !MissionStateMachine.IsTerminalOrPostWork(mission.Status))
                             {
                                 mission.Status = MissionStatusEnum.Failed;
-                                mission.FailureReason = "Captain stalled, recovery exhausted";
+                                mission.FailureReason = "Captain stalled, recovery exhausted. " + stallReason + " " + stallRemediation;
                                 mission.FailureKind = MissionFailureKindEnum.StallRecoveryExhausted;
                                 mission.ProcessId = null;
                                 mission.CompletedUtc = DateTime.UtcNow;
@@ -1519,11 +1530,13 @@ namespace Armada.Core.Services
             string? entityType = null, string? entityId = null,
             string? captainId = null, string? missionId = null,
             string? vesselId = null, string? voyageId = null,
-            CancellationToken token = default)
+            CancellationToken token = default, string? tenantId = null, string? userId = null)
         {
             try
             {
                 ArmadaEvent evt = new ArmadaEvent(eventType, message);
+                evt.TenantId = tenantId;
+                evt.UserId = userId;
                 evt.EntityType = entityType;
                 evt.EntityId = entityId;
                 evt.CaptainId = captainId;

@@ -826,6 +826,100 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("heartbeat_recovery_retains_diagnostic_history", "Successful stall recovery retains its reason after active mission failure fields clear", TestTags.Positive, async () =>
+            {
+                string worktree = TestTemp.NewDirectory("stall-history");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        DatabaseDriver db = testDb.Driver;
+                        ArmadaSettings settings = CreateSettings();
+                        settings.StallThresholdMinutes = 1;
+                        settings.MaxRecoveryAttempts = 1;
+                        AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+                        service.OnIsProcessTracked = _ => true;
+                        service.OnStopAgent = _ => Task.CompletedTask;
+                        service.OnLaunchAgent = (captain, mission, dock) => Task.FromResult(2000000033);
+                        TenantMetadata tenant = await db.Tenants.CreateAsync(new TenantMetadata { Name = "recovery-owner" });
+                        UserMaster user = await db.Users.CreateAsync(new UserMaster { TenantId = tenant.Id, Email = "recovery-owner@acceptance.invalid" });
+                        Vessel vessel = await db.Vessels.CreateAsync(new Vessel("recovery", "https://example.invalid/repo.git") { TenantId = tenant.Id, UserId = user.Id });
+                        Voyage voyage = await db.Voyages.CreateAsync(new Voyage("recovery-history") { TenantId = tenant.Id, UserId = user.Id, Status = VoyageStatusEnum.InProgress });
+                        Dock dock = await db.Docks.CreateAsync(new Dock(vessel.Id) { TenantId = tenant.Id, UserId = user.Id, WorktreePath = worktree, Active = true });
+                        Mission mission = await db.Missions.CreateAsync(new Mission("recover task")
+                        {
+                            TenantId = tenant.Id, UserId = user.Id, VoyageId = voyage.Id, VesselId = vessel.Id, DockId = dock.Id,
+                            Status = MissionStatusEnum.InProgress, ProcessId = 98765432, StartedUtc = DateTime.UtcNow.AddMinutes(-2)
+                        });
+                        Captain captain = await db.Captains.CreateAsync(new Captain("recovery owner")
+                        {
+                            TenantId = tenant.Id, UserId = user.Id, State = CaptainStateEnum.Working,
+                            ProcessId = mission.ProcessId, CurrentMissionId = mission.Id, CurrentDockId = dock.Id,
+                            LastHeartbeatUtc = DateTime.UtcNow.AddMinutes(-10)
+                        });
+                        await service.HealthCheckAsync().ConfigureAwait(false);
+                        await service.HealthCheckAsync().ConfigureAwait(false);
+                        Mission updated = (await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.InProgress, updated.Status);
+                        AssertEqual(1, updated.RedispatchAttempts);
+                        AssertEqual(2000000033, updated.ProcessId!.Value);
+                        AssertNull(updated.FailureReason);
+                        List<ArmadaEvent> events = await db.Events.EnumerateByMissionAsync(mission.Id, 100).ConfigureAwait(false);
+                        List<ArmadaEvent> diagnostics = events.FindAll(e => e.EventType == "captain.stalled");
+                        AssertEqual(1, diagnostics.Count, "Fresh recovery must not repeat the old stall on the next health check.");
+                        AssertEqual(tenant.Id, diagnostics[0].TenantId);
+                        AssertEqual(user.Id, diagnostics[0].UserId);
+                        AssertEqual(voyage.Id, diagnostics[0].VoyageId);
+                        AssertContains("Automatic recovery 1 of 1 will be attempted", diagnostics[0].Message);
+                        AssertContains("Remediation:", diagnostics[0].Message);
+                    }
+                }
+                finally { try { Directory.Delete(worktree, true); } catch { } }
+            }));
+
+            cases.Add(CaseAsync("heartbeat_stall_records_owned_reason_and_remediation", "A heartbeat stall preserves caller-scoped diagnostic history and terminal remediation", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.StallThresholdMinutes = 1;
+                    settings.MaxRecoveryAttempts = 0;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+                    service.OnIsProcessTracked = _ => true;
+                    service.OnStopAgent = _ => Task.CompletedTask;
+                    TenantMetadata tenant = await db.Tenants.CreateAsync(new TenantMetadata { Name = "stall-owner" });
+                    UserMaster user = await db.Users.CreateAsync(new UserMaster { TenantId = tenant.Id, Email = "stall-owner@acceptance.invalid" });
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("stall-history") { TenantId = tenant.Id, UserId = user.Id, Status = VoyageStatusEnum.InProgress });
+                    Mission mission = await db.Missions.CreateAsync(new Mission("stalled task")
+                    {
+                        TenantId = tenant.Id, UserId = user.Id, VoyageId = voyage.Id,
+                        Status = MissionStatusEnum.InProgress, ProcessId = 98765432, StartedUtc = DateTime.UtcNow.AddMinutes(-2)
+                    });
+                    Captain captain = await db.Captains.CreateAsync(new Captain("stalled owner")
+                    {
+                        TenantId = tenant.Id, UserId = user.Id, State = CaptainStateEnum.Working,
+                        ProcessId = mission.ProcessId, CurrentMissionId = mission.Id,
+                        LastHeartbeatUtc = DateTime.UtcNow.AddMinutes(-10)
+                    });
+                    await service.HealthCheckAsync().ConfigureAwait(false);
+                    Mission updated = (await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Failed, updated.Status);
+                    AssertEqual(MissionFailureKindEnum.StallRecoveryExhausted, updated.FailureKind!.Value);
+                    AssertContains("configured stall threshold: 1 min", updated.FailureReason!);
+                    AssertContains("Remediation:", updated.FailureReason!);
+                    List<ArmadaEvent> events = await db.Events.EnumerateByMissionAsync(mission.Id, 100).ConfigureAwait(false);
+                    ArmadaEvent? diagnostic = events.Find(e => e.EventType == "captain.stalled");
+                    AssertNotNull(diagnostic, "The reason must survive separately from mutable mission failure state.");
+                    AssertEqual(tenant.Id, diagnostic!.TenantId);
+                    AssertEqual(user.Id, diagnostic.UserId);
+                    AssertEqual(voyage.Id, diagnostic.VoyageId);
+                    AssertEqual(captain.Id, diagnostic.CaptainId);
+                    AssertContains("Automatic stall recovery is exhausted", diagnostic.Message);
+                    AssertContains("Remediation:", diagnostic.Message);
+                }
+            }));
+
             cases.Add(CaseAsync("health_check_async_dead_process_recovery_exhausted_stalls_captain", "HealthCheckAsync DeadProcess RecoveryExhausted StallsCaptain", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

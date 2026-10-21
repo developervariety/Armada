@@ -6,6 +6,11 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Bounded Claude mission lifetime
+
+- Exclude native future wakeups/cron creation from one-shot Claude missions, keep delegated research joinable, and exit idle print-mode queries promptly. This prevents queued no-op timers from turning a finished report into inactivity recovery. Chat/model-validation lifecycle settings retain their previous behavior.
+- Persist caller-scoped heartbeat-stall events with threshold, recovery status and remediation; retain useful details in terminal failure reasons.
+
 ### API captain tool context
 
 - Load large default MCP tool catalogs on demand instead of including every schema in each initial request. The runtime discovery tool loads four matching schemas per query, keeps original authorization/routing and supports direct calls to permitted names. Explicit allowlists, small catalogs and discovery-name collisions retain eager behavior.

@@ -35,6 +35,42 @@ namespace Test.Shared.Suites.Runtimes
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(Case("mission_lifetime_excludes_future_wakeups", "Mission launches exclude native future timers and use bounded print-mode lifetime", TestTags.Positive, () =>
+            {
+                foreach (bool passthrough in new[] { false, true })
+                {
+                    InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                    runtime.StructuredProgress = true;
+                    runtime.StreamJsonOutput = passthrough;
+                    List<string> args = runtime.Args("finish this mission");
+                    int denied = args.IndexOf("--disallowedTools");
+                    AssertTrue(denied >= 0);
+                    AssertEqual("ScheduleWakeup,CronCreate", args[denied + 1]);
+                    System.Diagnostics.ProcessStartInfo start = new System.Diagnostics.ProcessStartInfo();
+                    start.Environment["CLAUDE_CODE_FORK_SUBAGENT"] = "1";
+                    start.Environment["CLAUDE_CODE_DISABLE_CRON"] = "0";
+                    runtime.EnvironmentFor(start);
+                    AssertEqual("0", start.Environment["CLAUDE_CODE_FORK_SUBAGENT"]);
+                    AssertEqual("1", start.Environment["CLAUDE_CODE_DISABLE_CRON"]);
+                    AssertEqual("1000", start.Environment["CLAUDE_CODE_EXIT_AFTER_STOP_DELAY"]);
+                }
+            }));
+
+            cases.Add(Case("nonmission_lifetime_retains_caller_settings", "Nonmission Claude turns preserve caller lifecycle settings", TestTags.Positive, () =>
+            {
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                runtime.StreamJsonOutput = true;
+                AssertFalse(runtime.Args("a chat turn").Contains("--disallowedTools"));
+                System.Diagnostics.ProcessStartInfo start = new System.Diagnostics.ProcessStartInfo();
+                start.Environment["CLAUDE_CODE_FORK_SUBAGENT"] = "1";
+                start.Environment["CLAUDE_CODE_DISABLE_CRON"] = "0";
+                start.Environment["CLAUDE_CODE_EXIT_AFTER_STOP_DELAY"] = "90000";
+                runtime.EnvironmentFor(start);
+                AssertEqual("1", start.Environment["CLAUDE_CODE_FORK_SUBAGENT"]);
+                AssertEqual("0", start.Environment["CLAUDE_CODE_DISABLE_CRON"]);
+                AssertEqual("90000", start.Environment["CLAUDE_CODE_EXIT_AFTER_STOP_DELAY"]);
+            }));
+
             cases.Add(Case("name_returns_claude_code", "Name Returns Claude Code", TestTags.Positive, () =>
             {
                 ClaudeCodeRuntime runtime = CreateRuntime();
@@ -171,6 +207,8 @@ namespace Test.Shared.Suites.Runtimes
             }
 
             public bool PromptViaStdin => UsePromptStdin;
+
+            public void EnvironmentFor(System.Diagnostics.ProcessStartInfo start) => ApplyEnvironment(start, null);
 
             public List<string> Args(string prompt, string? model = null, string? finalMessageFilePath = null) =>
                 BuildArguments(Path.GetTempPath(), prompt, model, finalMessageFilePath, null);

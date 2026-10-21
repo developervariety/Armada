@@ -520,3 +520,10 @@ use this reporting. This does not change the existing `failureReason` wire forma
 Partial work is not mission success. Built-in context guidance requires agents to preserve blocked work
 and explain the blocker, without emitting a completion marker for an unfinished assignment. Untouched
 legacy guidance is upgraded automatically; operator-edited templates are preserved.
+
+
+### One-shot Claude mission lifetime
+
+Claude missions are bounded jobs. Armada excludes the native `ScheduleWakeup` and `CronCreate` tools, disables session cron, turns automatic subagent fork mode off so delegated research can finish in the foreground, and sets a one-second idle-query exit delay. This does not change shell permission policy, remove foreground agent work, or alter nonmission chat/model-validation lifecycle settings. Mission completion still requires the real process outcome and the existing completion/review gates; output markers alone cannot approve work. Update Harbor as well as the Admiral for Harbor-owned jobs.
+
+Heartbeat stalls publish caller-scoped `captain.stalled` history with elapsed inactivity, configured threshold, recovery availability and remediation. Successful recovery preserves that history even when the active mission no longer has a failure reason. Exhausted recovery includes the details in the mission failure reason.

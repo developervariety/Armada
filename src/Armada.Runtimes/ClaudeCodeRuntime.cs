@@ -140,6 +140,14 @@ namespace Armada.Runtimes
             args.Add("--print");
             args.Add("--verbose");
 
+            if (StructuredProgress)
+            {
+                // A mission is one bounded job. Native future wakeups can keep print mode alive
+                // after its completion report and trigger Armada's inactivity recovery.
+                args.Add("--disallowedTools");
+                args.Add("ScheduleWakeup,CronCreate");
+            }
+
             if (StreamJsonOutput)
             {
                 // Emit newline-delimited JSON events with incremental text deltas so chat can stream the
@@ -212,6 +220,15 @@ namespace Armada.Runtimes
         protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain)
         {
             startInfo.Environment["CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT"] = "1";
+
+            if (StructuredProgress)
+            {
+                // Keep delegated research foreground/joinable and exit once the query becomes idle.
+                // Shell tools remain available; these settings do not stop another Claude session.
+                startInfo.Environment["CLAUDE_CODE_FORK_SUBAGENT"] = "0";
+                startInfo.Environment["CLAUDE_CODE_DISABLE_CRON"] = "1";
+                startInfo.Environment["CLAUDE_CODE_EXIT_AFTER_STOP_DELAY"] = "1000";
+            }
 
             // Remove nesting detection variables so captains can launch
             // even when the Admiral or CLI was started from within a Claude Code session

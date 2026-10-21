@@ -104,7 +104,10 @@ namespace Test.Shared.Suites.Services
                     using CancellationTokenSource cancellation = new CancellationTokenSource();
                     Captain captain = new Captain("named", AgentRuntimeEnum.ClaudeCode) { TenantId = Constants.DefaultTenantId, UserId = "usr_model_owner", Model = "frontier-test-model" };
                     Task<CaptainModelValidationFailure?> validation = handler.ValidateCaptainModelDetailedAsync(captain, cancellation.Token);
-                    await WaitForConditionAsync(() => Task.FromResult(harbor.Runner.Launches.Count == 1)).ConfigureAwait(false);
+                    // RecordingHarborJobRunner publishes the received request before the inner runner
+                    // registers callbacks. Wait for actual readiness before driving this controlled job.
+                    await WaitForConditionAsync(() => Task.FromResult(harbor.Runner.Launches.Count == 1
+                        && jobs.Launched(harbor.Runner.Launches.Single().JobId))).ConfigureAwait(false);
                     string job = harbor.Runner.Launches.Single().JobId;
                     jobs.Start(job, 43123);
                     if (selectedOutcome == "rejected")

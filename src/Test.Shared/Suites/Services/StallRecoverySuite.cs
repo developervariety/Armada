@@ -75,7 +75,9 @@ namespace Test.Shared.Suites.Services
                     Captain? captain = await testDb.Driver.Captains.ReadAsync(fixture.Captain.Id).ConfigureAwait(false);
                     Mission? mission = await testDb.Driver.Missions.ReadAsync(fixture.Mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Failed, mission!.Status);
-                    AssertEqual("Captain stalled, recovery exhausted", mission.FailureReason);
+                    AssertStartsWith("Captain stalled, recovery exhausted.", mission.FailureReason!);
+                    AssertContains("configured stall threshold: 10 min", mission.FailureReason!);
+                    AssertContains("Remediation:", mission.FailureReason!);
                     AssertEqual(MissionFailureKindEnum.StallRecoveryExhausted, mission.FailureKind, "failure kind is recorded where the failure happens");
                     AssertNull(mission.ProcessId, "process id cleared");
                     AssertNotNull(mission.CompletedUtc, "completion time recorded");
