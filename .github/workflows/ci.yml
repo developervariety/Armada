@@ -52,7 +52,7 @@ jobs:
         run: dotnet run --project src/Test.Automated -c Release --no-build --framework net10.0 -- --suites Models,Client,Metrics,Database,Runtimes
 
       - name: Pipeline and lifecycle regressions
-        run: dotnet run --project src/Test.Automated -c Release --no-build --framework net10.0 -- --suites Services.GitService,Services.ArchitectPlanParser,Services.PromptTemplateService,Services.PromptSignalConsistency,Services.RecorderSeeding,Services.MissionPrompt,Services.MultiRuntimeFlow,Services.CaptainRouting,Services.PipelineDispatch,Services.AdmiralService,Services.StallRecovery
+        run: dotnet run --project src/Test.Automated -c Release --no-build --framework net10.0 -- --suites Services.GitService,Services.ArchitectPlanParser,Services.PromptTemplateService,Services.PromptSignalConsistency,Services.RecorderSeeding,Services.MissionPrompt,Services.MultiRuntimeFlow,Services.CaptainRouting,Services.AgentLifecycleHandler,Services.PipelineDispatch,Services.AdmiralService,Services.StallRecovery
 
   dashboard-dist:
     runs-on: ubuntu-latest
