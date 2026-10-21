@@ -104,6 +104,8 @@ namespace Armada.Core.Services
         private TimeSpan _MinimumStaleLinkTimeout = TimeSpan.FromSeconds(45);
         private TimeSpan _VanishedJobGrace = TimeSpan.FromSeconds(20);
         private int _SweepRunning = 0;
+        private int _NextProcessHandle = 1000000000;
+        private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _PendingStops = new ConcurrentDictionary<string, TaskCompletionSource<bool>>(StringComparer.Ordinal);
 
         #endregion
 
@@ -297,6 +299,33 @@ namespace Armada.Core.Services
             // Any message shows the link is alive.
             if (_Connections.TryGetValue(harborId, out HarborConnection? seen)) seen!.LastSeenUtc = _Clock();
 
+            // A job identifier is not authority. Check the authenticated sender before lifecycle callbacks or
+            // durable metrics, including replayed exits that arrive before their runtime is restored in memory.
+            string? referencedJob = message switch
+            {
+                HarborStarted startedEvent => startedEvent.JobId,
+                HarborOutput outputEvent => outputEvent.JobId,
+                HarborActivity activityEvent => activityEvent.JobId,
+                HarborExited exitedEvent => exitedEvent.JobId,
+                HarborError errorEvent => errorEvent.JobId,
+                _ => null
+            };
+            if (referencedJob != null)
+            {
+                bool ownsJob = !String.IsNullOrWhiteSpace(referencedJob)
+                    && (_JobOwners.TryGetValue(referencedJob, out string? owner)
+                        ? String.Equals(owner, harborId, StringComparison.Ordinal)
+                        : Metrics != null && await Metrics.IsJobOwnedByHarborAsync(harborId, referencedJob, token).ConfigureAwait(false));
+                if (!ownsJob)
+                {
+                    // Deliberately discarded obsolete/unauthorized frames may drain from this sender's outbox.
+                    // A failed ownership lookup throws before acknowledgement, so a valid exit is not lost on a DB fault.
+                    if (message.OutboxSequence.HasValue) AcceptJobSequence(harborId, message.OutboxSequence.Value);
+                    _Logging.Warn(_Header + "ignored " + message.GetType().Name + " from Harbor " + harborId + " because it does not own the referenced job");
+                    return;
+                }
+            }
+
             // A job message the Harbor replays after a reconnect may have arrived over the earlier link already.
             if (message.OutboxSequence.HasValue && !AcceptJobSequence(harborId, message.OutboxSequence.Value))
             {
@@ -401,6 +430,7 @@ namespace Armada.Core.Services
                 ForgetJob(exited.JobId);
                 if (_JobListeners.TryRemove(exited.JobId, out IHarborJobListener? exitListener))
                     exitListener.OnExited(exited.ExitCode);
+                if (_PendingStops.TryRemove(exited.JobId, out TaskCompletionSource<bool>? stopped)) stopped.TrySetResult(true);
                 return;
             }
 
@@ -695,7 +725,8 @@ namespace Armada.Core.Services
         /// <param name="jobId">Persisted launch identifier.</param>
         /// <param name="processId">Persisted Harbor process identifier.</param>
         /// <param name="listener">Reconstructed lifecycle listener.</param>
-        public void RestoreJob(string harborId, string jobId, int processId, IHarborJobListener listener)
+        /// <returns>Unique Admiral process handle, remapped if a different restored job already owns this id.</returns>
+        public int RestoreJob(string harborId, string jobId, int processId, IHarborJobListener listener)
         {
             if (String.IsNullOrWhiteSpace(harborId)) throw new ArgumentNullException(nameof(harborId));
             if (String.IsNullOrWhiteSpace(jobId)) throw new ArgumentNullException(nameof(jobId));
@@ -705,7 +736,7 @@ namespace Armada.Core.Services
             _JobOwners[jobId] = harborId;
             _StartedJobs[jobId] = 0;
             _RestoredSince[jobId] = _Clock();
-            RegisterProcessId(processId, harborId, jobId);
+            return RegisterProcessId(processId, harborId, jobId);
         }
 
         /// <summary>
@@ -724,9 +755,48 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(jobId)) throw new ArgumentNullException(nameof(jobId));
             _JobListeners.TryRemove(jobId, out IHarborJobListener? _);
             ForgetJob(jobId);
-            Metrics?.OnStopRequested(jobId);
+            if (Metrics != null) await Metrics.OnStopRequestedAsync(jobId, token).ConfigureAwait(false);
             if (!_Connections.TryGetValue(harborId, out HarborConnection? connection)) return;
             await connection!.SendAsync(new HarborKillRequest { JobId = jobId, GracefulTimeoutMs = gracefulTimeoutMs }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Request a stop and retain ownership until the owning Harbor confirms actual process exit.</summary>
+        /// <param name="harborId">Owning Harbor.</param>
+        /// <param name="jobId">Job to stop.</param>
+        /// <param name="timeout">Maximum wait for exit confirmation.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task StopJobAndConfirmAsync(string harborId, string jobId, TimeSpan timeout, CancellationToken token = default)
+        {
+            if (!_JobOwners.TryGetValue(jobId, out string? owner) || owner != harborId)
+                throw new InvalidOperationException("Cannot confirm stop: the Harbor does not own this tracked job.");
+            TaskCompletionSource<bool> completion = _PendingStops.GetOrAdd(jobId,
+                _ => new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
+            using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+            deadline.CancelAfter(timeout);
+            try
+            {
+                if (Metrics != null) await Metrics.OnStopRequestedAsync(jobId, deadline.Token).ConfigureAwait(false);
+                if (!_Connections.TryGetValue(harborId, out HarborConnection? connection))
+                    throw new InvalidOperationException("Cannot confirm stop: Harbor is disconnected. Reconnect the Harbor before recovery.");
+                await connection.SendAsync(new HarborKillRequest { JobId = jobId, GracefulTimeoutMs = 10000 }, deadline.Token).ConfigureAwait(false);
+                await completion.Task.WaitAsync(deadline.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                throw new TimeoutException("The owning Harbor did not confirm process exit before the stop deadline. Ownership is retained; reconnect the Harbor before recovery.");
+            }
+            // Caller cancellation/timeout does not cancel the job's shared exit notification. Keep it until
+            // the actual exit so overlapping/repeated stop callers cannot orphan one another's wait.
+        }
+
+        /// <summary>Stop a tracked remote process handle and require an owning Harbor exit report.</summary>
+        /// <param name="processId">Admiral process handle.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task StopProcessAndConfirmAsync(int processId, CancellationToken token = default)
+        {
+            if (!_JobsByProcessId.TryGetValue(processId, out HarborJobHandle? job))
+                throw new InvalidOperationException("Remote process is no longer tracked; reconcile its lifecycle before recovery.");
+            await StopJobAndConfirmAsync(job.HarborId, job.JobId, TimeSpan.FromSeconds(20), token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -747,10 +817,23 @@ namespace Armada.Core.Services
         /// <param name="processId">Host process id reported by the Harbor.</param>
         /// <param name="harborId">Harbor running the job.</param>
         /// <param name="jobId">Job identifier.</param>
-        public void RegisterProcessId(int processId, string harborId, string jobId)
+        /// <returns>Admiral process handle; differs from the native id when another Harbor already uses it.</returns>
+        public int RegisterProcessId(int processId, string harborId, string jobId)
         {
-            if (processId <= 0) return;
-            _JobsByProcessId[processId] = new HarborJobHandle(harborId, jobId);
+            if (processId <= 0) return processId;
+            lock (_JobsByProcessId)
+            {
+                foreach (KeyValuePair<int, HarborJobHandle> existing in _JobsByProcessId)
+                    if (existing.Value.HarborId == harborId && existing.Value.JobId == jobId) return existing.Key;
+                int handle = processId;
+                while (_JobsByProcessId.ContainsKey(handle))
+                {
+                    handle = Interlocked.Increment(ref _NextProcessHandle);
+                    if (handle <= 0) throw new InvalidOperationException("Remote process handle space exhausted.");
+                }
+                _JobsByProcessId[handle] = new HarborJobHandle(harborId, jobId);
+                return handle;
+            }
         }
 
         /// <summary>

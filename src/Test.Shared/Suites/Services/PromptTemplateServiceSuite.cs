@@ -439,6 +439,29 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("finding_reconciliation_upgrade_preserves_operator_edits", "Prior brief defaults upgrade while custom briefs survive reseeding", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, new LoggingModule());
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    foreach (string name in new[] { "persona.architect", "persona.worker", "persona.judge" })
+                    {
+                        PromptTemplate row = (await testDb.Driver.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false))!;
+                        row.Content = PersonaPromptImprovements.DecisionBriefs[name];
+                        await testDb.Driver.PromptTemplates.UpdateAsync(row).ConfigureAwait(false);
+                        await service.SeedDefaultsAsync().ConfigureAwait(false);
+                        row = (await testDb.Driver.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false))!;
+                        AssertEqual(service.GetEmbeddedDefault(name), row.Content, name + " previous brief upgraded");
+                        row.Content = PersonaPromptImprovements.DecisionBriefs[name] + "Operator-specific instruction";
+                        await testDb.Driver.PromptTemplates.UpdateAsync(row).ConfigureAwait(false);
+                        await service.SeedDefaultsAsync().ConfigureAwait(false);
+                        row = (await testDb.Driver.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false))!;
+                        AssertTrue(row.Content.EndsWith("Operator-specific instruction"), name + " custom brief preserved");
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("decision_check_upgrade_preserves_operator_edits", "Prior brief defaults upgrade while custom briefs survive reseeding", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

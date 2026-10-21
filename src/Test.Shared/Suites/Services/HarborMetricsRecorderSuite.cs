@@ -117,6 +117,61 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(HarborJobOutcomeEnum.Failed, (await testDb.Driver.HarborJobs.ReadByJobIdAsync("job_bad").ConfigureAwait(false))!.Outcome, "non-zero exit fails");
             }));
 
+            cases.Add(CaseAsync("stop_intent_is_durable_before_delivery", "A lost stop persists intent before send and a fresh recorder recognizes the eventual exit", TestTags.Reliability, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ManualUtcClock clock = new ManualUtcClock(_Start);
+                HarborConnectionManager manager = CreateManager(db.Driver, clock, out _);
+                bool sawDurableIntent = false;
+                await manager.OnHandshakeAsync(Handshake("hbr_stop_durable"), null, null, async (message, token) =>
+                {
+                    if (message is HarborKillRequest)
+                    {
+                        HarborJobRecord record = (await db.Driver.HarborJobs.ReadByJobIdAsync("job_stop_durable").ConfigureAwait(false))!;
+                        sawDurableIntent = record.StopRequested && !record.EndedUtc.HasValue;
+                    }
+                }).ConfigureAwait(false);
+                await manager.LaunchAsync("hbr_stop_durable", Launch("job_stop_durable", HarborJobKindEnum.Mission, "Codex"), new RecordingHarborJobListener()).ConfigureAwait(false);
+                bool timedOut = false;
+                try { await manager.StopJobAndConfirmAsync("hbr_stop_durable", "job_stop_durable", TimeSpan.FromMilliseconds(100)).ConfigureAwait(false); }
+                catch (TimeoutException) { timedOut = true; }
+                AssertTrue(timedOut);
+                AssertTrue(sawDurableIntent, "Stop intent must survive an Admiral restart immediately after transport send.");
+                HarborConnectionManager restarted = CreateManager(db.Driver, clock, out _);
+                await restarted.OnMessageAsync("hbr_stop_durable", new HarborExited { JobId = "job_stop_durable", ExitCode = 137 }).ConfigureAwait(false);
+                HarborJobRecord ended = (await db.Driver.HarborJobs.ReadByJobIdAsync("job_stop_durable").ConfigureAwait(false))!;
+                AssertTrue(ended.StopRequested);
+                AssertEqual(HarborJobOutcomeEnum.Stopped, ended.Outcome);
+            }));
+
+            cases.Add(CaseAsync("durable_job_owner_controls_lifecycle_after_restart", "A cache-miss lifecycle event must match durable Harbor ownership before changing metrics", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ManualUtcClock clock = new ManualUtcClock(_Start);
+                HarborConnectionManager manager = CreateManager(testDb.Driver, clock, out HarborMetricsRecorder recorder);
+                await manager.OnHandshakeAsync(Handshake("hbr_durable_owner"), null, null, NoopSend).ConfigureAwait(false);
+                await manager.OnHandshakeAsync(Handshake("hbr_durable_other"), null, null, NoopSend).ConfigureAwait(false);
+                // The row survives a server restart; no in-memory listener/owner has been restored yet.
+                await recorder.OnLaunchAsync("hbr_durable_owner", null, Launch("job_durable_owner", HarborJobKindEnum.Mission, "ClaudeCode")).ConfigureAwait(false);
+                AssertEqual(0, manager.OwnedJobIds("hbr_durable_owner").Count);
+                await manager.OnMessageAsync("hbr_durable_other", new HarborStarted { JobId = "job_durable_owner", ProcessId = 111 }).ConfigureAwait(false);
+                await manager.OnMessageAsync("hbr_durable_other", new HarborOutput { JobId = "job_durable_owner", Stream = HarborOutputStreamEnum.Stdout, Data = "foreign" }).ConfigureAwait(false);
+                await manager.OnMessageAsync("hbr_durable_other", new HarborError { JobId = "job_durable_owner", Message = "foreign" }).ConfigureAwait(false);
+                await manager.OnMessageAsync("hbr_durable_other", new HarborExited { JobId = "job_durable_owner", ExitCode = 0 }).ConfigureAwait(false);
+                HarborJobRecord untouched = (await testDb.Driver.HarborJobs.ReadByJobIdAsync("job_durable_owner").ConfigureAwait(false))!;
+                AssertNull(untouched.StartedUtc);
+                AssertNull(untouched.EndedUtc);
+                AssertEqual(HarborJobOutcomeEnum.Running, untouched.Outcome);
+                await manager.OnMessageAsync("hbr_durable_owner", new HarborStarted { JobId = "job_durable_owner", ProcessId = 111 }).ConfigureAwait(false);
+                clock.Advance(TimeSpan.FromSeconds(2));
+                await manager.OnMessageAsync("hbr_durable_owner", new HarborExited { JobId = "job_durable_owner", ExitCode = 0 }).ConfigureAwait(false);
+                HarborJobRecord ended = (await testDb.Driver.HarborJobs.ReadByJobIdAsync("job_durable_owner").ConfigureAwait(false))!;
+                AssertNotNull(ended.StartedUtc);
+                AssertNotNull(ended.EndedUtc);
+                AssertEqual(HarborJobOutcomeEnum.Succeeded, ended.Outcome);
+                AssertNull(ended.TimeToFirstOutputMs, "Foreign output must not contaminate durable timing metrics.");
+            }));
+
             cases.Add(CaseAsync("heartbeat_ack_and_samples", "A sequenced heartbeat is acknowledged; heartbeats become one sample per minute", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

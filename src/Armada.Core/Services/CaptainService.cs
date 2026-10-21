@@ -89,6 +89,18 @@ namespace Armada.Core.Services
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "error stopping agent for captain " + captainId + ": " + ex.ToString());
+                    const string reason = "Recall deferred: the previous job has not confirmed its exit. Captain, mission and dock ownership were retained. Remediation: reconnect the owning Harbor and confirm the job has stopped before retrying.";
+                    if (!String.IsNullOrEmpty(captain.CurrentMissionId))
+                    {
+                        Mission? held = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
+                        if (held != null)
+                        {
+                            held.FailureReason = reason;
+                            held.LastUpdateUtc = DateTime.UtcNow;
+                            await _Database.Missions.UpdateAsync(held, token).ConfigureAwait(false);
+                        }
+                    }
+                    throw new InvalidOperationException(reason, ex);
                 }
             }
 

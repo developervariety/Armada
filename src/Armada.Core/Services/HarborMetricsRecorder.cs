@@ -176,6 +176,17 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>Check durable job ownership before accepting a lifecycle event after in-memory restoration.</summary>
+        /// <param name="harborId">Authenticated sending Harbor.</param>
+        /// <param name="jobId">Referenced job.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True only for an existing record owned by this Harbor.</returns>
+        internal async Task<bool> IsJobOwnedByHarborAsync(string harborId, string jobId, CancellationToken token)
+        {
+            HarborJobRecord? record = await _Database.HarborJobs.ReadByJobIdAsync(jobId, token).ConfigureAwait(false);
+            return record != null && String.Equals(record.HarborId, harborId, StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// Record that a Harbor started a job's process.
         /// </summary>
@@ -212,10 +223,16 @@ namespace Armada.Core.Services
         /// Note that the Admiral asked a Harbor to stop a job, so its exit counts as stopped rather than failed.
         /// </summary>
         /// <param name="jobId">Job identifier.</param>
-        public void OnStopRequested(string jobId)
+        /// <param name="jobId">The job whose stop was requested.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task OnStopRequestedAsync(string jobId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(jobId)) return;
             _StopRequested[jobId] = true;
+            HarborJobRecord? record = await _Database.HarborJobs.ReadByJobIdAsync(jobId, token).ConfigureAwait(false);
+            if (record == null || record.EndedUtc.HasValue) return;
+            record.StopRequested = true;
+            await _Database.HarborJobs.UpdateAsync(record, token).ConfigureAwait(false);
         }
 
         /// <summary>

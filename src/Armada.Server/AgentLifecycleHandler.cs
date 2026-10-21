@@ -104,6 +104,7 @@ namespace Armada.Server
         /// decoding), so the runtime's own usage report (Claude Code's result event, Codex's turn.completed, Mux's
         /// run_completed) and model are known when the mission completes. Taken by <see cref="TakeMissionTelemetry"/>.
         /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte> _StoppingProcesses = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, RemoteAgentRuntime> _RemoteMissionRuntimes = new System.Collections.Concurrent.ConcurrentDictionary<string, RemoteAgentRuntime>(StringComparer.Ordinal);
 
         private System.Collections.Concurrent.ConcurrentDictionary<string, ChatTurnTelemetryRecorder> _MissionTelemetry = new System.Collections.Concurrent.ConcurrentDictionary<string, ChatTurnTelemetryRecorder>(StringComparer.Ordinal);
@@ -766,7 +767,20 @@ namespace Armada.Server
             runtime.OnProviderError += HandleAgentProviderError;
             runtime.OnActivity += HandleAgentActivity;
             LatestValueThrottle<RuntimeActivity> activityBroadcast = BeginMissionActivity(mission);
-            runtime.OnProcessExited += HandleAgentProcessExited;
+            runtime.OnProcessExited += (processId, exitCode) =>
+            {
+                if (runtime is RemoteAgentRuntime stopped && stopped.StopRequested)
+                {
+                    StopProcessLivenessHeartbeat(processId);
+                    lock (_ProcessToCaptain)
+                    {
+                        _ProcessToCaptain.Remove(processId);
+                        _ProcessToMission.Remove(processId);
+                    }
+                    return;
+                }
+                HandleAgentProcessExited(processId, exitCode);
+            };
             string exitedMissionId = mission.Id;
             runtime.OnProcessExited += (exitedPid, exitCode) => EndMissionActivity(exitedMissionId, activityBroadcast);
             runtime.OnProcessExited += (exitedPid, exitCode) =>
@@ -797,7 +811,7 @@ namespace Armada.Server
             List<Captain> captains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
             foreach (Captain captain in captains)
             {
-                if (!captain.ProcessId.HasValue || String.IsNullOrEmpty(captain.CurrentMissionId) || IsProcessTracked(captain.ProcessId.Value)) continue;
+                if (!captain.ProcessId.HasValue || String.IsNullOrEmpty(captain.CurrentMissionId) || _RemoteMissionRuntimes.ContainsKey(captain.CurrentMissionId)) continue;
                 Mission? mission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
                 if (mission == null || (mission.Status != MissionStatusEnum.InProgress && mission.Status != MissionStatusEnum.Assigned)
                     || mission.CaptainId != captain.Id || (mission.ProcessId.HasValue && mission.ProcessId != captain.ProcessId) || String.IsNullOrEmpty(mission.DockId)) continue;
@@ -806,7 +820,7 @@ namespace Armada.Server
                 List<HarborJobRecord> jobs = await _Database.HarborJobs.EnumerateAsync(dock.HarborId, mission.CreatedUtc, DateTime.MaxValue, token).ConfigureAwait(false);
                 HarborJobRecord? job = jobs.Where(item => item.MissionId == mission.Id && item.CaptainId == captain.Id
                     && item.Kind == Armada.Core.Harbor.HarborJobKindEnum.Mission).OrderByDescending(item => item.LaunchedUtc).FirstOrDefault();
-                if (job == null || job.StopRequested || job.Runtime != captain.Runtime.ToString()) continue;
+                if (job == null || (job.StopRequested && job.EndedUtc.HasValue) || job.Runtime != captain.Runtime.ToString()) continue;
                 // The old callback may have claimed the exit (clearing ProcessId) before shutdown interrupted
                 // completion. Re-arm that claim only for a recorded exit on this still-active assignment.
                 if (!mission.ProcessId.HasValue)
@@ -826,12 +840,19 @@ namespace Armada.Server
                 ObserveMissionRuntime(runtime, captain, mission, out _, out _);
                 string finalMessage = Path.Combine(_Settings.LogDirectory, "final-messages", mission.Id + ".txt");
                 _MissionFinalMessageFiles[mission.Id] = finalMessage;
+                int restoredProcess = runtime.Reattach(job.JobId, captain.ProcessId.Value, Path.Combine(_Settings.LogDirectory, "missions", mission.Id + ".log"), finalMessage, alreadyExited: job.EndedUtc.HasValue, stopRequested: job.StopRequested);
+                if (restoredProcess != captain.ProcessId.Value)
+                {
+                    captain.ProcessId = restoredProcess;
+                    mission.ProcessId = restoredProcess;
+                    await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                }
                 lock (_ProcessToCaptain)
                 {
-                    _ProcessToCaptain[captain.ProcessId.Value] = captain.Id;
-                    _ProcessToMission[captain.ProcessId.Value] = mission.Id;
+                    _ProcessToCaptain[restoredProcess] = captain.Id;
+                    _ProcessToMission[restoredProcess] = mission.Id;
                 }
-                runtime.Reattach(job.JobId, captain.ProcessId.Value, Path.Combine(_Settings.LogDirectory, "missions", mission.Id + ".log"), finalMessage, alreadyExited: job.EndedUtc.HasValue);
                 StartProcessLivenessHeartbeat(captain.ProcessId.Value, captain.Id, mission.Id);
                 restored++;
                 // An exit may have been durably recorded immediately before the old Admiral stopped, but its
@@ -1522,6 +1543,7 @@ namespace Armada.Server
         /// </summary>
         public void HandleAgentProcessExited(int processId, int? exitCode)
         {
+            if (_StoppingProcesses.ContainsKey(processId)) return;
             StopProcessLivenessHeartbeat(processId);
 
             string? captainId = null;
@@ -1619,15 +1641,46 @@ namespace Armada.Server
         {
             if (!captain.ProcessId.HasValue) return;
             _Logging.Info(_Header + "stopping agent process " + captain.ProcessId.Value + " for captain " + captain.Id);
-            if (captain.CurrentMissionId != null && _RemoteMissionRuntimes.TryRemove(captain.CurrentMissionId, out RemoteAgentRuntime? remote)) remote.Detach();
-            lock (_ProcessToCaptain)
+            int processId = captain.ProcessId.Value;
+            _StoppingProcesses[processId] = 0;
+            try
             {
-                _ProcessToCaptain.Remove(captain.ProcessId.Value);
-                _ProcessToMission.Remove(captain.ProcessId.Value);
+                if (captain.CurrentMissionId != null && _RemoteMissionRuntimes.TryGetValue(captain.CurrentMissionId, out RemoteAgentRuntime? remote))
+                    await remote.StopAndConfirmAsync().ConfigureAwait(false);
+                else if (_HarborConnections != null && _HarborConnections.IsProcessTracked(processId))
+                    await _HarborConnections.StopProcessAndConfirmAsync(processId).ConfigureAwait(false);
+                else
+                {
+                    // A missing transient process map does not turn a Harbor PID into a local PID.
+                    Mission? assignment = captain.CurrentMissionId == null ? null
+                        : await _Database.Missions.ReadAsync(captain.CurrentMissionId).ConfigureAwait(false);
+                    Dock? ownedDock = assignment?.DockId == null ? null
+                        : await _Database.Docks.ReadAsync(assignment.DockId).ConfigureAwait(false);
+                    if (!String.IsNullOrWhiteSpace(ownedDock?.HarborId))
+                    {
+                        List<HarborJobRecord> records = await _Database.HarborJobs.EnumerateAsync(ownedDock.HarborId!, assignment!.CreatedUtc, DateTime.MaxValue).ConfigureAwait(false);
+                        HarborJobRecord? last = records.Where(job => job.MissionId == assignment.Id && job.CaptainId == captain.Id)
+                            .OrderByDescending(job => job.LaunchedUtc).FirstOrDefault();
+                        if (last == null || !last.EndedUtc.HasValue)
+                            throw new InvalidOperationException("Harbor mission is not tracked; restore its owning Harbor job before requesting a stop. Local PID fallback is prohibited.");
+                        // An already-confirmed remote exit makes a repeated stop a no-op.
+                    }
+                    else
+                    {
+                        IHostProcessExecutor stopExecutor = ResolveStopExecutor(processId);
+                        Armada.Runtimes.Interfaces.IAgentRuntime runtime = stopExecutor.CreateRuntime(captain.Runtime);
+                        await runtime.StopAsync(processId).ConfigureAwait(false);
+                    }
+                }
+                lock (_ProcessToCaptain)
+                {
+                    _ProcessToCaptain.Remove(processId);
+                    _ProcessToMission.Remove(processId);
+                }
+                StopProcessLivenessHeartbeat(processId);
             }
-            IHostProcessExecutor stopExecutor = ResolveStopExecutor(captain.ProcessId.Value);
-            Armada.Runtimes.Interfaces.IAgentRuntime runtime = stopExecutor.CreateRuntime(captain.Runtime);
-            await runtime.StopAsync(captain.ProcessId.Value).ConfigureAwait(false);
+            finally { _StoppingProcesses.TryRemove(processId, out _); }
+
         }
 
         #endregion

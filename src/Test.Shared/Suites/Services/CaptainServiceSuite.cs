@@ -39,6 +39,30 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("recall_unconfirmed_stop_preserves_assignment", "Recall cannot release a captain or reclaim a dock after its stop failed", TestTags.Negative, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                StubDockService docks = new StubDockService();
+                CaptainService service = new CaptainService(CreateLogging(), db.Driver, CreateSettings(), new StubGitService(), docks);
+                Mission mission = await db.Driver.Missions.CreateAsync(new Mission("held recall") { Status = MissionStatusEnum.InProgress, ProcessId = 9191 }).ConfigureAwait(false);
+                Captain captain = await db.Driver.Captains.CreateAsync(new Captain("held recall")
+                {
+                    State = CaptainStateEnum.Working, ProcessId = 9191, CurrentMissionId = mission.Id, CurrentDockId = "dck_still_owned"
+                }).ConfigureAwait(false);
+                service.OnStopAgent = _ => throw new TimeoutException("No owner exit confirmation");
+                bool refused = false;
+                try { await service.RecallAsync(captain.Id).ConfigureAwait(false); } catch (InvalidOperationException) { refused = true; }
+                AssertTrue(refused);
+                Captain current = (await db.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+                Mission active = (await db.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                AssertEqual(CaptainStateEnum.Working, current.State);
+                AssertEqual(mission.Id, current.CurrentMissionId);
+                AssertEqual((int?)9191, current.ProcessId);
+                AssertEqual(MissionStatusEnum.InProgress, active.Status);
+                AssertEqual((int?)9191, active.ProcessId);
+                AssertEqual(0, docks.ReclaimCalls);
+            }));
+
             cases.Add(CaseAsync("recovery_launch_failure_marks_mission_failed", "Recovery launch failure marks mission failed instead of leaving it in progress", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

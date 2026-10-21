@@ -1423,7 +1423,11 @@ namespace Armada.Core.Services
                     if (_Captains.OnStopAgent != null)
                     {
                         try { await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false); }
-                        catch { }
+                        catch (Exception)
+                        {
+                            await RecordUnconfirmedStopAsync(captain, mission, token).ConfigureAwait(false);
+                            return;
+                        }
                     }
 
                     if (!MissionStateMachine.IsTerminalOrPostWork(mission.Status))
@@ -1473,16 +1477,36 @@ namespace Armada.Core.Services
                         {
                             ArmadaMetrics.CaptainRecoveries.Add(1);
                             // Kill the stalled process first
-                            if (_Captains.OnStopAgent != null)
+                            if (captain.ProcessId.HasValue && _Captains.OnStopAgent == null)
                             {
-                                try { await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false); }
-                                catch { }
+                                await RecordUnconfirmedStopAsync(captain, mission, token).ConfigureAwait(false);
+                                return;
+                            }
+                            try
+                            {
+                                if (captain.ProcessId.HasValue && _Captains.OnStopAgent != null)
+                                    await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false);
+                            }
+                            catch (Exception)
+                            {
+                                await RecordUnconfirmedStopAsync(captain, mission, token).ConfigureAwait(false);
+                                return;
                             }
 
                             await _Captains.TryRecoverAsync(captain, token).ConfigureAwait(false);
                         }
                         else
                         {
+                            if (_Captains.OnStopAgent != null)
+                            {
+                                try { await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false); }
+                                catch (Exception)
+                                {
+                                    await RecordUnconfirmedStopAsync(captain, mission, token).ConfigureAwait(false);
+                                    return;
+                                }
+                            }
+
                             // Mark the active mission as Failed
                             if (mission != null &&
                                 !MissionStateMachine.IsTerminalOrPostWork(mission.Status))
@@ -1503,13 +1527,6 @@ namespace Armada.Core.Services
                                     captainId: captain.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
                             }
 
-                            // Kill the stalled process
-                            if (_Captains.OnStopAgent != null)
-                            {
-                                try { await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false); }
-                                catch { }
-                            }
-
                             // Reclaim the dock worktree so it doesn't leak
                             await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
 
@@ -1524,8 +1541,24 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Emit an event to the event log database.
+        /// Retain active ownership and surface remediation when stop acknowledgement is unavailable.
         /// </summary>
+        private async Task RecordUnconfirmedStopAsync(Captain captain, Mission? mission, CancellationToken token)
+        {
+            const string reason = "Recovery deferred: the previous job has not confirmed its exit. No replacement was launched. Remediation: reconnect the owning Harbor and confirm the job has stopped before retrying.";
+            _Logging.Warn(_Header + reason + " Captain: " + captain.Id);
+            if (mission != null)
+            {
+                mission.FailureReason = reason;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            }
+            await EmitEventAsync("captain.stop_unconfirmed", reason, entityType: "captain", entityId: captain.Id,
+                captainId: captain.Id, missionId: mission?.Id, voyageId: mission?.VoyageId,
+                token: token, tenantId: mission?.TenantId ?? captain.TenantId, userId: mission?.UserId ?? captain.UserId).ConfigureAwait(false);
+        }
+
+        /// <summary>Emit an event to the event log database.</summary>
         private async Task EmitEventAsync(string eventType, string message,
             string? entityType = null, string? entityId = null,
             string? captainId = null, string? missionId = null,

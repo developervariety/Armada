@@ -990,7 +990,7 @@ namespace Test.Shared.Suites.Services
                         if (captured == "cancelled") seed.Mission.Status = MissionStatusEnum.Cancelled;
                         if (captured == "wrong-process") seed.Mission.ProcessId++;
                         if (captured == "wrong-captain") seed.Job.CaptainId = "different-captain";
-                        if (captured == "stopped") seed.Job.StopRequested = true;
+                        if (captured == "stopped") { seed.Job.StopRequested = true; seed.Job.EndedUtc = DateTime.UtcNow; }
                         if (captured == "inactive-dock") seed.Dock.Active = false;
                         await testDb.Driver.Missions.UpdateAsync(seed.Mission).ConfigureAwait(false);
                         await testDb.Driver.HarborJobs.UpdateAsync(seed.Job).ConfigureAwait(false);
@@ -1002,6 +1002,97 @@ namespace Test.Shared.Suites.Services
                     }
                 }));
             }
+
+            cases.Add(CaseAsync("unconfirmed_stop_is_restored_until_owned_exit", "Restart retains an unconfirmed stop and intentional exit does not trigger mission completion", TestTags.Reliability, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AgentLifecycleHandler handler = CreateHandler(db.Driver, out ArmadaSettings settings, out StubAdmiralService admiral);
+                var seed = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                seed.Job.StopRequested = true;
+                await db.Driver.HarborJobs.UpdateAsync(seed.Job).ConfigureAwait(false);
+                HarborConnectionManager manager = new HarborConnectionManager(new HarborService(db.Driver, CreateLogging()), CreateLogging(), null);
+                handler.SetHarborConnections(manager);
+                AssertEqual(1, await handler.RestoreHarborMissionsAsync().ConfigureAwait(false));
+                bool disconnected = false;
+                try { await handler.HandleStopAgentAsync(seed.Captain).ConfigureAwait(false); }
+                catch (InvalidOperationException) { disconnected = true; }
+                AssertTrue(disconnected);
+                AssertTrue(handler.IsProcessTracked(seed.Captain.ProcessId!.Value), "Failed stop retains mission routing.");
+                await manager.OnHandshakeAsync(new Armada.Core.Harbor.HarborHandshake { HarborId = seed.Dock.HarborId!, Name = "stop-owner", LiveJobIds = new List<string> { seed.Job.JobId } }, null, null,
+                    async (message, token) =>
+                    {
+                        if (message is Armada.Core.Harbor.HarborKillRequest kill)
+                            await manager.OnMessageAsync(seed.Dock.HarborId!, new Armada.Core.Harbor.HarborExited { JobId = kill.JobId, ExitCode = 137 }, token).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
+                await handler.HandleStopAgentAsync(seed.Captain).ConfigureAwait(false);
+                AssertFalse(handler.IsProcessTracked(seed.Captain.ProcessId.Value));
+                AssertEqual(0, admiral.ExitInfos.Count, "An intentional stop is not an independent crash/completion callback.");
+                AssertEqual(0, (await db.Driver.Missions.ReadAsync(seed.Mission.Id).ConfigureAwait(false))!.RedispatchAttempts);
+            }));
+
+            cases.Add(CaseAsync("untracked_harbor_stop_never_falls_back_to_local_pid", "A missing remote map refuses local PID fallback; a confirmed remote exit makes repeated stop safe", TestTags.Negative, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AgentLifecycleHandler handler = CreateRoutedValidationHandler(db.Driver, out ArmadaSettings settings, out _);
+                var seed = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                bool refused = false;
+                try { await handler.HandleStopAgentAsync(seed.Captain).ConfigureAwait(false); }
+                catch (InvalidOperationException ex) { refused = ex.Message.Contains("Local PID fallback is prohibited"); }
+                AssertTrue(refused, "Never create a local runtime for a lost remote process handle.");
+                seed.Job.StopRequested = true;
+                seed.Job.EndedUtc = DateTime.UtcNow;
+                await db.Driver.HarborJobs.UpdateAsync(seed.Job).ConfigureAwait(false);
+                await handler.HandleStopAgentAsync(seed.Captain).ConfigureAwait(false);
+                await handler.HandleStopAgentAsync(seed.Captain).ConfigureAwait(false);
+            }));
+
+            cases.Add(CaseAsync("restored_stop_intent_suppresses_late_exit", "An exit replayed after restart honors persisted stop intent without a second stop call", TestTags.Reliability, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AgentLifecycleHandler handler = CreateHandler(db.Driver, out ArmadaSettings settings, out StubAdmiralService admiral);
+                var seed = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                seed.Job.StopRequested = true;
+                await db.Driver.HarborJobs.UpdateAsync(seed.Job).ConfigureAwait(false);
+                HarborConnectionManager manager = new HarborConnectionManager(new HarborService(db.Driver, CreateLogging()), CreateLogging(), null);
+                handler.SetHarborConnections(manager);
+                AssertEqual(1, await handler.RestoreHarborMissionsAsync().ConfigureAwait(false));
+                await manager.OnMessageAsync(seed.Dock.HarborId!, new HarborExited { JobId = seed.Job.JobId, ExitCode = 137 }).ConfigureAwait(false);
+                await Task.Delay(100).ConfigureAwait(false);
+                AssertEqual(0, admiral.ExitInfos.Count, "Persisted intentional stops are not crashes or successful product completion.");
+                AssertFalse(handler.IsProcessTracked(seed.Captain.ProcessId!.Value));
+            }));
+
+            cases.Add(CaseAsync("restore_colliding_harbor_pids_persists_unique_assignment", "Restart remaps legacy colliding Harbor PIDs, persists both assignments, and preserves output ownership", TestTags.Reliability, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AgentLifecycleHandler handler = CreateHandler(db.Driver, out ArmadaSettings settings);
+                var a = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint, "_a").ConfigureAwait(false);
+                var b = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint, "_b").ConfigureAwait(false);
+                HarborConnectionManager manager = new HarborConnectionManager(new HarborService(db.Driver, CreateLogging()), CreateLogging(), null);
+                handler.SetHarborConnections(manager);
+                AssertEqual(2, await handler.RestoreHarborMissionsAsync().ConfigureAwait(false));
+                Captain ca = (await db.Driver.Captains.ReadAsync(a.Captain.Id).ConfigureAwait(false))!;
+                Captain cb = (await db.Driver.Captains.ReadAsync(b.Captain.Id).ConfigureAwait(false))!;
+                AssertTrue(ca.ProcessId != cb.ProcessId);
+                AssertEqual(ca.ProcessId, (await db.Driver.Missions.ReadAsync(a.Mission.Id).ConfigureAwait(false))!.ProcessId);
+                AssertEqual(cb.ProcessId, (await db.Driver.Missions.ReadAsync(b.Mission.Id).ConfigureAwait(false))!.ProcessId);
+                await manager.OnMessageAsync(a.Dock.HarborId!, new Armada.Core.Harbor.HarborOutput { JobId = a.Job.JobId, Data = "only-a" }).ConfigureAwait(false);
+                await manager.OnMessageAsync(b.Dock.HarborId!, new Armada.Core.Harbor.HarborOutput { JobId = b.Job.JobId, Data = "only-b" }).ConfigureAwait(false);
+                string oa = handler.GetAndClearMissionOutput(a.Mission.Id) ?? "";
+                string ob = handler.GetAndClearMissionOutput(b.Mission.Id) ?? "";
+                AssertContains("only-a", oa);
+                AssertFalse(oa.Contains("only-b"));
+                AssertContains("only-b", ob);
+                AssertFalse(ob.Contains("only-a"));
+                handler.DetachHarborMissions();
+                AgentLifecycleHandler restarted = CreateHandler(db.Driver, out _);
+                HarborConnectionManager nextManager = new HarborConnectionManager(new HarborService(db.Driver, CreateLogging()), CreateLogging(), null);
+                restarted.SetHarborConnections(nextManager);
+                AssertEqual(2, await restarted.RestoreHarborMissionsAsync().ConfigureAwait(false));
+                AssertEqual(ca.ProcessId, (await db.Driver.Captains.ReadAsync(a.Captain.Id).ConfigureAwait(false))!.ProcessId);
+                AssertEqual(cb.ProcessId, (await db.Driver.Captains.ReadAsync(b.Captain.Id).ConfigureAwait(false))!.ProcessId);
+                restarted.DetachHarborMissions();
+            }));
 
             cases.Add(CaseAsync("restored_harbor_job_vanished", "A restored job absent from the Harbor report exits through the interrupted lifecycle exactly once", TestTags.Reliability, async () =>
             {
@@ -1051,20 +1142,20 @@ namespace Test.Shared.Suites.Services
 
         #region Private-Methods
 
-        private static async Task<(Captain Captain, Mission Mission, Dock Dock, HarborJobRecord Job)> SeedHarborMissionAsync(DatabaseDriver database, ArmadaSettings settings, AgentRuntimeEnum runtime)
+        private static async Task<(Captain Captain, Mission Mission, Dock Dock, HarborJobRecord Job)> SeedHarborMissionAsync(DatabaseDriver database, ArmadaSettings settings, AgentRuntimeEnum runtime, string suffix = "")
         {
-            Vessel vessel = await database.Vessels.CreateAsync(new Vessel("Restart vessel", "https://github.com/test/restart.git")).ConfigureAwait(false);
-            Dock dock = new Dock(vessel.Id) { HarborId = "hbr_restart", WorktreePath = Path.Combine(settings.LogDirectory, "dock"), BranchName = "armada/original" };
+            Vessel vessel = await database.Vessels.CreateAsync(new Vessel("Restart vessel" + suffix, "https://github.com/test/restart.git")).ConfigureAwait(false);
+            Dock dock = new Dock(vessel.Id) { HarborId = "hbr_restart" + suffix, WorktreePath = Path.Combine(settings.LogDirectory, "dock" + suffix), BranchName = "armada/original" };
             Directory.CreateDirectory(dock.WorktreePath);
             File.WriteAllText(Path.Combine(dock.WorktreePath, "work.txt"), "uncommitted work");
             dock = await database.Docks.CreateAsync(dock).ConfigureAwait(false);
-            Captain captain = new Captain("Restart captain", runtime) { State = CaptainStateEnum.Working, ProcessId = 2000000007, CurrentDockId = dock.Id };
+            Captain captain = new Captain("Restart captain" + suffix, runtime) { State = CaptainStateEnum.Working, ProcessId = 2000000007, CurrentDockId = dock.Id };
             captain = await database.Captains.CreateAsync(captain).ConfigureAwait(false);
             Mission mission = new Mission("Original mission") { CaptainId = captain.Id, VesselId = vessel.Id, DockId = dock.Id, BranchName = dock.BranchName, ProcessId = captain.ProcessId, Status = MissionStatusEnum.InProgress, StartedUtc = DateTime.UtcNow.AddMinutes(-5) };
             mission = await database.Missions.CreateAsync(mission).ConfigureAwait(false);
             captain.CurrentMissionId = mission.Id;
             await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-            HarborJobRecord job = await database.HarborJobs.CreateAsync(new HarborJobRecord { JobId = "existing-job", HarborId = dock.HarborId!, CaptainId = captain.Id, MissionId = mission.Id, Runtime = runtime.ToString(), Kind = Armada.Core.Harbor.HarborJobKindEnum.Mission, StartedUtc = mission.StartedUtc }).ConfigureAwait(false);
+            HarborJobRecord job = await database.HarborJobs.CreateAsync(new HarborJobRecord { JobId = "existing-job" + suffix, HarborId = dock.HarborId!, CaptainId = captain.Id, MissionId = mission.Id, Runtime = runtime.ToString(), Kind = Armada.Core.Harbor.HarborJobKindEnum.Mission, StartedUtc = mission.StartedUtc }).ConfigureAwait(false);
             return (captain, mission, dock, job);
         }
 

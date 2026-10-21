@@ -256,6 +256,7 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("armada/flow/judge", rework.BranchName, "the rework continues on the same branch");
                 Mission? nextJudge = all.Find(m => m.DependsOnMissionId == rework.Id && m.Persona == "Judge");
                 AssertNotNull(nextJudge, "a new Judge reviews the rework");
+                AssertContains("including those labelled nonblocking", rework.Description, "Rework must reconcile prior verifier findings against the original contract.");
                 Mission? movedRecorder = await testDb.Driver.Missions.ReadAsync(recorder.Id).ConfigureAwait(false);
                 AssertEqual(nextJudge.Id, movedRecorder!.DependsOnMissionId, "the Recorder now waits for the new Judge");
                 AssertEqual(0, landingCalls, "nothing lands before the work passes");

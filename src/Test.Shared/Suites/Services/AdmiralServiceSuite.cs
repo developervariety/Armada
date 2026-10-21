@@ -877,6 +877,51 @@ namespace Test.Shared.Suites.Services
                 finally { try { Directory.Delete(worktree, true); } catch { } }
             }));
 
+            cases.Add(CaseAsync("unconfirmed_stop_never_launches_replacement", "A failed stop cannot launch a replacement while the original job remains alive", TestTags.Negative, async () =>
+            {
+                string worktree = TestTemp.NewDirectory("stall-history");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        DatabaseDriver db = testDb.Driver;
+                        ArmadaSettings settings = CreateSettings();
+                        settings.StallThresholdMinutes = 1;
+                        settings.MaxRecoveryAttempts = 1;
+                        AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+                        service.OnIsProcessTracked = _ => true;
+                        int replacementLaunches = 0;
+                        service.OnStopAgent = _ => throw new TimeoutException("The Harbor stop could not be delivered; original job remains running.");
+                        service.OnLaunchAgent = (captain, mission, dock) =>
+                        {
+                            replacementLaunches++;
+                            return Task.FromResult(2000000033);
+                        };
+                        TenantMetadata tenant = await db.Tenants.CreateAsync(new TenantMetadata { Name = "recovery-owner" });
+                        UserMaster user = await db.Users.CreateAsync(new UserMaster { TenantId = tenant.Id, Email = "recovery-owner@acceptance.invalid" });
+                        Vessel vessel = await db.Vessels.CreateAsync(new Vessel("recovery", "https://example.invalid/repo.git") { TenantId = tenant.Id, UserId = user.Id });
+                        Voyage voyage = await db.Voyages.CreateAsync(new Voyage("recovery-history") { TenantId = tenant.Id, UserId = user.Id, Status = VoyageStatusEnum.InProgress });
+                        Dock dock = await db.Docks.CreateAsync(new Dock(vessel.Id) { TenantId = tenant.Id, UserId = user.Id, WorktreePath = worktree, Active = true });
+                        Mission mission = await db.Missions.CreateAsync(new Mission("recover task")
+                        {
+                            TenantId = tenant.Id, UserId = user.Id, VoyageId = voyage.Id, VesselId = vessel.Id, DockId = dock.Id,
+                            Status = MissionStatusEnum.InProgress, ProcessId = 98765432, StartedUtc = DateTime.UtcNow.AddMinutes(-2)
+                        });
+                        Captain captain = await db.Captains.CreateAsync(new Captain("recovery owner")
+                        {
+                            TenantId = tenant.Id, UserId = user.Id, State = CaptainStateEnum.Working,
+                            ProcessId = mission.ProcessId, CurrentMissionId = mission.Id, CurrentDockId = dock.Id,
+                            LastHeartbeatUtc = DateTime.UtcNow.AddMinutes(-10)
+                        });
+                        await service.HealthCheckAsync().ConfigureAwait(false);
+                        AssertEqual(0, replacementLaunches, "Do not overlap an unconfirmed original with a recovery process.");
+                        Mission updated = (await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(0, updated.RedispatchAttempts, "Unconfirmed stops must not consume a relaunch attempt.");
+                    }
+                }
+                finally { try { Directory.Delete(worktree, true); } catch { } }
+            }));
+
             cases.Add(CaseAsync("heartbeat_stall_records_owned_reason_and_remediation", "A heartbeat stall preserves caller-scoped diagnostic history and terminal remediation", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

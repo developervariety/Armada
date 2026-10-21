@@ -173,8 +173,11 @@ namespace Armada.Runtimes
         /// <param name="logFilePath">Existing mission log to append.</param>
         /// <param name="finalMessageFilePath">Existing final-message artifact.</param>
         /// <param name="alreadyExited">Replay a durable exit without reclaiming live ownership.</param>
-        public void Reattach(string jobId, int processId, string logFilePath, string finalMessageFilePath, bool alreadyExited = false)
+        /// <param name="stopRequested">Persisted intentional stop request.</param>
+        /// <returns>Unique Admiral process handle to persist for the restored assignment.</returns>
+        public int Reattach(string jobId, int processId, string logFilePath, string finalMessageFilePath, bool alreadyExited = false, bool stopRequested = false)
         {
+            StopRequested = stopRequested;
             _JobId = jobId;
             _ProcessId = processId;
             _FinalMessageFilePath = finalMessageFilePath;
@@ -182,7 +185,10 @@ namespace Armada.Runtimes
             _MuxOutcome = _RuntimeType == AgentRuntimeEnum.Mux ? new MuxRunOutcomeTracker() : null;
             _ParseStructuredErrors = _Decoder != null;
             OpenLog(logFilePath, String.Empty, reattached: true);
-            if (!alreadyExited) _Manager.RestoreJob(_HarborId, jobId, processId, this);
+            _ProcessId = alreadyExited
+                ? _Manager.RegisterProcessId(processId, _HarborId, jobId)
+                : _Manager.RestoreJob(_HarborId, jobId, processId, this);
+            return _ProcessId;
         }
 
         /// <summary>
@@ -316,6 +322,17 @@ namespace Armada.Runtimes
             await _Manager.KillByProcessIdAsync(processId, 10000, token).ConfigureAwait(false);
         }
 
+        /// <summary>Whether this mission was intentionally stopped, including an intent restored after restart.</summary>
+        public bool StopRequested { get; private set; }
+
+        /// <summary>Stop this owned mission and wait for its actual Harbor exit notification.</summary>
+        /// <param name="token">Cancellation token.</param>
+        public Task StopAndConfirmAsync(CancellationToken token = default)
+        {
+            StopRequested = true;
+            return _Manager.StopJobAndConfirmAsync(_HarborId, _JobId, TimeSpan.FromSeconds(20), token);
+        }
+
         /// <inheritdoc />
         public Task<bool> IsRunningAsync(int processId, CancellationToken token = default)
         {
@@ -325,10 +342,9 @@ namespace Armada.Runtimes
         /// <inheritdoc />
         public void OnStarted(int processId)
         {
-            _ProcessId = processId;
-            _Manager.RegisterProcessId(processId, _HarborId, _JobId);
-            OnProcessStarted?.Invoke(processId);
-            _StartedTcs?.TrySetResult(processId);
+            _ProcessId = _Manager.RegisterProcessId(processId, _HarborId, _JobId);
+            OnProcessStarted?.Invoke(_ProcessId);
+            _StartedTcs?.TrySetResult(_ProcessId);
         }
 
         /// <inheritdoc />
