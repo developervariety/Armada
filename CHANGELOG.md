@@ -6,6 +6,10 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Bounded agent file reads
+
+- Default `read_file` responses page ordinary files at 200 lines and 24,000 characters, including continuation instructions. Whole instruction-file reads (`CLAUDE.md`/`AGENTS.md`), small-file output, and explicit ranges/full reads retain their behavior. Very long lines require an explicit read rather than silently consuming the agent context.
+
 ### PolyPrompt 3.5.0
 
 - Upgrade the Core and Server dependency to PolyPrompt 3.5.0. Its native Ollama and Ollama Cloud streams now expose final completion/failure state, reject malformed/incomplete streams, and preserve in-stream provider errors. Armada currently uses nonstreaming completion/tool-chat methods; callers of SDK streaming methods must check the final streaming state rather than open-success alone.

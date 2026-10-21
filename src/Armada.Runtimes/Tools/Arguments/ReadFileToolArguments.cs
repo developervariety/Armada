@@ -23,7 +23,7 @@ namespace Armada.Runtimes.Tools.Arguments
         public int? Offset { get; set; } = null;
 
         /// <summary>
-        /// The maximum number of lines to read, or null for the whole file.
+        /// The maximum number of lines to read, or null for a bounded default page. Instruction files default to a complete read.
         /// </summary>
         [JsonPropertyName("limit")]
         public int? Limit { get; set; } = null;
