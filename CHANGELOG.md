@@ -333,6 +333,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- An Architect mission block that writes its brief on one line,
+  `description: <text>`, keeps that text. The fallback block parser treats the
+  value as the first line of the mission description and strips only the
+  front-matter keys around it (`id:`, `title:`, `preferredModel:`,
+  `dependsOnMissionId:`). A `description: |` block body reads as before.
 - A Judge PASS rejected by a failed Check names the failing tests. The
   rejection reason, and the incident that copies it, carries each rejecting
   Check's test-outcome digest (every failing test with its first exception line,

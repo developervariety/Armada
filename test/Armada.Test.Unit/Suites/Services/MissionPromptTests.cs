@@ -3206,6 +3206,26 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(body.Contains("preferredModel"), "the front-matter must be stripped from the brief");
             });
 
+            await RunTest("A one-line description: value reaches the mission brief while the front-matter keys around it are stripped", () =>
+            {
+                string segment =
+                    "title: feat(export): add the export column\n" +
+                    "preferredModel: mid\n" +
+                    "description: Edit src/Export/Writer.cs and its tests.\n" +
+                    "dependsOnMissionId: M1\n" +
+                    "Keep the column order stable.\n";
+
+                MissionService.SplitArchitectMarkerSegment(segment, out string title, out string description);
+                (string body, string? dependency) = MissionService.ExtractArchitectFrontMatter(description);
+
+                AssertEqual("feat(export): add the export column", title, "the title comes from the title: line");
+                AssertEqual("M1", dependency, "a key after the one-line description is still front-matter");
+                AssertEqual("Edit src/Export/Writer.cs and its tests.\nKeep the column order stable.", body,
+                    "the one-line description leads the body and the prose after the front-matter follows it");
+                AssertFalse(body.Contains("preferredModel"), "the other front-matter keys are stripped");
+                AssertFalse(body.Contains("description:"), "the key name itself does not reach the brief");
+            });
+
             await RunTest("Architect description without front-matter is passed through unchanged", () =>
             {
                 string prose = "**Goal:** Land the stranded commit.\nNote: the recovery projection must be enriched.";

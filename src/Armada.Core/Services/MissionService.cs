@@ -11171,7 +11171,8 @@ namespace Armada.Core.Services
         /// <summary>
         /// Consumes the YAML-style front-matter that Architect blocks open with (`title:`, `preferredModel:`,
         /// `dependsOnMissionId:`, `description: |`) and returns the description body with the front-matter
-        /// stripped and the block indent removed. Only known keys at the very top are treated as front-matter,
+        /// stripped and the block indent removed. A one-line `description: &lt;text&gt;` value is body, so it
+        /// leads the returned description. Only known keys at the very top are treated as front-matter,
         /// so a body that happens to start with a `word: value` prose line is left untouched. The declared
         /// `dependsOnMissionId:` dependency is returned so the block's ordering intent reaches the dispatcher.
         /// </summary>
@@ -11183,6 +11184,7 @@ namespace Armada.Core.Services
 
             string[] lines = description.Replace("\r\n", "\n").Split('\n');
             string? dependencyReference = null;
+            List<string> inlineDescription = new List<string>();
             int index = 0;
 
             while (index < lines.Length)
@@ -11199,11 +11201,17 @@ namespace Armada.Core.Services
                     dependencyReference = NormalizeArchitectDependencyReference(value);
                 }
 
+                // `description: <text>` carries the brief on the key line itself; it is body, not metadata.
+                if (!bodyFollows && String.Equals(key, "description", StringComparison.OrdinalIgnoreCase))
+                {
+                    inlineDescription.Add(value);
+                }
+
                 index++;
                 if (!bodyFollows) continue;
 
                 // `description: |` -- the remainder is the body with the YAML block indent removed.
-                List<string> bodyLines = new List<string>();
+                List<string> bodyLines = new List<string>(inlineDescription);
                 while (index < lines.Length)
                 {
                     bodyLines.Add(StripArchitectBlockIndent(lines[index]));
@@ -11215,9 +11223,9 @@ namespace Armada.Core.Services
 
             if (index == 0) return (description.Trim(), null);
 
-            // Known front-matter keys were consumed but no `description:` body marker was found; keep
-            // whatever follows the front-matter as the body.
-            List<string> remainder = new List<string>();
+            // Known front-matter keys were consumed but no `description:` body marker was found; the body is
+            // any one-line description followed by whatever follows the front-matter.
+            List<string> remainder = new List<string>(inlineDescription);
             for (; index < lines.Length; index++) remainder.Add(lines[index].TrimEnd('\r'));
             return (String.Join("\n", remainder).Trim(), String.IsNullOrWhiteSpace(dependencyReference) ? null : dependencyReference);
         }
