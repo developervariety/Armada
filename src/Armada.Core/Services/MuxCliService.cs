@@ -37,6 +37,8 @@ namespace Armada.Core.Services
             PropertyNameCaseInsensitive = true
         };
         private readonly TimeSpan _DefaultTimeout = TimeSpan.FromSeconds(10);
+        // Probe performs real inference; cold local model loading and generation need more time than metadata reads.
+        private readonly TimeSpan _ProbeTimeout = TimeSpan.FromSeconds(120);
         private const string MuxNotFoundMessage = "mux could not be started: it is not installed or not on the PATH of the machine that ran it. "
             + "Mux captains run on a Harbor; start Armada Harbor on the machine where mux is installed (and make sure mux is on that Harbor's PATH).";
 
@@ -101,7 +103,7 @@ namespace Armada.Core.Services
 
             MuxCommandExecutionResult execution = await ExecuteAsync(
                 MuxCommandBuilder.BuildProbeArguments(model, options),
-                _DefaultTimeout,
+                _ProbeTimeout,
                 workingDirectory,
                 "Mux probe of endpoint " + options.Endpoint,
                 token).ConfigureAwait(false);

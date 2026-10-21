@@ -48,6 +48,18 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(executor.LastRequest!.Arguments.Count > 0, "Expected probe arguments to be passed to mux.");
             }));
 
+            cases.Add(CaseAsync("inference_probe_has_separate_deadline", "A real-inference probe gets a longer bounded deadline than metadata inspection", TestTags.Positive, async () =>
+            {
+                RecordingExecutor executor = new RecordingExecutor(new HostCommandResult { ExitCode = 0, StandardOutput = "{\"success\":true}" });
+                MuxCliService service = new MuxCliService(CreateLogging(), executor);
+                await service.ProbeAsync(null, new MuxCaptainOptions { Endpoint = "cold-local-model" }).ConfigureAwait(false);
+                AssertEqual(120000, executor.LastRequest!.TimeoutMs);
+                await service.ListEndpointsAsync(null).ConfigureAwait(false);
+                AssertEqual(10000, executor.LastRequest!.TimeoutMs);
+                await service.ShowEndpointAsync("cold-local-model", null).ConfigureAwait(false);
+                AssertEqual(10000, executor.LastRequest!.TimeoutMs);
+            }));
+
             cases.Add(CaseAsync("timeout_maps_to_exception", "ProbeAsync surfaces a timed-out execution as TimeoutException", TestTags.Negative, async () =>
             {
                 RecordingExecutor executor = new RecordingExecutor(new HostCommandResult { ExitCode = -1, TimedOut = true });

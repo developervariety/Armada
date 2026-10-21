@@ -2981,7 +2981,7 @@ Get the session log for a mission. Supports pagination.
 
 ### create_captain
 
-Named CLI models are validated on the owner's eligible Harbor under normal launch routing, with a scratch directory and a 30-second process limit. Harbor-required deployments do not need that CLI on the Admiral host. Unavailable execution hosts return `RuntimeUnavailable`; a CLI-rejected model returns `ModelRejected`. Omitting the model retains the runtime default.
+Named CLI models are validated on the owner's eligible Harbor under normal launch routing, with a scratch directory and a 30-second process limit. Harbor-required deployments do not need that CLI on the Admiral host. Unavailable execution hosts return `RuntimeUnavailable`; a CLI-rejected model returns `ModelRejected`. Omitting the model retains the runtime default. Mux captain validation performs real backend inference with a bounded 120-second process deadline, separate from ten-second endpoint list/show metadata reads. Timeouts remain failures without automatic retries.
 
 Register a new captain (AI agent).
 

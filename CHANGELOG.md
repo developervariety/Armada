@@ -6,6 +6,10 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Local model validation
+
+- Give Mux inference probes a bounded two-minute deadline, separate from ten-second endpoint metadata reads, so local model loading and generation are not prematurely terminated as metadata timeouts.
+
 ### Named captain model validation
 
 - Validate named CLI models on the same tenant/user-scoped Harbor used for captain execution, instead of requiring the CLI on the Admiral host. Use a Harbor scratch directory, distinguish unavailable runtimes from rejected models, allow 30 seconds for validation, and clean up cancelled/timed-out jobs.

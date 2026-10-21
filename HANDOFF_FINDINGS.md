@@ -52,9 +52,17 @@ Coverage must include the full Wilson upgrade objective and smaller held-out rep
 | HF-22 | Harbor native startup with unavailable display | Restart reproduced Avalonia render-timer error -6661; waking display restored connection; unattended-start fallback remains open |
 | HF-23 | Revision-aware vessel context | Recorder context survived Git reset with obsolete package/test facts; cleared before new Architect dispatch; automatic invalidation remains open |
 | HF-25 | Known blocking defects pass through verification stages as COMPLETE | Test Engineer and Linter reported nested-Bearer leak, then Judge independently requested rework; need a structured blocking-outcome/earlier routing contract |
+| HF-28 | Mux inference probe deadline | Live API captain preflight timed out at ten seconds; later direct/warm probes succeeded. Separate inference/metadata deadlines implemented; deployment and repeated local preflights pending |
 | HF-26 | DocMon native Compose path mapping | Native action still cannot access discovered Compose paths. Data-preserving helper pull/recreate was successfully exercised and is in the appendix; no DocMon product fix claimed |
 
 ## Findings from this run
+
+### HF-28 — Real inference incorrectly shares the metadata probe budget
+
+Creating an ephemeral local Mux Qwen captain through the live API failed with EndpointProbeFailed: mux timed out after ten seconds. No captain was persisted. Source inspection confirms Mux `probe` performs real SendAsync inference, while Armada applies the same ten-second process budget as endpoint list/show. A later direct probe succeeded in 1.91 seconds with qwen3.8:27b and 14 built-in tools; this is a warm/repeated observation, not proof of why the first call was slow (cold loading/network/provider delay remain hypotheses). Tool capability count is configuration evidence; this probe sends no actual tool call.
+
+Give inference probes a bounded 120-second deadline while keeping metadata inspection at ten seconds. Caller cancellation still flows through the existing executor; actual failures remain failures and there is no automatic retry. Regression verifies separate deadlines and existing timeout handling. Focused suites passed 60/60 on net10 and 48/48 on net8; Release solution builds with zero warnings/errors. A controlled native Ollama HTTP fixture delaying a valid completion by 12 seconds independently reproduces live captain creation failure at 10.17 seconds on the old server. A repeated actual Qwen probe through the Harbor API passed in 2.79 seconds, confirming routing and availability at that later instant. Deployment, post-fix delayed completion and full local-model pipeline coverage remain pending. Evidence: `mux-local-live-preflight.json`, `mux-direct-probe.json`, `mux-harbor-probe.json`.
+
 
 ### HF-25 — Known production blocker survives passing test stages
 
