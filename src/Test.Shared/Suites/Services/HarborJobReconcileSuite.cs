@@ -38,6 +38,46 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            foreach (string responseKind in new[] { "git", "dock", "file", "deferred" })
+            foreach (bool foreignTenant in new[] { false, true })
+            {
+                string kind = responseKind;
+                bool crossTenant = foreignTenant;
+                cases.Add(CaseAsync("rpc_owner_" + kind + (crossTenant ? "_tenant" : "_user"), "A different " + (crossTenant ? "tenant's" : "user's") + " Harbor cannot answer a pending " + kind + " request", TestTags.Negative, async () =>
+                {
+                    using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    HarborConnectionManager manager = NewManager(db, new HarborTestClock(_Start));
+                    HarborHandshake owner = Handshake("hbr_rpc_owner", 15000);
+                    owner.Capabilities.Add(new HarborCapability { Name = HarborProtocol.DockCapability, Available = true });
+                    await manager.OnHandshakeAsync(owner, "tenant_owner", "user_owner", Recorder(new List<HarborMessage>())).ConfigureAwait(false);
+                    await manager.OnHandshakeAsync(Handshake("hbr_rpc_other", 15000), crossTenant ? "tenant_other" : "tenant_owner", "user_other", Recorder(new List<HarborMessage>())).ConfigureAwait(false);
+                    string requestId = "known-request";
+                    async Task<HarborMessage> Wrap<T>(Task<T?> task) where T : HarborMessage
+                        => await task.ConfigureAwait(false) ?? throw new TimeoutException("The legitimate owner reply was lost.");
+                    Task<HarborMessage> pending = kind switch
+                    {
+                        "git" => Wrap(manager.SendGitAsync("hbr_rpc_owner", new HarborGitRequest { RequestId = requestId }, 2000)),
+                        "dock" => Wrap(manager.SendDockAsync("hbr_rpc_owner", new HarborDockRequest { RequestId = requestId }, 2000)),
+                        "file" => Wrap(manager.SendFileAsync("hbr_rpc_owner", new HarborFileRequest { RequestId = requestId }, 2000)),
+                        _ => Wrap(manager.SendDeferredLaunchAsync("hbr_rpc_owner", new HarborDeferredLaunchRequest { RequestId = requestId }, 2000))
+                    };
+                    HarborMessage Reply() => kind switch
+                    {
+                        "git" => new HarborGitResult { RequestId = requestId },
+                        "dock" => new HarborDockResult { RequestId = requestId, Success = true },
+                        "file" => new HarborFileResult { RequestId = requestId, Success = true },
+                        _ => new HarborDeferredLaunchAck { RequestId = requestId, Armed = true }
+                    };
+                    await manager.OnMessageAsync("hbr_rpc_other", Reply()).ConfigureAwait(false);
+                    bool forgedReplyCompleted = await Task.WhenAny(pending, Task.Delay(50)).ConfigureAwait(false) == pending;
+                    HarborMessage legitimate = Reply();
+                    await manager.OnMessageAsync("hbr_rpc_owner", legitimate).ConfigureAwait(false);
+                    HarborMessage result = await pending.ConfigureAwait(false);
+                    AssertFalse(forgedReplyCompleted, "Knowing a request ID must not authorize another Harbor's reply.");
+                    AssertTrue(Object.ReferenceEquals(legitimate, result), "Only the requested Harbor supplies the result.");
+                }));
+            }
+
             cases.Add(CaseAsync("vanished_job_reported_after_grace", "A started job missing from the reconnect handshake is reported failed after the grace when no exit arrives", TestTags.Reliability, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

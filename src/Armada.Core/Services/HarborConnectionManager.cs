@@ -326,6 +326,23 @@ namespace Armada.Core.Services
                 }
             }
 
+            // Pending host operations are authorized by the requested Harbor, not by knowing a correlation ID.
+            string? referencedRequest = message switch
+            {
+                HarborGitResult gitReply => gitReply.RequestId ?? String.Empty,
+                HarborDockResult dockReply => dockReply.RequestId ?? String.Empty,
+                HarborFileResult fileReply => fileReply.RequestId ?? String.Empty,
+                HarborDeferredLaunchAck deferredReply => deferredReply.RequestId ?? String.Empty,
+                _ => null
+            };
+            if (referencedRequest != null && (!_PendingOwners.TryGetValue(referencedRequest, out string? requestedHarbor)
+                || !String.Equals(requestedHarbor, harborId, StringComparison.Ordinal)))
+            {
+                if (message.OutboxSequence.HasValue) AcceptJobSequence(harborId, message.OutboxSequence.Value);
+                _Logging.Warn(_Header + "ignored " + message.GetType().Name + " from Harbor " + harborId + " because it does not own the pending request");
+                return;
+            }
+
             // A job message the Harbor replays after a reconnect may have arrived over the earlier link already.
             if (message.OutboxSequence.HasValue && !AcceptJobSequence(harborId, message.OutboxSequence.Value))
             {
