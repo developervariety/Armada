@@ -80,19 +80,8 @@ namespace Armada.Core.Services
 
         private static string ResolveCampaignKey(Objective objective, IReadOnlyDictionary<string, Objective> byId)
         {
-            Objective current = objective;
-            HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
-            while (true)
-            {
-                if (!visited.Add(current.Id)) return "plain";
-                if (current.Tags.Any(tag => tag.StartsWith("campaign:", StringComparison.OrdinalIgnoreCase)))
-                    return "campaign:" + current.Id;
-                if (String.IsNullOrWhiteSpace(current.ParentObjectiveId)) return "plain";
-
-                string parentId = current.ParentObjectiveId;
-                if (!byId.TryGetValue(parentId, out Objective? parent)) return "plain";
-                current = parent;
-            }
+            Objective? root = CampaignRoomResolver.FindCampaignRoot(objective, byId);
+            return root == null ? "plain" : "campaign:" + root.Id;
         }
     }
 }

@@ -46,7 +46,8 @@ namespace Armada.Server.Mcp.Tools
                         content = new { type = "string", description = "Note content. Must not be empty." },
                         authorName = new { type = "string", description = "Your session or operator display name, for example 'claude-session-1'." },
                         authorId = new { type = "string", description = "Optional stable identifier for your session. Defaults to authorName when omitted." },
-                        roomKey = new { type = "string", description = "Omit this: every session shares one board. Only set it for a deliberately separate room; the words fleet and default both mean the shared board." },
+                        roomKey = new { type = "string", description = "Usually omit this: every session shares the fleet board, and a note naming an objectiveId in a campaign routes to that campaign's room by itself. Set it only for a deliberately separate room, for example campaign-<name>; the words fleet and default both mean the shared board." },
+                        objectiveId = new { type = "string", description = "Optional objective ID (obj_ prefix) the note concerns. When roomKey is omitted and the objective belongs to a campaign (an ancestor tagged campaign:<name>), the note lands in that campaign's room, created on first use; otherwise in the fleet room." },
                         voyageId = new { type = "string", description = "Optional related voyage ID (vyg_ prefix)." },
                         missionId = new { type = "string", description = "Optional related mission ID (msn_ prefix)." },
                         vesselId = new { type = "string", description = "Optional related vessel ID (vsl_ prefix)." },
@@ -63,7 +64,7 @@ namespace Armada.Server.Mcp.Tools
                     if (String.IsNullOrWhiteSpace(request.AuthorName))
                         return (object)new { Error = "authorName is required and must not be empty" };
 
-                    string roomKey = String.IsNullOrWhiteSpace(request.RoomKey) ? CoordinationService.DefaultRoomKey : request.RoomKey!;
+                    string roomKey = await coordination.ResolveRoomKeyAsync(request.RoomKey, request.ObjectiveId).ConfigureAwait(false);
                     string? authenticatedParticipant = ArmadaMcpHttpServer.CurrentParticipantKey;
                     string authorId = !String.IsNullOrWhiteSpace(authenticatedParticipant)
                         ? authenticatedParticipant!
@@ -99,7 +100,7 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        roomKey = new { type = "string", description = "Omit this: every session shares one board. Only set it for a deliberately separate room; the words fleet and default both mean the shared board." },
+                        roomKey = new { type = "string", description = "Omit this for the shared fleet board. Pass campaign-<name> to read a campaign's room, where that campaign's claims, notes and voyage events land; the words fleet and default both mean the shared board." },
                         limit = new { type = "integer", description = "Maximum number of notes to return (default 50)." },
                         afterUtc = new { type = "string", description = "Optional ISO 8601 timestamp; returns only notes created after it." },
                         activeWithinMinutes = new { type = "integer", description = "Presence window in minutes (default 15)." },
@@ -228,7 +229,7 @@ namespace Armada.Server.Mcp.Tools
                         displayName = new { type="string", description = "Display name for the board. Required for claim." },
                         ttlHours = new { type = "number", description = "Hours until expiry without heartbeat. Default 4, clamped 0.5-72." },
                         claimId = new { type = "string", description = "Claim ID (ccl_ prefix). Required for release." },
-                        roomKey = new { type = "string", description = "Omit this: every session shares one board. Only set it for a deliberately separate room; the words fleet and default both mean the shared board." }
+                        roomKey = new { type = "string", description = "Usually omit this. A claim on an objective in a campaign (an ancestor tagged campaign:<name>) lands in that campaign's room by itself; every other claim lands in the fleet room. Heartbeats in any room keep every claim you hold alive." }
                     },
                     required = new[] { "action" }
                 },
@@ -297,7 +298,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_campaign_status",
-                "One-call status for a campaign: the objective tree under a root (or every root carrying a tag), grouped by parent with statuses, plus active coordination claims and recent board notes. Use this to start a session or answer 'where does this campaign stand' without a pile of enumerations.",
+                "One-call status for a campaign: the objective tree under a root (or every root carrying a tag), grouped by parent with statuses, plus active coordination claims, recent fleet-board notes, and recent notes from each root's campaign room (CampaignRooms). Use this to start a session or answer 'where does this campaign stand' without a pile of enumerations.",
                 new
                 {
                     type = "object",
@@ -429,11 +430,39 @@ namespace Armada.Server.Mcp.Tools
                         // Board notes are best-effort in a status call.
                     }
 
+                    // Each campaign root's own room, when it exists, holds that campaign's claims,
+                    // notes and voyage events; reading it does not create a room.
+                    List<object> campaignRooms = new List<object>();
+                    HashSet<string> campaignRoomKeys = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (string rootId in rootIds)
+                    {
+                        Objective? root = allObjectives.FirstOrDefault(o => o.Id == rootId);
+                        string? campaignRoomKey = CampaignRoomResolver.BuildRoomKey(CampaignRoomResolver.ReadCampaignName(root));
+                        if (campaignRoomKey == null || !campaignRoomKeys.Add(campaignRoomKey)) continue;
+                        CoordinationRoom? campaignRoom = rooms.FirstOrDefault(r => String.Equals(r.Key, campaignRoomKey, StringComparison.Ordinal));
+                        if (campaignRoom == null)
+                        {
+                            campaignRooms.Add(new { RoomKey = campaignRoomKey, Exists = false, RecentNotes = new List<CoordinationMessage>() });
+                            continue;
+                        }
+
+                        try
+                        {
+                            List<CoordinationMessage> campaignNotes = await database.CoordinationMessages
+                                .EnumerateByRoomAsync(campaignRoom.Id, null, noteLimit).ConfigureAwait(false);
+                            campaignRooms.Add(new { RoomKey = campaignRoomKey, Exists = true, RecentNotes = campaignNotes });
+                        }
+                        catch (NotSupportedException ex)
+                        {
+                            campaignRooms.Add(new { RoomKey = campaignRoomKey, Exists = true, RecentNotes = new List<CoordinationMessage>(), Unavailable = ex.Message });
+                        }
+                    }
+
                     bool wantsFull = args.HasValue
                         && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
                         && _full.ValueKind == JsonValueKind.True;
                     return McpResultPreview.Apply(
-                        new { Roots = rootIds, Tree = tree, ActiveClaims = claims, RecentNotes = notes },
+                        new { Roots = rootIds, Tree = tree, ActiveClaims = claims, RecentNotes = notes, CampaignRooms = campaignRooms },
                         wantsFull);
                 });
 
@@ -653,6 +682,7 @@ namespace Armada.Server.Mcp.Tools
             public string AuthorName { get; set; } = "";
             public string? AuthorId { get; set; } = null;
             public string? RoomKey { get; set; } = null;
+            public string? ObjectiveId { get; set; } = null;
             public string? VoyageId { get; set; } = null;
             public string? MissionId { get; set; } = null;
             public string? VesselId { get; set; } = null;

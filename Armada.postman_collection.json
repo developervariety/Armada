@@ -10949,6 +10949,32 @@
 					}
 				},
 				{
+					"name": "List Coordination Presence Across Rooms",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/coordination/presence?activeWithinMinutes=15",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"coordination",
+								"presence"
+							],
+							"query": [
+								{
+									"key": "activeWithinMinutes",
+									"value": "15"
+								}
+							]
+						},
+						"description": "Returns one entry per participant active in any room within the window, naming each room the participant was seen in, most recently active first. Requires a global administrator."
+					}
+				},
+				{
 					"name": "List Coordination Rooms",
 					"request": {
 						"method": "GET",

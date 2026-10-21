@@ -2714,6 +2714,22 @@ export interface CoordinationParticipant {
   lastUpdateUtc: string;
 }
 
+/** One room a participant was seen in. */
+export interface CoordinationPresenceRoom {
+  roomKey: string;
+  roomName: string;
+  lastSeenUtc: string;
+}
+
+/** One participant's presence across every coordination room. */
+export interface CoordinationPresenceEntry {
+  participantKey: string;
+  displayName: string;
+  lastSeenUtc: string;
+  /** Rooms the participant was seen in within the window, most recent first. */
+  rooms: CoordinationPresenceRoom[];
+}
+
 /** Result of reading a coordination room. */
 export interface CoordinationRoomReadResult {
   roomKey: string;

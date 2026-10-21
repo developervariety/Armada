@@ -20,7 +20,7 @@ vi.mock('../context/WebSocketContext', () => ({
 vi.mock('../api/client', () => ({
   listCoordinationRooms: vi.fn(),
   listCoordinationMessages: vi.fn(),
-  listCoordinationParticipants: vi.fn(),
+  listCoordinationPresence: vi.fn(),
   listCoordinationClaims: vi.fn(),
   postCoordinationMessage: vi.fn(),
   sendCoordinationPresence: vi.fn(),
@@ -29,7 +29,7 @@ vi.mock('../api/client', () => ({
 import {
   listCoordinationClaims,
   listCoordinationMessages,
-  listCoordinationParticipants,
+  listCoordinationPresence,
   listCoordinationRooms,
   sendCoordinationPresence,
 } from '../api/client';
@@ -60,7 +60,7 @@ beforeEach(() => {
     { id: 'crm_1', key: 'fleet', name: 'Fleet', lastUpdateUtc: '2026-01-01T00:00:00Z' },
     { id: 'crm_2', key: 'ops', name: 'Ops', lastUpdateUtc: '2026-01-01T00:00:00Z' },
   ] as never);
-  vi.mocked(listCoordinationParticipants).mockResolvedValue([]);
+  vi.mocked(listCoordinationPresence).mockResolvedValue([]);
   vi.mocked(listCoordinationClaims).mockResolvedValue([]);
   vi.mocked(sendCoordinationPresence).mockResolvedValue({} as never);
   vi.mocked(listCoordinationMessages).mockReset();
@@ -95,4 +95,45 @@ test('says when only the newest notes are shown', async () => {
   render(<Coordination />);
   expect(await screen.findByText('note 199')).toBeInTheDocument();
   expect(screen.getByText(/Showing the newest 200 notes/)).toBeInTheDocument();
+});
+
+test('the fleet room stays selected when a campaign room is more recently active', async () => {
+  vi.mocked(listCoordinationRooms).mockResolvedValue([
+    { id: 'crm_3', key: 'campaign-alpha', name: 'Campaign alpha', lastUpdateUtc: '2026-01-02T00:00:00Z' },
+    { id: 'crm_1', key: 'fleet', name: 'Fleet', lastUpdateUtc: '2026-01-01T00:00:00Z' },
+  ] as never);
+  vi.mocked(listCoordinationMessages).mockImplementation((roomKey: string) =>
+    Promise.resolve([note('1', roomKey === 'fleet' ? 'fleet note' : 'campaign note')]));
+
+  render(<Coordination />);
+  expect(await screen.findByText('fleet note')).toBeInTheDocument();
+  expect(screen.queryByText('campaign note')).not.toBeInTheDocument();
+  expect(vi.mocked(listCoordinationMessages)).not.toHaveBeenCalledWith('campaign-alpha', expect.anything());
+});
+
+test('the presence strip shows sessions from every room with the rooms they sit in', async () => {
+  vi.mocked(listCoordinationMessages).mockResolvedValue([]);
+  vi.mocked(listCoordinationPresence).mockResolvedValue([
+    {
+      participantKey: 'session-a',
+      displayName: 'Session A',
+      lastSeenUtc: '2026-01-01T00:00:00Z',
+      rooms: [{ roomKey: 'campaign-alpha', roomName: 'Campaign alpha', lastSeenUtc: '2026-01-01T00:00:00Z' }],
+    },
+    {
+      participantKey: 'session-b',
+      displayName: 'Session B',
+      lastSeenUtc: '2026-01-01T00:00:00Z',
+      rooms: [
+        { roomKey: 'fleet', roomName: 'Fleet', lastSeenUtc: '2026-01-01T00:00:00Z' },
+        { roomKey: 'campaign-alpha', roomName: 'Campaign alpha', lastSeenUtc: '2026-01-01T00:00:00Z' },
+      ],
+    },
+  ]);
+
+  render(<Coordination />);
+  expect(await screen.findByText('Session A')).toBeInTheDocument();
+  expect(screen.getByText('Session B')).toBeInTheDocument();
+  expect(screen.getByText('Campaign alpha')).toBeInTheDocument();
+  expect(screen.getByText('Fleet, Campaign alpha')).toBeInTheDocument();
 });

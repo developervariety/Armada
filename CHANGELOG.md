@@ -18,6 +18,21 @@ upstream integrations and excludes changes already present at that baseline.
   launches register the same sibling and evidence roots as local launches, mapped
   to the runner's paths through the route's working-directory roots; a root the
   route cannot map is left out with a logged reason.
+- Each campaign has its own coordination room. An objective tree whose nearest
+  tagged ancestor carries `campaign:<name>` gets a `campaign-<name>` room,
+  created on first use like the fleet room. A claim on a campaign objective, and
+  an `armada_coordination_post` note that names a campaign `objectiveId`, land
+  there when no `roomKey` is given; an explicit `roomKey` wins, and every other
+  claim, note and captain note stays in the fleet room. A mirrored fleet event
+  for a voyage that serves a campaign objective also posts an untagged copy to
+  the campaign room, so voyage-tagged brief injection still sees each note once,
+  from whatever room holds it. A heartbeat in any room keeps every claim its
+  participant holds alive. `armada_campaign_status` returns each root's
+  campaign-room notes under `CampaignRooms` without creating a room.
+  `GET /api/v1/coordination/presence` aggregates presence across every room, and
+  the dashboard chatroom shows that aggregate, naming each session's rooms, and
+  opens on the fleet room. The fair-share scheduler and the room routing share
+  one campaign-root rule.
 - Deployments pin one immutable candidate. A deployment resolves its
   `SourceRef` once, at create, to the full commit in the vessel's own
   repository and stores it as `SourceCommit`, with an optional

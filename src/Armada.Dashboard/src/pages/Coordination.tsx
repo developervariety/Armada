@@ -5,12 +5,12 @@ import CoordinationChatCard from '../components/coordination/CoordinationChatCar
 import {
   listCoordinationClaims,
   listCoordinationMessages,
-  listCoordinationParticipants,
+  listCoordinationPresence,
   listCoordinationRooms,
   postCoordinationMessage,
   sendCoordinationPresence,
 } from '../api/client';
-import type { CoordinationClaim, CoordinationMessage, CoordinationParticipant, CoordinationRoom } from '../types/models';
+import type { CoordinationClaim, CoordinationMessage, CoordinationPresenceEntry, CoordinationRoom } from '../types/models';
 import { getDashboardParticipantKey, sortMessages, upsertMessage } from './coordination/coordinationUtils';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -19,9 +19,11 @@ const POLL_FALLBACK_INTERVAL_MS = 20_000;
 const NOTE_LIMIT = 200;
 
 /**
- * Shared coordination board: one chatroom where every operator session and the
- * dashboard see who is doing what. Sessions claim work here before dispatching,
- * so nobody is startled by a voyage they did not start.
+ * Shared coordination board: the fleet room where every operator session and the
+ * dashboard see who is doing what, plus one room per campaign. Sessions claim work
+ * here before dispatching, so nobody is startled by a voyage they did not start.
+ * The fleet room is selected by default, and the presence strip shows every
+ * active session across all rooms.
  */
 export default function Coordination() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
@@ -30,7 +32,7 @@ export default function Coordination() {
   const [rooms, setRooms] = useState<CoordinationRoom[]>([]);
   const [selectedRoomKey, setSelectedRoomKey] = useState<string>('');
   const [messages, setMessages] = useState<CoordinationMessage[]>([]);
-  const [participants, setParticipants] = useState<CoordinationParticipant[]>([]);
+  const [participants, setParticipants] = useState<CoordinationPresenceEntry[]>([]);
   const [claims, setClaims] = useState<CoordinationClaim[]>([]);
   const [composer, setComposer] = useState('');
   const [sending, setSending] = useState(false);
@@ -56,7 +58,10 @@ export default function Coordination() {
       const result = await listCoordinationRooms();
       setRooms(result);
       if (result.length > 0) {
-        setSelectedRoomKey((current) => (current ? current : result[0].key));
+        // Rooms arrive by most recent activity; the fleet room stays the default even when a
+        // campaign room is busier.
+        const fallback = result.find((r) => r.key === 'fleet') || result[0];
+        setSelectedRoomKey((current) => (current ? current : fallback.key));
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load coordination rooms.'));
@@ -79,16 +84,15 @@ export default function Coordination() {
     }
   }, [roomKey, t]);
 
+  // Presence is aggregated across every room, so it does not depend on the selected room.
   const loadParticipants = useCallback(async () => {
-    const requestedRoom = roomKey;
     try {
-      const result = await listCoordinationParticipants(requestedRoom, 15);
-      if (roomKeyRef.current !== requestedRoom) return;
+      const result = await listCoordinationPresence(15);
       setParticipants(result);
     } catch {
       // presence is best-effort
     }
-  }, [roomKey]);
+  }, []);
 
   const loadClaims = useCallback(async () => {
     try {
@@ -148,7 +152,6 @@ export default function Coordination() {
     initialTranscriptScrollRef.current = true;
     // Do not show the previous room's notes while the new room loads.
     setMessages([]);
-    setParticipants([]);
   }, [roomKey]);
 
   useEffect(() => {
@@ -237,6 +240,7 @@ export default function Coordination() {
             messages={messages}
             noteLimit={NOTE_LIMIT}
             participants={participants}
+            currentRoomKey={roomKey}
             claims={claims}
             composer={composer}
             sending={sending}

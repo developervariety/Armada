@@ -276,6 +276,216 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(2, rooms.Count);
                 }
             });
+
+            await RunTest("A campaign room key is the nearest tagged ancestor's name reduced to a URL-safe slug", () =>
+            {
+                AssertEqual("campaign-porting-lane", CampaignRoomResolver.BuildRoomKey(" Porting Lane! "));
+                AssertEqual("campaign-v2.1_x", CampaignRoomResolver.BuildRoomKey("V2.1_x"));
+                AssertNull(CampaignRoomResolver.BuildRoomKey("!!!"), "a name with no safe character has no room");
+                AssertNull(CampaignRoomResolver.BuildRoomKey("  "), "an empty campaign name has no room");
+
+                Objective outer = new Objective { Title = "outer", Tags = new List<string> { "campaign:outer" } };
+                Objective inner = new Objective { Title = "inner", ParentObjectiveId = outer.Id, Tags = new List<string> { "Campaign:inner" } };
+                Objective leaf = new Objective { Title = "leaf", ParentObjectiveId = inner.Id };
+                Objective loopA = new Objective { Title = "loop a" };
+                Objective loopB = new Objective { Title = "loop b", ParentObjectiveId = loopA.Id };
+                loopA.ParentObjectiveId = loopB.Id;
+                Dictionary<string, Objective> byId = new List<Objective> { outer, inner, leaf, loopA, loopB }
+                    .ToDictionary(o => o.Id, o => o, StringComparer.Ordinal);
+
+                AssertEqual(inner.Id, CampaignRoomResolver.FindCampaignRoot(leaf, byId)!.Id, "the nearest tagged ancestor is the root");
+                AssertEqual("inner", CampaignRoomResolver.ReadCampaignName(inner));
+                AssertNull(CampaignRoomResolver.FindCampaignRoot(loopA, byId), "a parent loop has no campaign");
+            });
+
+            await RunTest("A claim on a campaign objective lands in the campaign room and every other claim in the fleet room", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CoordinationService service = CreateService(testDb);
+                    Objective hub = await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "hub", Tags = new List<string> { "campaign:Example Lane" } }).ConfigureAwait(false);
+                    Objective slice = await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "slice", ParentObjectiveId = hub.Id }).ConfigureAwait(false);
+                    Objective plain = await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "plain" }).ConfigureAwait(false);
+
+                    CoordinationClaim campaignClaim = await service.ClaimAsync("session-a", "Session A", CoordinationClaimSubjectEnum.Objective, slice.Id).ConfigureAwait(false);
+                    CoordinationClaim plainClaim = await service.ClaimAsync("session-a", "Session A", CoordinationClaimSubjectEnum.Objective, plain.Id).ConfigureAwait(false);
+                    CoordinationClaim vesselClaim = await service.ClaimAsync("session-a", "Session A", CoordinationClaimSubjectEnum.Vessel, "vsl_example").ConfigureAwait(false);
+                    CoordinationClaim explicitClaim = await service.ClaimAsync("session-a", "Session A", CoordinationClaimSubjectEnum.Objective, slice.Id, roomKey: "fleet").ConfigureAwait(false);
+
+                    CoordinationRoom? campaignRoom = await testDb.Driver.CoordinationRooms.ReadByKeyAsync("campaign-example-lane").ConfigureAwait(false);
+                    CoordinationRoom? fleetRoom = await testDb.Driver.CoordinationRooms.ReadByKeyAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                    AssertNotNull(campaignRoom, "the campaign room is created on the first claim that routes to it");
+                    AssertEqual("Campaign example-lane", campaignRoom!.Name);
+                    AssertEqual(campaignRoom.Id, campaignClaim.CoordinationRoomId, "a claim on a campaign slice lands in its campaign room");
+                    AssertEqual(fleetRoom!.Id, plainClaim.CoordinationRoomId, "a claim on an objective outside every campaign stays in the fleet room");
+                    AssertEqual(fleetRoom.Id, vesselClaim.CoordinationRoomId, "a vessel claim stays in the fleet room");
+                    AssertEqual(fleetRoom.Id, explicitClaim.CoordinationRoomId, "an explicit room key wins over campaign routing");
+
+                    List<CoordinationMessage> campaignNotes = await service.ReadMessagesAsync("campaign-example-lane").ConfigureAwait(false);
+                    AssertEqual(1, campaignNotes.Count, "the claim announcement is posted where the claim lives");
+                    AssertContains(slice.Id, campaignNotes[0].Content);
+                }
+            });
+
+            await RunTest("A note posted with a campaign objectiveId lands in the campaign room; other notes stay in the fleet room", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CoordinationService coordination = CreateService(testDb);
+                    Objective hub = await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "hub", Tags = new List<string> { "campaign:alpha" } }).ConfigureAwait(false);
+                    Objective lane = await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "lane", ParentObjectiveId = hub.Id }).ConfigureAwait(false);
+                    Objective plain = await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "plain" }).ConfigureAwait(false);
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterCoordinationTools(testDb, coordination);
+
+                    JsonElement campaignPost = ReadResult(await handlers["armada_coordination_post"](
+                        Args(new { content = "lane note", authorName = "Session A", objectiveId = lane.Id })).ConfigureAwait(false));
+                    JsonElement plainPost = ReadResult(await handlers["armada_coordination_post"](
+                        Args(new { content = "plain note", authorName = "Session A", objectiveId = plain.Id })).ConfigureAwait(false));
+                    JsonElement barePost = ReadResult(await handlers["armada_coordination_post"](
+                        Args(new { content = "bare note", authorName = "Session A" })).ConfigureAwait(false));
+
+                    CoordinationRoom? campaignRoom = await testDb.Driver.CoordinationRooms.ReadByKeyAsync("campaign-alpha").ConfigureAwait(false);
+                    CoordinationRoom? fleetRoom = await testDb.Driver.CoordinationRooms.ReadByKeyAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                    AssertNotNull(campaignRoom, "the campaign room is created on the first note that routes to it");
+                    AssertEqual(campaignRoom!.Id, campaignPost.GetProperty("CoordinationRoomId").GetString());
+                    AssertEqual(fleetRoom!.Id, plainPost.GetProperty("CoordinationRoomId").GetString());
+                    AssertEqual(fleetRoom.Id, barePost.GetProperty("CoordinationRoomId").GetString());
+
+                    JsonElement campaignRead = ReadResult(await handlers["armada_coordination_read"](
+                        Args(new { roomKey = "campaign-alpha" })).ConfigureAwait(false));
+                    AssertEqual(1, campaignRead.GetProperty("Messages").GetArrayLength());
+                    AssertEqual("lane note", campaignRead.GetProperty("Messages")[0].GetProperty("Content").GetString());
+                }
+            });
+
+            await RunTest("A heartbeat in the fleet room keeps the participant's campaign-room claims alive", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CoordinationService service = CreateService(testDb);
+                    CoordinationClaim claim = await service.ClaimAsync(
+                        "session-a", "Session A", CoordinationClaimSubjectEnum.Vessel, "vsl_example",
+                        ttlHours: 0.5, roomKey: "campaign-alpha").ConfigureAwait(false);
+                    AssertTrue(claim.ExpiresUtc < DateTime.UtcNow.AddHours(1), "precondition: the claim expires soon");
+
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "session-a", "Session A").ConfigureAwait(false);
+
+                    CoordinationClaim? refreshed = await testDb.Driver.CoordinationClaims.ReadAsync(claim.Id).ConfigureAwait(false);
+                    AssertTrue(refreshed!.ExpiresUtc > DateTime.UtcNow.AddHours(3),
+                        "a fleet heartbeat must extend a claim held in another room; expires " + refreshed.ExpiresUtc.ToString("O"));
+                }
+            });
+
+            await RunTest("Voyage events for a campaign objective also reach the campaign room, untagged, so briefs see each note once", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    CoordinationService coordination = new CoordinationService(logging, testDb.Driver);
+                    CoordinationFleetEventMirror.Attach(testDb.Driver, coordination, logging);
+
+                    Voyage campaignVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("campaign voyage")).ConfigureAwait(false);
+                    Voyage plainVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("plain voyage")).ConfigureAwait(false);
+                    Objective hub = await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "hub", Tags = new List<string> { "campaign:alpha" } }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "slice",
+                        ParentObjectiveId = hub.Id,
+                        VoyageIds = new List<string> { campaignVoyage.Id }
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "plain",
+                        VoyageIds = new List<string> { plainVoyage.Id }
+                    }).ConfigureAwait(false);
+                    Mission stage = await testDb.Driver.Missions.CreateAsync(new Mission("campaign stage") { VoyageId = campaignVoyage.Id }).ConfigureAwait(false);
+
+                    // An operator note for the campaign voyage, routed to the campaign room.
+                    await coordination.PostMessageAsync(
+                        "campaign-alpha", CoordinationAuthorTypeEnum.Operator, "session-a", "Session A",
+                        "use the cached fixture", voyageId: campaignVoyage.Id).ConfigureAwait(false);
+
+                    await testDb.Driver.Events.CreateAsync(new ArmadaEvent("voyage.dispatched", "Voyage dispatched: campaign voyage")
+                    {
+                        VoyageId = campaignVoyage.Id
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Events.CreateAsync(new ArmadaEvent("mission.completed", "Mission completed: campaign stage")
+                    {
+                        MissionId = stage.Id
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Events.CreateAsync(new ArmadaEvent("voyage.dispatched", "Voyage dispatched: plain voyage")
+                    {
+                        VoyageId = plainVoyage.Id
+                    }).ConfigureAwait(false);
+
+                    List<CoordinationMessage> fleetNotes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                    AssertEqual(3, fleetNotes.Count, "every mirrored event still reaches the fleet room");
+
+                    List<CoordinationMessage> campaignNotes = await coordination.ReadMessagesAsync("campaign-alpha").ConfigureAwait(false);
+                    List<CoordinationMessage> mirrored = campaignNotes.Where(m => m.AuthorType == CoordinationAuthorTypeEnum.System).ToList();
+                    AssertEqual(2, mirrored.Count, "the campaign voyage's dispatch and its stage completion reach the campaign room; notes: "
+                        + String.Join(" | ", campaignNotes.Select(m => m.Content)));
+                    AssertTrue(mirrored.Any(m => m.Content.Contains("Voyage dispatched: campaign voyage", StringComparison.Ordinal)));
+                    AssertTrue(mirrored.Any(m => m.Content.Contains("Mission completed: campaign stage", StringComparison.Ordinal) && m.MissionId == stage.Id));
+                    AssertTrue(mirrored.All(m => m.VoyageId == null), "a campaign-room copy carries no voyage tag");
+                    AssertFalse(campaignNotes.Any(m => m.Content.Contains("plain voyage", StringComparison.Ordinal)),
+                        "a voyage outside every campaign does not reach the campaign room");
+
+                    // Brief injection reads voyage-tagged notes from every room: the campaign-room
+                    // operator note and the fleet dispatch note, each exactly once.
+                    List<CoordinationMessage> briefNotes = await testDb.Driver.CoordinationMessages
+                        .EnumerateByVoyageAsync(campaignVoyage.Id, null, 20).ConfigureAwait(false);
+                    AssertEqual(2, briefNotes.Count, "voyage notes for the brief: " + String.Join(" | ", briefNotes.Select(m => m.Content)));
+                    AssertTrue(briefNotes.Any(m => m.Content == "use the cached fixture"), "a voyage-tagged note in a campaign room reaches the brief");
+                    AssertEqual(1, briefNotes.Count(m => m.Content.Contains("Voyage dispatched: campaign voyage", StringComparison.Ordinal)),
+                        "the dispatch note reaches the brief once");
+                }
+            });
+
+            await RunTest("Presence across rooms lists each session once with every room it sits in", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CoordinationService service = CreateService(testDb);
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "session-a", "Session A").ConfigureAwait(false);
+                    await service.HeartbeatAsync("campaign-alpha", "session-a", "Session A").ConfigureAwait(false);
+                    await service.HeartbeatAsync("campaign-alpha", "session-b", "Session B").ConfigureAwait(false);
+
+                    List<CoordinationPresenceEntry> presence = await service.EnumeratePresenceAcrossRoomsAsync(15).ConfigureAwait(false);
+                    AssertEqual(2, presence.Count, "one entry per participant key");
+                    CoordinationPresenceEntry a = presence.Single(p => p.ParticipantKey == "session-a");
+                    CoordinationPresenceEntry b = presence.Single(p => p.ParticipantKey == "session-b");
+                    AssertEqual(2, a.Rooms.Count);
+                    AssertTrue(a.Rooms.Any(r => r.RoomKey == CoordinationService.DefaultRoomKey) && a.Rooms.Any(r => r.RoomKey == "campaign-alpha"));
+                    AssertEqual("campaign-alpha", b.Rooms.Single().RoomKey);
+                    AssertEqual("Campaign alpha", b.Rooms.Single().RoomName);
+                }
+            });
+
+            await RunTest("Campaign status returns each root's campaign-room notes without creating a room", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CoordinationService coordination = CreateService(testDb);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "hub", Tags = new List<string> { "campaign:alpha" } }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "other hub", Tags = new List<string> { "campaign:beta" } }).ConfigureAwait(false);
+                    await coordination.PostMessageAsync(
+                        "campaign-alpha", CoordinationAuthorTypeEnum.Operator, "session-a", "Session A", "alpha room note").ConfigureAwait(false);
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterCoordinationTools(testDb, coordination);
+
+                    string alpha = JsonSerializer.Serialize(await handlers["armada_campaign_status"](
+                        Args(new { tag = "campaign:alpha", includeFullContent = true })).ConfigureAwait(false));
+                    AssertContains("campaign-alpha", alpha);
+                    AssertContains("alpha room note", alpha);
+
+                    string beta = JsonSerializer.Serialize(await handlers["armada_campaign_status"](
+                        Args(new { tag = "campaign:beta", includeFullContent = true })).ConfigureAwait(false));
+                    AssertContains("campaign-beta", beta);
+                    AssertNull(await testDb.Driver.CoordinationRooms.ReadByKeyAsync("campaign-beta").ConfigureAwait(false),
+                        "a status read must not create the campaign room");
+                }
+            });
         }
 
         private static Dictionary<string, Func<JsonElement?, Task<object>>> RegisterCoordinationTools(

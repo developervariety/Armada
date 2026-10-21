@@ -26,6 +26,11 @@ namespace Armada.Server
         private readonly KeyedAsyncLock _CaptainNoteLocks = new KeyedAsyncLock(StringComparer.Ordinal);
         private const int _MaximumCaptainNoteLength = 500;
         private const int _MaximumCaptainNotesPerMission = 20;
+        private static readonly TimeSpan _CampaignVoyageCacheLifetime = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan _NoCampaignVoyageCacheLifetime = TimeSpan.FromSeconds(60);
+        private const int _MaximumCampaignVoyageCacheEntries = 512;
+        private readonly object _CampaignVoyageCacheLock = new object();
+        private readonly Dictionary<string, CampaignVoyageCacheEntry> _CampaignVoyageCache = new Dictionary<string, CampaignVoyageCacheEntry>(StringComparer.Ordinal);
 
         /// <summary>
         /// Optional bridge to the AgentWake wake path. Invoked with the target
@@ -51,6 +56,12 @@ namespace Armada.Server
         /// </summary>
         public static readonly string DefaultRoomDescription =
             "Shared coordination board for every operator session and captain. Read before you act; write when you act.";
+
+        /// <summary>
+        /// Default description of a campaign room.
+        /// </summary>
+        public static readonly string CampaignRoomDescription =
+            "Coordination room for one campaign. Claims and notes for the campaign's objectives land here; the fleet room stays the all-hands channel.";
 
         #endregion
 
@@ -91,6 +102,11 @@ namespace Armada.Server
                 if (String.IsNullOrWhiteSpace(name)) name = DefaultRoomName;
                 if (String.IsNullOrWhiteSpace(description)) description = DefaultRoomDescription;
             }
+            else if (CampaignRoomResolver.IsCampaignRoomKey(key))
+            {
+                if (String.IsNullOrWhiteSpace(name)) name = "Campaign " + key.Substring(CampaignRoomResolver.RoomKeyPrefix.Length);
+                if (String.IsNullOrWhiteSpace(description)) description = CampaignRoomDescription;
+            }
 
             CoordinationRoom? room = await _Database.CoordinationRooms.ReadByKeyAsync(key, token).ConfigureAwait(false);
             if (room != null) return room;
@@ -105,6 +121,22 @@ namespace Armada.Server
             _Logging.Debug(_Header + "created coordination room " + key);
             return await _Database.CoordinationRooms.ReadByKeyAsync(key, token).ConfigureAwait(false)
                 ?? room;
+        }
+
+        /// <summary>
+        /// Resolve the room a claim or note lands in. An explicit room key wins. Without one, an
+        /// objective that belongs to a campaign routes to that campaign's room, which is created on
+        /// first use. Everything else lands in the fleet room.
+        /// </summary>
+        /// <param name="roomKey">Caller-supplied room key, or null.</param>
+        /// <param name="objectiveId">Objective the claim or note concerns, or null.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The room key to use.</returns>
+        public async Task<string> ResolveRoomKeyAsync(string? roomKey, string? objectiveId, CancellationToken token = default)
+        {
+            if (!String.IsNullOrWhiteSpace(roomKey)) return CoordinationRoom.NormalizeKey(roomKey);
+            string? campaignKey = await CampaignRoomResolver.ResolveRoomKeyForObjectiveAsync(_Database, objectiveId, token).ConfigureAwait(false);
+            return campaignKey ?? DefaultRoomKey;
         }
 
         /// <summary>
@@ -337,9 +369,17 @@ namespace Armada.Server
             };
             participant = await _Database.CoordinationParticipants.UpsertAsync(participant, token).ConfigureAwait(false);
 
-            // A live session keeps its own reservations alive by heartbeating.
-            await _Database.CoordinationClaims.ExtendActiveForParticipantAsync(
-                room.Id, participant.ParticipantKey, DateTime.UtcNow.AddHours(4), token).ConfigureAwait(false);
+            // A live session keeps its own reservations alive by heartbeating, in whichever room
+            // each claim was made: a claim routed to a campaign room must not lapse while its holder
+            // heartbeats in the fleet room.
+            DateTime extendedExpiry = DateTime.UtcNow.AddHours(4);
+            List<CoordinationRoom> rooms = await _Database.CoordinationRooms.EnumerateAsync(token).ConfigureAwait(false);
+            if (!rooms.Any(r => String.Equals(r.Id, room.Id, StringComparison.Ordinal))) rooms.Add(room);
+            foreach (CoordinationRoom claimRoom in rooms)
+            {
+                await _Database.CoordinationClaims.ExtendActiveForParticipantAsync(
+                    claimRoom.Id, participant.ParticipantKey, extendedExpiry, token).ConfigureAwait(false);
+            }
 
             DateTime staleCutoff = DateTime.UtcNow.AddMinutes(-60);
             await _Database.CoordinationParticipants.PruneAsync(room.Id, staleCutoff, token).ConfigureAwait(false);
@@ -359,6 +399,59 @@ namespace Armada.Server
 
             CoordinationRoom? room = await EnsureRoomAsync(roomKey, DefaultRoomKey == roomKey ? DefaultRoomName : null, DefaultRoomKey == roomKey ? DefaultRoomDescription : null, token).ConfigureAwait(false);
             return await _Database.CoordinationParticipants.EnumerateByRoomAsync(room.Id, activeWithinMinutes, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Presence across every room: one entry per participant key active within the window,
+        /// naming each room the participant was seen in, most recently active participant first.
+        /// </summary>
+        /// <param name="activeWithinMinutes">Activity window in minutes.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Aggregated presence entries.</returns>
+        public async Task<List<CoordinationPresenceEntry>> EnumeratePresenceAcrossRoomsAsync(int activeWithinMinutes = 15, CancellationToken token = default)
+        {
+            List<CoordinationRoom> rooms = await EnumerateRoomsAsync(token).ConfigureAwait(false);
+            Dictionary<string, CoordinationPresenceEntry> byKey = new Dictionary<string, CoordinationPresenceEntry>(StringComparer.Ordinal);
+            Dictionary<string, List<CoordinationPresenceRoom>> roomsByKey = new Dictionary<string, List<CoordinationPresenceRoom>>(StringComparer.Ordinal);
+
+            foreach (CoordinationRoom room in rooms)
+            {
+                List<CoordinationParticipant> participants = await _Database.CoordinationParticipants
+                    .EnumerateByRoomAsync(room.Id, activeWithinMinutes, token).ConfigureAwait(false);
+                foreach (CoordinationParticipant participant in participants)
+                {
+                    if (!byKey.TryGetValue(participant.ParticipantKey, out CoordinationPresenceEntry? entry))
+                    {
+                        entry = new CoordinationPresenceEntry
+                        {
+                            ParticipantKey = participant.ParticipantKey,
+                            DisplayName = participant.DisplayName,
+                            LastSeenUtc = participant.LastSeenUtc
+                        };
+                        byKey[participant.ParticipantKey] = entry;
+                        roomsByKey[participant.ParticipantKey] = new List<CoordinationPresenceRoom>();
+                    }
+                    else if (participant.LastSeenUtc > entry.LastSeenUtc)
+                    {
+                        entry.DisplayName = participant.DisplayName;
+                        entry.LastSeenUtc = participant.LastSeenUtc;
+                    }
+
+                    roomsByKey[participant.ParticipantKey].Add(new CoordinationPresenceRoom
+                    {
+                        RoomKey = room.Key,
+                        RoomName = room.Name,
+                        LastSeenUtc = participant.LastSeenUtc
+                    });
+                }
+            }
+
+            foreach (KeyValuePair<string, CoordinationPresenceEntry> pair in byKey)
+            {
+                pair.Value.Rooms = roomsByKey[pair.Key].OrderByDescending(r => r.LastSeenUtc).ToList();
+            }
+
+            return byKey.Values.OrderByDescending(e => e.LastSeenUtc).ToList();
         }
 
         /// <summary>
@@ -387,7 +480,7 @@ namespace Armada.Server
         /// <param name="subjectId">Identifier of the reserved record.</param>
         /// <param name="note">Free-text note about the intended work.</param>
         /// <param name="ttlHours">Hours until the claim lapses without a heartbeat.</param>
-        /// <param name="roomKey">Room key; omit for the default fleet room.</param>
+        /// <param name="roomKey">Room key. When omitted, a claim on an objective in a campaign lands in that campaign's room and every other claim in the fleet room.</param>
         /// <param name="tenantId">Optional tenant identifier.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The created claim.</returns>
@@ -408,7 +501,10 @@ namespace Armada.Server
             if (ttlHours < 0.5) ttlHours = 0.5;
             if (ttlHours > 72) ttlHours = 72;
 
-            string key = String.IsNullOrWhiteSpace(roomKey) ? DefaultRoomKey : roomKey!;
+            string key = await ResolveRoomKeyAsync(
+                roomKey,
+                subjectType == CoordinationClaimSubjectEnum.Objective ? subjectId : null,
+                token).ConfigureAwait(false);
             CoordinationRoom room = await EnsureRoomAsync(key, DefaultRoomKey == key ? DefaultRoomName : null, DefaultRoomKey == key ? DefaultRoomDescription : null, token).ConfigureAwait(false);
 
             CoordinationClaim claim = new CoordinationClaim
@@ -534,6 +630,54 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Copy a mirrored fleet note into the campaign room of the voyage it concerns. The voyage
+        /// is the given one, or the mission's voyage when only a mission is named. The copy carries
+        /// no voyage id: voyage-tagged notes reach captain briefs whatever room they sit in, and the
+        /// fleet room already holds the voyage-tagged original, so a tagged copy would repeat it in
+        /// the brief.
+        /// </summary>
+        /// <param name="content">Mirrored note content.</param>
+        /// <param name="voyageId">Voyage identifier, when the event names one.</param>
+        /// <param name="missionId">Mission identifier, when the event names one.</param>
+        /// <param name="vesselId">Vessel identifier, when the event names one.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The campaign-room copy, or null when the voyage is not in a campaign.</returns>
+        public async Task<CoordinationMessage?> PostCampaignMirrorAsync(
+            string content,
+            string? voyageId,
+            string? missionId,
+            string? vesselId,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(content)) return null;
+
+            string? resolvedVoyageId = voyageId;
+            if (String.IsNullOrWhiteSpace(resolvedVoyageId) && !String.IsNullOrWhiteSpace(missionId))
+            {
+                Mission? mission = await _Database.Missions.ReadAsync(missionId!, token).ConfigureAwait(false);
+                resolvedVoyageId = mission?.VoyageId;
+            }
+
+            if (String.IsNullOrWhiteSpace(resolvedVoyageId)) return null;
+
+            string? campaignKey = await ResolveCampaignRoomKeyForVoyageAsync(resolvedVoyageId!, token).ConfigureAwait(false);
+            if (campaignKey == null) return null;
+
+            return await PostMessageAsync(
+                campaignKey,
+                CoordinationAuthorTypeEnum.System,
+                null,
+                "armada",
+                content,
+                null,
+                missionId,
+                vesselId,
+                null,
+                null,
+                token: token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Build the system note content that mirrors a fleet event into the coordination
         /// board, or null when the event type is not mirrored.
         /// </summary>
@@ -577,6 +721,34 @@ namespace Armada.Server
 
         #region Private-Methods
 
+        /// <summary>
+        /// The campaign room key for a voyage, remembered for a few minutes: a voyage reports one
+        /// mirrored event per stage, and resolving it reads every objective. A null answer (the
+        /// voyage serves no campaign objective) is remembered only briefly, because an objective can
+        /// link the voyage just after it is dispatched.
+        /// </summary>
+        private async Task<string?> ResolveCampaignRoomKeyForVoyageAsync(string voyageId, CancellationToken token)
+        {
+            DateTime now = DateTime.UtcNow;
+            lock (_CampaignVoyageCacheLock)
+            {
+                if (_CampaignVoyageCache.TryGetValue(voyageId, out CampaignVoyageCacheEntry? cached)
+                    && now - cached.ResolvedUtc < (cached.RoomKey == null ? _NoCampaignVoyageCacheLifetime : _CampaignVoyageCacheLifetime))
+                {
+                    return cached.RoomKey;
+                }
+            }
+
+            string? roomKey = await CampaignRoomResolver.ResolveRoomKeyForVoyageAsync(_Database, voyageId, token).ConfigureAwait(false);
+            lock (_CampaignVoyageCacheLock)
+            {
+                if (_CampaignVoyageCache.Count >= _MaximumCampaignVoyageCacheEntries) _CampaignVoyageCache.Clear();
+                _CampaignVoyageCache[voyageId] = new CampaignVoyageCacheEntry { RoomKey = roomKey, ResolvedUtc = now };
+            }
+
+            return roomKey;
+        }
+
         private void BroadcastMessageCreated(string roomKey, CoordinationMessage message)
         {
             if (_WebSocketHub == null) return;
@@ -599,5 +771,17 @@ namespace Armada.Server
         }
 
         #endregion
+
+        /// <summary>
+        /// A remembered voyage-to-campaign-room answer.
+        /// </summary>
+        private sealed class CampaignVoyageCacheEntry
+        {
+            /// <summary>Campaign room key, or null when the voyage serves no campaign objective.</summary>
+            public string? RoomKey { get; set; } = null;
+
+            /// <summary>When the answer was resolved, in UTC.</summary>
+            public DateTime ResolvedUtc { get; set; } = DateTime.UtcNow;
+        }
     }
 }

@@ -137,6 +137,7 @@ import type {
   CoordinationRoom,
   CoordinationMessage,
   CoordinationParticipant,
+  CoordinationPresenceEntry,
   CoordinationRoomCreateRequest,
   CoordinationMessagePostRequest,
   CoordinationPresenceRequest,
@@ -1240,6 +1241,9 @@ export const sendCoordinationPresence = (roomKey: string, data: CoordinationPres
   post<CoordinationParticipant>(`/api/v1/coordination/rooms/${encodeURIComponent(roomKey)}/presence`, data);
 export const listCoordinationParticipants = (roomKey: string, activeWithinMinutes = 15) =>
   get<CoordinationParticipant[]>(`/api/v1/coordination/rooms/${encodeURIComponent(roomKey)}/participants?activeWithinMinutes=${activeWithinMinutes}`);
+/** Presence across every room: one entry per participant, naming the rooms it was seen in. */
+export const listCoordinationPresence = (activeWithinMinutes = 15) =>
+  get<CoordinationPresenceEntry[]>(`/api/v1/coordination/presence?activeWithinMinutes=${activeWithinMinutes}`);
 export const listCoordinationClaims = (subjectType?: string, subjectId?: string) => {
   const search = new URLSearchParams();
   if (subjectType) search.set('subjectType', subjectType);

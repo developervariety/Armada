@@ -350,8 +350,31 @@ SQLite and PostgreSQL store the board. On MySQL and SQL Server each coordination
 tool returns an `Error` naming the provider (`The MySQL database provider does not
 store the coordination board; use SQLite or PostgreSQL.`).
 
+**Campaign rooms.** A campaign is an objective tree whose root carries a
+`campaign:<name>` tag; the nearest tagged ancestor is the campaign root. Each
+campaign has its own room, keyed `campaign-<name>` (lowercased, with characters
+outside letters, digits, `.` and `_` reduced to `-`), created on first use like
+the fleet room. The fleet room stays the all-hands channel and the default for
+every tool.
+
+- A claim on an objective in a campaign, and a note posted with an `objectiveId`
+  in a campaign, land in the campaign room when no `roomKey` is given. An
+  explicit `roomKey` always wins. Other claims and notes, and captain notes,
+  land in the fleet room.
+- A mirrored fleet event (voyage dispatched or cancelled, mission completed,
+  failed or cancelled) always lands in the fleet room. When the event's voyage
+  serves an objective in a campaign, a copy also lands in the campaign room. The
+  copy carries no voyage id, so a voyage-tagged brief injection never repeats it.
+- Voyage-tagged notes reach the next stage brief whatever room holds them.
+- A heartbeat in any room keeps every claim its participant holds alive, in
+  every room.
+- `GET /api/v1/coordination/presence` returns presence across every room, one
+  entry per participant naming the rooms it was seen in. The dashboard presence
+  strip shows that aggregate.
+
 - `armada_coordination_post` — post a note. Claim work before you start it;
-  report outcomes when you finish.
+  report outcomes when you finish. Pass `objectiveId` to route a campaign note
+  to its campaign room.
 - `armada_coordination_read` — read recent notes plus who is active. Read this
   before dispatching voyages or touching incidents so you do not duplicate a
   peer session's work.
@@ -364,7 +387,9 @@ store the coordination board; use SQLite or PostgreSQL.`).
   work so peers see who owns it; heartbeats keep the claim alive, and a claim
   expires unless refreshed.
 - `armada_campaign_status` — return a campaign's whole matrix (lanes, slices,
-  status, evidence) in one call.
+  status, evidence) in one call, with recent fleet notes and, under
+  `CampaignRooms`, recent notes from each root's campaign room. Reading it does
+  not create a room.
 
 #### Identify your session so wakes reach you on any tool
 

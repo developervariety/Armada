@@ -278,6 +278,34 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns participants seen in the room within the given window, most recently active first.")
                 .WithResponse(200, OpenApiJson.For<List<CoordinationParticipant>>("Coordination participants"))
                 .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/coordination/presence", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    return RouteAuthRefusal.Refuse(req, ctx);
+                }
+
+                int activeWithinMinutes = ParseIntQuery(req, "activeWithinMinutes", 15);
+
+                try
+                {
+                    List<CoordinationPresenceEntry> presence = await _coordination.EnumeratePresenceAcrossRoomsAsync(activeWithinMinutes).ConfigureAwait(false);
+                    return presence;
+                }
+                catch (NotSupportedException ex)
+                {
+                    req.Http.Response.StatusCode = 501;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                }
+            },
+            api => api
+                .WithTag("Coordination")
+                .WithSummary("List presence across every room")
+                .WithDescription("Returns one entry per participant active within the window in any room, naming each room the participant was seen in, most recently active first.")
+                .WithResponse(200, OpenApiJson.For<List<CoordinationPresenceEntry>>("Coordination presence across rooms"))
+                .WithSecurity("ApiKey"));
         }
 
         private static int ParseIntQuery(ApiRequest req, string name, int defaultValue)

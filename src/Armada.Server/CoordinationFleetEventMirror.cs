@@ -13,6 +13,8 @@ namespace Armada.Server
     /// operator sessions see fleet activity in the chatroom. It observes the event store itself, so
     /// every producer of a mirrored event type reaches the board, whichever service wrote the event.
     /// <see cref="CoordinationService.BuildSystemNoteContent"/> decides which types are mirrored.
+    /// A mirrored note always lands in the fleet room; when the event's voyage serves an objective
+    /// in a campaign, a copy also lands in that campaign's room.
     /// </summary>
     public sealed class CoordinationFleetEventMirror
     {
@@ -84,6 +86,11 @@ namespace Armada.Server
                 null,
                 null,
                 token: token).ConfigureAwait(false);
+
+            // A voyage that serves a campaign objective also reports into the campaign room; the
+            // fleet note above stays the all-hands record.
+            await _Coordination.PostCampaignMirrorAsync(
+                note, evt.VoyageId, evt.MissionId, evt.VesselId, token).ConfigureAwait(false);
         }
 
         #endregion

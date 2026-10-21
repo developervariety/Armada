@@ -8036,6 +8036,12 @@ thead tr.column-filter-row td input.col-filter::placeholder {
   font-size: 0.8rem;
 }
 
+/* The rooms a session sits in; dimmed when none of them is the room on screen. */
+.coordination-presence-room {
+  font-size: 0.72rem;
+  font-style: italic;
+}
+
 .coordination-presence-dot {
   width: 8px;
   height: 8px;

@@ -210,6 +210,16 @@ A session that sends no header receives no wake banner, and must heartbeat or
 read the board with its `participantKey` between monitor-loop iterations to see
 addressed work at all.
 
+The fleet room is the default board. Each campaign (an objective tree whose root
+carries a `campaign:<name>` tag) also has a `campaign-<name>` room, created on
+first use. A claim on a campaign objective, a note posted with a campaign
+`objectiveId`, and a copy of each mirrored event for a voyage that serves a
+campaign objective land there when no `roomKey` is given. Read it with
+`armada_coordination_read` and `roomKey: "campaign-<name>"`, or through
+`armada_campaign_status`. Heartbeats in any room keep every claim alive, and
+wakes reach their target whatever room the note sits in. The routing rules are
+in `MCP_TOOL_CATALOG.md`, "Coordination Board (Chatroom)".
+
 The `inbox` tool (and the REST inbox built from the same service) lists a Judge
 PASS held for operator review as kind `judge_pass_held`. Resolve it with
 `armada_review_hold`:

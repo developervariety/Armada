@@ -1,5 +1,5 @@
 import { type RefObject } from 'react';
-import type { CoordinationClaim, CoordinationMessage, CoordinationParticipant } from '../../types/models';
+import type { CoordinationClaim, CoordinationMessage, CoordinationPresenceEntry } from '../../types/models';
 
 interface CoordinationChatCardProps {
   transcriptRef: RefObject<HTMLDivElement | null>;
@@ -7,7 +7,10 @@ interface CoordinationChatCardProps {
   messages: CoordinationMessage[];
   /** Page size the board reads; when the board holds that many notes, older notes exist that it cannot show. */
   noteLimit?: number;
-  participants: CoordinationParticipant[];
+  /** Presence aggregated across every room. */
+  participants: CoordinationPresenceEntry[];
+  /** Key of the room on screen; a chip names the rooms a session sits in. */
+  currentRoomKey?: string;
   claims: CoordinationClaim[];
   composer: string;
   sending: boolean;
@@ -28,6 +31,7 @@ export default function CoordinationChatCard({
   messages,
   noteLimit,
   participants,
+  currentRoomKey,
   claims,
   composer,
   sending,
@@ -45,17 +49,24 @@ export default function CoordinationChatCard({
         {participants.length === 0 ? (
           <span className="text-dim">{`No one else is here right now.`}</span>
         ) : (
-          participants.map((p) => (
-            <span
-              key={p.id}
-              className="coordination-presence-chip"
-              title={`Last seen ${formatDateTime(p.lastSeenUtc)}`}
-            >
-              <span className="coordination-presence-dot" />
-              {p.displayName}
-              <span className="text-dim">{formatRelativeTime(p.lastSeenUtc)}</span>
-            </span>
-          ))
+          participants.map((p) => {
+            const roomNames = p.rooms.map((r) => r.roomName || r.roomKey);
+            const inCurrentRoom = p.rooms.some((r) => r.roomKey === currentRoomKey);
+            return (
+              <span
+                key={p.participantKey}
+                className="coordination-presence-chip"
+                title={`Last seen ${formatDateTime(p.lastSeenUtc)} in ${roomNames.join(', ')}`}
+              >
+                <span className="coordination-presence-dot" />
+                {p.displayName}
+                <span className={inCurrentRoom ? 'coordination-presence-room' : 'coordination-presence-room text-dim'}>
+                  {roomNames.join(', ')}
+                </span>
+                <span className="text-dim">{formatRelativeTime(p.lastSeenUtc)}</span>
+              </span>
+            );
+          })
         )}
       </div>
 
