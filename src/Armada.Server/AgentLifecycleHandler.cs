@@ -39,6 +39,13 @@ namespace Armada.Server
         /// </summary>
         public MissionActivityTracker MissionActivity { get; } = new MissionActivityTracker();
 
+        /// <summary>Bound on one model-validation process after launch; tests may shorten it.</summary>
+        internal TimeSpan ModelValidationTimeout
+        {
+            get => _ModelValidationTimeout;
+            set => _ModelValidationTimeout = value > TimeSpan.Zero ? value : throw new ArgumentOutOfRangeException(nameof(value));
+        }
+
         #endregion
 
         #region Private-Members
@@ -59,7 +66,7 @@ namespace Armada.Server
         private IPromptTemplateService? _PromptTemplateService;
         private ArmadaWebSocketHub? _WebSocketHub;
         private Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
-        private readonly TimeSpan _ModelValidationTimeout = TimeSpan.FromSeconds(5);
+        private TimeSpan _ModelValidationTimeout = TimeSpan.FromSeconds(30);
         private readonly TimeSpan _MissionHeartbeatPersistInterval = TimeSpan.FromSeconds(15);
         private readonly TimeSpan _HandledProcessExitRetention = TimeSpan.FromMinutes(5);
         private TimeProvider _Time = TimeProvider.System;
@@ -529,7 +536,7 @@ namespace Armada.Server
                 return ValidateApiEndpointCaptainAsync(captain, token);
             if (captain.Runtime == AgentRuntimeEnum.Mux)
                 return ValidateMuxCaptainAsync(captain, token);
-            return ValidateModelDetailedAsync(captain.Runtime, captain.Model, token);
+            return ValidateModelDetailedCoreAsync(captain.Runtime, captain.Model, captain, token);
         }
 
         /// <summary>
@@ -576,7 +583,12 @@ namespace Armada.Server
         /// <param name="model">Model to validate.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Null if valid, otherwise the failure.</returns>
-        public async Task<CaptainModelValidationFailure?> ValidateModelDetailedAsync(AgentRuntimeEnum runtimeType, string? model, CancellationToken token = default)
+        public Task<CaptainModelValidationFailure?> ValidateModelDetailedAsync(AgentRuntimeEnum runtimeType, string? model, CancellationToken token = default)
+        {
+            return ValidateModelDetailedCoreAsync(runtimeType, model, null, token);
+        }
+
+        private async Task<CaptainModelValidationFailure?> ValidateModelDetailedCoreAsync(AgentRuntimeEnum runtimeType, string? model, Captain? captain, CancellationToken token)
         {
             if (String.IsNullOrEmpty(model))
                 return null;
@@ -585,9 +597,30 @@ namespace Armada.Server
             Directory.CreateDirectory(validationDirectory);
 
             Armada.Runtimes.Interfaces.IAgentRuntime runtime;
+            bool remoteValidation = false;
             try
             {
-                runtime = _HostProcessExecutor.CreateRuntime(runtimeType);
+                if (captain == null)
+                {
+                    runtime = _HostProcessExecutor.CreateRuntime(runtimeType);
+                }
+                else
+                {
+                    CaptainLaunchRouter router = new CaptainLaunchRouter(_Settings, _RuntimeFactory, _HarborConnections, _EndpointResolver, _Logging);
+                    CaptainLaunchTarget target = await router.SelectAsync(new CaptainLaunchContext(captain, "model validation")
+                    {
+                        TenantId = captain.TenantId,
+                        UserId = captain.UserId,
+                        AllowScratchWorkingDirectory = true
+                    }, token).ConfigureAwait(false);
+                    runtime = target.Runtime;
+                    remoteValidation = target.IsRemote;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                try { Directory.Delete(validationDirectory, true); } catch { }
+                throw;
             }
             catch (Exception ex)
             {
@@ -614,13 +647,14 @@ namespace Armada.Server
 
             try
             {
-                await InitializeValidationWorkspaceAsync(runtimeType, validationDirectory, token).ConfigureAwait(false);
+                if (!remoteValidation)
+                    await InitializeValidationWorkspaceAsync(runtimeType, validationDirectory, token).ConfigureAwait(false);
 
                 processId = await runtime.StartAsync(
-                    validationDirectory,
+                    remoteValidation ? String.Empty : validationDirectory,
                     "Respond with the single word OK.",
                     model: model,
-                    captain: null,
+                    captain: captain,
                     token: token).ConfigureAwait(false);
 
                 Task completedTask = await Task.WhenAny(
@@ -674,6 +708,8 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
+                if (CaptainLaunchRouter.TryDescribeFailure(ex, out string launchError, out _))
+                    return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.RuntimeUnavailable, launchError);
                 return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.ModelRejected, "Model '" + model + "' failed validation for runtime " + runtimeType + ": " + ex.Message);
             }
             finally
@@ -682,7 +718,7 @@ namespace Armada.Server
                 {
                     try
                     {
-                        await runtime.StopAsync(processId.Value, token).ConfigureAwait(false);
+                        await runtime.StopAsync(processId.Value, CancellationToken.None).ConfigureAwait(false);
                     }
                     catch { }
                 }

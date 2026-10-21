@@ -6,6 +6,10 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Named captain model validation
+
+- Validate named CLI models on the same tenant/user-scoped Harbor used for captain execution, instead of requiring the CLI on the Admiral host. Use a Harbor scratch directory, distinguish unavailable runtimes from rejected models, allow 30 seconds for validation, and clean up cancelled/timed-out jobs.
+
 ### Bounded agent file reads
 
 - Default `read_file` responses page ordinary files at 200 lines and 24,000 characters, including continuation instructions. Whole instruction-file reads (`CLAUDE.md`/`AGENTS.md`), small-file output, and explicit ranges/full reads retain their behavior. Very long lines require an explicit read rather than silently consuming the agent context.

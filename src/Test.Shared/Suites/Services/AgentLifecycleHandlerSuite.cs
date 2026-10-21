@@ -12,6 +12,7 @@ namespace Test.Shared.Suites.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Harbor;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -47,6 +48,104 @@ namespace Test.Shared.Suites.Services
         public TestSuiteDescriptor Build()
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
+
+            foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex })
+            {
+                AgentRuntimeEnum selected = runtime;
+                cases.Add(CaseAsync("named_model_routes_to_owner_" + selected, "Named " + selected + " model validates on its owner's Harbor, never the Admiral", TestTags.Positive, async () =>
+                {
+                    using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    AgentLifecycleHandler handler = CreateRoutedValidationHandler(db.Driver, out ArmadaSettings settings, out HarborConnectionManager manager);
+                    LoggingModule logging = CreateLogging();
+                    AgentRuntimeFactory factory = new AgentRuntimeFactory(logging);
+                    factory.Override(selected, () => new StubCaptainRuntime(logging, new StubCaptainBehavior { OnPrompt = _ => "OK" }));
+                    using InProcessHarbor harbor = await InProcessHarbor.ConnectAsync(manager, "hbr_model_owner", Constants.DefaultTenantId, "usr_model_owner", factory, new[] { selected.ToString() }, logging).ConfigureAwait(false);
+                    Captain captain = new Captain("named", selected) { TenantId = Constants.DefaultTenantId, UserId = "usr_model_owner", Model = "frontier-test-model" };
+                    CaptainModelValidationFailure? failure = await handler.ValidateCaptainModelDetailedAsync(captain).ConfigureAwait(false);
+                    AssertNull(failure, failure?.Message);
+                    AssertEqual(1, harbor.Runner.Launches.Count);
+                    HarborLaunchRequest request = harbor.Runner.Launches.Single();
+                    AssertEqual("frontier-test-model", request.Model);
+                    AssertEqual(selected.ToString(), request.Runtime);
+                    AssertTrue(request.ScratchWorkingDirectory, "The Admiral's temporary paths cannot be used on a remote host.");
+                    AssertEqual(String.Empty, request.WorkingDirectory);
+                    AssertEqual(captain.Id, request.CaptainId);
+                }));
+            }
+            foreach (bool otherTenant in new[] { false, true })
+            {
+                bool crossTenant = otherTenant;
+                cases.Add(CaseAsync("named_model_refuses_" + (crossTenant ? "foreign_tenant" : "foreign_user"), "Named model validation refuses another " + (crossTenant ? "tenant's" : "user's") + " Harbor without local fallback", TestTags.Negative, async () =>
+                {
+                    using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    AgentLifecycleHandler handler = CreateRoutedValidationHandler(db.Driver, out _, out HarborConnectionManager manager);
+                    LoggingModule logging = CreateLogging();
+                    ControlledHarborJobRunner jobs = new ControlledHarborJobRunner();
+                    using InProcessHarbor harbor = await InProcessHarbor.ConnectAsync(manager, "hbr_foreign_model", crossTenant ? "ten_model_foreign" : Constants.DefaultTenantId, crossTenant ? "usr_model_owner" : "usr_model_other", new AgentRuntimeFactory(logging), new[] { "ClaudeCode" }, logging, jobs: jobs).ConfigureAwait(false);
+                    Captain captain = new Captain("named", AgentRuntimeEnum.ClaudeCode) { TenantId = Constants.DefaultTenantId, UserId = "usr_model_owner", Model = "frontier-test-model" };
+                    CaptainModelValidationFailure? failure = await handler.ValidateCaptainModelDetailedAsync(captain).ConfigureAwait(false);
+                    AssertNotNull(failure);
+                    AssertEqual(CaptainModelValidationFailureEnum.RuntimeUnavailable, failure!.Reason);
+                    AssertContains("Harbor", failure.Message);
+                    AssertEqual(0, harbor.Runner.Launches.Count);
+                }));
+            }
+            foreach (string outcome in new[] { "rejected", "timeout", "cancelled" })
+            {
+                string selectedOutcome = outcome;
+                cases.Add(CaseAsync("named_model_" + selectedOutcome + "_cleans_harbor_job", "Harbor model validation " + selectedOutcome + " is surfaced and cleans up its remote job", TestTags.Negative, async () =>
+                {
+                    using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    AgentLifecycleHandler handler = CreateRoutedValidationHandler(db.Driver, out _, out HarborConnectionManager manager);
+                    handler.ModelValidationTimeout = selectedOutcome == "timeout" ? TimeSpan.FromMilliseconds(100) : TimeSpan.FromSeconds(5);
+                    LoggingModule logging = CreateLogging();
+                    ControlledHarborJobRunner jobs = new ControlledHarborJobRunner();
+                    using InProcessHarbor harbor = await InProcessHarbor.ConnectAsync(manager, "hbr_model_outcome", Constants.DefaultTenantId, "usr_model_owner", new AgentRuntimeFactory(logging), new[] { "ClaudeCode" }, logging, jobs: jobs).ConfigureAwait(false);
+                    using CancellationTokenSource cancellation = new CancellationTokenSource();
+                    Captain captain = new Captain("named", AgentRuntimeEnum.ClaudeCode) { TenantId = Constants.DefaultTenantId, UserId = "usr_model_owner", Model = "frontier-test-model" };
+                    Task<CaptainModelValidationFailure?> validation = handler.ValidateCaptainModelDetailedAsync(captain, cancellation.Token);
+                    await WaitForConditionAsync(() => Task.FromResult(harbor.Runner.Launches.Count == 1)).ConfigureAwait(false);
+                    string job = harbor.Runner.Launches.Single().JobId;
+                    jobs.Start(job, 43123);
+                    if (selectedOutcome == "rejected")
+                    {
+                        jobs.Output(job, "Error: unknown model 'frontier-test-model'");
+                        jobs.Exit(job, 1);
+                        CaptainModelValidationFailure? failure = await validation.ConfigureAwait(false);
+                        AssertEqual(CaptainModelValidationFailureEnum.ModelRejected, failure!.Reason);
+                        AssertContains("unknown model", failure.Message);
+                    }
+                    else if (selectedOutcome == "timeout")
+                    {
+                        CaptainModelValidationFailure? failure = await validation.ConfigureAwait(false);
+                        AssertEqual(CaptainModelValidationFailureEnum.TimedOut, failure!.Reason);
+                    }
+                    else
+                    {
+                        cancellation.Cancel();
+                        bool cancelled = false;
+                        try { await validation.ConfigureAwait(false); }
+                        catch (OperationCanceledException) { cancelled = true; }
+                        AssertTrue(cancelled, "Caller cancellation must propagate.");
+                    }
+                    if (selectedOutcome != "rejected")
+                        AssertTrue(harbor.Runner.Stops.Contains(job), "A still-running job must be stopped with a live token even if the request is cancelled.");
+                }));
+            }
+
+            cases.Add(CaseAsync("named_model_missing_harbor_cli_is_unavailable", "A missing CLI on the selected Harbor is an availability failure, not an invalid model", TestTags.Negative, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AgentLifecycleHandler handler = CreateRoutedValidationHandler(db.Driver, out _, out HarborConnectionManager manager);
+                LoggingModule logging = CreateLogging();
+                AgentRuntimeFactory factory = new AgentRuntimeFactory(logging);
+                factory.Override(AgentRuntimeEnum.ClaudeCode, () => throw new InvalidOperationException("CLI missing on Harbor test host"));
+                using InProcessHarbor harbor = await InProcessHarbor.ConnectAsync(manager, "hbr_model_missing_cli", Constants.DefaultTenantId, "usr_model_owner", factory, new[] { "ClaudeCode" }, logging).ConfigureAwait(false);
+                Captain captain = new Captain("named", AgentRuntimeEnum.ClaudeCode) { TenantId = Constants.DefaultTenantId, UserId = "usr_model_owner", Model = "frontier-test-model" };
+                CaptainModelValidationFailure? failure = await handler.ValidateCaptainModelDetailedAsync(captain).ConfigureAwait(false);
+                AssertEqual(CaptainModelValidationFailureEnum.RuntimeUnavailable, failure!.Reason);
+                AssertContains("CLI missing on Harbor", failure.Message);
+            }));
 
             cases.Add(CaseAsync("validate_model_async_returns_null_and_forwards_model", "ValidateModelAsync returns null and forwards model to runtime", TestTags.Positive, async () =>
             {
@@ -866,6 +965,21 @@ namespace Test.Shared.Suites.Services
             return (captain, mission, dock, job);
         }
 
+        private static AgentLifecycleHandler CreateRoutedValidationHandler(DatabaseDriver database, out ArmadaSettings settings, out HarborConnectionManager manager)
+        {
+            LoggingModule logging = CreateLogging();
+            settings = CreateSettings();
+            settings.RequireHarborForLaunch = true;
+            AgentRuntimeFactory factory = new AgentRuntimeFactory(logging);
+            factory.Override(AgentRuntimeEnum.ClaudeCode, () => throw new InvalidOperationException("Admiral runtime must not be created"));
+            factory.Override(AgentRuntimeEnum.Codex, () => throw new InvalidOperationException("Admiral runtime must not be created"));
+            manager = new HarborConnectionManager(new HarborService(database, logging), logging, "http://127.0.0.1:59999/mcp");
+            AgentLifecycleHandler handler = new AgentLifecycleHandler(logging, database, settings, factory, new StubAdmiralService(), new MessageTemplateService(logging), null, null,
+                (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
+            handler.SetHarborConnections(manager);
+            return handler;
+        }
+
         private static AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings)
         {
             return CreateHandler(database, out settings, out _);
@@ -901,7 +1015,10 @@ namespace Test.Shared.Suites.Services
                 templateService,
                 null,
                 null,
-                (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
+                (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask)
+            {
+                ModelValidationTimeout = TimeSpan.FromSeconds(5)
+            };
         }
 
         private static LoggingModule CreateLogging()

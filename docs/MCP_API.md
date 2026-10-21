@@ -2981,6 +2981,8 @@ Get the session log for a mission. Supports pagination.
 
 ### create_captain
 
+Named CLI models are validated on the owner's eligible Harbor under normal launch routing, with a scratch directory and a 30-second process limit. Harbor-required deployments do not need that CLI on the Admiral host. Unavailable execution hosts return `RuntimeUnavailable`; a CLI-rejected model returns `ModelRejected`. Omitting the model retains the runtime default.
+
 Register a new captain (AI agent).
 
 **Input Schema:**
