@@ -839,6 +839,7 @@ namespace Armada.Test.Database
                     EnvironmentVariables = new Dictionary<string, string> { { "FIXTURE_MODE", "round-trip" } },
                     RequiredSecrets = new List<string> { "env:API_TOKEN" },
                     ExpectedArtifacts = new List<string> { "artifacts/app.zip" },
+                    GateInputPaths = new List<string> { "docs/data-dictionary.md", "schema/**/*.sql" },
                     Environments = new List<WorkflowEnvironmentProfile>
                     {
                         new WorkflowEnvironmentProfile
@@ -871,6 +872,7 @@ namespace Armada.Test.Database
                 created.EnvironmentVariables = new Dictionary<string, string>();
                 created.RequiredSecrets = new List<string>();
                 created.ExpectedArtifacts = new List<string>();
+                created.GateInputPaths = new List<string>();
                 created.Environments = new List<WorkflowEnvironmentProfile>();
                 WorkflowProfile updated = await _Driver.WorkflowProfiles.UpdateAsync(created, token).ConfigureAwait(false);
                 using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))

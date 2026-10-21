@@ -1001,6 +1001,7 @@ export interface WorkflowProfile {
   requiredSecrets: string[];
   requiredInputs: WorkflowInputReference[];
   expectedArtifacts: string[];
+  gateInputPaths?: string[];
   environments: WorkflowEnvironmentProfile[];
   createdUtc: string;
   lastUpdateUtc: string;

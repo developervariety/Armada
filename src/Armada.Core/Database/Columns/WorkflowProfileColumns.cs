@@ -58,6 +58,7 @@ namespace Armada.Core.Database
             profile.LanguageHints = row.Json<List<string>>("language_hints_json", _Json) ?? new List<string>();
             profile.RequiredSecrets = row.Json<List<string>>("required_secrets_json", _Json) ?? new List<string>();
             profile.ExpectedArtifacts = row.Json<List<string>>("expected_artifacts_json", _Json) ?? new List<string>();
+            profile.GateInputPaths = row.Json<List<string>>("gate_input_paths_json", _Json) ?? new List<string>();
             profile.Environments = row.Json<List<WorkflowEnvironmentProfile>>("environments_json", _Json) ?? new List<WorkflowEnvironmentProfile>();
             profile.EnvironmentVariables = row.Json<Dictionary<string, string>>("environment_variables_json", _Json) ?? new Dictionary<string, string>();
             profile.CreatedUtc = row.Utc("created_utc");
@@ -103,6 +104,7 @@ namespace Armada.Core.Database
                 .Text("language_hints_json", Serialize(profile.LanguageHints))
                 .Text("required_secrets_json", Serialize(profile.RequiredSecrets))
                 .Text("expected_artifacts_json", Serialize(profile.ExpectedArtifacts))
+                .Text("gate_input_paths_json", Serialize(profile.GateInputPaths))
                 .Text("environments_json", Serialize(profile.Environments))
                 .Text("environment_variables_json", Serialize(profile.EnvironmentVariables))
                 .Utc("created_utc", profile.CreatedUtc)

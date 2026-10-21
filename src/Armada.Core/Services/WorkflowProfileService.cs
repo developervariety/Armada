@@ -217,6 +217,10 @@ namespace Armada.Core.Services
             if (patternError != null)
                 result.Errors.Add(patternError);
 
+            string? gateInputError = WorkflowGateInputs.Validate(profile.GateInputPaths);
+            if (gateInputError != null)
+                result.Errors.Add(gateInputError);
+
             if (availableTypes.Count == 0)
                 result.Errors.Add("At least one build, test, release, deploy, verification, migration, security, or performance command is required.");
 
@@ -653,6 +657,7 @@ namespace Armada.Core.Services
                 .Where(artifact => !String.IsNullOrWhiteSpace(artifact))
                 .Select(artifact => artifact.Trim())
                 .ToList();
+            target.GateInputPaths = WorkflowGateInputs.Normalize(source.GateInputPaths);
             target.Environments = source.Environments ?? new List<WorkflowEnvironmentProfile>();
         }
 

@@ -1443,6 +1443,63 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Preview warns when the planned missions name none of the profile's declared gate inputs", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("gate-input-preview");
+                    Pipeline architectPipeline = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("GateInputArchitect")
+                    {
+                        Stages = new List<PipelineStage>
+                        {
+                            new PipelineStage(1, "Architect"),
+                            new PipelineStage(2, "Worker"),
+                            new PipelineStage(3, "Judge")
+                        }
+                    }).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreview undeclared = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, architectPipeline.Id).ConfigureAwait(false);
+                    AssertFalse(undeclared.Issues.Any(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode),
+                        "a profile that declares no gate inputs raises no gate-input warning");
+
+                    harness.Profile.GateInputPaths = new List<string> { "docs/data-dictionary.md", "schema/**/*.sql" };
+                    await testDb.Driver.WorkflowProfiles.UpdateAsync(harness.Profile).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreview architect = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, architectPipeline.Id).ConfigureAwait(false);
+                    ObjectiveDispatchPreviewIssue planned = architect.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
+                    AssertEqual(ReadinessSeverityEnum.Warning, planned.Severity, "the gate-input warning never blocks dispatch");
+                    AssertContains("docs/data-dictionary.md", planned.Message, "the warning names each declared gate input");
+                    AssertContains("schema/**/*.sql", planned.Message, "the warning names a declared glob as written");
+                    AssertContains("Architect", planned.Message, "the warning says the Architect plans the file lists");
+
+                    List<MissionDescription> withoutInputs = new List<MissionDescription>
+                    {
+                        new MissionDescription { Title = "Add the export column", Description = "Edit src/Export/Writer.cs and its tests." }
+                    };
+                    ObjectiveDispatchPreview unplanned = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, null, null, withoutInputs).ConfigureAwait(false);
+                    ObjectiveDispatchPreviewIssue missing = unplanned.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
+                    AssertContains("docs/data-dictionary.md", missing.Message, "an unnamed gate input is listed");
+                    AssertContains("schema/**/*.sql", missing.Message, "an unmatched glob is listed");
+
+                    List<MissionDescription> withInputs = new List<MissionDescription>
+                    {
+                        new MissionDescription
+                        {
+                            Title = "Add the export column",
+                            Description = "Edit src/Export/Writer.cs, schema/export/columns.sql and `docs/data-dictionary.md`."
+                        }
+                    };
+                    ObjectiveDispatchPreview covered = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, null, null, withInputs).ConfigureAwait(false);
+                    AssertFalse(covered.Issues.Any(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode),
+                        "mission descriptions that name every gate input, one through its glob, raise no warning");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Preflight citations resolve declared sibling paths at the sibling tip", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

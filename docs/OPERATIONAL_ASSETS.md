@@ -212,6 +212,21 @@ and names `armada_get_mission_log` with the report's `captureId` as the place
 for the full list. The bounded diagnostics and output tail follow. The rescue
 brief carries the same text.
 
+`gateInputPaths` lists the repository-relative files or glob patterns that the
+profile's required checks read, for example `docs/data-dictionary.md` for a
+docs check that compares a data dictionary with the schema. Commands are shell
+strings, so Armada never derives this list; the operator declares it. A save
+trims each entry, uses forward slashes, drops blanks and duplicates, keeps at
+most 50 entries, and refuses an entry that is rooted or holds a `..` segment.
+An Architect brief on a vessel whose profile declares the list carries a
+`Gate Input Files` section: when the planned change touches what an entry
+describes, the plan assigns that file to the mission that makes the change.
+When an Architect plan fans out and no planned mission's title or description
+names an entry, by its exact path or through its glob, Armada records a
+`mission.architect_plan_gate_inputs_missing` event that names the entries. The
+plan still fans out. `preview_objective_dispatch` warns with
+`gate_inputs_unplanned` before dispatch.
+
 Commands run on the dock host. Use that host's path and shell syntax. A
 Windows `.bat`, `%CD%`, or `.\\` command is invalid on a Linux Admiral host.
 

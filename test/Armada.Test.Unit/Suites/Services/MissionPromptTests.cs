@@ -953,6 +953,65 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("An Architect brief names the gate inputs its vessel's workflow profile declares", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("GateInputVessel", "https://github.com/test/repo")).ConfigureAwait(false);
+                        Mission architect = new Mission();
+                        architect.Title = "Plan the export change";
+                        architect.Persona = "Architect";
+                        architect.Description = "Plan the export column.";
+                        architect.VesselId = vessel.Id;
+
+                        await service.GenerateClaudeMdAsync(tempDir, architect, vessel);
+                        string undeclaredBrief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertFalse(undeclaredBrief.Contains("## Gate Input Files"), "a profile that declares no gate inputs adds no section");
+
+                        await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        {
+                            Name = "gate-input-profile",
+                            Scope = WorkflowProfileScopeEnum.Vessel,
+                            VesselId = vessel.Id,
+                            BuildCommand = "echo build",
+                            GateInputPaths = new List<string> { "docs/data-dictionary.md", "schema/**/*.sql" }
+                        }).ConfigureAwait(false);
+
+                        string architectDir = Path.Combine(tempDir, "architect");
+                        Directory.CreateDirectory(architectDir);
+                        await service.GenerateClaudeMdAsync(architectDir, architect, vessel);
+                        string architectBrief = await File.ReadAllTextAsync(Path.Combine(architectDir, "CLAUDE.md"));
+                        AssertContains("## Gate Input Files", architectBrief, "the Architect brief carries the gate-input section");
+                        AssertContains("`docs/data-dictionary.md`", architectBrief, "each declared path is listed");
+                        AssertContains("`schema/**/*.sql`", architectBrief, "a declared glob is listed as written");
+
+                        string workerDir = Path.Combine(tempDir, "worker");
+                        Directory.CreateDirectory(workerDir);
+                        Mission worker = new Mission();
+                        worker.Title = "Add the export column";
+                        worker.Persona = "Worker";
+                        worker.Description = "Add the export column.";
+                        worker.VesselId = vessel.Id;
+                        await service.GenerateClaudeMdAsync(workerDir, worker, vessel);
+                        string workerBrief = await File.ReadAllTextAsync(Path.Combine(workerDir, "CLAUDE.md"));
+                        AssertFalse(workerBrief.Contains("## Gate Input Files"), "only the Architect, which writes the file lists, gets the section");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("Board notes say printing the marker posts the note, and prior art is skipped where it is off", async () =>
             {
                 string notes = MissionService.BuildProgressNotesSection();

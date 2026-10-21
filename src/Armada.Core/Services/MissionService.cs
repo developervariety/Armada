@@ -3760,6 +3760,15 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
+            // An Architect writes each mission's file list, so it is told which files the required checks read;
+            // a gated file left out of every mission fails the gate of a mission that was not allowed to edit it.
+            string gateInputs = await BuildGateInputsSectionAsync(mission, vessel, token).ConfigureAwait(false);
+            if (!String.IsNullOrEmpty(gateInputs))
+            {
+                content += ledger.Track("mission.gate_inputs", gateInputs);
+                content += "\n";
+            }
+
             // A Judge whose commit already has a passing independent UnitTest Check cites it and runs only
             // focused tests; without one it runs the full suite. The section states which case applies, read
             // when the brief is written so a Judge re-run after its Checks resolve sees the current state.
@@ -6727,6 +6736,7 @@ namespace Armada.Core.Services
                 if (parsed.Count > 0)
                 {
                     await ProjectArchitectMissionsToLogAsync(completedMission, parsed, token).ConfigureAwait(false);
+                    await RecordArchitectPlanGateInputsAsync(completedMission, parsed, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "architect produced " + parsed.Count + " mission definitions");
 
                     foreach (Mission nextMission in dependentMissions)

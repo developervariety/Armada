@@ -119,6 +119,12 @@ mission. Stored output is redacted for secrets, and a quoted span that is not
 a JSON string is treated as prose: it keeps its text and plan markers, and only
 key-shaped values inside it are removed.
 
+When the vessel's workflow profile declares `gateInputPaths`, the Architect
+brief lists them in a `Gate Input Files` section, and a plan whose blocks name
+none of an entry records `mission.architect_plan_gate_inputs_missing` with the
+unnamed entries. The plan still hands off. See
+[OPERATIONAL_ASSETS.md](OPERATIONAL_ASSETS.md) for the field.
+
 Each handoff block ends with a report-essentials section for the stage that
 just finished: the complete-output reference (`mission-output:<id>`) with its
 length and UTF-8 SHA-256, the verdict, every blocking finding, and the

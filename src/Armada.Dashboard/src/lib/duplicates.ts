@@ -210,6 +210,7 @@ export function buildWorkflowProfileDuplicatePayload(profile: WorkflowProfile): 
     requiredSecrets: [...(profile.requiredSecrets || [])],
     requiredInputs: (profile.requiredInputs || []).map(cloneWorkflowInputReference),
     expectedArtifacts: [...(profile.expectedArtifacts || [])],
+    gateInputPaths: [...(profile.gateInputPaths || [])],
     environments: (profile.environments || []).map(cloneWorkflowEnvironmentProfile),
   };
 }

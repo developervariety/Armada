@@ -446,6 +446,14 @@ or execute tests, a suite, a gate or a build, names class or suite runs, pins a
 pass count (`42/42 pass`, `0 failures`), says a build or suite passes, or names
 a build or test command; a criterion that says not to run them does not count.
 
+When the target vessel's workflow profile declares `gateInputPaths`, the preview
+also returns a `gate_inputs_unplanned` warning, which does not block dispatch.
+With an Architect stage the plan does not exist yet, so the warning lists every
+declared gate input the Architect brief tells it to assign. With operator
+`missionDescriptions` it lists each gate input that no mission title or
+description names, either as the exact path or through the declared glob. A
+pipeline with neither raises no gate-input warning.
+
 `armada_dispatch` accepts `captainAssignments`, an array of `persona`,
 `captainId` and optional `fallbackTier` entries (`persona` `*` applies to every
 stage without its own entry). The voyage row stores them when it is created,
@@ -1438,7 +1446,8 @@ cannot be read (for example a blank `name`) returns code `invalid` instead of a
 protocol error. `validate_workflow_profile` resolves the tenant exactly as
 create does, so its answer matches the create. Validation refuses a
 `failedTestLinePattern` that is not a valid .NET regular expression or has no
-named group `name`.
+named group `name`, and a `gateInputPaths` entry that is rooted or holds a `..`
+segment.
 
 ### Playbooks
 

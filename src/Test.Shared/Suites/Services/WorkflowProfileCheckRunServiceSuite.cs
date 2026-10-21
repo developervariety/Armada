@@ -130,6 +130,39 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("^FAIL (?<name>.+?): ", unchanged!.FailedTestLinePattern, "a refused update keeps the stored pattern");
             }));
 
+            cases.Add(CaseAsync("profile_save_normalizes_gate_inputs_and_refuses_paths_outside_the_repository", "Profile save keeps normalized gate-input paths and refuses a rooted or parent-relative one", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService service = new WorkflowProfileService(testDb.Driver, logging);
+                await EnsureTenantAndUserAsync(testDb, "ten_gate_inputs", "usr_gate_inputs").ConfigureAwait(false);
+                AuthContext admin = AuthContext.Authenticated("ten_gate_inputs", "usr_gate_inputs", true, true, "UnitTest");
+
+                WorkflowProfile Requested(List<string> gateInputs) => new WorkflowProfile
+                {
+                    TenantId = "ten_gate_inputs",
+                    Name = "Example Gate Inputs",
+                    Scope = WorkflowProfileScopeEnum.Global,
+                    BuildCommand = "./build.sh",
+                    GateInputPaths = gateInputs
+                };
+
+                RecordWriteResult<WorkflowProfile> parent = await service.CreateAsync(admin, Requested(new List<string> { "../outside.md" })).ConfigureAwait(false);
+                AssertEqual(RecordWriteOutcomeEnum.Invalid, parent.Outcome, "a parent-relative gate input is refused");
+                AssertContains("must not contain a '..' segment", parent.Message ?? "");
+
+                RecordWriteResult<WorkflowProfile> rooted = await service.CreateAsync(admin, Requested(new List<string> { "/etc/data.md" })).ConfigureAwait(false);
+                AssertEqual(RecordWriteOutcomeEnum.Invalid, rooted.Outcome, "a rooted gate input is refused");
+                AssertContains("must be repository-relative", rooted.Message ?? "");
+
+                RecordWriteResult<WorkflowProfile> created = await service.CreateAsync(admin,
+                    Requested(new List<string> { " ./docs/data-dictionary.md ", "schema\\**\\*.sql", "docs/data-dictionary.md", "  " })).ConfigureAwait(false);
+                AssertEqual(RecordWriteOutcomeEnum.Succeeded, created.Outcome, "repository-relative gate inputs are kept");
+                WorkflowProfile? stored = await service.ReadForCallerAsync(admin, created.Record!.Id).ConfigureAwait(false);
+                AssertEqual("docs/data-dictionary.md|schema/**/*.sql", String.Join("|", stored!.GateInputPaths),
+                    "the stored list is trimmed, forward-slashed, deduplicated and has no blanks");
+            }));
+
             cases.Add(CaseAsync("validate_async_rejects_cross_tenant_vessel_scope", "ValidateAsync rejects cross-tenant vessel scope", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

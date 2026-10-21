@@ -33,6 +33,16 @@ upstream integrations and excludes changes already present at that baseline.
   the dashboard chatroom shows that aggregate, naming each session's rooms, and
   opens on the fleet room. The fair-share scheduler and the room routing share
   one campaign-root rule.
+- A workflow profile declares `gateInputPaths`: the repository-relative files
+  or glob patterns its required checks read, such as a data dictionary a docs
+  check compares with the schema. A save normalizes the list and refuses a
+  rooted or parent-relative entry. An Architect brief on the vessel lists them
+  in a `Gate Input Files` section, so the plan assigns a gated file to the
+  mission whose change touches it. A plan that names none of an entry records
+  `mission.architect_plan_gate_inputs_missing` and still fans out, and
+  `preview_objective_dispatch` warns with `gate_inputs_unplanned`. Persisted on
+  all four providers (SQLite 118, PostgreSQL 122, SQL Server 114, MySQL 111);
+  the dashboard profile editor shows the field.
 - Deployments pin one immutable candidate. A deployment resolves its
   `SourceRef` once, at create, to the full commit in the vessel's own
   repository and stores it as `SourceCommit`, with an optional

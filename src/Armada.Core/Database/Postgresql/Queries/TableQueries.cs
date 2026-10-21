@@ -1215,7 +1215,8 @@ $convert$;"),
                 new SchemaMigration(118, "Persist who promoted a memory proposal and the AI-Memory commit that holds it", MemoryProposalPromotionPersistence.PostgresqlStatements),
                 new SchemaMigration(119, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.PostgresqlStatements),
                 new SchemaMigration(120, "Index signals by type, read flag and creation time", SignalTypeReadIndexSchema.PostgresqlStatements),
-                new SchemaMigration(121, "Pin deployments to a resolved source commit and artifact, and store required Check types per environment", DeploymentCandidatePinPersistence.PostgresqlStatements)
+                new SchemaMigration(121, "Pin deployments to a resolved source commit and artifact, and store required Check types per environment", DeploymentCandidatePinPersistence.PostgresqlStatements),
+                new SchemaMigration(122, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.PostgresqlStatements)
             };
         }
 

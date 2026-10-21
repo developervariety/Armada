@@ -51,6 +51,13 @@ namespace Armada.Core.Services
         public const string StageDutyConflictIssueCode = "stage_duty_conflict";
 
         /// <summary>
+        /// Issue code for files the vessel's workflow profile declares as gate inputs that the planned missions do
+        /// not name: an Architect stage that will plan the file lists, or operator mission descriptions that name
+        /// none of them. The warning lists the paths and does not block dispatch.
+        /// </summary>
+        public const string GateInputsUnplannedIssueCode = "gate_inputs_unplanned";
+
+        /// <summary>
         /// The D5 preflight text-half adapter, run after the deterministic preflight block to add
         /// model flags to the preview. Null leaves the preview fully deterministic, which is the
         /// operationally-off state; it is set after construction only when the live typed-decision
@@ -246,6 +253,7 @@ namespace Armada.Core.Services
             EvaluateStageDutyConflicts(objective, readOnlyDispatch, result);
             await EvaluateCaptainCoverageAsync(auth, vessel, coveragePipeline, captains, captainAssignments, missionDescriptions, result, token).ConfigureAwait(false);
             await EvaluateChecksAsync(auth, vessel, result, token).ConfigureAwait(false);
+            await EvaluateGateInputsAsync(auth, vessel, missionDescriptions, result, token).ConfigureAwait(false);
 
             // D5 preflight text half. Runs LAST, after the deterministic block computed the facts and
             // resolved the pipeline, so its state carries both. The model only adds issues; the
@@ -1520,6 +1528,52 @@ namespace Armada.Core.Services
             }
 
             return resolved;
+        }
+
+        /// <summary>
+        /// Flag the gate inputs the vessel's workflow profile declares that the planned missions will not name. With
+        /// an Architect stage the plan does not exist yet, so the warning lists every declared input the Architect is
+        /// told to assign; with operator mission descriptions it lists the inputs none of them names. A pipeline with
+        /// neither has no file lists to compare, and the warning is not raised. It never blocks dispatch.
+        /// </summary>
+        private async Task EvaluateGateInputsAsync(
+            AuthContext auth,
+            Vessel vessel,
+            IReadOnlyList<MissionDescription>? missionDescriptions,
+            ObjectiveDispatchPreview result,
+            CancellationToken token)
+        {
+            WorkflowProfile? profile = await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, null, token).ConfigureAwait(false);
+            List<string> declared = WorkflowGateInputs.Normalize(profile?.GateInputPaths);
+            if (declared.Count == 0) return;
+
+            bool architectPlans = result.EffectivePipelineStages.Any(stage => PersonaCatalog.Matches(stage, PersonaCatalog.Architect));
+            if (architectPlans)
+            {
+                AddIssue(result, GateInputsUnplannedIssueCode, "brief", ReadinessSeverityEnum.Warning,
+                    "The Architect stage writes the mission file lists, and the required checks read these gate inputs: "
+                    + String.Join(", ", declared)
+                    + ". The Architect brief tells it to assign each one the change touches; a plan that names none of them records "
+                    + WorkflowGateInputs.PlanMissingEventType + ".",
+                    String.Join(",", declared));
+                return;
+            }
+
+            if (missionDescriptions == null || missionDescriptions.Count == 0) return;
+            List<string?> planTexts = new List<string?>();
+            foreach (MissionDescription description in missionDescriptions)
+            {
+                if (description == null) continue;
+                planTexts.Add(description.Title);
+                planTexts.Add(description.Description);
+            }
+            List<string> unplanned = WorkflowGateInputs.FindUnplanned(declared, planTexts);
+            if (unplanned.Count == 0) return;
+            AddIssue(result, GateInputsUnplannedIssueCode, "brief", ReadinessSeverityEnum.Warning,
+                "No mission description names these gate inputs the required checks read: "
+                + String.Join(", ", unplanned)
+                + ". If the change touches what they describe, give each one to the mission that makes the change.",
+                String.Join(",", unplanned));
         }
 
         private async Task EvaluateChecksAsync(

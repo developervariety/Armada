@@ -99,6 +99,7 @@ export default function WorkflowProfileDetail() {
   const [languageHints, setLanguageHints] = useState('');
   const [requiredInputs, setRequiredInputs] = useState<WorkflowInputReference[]>([]);
   const [expectedArtifacts, setExpectedArtifacts] = useState('');
+  const [gateInputPaths, setGateInputPaths] = useState('');
   const [lintCommand, setLintCommand] = useState('');
   const [buildCommand, setBuildCommand] = useState('');
   const [unitTestCommand, setUnitTestCommand] = useState('');
@@ -165,6 +166,7 @@ export default function WorkflowProfileDetail() {
         setLanguageHints(joinList(result.languageHints));
         setRequiredInputs(result.requiredInputs || []);
         setExpectedArtifacts(joinList(result.expectedArtifacts));
+        setGateInputPaths(joinList(result.gateInputPaths || []));
         setLintCommand(result.lintCommand || '');
         setBuildCommand(result.buildCommand || '');
         setUnitTestCommand(result.unitTestCommand || '');
@@ -246,6 +248,7 @@ export default function WorkflowProfileDetail() {
         }))
         .filter((item) => item.key.length > 0),
       expectedArtifacts: splitList(expectedArtifacts),
+      gateInputPaths: splitList(gateInputPaths),
       environments: environments.map((environment) => ({
         environmentName: environment.environmentName.trim(),
         deployCommand: environment.deployCommand?.trim() || null,
@@ -518,6 +521,10 @@ export default function WorkflowProfileDetail() {
           <label className="playbook-editor-field">
             <span>{t('Expected Artifacts')}</span>
             <textarea value={expectedArtifacts} disabled={!canManage} onChange={(event) => setExpectedArtifacts(event.target.value)} rows={3} placeholder={t('bin/Release/app.zip\ncoverage/summary.xml')} />
+          </label>
+          <label className="playbook-editor-field">
+            <span>{t('Gate Input Paths')}</span>
+            <textarea value={gateInputPaths} disabled={!canManage} onChange={(event) => setGateInputPaths(event.target.value)} rows={3} placeholder={t('docs/data-dictionary.md\nschema/**/*.sql')} />
           </label>
         </div>
 

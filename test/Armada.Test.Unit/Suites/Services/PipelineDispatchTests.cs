@@ -942,6 +942,43 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("An Architect plan that names none of a declared gate input is flagged, and the plan still fans out", async () =>
+            {
+                List<string> gateInputs = new List<string> { "docs/data-dictionary.md", "schema/**/*.sql" };
+                string missingPlan =
+                    "[ARMADA:MISSION]\ntitle: Add the export column\n\nEdit src/Export/Writer.cs and its tests.\n[ARMADA:MISSION-END]\n";
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                        startFromRef: null, recordedStartCommit: null, dependsOnPredecessor: false, headCommit: RecoveryTipCommit,
+                        diff: "", output: missingPlan, gateInputPaths: gateInputs).ConfigureAwait(false);
+                    AssertEqual(1, outcome.VoyageMissions.Count(m => m.Persona == "Worker"), "The flag does not stop the fan-out");
+                    AssertEqual(1, outcome.GateInputEvents.Count, "A plan that names no gate input records one event");
+                    AssertContains("docs/data-dictionary.md", outcome.GateInputEvents[0].Message ?? String.Empty, "The event names the unplanned path");
+                    AssertContains("schema/**/*.sql", outcome.GateInputEvents[0].Message ?? String.Empty, "The event names the unplanned glob");
+                }
+
+                string coveredPlan =
+                    "[ARMADA:MISSION]\ntitle: Add the export column\n\nEdit src/Export/Writer.cs, schema/export/columns.sql and docs/data-dictionary.md.\n[ARMADA:MISSION-END]\n";
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                        startFromRef: null, recordedStartCommit: null, dependsOnPredecessor: false, headCommit: RecoveryTipCommit,
+                        diff: "", output: coveredPlan, gateInputPaths: gateInputs).ConfigureAwait(false);
+                    AssertContains("schema/export/columns.sql", outcome.VoyageMissions.Single(m => m.Persona == "Worker").Description ?? String.Empty,
+                        "The worker brief carries the plan text the check reads");
+                    AssertEqual(0, outcome.GateInputEvents.Count, "A plan that names every gate input records no event");
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PlannerHandoffOutcome outcome = await RunArchitectHandoffAsync(testDb, new DirCreatingGitStub(),
+                        startFromRef: null, recordedStartCommit: null, dependsOnPredecessor: false, headCommit: RecoveryTipCommit,
+                        diff: "", output: missingPlan).ConfigureAwait(false);
+                    AssertEqual(0, outcome.GateInputEvents.Count, "A vessel whose profile declares no gate inputs records no event");
+                }
+            });
+
             // A PASS whose acceptance-criteria section is a table is a format miss. The same Judge mission runs
             // once more in place with the accepted line form in its brief, instead of failing and starting a
             // rescue; a second format miss fails as before.
@@ -1479,6 +1516,7 @@ namespace Armada.Test.Unit.Suites.Services
             public List<ArmadaEvent> PlannerEvents { get; set; } = new List<ArmadaEvent>();
             public List<Mission> VoyageMissions { get; set; } = new List<Mission>();
             public List<ArmadaEvent> FallbackEvents { get; set; } = new List<ArmadaEvent>();
+            public List<ArmadaEvent> GateInputEvents { get; set; } = new List<ArmadaEvent>();
         }
 
         private async Task<PlannerHandoffOutcome> RunArchitectHandoffAsync(
@@ -1489,7 +1527,8 @@ namespace Armada.Test.Unit.Suites.Services
             bool dependsOnPredecessor,
             string headCommit,
             string diff,
-            string? output = null)
+            string? output = null,
+            List<string>? gateInputPaths = null)
         {
             LoggingModule logging = CreateLogging();
             ArmadaSettings settings = CreateSettings();
@@ -1503,6 +1542,18 @@ namespace Armada.Test.Unit.Suites.Services
             vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
             vessel.DefaultBranch = "main";
             vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+            if (gateInputPaths != null)
+            {
+                await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                {
+                    Name = "planner-start-profile",
+                    Scope = WorkflowProfileScopeEnum.Vessel,
+                    VesselId = vessel.Id,
+                    BuildCommand = "echo build",
+                    GateInputPaths = gateInputPaths
+                }).ConfigureAwait(false);
+            }
 
             Captain architectCaptain = new Captain("planner-start-architect");
             architectCaptain.State = CaptainStateEnum.Working;
@@ -1586,7 +1637,8 @@ namespace Armada.Test.Unit.Suites.Services
                 Worker = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!,
                 PlannerEvents = await testDb.Driver.Events.EnumerateByTypeAsync("mission.planner_committed_code").ConfigureAwait(false),
                 VoyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(architect.VoyageId!).ConfigureAwait(false),
-                FallbackEvents = await testDb.Driver.Events.EnumerateByTypeAsync("mission.architect_plan_fallback").ConfigureAwait(false)
+                FallbackEvents = await testDb.Driver.Events.EnumerateByTypeAsync("mission.architect_plan_fallback").ConfigureAwait(false),
+                GateInputEvents = await testDb.Driver.Events.EnumerateByTypeAsync(WorkflowGateInputs.PlanMissingEventType).ConfigureAwait(false)
             };
         }
 

@@ -210,6 +210,14 @@ namespace Armada.Core.Models
         public List<string> ExpectedArtifacts { get; set; } = new List<string>();
 
         /// <summary>
+        /// Repository-relative paths or glob patterns that this profile's required checks read, for example a data
+        /// dictionary a docs check compares against the schema. Commands are shell strings, so Armada cannot derive
+        /// these; the operator declares them. An Architect brief names them as files a plan must assign when the
+        /// change touches what they describe, and a plan that assigns none of them is flagged. Empty means none.
+        /// </summary>
+        public List<string> GateInputPaths { get; set; } = new List<string>();
+
+        /// <summary>
         /// Environment-specific delivery commands.
         /// </summary>
         public List<WorkflowEnvironmentProfile> Environments { get; set; } = new List<WorkflowEnvironmentProfile>();

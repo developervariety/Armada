@@ -26,7 +26,7 @@ namespace Armada.Core.Database
                 "lint_command", "build_command", "unit_test_command", "containerless_unit_test_command", "failed_test_line_pattern", "isolated_test_rerun_command", "integration_test_command",
                 "e2e_test_command", "package_command", "publish_artifact_command", "release_versioning_command", "changelog_generation_command",
                 "migration_command", "security_scan_command", "performance_command", "deployment_verification_command",
-                "rollback_verification_command", "required_secrets_json", "expected_artifacts_json", "environments_json",
+                "rollback_verification_command", "required_secrets_json", "expected_artifacts_json", "gate_input_paths_json", "environments_json",
                 "environment_variables_json", "created_utc", "last_update_utc"
             },
             new[] { "created_utc" },
