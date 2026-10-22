@@ -118,6 +118,12 @@ namespace Armada.Core.Models
         public ObjectiveDispatchPreflight Preflight { get; set; } = new ObjectiveDispatchPreflight();
 
         /// <summary>
+        /// Prepared branch anchors that moved without touching a path the objective cites, claims, or is
+        /// assigned. Each one is a warning, not an error, and the dispatch brief names its current tip.
+        /// </summary>
+        public List<ObjectivePreparationAnchorMove> PreparationAnchorMoves { get; set; } = new List<ObjectivePreparationAnchorMove>();
+
+        /// <summary>
         /// All preview findings in deterministic evaluation order.
         /// </summary>
         public List<ObjectiveDispatchPreviewIssue> Issues { get; set; } = new List<ObjectiveDispatchPreviewIssue>();

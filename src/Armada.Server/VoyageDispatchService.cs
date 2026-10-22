@@ -170,6 +170,7 @@ namespace Armada.Server
                         token).ConfigureAwait(false);
                     VoyageDispatchResult? gate = PreflightGateResult(preview, request.ForcePreflight, objectiveId);
                     if (gate != null) return gate;
+                    request.PreparationAnchorMoves = preview.PreparationAnchorMoves ?? new List<ObjectivePreparationAnchorMove>();
                     request.PreflightModelFlaggedQuestions = request.ForcePreflight
                         ? ObjectivePreflightGate.ModelFlaggedQuestions(preview)
                         : new List<int>();
@@ -369,7 +370,7 @@ namespace Armada.Server
                 request.ObjectiveAuthContext,
                 missions).ConfigureAwait(false);
             if (dispatchObjective != null && String.IsNullOrWhiteSpace(description))
-                description = ObjectiveBriefRenderer.Render(dispatchObjective);
+                description = ObjectiveBriefRenderer.Render(dispatchObjective, request.PreparationAnchorMoves);
 
             // An operator forced past the preflight only when force was set and the objective was actually
             // incomplete or model-flagged; a force flag on a clean objective records nothing. Preconditions

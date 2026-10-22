@@ -9,6 +9,24 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- A prepared objective whose recorded branch moved stays dispatchable when the
+  move changed no file it depends on. The dispatch preview reads the files that
+  changed between the recorded commit and the branch tip; when none is a cited
+  `path:line`, a file the title or description names, or a path in a
+  preparation claim, it reports the Warning
+  `preparation_<source|target>_revision_moved` with both commits and the
+  changed-file count, lists the move in `PreparationAnchorMoves`, and the
+  dispatched brief names the current tip. A change to such a file stays the
+  Error `preparation_<source|target>_revision_changed` and names the files; a
+  commit or tag ref, a recorded value that is not a full commit, or an
+  unreadable comparison stays that Error with the reason.
+- `armada_objective_scheduler_status` lists `LastSweepSkippedObjectives`: up to
+  20 objectives the last sweep examined and did not dispatch, each with its
+  reason and the preview's first error code, plus
+  `LastSweepSkippedObjectiveCount`. `LastSkipReason` reads `sweep_in_progress`
+  while a sweep runs and `sweep_failed` when the sweep threw, so null still
+  means only that work was dispatched.
+
 - `preview_objective_dispatch` and `GET /api/v1/objectives/{id}/dispatch-preview`
   take an opt-in `compact` flag. With it they return only the objective id,
   `isReady`, the Error issues and the failed preflight facts, for an audit that

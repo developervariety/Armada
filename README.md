@@ -131,7 +131,12 @@ hub and emits one line per voyage, mission, incident or directed note, so an
 operator session watches by subscribing instead of blocking on a poll.
 
 A sweep that dispatches nothing says why. `LastSkipReason` is null only when work
-was dispatched, and otherwise names the constraint with counts. Note that an
+was dispatched, and otherwise names the constraint with counts;
+`LastSweepSkippedObjectives` names up to 20 objectives the sweep examined and did
+not dispatch, each with its reason and the preview's first error code. A prepared
+objective whose verified branch moved stays ready when no changed file is one the
+objective cites, claims or is assigned (`preparation_target_revision_moved`, a
+Warning); a change to such a file is an Error that names it. Note that an
 objective must name exactly one vessel to auto-dispatch: set `VesselIds` to the
 vessel whose repository receives the commit. An objective can also carry a
 `StartFromRef`: the first stage's branch is cut from that ref instead of the

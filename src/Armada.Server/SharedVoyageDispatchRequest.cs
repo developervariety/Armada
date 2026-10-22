@@ -76,6 +76,13 @@ namespace Armada.Server
         internal List<int> PreflightModelFlaggedQuestions { get; set; } = new List<int>();
 
         /// <summary>
+        /// Prepared branch anchors the dispatch preview found moved without touching a path the objective
+        /// depends on. Set by the preview gate; the rendered objective brief names their current tips.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        internal List<ObjectivePreparationAnchorMove> PreparationAnchorMoves { get; set; } = new List<ObjectivePreparationAnchorMove>();
+
+        /// <summary>
         /// Further objectives admitted and linked in the same operation as <see cref="ObjectiveId"/>.
         /// Every objective is admitted before the voyage is created and linked before admission ends.
         /// </summary>

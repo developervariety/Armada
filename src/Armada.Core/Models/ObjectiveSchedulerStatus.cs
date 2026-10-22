@@ -83,10 +83,24 @@ namespace Armada.Core.Models
         public long EventTriggeredSweepCount { get; set; } = 0;
 
         /// <summary>
-        /// Human-readable reason the last sweep was skipped (e.g. "disabled", "paused", "max_concurrent"),
-        /// or null when the last sweep ran to completion.
+        /// Why the last sweep dispatched nothing: "disabled", "paused", "max_concurrent", "dispatch_hold",
+        /// per-reason counts such as "dispatch_preflight=3,vessel_concurrency=1", "no_eligible_objectives" when
+        /// nothing was eligible, "sweep_in_progress" while a sweep runs, or "sweep_failed". Null only when the
+        /// last sweep dispatched work.
         /// </summary>
         public string? LastSkipReason { get; set; } = null;
+
+        /// <summary>
+        /// Objectives the last completed sweep examined and did not dispatch, each with its reason and the
+        /// preview's first error code when the preview refused it. Capped at 20 entries.
+        /// </summary>
+        public List<ObjectiveSchedulerSkippedObjective> LastSweepSkippedObjectives { get; set; } = new List<ObjectiveSchedulerSkippedObjective>();
+
+        /// <summary>
+        /// Number of objectives the last completed sweep examined and did not dispatch, including any past the
+        /// cap on <see cref="LastSweepSkippedObjectives"/>.
+        /// </summary>
+        public int LastSweepSkippedObjectiveCount { get; set; } = 0;
 
         /// <summary>
         /// True while a scheduler sweep is running.

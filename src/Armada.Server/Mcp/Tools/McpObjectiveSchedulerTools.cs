@@ -295,6 +295,8 @@ namespace Armada.Server.Mcp.Tools
                 ActiveDispatchedCount = scheduler.ActiveDispatchedCount,
                 EventTriggeredSweepCount = scheduler.EventTriggeredSweepCount,
                 LastSkipReason = scheduler.LastSkipReason,
+                LastSweepSkippedObjectives = scheduler.LastSweepSkippedObjectives.ToList(),
+                LastSweepSkippedObjectiveCount = scheduler.LastSweepSkippedObjectiveCount,
                 SweepInProgress = scheduler.SweepInProgress,
                 LastSweepStartedUtc = scheduler.LastSweepStartedUtc,
                 LastSweepCompletedUtc = scheduler.LastSweepCompletedUtc,

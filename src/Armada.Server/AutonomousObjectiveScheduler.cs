@@ -117,10 +117,31 @@ namespace Armada.Server
         public int ActiveDispatchedCount { get; private set; }
 
         /// <summary>
-        /// Reason the last sweep skipped dispatch (e.g. "disabled", "paused", "max_concurrent"),
-        /// or null if the last sweep dispatched normally.
+        /// Reason the last sweep skipped dispatch (e.g. "disabled", "paused", "max_concurrent", or per-reason
+        /// counts such as "dispatch_preflight=3"), "no_eligible_objectives" when nothing was eligible,
+        /// "sweep_in_progress" while a sweep runs, "sweep_failed" when the sweep threw, or null only when the
+        /// last sweep dispatched work.
         /// </summary>
         public string? LastSkipReason { get; private set; }
+
+        /// <summary>
+        /// Objectives the last completed sweep examined and did not dispatch, each with its reason, in
+        /// examination order and capped at <see cref="MaxSkippedObjectivesReported"/>. Empty when the last
+        /// sweep examined none or dispatched every one it examined.
+        /// </summary>
+        public IReadOnlyList<ObjectiveSchedulerSkippedObjective> LastSweepSkippedObjectives { get; private set; }
+            = Array.Empty<ObjectiveSchedulerSkippedObjective>();
+
+        /// <summary>
+        /// Number of objectives the last completed sweep examined and did not dispatch, including any past the
+        /// cap on <see cref="LastSweepSkippedObjectives"/>.
+        /// </summary>
+        public int LastSweepSkippedObjectiveCount { get; private set; }
+
+        /// <summary>
+        /// Most skipped objectives <see cref="LastSweepSkippedObjectives"/> lists.
+        /// </summary>
+        public const int MaxSkippedObjectivesReported = 20;
 
         /// <summary>
         /// True while a scheduling sweep holds the single-flight lock and is doing work.
@@ -497,8 +518,26 @@ namespace Armada.Server
                 SweepDispatchedCount = 0;
                 LastSweepBoundReached = false;
                 LastSweepError = null;
-                LastSkipReason = null;
+                // Null means "work was dispatched", so a read while the sweep runs must not see it.
+                LastSkipReason = "sweep_in_progress";
                 LastResultSummary = "running candidates=0/0 dispatched=0";
+                List<ObjectiveSchedulerSkippedObjective> skippedObjectives = new List<ObjectiveSchedulerSkippedObjective>();
+                int skippedObjectiveCount = 0;
+                void SkipObjective(Dictionary<string, int> reasons, Objective skippedObjective, string reason, string? detail)
+                {
+                    RecordSkip(reasons, reason);
+                    skippedObjectiveCount++;
+                    if (skippedObjectives.Count < MaxSkippedObjectivesReported)
+                    {
+                        skippedObjectives.Add(new ObjectiveSchedulerSkippedObjective
+                        {
+                            ObjectiveId = skippedObjective.Id,
+                            Title = skippedObjective.Title ?? String.Empty,
+                            Reason = String.IsNullOrWhiteSpace(reason) ? "unknown" : reason,
+                            Detail = FirstDetail(detail)
+                        });
+                    }
+                }
 
                 if (!Enabled)
                 {
@@ -507,6 +546,7 @@ namespace Armada.Server
                         "Autonomous objective scheduler sweep skipped: scheduler is disabled.", token).ConfigureAwait(false);
                     LastSkipReason = "disabled";
                     LastResultSummary = "skipped (disabled)";
+                    PublishSkippedObjectives(skippedObjectives, skippedObjectiveCount);
                     return;
                 }
 
@@ -517,6 +557,7 @@ namespace Armada.Server
                         "Autonomous objective scheduler sweep skipped: scheduler is paused.", token).ConfigureAwait(false);
                     LastSkipReason = "paused";
                     LastResultSummary = "skipped (paused)";
+                    PublishSkippedObjectives(skippedObjectives, skippedObjectiveCount);
                     return;
                 }
 
@@ -579,6 +620,7 @@ namespace Armada.Server
                         LastSkipReason = DescribeSkips(skipReasons);
                         LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 skipped=" + LastSkipReason;
                     }
+                    PublishSkippedObjectives(skippedObjectives, skippedObjectiveCount);
                     return;
                 }
 
@@ -605,6 +647,7 @@ namespace Armada.Server
                         LastSkipReason = DescribeSkips(skipReasons);
                         LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 skipped=" + LastSkipReason;
                     }
+                    PublishSkippedObjectives(skippedObjectives, skippedObjectiveCount);
                     return;
                 }
 
@@ -635,7 +678,7 @@ namespace Armada.Server
                     if (_ObjectiveDispatchPreview != null
                         && !ObjectivePreflightEvaluator.IsComplete(objective.Preparation?.Preflight))
                     {
-                        RecordSkip(skipReasons, "dispatch_preflight");
+                        SkipObjective(skipReasons, objective, "dispatch_preflight", "objective_preflight_incomplete");
                         preflightBlocks.Blocked(objective, "objective_preflight_incomplete");
                         continue;
                     }
@@ -669,7 +712,8 @@ namespace Armada.Server
                             preflightBlocks.Other(objective);
                             bool sharedLane = lane.Count > 1;
                             string laneName = String.Join("+", lane.OrderBy(v => v, StringComparer.Ordinal));
-                            RecordSkip(skipReasons, sharedLane ? "lane_busy:" + laneName : "vessel_concurrency");
+                            SkipObjective(skipReasons, objective, sharedLane ? "lane_busy:" + laneName : "vessel_concurrency",
+                                activeOnVessel + " active of limit " + MaxConcurrentVoyagesPerVessel);
                             await EmitObjectiveEventAsync(
                                 sharedLane ? "objective_scheduler.skipped_lane_busy" : "objective_scheduler.skipped_vessel_concurrency",
                                 "Autonomous scheduler skipped objective " + objective.Id + ": "
@@ -713,7 +757,7 @@ namespace Armada.Server
                         }
                         if (IsDependencyBlocked(preview))
                         {
-                            RecordSkip(skipReasons, "dependency_blocked");
+                            SkipObjective(skipReasons, objective, "dependency_blocked", ErrorCodes(preview));
                             await EmitDispatchPreviewSkipAsync(objective, preview, true, token).ConfigureAwait(false);
                             continue;
                         }
@@ -744,7 +788,7 @@ namespace Armada.Server
                     }
                     catch (ObjectiveSkippedException skipped)
                     {
-                        RecordSkip(skipReasons, skipped.Reason);
+                        SkipObjective(skipReasons, objective, skipped.Reason, skipped.Detail);
                         if (String.Equals(skipped.Reason, "dispatch_preflight", StringComparison.Ordinal))
                             preflightBlocks.Blocked(objective, skipped.Detail);
                         else if (!String.Equals(skipped.Reason, "dependency_blocked", StringComparison.Ordinal))
@@ -759,7 +803,7 @@ namespace Armada.Server
                             StringComparison.Ordinal)
                             ? "lane_busy"
                             : "max_concurrent";
-                        RecordSkip(skipReasons, reason);
+                        SkipObjective(skipReasons, objective, reason, capacityRefusal.Code);
                         await EmitObjectiveEventAsync(
                             "objective_scheduler.skipped_" + capacityRefusal.Code,
                             "Autonomous scheduler skipped objective " + objective.Id + ": "
@@ -774,7 +818,7 @@ namespace Armada.Server
                         // A ref that does not resolve is the objective's fault, not the fleet's.
                         // Report it by name so an operator can correct the row; a generic
                         // dispatch_error would send them looking at the captains.
-                        RecordSkip(skipReasons, "start_from_ref_missing");
+                        SkipObjective(skipReasons, objective, "start_from_ref_missing", objective.StartFromRef);
                         _Logging.Warn(_Header + "objective " + objective.Id + " skipped: " + missing.Message);
                         await EmitObjectiveEventAsync("objective_scheduler.start_from_ref_missing",
                             "Autonomous scheduler skipped objective " + objective.Id + ": " + missing.Message,
@@ -783,7 +827,7 @@ namespace Armada.Server
                     catch (Exception ex)
                     {
                         preflightBlocks.Other(objective);
-                        RecordSkip(skipReasons, "dispatch_error");
+                        SkipObjective(skipReasons, objective, "dispatch_error", ex.Message);
                         LastSweepError = "objective " + objective.Id + ": " + ex.Message;
                         _Logging.Warn(_Header + "dispatch failed for objective " + objective.Id + ": " + ex.Message);
                     }
@@ -807,6 +851,7 @@ namespace Armada.Server
                 LastSkipReason = dispatched > 0
                     ? null
                     : (skipReasons.Count > 0 ? DescribeSkips(skipReasons) : "no_eligible_objectives");
+                PublishSkippedObjectives(skippedObjectives, skippedObjectiveCount);
 
                 LastResultSummary = "reconciled=" + reconciledCount + " dispatched=" + dispatched
                     + (skipReasons.Count > 0 ? " skipped=" + DescribeSkips(skipReasons) : String.Empty);
@@ -817,6 +862,7 @@ namespace Armada.Server
             catch (Exception ex)
             {
                 LastSweepError = ex.Message;
+                LastSkipReason = "sweep_failed";
                 LastResultSummary = "failed: " + ex.Message;
                 throw;
             }
@@ -1412,6 +1458,7 @@ namespace Armada.Server
                     objective, null, token).ConfigureAwait(false);
             }
 
+            ObjectiveDispatchPreview? admittedPreview = null;
             if (_ObjectiveDispatchPreview != null)
             {
                 ObjectiveDispatchPreview preview = cachedPreview ?? await _ObjectiveDispatchPreview
@@ -1424,6 +1471,7 @@ namespace Armada.Server
                     await EmitDispatchPreviewSkipAsync(objective, preview, dependencyBlocked, token).ConfigureAwait(false);
                     throw new ObjectiveSkippedException(reason, ErrorCodes(preview));
                 }
+                admittedPreview = preview;
             }
 
             if (objective.VesselIds.Count != 1)
@@ -1477,7 +1525,7 @@ namespace Armada.Server
                 }
             }
 
-            string missionDescription = ObjectiveBriefRenderer.Render(objective);
+            string missionDescription = ObjectiveBriefRenderer.Render(objective, admittedPreview?.PreparationAnchorMoves);
             MissionDescription md = new MissionDescription(objective.Title, missionDescription)
             {
                 CodeContextMode = _Settings.CodeIndex.Enabled ? "auto" : "off",
@@ -1726,6 +1774,21 @@ namespace Armada.Server
                 true,
                 "AutonomousObjectiveScheduler",
                 principalDisplay: "Armada Autonomous Objective Scheduler");
+        }
+
+        private void PublishSkippedObjectives(List<ObjectiveSchedulerSkippedObjective> skipped, int total)
+        {
+            LastSweepSkippedObjectives = skipped.ToArray();
+            LastSweepSkippedObjectiveCount = total;
+        }
+
+        // A preview refusal carries every blocking code joined by ", "; the first one names the skip.
+        private static string? FirstDetail(string? detail)
+        {
+            if (String.IsNullOrWhiteSpace(detail)) return null;
+            string first = detail.Split(',')[0].Trim();
+            if (first.Length == 0) return null;
+            return first.Length > 200 ? first.Substring(0, 200) : first;
         }
 
         private static void RecordSkip(Dictionary<string, int> skipReasons, string reason)

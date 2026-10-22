@@ -38,6 +38,10 @@ namespace Armada.Core.Services
         // SHA, a path:line citation, and a backticked code identifier. Facts are best-effort and
         // bounded so the preview a scheduler runs never becomes expensive.
         private const int _MaxFactTokens = 12;
+        private const int _MaxAnchorMovePaths = 2000;
+        private const int _MaxNamedAnchorMovePaths = 10;
+        private const int _AnchorMoveOutputLimitBytes = 4 * 1024 * 1024;
+        private static readonly TimeSpan _AnchorMoveReadTimeout = TimeSpan.FromSeconds(15);
         private static readonly Regex _RecoverRefPattern = new Regex(@"recover/[A-Za-z0-9._/-]+", RegexOptions.Compiled);
         private static readonly Regex _CommitShaPattern = new Regex(@"\b[0-9a-fA-F]{40}\b", RegexOptions.Compiled);
         private static readonly Regex _PathLinePattern = new Regex(@"([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):\d+(?:-\d+)?", RegexOptions.Compiled);
@@ -1025,8 +1029,10 @@ namespace Armada.Core.Services
             CancellationToken token)
         {
             ObjectivePreparation preparation = objective.Preparation ?? new ObjectivePreparation();
-            await EvaluateAnchorAsync(auth, preparation.Source, "source", result, token).ConfigureAwait(false);
-            await EvaluateAnchorAsync(auth, preparation.Target, "target", result, token).ConfigureAwait(false);
+            await EvaluateAnchorAsync(auth, objective, preparation.Source, "source", result, token).ConfigureAwait(false);
+            await EvaluateAnchorAsync(auth, objective, preparation.Target, "target", result, token).ConfigureAwait(false);
+            if (result.PreparationAnchorMoves.Count > 0)
+                result.RenderedBrief = ObjectiveBriefRenderer.Render(objective, result.PreparationAnchorMoves);
 
             if (preparation.Target != null
                 && !String.IsNullOrWhiteSpace(preparation.Target.VesselId)
@@ -1039,6 +1045,7 @@ namespace Armada.Core.Services
 
         private async Task EvaluateAnchorAsync(
             AuthContext auth,
+            Objective objective,
             ObjectivePreparationAnchor? anchor,
             string label,
             ObjectiveDispatchPreview result,
@@ -1074,9 +1081,138 @@ namespace Armada.Core.Services
             }
             else if (!RevisionMatches(current, anchor.ResolvedCommit))
             {
-                AddIssue(result, "preparation_" + label + "_revision_changed", "provisioning", ReadinessSeverityEnum.Error,
-                    "The prepared " + label + " ref no longer resolves to the recorded commit.", anchor.Ref);
+                await EvaluateMovedAnchorAsync(objective, anchor, label, RepositoryPath(anchorVessel), current, result, token).ConfigureAwait(false);
             }
+        }
+
+        // A branch that moved past the recorded commit invalidates the preparation only when the move touched a
+        // path the objective depends on. The paths that changed are read from the repository; when none of them
+        // is cited, claimed, or assigned, the move is a warning and dispatch uses the current tip. A pin that
+        // names a commit or a tag, a recorded value that is not a full commit, or a comparison that cannot be
+        // read stays an error, because nothing then proves the preparation still holds.
+        private async Task EvaluateMovedAnchorAsync(
+            Objective objective,
+            ObjectivePreparationAnchor anchor,
+            string label,
+            string repositoryPath,
+            string current,
+            ObjectiveDispatchPreview result,
+            CancellationToken token)
+        {
+            string code = "preparation_" + label + "_revision_changed";
+            string recorded = anchor.ResolvedCommit!.Trim();
+            string refName = anchor.Ref!.Trim();
+            string moved = "The prepared " + label + " ref " + refName + " no longer resolves to the recorded commit "
+                + ShortCommit(recorded) + "; it now resolves to " + ShortCommit(current) + ".";
+
+            if (!IsFullCommit(recorded))
+            {
+                AddIssue(result, code, "provisioning", ReadinessSeverityEnum.Error,
+                    moved + " The recorded value is not a full commit, so the change since preparation cannot be read.", refName);
+                return;
+            }
+            if (!await IsBranchRefAsync(repositoryPath, refName, token).ConfigureAwait(false))
+            {
+                AddIssue(result, code, "provisioning", ReadinessSeverityEnum.Error,
+                    moved + " The ref is not a branch, so a move is not expected; re-verify the preparation.", refName);
+                return;
+            }
+
+            ChangedPathStatusRead read = await _Git.ReadChangedPathStatusesBetweenCommitsAsync(
+                repositoryPath, recorded, current, _MaxAnchorMovePaths, _AnchorMoveReadTimeout, _AnchorMoveOutputLimitBytes, token).ConfigureAwait(false);
+            if (!read.Available)
+            {
+                AddIssue(result, code, "provisioning", ReadinessSeverityEnum.Error,
+                    moved + " The files changed between the two commits could not be read (" + read.FailureCode + ": " + read.Message
+                    + "), so the preparation cannot be shown to still hold.", refName);
+                return;
+            }
+
+            List<string> watched = CollectDependentPaths(objective);
+            List<string> touched = read.Entries
+                .SelectMany(entry => new[] { entry.Path, entry.PreviousPath })
+                .Where(path => !String.IsNullOrWhiteSpace(path) && watched.Any(item => PathCovers(item, path!)))
+                .Cast<string>()
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            int changedCount = read.TotalCount ?? read.Entries.Count;
+            if (touched.Count > 0)
+            {
+                IEnumerable<string> named = touched.Take(_MaxNamedAnchorMovePaths).Select(path => "`" + path + "`");
+                string more = touched.Count > _MaxNamedAnchorMovePaths ? " and " + (touched.Count - _MaxNamedAnchorMovePaths) + " more" : String.Empty;
+                AddIssue(result, code, "provisioning", ReadinessSeverityEnum.Error,
+                    moved + " " + changedCount + " file(s) changed, and these are cited, claimed, or assigned by this objective; recheck them: "
+                    + String.Join(", ", named) + more + ".", refName);
+                return;
+            }
+            if (!read.Complete)
+            {
+                AddIssue(result, code, "provisioning", ReadinessSeverityEnum.Error,
+                    moved + " " + changedCount + " file(s) changed, more than the " + read.Entries.Count
+                    + " that can be compared, so the preparation cannot be shown to still hold.", refName);
+                return;
+            }
+
+            AddIssue(result, "preparation_" + label + "_revision_moved", "provisioning", ReadinessSeverityEnum.Warning,
+                "The prepared " + label + " branch " + refName + " moved from " + ShortCommit(recorded) + " to " + ShortCommit(current)
+                + ". " + changedCount + " file(s) changed and none is cited, claimed, or assigned by this objective, so dispatch uses "
+                + ShortCommit(current) + ".", refName);
+            result.PreparationAnchorMoves.Add(new ObjectivePreparationAnchorMove
+            {
+                Anchor = label,
+                Ref = refName,
+                RecordedCommit = recorded,
+                CurrentCommit = current,
+                ChangedFileCount = changedCount
+            });
+        }
+
+        private async Task<bool> IsBranchRefAsync(string repositoryPath, string refName, CancellationToken token)
+        {
+            if (IsFullCommit(refName)) return false;
+            string branch = refName.StartsWith("refs/heads/", StringComparison.Ordinal) ? refName.Substring("refs/heads/".Length) : refName;
+            if (branch.Length == 0 || branch.StartsWith("refs/", StringComparison.Ordinal)) return false;
+            return await _Git.BranchExistsAsync(repositoryPath, branch, token).ConfigureAwait(false);
+        }
+
+        // Every repository path the objective depends on: the path:line citations of its description (the
+        // preflight question-1 paths), the files its title and description name (the assigned paths), and the
+        // paths its preparation claims name in their text or evidence. Sibling paths are not in this repository.
+        private static List<string> CollectDependentPaths(Objective objective)
+        {
+            List<string> paths = new List<string>();
+            string description = objective.Description ?? String.Empty;
+            paths.AddRange(MatchAll(description, _PathLinePattern));
+            paths.AddRange(ContextPackManifest.ExtractAssignedPaths((objective.Title ?? String.Empty) + "\n" + description));
+            foreach (ObjectivePreparationClaim claim in objective.Preparation?.Claims ?? new List<ObjectivePreparationClaim>())
+            {
+                if (claim == null) continue;
+                paths.AddRange(ContextPackManifest.ExtractAssignedPaths(claim.Text));
+                foreach (string evidence in claim.EvidenceLinks ?? new List<string>())
+                    paths.AddRange(ContextPackManifest.ExtractAssignedPaths(evidence));
+            }
+            return paths
+                .Select(path => path.Replace('\\', '/').Trim().TrimStart('/'))
+                .Where(path => path.Length > 0 && !path.StartsWith("../", StringComparison.Ordinal))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        // A dependent path covers a changed path when it names the same file, names it by a trailing suffix
+        // (a bare file name or a partial path), or names a directory that holds it.
+        private static bool PathCovers(string dependent, string changed)
+        {
+            string path = changed.Replace('\\', '/').TrimStart('/');
+            string entry = dependent.TrimEnd('/');
+            if (entry.Length == 0) return false;
+            if (String.Equals(path, entry, StringComparison.OrdinalIgnoreCase)) return true;
+            if (path.EndsWith("/" + entry, StringComparison.OrdinalIgnoreCase)) return true;
+            return path.StartsWith(entry + "/", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsFullCommit(string value)
+        {
+            return value.Length == 40 && value.All(Uri.IsHexDigit);
         }
 
         /// <summary>

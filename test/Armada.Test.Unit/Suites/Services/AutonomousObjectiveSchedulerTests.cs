@@ -91,6 +91,77 @@ namespace Armada.Test.Unit.Suites.Services
                     "The scheduler event must include the complete blocking chain.");
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_StatusNamesEachSkippedObjectiveAndNeverReadsNullWhileRunning", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "skip-list-vessel", "https://github.com/test/skip-list.git")).ConfigureAwait(false);
+                Objective candidate = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Preparation = AdmittedPreparation(),
+                    Title = "Stale prepared target",
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+
+                TaskCompletionSource<bool> previewStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<bool> releasePreview = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview
+                {
+                    Handler = async (objective, token) =>
+                    {
+                        previewStarted.TrySetResult(true);
+                        await releasePreview.Task.ConfigureAwait(false);
+                        return new ObjectiveDispatchPreview
+                        {
+                            ObjectiveId = objective.Id,
+                            VesselId = vessel.Id,
+                            IsReady = false,
+                            Issues = new List<ObjectiveDispatchPreviewIssue>
+                            {
+                                new ObjectiveDispatchPreviewIssue
+                                {
+                                    Code = "preparation_target_revision_changed",
+                                    Area = "provisioning",
+                                    Severity = ReadinessSeverityEnum.Error,
+                                    Message = "The prepared target ref no longer resolves to the recorded commit."
+                                },
+                                new ObjectiveDispatchPreviewIssue
+                                {
+                                    Code = "brief_method_missing",
+                                    Area = "brief",
+                                    Severity = ReadinessSeverityEnum.Error,
+                                    Message = "No method."
+                                }
+                            }
+                        };
+                    }
+                };
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver, admiral, EnabledSchedulerSettings(), objectiveDispatchPreview: preview);
+
+                Task sweep = scheduler.SweepAsync();
+                await previewStarted.Task.ConfigureAwait(false);
+                ObjectiveSchedulerStatus running = McpObjectiveSchedulerTools.BuildStatus(scheduler);
+                AssertTrue(running.SweepInProgress, "The read happens while the sweep runs.");
+                AssertEqual(0, running.SweepDispatchedCount, "Nothing is dispatched yet.");
+                AssertNotNull(running.LastSkipReason, "Null means work was dispatched, so a running sweep must not read null.");
+                releasePreview.TrySetResult(true);
+                await sweep.ConfigureAwait(false);
+
+                ObjectiveSchedulerStatus status = McpObjectiveSchedulerTools.BuildStatus(scheduler);
+                AssertEqual(0, status.SweepDispatchedCount);
+                AssertEqual("dispatch_preflight=1", status.LastSkipReason);
+                AssertEqual(1, status.LastSweepSkippedObjectiveCount, "One objective was examined and not dispatched.");
+                AssertEqual(1, status.LastSweepSkippedObjectives.Count, "The skipped objective is listed.");
+                ObjectiveSchedulerSkippedObjective skipped = status.LastSweepSkippedObjectives[0];
+                AssertEqual(candidate.Id, skipped.ObjectiveId, "The entry names the objective.");
+                AssertEqual("dispatch_preflight", skipped.Reason, "The entry names the counted reason.");
+                AssertEqual("preparation_target_revision_changed", skipped.Detail, "The entry names the preview's first error code.");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_ZeroGlobalCapacityStopsBeforeCandidatePreflight", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

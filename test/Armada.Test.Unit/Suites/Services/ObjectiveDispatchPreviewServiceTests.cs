@@ -542,6 +542,59 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A moved prepared branch blocks dispatch only when the move touches a path the objective depends on", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CommitPairFixture fixture = await CommitPairFixture.CreateAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    harness.Vessel.LocalPath = fixture.BarePath;
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    harness.Git.CommitPairRead = new GitService(logging).ReadChangedPathStatusesBetweenCommitsAsync;
+                    harness.Git.RevisionCommitShas[fixture.BarePath + "|main"] = fixture.BulkCommit;
+
+                    // The claim names new/name.txt. Stage to Bulk adds only bulk/ files; Base to Bulk also renames old/name.txt to new/name.txt.
+                    Objective objective = harness.CreateReadyObjective("moved-branch-anchor");
+                    objective.Preparation.Claims.Add(new ObjectivePreparationClaim
+                    {
+                        Kind = ObjectivePreparationClaimKindEnum.SourcePath,
+                        Text = "The handler lives in new/name.txt and is reused as is.",
+                        DependsOn = ObjectivePreparationDependencyEnum.Target,
+                        State = ObjectivePreparationClaimStateEnum.Verified,
+                        VerifiedUtc = DateTime.UtcNow
+                    });
+                    objective.Preparation.Target = new ObjectivePreparationAnchor
+                    {
+                        VesselId = harness.Vessel.Id,
+                        Ref = "main",
+                        ResolvedCommit = fixture.StageCommit
+                    };
+
+                    ObjectiveDispatchPreview unrelated = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreviewIssue? moved = unrelated.Issues.FirstOrDefault(issue => issue.Code == "preparation_target_revision_moved");
+                    AssertNotNull(moved, "A move that touched only unrelated files is reported as a move.");
+                    AssertEqual(ReadinessSeverityEnum.Warning, moved!.Severity, "An unrelated move is a warning.");
+                    AssertContains(fixture.StageCommit.Substring(0, 12), moved.Message, "The warning names the recorded commit.");
+                    AssertContains(fixture.BulkCommit.Substring(0, 12), moved.Message, "The warning names the current tip.");
+                    AssertContains(CommitPairFixture.BulkFileCount + " file(s) changed", moved.Message, "The warning names the changed-file count.");
+                    AssertFalse(unrelated.Issues.Any(issue => issue.Code == "preparation_target_revision_changed"),
+                        "An unrelated move is not a revision change.");
+                    AssertTrue(unrelated.IsReady, "The objective stays ready: " + String.Join("; ", unrelated.Issues
+                        .Where(issue => issue.Severity == ReadinessSeverityEnum.Error).Select(issue => issue.Code)));
+                    AssertContains("commit `" + fixture.BulkCommit + "`", unrelated.RenderedBrief, "The dispatch brief names the current tip.");
+
+                    objective.Preparation.Target.ResolvedCommit = fixture.BaseCommit;
+                    ObjectiveDispatchPreview related = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreviewIssue? changed = related.Issues.FirstOrDefault(issue => issue.Code == "preparation_target_revision_changed");
+                    AssertNotNull(changed, "A move that edited a claimed file is a revision change.");
+                    AssertEqual(ReadinessSeverityEnum.Error, changed!.Severity, "A move that touches a claimed file blocks dispatch.");
+                    AssertContains("`new/name.txt`", changed.Message, "The error names the file to recheck.");
+                    AssertFalse(related.IsReady, "The objective is not ready until the claim is rechecked.");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Read-only ReferencePortingTested preview requires TestEngineer coverage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

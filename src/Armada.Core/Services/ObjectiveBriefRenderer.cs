@@ -26,6 +26,15 @@ namespace Armada.Core.Services
         /// </summary>
         public static string Render(Objective objective, int maxChars = DefaultMaxChars)
         {
+            return Render(objective, null, maxChars);
+        }
+
+        /// <summary>
+        /// Render one deterministic objective brief in which each moved preparation anchor names the branch tip
+        /// dispatch uses and the commit the preparation was verified at.
+        /// </summary>
+        public static string Render(Objective objective, IReadOnlyList<ObjectivePreparationAnchorMove>? anchorMoves, int maxChars = DefaultMaxChars)
+        {
             if (objective == null) throw new ArgumentNullException(nameof(objective));
             if (maxChars < 256) throw new ArgumentOutOfRangeException(nameof(maxChars), "The objective brief limit must be at least 256 characters.");
 
@@ -33,6 +42,7 @@ namespace Armada.Core.Services
             const string endMarker = "<!-- /armada-objective-brief -->";
             string preparation = RenderPreparation(
                 objective,
+                anchorMoves,
                 Math.Min(DefaultMaxPreparationChars, Math.Max(80, maxChars / 2)));
             int separatorLength = Environment.NewLine.Length * 2;
             int reservedSuffixChars = endMarker.Length + separatorLength;
@@ -102,7 +112,7 @@ namespace Armada.Core.Services
             return value.Replace("<!-- ARMADA:HANDOFF:", "&lt;!-- ARMADA:HANDOFF:", StringComparison.Ordinal);
         }
 
-        private static string RenderPreparation(Objective objective, int maxChars)
+        private static string RenderPreparation(Objective objective, IReadOnlyList<ObjectivePreparationAnchorMove>? anchorMoves, int maxChars)
         {
             const string omittedMarker = "### Incomplete Preparation\n\n- [additional preparation sections omitted]";
             int contentLimit = Math.Max(0, maxChars - omittedMarker.Length - 2);
@@ -134,8 +144,8 @@ namespace Armada.Core.Services
             if (hasAnchors)
             {
                 List<string> anchors = new List<string>();
-                if (HasAnchor(preparationModel.Source)) anchors.Add("Source: " + RenderAnchor(preparationModel.Source!));
-                if (HasAnchor(preparationModel.Target)) anchors.Add("Target: " + RenderAnchor(preparationModel.Target!));
+                if (HasAnchor(preparationModel.Source)) anchors.Add("Source: " + RenderAnchor(preparationModel.Source!, FindMove(anchorMoves, "source")));
+                if (HasAnchor(preparationModel.Target)) anchors.Add("Target: " + RenderAnchor(preparationModel.Target!, FindMove(anchorMoves, "target")));
                 complete &= AppendListSection(result, "### Source and Target Anchors", anchors, contentLimit);
             }
 
@@ -228,8 +238,23 @@ namespace Armada.Core.Services
                 || !String.IsNullOrWhiteSpace(anchor.ResolvedCommit));
         }
 
-        private static string RenderAnchor(ObjectivePreparationAnchor anchor)
+        private static ObjectivePreparationAnchorMove? FindMove(IReadOnlyList<ObjectivePreparationAnchorMove>? moves, string anchor)
         {
+            return moves?.FirstOrDefault(move => move != null && String.Equals(move.Anchor, anchor, StringComparison.Ordinal));
+        }
+
+        private static string RenderAnchor(ObjectivePreparationAnchor anchor, ObjectivePreparationAnchorMove? move)
+        {
+            if (move != null)
+            {
+                List<string> moved = new List<string>();
+                if (!String.IsNullOrWhiteSpace(anchor.VesselId)) moved.Add("vessel `" + BoundItem(anchor.VesselId) + "`");
+                moved.Add("ref `" + BoundItem(move.Ref) + "`");
+                moved.Add("commit `" + BoundItem(move.CurrentCommit) + "`");
+                return "[verified revision; branch moved] " + String.Join(", ", moved) + " (verified at `" + BoundItem(move.RecordedCommit)
+                    + "`; " + move.ChangedFileCount + " file(s) changed since, none cited, claimed, or assigned by this objective)";
+            }
+
             List<string> parts = new List<string>();
             if (!String.IsNullOrWhiteSpace(anchor.VesselId)) parts.Add("vessel `" + BoundItem(anchor.VesselId) + "`");
             if (!String.IsNullOrWhiteSpace(anchor.Ref)) parts.Add("ref `" + BoundItem(anchor.Ref) + "`");
