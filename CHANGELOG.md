@@ -83,8 +83,13 @@ upstream integrations and excludes changes already present at that baseline.
 - The `preflight` state carries a `dock` section (provisioned sibling checkouts,
   tools that do and do not resolve on the captain PATH, and the vessel's
   evidence roots by name) and the objective's evidence links and preparation
-  claims. Q4 judges dock observability against that section, and Q9 exempts a
-  value the brief keeps unchanged on purpose or that guards a different defect.
+  claims. Q4 judges dock observability against that section. Q9 judges only the
+  value the brief names as the proof of the fix, flags it when that value is the
+  same before and after the fix, and never counts a value the brief declares
+  unchanged on purpose (parity or control) or one that guards a different defect.
+- `PreflightTextAdapter.DescribeRequest` builds the exact redacted state and
+  questions the preflight decision sends, and the synthetic evaluation set
+  (`armada_typed_decision_eval`) carries a `preflight` reference case for Q9.
 
 - A challenge round can test a Judge NEEDS_REVISION before its rescue. With
   `autonomousRecovery.judgeChallenge.enabled` (off by default; hot-reloads),

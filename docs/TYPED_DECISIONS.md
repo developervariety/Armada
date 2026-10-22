@@ -345,8 +345,8 @@ the model as named buckets (`owner_digest` `chain_size` / `wait_age`), not as
 raw numbers to compare.
 
 A synthetic evaluation set checks the decisions that gate the recovery, review,
-and Linter seams (`failure_cause`, `refusal`, `runtime_failure`,
-`review_substance`, `lint_finding`). Each case builds its requests through the
+Linter and dispatch seams (`failure_cause`, `refusal`, `runtime_failure`,
+`review_substance`, `lint_finding`, `preflight`). Each case builds its requests through the
 decision's own adapter, so it tests the exact state and questions production
 sends. A reference case pairs two variants that differ in one relevant fact and
 states the answer for each; a consistency case changes a fact that must not
@@ -542,9 +542,12 @@ One decision point reads the objective dispatch preview:
   vessel, present or missing, by directory name. No host path is sent. A preview
   that did not measure the dock says so (`measured: false`). The state is
   redacted before egress. Q4 judges dock observability against that section: a
-  listed sibling, tool or evidence root is observable. Q9 does not count a value
-  the brief states stays unchanged on purpose, or one that guards a different
-  defect. The model answers Q9 with a number only, so a Q9 flag or note quotes
+  listed sibling, tool or evidence root is observable. Q9 judges only the value
+  the brief names as the proof of the fix: it is the defect when that value is
+  the same in the defective and the corrected code. A value the brief declares
+  unchanged on purpose, parity or control, or one that guards a different
+  defect, is never the defect. A brief that states how its proof value changes,
+  or names no proof value, is not flagged. The model answers Q9 with a number only, so a Q9 flag or note quotes
   the brief lines that state a proof or expected value, and apart from them the
   lines the brief declares unchanged on purpose (a parity or control section,
   from its heading to the next blank line), so the operator can find the value

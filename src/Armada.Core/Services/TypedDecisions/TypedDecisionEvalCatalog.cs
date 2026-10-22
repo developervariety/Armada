@@ -42,6 +42,7 @@ namespace Armada.Core.Services
             AddLintFinding(cases, new TypedLintFindingAdapter(silent, recorder, settings, logging));
             AddChangeQuality(cases, new TypedChangeQualityAdapter(silent, recorder, settings, logging));
             AddDispatchStaleness(cases, new TypedDispatchStalenessAdapter(silent, recorder, settings, logging));
+            AddPreflight(cases, new PreflightTextAdapter(settings, silent, recorder, logging));
             return cases;
         }
 
@@ -469,6 +470,53 @@ namespace Armada.Core.Services
                 adapter.DescribeRequest(searchesSource),
                 adapter.DescribeRequest(reword),
                 "reaction"));
+        }
+
+        private static void AddPreflight(List<TypedDecisionEvalCase> cases, PreflightTextAdapter adapter)
+        {
+            // Q9: a brief whose proof value changes with the fix, and which lists the values that must not change
+            // under a parity heading, is not the defect; a brief whose only proof value is the same before and after is.
+            const string change = "Stop the job status poll from writing a warning on every read of a failed job. The submit call already writes one warning.\n\n"
+                + "## Change\n- The status poll stops logging a failed payload. Every other call keeps its logging.\n- The returned JSON is byte-identical.\n\n"
+                + "## Tests\n";
+            Objective changes = EvalObjective(change
+                + "- What proves the fix: the number of warning lines each status poll writes. Before the change each poll writes one; after it each poll "
+                + "writes zero. The new test fails on the old code on that count.\n"
+                + "- Parity values, unchanged on purpose: the returned `state` (`failed`) and `reason` (`too-large`), and the one warning at submit. The test "
+                + "asserts them to prove the response did not change; they are not the proof of the fix.\n");
+            Objective unchanged = EvalObjective(change
+                + "- What proves the fix: the status poll returns state `failed` with reason `too-large`. The new test asserts those values.\n");
+            Vessel vessel = new Vessel { Name = "ExampleVessel" };
+            Pipeline pipeline = new Pipeline
+            {
+                Name = "Tested",
+                Stages = new List<PipelineStage> { new PipelineStage(1, "Worker"), new PipelineStage(2, "TestEngineer"), new PipelineStage(3, "Judge") }
+            };
+            cases.Add(Pair(
+                "preflight.proof_value_changes_vs_proof_value_unchanged",
+                PreflightTextAdapter.DecisionPoint,
+                TypedDecisionEvalCaseKindEnum.Reference,
+                "A proof value that changes with the fix, beside declared parity values, is not the Q9 defect; a proof value that is the same before and after is.",
+                adapter.DescribeRequest(changes, vessel, pipeline, new ObjectiveDispatchPreview()),
+                adapter.DescribeRequest(unchanged, vessel, pipeline, new ObjectiveDispatchPreview()),
+                Expect("q9", new TypedDecisionExpectation { NoulAtMost = 0.4 }),
+                Expect("q9", new TypedDecisionExpectation { NoulAtLeast = 0.6 })));
+        }
+
+        private static Objective EvalObjective(string description)
+        {
+            return new Objective
+            {
+                Id = "obj_eval",
+                Title = "Warn once when a job fails, not on every status poll",
+                Description = description,
+                Kind = ObjectiveKindEnum.Bug,
+                AcceptanceCriteria = new List<string>
+                {
+                    "The status poll writes no warning for a failed job; submit still writes one.",
+                    "The returned JSON is unchanged."
+                }
+            };
         }
 
         private static Mission EvalMission(string title, string persona)

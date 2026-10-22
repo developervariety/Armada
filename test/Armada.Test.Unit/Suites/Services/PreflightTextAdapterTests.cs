@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -327,6 +328,26 @@ namespace Armada.Test.Unit.Suites.Services
                 NoulQuestion q9 = (NoulQuestion)client.LastRequest.Questions["q9"];
                 AssertContains("unchanged on purpose", q9.Instructions, "a stated control value is not the Q9 defect");
                 AssertContains("different defect", q9.Instructions, "a value guarding a separate defect is not the Q9 defect");
+            });
+
+            await RunTest("Preflight_DescribeRequest_BuildsTheStateAndQuestionsTheProviderReceives", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(ModelResult(new Dictionary<string, double> { ["q1"] = 0.10 }, "none", 0.10));
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+                Objective objective = Objective();
+
+                TypedDecisionBatchItem? described = adapter.DescribeRequest(objective, Vessel(), Pipeline(), SeededPreview());
+                await adapter.EvaluateAsync(objective, Vessel(), Pipeline(), SeededPreview(), CancellationToken.None).ConfigureAwait(false);
+
+                // The evaluation set replays recorded briefs through this builder, so it must be what production sends.
+                AssertNotNull(described, "the request builds");
+                AssertEqual(JsonSerializer.Serialize(client.LastRequest!.State), JsonSerializer.Serialize(described!.State.State),
+                    "the described state is the state the provider receives");
+                AssertEqual(String.Join(",", client.LastRequest.Questions.Keys), String.Join(",", described.Questions.Keys),
+                    "the described questions are the questions the provider receives");
+                AssertEqual(((NoulQuestion)client.LastRequest.Questions["q9"]).Instructions, ((NoulQuestion)described.Questions["q9"]).Instructions,
+                    "the described q9 wording is the wording the provider receives");
             });
 
             await RunTest("Preflight_ExampleValueFlag_QuotesTheProofLines_AndTheDeclaredParityValuesApart", async () =>

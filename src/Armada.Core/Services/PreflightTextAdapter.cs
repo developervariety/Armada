@@ -127,10 +127,13 @@ namespace Armada.Core.Services
                 "The brief makes success depend on a count that will not hold: a pass or skip total, or a coverage figure, that legitimately varies between host and dock, so a healthy run could read as failing it. Only a failure count measured at a named commit is a stable contract.",
                 "success depends on a legitimately varying count, so a healthy run could fail it", "every count the brief depends on is a stable failure count"),
             new PreflightNoul("q9", 9,
-                "An example expected value offered as proof of one fix does not change between the defective and the corrected code, so a green "
-                + "test that copies it would prove nothing. A value the brief states stays unchanged on purpose (a parity or control value), and "
-                + "a value that guards a different defect, are not this defect.",
-                "an example value does not distinguish the fix", "every example value distinguishes the fix"),
+                "Find the value the brief names as the proof of the fix (for example after 'what proves the fix' or 'expected'). The defect "
+                + "is present only when that proof value is the same in the defective and the corrected code, so a green test asserting it "
+                + "would prove nothing. Ignore every value the brief declares unchanged on purpose, parity or control: those must stay the "
+                + "same, so their not changing is correct and is never this defect. Ignore values that guard a different defect. When the "
+                + "brief states that its proof value changes (for example from one to zero) between the defective and the corrected code, "
+                + "the answer is false. When the brief names no proof value, this question does not apply and the answer is false.",
+                "the named proof value is the same before and after the fix", "the named proof value changes with the fix"),
             new PreflightNoul("q12", 12,
                 "A public API reshape does not name every consumer test class it breaks, so their update is not in the same wave.",
                 "a reshape omits a broken consumer test class", "every broken consumer test class is named")
@@ -200,26 +203,15 @@ namespace Armada.Core.Services
                 return;
             }
 
-            string redacted;
-            TypedDecisionRequest request;
-            try
+            TypedDecisionBatchItem? item = DescribeRequest(objective, vessel, pipeline, result, dock);
+            if (item == null) return;
+            string redacted = item.State.Text;
+            TypedDecisionRequest request = new TypedDecisionRequest
             {
-                RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(BuildState(objective, vessel, pipeline, result, dock), _Settings.MaxStateChars);
-                object state = redactedState.State;
-                redacted = redactedState.Text;
-                request = new TypedDecisionRequest
-                {
-                    DecisionPoint = DecisionPoint,
-                    State = state,
-                    Questions = QuestionFactory()
-                };
-            }
-            catch (Exception ex)
-            {
-                // Building state or questions must never break the preview; leave it deterministic.
-                _Logging.Warn(_Header + "state build failed, deterministic preview stands: " + ex.Message);
-                return;
-            }
+                DecisionPoint = DecisionPoint,
+                State = item.State.State,
+                Questions = item.Questions
+            };
 
             string questionsSha256 = QuestionContractSha256(request.Questions);
             TypedDecisionResult? cached = ReadCache(redacted, questionsSha256);
@@ -309,6 +301,37 @@ namespace Armada.Core.Services
                     : reading.HasAdvisory ? "advisory_only" : "below_threshold";
                 await SafeRecordAsync(() => _Recorder.RecordRuleKeptAsync(
                     BuildContext(objective, result, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), outcome, token)).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Build the exact redacted state and questions this decision sends for an objective, without calling the
+        /// provider or recording anything. The evaluation set uses it so a case tests the questions production asks.
+        /// Returns null when the state or questions cannot be built; the preview then stays deterministic.
+        /// </summary>
+        /// <param name="objective">The objective being previewed.</param>
+        /// <param name="vessel">The resolved target vessel.</param>
+        /// <param name="pipeline">The resolved pipeline, or null for the Worker-only path.</param>
+        /// <param name="result">The dispatch preview built by the deterministic block; read only.</param>
+        /// <param name="dock">What a captain dock for this objective provides, when the caller measured it.</param>
+        /// <returns>The request item, or null.</returns>
+        public TypedDecisionBatchItem? DescribeRequest(
+            Objective objective,
+            Vessel vessel,
+            Pipeline? pipeline,
+            ObjectiveDispatchPreview result,
+            PreflightDockContext? dock = null)
+        {
+            try
+            {
+                RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(BuildState(objective, vessel, pipeline, result, dock), _Settings.MaxStateChars);
+                return new TypedDecisionBatchItem(redactedState, QuestionFactory());
+            }
+            catch (Exception ex)
+            {
+                // Building state or questions must never break the preview; leave it deterministic.
+                _Logging.Warn(_Header + "state build failed, deterministic preview stands: " + ex.Message);
+                return null;
             }
         }
 
