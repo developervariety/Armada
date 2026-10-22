@@ -8,7 +8,7 @@ namespace Armada.Core.Services
     using Armada.Core.Models;
 
     /// <summary>
-    /// Reads host CPU load and decides whether the host is overloaded, so a command that timed out
+    /// Reads host CPU load and available memory, and decides whether the host is overloaded, so a command that timed out
     /// because the whole host ran slowly can be told apart from one that hangs at normal load.
     /// </summary>
     /// <remarks>
@@ -54,6 +54,8 @@ namespace Armada.Core.Services
 
         private readonly Func<double?> _LoadReader;
         private readonly Func<double?> _LongLoadReader;
+        private readonly Func<double?> _MidLoadReader;
+        private readonly Func<long?> _MemoryReader;
         private readonly Func<int> _CoreCountReader;
         private readonly Func<DateTime> _Clock;
         private readonly Func<TimeSpan, CancellationToken, Task> _Delay;
@@ -75,15 +77,24 @@ namespace Armada.Core.Services
         /// reading <c>/proc/loadavg</c> on Linux and null elsewhere, except that a monitor given its own
         /// <paramref name="loadReader"/> and no long reader reads the 15-minute average as unknown, so a supplied
         /// 1-minute source is never mixed with the real host's 15-minute load.</param>
+        /// <param name="midLoadReader">Returns the 5-minute load average, or null when unknown. Defaults the same way
+        /// as <paramref name="longLoadReader"/>.</param>
+        /// <param name="memoryReader">Returns the available memory in megabytes, or null when unknown. Defaults to the
+        /// host command slot's reader (<see cref="HostWideCommandLock.MemoryReader"/>), except that a monitor given
+        /// its own <paramref name="loadReader"/> and no memory reader reads memory as unknown.</param>
         public HostLoadMonitor(
             Func<double?>? loadReader = null,
             Func<int>? coreCountReader = null,
             Func<DateTime>? clock = null,
             Func<TimeSpan, CancellationToken, Task>? delay = null,
-            Func<double?>? longLoadReader = null)
+            Func<double?>? longLoadReader = null,
+            Func<double?>? midLoadReader = null,
+            Func<long?>? memoryReader = null)
         {
             _LoadReader = loadReader ?? ReadLinuxLoadAverage;
             _LongLoadReader = longLoadReader ?? (loadReader == null ? ReadLinuxLongLoadAverage : UnknownLoadAverage);
+            _MidLoadReader = midLoadReader ?? (loadReader == null ? ReadLinuxMidLoadAverage : UnknownLoadAverage);
+            _MemoryReader = memoryReader ?? (loadReader == null ? ReadHostAvailableMemoryMb : UnknownMemory);
             _CoreCountReader = coreCountReader ?? DefaultCoreCount;
             _Clock = clock ?? DefaultClock;
             _Delay = delay ?? DefaultDelay;
@@ -121,6 +132,28 @@ namespace Armada.Core.Services
                 longLoad = null;
             }
 
+            double? midLoad;
+            try
+            {
+                midLoad = _MidLoadReader();
+            }
+            catch (Exception)
+            {
+                // An unreadable load is an unknown reading, which counts as normal load.
+                midLoad = null;
+            }
+
+            long? memoryMb;
+            try
+            {
+                memoryMb = _MemoryReader();
+            }
+            catch (Exception)
+            {
+                // An unreadable memory figure is reported as unknown.
+                memoryMb = null;
+            }
+
             int cores;
             try
             {
@@ -133,12 +166,16 @@ namespace Armada.Core.Services
 
             if (load.HasValue && (Double.IsNaN(load.Value) || Double.IsInfinity(load.Value) || load.Value < 0)) load = null;
             if (longLoad.HasValue && (Double.IsNaN(longLoad.Value) || Double.IsInfinity(longLoad.Value) || longLoad.Value < 0)) longLoad = null;
+            if (midLoad.HasValue && (Double.IsNaN(midLoad.Value) || Double.IsInfinity(midLoad.Value) || midLoad.Value < 0)) midLoad = null;
+            if (memoryMb.HasValue && memoryMb.Value < 0) memoryMb = null;
 
             return new HostLoadReading
             {
                 LoadAverage1Min = load,
+                LoadAverage5Min = midLoad,
                 LoadAverage15Min = longLoad,
                 LogicalCores = cores,
+                AvailableMemoryMb = memoryMb,
                 ReadUtc = _Clock()
             };
         }
@@ -263,6 +300,16 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Read the 5-minute load average from the text of <c>/proc/loadavg</c>.
+        /// </summary>
+        /// <param name="content">The file's text, for example <c>3.52 2.10 1.07 2/1234 5678</c>.</param>
+        /// <returns>The 5-minute load average, or null when the text is empty, too short, or cannot be parsed.</returns>
+        public static double? ParseMidLoadAverage(string? content)
+        {
+            return ParseLoadAverageField(content, 1);
+        }
+
+        /// <summary>
         /// Read the 15-minute load average from the text of <c>/proc/loadavg</c>.
         /// </summary>
         /// <param name="content">The file's text, for example <c>3.52 2.10 1.07 2/1234 5678</c>.</param>
@@ -312,7 +359,35 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Read the 5-minute load average from <c>/proc/loadavg</c> on Linux. Returns null on any other
+        /// platform and on any read or parse failure.
+        /// </summary>
+        private static double? ReadLinuxMidLoadAverage()
+        {
+            if (!OperatingSystem.IsLinux()) return null;
+            try
+            {
+                return ParseMidLoadAverage(File.ReadAllText("/proc/loadavg"));
+            }
+            catch (Exception)
+            {
+                // An unreadable file is an unknown reading, which counts as normal load.
+                return null;
+            }
+        }
+
+        private static long? ReadHostAvailableMemoryMb()
+        {
+            return HostWideCommandLock.MemoryReader();
+        }
+
         private static double? UnknownLoadAverage()
+        {
+            return null;
+        }
+
+        private static long? UnknownMemory()
         {
             return null;
         }

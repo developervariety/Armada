@@ -499,6 +499,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A definition-of-done test that fails again in its isolated re-run no longer
+  reads "so this is not a load race". The re-run runs on the same loaded host,
+  so the failure text says the re-run under the current host load also failed
+  and records the host load at the re-run: the 1-, 5- and 15-minute load
+  averages, the CPU count, `MemAvailable`, the other gates, the host command
+  slot holders and waiters, and the working captains. On a busy host it says
+  the failure may still be load-related.
 - A context pack header names both commits it draws on: `Indexed commit` for the
   related evidence and the assigned files taken from the index, and `Start
   commit` for the assigned files read at the mission checkout's start commit. A

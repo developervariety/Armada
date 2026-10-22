@@ -879,10 +879,12 @@ Two platform-side decisions ship `Gate`:
   isolation anyway, at most three classes (or three names through a profile
   command), for the vessel's own suite (`RerunFailingClassesOnce`) and for
   a consumer suite (`RerunFailingConsumerClassesOnce`); both default on. A test
-  that lost a race under the loaded suite passes alone and a real defect fails
-  again, and the failure text says which. A race only the full suite shows is
-  still caught by the independent UnitTest Check, which runs the whole suite at
-  the same commit. When no re-run is possible, the failure text states why.
+  that lost a race under the loaded suite usually passes alone. A test that
+  fails again alone keeps the red, and the failure text records the host load
+  the re-run ran under; on a busy host it says the failure may still be
+  load-related (see `reference/backend-dod.md`). A race only the full suite
+  shows is still caught by the independent UnitTest Check, which runs the whole
+  suite at the same commit. When no re-run is possible, the failure text states why.
 - **`change_substance`** sits over the extension-based
   `ChangeSubstanceClassifier`, which stays the rule. The model reads the rescue's
   added hunks and answers a `substance` Choice `{behaviour, test_only, docs_only,

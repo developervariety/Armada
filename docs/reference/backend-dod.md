@@ -113,6 +113,23 @@ it is still a running gate: it shows in `RunningGates`, and cancelling the
 mission stops the wait and records `Cancelled`. The interrupted-gate re-run
 follows the same rules.
 
+**After an isolated re-run that fails again.** When a red unit-test suite (the
+vessel's own or a consumer's) is re-run once with only its failing tests, the
+re-run runs on the same host as every other gate, check and captain. A fail
+there does not rule out load, so the failure text never says it does. It reads
+`Isolated re-run of N failing class(es) under the current host load also
+failed.` and then the host load at the re-run: the 1-, 5- and 15-minute load
+averages, the logical CPU count, `MemAvailable`, how many other
+definition-of-done gates run or wait, how many other requests hold the host
+command slot and how many wait for it, and how many captains are working. The
+host was busy when any load average is above the CPU count, another request
+holds the host command slot, or available memory is below
+`HostCommandMemoryFloorMb`; the text then says the failure may still be
+load-related and should be re-run on a quiet host before it is treated as a
+defect. An unknown load average says a load-related failure cannot be ruled
+out. A quiet host says load is an unlikely cause, which leaves a defect or an
+ordering race in the tests. The same sentence is in the gate log.
+
 Each gate command (build, unit tests, each consumer build and test) waits for a
 host-wide command slot, which it shares with check runs and merge-queue test
 runs. `DefinitionOfDone.HostCommandSlots` (`definitionOfDone.hostCommandSlots`

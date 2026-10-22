@@ -3,8 +3,8 @@ namespace Armada.Core.Models
     using System;
 
     /// <summary>
-    /// One reading of the host's CPU load: the 1-minute and 15-minute load averages and the logical core
-    /// count they are compared against.
+    /// One reading of the host's load: the 1-, 5- and 15-minute load averages, the logical core count they are
+    /// compared against, and the available memory.
     /// </summary>
     public class HostLoadReading
     {
@@ -15,6 +15,11 @@ namespace Armada.Core.Models
         /// A null reading is treated as normal load.
         /// </summary>
         public double? LoadAverage1Min { get; set; } = null;
+
+        /// <summary>
+        /// 5-minute load average, or null when the host does not report one or it cannot be read.
+        /// </summary>
+        public double? LoadAverage5Min { get; set; } = null;
 
         /// <summary>
         /// 15-minute load average, or null when the host does not report one or it cannot be read. It
@@ -36,6 +41,11 @@ namespace Armada.Core.Models
         /// UTC time of the reading.
         /// </summary>
         public DateTime ReadUtc { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// Available memory in megabytes (<c>MemAvailable</c> in <c>/proc/meminfo</c>), or null when unknown.
+        /// </summary>
+        public long? AvailableMemoryMb { get; set; } = null;
 
         #endregion
 

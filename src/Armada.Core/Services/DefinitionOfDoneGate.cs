@@ -687,7 +687,7 @@ namespace Armada.Core.Services
                     // Check still runs the whole suite at this commit, so a race only the full suite shows
                     // is not hidden. Bounded to a few failing classes.
                     if (!afterFlake.Passed && ReferenceEquals(afterFlake, testResult) && _Settings.RerunFailingClassesOnce)
-                        afterFlake = await RerunFailingClassesOnceAsync("vessel", profile, effectiveTest, worktreePath, testResult, testLabel, token).ConfigureAwait(false);
+                        afterFlake = await RerunFailingClassesOnceAsync(mission, "vessel", profile, effectiveTest, worktreePath, testResult, testLabel, token).ConfigureAwait(false);
                     if (!afterFlake.Passed) return afterFlake;
 
                     // The isolated re-run passed: the failure was a flake. Fall through to the consumer
@@ -1224,7 +1224,7 @@ namespace Armada.Core.Services
                 // consumer test that loses a race under the loaded suite passes alone. The isolated
                 // re-run is the truth either way. Bounded to a few failing classes.
                 if (!result.Passed && ReferenceEquals(result, suiteResult) && _Settings.RerunFailingConsumerClassesOnce)
-                    result = await RerunFailingClassesOnceAsync("consumer " + consumer.Name, consumerProfile, effective, consumerWorktree, result, logLabel, token).ConfigureAwait(false);
+                    result = await RerunFailingClassesOnceAsync(mission, "consumer " + consumer.Name, consumerProfile, effective, consumerWorktree, result, logLabel, token).ConfigureAwait(false);
             }
 
             if (!result.Passed)
@@ -1240,11 +1240,15 @@ namespace Armada.Core.Services
         /// Re-run a suite's failing tests once in isolation and return that result. Returns the original
         /// failing result, with the reason written at the top of its output, when the failure is not a test
         /// failure, the failing names are missing or overflowed, or <see cref="IsolatedRerunPlan"/> names a
-        /// reason no isolated command can run.
+        /// reason no isolated command can run. A re-run that fails again carries the host load it ran under, because
+        /// it runs on the same host as everything else: a fail alone on a busy host does not rule out a load race.
         /// </summary>
+        /// <param name="mission">The mission whose gate runs, so its own hold on the host command slot is not counted
+        /// as other work.</param>
         /// <param name="subject">Whose suite failed, for the log: "vessel" or "consumer &lt;name&gt;".</param>
         /// <param name="profile">The workflow profile of the suite that failed.</param>
         private async Task<DefinitionOfDoneResult> RerunFailingClassesOnceAsync(
+            Mission mission,
             string subject,
             WorkflowProfile? profile,
             string testCommand,
@@ -1267,11 +1271,68 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + subject + " isolated re-run passed=" + rerun.Passed);
             if (!rerun.Passed)
             {
-                rerun.OutputTail = "Isolated re-run of " + plan.Count + " failing " + plan.Unit + " alone also failed, so this is not a load race."
+                string load = await DescribeIsolatedRerunHostLoadAsync(mission, token).ConfigureAwait(false);
+                _Logging.Info(_Header + subject + " isolated re-run failed; " + load);
+                rerun.OutputTail = "Isolated re-run of " + plan.Count + " failing " + plan.Unit + " under the current host load also failed. "
+                    + load
                     + (String.IsNullOrEmpty(rerun.OutputTail) ? String.Empty : "\n" + rerun.OutputTail);
             }
 
             return rerun;
+        }
+
+        /// <summary>
+        /// Describe the host load an isolated re-run ran under, from figures the admiral already holds: the load
+        /// averages and available memory, the other definition-of-done gates, the other holders and the waiters
+        /// of the host command slot, and the working captains. The isolated re-run shares the host with all of
+        /// them, so the text says the failure may still be load-related whenever the host was busy, and never
+        /// that a load race is ruled out.
+        /// </summary>
+        /// <param name="mission">The mission whose gate runs; its own gate and slot hold are not counted.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One or two sentences: the load figures, then what they allow the reader to conclude.</returns>
+        private async Task<string> DescribeIsolatedRerunHostLoadAsync(Mission mission, CancellationToken token)
+        {
+            System.Globalization.CultureInfo inv = System.Globalization.CultureInfo.InvariantCulture;
+            HostLoadReading reading = _HostLoad.Read();
+            HostSlotSnapshot slot = HostWideCommandLock.Snapshot();
+            int otherHolders = slot.Holders.Count(h => !String.Equals(h.Key, mission.Id, StringComparison.Ordinal));
+            int otherGates = DefinitionOfDoneGateRuns.Snapshot().Count(g => !String.Equals(g.Key, mission.Id, StringComparison.Ordinal));
+
+            string captains;
+            try
+            {
+                List<Captain> working = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+                captains = working.Count.ToString(inv);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "working captain count for the isolated re-run load could not be read: " + ex.GetType().Name + ": " + ex.Message);
+                captains = "unknown (" + ex.GetType().Name + ")";
+            }
+
+            string Format(double? value) => value.HasValue ? value.Value.ToString("0.00", inv) : "unknown";
+            string memory = reading.AvailableMemoryMb.HasValue ? reading.AvailableMemoryMb.Value.ToString(inv) + " MB" : "unknown";
+            string figures = "Host load at the re-run: load average "
+                + Format(reading.LoadAverage1Min) + "/" + Format(reading.LoadAverage5Min) + "/" + Format(reading.LoadAverage15Min)
+                + " (1/5/15 min) on " + reading.LogicalCores.ToString(inv) + " CPUs, MemAvailable " + memory
+                + ", " + otherGates.ToString(inv) + " other definition-of-done gate(s) running or waiting"
+                + ", host command slot " + otherHolders.ToString(inv) + " other holder(s) and " + slot.Waiters.Count.ToString(inv) + " waiter(s)"
+                + ", " + captains + " captain(s) working.";
+
+            double busyAbove = HostLoadMonitor.RecoveredThreshold(reading.LogicalCores);
+            bool loadKnown = reading.LoadAverage1Min.HasValue || reading.LoadAverage5Min.HasValue || reading.LoadAverage15Min.HasValue;
+            bool loadBusy = (reading.LoadAverage1Min ?? 0) > busyAbove || (reading.LoadAverage5Min ?? 0) > busyAbove || (reading.LoadAverage15Min ?? 0) > busyAbove;
+            bool memoryBusy = slot.MemoryFloorMb > 0 && reading.AvailableMemoryMb.HasValue && reading.AvailableMemoryMb.Value < slot.MemoryFloorMb;
+            if (loadBusy || memoryBusy || otherHolders > 0)
+                return figures + " The host was busy, so the failure may still be load-related; re-run the failing tests on a quiet host before treating it as a defect.";
+            if (!loadKnown)
+                return figures + " The load average is unknown, so a load-related failure cannot be ruled out.";
+            return figures + " The host was not busy at the re-run, so load is an unlikely cause; the failure points to a defect or an ordering race in the tests.";
         }
 
         private DefinitionOfDoneResult NoteNoRerun(DefinitionOfDoneResult testResult, string subject, string reason)

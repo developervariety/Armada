@@ -276,7 +276,9 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("A vessel test that fails again alone fails the gate and says so", async () =>
+            // The isolated re-run shares the host with every other gate, check and captain, so a fail alone on a busy
+            // host is not proof the failure is unrelated to load; the text must say so and carry the load it ran under.
+            await RunTest("A vessel test that fails again alone on a busy host fails the gate and says the failure may still be load-related", async () =>
             {
                 if (OperatingSystem.IsWindows()) return;
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -289,17 +291,27 @@ namespace Armada.Test.Unit.Suites.Services
                     await EnsureVesselWithProfileAsync(testDb, "ten_rerun_red", "vsl_rerun_red",
                         worktreePath, SuccessCommand(), alwaysRed).ConfigureAwait(false);
 
+                    // Above the core count but below the overload threshold: busy, yet no admission wait.
+                    HostLoadMonitor busyHost = new HostLoadMonitor(() => 6.0, () => 4, longLoadReader: () => 5.0);
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
                         new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
-                        logging);
+                        logging,
+                        hostLoad: busyHost);
                     DefinitionOfDoneResult result = await gate.EvaluateAsync(
                         CreateWorkerMission("ten_rerun_red", "vsl_rerun_red"),
                         new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
 
-                    AssertFalse(result.Passed, "a real defect fails again alone");
+                    string tail = result.OutputTail ?? String.Empty;
+                    AssertFalse(result.Passed, "a test that fails again alone keeps the red");
                     AssertEqual(DefinitionOfDoneFailureClassEnum.TestFail, result.FailureClass);
-                    AssertContains("alone also failed", result.OutputTail ?? String.Empty, "the failure says the isolated re-run also failed");
+                    AssertContains("Isolated re-run of 1 failing class(es) under the current host load also failed.", tail,
+                        "the failure says the isolated re-run also failed under the current host load");
+                    AssertFalse(tail.Contains("not a load race", StringComparison.Ordinal), "a re-run on the same host never rules out a load race");
+                    AssertContains("load average 6.00/unknown/5.00 (1/5/15 min) on 4 CPUs", tail, "the load averages and CPU count at the re-run are recorded");
+                    AssertContains("MemAvailable unknown", tail, "the available memory at the re-run is recorded");
+                    AssertContains("captain(s) working", tail, "the working captains at the re-run are recorded");
+                    AssertContains("may still be load-related", tail, "a busy host leaves load as a possible cause");
                 }
                 finally
                 {
@@ -369,7 +381,7 @@ namespace Armada.Test.Unit.Suites.Services
                         new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
 
                     AssertFalse(result.Passed, "a failing isolated re-run keeps the red");
-                    AssertContains("Isolated re-run of 1 failing test(s) alone also failed", result.OutputTail ?? String.Empty,
+                    AssertContains("Isolated re-run of 1 failing test(s) under the current host load also failed", result.OutputTail ?? String.Empty,
                         "the red says the isolated re-run also failed");
                 }
                 finally
@@ -1286,6 +1298,11 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(4.00, HostLoadMonitor.ParseLongLoadAverage("17.25 9.10 4.00 3/912 40211\n"), "the third field is the 15-minute average");
                 AssertNull(HostLoadMonitor.ParseLongLoadAverage("17.25"), "text without a third field is an unknown 15-minute reading");
                 AssertNull(unknown.LoadAverage15Min, "a monitor given its own 1-minute source reads the 15-minute average as unknown");
+                AssertEqual(9.10, HostLoadMonitor.ParseMidLoadAverage("17.25 9.10 4.00 3/912 40211\n"), "the second field is the 5-minute average");
+                AssertNull(HostLoadMonitor.ParseMidLoadAverage("17.25"), "text without a second field is an unknown 5-minute reading");
+                AssertNull(unknown.LoadAverage5Min, "a monitor given its own 1-minute source reads the 5-minute average as unknown");
+                AssertNull(unknown.AvailableMemoryMb, "a monitor given its own 1-minute source reads available memory as unknown");
+                AssertEqual(2048L, new HostLoadMonitor(() => null, () => 4, memoryReader: () => 2048).Read().AvailableMemoryMb, "a supplied memory reader is read");
                 AssertTrue(monitor.RanOverloaded(new HostLoadReading { LoadAverage1Min = 3.0, LoadAverage15Min = 8.01, LogicalCores = 4 }), "a 15-minute average above twice the cores means the run stood under load");
                 AssertFalse(monitor.RanOverloaded(new HostLoadReading { LoadAverage1Min = 3.0, LoadAverage15Min = 8.0, LogicalCores = 4 }), "neither average above twice the cores is a run at normal load");
             }).ConfigureAwait(false);
