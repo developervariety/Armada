@@ -994,22 +994,15 @@ namespace Armada.Core.Services
                     return;
                 }
 
-                await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, failureReason, exitInfo.FailureKind, token, exitCode < 0 ? MissionFailureKindEnum.Infra : null).ConfigureAwait(false);
-
-                // Provider usage-limit / auth failures will just fail again immediately; quarantine the
-                // captain out of the dispatch pool until it resets rather than handing it more work. The kind
-                // was decided once from the exit code and the structured provider error.
+                // Provider usage-limit / auth failures will just fail again immediately, and a crash loop (N non-clean
+                // failures inside the window) means the captain keeps dying on work: quarantine it out of the dispatch
+                // pool. The decision is made before the captain is released, so it goes straight from Working to
+                // Quarantined and is never Idle in between.
                 RuntimeFailureKindEnum failureKind = exitInfo.FailureKind;
-                if (failureKind == RuntimeFailureKindEnum.UsageLimit || failureKind == RuntimeFailureKindEnum.AuthFailure)
-                {
-                    await QuarantineCaptainAsync(captainId, failureKind, token, exitInfo.ProviderError).ConfigureAwait(false);
-                }
-                else if (exitCode >= 0 && failureKind == RuntimeFailureKindEnum.Crash && RecordCrashAndCheckLoop(captainId))
-                {
-                    // Crash-loop detection: N non-clean failures inside the window means this captain keeps
-                    // dying on work rather than doing it; quarantine it so tier selection stops handing it more.
-                    await QuarantineCaptainAsync(captainId, RuntimeFailureKindEnum.Crash, token, exitInfo.ProviderError).ConfigureAwait(false);
-                }
+                bool quarantine = failureKind == RuntimeFailureKindEnum.UsageLimit || failureKind == RuntimeFailureKindEnum.AuthFailure
+                    || (exitCode >= 0 && failureKind == RuntimeFailureKindEnum.Crash && RecordCrashAndCheckLoop(captainId));
+                await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, failureReason, exitInfo.FailureKind, token,
+                    exitCode < 0 ? MissionFailureKindEnum.Infra : null, quarantine, exitInfo.ProviderError).ConfigureAwait(false);
             }
 
             // Try to dispatch any pending missions now that capacity may have freed up
@@ -2238,7 +2231,9 @@ namespace Armada.Core.Services
             string failureReason,
             RuntimeFailureKindEnum runtimeFailureKind,
             CancellationToken token,
-            MissionFailureKindEnum? missionFailureKind = null)
+            MissionFailureKindEnum? missionFailureKind = null,
+            bool quarantineCaptain = false,
+            RuntimeProviderError? providerError = null)
         {
             bool missionFailed = false;
             if (mission != null)
@@ -2275,16 +2270,28 @@ namespace Armada.Core.Services
             }
 
             await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
-            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
 
+            // Decide the captain's next state first and write it once. Releasing to Idle and then marking it Stalled or
+            // Quarantined left a gap in which dispatch could hand the broken captain another mission.
             bool captainUnavailable = RuntimeFailureClassifier.IsCaptainUnavailable(runtimeFailureKind);
-            if (captainUnavailable)
+            if (quarantineCaptain)
             {
-                await _Database.Captains.UpdateStateAsync(captain.Id, CaptainStateEnum.Stalled, token).ConfigureAwait(false);
+                await QuarantineCaptainAsync(captain.Id, runtimeFailureKind, token, providerError).ConfigureAwait(false);
+            }
+            else if (captainUnavailable)
+            {
+                captain.State = CaptainStateEnum.Stalled;
+                captain.CurrentMissionId = null;
+                captain.CurrentDockId = null;
+                captain.ProcessId = null;
+                captain.RecoveryAttempts = 0;
+                captain.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "captain " + captain.Id + " marked Stalled after non-retryable runtime failure on mission " + missionId);
             }
             else
             {
+                await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "captain " + captain.Id + " released to Idle after mission failure " + missionId);
             }
 

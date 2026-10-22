@@ -306,6 +306,14 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// When true (the default), the vessel's build and unit-test commands run in the dock after every
+        /// work-producing stage that committed something, for every runtime, before the work is handed to the next
+        /// stage. A failure resumes the captain with the output. A check that also fails on the stage's base commit is a
+        /// pre-existing failure and does not block. When false, only Mux and API-endpoint stages are checked.
+        /// </summary>
+        public bool VerifyAllStageRuntimes { get; set; } = true;
+
+        /// <summary>
         /// Base delay, in seconds, before a captain is resumed in place after a transient model or endpoint failure. Each
         /// further attempt doubles it (with jitter), up to 60 seconds, so a struggling local model server is not hit with
         /// an immediate retry storm. 0 resumes immediately. Must be in range [0, 60].

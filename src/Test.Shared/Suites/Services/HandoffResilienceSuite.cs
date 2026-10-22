@@ -647,6 +647,77 @@ namespace Test.Shared.Suites.Services
                 }));
             }
 
+            cases.Add(CaseAsync("stage_check_restores_files_its_build_regenerates", "A stage check that rewrites a tracked file leaves the dock as the stage left it", TestTags.Positive, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("echo regenerated >> gen.txt").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("notes.txt", "stage work").ConfigureAwait(false);
+
+                string? failure = await fx.Missions.VerifyStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertNull(failure, failure ?? "");
+                AssertEqual("original\n", File.ReadAllText(Path.Combine(fx.Repo, "gen.txt")).Replace("\r\n", "\n"), "the regenerated tracked file is restored");
+            }));
+
+            cases.Add(CaseAsync("stage_check_blocks_a_regression", "A stage check that passes on the base commit and fails after the stage blocks the handoff", TestTags.Negative, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("test ! -f broken.txt").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("broken.txt", "the stage broke the build").ConfigureAwait(false);
+
+                string? failure = await fx.Missions.VerifyStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertNotNull(failure, "a regression this stage introduced is reported");
+                AssertContains("stage check failed", failure!);
+            }));
+
+            cases.Add(CaseAsync("stage_check_ignores_a_pre_existing_failure", "A stage check that already fails on the base commit does not block the stage", TestTags.Positive, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("exit 3").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("notes.txt", "unrelated stage work").ConfigureAwait(false);
+
+                string? failure = await fx.Missions.VerifyStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertNull(failure, "a failure the base already has is not this stage's regression");
+                AssertFalse(Directory.Exists(fx.Repo + ".base-check"), "the base-commit worktree is removed");
+            }));
+
+            cases.Add(CaseAsync("stage_check_skips_a_frontier_stage_that_committed_nothing", "A frontier stage that made no commit is not checked", TestTags.Positive, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("touch ran.txt && exit 3").ConfigureAwait(false);
+
+                string? failure = await fx.Missions.VerifyStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertNull(failure);
+                AssertFalse(File.Exists(Path.Combine(fx.Repo, "ran.txt")), "the check did not run");
+            }));
+
+            cases.Add(CaseAsync("quota_failure_quarantines_without_an_idle_gap", "A usage-limit failure moves the captain straight to Quarantined, so a waiting mission is never handed to it", TestTags.Reliability, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                StubGitService git = new StubGitService();
+                ArmadaSettings settings = CreateSettings();
+                LoggingModule logging = CreateLogging();
+                IDockService docks = new DockService(logging, db, settings, git);
+                CaptainService captains = new CaptainService(logging, db, settings, git, docks);
+                int launches = 0;
+                captains.OnLaunchAgent = (_, _, _) => { Interlocked.Increment(ref launches); return Task.FromResult(9700); };
+                MissionService missions = new MissionService(logging, db, settings, docks, captains);
+                AdmiralService admiral = new AdmiralService(logging, db, settings, captains, missions, new VoyageService(logging, db), docks);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission running = await db.Missions.CreateAsync(new Mission("Running", "Do it") { VesselId = vessel.Id, Status = MissionStatusEnum.InProgress, ProcessId = 4500 }).ConfigureAwait(false);
+                Captain captain = await db.Captains.CreateAsync(new Captain("over-quota") { State = CaptainStateEnum.Working, CurrentMissionId = running.Id, ProcessId = 4500 }).ConfigureAwait(false);
+                running.CaptainId = captain.Id;
+                await db.Missions.UpdateAsync(running).ConfigureAwait(false);
+                Mission waiting = await db.Missions.CreateAsync(new Mission("Waiting", "Do it next") { VesselId = vessel.Id }).ConfigureAwait(false);
+
+                RuntimeProviderError quota = new RuntimeProviderError { HttpStatusCode = 429, ErrorType = "rate_limit_error", Reason = "quota exhausted" };
+                await admiral.HandleProcessExitAsync(4500, RuntimeFailureClassifier.Decide(1, quota), captain.Id, running.Id).ConfigureAwait(false);
+
+                Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                AssertEqual(CaptainStateEnum.Quarantined, after!.State);
+                AssertNull(after.CurrentMissionId);
+                AssertEqual(0, launches, "the quarantined captain was not given the waiting mission");
+                Mission? stillWaiting = await db.Missions.ReadAsync(waiting.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Pending, stillWaiting!.Status);
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Handoff and Dispatch Resilience",
@@ -749,6 +820,72 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Classes
+
+        private sealed class StageCheckFixture : IDisposable
+        {
+            public TestDatabase Db { get; private set; } = null!;
+
+            public MissionService Missions { get; private set; } = null!;
+
+            public Mission Mission { get; private set; } = null!;
+
+            public Captain Captain { get; private set; } = null!;
+
+            public string Repo { get; private set; } = "";
+
+            public static async Task<StageCheckFixture> CreateAsync(string buildCommand)
+            {
+                StageCheckFixture fx = new StageCheckFixture();
+                fx.Db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = fx.Db.Driver;
+                LoggingModule logging = CreateLogging();
+                ArmadaSettings settings = CreateSettings();
+                GitService git = new GitService(logging);
+                IDockService docks = new DockService(logging, db, settings, git);
+                CaptainService captains = new CaptainService(logging, db, settings, git, docks);
+                fx.Missions = new MissionService(logging, db, settings, docks, captains, git: git);
+
+                fx.Repo = TestTemp.NewDirectory("stagecheck_repo");
+                await Git(fx.Repo, "init", "-q", "-b", "main").ConfigureAwait(false);
+                File.WriteAllText(Path.Combine(fx.Repo, "gen.txt"), "original\n");
+                await Git(fx.Repo, "add", "-A").ConfigureAwait(false);
+                await Git(fx.Repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "base").ConfigureAwait(false);
+                string start = (await Git(fx.Repo, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+
+                Vessel vessel = await db.Vessels.CreateAsync(new Vessel("stagecheck-" + Guid.NewGuid().ToString("N").Substring(0, 6), "https://example.invalid/repo.git")).ConfigureAwait(false);
+                await db.WorkflowProfiles.CreateAsync(new WorkflowProfile { Name = "check", Scope = WorkflowProfileScopeEnum.Vessel, VesselId = vessel.Id, IsDefault = true, Active = true, BuildCommand = buildCommand }).ConfigureAwait(false);
+                Dock dock = await db.Docks.CreateAsync(new Dock(vessel.Id) { WorktreePath = fx.Repo, Active = true }).ConfigureAwait(false);
+                string metadata = Path.Combine(settings.LogDirectory, "docks");
+                Directory.CreateDirectory(metadata);
+                File.WriteAllText(Path.Combine(metadata, dock.Id + ".start"), start + "\n");
+
+                fx.Captain = await db.Captains.CreateAsync(new Captain("frontier", AgentRuntimeEnum.ClaudeCode) { State = CaptainStateEnum.Working }).ConfigureAwait(false);
+                fx.Mission = await db.Missions.CreateAsync(new Mission("Work", "Do it") { VesselId = vessel.Id, DockId = dock.Id, Persona = "Worker", Status = MissionStatusEnum.InProgress }).ConfigureAwait(false);
+                return fx;
+            }
+
+            public async Task CommitStageChangeAsync(string file, string content)
+            {
+                File.WriteAllText(Path.Combine(Repo, file), content + "\n");
+                await Git(Repo, "add", "-A").ConfigureAwait(false);
+                await Git(Repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "stage").ConfigureAwait(false);
+            }
+
+            public void Dispose()
+            {
+                Db?.Dispose();
+            }
+
+            private static async Task<string> Git(string directory, params string[] args)
+            {
+                ProcessStartInfo info = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+                foreach (string arg in args) info.ArgumentList.Add(arg);
+                using Process process = Process.Start(info)!;
+                string output = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                return output;
+            }
+        }
 
         private sealed class Harness
         {

@@ -2621,6 +2621,93 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _BaseCommitCheckFailures = new System.Collections.Concurrent.ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
+
+        private static async Task<HostCommandResult> RunStageCommandAsync(IHostCommandExecutor executor, bool windows, string workingDirectory, string command, CancellationToken token)
+        {
+            return await executor.RunAsync(new HostCommandRequest
+            {
+                Executable = windows ? "cmd.exe" : "/bin/sh",
+                WorkingDirectory = workingDirectory,
+                Arguments = windows ? new List<string> { "/c", command } : new List<string> { "-lc", command },
+                TimeoutMs = (int)_StageVerificationTimeout.TotalMilliseconds,
+                Kind = HostCommandKindEnum.CheckRun,
+                Label = "Stage check: " + command
+            }, token).ConfigureAwait(false);
+        }
+
+        private static async Task<HashSet<string>> ReadModifiedTrackedFilesAsync(IHostCommandExecutor executor, bool windows, string worktree, CancellationToken token)
+        {
+            HashSet<string> files = new HashSet<string>(StringComparer.Ordinal);
+            HostCommandResult status = await RunGitAsync(executor, windows, worktree, "git status --porcelain=v1 --untracked-files=no", token).ConfigureAwait(false);
+            if (!status.Success) return files;
+            foreach (string line in (status.StandardOutput ?? String.Empty).Replace("\r\n", "\n").Split('\n'))
+            {
+                if (line.Length > 3) files.Add(line.Substring(3).Trim());
+            }
+            return files;
+        }
+
+        private async Task RevertCheckArtifactsAsync(IHostCommandExecutor executor, bool windows, string worktree, HashSet<string> dirtyBefore, string missionId)
+        {
+            try
+            {
+                HashSet<string> dirtyAfter = await ReadModifiedTrackedFilesAsync(executor, windows, worktree, CancellationToken.None).ConfigureAwait(false);
+                List<string> regenerated = dirtyAfter.Where(f => !dirtyBefore.Contains(f) && !f.Contains("->", StringComparison.Ordinal)).ToList();
+                if (regenerated.Count == 0) return;
+                string quoted = String.Join(" ", regenerated.Select(f => "\"" + f.Replace("\"", "") + "\""));
+                await RunGitAsync(executor, windows, worktree, "git checkout -- " + quoted, CancellationToken.None).ConfigureAwait(false);
+                _Logging.Info(_Header + "stage check for mission " + missionId + " regenerated " + regenerated.Count + " tracked file(s); restored them: " + String.Join(", ", regenerated));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is IOException || ex is TimeoutException)
+            {
+                _Logging.Warn(_Header + "could not restore files the stage check changed for mission " + missionId + ": " + ex.Message);
+            }
+        }
+
+        private async Task<bool> FailsOnBaseCommitAsync(IHostCommandExecutor executor, bool windows, string vesselId, string worktree, string baseCommit, string command, CancellationToken token)
+        {
+            string key = vesselId + "|" + baseCommit + "|" + command;
+            if (_BaseCommitCheckFailures.TryGetValue(key, out bool known)) return known;
+
+            // Run the same command on the base commit in a throwaway detached worktree next to the dock.
+            string baseline = worktree.TrimEnd('/', '\\') + ".base-check";
+            bool fails = false;
+            try
+            {
+                await RunGitAsync(executor, windows, worktree, "git worktree remove --force \"" + baseline + "\"", token).ConfigureAwait(false);
+                HostCommandResult added = await RunGitAsync(executor, windows, worktree, "git worktree add --detach \"" + baseline + "\" " + baseCommit, token).ConfigureAwait(false);
+                if (!added.Success)
+                {
+                    _Logging.Warn(_Header + "could not create a base-commit worktree to classify a stage check failure: " + (added.StandardError ?? "").Trim());
+                    return false;
+                }
+
+                HostCommandResult result = await RunStageCommandAsync(executor, windows, baseline, command, token).ConfigureAwait(false);
+                fails = result.TimedOut || result.ExitCode != 0;
+            }
+            finally
+            {
+                await RunGitAsync(executor, windows, worktree, "git worktree remove --force \"" + baseline + "\"", CancellationToken.None).ConfigureAwait(false);
+            }
+
+            _BaseCommitCheckFailures[key] = fails;
+            return fails;
+        }
+
+        private static async Task<HostCommandResult> RunGitAsync(IHostCommandExecutor executor, bool windows, string worktree, string command, CancellationToken token)
+        {
+            return await executor.RunAsync(new HostCommandRequest
+            {
+                Executable = windows ? "cmd.exe" : "/bin/sh",
+                WorkingDirectory = worktree,
+                Arguments = windows ? new List<string> { "/c", command } : new List<string> { "-c", command },
+                TimeoutMs = 120000,
+                Kind = HostCommandKindEnum.CheckRun,
+                Label = "Stage check git"
+            }, token).ConfigureAwait(false);
+        }
+
         private async Task<bool> HasUntriedIdleCaptainAsync(Mission mission, MissionLaunchFailure failure, CancellationToken token)
         {
             // Backoff protects against relaunching the same broken captain; it should not hold a mission back when a
@@ -5155,7 +5242,8 @@ namespace Armada.Core.Services
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
-            if (captain.Runtime != AgentRuntimeEnum.Mux && captain.Runtime != AgentRuntimeEnum.ApiEndpoint) return null;
+            bool checkedRuntime = captain.Runtime == AgentRuntimeEnum.Mux || captain.Runtime == AgentRuntimeEnum.ApiEndpoint;
+            if (!checkedRuntime && !_Settings.VerifyAllStageRuntimes) return null;
             if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Architect)
                 || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.ProductManager) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Recorder))
                 return null;
@@ -5175,6 +5263,16 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrWhiteSpace(profile.UnitTestCommand)) commands.Add(profile.UnitTestCommand!.Trim());
                 if (commands.Count == 0) return null;
 
+                // A stage that committed nothing has nothing new to verify (a frontier stage that only reviewed). Local
+                // models are still checked either way, because they often leave edits uncommitted.
+                string? startCommit = TryReadDockStartCommit(dock.Id);
+                if (!checkedRuntime)
+                {
+                    string? head = await ReadDockHeadAsync(dock, token).ConfigureAwait(false);
+                    if (String.IsNullOrEmpty(startCommit) || String.IsNullOrEmpty(head) || String.Equals(startCommit, head, StringComparison.OrdinalIgnoreCase))
+                        return null;
+                }
+
                 DockHost? harborHost = HarborHostFor(dock);
                 IHostCommandExecutor executor = harborHost != null ? harborHost.Commands : _LocalCommands;
                 bool windows = OperatingSystem.IsWindows();
@@ -5184,30 +5282,41 @@ namespace Armada.Core.Services
                     windows = FleetActionShellCommandBuilder.IsWindowsPlatform(harbor?.OsPlatform);
                 }
 
-                foreach (string command in commands)
+                HashSet<string> dirtyBefore = await ReadModifiedTrackedFilesAsync(executor, windows, dock.WorktreePath!, token).ConfigureAwait(false);
+                try
                 {
-                    HostCommandResult result = await executor.RunAsync(new HostCommandRequest
+                    foreach (string command in commands)
                     {
-                        Executable = windows ? "cmd.exe" : "/bin/sh",
-                        WorkingDirectory = dock.WorktreePath!,
-                        Arguments = windows ? new List<string> { "/c", command } : new List<string> { "-lc", command },
-                        TimeoutMs = (int)_StageVerificationTimeout.TotalMilliseconds,
-                        Kind = HostCommandKindEnum.CheckRun,
-                        Label = "Stage check: " + command
-                    }, token).ConfigureAwait(false);
-                    if (result.TimedOut)
-                    {
-                        _Logging.Warn(_Header + "stage check for mission " + mission.Id + " timed out running " + command);
-                        return "The stage check timed out: " + command + ". Its success has not been verified. Investigate and rerun the check.";
-                    }
+                        HostCommandResult result = await RunStageCommandAsync(executor, windows, dock.WorktreePath!, command, token).ConfigureAwait(false);
+                        if (result.TimedOut)
+                        {
+                            _Logging.Warn(_Header + "stage check for mission " + mission.Id + " timed out running " + command);
+                            return "The stage check timed out: " + command + ". Its success has not been verified. Investigate and rerun the check.";
+                        }
 
-                    if (result.ExitCode != 0)
-                    {
-                        string output = ((result.StandardOutput ?? "") + "\n" + (result.StandardError ?? "")).Trim();
-                        if (output.Length > 3000) output = "...\n" + output.Substring(output.Length - 3000);
-                        _Logging.Warn(_Header + "stage check for mission " + mission.Id + " failed: " + command + " exited " + result.ExitCode);
-                        return "The stage check failed: `" + command + "` exited with code " + result.ExitCode + " in the working tree. Its output:\n```\n" + output + "\n```\nFix the cause, run the command again until it succeeds, and commit.";
+                        if (result.ExitCode != 0)
+                        {
+                            // A check that fails on the stage's starting commit as well is a pre-existing failure, not
+                            // something this stage broke: report it in the log and do not send the captain back over it.
+                            if (!String.IsNullOrEmpty(startCommit)
+                                && await FailsOnBaseCommitAsync(executor, windows, vessel.Id, dock.WorktreePath!, startCommit!, command, token).ConfigureAwait(false))
+                            {
+                                _Logging.Warn(_Header + "stage check for mission " + mission.Id + " fails on its base commit " + startCommit + " too (" + command + "); not blocking the stage");
+                                continue;
+                            }
+
+                            string output = ((result.StandardOutput ?? "") + "\n" + (result.StandardError ?? "")).Trim();
+                            if (output.Length > 3000) output = "...\n" + output.Substring(output.Length - 3000);
+                            _Logging.Warn(_Header + "stage check for mission " + mission.Id + " failed: " + command + " exited " + result.ExitCode);
+                            return "The stage check failed: `" + command + "` exited with code " + result.ExitCode + " in the working tree. Its output:\n```\n" + output + "\n```\nFix the cause, run the command again until it succeeds, and commit.";
+                        }
                     }
+                }
+                finally
+                {
+                    // The check's own build can rewrite tracked files (generated XML docs, lock files). Put those back so
+                    // the check never adds changes the stage did not make.
+                    await RevertCheckArtifactsAsync(executor, windows, dock.WorktreePath!, dirtyBefore, mission.Id).ConfigureAwait(false);
                 }
 
                 _Logging.Info(_Header + "stage check for mission " + mission.Id + " passed (" + String.Join("; ", commands) + ")");
