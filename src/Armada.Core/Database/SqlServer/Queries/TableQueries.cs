@@ -1006,7 +1006,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(111, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.SqlServerStatements),
                 new SchemaMigration(112, "Index signals by type, read flag and creation time", SignalTypeReadIndexSchema.SqlServerStatements),
                 new SchemaMigration(113, "Pin deployments to a resolved source commit and artifact, and store required Check types per environment", DeploymentCandidatePinPersistence.SqlServerStatements),
-                new SchemaMigration(114, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.SqlServerStatements)
+                new SchemaMigration(114, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.SqlServerStatements),
+                new SchemaMigration(115, "Persist trace records, trace links and trace cursors", TraceRecordSchema.SqlServerStatements)
             };
         }
 

@@ -323,7 +323,9 @@ namespace Armada.Test.Unit.Suites.Services
                         "armada_bench_captain",
                         "armada_unlanded_branches",
                         "armada_reconcile_terminal_voyage_missions",
-                        "armada_disk_lifecycle"
+                        "armada_disk_lifecycle",
+                        "armada_trace",
+                        "armada_trace_backfill"
                     };
                     List<string> missing = new List<string>();
                     foreach (string name in serviceTools)

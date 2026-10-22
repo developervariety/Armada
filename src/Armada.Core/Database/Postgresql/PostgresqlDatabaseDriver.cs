@@ -107,6 +107,10 @@ namespace Armada.Core.Database.Postgresql
                 { "releases.created_utc", StoredTimestampEnum.TimestampWithZone },
                 { "releases.last_update_utc", StoredTimestampEnum.TimestampWithZone },
                 { "releases.published_utc", StoredTimestampEnum.TimestampWithZone },
+                { "trace_cursors.updated_utc", StoredTimestampEnum.TimestampWithZone },
+                { "trace_records.recorded_utc", StoredTimestampEnum.TimestampWithZone },
+                { "trace_records.subject_created_utc", StoredTimestampEnum.TimestampWithZone },
+                { "trace_records.subject_last_update_utc", StoredTimestampEnum.TimestampWithZone },
                 { "workflow_profiles.created_utc", StoredTimestampEnum.TimestampWithZone },
                 { "workflow_profiles.last_update_utc", StoredTimestampEnum.TimestampWithZone },
                 { "captains.quarantine_until_utc", StoredTimestampEnum.ServerRenderedText },
@@ -428,6 +432,7 @@ namespace Armada.Core.Database.Postgresql
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(_Settings);
             JudgeFollowUpHandledItems = new JudgeFollowUpHandledItemMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
+            TraceRecords = new TraceRecordMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             TokenUsage = new TokenUsageMethods(_Stored);
             ModelEndpoints = new ModelEndpointMethods(_Stored);
             ProjectProfiles = new ProjectProfileMethods(_Stored);

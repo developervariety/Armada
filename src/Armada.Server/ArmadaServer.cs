@@ -131,6 +131,8 @@ namespace Armada.Server
         private PersonaSeedService _PersonaSeedService = null!;
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
+        private TraceRecorder _TraceRecorder = null!;
+        private const int _TraceSweepEventsPerCycle = 5000;
         private DiskLifecycleService _DiskLifecycle = null!;
         private ArmadaTelemetryHost? _TelemetryHost = null;
         private BranchCleanupSweepService _BranchCleanupSweep = null!;
@@ -554,6 +556,7 @@ namespace Armada.Server
             // Initialize log rotation and data expiry
             _LogRotation = new LogRotationService(_Logging, _Settings.MaxLogFileSizeBytes, _Settings.MaxLogFileCount);
             _DataExpiry = new DataExpiryService(_Logging, _Database, _Settings.DataRetentionDays, _Settings.ProductionFactRetentionDays, _Settings.RequestHistoryRetentionDays);
+            _TraceRecorder = new TraceRecorder(_Database, _Logging) { ArchiveSettingsProvider = () => _Settings.Archive };
             _DiskLifecycle = new DiskLifecycleService(_Database, _Settings, _Logging);
 
             // Telemetry export. ArmadaMetrics already emits the meters; without this host nothing
@@ -2512,6 +2515,14 @@ namespace Armada.Server
                 // every cycle. It never changes a mission.
                 HealthLoopMaintenanceStep.EveryCycles("captain log screening", () => 1,
                     async stepToken => await _CaptainLogScreen.SweepAsync(stepToken).ConfigureAwait(false)),
+
+                // Trace records describe each record compactly after its raw rows expire. The sweep records
+                // every record named by events since its cursor; expiry drops records past trace retention.
+                HealthLoopMaintenanceStep.EveryCycles("trace sweep", () => 10,
+                    async stepToken => await _TraceRecorder.SweepAsync(_TraceSweepEventsPerCycle, stepToken).ConfigureAwait(false)),
+
+                HealthLoopMaintenanceStep.EveryCycles("trace expiry", () => 100,
+                    async stepToken => await _TraceRecorder.ExpireAsync(_Settings.Archive.TraceRetentionDays, stepToken).ConfigureAwait(false)),
 
                 HealthLoopMaintenanceStep.EveryCycles("data expiry", () => 100,
                     async stepToken => await _DataExpiry.PurgeExpiredDataAsync(stepToken).ConfigureAwait(false)),

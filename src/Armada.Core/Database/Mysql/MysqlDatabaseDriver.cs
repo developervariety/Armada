@@ -123,6 +123,7 @@ namespace Armada.Core.Database.Mysql
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(_ConnectionString);
             JudgeFollowUpHandledItems = new JudgeFollowUpHandledItemMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
+            TraceRecords = new TraceRecordMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             ProjectProfiles = new ProjectProfileMethods(_Stored);
             Skills = new SkillMethods(_Stored);
             CoordinationLeases = new CoordinationLeaseMethods(_ConnectionString);
@@ -703,7 +704,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(108, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.MysqlStatements),
                 new SchemaMigration(109, "Index signals by type, read flag and creation time", SignalTypeReadIndexSchema.MysqlStatements),
                 new SchemaMigration(110, "Pin deployments to a resolved source commit and artifact, and store required Check types per environment", DeploymentCandidatePinPersistence.MysqlStatements),
-                new SchemaMigration(111, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.MysqlStatements)
+                new SchemaMigration(111, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.MysqlStatements),
+                new SchemaMigration(112, "Persist trace records, trace links and trace cursors", TraceRecordSchema.MysqlStatements)
             };
         }
 

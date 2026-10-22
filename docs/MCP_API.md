@@ -1330,6 +1330,44 @@ Returns `{ status: "complete", report }` with `model`, `total`, `passed`,
 `failed`, `unavailable`, token totals, and per-case `outcome`, `failures`, and
 `answers`; or `{ status: "busy" }` when a run is already in progress.
 
+## Trace Records
+
+Trace records describe each objective, voyage, mission, check run, incident,
+merge entry and deployment compactly and outlive the raw rows. The record
+content, the writers and retention are in `MCP_TOOL_CATALOG.md` section 8.28.
+Both tools refuse any caller other than a global administrator with
+`Reason: global_administrator_required`.
+
+### armada_trace
+
+| Argument | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `id` | string | yes | Full id (`msn_`, `vyg_`, `obj_`, `chk_`, `inc_`, `mrg_`, `dpl_`) or short id: a prefix of a full id, at least four characters after the kind prefix, with or without that prefix. |
+| `maxRecords` | integer | no | Most records returned; defaults to `60`, clamped to 1-200. |
+| `includeMessages` | boolean | no | Return the final message of every record; defaults to `false`, which keeps it on the requested record only. |
+
+Returns `requestedId`, `resolvedId`, `source` (`table`, `live` or `none`),
+`records` (the requested record first, then linked records breadth first),
+`missingIds` (linked ids with no trace record and no source row),
+`archivedKeys` (archive keys of missing records whose trace record is in the
+bucket) and `truncated`. Each record has `id`, `kind`, `title`, `status`, the timestamps,
+`vesselId`, `captainId`, `model`, `persona`, `stageOrder`, `branchName`,
+`startRef`, `commitSha`, `landedSha`, `artifactIdentity`, `gate`, `check`,
+`verdict`, `findingCount`, `failureReason`, `finalMessage`, `links`,
+`timeline` and `archive`. A short id that matches several records returns
+`Error`, `requestedId` and `candidates`.
+
+### armada_trace_backfill
+
+| Argument | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `sinceUtc` | string | no | Oldest creation time a table starts from on its first call; defaults to 120 days ago. Later calls resume from each table's cursor. |
+| `maxRows` | integer | no | Most source rows one call visits; defaults to `2000`, clamped to 1-20000. |
+
+Returns `sinceUtc`, `rowsRead`, `recordsWritten`, `recordsMissing` (rows that
+disappeared before they were recorded), `failures`, `rowsByKind`, `cursors`
+(per table), `done` and `storedRecords`.
+
 ## Memory Proposals
 
 Three operator tools read and close the memory proposal store. A memory proposal

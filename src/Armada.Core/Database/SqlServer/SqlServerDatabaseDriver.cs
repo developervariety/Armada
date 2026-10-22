@@ -76,6 +76,10 @@ namespace Armada.Core.Database.SqlServer
                 { "planning_sessions.last_update_utc", StoredTimestampEnum.Timestamp },
                 { "planning_sessions.started_utc", StoredTimestampEnum.Timestamp },
                 { "preparation_claim_observations.created_utc", StoredTimestampEnum.Timestamp },
+                { "trace_cursors.updated_utc", StoredTimestampEnum.Timestamp },
+                { "trace_records.recorded_utc", StoredTimestampEnum.Timestamp },
+                { "trace_records.subject_created_utc", StoredTimestampEnum.Timestamp },
+                { "trace_records.subject_last_update_utc", StoredTimestampEnum.Timestamp },
             },
             integerBooleans: false,
             integerBooleanColumns: Array.Empty<string>(),
@@ -152,6 +156,7 @@ namespace Armada.Core.Database.SqlServer
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(this);
             JudgeFollowUpHandledItems = new JudgeFollowUpHandledItemMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            TraceRecords = new TraceRecordMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             ProjectProfiles = new ProjectProfileMethods(_Stored);
             Skills = new SkillMethods(_Stored);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);

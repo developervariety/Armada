@@ -240,6 +240,7 @@ namespace Armada.Server.Mcp
                 McpMissionCodeSearchTools.Register(register, codeIndexService, database, effectiveSettings, logging);
             }
             if (diskLifecycle != null) McpDiskLifecycleTools.Register(register, diskLifecycle, longRunningJobs);
+            if (logging != null) McpTraceTools.Register(register, new TraceRecorder(database, logging));
             if (terminalVoyageMissions != null) McpTerminalVoyageMissionTools.Register(register, terminalVoyageMissions, longRunningJobs);
             if (harborJobs != null) McpHarborJobTools.Register(register, harborJobs);
             if (missionService != null) McpReviewHoldTools.Register(register, missionService);

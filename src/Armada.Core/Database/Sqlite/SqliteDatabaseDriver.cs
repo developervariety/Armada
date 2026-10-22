@@ -411,6 +411,7 @@ namespace Armada.Core.Database.Sqlite
             Deployments = new DeploymentMethods(_Stored);
             JudgeFollowUps = new JudgeFollowUpMethods(this);
             JudgeFollowUpHandledItems = new JudgeFollowUpHandledItemMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            TraceRecords = new TraceRecordMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             ProjectProfiles = new ProjectProfileMethods(_Stored);
             Skills = new SkillMethods(_Stored);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);

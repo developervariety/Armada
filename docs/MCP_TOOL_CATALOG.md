@@ -1172,3 +1172,72 @@ To repair older rows, use `armada_reconcile_terminal_voyage_missions`:
 | --- | --- |
 | Read | `armada_reconcile_terminal_voyage_missions` (`dryRun=true`, the default) |
 | Write | `armada_reconcile_terminal_voyage_missions` (`dryRun=false`) |
+
+### 8.28 Trace Records
+
+A trace record is the compact description of one objective, voyage, mission,
+check run, incident, merge entry or deployment. It outlives the raw rows, so an
+operator can walk from any id to the work around it after data expiry. A record
+holds:
+
+- the id, the kind, and links to related records: voyage, parent and child
+  (rescue) missions, the Challenger of a Judge, merge entries, check runs,
+  deployments, incidents and objectives;
+- the status and a timeline of lifecycle events (at most 60, newest kept);
+- the vessel, captain, model, persona and pipeline stage;
+- the branch, start ref, work commit, landed commit and deployed artifact;
+- the latest definition-of-done gate result with up to 20 failing test names,
+  and check totals;
+- the Judge verdict and blocking-finding count of a Judge mission, and the
+  failure reason;
+- the last 4 KB of the final message;
+- archive pointers (key, sha256, size, expired flag).
+
+Free text is redacted and bounded. No diff, log or prompt is stored.
+
+Records live in the `trace_records` table, their outgoing links in
+`trace_links`, and the sweep positions in `trace_cursors`. The health loop
+writes them:
+
+- Every 10 cycles, the sweep reads the events after its cursor and records each
+  record they name, plus the check runs, merge entries and deployments of each
+  named mission or voyage. Its first run starts one day back.
+- `TraceExpiryObserver`, a data expiry observer (`docs/ARCHIVE.md`), records
+  each expiring voyage, mission, merge entry, check run and deployment row
+  again before it is deleted, and records the record an expiring event names
+  when it has no trace record yet. A failed write stops the expiry of that
+  table.
+- Every 100 cycles, records whose described record last changed more than
+  `archive.traceRetentionDays` ago (default 365) are deleted with their links.
+
+A write replaces the stored record of the same id and its links, so every path
+is idempotent. A record whose source row is gone is never rewritten.
+
+While the archive is enabled and configured and the recorder has a sink, a
+record whose described record has ended, or that the expiry observer writes,
+is also uploaded to `trace/<yyyy>/<MM>/<id>.json`. The verified upload is kept
+on the record as an archive pointer, and unchanged content is not uploaded
+again. When a linked record is in neither the table nor the database,
+`armada_trace` lists its archived key in `archivedKeys`.
+
+`armada_trace` takes a full id (`msn_`, `vyg_`, `obj_`, `chk_`, `inc_`, `mrg_`,
+`dpl_`) or a short id: a prefix of a full id of at least four characters after
+the kind prefix, with or without that prefix. It returns the requested record
+first, then the records it links to and the records that link to it, breadth
+first, up to `maxRecords` (default 60, maximum 200). A record missing from the
+table is built from its live source row and stored. A short id that matches
+more than one record returns the candidates instead.
+
+`armada_trace_backfill` fills the table from stored history, one bounded batch
+per call. It walks the objective, voyage, mission, merge entry, deployment and
+incident tables in creation order, each from its own cursor, and records each
+row with the check runs, merge entries and deployments of each mission and
+voyage, so history with no surviving events is recorded too. Call it until
+`done` is true.
+
+Both tools require a global administrator.
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_trace` (writes a trace record only for a record missing from the table) |
+| Write | `armada_trace_backfill` |

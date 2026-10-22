@@ -30,6 +30,24 @@ upstream integrations and excludes changes already present at that baseline.
   owner's record reads as `not_found`; two visible matches return
   `ambiguous_id`. An objective that cites an abbreviated id links the record it
   resolves to, so a brief that names a mission by its short id can read it.
+- Trace records keep a compact description of every objective, voyage,
+  mission, check run, incident, merge entry and deployment for
+  `archive.traceRetentionDays` (365) after it last changed, so an operator can walk
+  from any id to its landing and deployment after data expiry deletes the raw
+  rows. A record holds links (voyage, parent and rescue missions, Challenger,
+  merge entries, checks, deployments, incidents, objectives), the lifecycle
+  timeline, vessel, captain, model, persona, stage, branch, start ref, work,
+  landed and deployed commits, the gate result with failing test names, check
+  totals, the Judge verdict and finding count, the failure reason, the last
+  4 KB of the final message and archive pointers; free text is redacted. The
+  health loop records each record its events name and expires old trace
+  records; `TraceExpiryObserver` records each row data expiry is about to
+  delete. An ended record is uploaded to `trace/` through the archive sink
+  while the archive is enabled. `armada_trace` returns
+  the linked chain for a full or short id, and `armada_trace_backfill` fills
+  the table from the stored tables in bounded, resumable batches. New tables
+  `trace_records`, `trace_links` and `trace_cursors` (migrations SQLite 119,
+  PostgreSQL 123, MySQL 112, SQL Server 115).
 - Typed-decision quality is measurable against outcomes. Every recorded call
   names its subject (`subject_type`, `subject_id`): the mission, else the
   objective, else the record the seam judged (`papercut_group`, `board_note`,

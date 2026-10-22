@@ -1216,7 +1216,8 @@ $convert$;"),
                 new SchemaMigration(119, "Persist Judge follow-up handled-item markers", JudgeFollowUpHandledItemSchema.PostgresqlStatements),
                 new SchemaMigration(120, "Index signals by type, read flag and creation time", SignalTypeReadIndexSchema.PostgresqlStatements),
                 new SchemaMigration(121, "Pin deployments to a resolved source commit and artifact, and store required Check types per environment", DeploymentCandidatePinPersistence.PostgresqlStatements),
-                new SchemaMigration(122, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.PostgresqlStatements)
+                new SchemaMigration(122, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.PostgresqlStatements),
+                new SchemaMigration(123, "Persist trace records, trace links and trace cursors", TraceRecordSchema.PostgresqlStatements)
             };
         }
 

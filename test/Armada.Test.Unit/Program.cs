@@ -485,6 +485,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CaptainRuntimeToolCatalogHttpProbeTests());
             runner.AddSuite(new McpEnumArgumentFailureTests());
             runner.AddSuite(new MissionUnassignableEscalationTests());
+            runner.AddSuite(new TraceRecorderTests());
 
             runner.VerifyRegistration(typeof(Program).Assembly);
 
