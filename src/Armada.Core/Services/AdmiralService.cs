@@ -330,7 +330,7 @@ namespace Armada.Core.Services
                 return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, captainOverridesJson, landingMode, approvalOptions, token).ConfigureAwait(false);
             }
 
-            if (pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker")
+            if (pipeline.Stages.Count == 1 && PersonaCatalog.Matches(pipeline.Stages[0].PersonaName, PersonaCatalog.Worker))
             {
                 return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, pipeline.Stages[0], captainOverridesJson, landingMode, approvalOptions, token).ConfigureAwait(false);
             }

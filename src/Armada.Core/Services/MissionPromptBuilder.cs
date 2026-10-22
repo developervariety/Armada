@@ -238,7 +238,7 @@ namespace Armada.Core.Services
             sections.Add("Mission: " + mission.Title);
             sections.Add("Branch: " + (dock.BranchName ?? mission.BranchName ?? vessel.DefaultBranch ?? "main"));
 
-            if (String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
+            if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Architect))
             {
                 sections.Add(
                     "Read " + instructionsFileName + " in the working directory. " +

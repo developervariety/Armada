@@ -1611,7 +1611,7 @@ namespace Armada.Core.Services
             }
 
             string? judgeBlockReason = null;
-            if (!failedForScopeViolation && String.Equals(mission.Persona, "Judge", StringComparison.OrdinalIgnoreCase))
+            if (!failedForScopeViolation && PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge))
             {
                 // Only the structured [ARMADA:VERDICT] protocol line counts; a missing or conflicting verdict is no
                 // verdict, which blocks landing.
@@ -1825,7 +1825,7 @@ namespace Armada.Core.Services
             string? completionDockId = dock?.Id;
             bool cleanupArchitectBranch =
                 preparedDownstreamStages &&
-                String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase);
+                PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Architect);
             bool retainDockForReview =
                 awaitingManualReview &&
                 !hasDependentPipelineStages &&
@@ -3341,7 +3341,7 @@ namespace Armada.Core.Services
             foreach (Mission produced in workProduced)
             {
                 if (String.IsNullOrEmpty(produced.VoyageId)) continue;
-                if (String.Equals(produced.Persona, "Architect", StringComparison.OrdinalIgnoreCase)) continue;
+                if (PersonaCatalog.Matches(produced.Persona, PersonaCatalog.Architect)) continue;
 
                 // A completion still being processed prepares its own handoff; re-driving it here would run the handoff twice.
                 if (IsCompletionInFlight(produced.Id)) continue;
@@ -3400,7 +3400,7 @@ namespace Armada.Core.Services
             if (dependentMissions.Count == 0) return false;
 
             // Special handling for Architect stage: parse output into new missions
-            if (String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
+            if (PersonaCatalog.Matches(completedMission.Persona, PersonaCatalog.Architect))
             {
                 ArchitectPlanParser.TryParse(completedMission.AgentOutput, out _, out string? planError);
                 if (planError != null)
@@ -3424,7 +3424,7 @@ namespace Armada.Core.Services
 
                     foreach (Mission nextMission in dependentMissions)
                     {
-                if (String.Equals(nextMission.Persona, "Worker", StringComparison.OrdinalIgnoreCase))
+                if (PersonaCatalog.Matches(nextMission.Persona, PersonaCatalog.Worker))
                 {
                     // Update the first parsed mission into this existing Worker mission slot
                     ParsedArchitectMission first = parsed[0];
@@ -3694,7 +3694,7 @@ namespace Armada.Core.Services
             {
                 string workerTitle = parsed[i].Title + " [Worker]";
                 Mission? workerRoot = voyageMissions.FirstOrDefault(m =>
-                    String.Equals(m.Persona, "Worker", StringComparison.OrdinalIgnoreCase) &&
+                    PersonaCatalog.Matches(m.Persona, PersonaCatalog.Worker) &&
                     String.Equals(m.Title, workerTitle, StringComparison.OrdinalIgnoreCase));
                 if (workerRoot == null) continue;
 
@@ -5058,7 +5058,7 @@ namespace Armada.Core.Services
             if (mission == null || dependency == null) return false;
             if (String.IsNullOrEmpty(mission.DependsOnMissionId)) return true;
 
-            if (String.Equals(dependency.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
+            if (PersonaCatalog.Matches(dependency.Persona, PersonaCatalog.Architect))
             {
                 return !String.IsNullOrEmpty(mission.Description) &&
                     mission.Description.Contains(ArchitectHandoffMarker, StringComparison.Ordinal);
@@ -5074,7 +5074,7 @@ namespace Armada.Core.Services
         private async Task<bool> ShouldDeferArchitectSequencedMissionAsync(Mission mission, CancellationToken token)
         {
             if (mission == null) return false;
-            if (!String.Equals(mission.Persona, "Worker", StringComparison.OrdinalIgnoreCase)) return false;
+            if (!PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Worker)) return false;
             if (String.IsNullOrEmpty(mission.VoyageId)) return false;
 
             // Structured flag only (set from the architect plan's waitForOtherMissions, or once from the legacy
