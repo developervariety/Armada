@@ -581,6 +581,16 @@ upstream integrations and excludes changes already present at that baseline.
   was needed; the activity log says so and the Judge runs instead of being
   cancelled. The first producing Worker of a pipeline or a rescue keeps the
   no-op rule.
+- A Worker whose start ref already holds the work completes instead of failing
+  as `no_op_completion_detected`. When the commit its dock started from holds
+  commits that the vessel's landing target branch does not have (an objective
+  that starts from reviewed work not yet landed), a completion marker with no
+  new commit means no change was needed. The activity log names the start
+  commit, the target branch and the commit count; the next stage reviews the
+  branch against the target, and the landing merges the start-ref commits with
+  the branch. A Worker that starts at or behind the target, or whose count git
+  cannot read, keeps the no-op rule, so autonomous recovery no longer
+  dispatches a rescue that could only repeat the same empty diff.
 - `ActiveDispatchedCount` in `armada_objective_scheduler_status` describes the
   latest sweep tick, including a sweep that is disabled or paused. It counts each
   Open or InProgress voyage that holds a mission on a vessel once, by the same

@@ -2493,8 +2493,10 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Detect a false completion, stating whether an earlier Worker stage of the same chain already produced
-        /// the branch's work (<see cref="FindUpstreamProducingStageAsync"/>).
+        /// Detect a false completion, stating whether the branch already held the deliverable when this stage
+        /// started: an earlier Worker stage of the same chain produced it (<see cref="FindUpstreamProducingStageAsync"/>),
+        /// or the dock started from a ref that holds commits the landing target lacks
+        /// (<see cref="DescribeStartRefAheadOfTargetAsync"/>).
         /// </summary>
         /// <param name="mission">Mission under completion.</param>
         /// <param name="runtime">Captain runtime.</param>
@@ -2504,7 +2506,7 @@ namespace Armada.Core.Services
         /// <param name="hasChangesSinceDockStart">Whether files changed since the dock was provisioned.</param>
         /// <param name="hasCompletionMarker">Whether the captain claimed completion.</param>
         /// <param name="dockChangesKnown">False when the dock start commit could not be read and no change was seen.</param>
-        /// <param name="upstreamStageProducedWork">True when an earlier Worker stage of this mission's chain, on the same branch, produced verified work.</param>
+        /// <param name="branchAlreadyHoldsWork">True when an earlier Worker stage of this mission's chain, on the same branch, produced verified work, or when the dock start commit holds commits the vessel's landing target branch does not have.</param>
         /// <returns>True when the completion is a no-op.</returns>
         internal static bool DetectNoOpCompletion(
             Mission mission,
@@ -2515,7 +2517,7 @@ namespace Armada.Core.Services
             bool hasChangesSinceDockStart,
             bool hasCompletionMarker,
             bool dockChangesKnown,
-            bool upstreamStageProducedWork)
+            bool branchAlreadyHoldsWork)
         {
             if (mission == null) return false;
 
@@ -2557,12 +2559,13 @@ namespace Armada.Core.Services
             // dies mid-run leaves a long runtime and a long truncated narration behind.
             if (!hasCompletionMarker) return true;
 
-            // A no-op is judged against the stage's OWN work. A revising Worker runs after an earlier Worker
-            // stage of the same chain already produced the branch's change and passed this check; when the
-            // reviews before it leave nothing to fix, an unchanged branch is its correct result, and failing it
-            // would cancel the Judge that reviews that change. The first producing Worker has no such
-            // predecessor, so it keeps the rule below.
-            if (upstreamStageProducedWork) return false;
+            // A no-op is judged against the stage's OWN work. When the branch already held the deliverable as
+            // this stage started, an unchanged branch is its correct result, and failing it would cancel the Judge
+            // that reviews that work. The work came either from an earlier Worker stage of the same chain (a
+            // revising Worker whose reviews left nothing to fix) or from the start ref itself (an objective that
+            // starts from commits not yet on the landing target). A Worker that starts at or behind the target
+            // with no producing predecessor has nothing on its branch to deliver, so it keeps the rule below.
+            if (branchAlreadyHoldsWork) return false;
 
             // A persona that must commit and changed nothing since its dock was provisioned
             // delivered nothing, whatever it claimed. Neither runtime nor narration length can
@@ -2837,11 +2840,14 @@ namespace Armada.Core.Services
                 dockProducedChanges = hasChangesSinceDockStart;
                 bool hasCompletionMarker = HasCompletionMarker(mission.AgentOutput);
                 Mission? upstreamProducer = null;
+                string? startRefAhead = null;
                 if (!hasChangesSinceDockStart && hasCompletionMarker && !mission.IsReadOnlyMode && PersonaMustProduceChanges(mission.Persona))
                 {
                     upstreamProducer = await FindUpstreamProducingStageAsync(mission, token).ConfigureAwait(false);
+                    if (upstreamProducer == null) startRefAhead = await DescribeStartRefAheadOfTargetAsync(mission, dock, token).ConfigureAwait(false);
                 }
-                if (DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, hasChangesSinceDockStart, hasCompletionMarker, changesSinceDockStart.HasValue, upstreamProducer != null))
+                bool branchAlreadyHoldsWork = upstreamProducer != null || startRefAhead != null;
+                if (DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, hasChangesSinceDockStart, hasCompletionMarker, changesSinceDockStart.HasValue, branchAlreadyHoldsWork))
                 {
                     failedForNoOpCompletion = true;
                     mission.Status = MissionStatusEnum.Failed;
@@ -2859,6 +2865,13 @@ namespace Armada.Core.Services
                         + "earlier stage " + upstreamProducer.Id + " (" + (upstreamProducer.Persona ?? "Worker") + ", stage "
                         + upstreamProducer.StageOrder + ") produced the branch's work at " + upstreamProducer.CommitHash
                         + ", so this stage completes with no change needed";
+                    await AppendMissionActivityAsync(mission.Id, note, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + mission.Id + " " + note);
+                }
+                else if (startRefAhead != null && !hasChangesSinceDockStart)
+                {
+                    string note = "start ref already holds the work: the captain claimed completion with nothing committed since dock start; "
+                        + startRefAhead + ", so this stage completes with no change needed and later stages review the branch against the target";
                     await AppendMissionActivityAsync(mission.Id, note, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "mission " + mission.Id + " " + note);
                 }
@@ -12019,6 +12032,52 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(headCommit)) return null;
             if (!String.Equals(headCommit.Trim(), startCommit.Trim(), StringComparison.OrdinalIgnoreCase)) return null;
             return "head equals dock start commit " + startCommit.Trim();
+        }
+
+        /// <summary>
+        /// Describe the commits the dock's start commit holds that the vessel's landing target branch does not, or
+        /// return null when it holds none or the answer cannot be read. A stage that starts from such a ref (an
+        /// objective whose start ref carries reviewed work not yet landed) begins with the deliverable already on
+        /// its branch. The landing merges the whole branch into the target, so those commits land with it. An
+        /// unreadable start commit, vessel or count is null, so the no-op rule keeps failing an empty result it
+        /// cannot explain.
+        /// </summary>
+        /// <param name="mission">The completing mission.</param>
+        /// <param name="dock">The mission's dock.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A short description naming the start commit, the target branch and the commit count, or null.</returns>
+        internal async Task<string?> DescribeStartRefAheadOfTargetAsync(Mission mission, Dock? dock, CancellationToken token)
+        {
+            if (mission == null || dock == null || _Git == null || String.IsNullOrWhiteSpace(mission.VesselId)) return null;
+            string? startCommit = TryReadDockStartCommit(dock.Id);
+            if (String.IsNullOrWhiteSpace(startCommit)) return null;
+
+            Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null) return null;
+            string target = String.IsNullOrWhiteSpace(vessel.DefaultBranch) ? "main" : vessel.DefaultBranch;
+            string? repository = !String.IsNullOrWhiteSpace(vessel.LocalPath) && Directory.Exists(vessel.LocalPath)
+                ? vessel.LocalPath
+                : dock.WorktreePath;
+            if (String.IsNullOrWhiteSpace(repository)) return null;
+
+            int? ahead;
+            try
+            {
+                ahead = await _Git.TryCountCommitsBetweenAsync(repository, target, startCommit.Trim(), token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not count the commits dock start " + startCommit.Trim() + " holds beyond " + target
+                    + " for mission " + mission.Id + ": " + ex.Message + "; the no-op rule judges the stage without it");
+                return null;
+            }
+
+            if (ahead == null || ahead.Value <= 0) return null;
+            return "dock start commit " + startCommit.Trim() + " holds " + ahead.Value + " commit(s) that landing target " + target + " does not have";
         }
 
         /// <summary>

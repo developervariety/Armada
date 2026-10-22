@@ -393,6 +393,17 @@ namespace Test.Shared.Infrastructure
         public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default)
             => Task.FromResult(0);
 
+        /// <summary>
+        /// Answers for TryCountCommitsBetweenAsync, keyed by "fromRef..toRef" as git rev-list reads the range. A range
+        /// with no entry answers null, matching the interface default: git could not answer.
+        /// </summary>
+        public Dictionary<string, int> CommitCountsBetween { get; } = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        public Task<int?> TryCountCommitsBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default)
+        {
+            return Task.FromResult(CommitCountsBetween.TryGetValue(fromRef + ".." + toRef, out int count) ? count : (int?)null);
+        }
+
         /// <summary>Repository-relative paths that exist on a revision, keyed by the path alone.</summary>
         public HashSet<string> PathsOnRevision { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

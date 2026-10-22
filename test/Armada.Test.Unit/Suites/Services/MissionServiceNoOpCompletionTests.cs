@@ -500,6 +500,36 @@ namespace Armada.Test.Unit.Suites.Services
                     "A Worker chained behind another Worker at the same stage order owns its own deliverable and still fails as a no-op");
                 AssertContains("no_op_completion_detected", sameOrder.Mission.FailureReason ?? String.Empty, "It fails as a no-op");
             }).ConfigureAwait(false);
+
+            await RunTest("A first Worker that claims completion with nothing to commit completes only when its start ref holds commits the landing target lacks", async () =>
+            {
+                // Each row completes the first Worker of a voyage (no earlier stage) that printed the completion
+                // marker and changed nothing since its dock started. The row sets how many commits git counts in
+                // target..start; a missing count is git failing to answer.
+                (int? aheadOfTarget, bool completes, string why)[] rows = new (int?, bool, string)[]
+                {
+                    (4, true, "start ref ahead of the target already holds the work"),
+                    (0, false, "start ref at or behind the target holds nothing to deliver"),
+                    (null, false, "an unreadable count cannot excuse an empty result"),
+                };
+                foreach ((int? aheadOfTarget, bool completes, string why) in rows)
+                {
+                    RevisionScenarioResult result = await RunRevisionScenarioAsync(null, 1, aheadOfTarget).ConfigureAwait(false);
+                    if (completes)
+                    {
+                        AssertEqual(MissionStatusEnum.WorkProduced, result.Mission.Status, why + ". FailureReason: " + result.Mission.FailureReason);
+                        AssertNotEqual(MissionStatusEnum.Cancelled, result.Judge.Status, why + ": the Judge that reviews the branch is not cancelled");
+                        AssertContains("start ref already holds the work", result.Activity, why + ": the activity log says why the empty result was accepted");
+                        AssertContains("4 commit(s) that landing target main does not have", result.Activity, why + ": the reason names the count and the target");
+                    }
+                    else
+                    {
+                        AssertEqual(MissionStatusEnum.Failed, result.Mission.Status, why);
+                        AssertContains("no_op_completion_detected", result.Mission.FailureReason ?? String.Empty, why + ": it fails as a no-op");
+                        AssertEqual(MissionStatusEnum.Cancelled, result.Judge.Status, why + ": its Judge is cancelled");
+                    }
+                }
+            }).ConfigureAwait(false);
         }
 
         private const string _ScenarioStartCommit = "abc123def456";
@@ -514,9 +544,11 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>
         /// Complete a Worker at <paramref name="stageOrder"/> that claimed completion and changed nothing since its
         /// dock started. When <paramref name="upstreamStageOrder"/> is set, the Worker depends on an earlier Worker
-        /// stage of the same voyage and branch that produced a commit and reached WorkProduced.
+        /// stage of the same voyage and branch that produced a commit and reached WorkProduced. When
+        /// <paramref name="startCommitsAheadOfTarget"/> is set, git counts that many commits in the range from the
+        /// vessel's default branch to the dock start commit; otherwise it cannot answer.
         /// </summary>
-        private static async Task<RevisionScenarioResult> RunRevisionScenarioAsync(int? upstreamStageOrder, int stageOrder)
+        private static async Task<RevisionScenarioResult> RunRevisionScenarioAsync(int? upstreamStageOrder, int stageOrder, int? startCommitsAheadOfTarget = null)
         {
             using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
             {
@@ -531,6 +563,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     git.HeadCommitHashResult = _ScenarioStartCommit;
                     git.ChangedFilesSinceResult = Array.Empty<string>();
+                    if (startCommitsAheadOfTarget.HasValue) git.CommitCountsBetween["main.." + _ScenarioStartCommit] = startCommitsAheadOfTarget.Value;
                     IDockService docks = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
                     MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));

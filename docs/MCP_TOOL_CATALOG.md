@@ -1012,6 +1012,15 @@ Three operator facts:
   pipeline or of a rescue, and a plan block chained behind another block at the
   same stage order, keep the rule above. The operator Complete transition runs
   the same completion path, so the same rule applies there.
+- **A Worker whose start ref already holds the work completes.** When the
+  commit a Worker's dock started from holds commits that the vessel's landing
+  target branch (its default branch) does not have, the branch already carries
+  the deliverable. A Worker that prints its completion marker and commits
+  nothing then completes with no change needed, its activity log names the
+  start commit, the target branch and the commit count, and the next stage
+  reviews the branch against the target. The landing merges the whole branch,
+  so the start-ref commits land with it. A start ref at or behind the target,
+  or a count git cannot read, keeps the rule above.
 - **The Recorder never writes shared memory.** It writes native memory only, and
   hands anything that belongs in the shared external memory repository to the
   operator as a proposal in its summary.
