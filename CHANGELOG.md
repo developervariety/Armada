@@ -563,7 +563,8 @@ upstream integrations and excludes changes already present at that baseline.
   points `TMPDIR`, `TMP` and `TEMP` at the run's own root, which is removed
   when the process exits, and the next run removes a killed run's marked root
   once its process is gone. Temp deletes that fail are counted and named on
-  standard error instead of being ignored. `ARMADA_TEST_TEMP_ROOT` names
+  standard error instead of being ignored; a path that another runner removed
+  first counts as deleted. `ARMADA_TEST_TEMP_ROOT` names
   the directory for the run roots. `server-gate.sh` sends its build temp files
   to `<scratch-dir>/tmp` on disk, keeps the test roots in the host temp
   directory, and compiles without the shared compiler server. A captain launch

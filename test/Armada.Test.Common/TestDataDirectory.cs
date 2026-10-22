@@ -157,6 +157,9 @@ namespace Armada.Test.Common
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
+                // Another process (a concurrent runner's sweep) can remove the same path first; a path that is
+                // gone is deleted.
+                if (!Directory.Exists(path) && !File.Exists(path)) return true;
                 Interlocked.Increment(ref _CleanupFailures);
                 Console.Error.WriteLine("TEST-TEMP: could not delete " + path + ": " + ex.Message);
                 return false;
