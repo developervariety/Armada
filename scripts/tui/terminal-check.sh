@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scripted terminal checks for `armada tui` (TUI_APP_PLAN.md W8.4): runs scripts/tui/terminal-check.py against a
+# Scripted terminal checks for `armada tui` (archive/TUI_APP_PLAN.md W8.4): runs scripts/tui/terminal-check.py against a
 # throwaway Admiral on this machine (pseudo-terminal matrix: UTF-8, LANG=C, TERM=dumb, NO_COLOR, an SSH-like session
 # without a locale, 80x24, resize, keys, exit), then, when Docker is available, the same matrix plus tmux
 # (TERM=screen-256color) and Linux console settings inside a Linux container with its own throwaway Admiral.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scripted terminal checks for `armada tui` (TUI_APP_PLAN.md W8.4).
+"""Scripted terminal checks for `armada tui` (archive/TUI_APP_PLAN.md W8.4).
 
 Runs the real TUI (Armada.Helm.dll) in a pseudo-terminal against a running throwaway Admiral, feeds the output to a
 VT100 emulator (pyte), and checks what a person would see: Unicode or ASCII borders, the terminal-too-small screen,

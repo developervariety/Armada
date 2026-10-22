@@ -1,6 +1,6 @@
 # Armada TUI performance
 
-This page records how the TUI performs with large data and while idle (TUI_APP_PLAN.md W8.5), what was changed to get
+This page records how the TUI performs with large data and while idle (archive/TUI_APP_PLAN.md W8.5), what was changed to get
 there, and how to reproduce the numbers.
 
 ## How to reproduce

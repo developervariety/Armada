@@ -2,7 +2,7 @@
 
 > **Type:** procedure (repeatable). Run it against every release candidate and record the results in
 > `docs/SIMULATED_USER_TESTING_RESULTS_<version>.md` (copy the results template at the end). Referenced by
-> `V1_READINESS.md` W6.1 (dashboard and TUI) and `TUI_APP_PLAN.md` W8.7 (TUI as the primary surface).
+> `V1_READINESS.md` W6.1 (dashboard and TUI) and `archive/TUI_APP_PLAN.md` W8.7 (TUI as the primary surface).
 
 A simulated user session is a scripted walk through Armada's main workflows by someone (or something) playing a
 specific kind of user, against a release build, on an isolated stack, with nothing but the product and its docs. The
@@ -68,7 +68,7 @@ the session used; findings about captain output quality need a real captain.
 
 **Surfaces.** Every task is run on the **dashboard** (`http://127.0.0.1:<port>/dashboard`, in a desktop browser at
 1440x900 and spot-checked at 390 px) and on the **TUI** (`armada tui --server http://127.0.0.1:<port>` in a 160x48
-terminal, spot-checked at 80x24). The TUI session for `TUI_APP_PLAN.md` W8.7 runs the same scripts with the TUI as
+terminal, spot-checked at 80x24). The TUI session for `archive/TUI_APP_PLAN.md` W8.7 runs the same scripts with the TUI as
 the primary surface and falls back to the dashboard only where the TUI has no equivalent (record each fallback as a
 finding). An unattended session can drive the dashboard with a headless browser (Playwright or Chrome headless) and
 the TUI in a pseudo-terminal (for example Python `pty` plus `pyte`), saving a screenshot or a text frame after each

@@ -2,7 +2,7 @@
 
 The Armada TUI is the web dashboard in a terminal. It talks to the same Admiral over the same REST API and WebSocket, enforces nothing the server does not, and is meant for people who live in a shell, work over SSH, or are on a machine without a browser. It ships inside the `armada` CLI, so one install gives you both.
 
-This page covers what exists today: installing and starting it, server profiles, signing in, getting around, Ask Armada, the Approvals center, notifications, the Operations screens (Home, Needs You, Planning, Dispatch, Backlog, Fleet Actions, Missions, Voyages, Merge Queue, and Jobs), the Build screens (Vessels, the import wizard, Vessel Health, the vessel page, onboarding, and history, Fleets, the Workspace, Captains, and Docks), the Delivery, Configuration, Activity, and System screens, the keys, and troubleshooting. Ask Armada is the screen the TUI opens into. Every dashboard route now opens a real screen; progress on the remaining quality and documentation work is tracked in `TUI_APP_PLAN.md`.
+This page covers what exists today: installing and starting it, server profiles, signing in, getting around, Ask Armada, the Approvals center, notifications, the Operations screens (Home, Needs You, Planning, Dispatch, Backlog, Fleet Actions, Missions, Voyages, Merge Queue, and Jobs), the Build screens (Vessels, the import wizard, Vessel Health, the vessel page, onboarding, and history, Fleets, the Workspace, Captains, and Docks), the Delivery, Configuration, Activity, and System screens, the keys, and troubleshooting. Ask Armada is the screen the TUI opens into. Every dashboard route now opens a real screen; progress on the remaining quality and documentation work is tracked in `archive/TUI_APP_PLAN.md`.
 
 ## Install and start
 

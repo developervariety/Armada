@@ -7934,7 +7934,7 @@ Body: `{ "BatchId": "demo-unique", "Records": [{ "Model": "demo", "Runtime": "mu
 
 Batch IDs are 1–80 alphanumeric/dash/underscore characters; 1–500 records per request, timestamps within the past 366 days, counts 0–1,000,000,000. Server assigns tenant/user, synthetic source, source ID, estimated flag, and deterministic IDs. Total equals input + output; cached tokens are informational. Identical retries return existing counts; changed content returns 409. Invalid input returns 400 before writes. Response includes batch/source IDs, created/existing counts, UTC bounds, and total tokens. SDK: `ImportSyntheticTokenUsageAsync`; TypeScript: `importSyntheticTokenUsage`.
 
-Daily heatmaps request explicit UTC dates and `bucketMinutes=1440`. `syntheticCount` identifies included synthetic rows; `sourceId` filters a particular batch. See [generator procedure](../TOKEN_USAGE_HEATMAP.md).
+Daily heatmaps request explicit UTC dates and `bucketMinutes=1440`. `syntheticCount` identifies included synthetic rows; `sourceId` filters a particular batch. See [generator procedure](../archive/TOKEN_USAGE_HEATMAP.md).
 
 #### GET /api/v1/token-usage
 

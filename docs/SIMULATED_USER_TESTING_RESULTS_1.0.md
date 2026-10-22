@@ -155,12 +155,12 @@ open finding; this branch only changed files outside the areas other workstreams
 #### F10 (S3, fixed) The TUI works with the default password; the dashboard forces a change
 - Owner: security / TUI. The TUI signed in with `admin@armada` / `password` on a fresh Admiral and created a fleet,
   vessel, captain, and mission through the wizard; only a header warning is shown. The dashboard blocks everything
-  until the password is changed. `docs/TUI.md` says the TUI does not force a change, while the `TUI_APP_PLAN.md`
+  until the password is changed. `docs/TUI.md` says the TUI does not force a change, while the `archive/TUI_APP_PLAN.md`
   progress log mentions a forced default-password change step. Evidence: `s0-05-signed-in.txt`.
 - Suggested fix: decide one policy (the server could refuse non-password calls from a default-password session) and
   align the TUI, the docs, and the plan.
 - Fix (docs): policy decided by the maintainer: the TUI warns and does not force a change; the dashboard forces it.
-  `docs/TUI.md` and `TUI_APP_PLAN.md` W8.7 updated.
+  `docs/TUI.md` and `archive/TUI_APP_PLAN.md` W8.7 updated.
 
 #### F11 (S3, fixed) Pending missions never say why they are waiting
 - Owner: dashboard and TUI (mission and voyage pages), server (assignment reason).

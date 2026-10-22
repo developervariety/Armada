@@ -231,7 +231,7 @@ maintainer's explicit instruction.
 
 The optional Phase D items in `docs/CODEHUB_CAPABILITIES.md` (GitHub signals, more dependency ecosystems, health
 history), captain-suggested Ask thread titles, commit-message enforcement at landing, and the terminal client in
-`TUI_APP_PLAN.md` are post-1.0 unless a decision below pulls them in.
+`archive/TUI_APP_PLAN.md` are post-1.0 unless a decision below pulls them in.
 
 ## Decisions (resolved 2026-10-04: the maintainer approved the plan and its recommendations)
 
@@ -246,7 +246,7 @@ history), captain-suggested Ask thread titles, commit-message enforcement at lan
   transport experimental.
 - **D4. Locales:** the eight non-English locales ship labeled "beta" in the language pickers until reviewed by native
   speakers.
-- **D5. TUI:** built in parallel per `TUI_APP_PLAN.md`; whether it is part of the 1.0 compatibility promise is decided at
+- **D5. TUI:** built in parallel per `archive/TUI_APP_PLAN.md`; whether it is part of the 1.0 compatibility promise is decided at
   the first release candidate.
 
 ## Progress Log

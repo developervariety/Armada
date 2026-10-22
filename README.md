@@ -646,7 +646,7 @@ The app is not yet in the App Store or Google Play; install a build from whoever
 
 Mission history on the dashboard shows completed and failed work over time. Activity gathers the cross-entity timeline, API requests, events, signals, and model usage. Harbor Charts show jobs, concurrency, launch speed, link health, and tokens for one host.
 
-Token calendars supplement the existing monitoring charts in dashboard/mobile Activity → Token Usage and Harbor Charts. The TUI Token Usage tab shows daily activity; `u` opens the navigable calendar. See [token heatmaps and screenshot data](TOKEN_USAGE_HEATMAP.md).
+Token calendars supplement the existing monitoring charts in dashboard/mobile Activity → Token Usage and Harbor Charts. The TUI Token Usage tab shows daily activity; `u` opens the navigable calendar. See [token heatmaps and screenshot data](archive/TOKEN_USAGE_HEATMAP.md).
 
 ### Synthetic Activity for Screenshots
 
@@ -1191,7 +1191,7 @@ ID prefixes include `flt_` (fleet), `vsl_` (vessel), `cpt_` (captain), `msn_` (m
 | APIs | [docs/REST_API.md](docs/REST_API.md), [docs/MCP_API.md](docs/MCP_API.md), [docs/WEBSOCKET_API.md](docs/WEBSOCKET_API.md), [docs/API_SURFACE_1.0.md](docs/API_SURFACE_1.0.md), [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) |
 | Operating an install | [docs/OPERATIONS.md](docs/OPERATIONS.md), [docs/DOCKER.md](docs/DOCKER.md), [docs/RUN_ON_STARTUP.md](docs/RUN_ON_STARTUP.md), [docs/UPGRADING.md](docs/UPGRADING.md), [docs/TELEMETRY.md](docs/TELEMETRY.md) |
 | Security | [SECURITY.md](SECURITY.md), [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md) |
-| Activity and screenshot data | [TOKEN_USAGE_HEATMAP.md](TOKEN_USAGE_HEATMAP.md), [docs/SYNTHETIC_ACTIVITY.md](docs/SYNTHETIC_ACTIVITY.md) |
+| Activity and screenshot data | [TOKEN_USAGE_HEATMAP.md](archive/TOKEN_USAGE_HEATMAP.md), [docs/SYNTHETIC_ACTIVITY.md](docs/SYNTHETIC_ACTIVITY.md) |
 | Contributing and testing | [docs/TESTING.md](docs/TESTING.md), [BUILDING_INSTALLERS.md](BUILDING_INSTALLERS.md), [docs/RELEASING.md](docs/RELEASING.md) |
 
 ## Community
@@ -1227,4 +1227,4 @@ Armada is released under the [MIT License](LICENSE.md). See the LICENSE.md file 
 
 System administrators can open **System > Storage** (also **Settings > Storage**) to inspect managed file sizes, log categories, database allocation and record counts, host coverage, containing volumes, largest-file samples, retention policies and recent growth. Use **Collect now** for a bounded background scan, or **Count records exactly** to opt in to database table scans. Normal page refreshes only read cached data.
 
-Storage includes configured roots outside the default data directory. Updated Harbors collect on their own machines and attach cached reports to heartbeats; older or offline Harbors show unavailable or stale coverage. File bytes describe logical lengths, database allocation is separate, and volume usage includes unrelated files. Recent history resets on Admiral restart. See [the storage API and configuration](docs/REST_API.md#storage-inventory) and [the implementation plan](STORAGE_MGMT_PLAN.md) for limits and review checks.
+Storage includes configured roots outside the default data directory. Updated Harbors collect on their own machines and attach cached reports to heartbeats; older or offline Harbors show unavailable or stale coverage. File bytes describe logical lengths, database allocation is separate, and volume usage includes unrelated files. Recent history resets on Admiral restart. See [the storage API and configuration](docs/REST_API.md#storage-inventory) and [the implementation plan](archive/STORAGE_MGMT_PLAN.md) for limits and review checks.

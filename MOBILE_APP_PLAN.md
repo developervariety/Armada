@@ -100,7 +100,7 @@ Tablet: sidebar plus split views. Deep links `armada://` and universal links map
 
 ## Screens and parity map
 
-The screen inventory is the dashboard's, the same map as `TUI_APP_PLAN.md` ("Screens and full parity map"): Home,
+The screen inventory is the dashboard's, the same map as `archive/TUI_APP_PLAN.md` ("Screens and full parity map"): Home,
 Ask Armada, Approvals, Notifications, Missions hub, Voyages, Dispatch hub (including dispatch from a vessel), Merge
 Queue, Docks, Signals, Vessels hub (including View History), Fleets, Captains hub, Fleet Actions, Planning, Backlog
 and refinement, Delivery hub, Configuration hub, Activity hub, CLI Tool Permissions, Server hub (settings, users,
