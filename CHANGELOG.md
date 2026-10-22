@@ -366,6 +366,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Judge findings exclude items the Judge reports as agreeing with the
+  source. A list under a lead-in such as "Spot checks that agree with source:" is
+  context, the same as a list under a passing or reviewed lead-in, so neither the
+  challenge round's numbered findings nor the rescue brief's blocking findings
+  carry it. Explicit blocking items, items under a lead-in that names a defect or
+  asks for a correction, and NOT MET criteria are still findings.
 - The `handoff_outcome` hold holds only a delivery stage (a `Worker`, or a stage
   with no persona). A Test Engineer, Linter, Recorder or review stage reads
   `partial` against the objective's acceptance criteria because it does not build

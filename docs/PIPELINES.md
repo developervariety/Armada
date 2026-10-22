@@ -272,8 +272,8 @@ change does not establish) or asks for a fix, excludes narration of what was
 reviewed, bare lead-in lines and passing test summaries, places NOT MET criteria after defects, removes
 MET criteria and narration before shortening, and uses one list marker per item.
 The line that introduces a list decides what its items are: items under a lead-in
-that reports passing or reviewed behaviour ("The core logic is sound:", "What the
-new tests cover:") are context unless the item itself names a defect, items under a
+that reports passing, agreeing or reviewed behaviour ("The core logic is sound:", "What the
+new tests cover:", "**Spot checks that agree with source:**") are context unless the item itself names a defect, items under a
 minor or follow-up lead-in are left out, and an item marked "(not a blocker)", or
 one whose closing sentence is only such a label ("Follow-up.", "Follow-up, not a
 blocker.", "Cosmetic.", or a closing sentence that calls it a note or not a defect), is left out.

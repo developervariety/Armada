@@ -130,6 +130,51 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, JudgeChallenge.ExtractFindings(null, out bool _).Count, "no review, no findings");
             });
 
+            await RunTest("Items under a lead-in that reports agreement are not findings, and every blocking and NOT MET item still is", () =>
+            {
+                string review = String.Join("\n", new[]
+                {
+                    "## Completeness",
+                    "- The report covers every parser entry point.",
+                    "",
+                    "## Correctness",
+                    "",
+                    "**Blocking: the timeout finding is wrong.** The report says `Read` hangs, but `src/Reader.cs:40` returns after the retry limit.",
+                    "",
+                    "Three parts of the report need correcting:",
+                    "- The hang claim in section 2.",
+                    "- The retry count in the summary table.",
+                    "",
+                    "**Spot checks that agree with source:**",
+                    "- **Pad:** the `5 + Max(data.Length, 6)` pad (`src/Frame.cs:68`, finding 1).",
+                    "- **Length byte:** `1 + data.Length` (line 71).",
+                    "- **Index check:** the check is `Length >= 3`, then index `[3]`, so lengths 3 and 5 can throw (finding 4 is correct).",
+                    "- **Builder pad:** the second frame builder carries the pad, which the port's frame type lacks.",
+                    "",
+                    "## Acceptance Criteria",
+                    "- Every entry point is listed -- MET.",
+                    "- Every hang claim cites a line that blocks -- NOT MET.",
+                    "",
+                    "## Verdict",
+                    "",
+                    "NEEDS_REVISION. Correct the timeout finding and the two report sections.",
+                    "",
+                    "[ARMADA:VERDICT] NEEDS_REVISION"
+                });
+
+                List<string> findings = JudgeChallenge.ExtractFindings(review, out bool complete);
+                string joined = String.Join("\n", findings);
+
+                AssertTrue(complete, "the review fits the bound");
+                AssertContains("the timeout finding is wrong", joined, "the explicit blocking item is a finding");
+                AssertContains("The hang claim in section 2.", joined, "an item under a lead-in that asks for a correction is a finding");
+                AssertContains("The retry count in the summary table.", joined, "every item under that lead-in is a finding");
+                AssertContains("Every hang claim cites a line that blocks -- NOT MET.", joined, "the NOT MET criterion is a finding");
+                AssertFalse(joined.Contains("Every entry point is listed", StringComparison.Ordinal), "the MET criterion is not a finding");
+                foreach (string agreed in new[] { "**Pad:**", "**Length byte:**", "**Index check:**", "**Builder pad:**" })
+                    AssertFalse(joined.Contains(agreed, StringComparison.Ordinal), agreed + " sits under a lead-in that reports agreement, so it is not a finding");
+            });
+
             await RunTest("The round is off by default, and an excluded vessel is never challenged", () =>
             {
                 JudgeChallengeSettings settings = new JudgeChallengeSettings();

@@ -77,7 +77,7 @@ namespace Armada.Core.Services
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _PassingLeadIn = new Regex(
-            @"\b(?:sound|correct(?:ly)?|pass(?:es|ed)?|exit(?:ed|s)?\s+0|cover(?:s|ed)?|fails?\s+closed|reviewed|checked|inspected|delivers?|match(?:es)?|acceptable|verified|holds?|fine)\b",
+            @"\b(?:sound|correct(?:ly)?|agree(?:s|d)?|pass(?:es|ed)?|exit(?:ed|s)?\s+0|cover(?:s|ed)?|fails?\s+closed|reviewed|checked|inspected|delivers?|match(?:es)?|acceptable|verified|holds?|fine)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _NonBlockingParenthetical = new Regex(
@@ -225,7 +225,7 @@ namespace Armada.Core.Services
         /// Required items in Judge sections plus existing explicit NOT MET and Blocking items.
         /// Correctness, Failure Modes and Tests list items, labeled findings, and paragraphs that name a
         /// defect or ask for a fix are considered defects, except list items whose lead-in line reports
-        /// passing or reviewed behaviour (unless the item itself names a defect) and items under a minor
+        /// passing, agreeing or reviewed behaviour (unless the item itself names a defect) and items under a minor
         /// or follow-up lead-in. Verdict carries required changes. Passing test summaries, MET criteria and
         /// explicitly non-blocking items are excluded. When the bound cannot hold every item, plain list
         /// items that name no defect are dropped before any other finding is shortened, and the result
