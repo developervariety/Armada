@@ -61,6 +61,9 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, EndpointBreakerState> _EndpointBreakers = new System.Collections.Concurrent.ConcurrentDictionary<string, EndpointBreakerState>(StringComparer.OrdinalIgnoreCase);
+        private const int _EndpointBreakerThreshold = 3;
+        private static readonly TimeSpan _EndpointBreakerOpenFor = TimeSpan.FromMinutes(2);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _CompletionsInFlight = new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.Ordinal);
         private readonly SemaphoreSlim _ReviewDecisionGate = new SemaphoreSlim(1, 1);
 
@@ -828,6 +831,35 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task RecordEndpointOutcomeAsync(Captain captain, bool healthy, CancellationToken token = default)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (String.IsNullOrEmpty(captain.ModelEndpointId)) return;
+            ModelEndpoint? endpoint = await _Database.ModelEndpoints.ReadAsync(captain.ModelEndpointId!, token).ConfigureAwait(false);
+            if (endpoint == null) return;
+
+            string key = EndpointCapacityKey(endpoint);
+            EndpointBreakerState state = _EndpointBreakers.GetOrAdd(key, _ => new EndpointBreakerState());
+            lock (state)
+            {
+                if (healthy)
+                {
+                    if (state.OpenUntilUtc.HasValue) _Logging.Info(_Header + "endpoint " + endpoint.BaseUrl + " ran cleanly; circuit closed");
+                    state.ConsecutiveFailures = 0;
+                    state.OpenUntilUtc = null;
+                    return;
+                }
+
+                state.ConsecutiveFailures++;
+                if (state.ConsecutiveFailures >= _EndpointBreakerThreshold)
+                {
+                    state.OpenUntilUtc = DateTime.UtcNow.Add(_EndpointBreakerOpenFor);
+                    _Logging.Warn(_Header + "endpoint " + endpoint.BaseUrl + " failed " + state.ConsecutiveFailures + " run(s) in a row; no new missions go to it until " + state.OpenUntilUtc.Value.ToString("o"));
+                }
+            }
+        }
+
+        /// <inheritdoc />
         public bool IsCompletionInFlight(string missionId)
         {
             if (String.IsNullOrEmpty(missionId)) return false;
@@ -1312,9 +1344,9 @@ namespace Armada.Core.Services
             }
 
             int maxAttempts = _Settings.MaxNoOpRedispatchAttempts;
-            if (mission.RedispatchAttempts < maxAttempts)
+            if (mission.NoOpRedispatchAttempts < maxAttempts)
             {
-                mission.RedispatchAttempts++;
+                mission.NoOpRedispatchAttempts++;
                 mission.Status = MissionStatusEnum.Pending;
                 mission.CaptainId = null;
                 mission.DockId = null;
@@ -1331,7 +1363,7 @@ namespace Armada.Core.Services
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "no-op completion detected for mission " + mission.Id +
-                    "; re-dispatching to a fresh captain (attempt " + mission.RedispatchAttempts + "/" + maxAttempts + ")");
+                    "; re-dispatching to a fresh captain (attempt " + mission.NoOpRedispatchAttempts + "/" + maxAttempts + ")");
 
                 if (!String.IsNullOrEmpty(mission.VesselId))
                 {
@@ -1344,7 +1376,7 @@ namespace Armada.Core.Services
             // Retries exhausted: fail and surface to the operator inbox (LandingFailed/Failed feed it).
             mission.Status = MissionStatusEnum.Failed;
             mission.FailureReason = "No-op completion: the captain repeatedly completed with no changes after " +
-                mission.RedispatchAttempts + " re-dispatch attempt(s). Likely an impossible or mis-specified mission.";
+                mission.NoOpRedispatchAttempts + " re-dispatch attempt(s). Likely an impossible or mis-specified mission.";
             mission.FailureKind = MissionFailureKindEnum.NoOp;
             mission.CaptainId = null;
             mission.DockId = null;
@@ -2811,6 +2843,17 @@ namespace Armada.Core.Services
                     {
                         _Logging.Debug(_Header + "captain " + candidate.Id + " skipped for mission " + mission.Id + ": its model endpoint " + endpoint.Id + " is disabled");
                         continue;
+                    }
+
+                    if (_EndpointBreakers.TryGetValue(EndpointCapacityKey(endpoint), out EndpointBreakerState? breaker))
+                    {
+                        bool open;
+                        lock (breaker) open = breaker.OpenUntilUtc.HasValue && breaker.OpenUntilUtc.Value > DateTime.UtcNow;
+                        if (open)
+                        {
+                            _Logging.Debug(_Header + "captain " + candidate.Id + " skipped for mission " + mission.Id + ": endpoint " + endpoint.BaseUrl + " circuit is open after repeated failures");
+                            continue;
+                        }
                     }
 
                     int? endpointLimit = endpoint.InferenceOptions?.MaxConcurrentMissions;

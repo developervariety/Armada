@@ -117,6 +117,10 @@ namespace Test.Shared.Suites.Services
                 HarborRoutingDecision decision = router.Select(harbors, All, _ => 2, request);
                 AssertTrue(!decision.Success, "Expected capacity-full to fail selection.");
                 AssertTrue(decision.Reason != null && decision.Reason.Contains("capacity"), "Expected a capacity reason.");
+                AssertTrue(decision.CapableHarborsAtCapacity, "capacity, not capability, is what blocks it, so the work should wait");
+
+                HarborRoutingDecision incapable = router.Select(new List<Harbor> { Cap("hbr_b", "B", 2, "codex") }, All, _ => 0, request);
+                AssertFalse(incapable.CapableHarborsAtCapacity, "a Harbor without the runtime is not a capacity wait");
             }));
 
             cases.Add(Case("no_connected_reports_reason", "No connected Harbor reports a clear reason", TestTags.Negative, () =>

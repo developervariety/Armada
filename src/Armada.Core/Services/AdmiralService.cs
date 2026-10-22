@@ -920,6 +920,21 @@ namespace Armada.Core.Services
                 captainId: captain.Id, missionId: missionId,
                 vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
 
+            // Feed the shared endpoint circuit breaker: a clean run closes it, an endpoint-level failure (the model
+            // server unreachable, overloaded or missing the model) counts toward opening it. Task failures and crashes
+            // say nothing about the endpoint.
+            try
+            {
+                if (exitCode == 0)
+                    await _Missions.RecordEndpointOutcomeAsync(captain, true, token).ConfigureAwait(false);
+                else if (exitInfo.FailureKind == RuntimeFailureKindEnum.Transient || exitInfo.FailureKind == RuntimeFailureKindEnum.ModelUnavailable)
+                    await _Missions.RecordEndpointOutcomeAsync(captain, false, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Debug(_Header + "could not record the endpoint outcome for captain " + captain.Id + ": " + ex.Message);
+            }
+
             if (exitCode == 0)
             {
                 // A local model that says it is done is checked first: when the vessel's build or unit tests fail in

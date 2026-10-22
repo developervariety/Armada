@@ -368,6 +368,11 @@ namespace Armada.Server
             if (decision.HarborRequired)
                 return DockPlacement.WaitFor("requireHarborForLaunch is on and no connected Harbor can serve vessel " + vessel.Name + " (" + why + ")");
 
+            // Every Harbor that can run this work is busy: wait for a slot instead of starting it on the Admiral host,
+            // where the captain's runtime may not even be installed.
+            if (decision.CapableHarborsAtCapacity && refusals.Count == 0)
+                return DockPlacement.WaitFor("every connected Harbor that can run it is at capacity; it starts when a slot frees up");
+
             if (refusals.Count > 0)
                 _Logging.Warn(_Header + request.Purpose + " dock goes on the Admiral host because no connected Harbor can serve vessel " + vessel.Name + ": " + why);
             return DockPlacement.OnAdmiral(why);

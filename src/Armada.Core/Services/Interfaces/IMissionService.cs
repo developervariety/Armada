@@ -80,6 +80,17 @@ namespace Armada.Core.Services.Interfaces
         bool IsCompletionInFlight(string missionId);
 
         /// <summary>
+        /// Record how a run against a captain's model endpoint ended, for the endpoint circuit breaker. A healthy run
+        /// closes the breaker; consecutive endpoint-level failures open it for a short window, during which captains on
+        /// that endpoint get no new missions. Captains without a model endpoint are ignored.
+        /// </summary>
+        /// <param name="captain">Captain whose run ended.</param>
+        /// <param name="healthy">True for a clean run; false for an endpoint-level failure.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <exception cref="ArgumentNullException">Thrown when captain is null.</exception>
+        Task RecordEndpointOutcomeAsync(Captain captain, bool healthy, CancellationToken token = default);
+
+        /// <summary>
         /// Re-drive pipeline handoffs that dangled: WorkProduced missions whose Pending downstream
         /// stage was never prepared. Returns the number of missions whose handoff was re-driven.
         /// </summary>

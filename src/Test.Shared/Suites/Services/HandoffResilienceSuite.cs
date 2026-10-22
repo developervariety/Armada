@@ -334,6 +334,50 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(await h.Missions.TryAssignAsync(mission, vessel).ConfigureAwait(false), "a higher limit admits the second mission");
             }));
 
+            cases.Add(CaseAsync("endpoint_breaker_holds_missions_while_a_shared_server_is_down", "Repeated endpoint failures stop new missions going to any captain on that endpoint until a clean run", TestTags.Reliability, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                h.Captains.OnLaunchAgent = (_, _, _) => Task.FromResult(9800);
+                DatabaseDriver db = testDb.Driver;
+
+                ModelEndpoint gpu = await db.ModelEndpoints.CreateAsync(new ModelEndpoint { Name = "gpu", BaseUrl = "http://gpu-box:11434", Model = "qwen" }).ConfigureAwait(false);
+                Captain first = await db.Captains.CreateAsync(new Captain("gpu-one", AgentRuntimeEnum.ApiEndpoint) { ModelEndpointId = gpu.Id }).ConfigureAwait(false);
+                await db.Captains.CreateAsync(new Captain("gpu-two", AgentRuntimeEnum.ApiEndpoint) { ModelEndpointId = gpu.Id }).ConfigureAwait(false);
+
+                for (int i = 0; i < 3; i++) await h.Missions.RecordEndpointOutcomeAsync(first, false).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission mission = await db.Missions.CreateAsync(new Mission("Work", "Do it") { VesselId = vessel.Id }).ConfigureAwait(false);
+                AssertFalse(await h.Missions.TryAssignAsync(mission, vessel).ConfigureAwait(false), "neither captain on the failing endpoint gets the mission");
+
+                await h.Missions.RecordEndpointOutcomeAsync(first, true).ConfigureAwait(false);
+                AssertTrue(await h.Missions.TryAssignAsync(mission, vessel).ConfigureAwait(false), "a clean run closes the breaker");
+            }));
+
+            cases.Add(CaseAsync("noop_budget_is_not_spent_by_earlier_resumes", "A mission resumed after transient errors still gets its no-op re-dispatch", TestTags.Reliability, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                h.Missions.OnGetMissionOutput = _ => "Done.";
+                DatabaseDriver db = testDb.Driver;
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Captain captain = await db.Captains.CreateAsync(new Captain("resumed-then-noop") { State = CaptainStateEnum.Working }).ConfigureAwait(false);
+                Voyage voyage = await db.Voyages.CreateAsync(new Voyage("noop") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                Mission mission = await CreateRunningMissionAsync(testDb, h, vessel, voyage, captain, "Worker", false).ConfigureAwait(false);
+                mission.RedispatchAttempts = 2;
+                mission.TotalRuntimeMs = 500;
+                await db.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                await h.Missions.HandleCompletionAsync(captain, mission.Id).ConfigureAwait(false);
+
+                Mission? after = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                AssertTrue(after!.Status != MissionStatusEnum.Failed, "the no-op is re-dispatched, not failed: " + after.Status + " " + after.FailureReason);
+                AssertEqual(1, after.NoOpRedispatchAttempts);
+                AssertEqual(2, after.RedispatchAttempts, "the resume counter is not consumed by the no-op");
+            }));
+
             cases.Add(CaseAsync("runtime_max_concurrent_is_enforced", "AgentSettings.MaxConcurrent limits how many captains of a runtime work at once", TestTags.Reliability, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

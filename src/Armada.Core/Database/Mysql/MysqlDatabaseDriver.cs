@@ -750,7 +750,9 @@ namespace Armada.Core.Database.Mysql
                     @"ALTER TABLE fleet_action_runs ADD COLUMN approval_options_json TEXT NULL;",
                     @"ALTER TABLE cli_permission_requests ADD COLUMN timeout_decision VARCHAR(32) NOT NULL DEFAULT 'Deny';"),
                 new SchemaMigration(88, "Add output_repair_attempts to missions for bounded output-contract repair turns",
-                    @"ALTER TABLE missions ADD COLUMN output_repair_attempts INT NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN output_repair_attempts INT NOT NULL DEFAULT 0;"),
+                new SchemaMigration(89, "Add noop_redispatch_attempts to missions so the no-op budget is counted separately",
+                    @"ALTER TABLE missions ADD COLUMN noop_redispatch_attempts INT NOT NULL DEFAULT 0;")
 
 
             };

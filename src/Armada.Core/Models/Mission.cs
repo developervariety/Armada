@@ -116,6 +116,13 @@ namespace Armada.Core.Models
         public int OutputRepairAttempts { get; set; } = 0;
 
         /// <summary>
+        /// Number of re-dispatches after a detected no-op completion (finished with no changes). Bounded by
+        /// <c>ArmadaSettings.MaxNoOpRedispatchAttempts</c> and counted separately from <see cref="RedispatchAttempts"/>, so
+        /// earlier resumes or interruptions do not use up the no-op budget.
+        /// </summary>
+        public int NoOpRedispatchAttempts { get; set; } = 0;
+
+        /// <summary>
         /// Optional required capability tier. Dispatch routes the mission to an idle captain at or above
         /// this tier (preferring the lowest eligible tier). Null means Standard.
         /// </summary>

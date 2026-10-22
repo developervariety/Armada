@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using Armada.Core.Models;
 
     /// <summary>
@@ -70,7 +71,11 @@ namespace Armada.Core.Services
             }
 
             if (eligible.Count == 0)
-                return HarborRoutingDecision.None(BuildNoneReason(candidates, isConnected, inFlight, request));
+            {
+                HarborRoutingDecision none = HarborRoutingDecision.None(BuildNoneReason(candidates, isConnected, inFlight, request));
+                none.CapableHarborsAtCapacity = candidates.Any(h => h.Enabled && isConnected(h.Id) && !IsExcluded(request, h.Id) && HasCapabilities(h, request));
+                return none;
+            }
 
             // 2) Honor an eligible preferred Harbor.
             if (!String.IsNullOrWhiteSpace(request.PreferredHarborId))

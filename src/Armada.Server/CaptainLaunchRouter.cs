@@ -121,6 +121,7 @@ namespace Armada.Server
                 }
 
                 result.Reason = decision.Reason ?? "no eligible Harbor";
+                result.CapableHarborsAtCapacity = decision.CapableHarborsAtCapacity;
             }
             catch (OperationCanceledException)
             {

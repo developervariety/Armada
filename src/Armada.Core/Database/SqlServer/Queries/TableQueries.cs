@@ -1726,7 +1726,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('fleet_action_runs','approval_options_json') IS NULL ALTER TABLE fleet_action_runs ADD approval_options_json NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('cli_permission_requests','timeout_decision') IS NULL ALTER TABLE cli_permission_requests ADD timeout_decision NVARCHAR(32) NOT NULL DEFAULT 'Deny';"),
                 new SchemaMigration(88, "Add output_repair_attempts to missions for bounded output-contract repair turns",
-                    @"IF COL_LENGTH('missions','output_repair_attempts') IS NULL ALTER TABLE missions ADD output_repair_attempts INT NOT NULL DEFAULT 0;")
+                    @"IF COL_LENGTH('missions','output_repair_attempts') IS NULL ALTER TABLE missions ADD output_repair_attempts INT NOT NULL DEFAULT 0;"),
+                new SchemaMigration(89, "Add noop_redispatch_attempts to missions so the no-op budget is counted separately",
+                    @"IF COL_LENGTH('missions','noop_redispatch_attempts') IS NULL ALTER TABLE missions ADD noop_redispatch_attempts INT NOT NULL DEFAULT 0;")
 
 
             };

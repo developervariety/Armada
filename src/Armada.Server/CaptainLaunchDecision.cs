@@ -29,6 +29,11 @@ namespace Armada.Server
         /// </summary>
         public bool AnyHarborConnected { get; set; } = false;
 
+        /// <summary>
+        /// True when no Harbor was chosen only because every connected Harbor that can run the work is at capacity.
+        /// </summary>
+        public bool CapableHarborsAtCapacity { get; set; } = false;
+
         #endregion
 
         #region Constructors-and-Factories

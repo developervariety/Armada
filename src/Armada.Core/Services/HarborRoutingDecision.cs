@@ -29,6 +29,12 @@ namespace Armada.Core.Services
         /// </summary>
         public string? Reason { get; set; } = null;
 
+        /// <summary>
+        /// True when no Harbor was selected only because every connected Harbor that can run the work is at capacity.
+        /// The work should wait for a slot rather than run somewhere less suitable.
+        /// </summary>
+        public bool CapableHarborsAtCapacity { get; set; } = false;
+
         #endregion
 
         #region Constructors-and-Factories

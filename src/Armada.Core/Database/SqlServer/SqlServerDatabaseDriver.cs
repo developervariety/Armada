@@ -621,6 +621,7 @@ namespace Armada.Core.Database.SqlServer
             mission.Priority = Convert.ToInt32(reader["priority"]);
             try { mission.RedispatchAttempts = Convert.ToInt32(reader["redispatch_attempts"]); } catch { }
             try { mission.OutputRepairAttempts = Convert.ToInt32(reader["output_repair_attempts"]); } catch { }
+            try { mission.NoOpRedispatchAttempts = Convert.ToInt32(reader["noop_redispatch_attempts"]); } catch { }
             try
             {
                 string? tierStr = NullableString(reader["tier"]);
