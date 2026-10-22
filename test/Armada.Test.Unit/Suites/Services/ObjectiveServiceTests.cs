@@ -803,6 +803,18 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(preview.IsReady, "an objective with no target vessel must not be ready");
                 AssertTrue(preview.Issues.Exists(issue => issue.Code == "target_vessel_count"));
 
+                using JsonDocument compactDoc = JsonDocument.Parse("{\"objectiveId\":\"" + objective.Id + "\",\"compact\":true}");
+                object compactResult = await handlers["preview_objective_dispatch"](compactDoc.RootElement).ConfigureAwait(false);
+                ObjectiveDispatchPreviewCompact? compact = compactResult as ObjectiveDispatchPreviewCompact;
+                AssertNotNull(compact, "compact=true returns the compact shape, got " + compactResult.GetType().Name);
+                AssertEqual(objective.Id, compact!.ObjectiveId);
+                AssertEqual(preview.IsReady, compact.IsReady, "the compact shape keeps readiness");
+                AssertEqual(preview.Issues.Count(issue => issue.Severity == ReadinessSeverityEnum.Error), compact.Errors.Count,
+                    "the compact shape holds every Error issue");
+                AssertTrue(compact.Errors.All(issue => issue.Severity == ReadinessSeverityEnum.Error), "the compact shape holds no Warning issue");
+                AssertEqual(preview.Preflight.Facts.Count(fact => fact.Status == PreflightFactStatusEnum.Fail), compact.FailedFacts.Count,
+                    "the compact shape holds every failed fact and no other");
+
                 using JsonDocument missingDoc = JsonDocument.Parse("{\"objectiveId\":\"missing-objective\"}");
                 object missingResult = await handlers["preview_objective_dispatch"](missingDoc.RootElement).ConfigureAwait(false);
                 string missingJson = JsonSerializer.Serialize(missingResult);

@@ -175,6 +175,7 @@ namespace Armada.Server.Mcp.Tools
                             objectiveId = new { type = "string", description = "Objective or backlog item ID (obj_ prefix)" },
                             vesselId = new { type = "string", description = "Optional target vessel override" },
                             pipelineId = new { type = "string", description = "Optional pipeline ID or name override" },
+                            compact = new { type = "boolean", description = "Optional. When true, return only isReady, the Error issues and the failed preflight facts. Default false returns the full preview." },
                             captainAssignments = new
                             {
                                 type = "array",
@@ -210,12 +211,13 @@ namespace Armada.Server.Mcp.Tools
                             };
                         }
 
-                        return (object)await dispatchPreviewService.PreviewAsync(
+                        ObjectiveDispatchPreview preview = await dispatchPreviewService.PreviewAsync(
                             auth,
                             objective,
                             request.VesselId,
                             request.PipelineId,
                             request.CaptainAssignments).ConfigureAwait(false);
+                        return request.Compact ? (object)ObjectiveDispatchPreviewCompact.From(preview) : (object)preview;
                     });
             }
 

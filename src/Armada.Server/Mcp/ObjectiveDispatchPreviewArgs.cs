@@ -28,5 +28,10 @@ namespace Armada.Server.Mcp
         /// Optional per-persona captain routing overrides.
         /// </summary>
         public List<CaptainAssignmentOverride>? CaptainAssignments { get; set; } = null;
+
+        /// <summary>
+        /// When true, return only readiness, the Error issues and the failed preflight facts.
+        /// </summary>
+        public bool Compact { get; set; } = false;
     }
 }

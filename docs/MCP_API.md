@@ -398,7 +398,11 @@ For objective work, call `preview_objective_dispatch` before `armada_dispatch`.
 It performs the same read-only preflight that operator and autonomous objective
 dispatch enforce. It reports all structural blockers, a complete typed
 dependency graph, and bounded diagnostic chains. A busy compatible captain remains valid configured coverage; its idle
-count is capacity information only.
+count is capacity information only. With `compact: true` it returns only
+`objectiveId`, `isReady`, `errors` (the Error issues) and `failedFacts` (the
+preflight facts that fail), for an audit that previews many objectives; the
+REST route takes the same `compact=true` query parameter. The default returns
+the full preview.
 
 An objective must also pass the dispatch preflight. The preflight is an answer
 for each numbered question in the operator dispatch-preflight battery, recorded

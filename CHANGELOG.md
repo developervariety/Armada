@@ -9,6 +9,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- `preview_objective_dispatch` and `GET /api/v1/objectives/{id}/dispatch-preview`
+  take an opt-in `compact` flag. With it they return only the objective id,
+  `isReady`, the Error issues and the failed preflight facts, for an audit that
+  previews many objectives. The default response is the full preview.
 - Every MCP tool accepts abbreviated record ids in its id arguments (`id`,
   `...Id`, `...Ids`) and stores the full id: incident, check-run, mission,
   voyage, merge-queue, signal, captain, vessel, fleet, dock, release and

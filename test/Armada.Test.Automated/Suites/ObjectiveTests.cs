@@ -3,6 +3,7 @@ namespace Armada.Test.Automated.Suites
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Net;
     using System.Net.Http;
     using System.Threading.Tasks;
@@ -172,6 +173,15 @@ namespace Armada.Test.Automated.Suites
                     AssertEqual(objectivePreview.IsReady, backlogPreview.IsReady);
                     AssertTrue(objectivePreview.Issues.Exists(issue => issue.Code == "brief_method_missing"), "Expected the preview to report the missing method.");
                     AssertTrue(objectivePreview.Issues.Exists(issue => issue.Code == "target_vessel_count"), "Expected the preview to report the missing target vessel.");
+
+                    HttpResponseMessage compactResponse = await _AuthClient.GetAsync(
+                        "/api/v1/objectives/" + objectiveId + "/dispatch-preview?compact=true").ConfigureAwait(false);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, compactResponse).ConfigureAwait(false);
+                    ObjectiveDispatchPreviewCompact compactPreview = await JsonHelper.DeserializeAsync<ObjectiveDispatchPreviewCompact>(compactResponse).ConfigureAwait(false);
+                    AssertEqual(objectivePreview.IsReady, compactPreview.IsReady, "compact=true keeps readiness");
+                    AssertEqual(objectivePreview.Issues.Count(issue => issue.Severity == ReadinessSeverityEnum.Error), compactPreview.Errors.Count,
+                        "compact=true returns every Error issue");
+                    AssertTrue(compactPreview.Errors.Exists(issue => issue.Code == "target_vessel_count"), "compact=true names the blocking issue");
 
                     HttpResponseMessage reorderResponse = await _AuthClient.PostAsync("/api/v1/backlog/reorder",
                         JsonHelper.ToJsonContent(new

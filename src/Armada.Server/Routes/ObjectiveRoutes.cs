@@ -160,12 +160,15 @@ namespace Armada.Server.Routes
 
                 try
                 {
-                    return await _DispatchPreview.PreviewAsync(
+                    ObjectiveDispatchPreview preview = await _DispatchPreview.PreviewAsync(
                         ctx,
                         objective,
                         NormalizeEmpty(QueryValueReader.Read(req, "vesselId")),
                         NormalizeEmpty(QueryValueReader.Read(req, "pipelineId")),
                         ParseCaptainAssignments(QueryValueReader.Read(req, "captainAssignments"))).ConfigureAwait(false);
+                    if (String.Equals(QueryValueReader.Read(req, "compact"), "true", StringComparison.OrdinalIgnoreCase))
+                        return ObjectiveDispatchPreviewCompact.From(preview);
+                    return preview;
                 }
                 catch (JsonException ex)
                 {
@@ -181,6 +184,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Optional target vessel override", false))
                 .WithParameter(OpenApiParameterMetadata.Query("pipelineId", "Optional pipeline ID or name override", false))
                 .WithParameter(OpenApiParameterMetadata.Query("captainAssignments", "Optional JSON array of captain routing overrides", false))
+                .WithParameter(OpenApiParameterMetadata.Query("compact", "Optional. true returns only isReady, the Error issues and the failed preflight facts", false))
                 .WithResponse(200, OpenApiJson.For<ObjectiveDispatchPreview>("Objective dispatch preview"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
