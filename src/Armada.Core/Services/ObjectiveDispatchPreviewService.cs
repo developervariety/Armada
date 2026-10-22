@@ -760,6 +760,11 @@ namespace Armada.Core.Services
                     if (lines == null) continue;
                     string? issue = CitedLineRangeChecker.Evaluate(range, lines, out int currentLine);
                     if (issue == null) continue;
+                    if (GitLfsPointer.IsPointer(lines))
+                    {
+                        notes.Add(issue);
+                        continue;
+                    }
                     if (CitedLineRangeChecker.IsSmallDrift(range, currentLine)) drifts.Add(issue);
                     else issues.Add(issue + (range.StartLine > lines.Count ? " Reason: line out of range." : " Reason: outside the declaration span."));
                 }

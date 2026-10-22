@@ -3,6 +3,9 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Globalization;
+    using System.IO;
+    using System.Security.Cryptography;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
@@ -40,7 +43,7 @@ namespace Armada.Core.Services
             {
                 string commit = await RequireAnchorRevisionAsync(worktreePath, revision, token).ConfigureAwait(false);
                 // The show output is capped by the anchor reader, so a very large blob reads as unavailable.
-                content = await RunAnchorGitAsync(worktreePath, token, "show", commit + ":" + relativePath).ConfigureAwait(false);
+                content = await ShowAnchorFileAsync(worktreePath, commit, relativePath, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -148,7 +151,7 @@ namespace Armada.Core.Services
                 string commit = await RequireAnchorRevisionAsync(worktreePath, revision, token).ConfigureAwait(false);
                 // The show output is capped by the anchor reader, so a very large blob fails rather than
                 // loading unbounded content.
-                content = await RunAnchorGitAsync(worktreePath, token, "show", commit + ":" + relativePath).ConfigureAwait(false);
+                content = await ShowAnchorFileAsync(worktreePath, commit, relativePath, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -171,6 +174,64 @@ namespace Armada.Core.Services
 
             string window = String.Join("\n", lines, first - 1, last - first + 1);
             return RuntimeLogFormatter.RedactSecrets(window);
+        }
+
+        /// <summary>
+        /// The content of a file as a commit holds it. A file stored through Git LFS is held as a pointer, so its
+        /// content is read from a copy whose bytes match the pointer's object id: the working-tree file, else the
+        /// object in the repository's LFS object store. When neither holds the content within the anchor
+        /// reader's limit, the pointer is returned, and a reader of the lines names the file as not checked.
+        /// The LFS remote is never contacted.
+        /// </summary>
+        private static async Task<string> ShowAnchorFileAsync(string worktreePath, string commit, string relativePath, CancellationToken token)
+        {
+            string content = await RunAnchorGitAsync(worktreePath, token, "show", commit + ":" + relativePath).ConfigureAwait(false);
+            if (!GitLfsPointer.TryParse(content, out string oid, out long size)) return content;
+            if (size > _AnchorOutputLimitBytes) return content;
+
+            List<string> copies = new List<string>();
+            string root = Path.GetFullPath(worktreePath);
+            string workingFile = Path.GetFullPath(Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+            if (workingFile.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)) copies.Add(workingFile);
+            try
+            {
+                string commonDirectory = (await RunAnchorGitAsync(worktreePath, token, "rev-parse", "--path-format=absolute", "--git-common-dir").ConfigureAwait(false)).Trim();
+                if (commonDirectory.Length > 0)
+                    copies.Add(Path.Combine(commonDirectory, "lfs", "objects", oid.Substring(0, 2), oid.Substring(2, 2), oid));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Without a common directory only the working-tree copy can supply the content.
+            }
+
+            foreach (string copy in copies)
+            {
+                string? resolved = await ReadLfsCopyAsync(copy, oid, size, token).ConfigureAwait(false);
+                if (resolved != null) return resolved;
+            }
+            return content;
+        }
+
+        /// <summary>
+        /// The text of a file whose size and SHA-256 match a Git LFS pointer, or null when the file is absent,
+        /// unreadable, or holds other content.
+        /// </summary>
+        private static async Task<string?> ReadLfsCopyAsync(string file, string oid, long size, CancellationToken token)
+        {
+            try
+            {
+                FileInfo info = new FileInfo(file);
+                if (!info.Exists || info.Length != size) return null;
+                byte[] bytes = await File.ReadAllBytesAsync(file, token).ConfigureAwait(false);
+                if (bytes.LongLength != size) return null;
+                string hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+                if (!String.Equals(hash, oid, StringComparison.Ordinal)) return null;
+                return Encoding.UTF8.GetString(bytes);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                return null;
+            }
         }
 
         private static async Task<string> RunAnchorGitAsync(string path, CancellationToken token, params string[] arguments)

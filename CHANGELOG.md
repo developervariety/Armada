@@ -561,6 +561,14 @@ upstream integrations and excludes changes already present at that baseline.
   citation is stale and the block lists every candidate. A range is no longer
   reported past the end of a short same-named file when it holds in the copy
   the text means.
+- The Git Anchors line-range check, dispatch preflight question 1 and the
+  prior-art excerpt read a file stored through Git LFS as its content, never as
+  its pointer. The content comes from a local copy whose size and SHA-256 match
+  the pointer: the working-tree file, else the object in the repository's LFS
+  object store; the LFS remote is never contacted. When no local copy holds the
+  content, a citation of the file is named as stored through Git LFS and not
+  checked here, never as past the end of a 3-line file; preflight question 1
+  lists it as a note and does not fail on it.
 - A pipeline handoff past the description budget no longer loses the middle of
   the prior stage's diff, Judge verdict or test list. The complete handoff text
   is kept on the Admiral and staged into the next stage's dock under

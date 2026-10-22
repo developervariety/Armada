@@ -128,6 +128,7 @@ namespace Armada.Core.Services
             if (lines == null) throw new ArgumentNullException(nameof(lines));
             currentLine = 0;
 
+            if (GitLfsPointer.IsPointer(lines)) return LfsNotVerifiedIssue(range);
             if (range.StartLine > lines.Count)
                 return "`" + range.Text + "` is past the end of the file (" + lines.Count + " lines).";
             if (String.IsNullOrEmpty(range.Symbol)) return null;
@@ -181,14 +182,29 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// The issue for a citation of a file stored through Git LFS whose content could not be read here: the
+        /// lines read are the LFS pointer, which says nothing about the file's lines, so the citation is named
+        /// as not checked, never as past the end of the file.
+        /// </summary>
+        /// <param name="range">The citation.</param>
+        /// <returns>The one-sentence issue.</returns>
+        public static string LfsNotVerifiedIssue(CitedLineRange range)
+        {
+            if (range == null) throw new ArgumentNullException(nameof(range));
+            return "`" + range.Text + "` is in a file stored through Git LFS whose content is not available here, so it was not checked.";
+        }
+
+        /// <summary>
         /// Whether a citation holds in a file: its first line is in the file and its symbol, if any, is within
-        /// the cited lines, around them, or moved by no more than <see cref="DriftToleranceLines"/>.
+        /// the cited lines, around them, or moved by no more than <see cref="DriftToleranceLines"/>. A Git LFS
+        /// pointer read in place of a file's content cannot disprove a citation, so it holds.
         /// </summary>
         /// <param name="range">The citation.</param>
         /// <param name="lines">The file's lines.</param>
         /// <returns>True when the citation names this file's code.</returns>
         public static bool Holds(CitedLineRange range, IReadOnlyList<string> lines)
         {
+            if (GitLfsPointer.IsPointer(lines)) return true;
             string? issue = Evaluate(range, lines, out int currentLine);
             return issue == null || IsSmallDrift(range, currentLine);
         }

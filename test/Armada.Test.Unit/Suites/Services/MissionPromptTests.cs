@@ -3180,6 +3180,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dock Git anchors read a Git LFS file's content, never its pointer, and name an unreadable one as not checked", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_lfs_pointer_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    // The commit holds the 3-line LFS pointer of a 173-line file.
+                    StringBuilder longFile = new StringBuilder();
+                    for (int line = 1; line <= 173; line++) longFile.Append("line " + line + "\n");
+                    byte[] content = Encoding.UTF8.GetBytes(longFile.ToString());
+                    string oid = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(content)).ToLowerInvariant();
+                    string pointer = "version https://git-lfs.github.com/spec/v1\noid sha256:" + oid + "\nsize " + content.Length + "\n";
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "lib/Codec.cs", pointer);
+                    string workingFile = Path.Combine(worktree, "lib", "Codec.cs");
+                    string storedObject = Path.Combine(worktree, ".git", "lfs", "objects", oid.Substring(0, 2), oid.Substring(2, 2), oid);
+
+                    GitAnchors unreadable = await ResolveRealDockAnchorsAsync(worktree, "The port follows lib/Codec.cs:120-130 in the source.", null);
+                    AssertEqual(1, unreadable.CitationIssues.Count, "a citation of an LFS file with no local content is named once");
+                    AssertContains("stored through Git LFS whose content is not available here, so it was not checked", unreadable.CitationIssues[0],
+                        "the citation is named as not checked");
+                    AssertFalse(unreadable.CitationIssues[0].Contains("past the end", StringComparison.Ordinal),
+                        "the pointer is never read as a 3-line file: " + unreadable.CitationIssues[0]);
+
+                    Directory.CreateDirectory(Path.GetDirectoryName(storedObject)!);
+                    await File.WriteAllBytesAsync(storedObject, content);
+                    GitAnchors fromStore = await ResolveRealDockAnchorsAsync(worktree, "The port follows lib/Codec.cs:120-130 in the source.", null);
+                    AssertEqual(0, fromStore.CitationIssues.Count,
+                        "a range that holds in the stored object is not flagged: " + String.Join(" | ", fromStore.CitationIssues));
+                    GitAnchors pastEnd = await ResolveRealDockAnchorsAsync(worktree, "The port follows lib/Codec.cs:200-210 in the source.", null);
+                    AssertEqual(1, pastEnd.CitationIssues.Count, "a range past the real file's end is flagged");
+                    AssertContains("past the end of the file (173 lines)", pastEnd.CitationIssues[0], "the real file's length is measured");
+
+                    File.Delete(storedObject);
+                    await File.WriteAllBytesAsync(workingFile, content);
+                    GitAnchors fromWorkingTree = await ResolveRealDockAnchorsAsync(worktree, "The port follows lib/Codec.cs:120-130 in the source.", null);
+                    AssertEqual(0, fromWorkingTree.CitationIssues.Count,
+                        "a range that holds in the smudged working-tree file is not flagged: " + String.Join(" | ", fromWorkingTree.CitationIssues));
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
             await RunTest("Dock Git anchors read a path from a sibling checkout's root in that sibling and never call an unsearched path absent", async () =>
             {
                 string root = Path.Combine(Path.GetTempPath(), "armada_sibling_root_path_" + Guid.NewGuid().ToString("N"));

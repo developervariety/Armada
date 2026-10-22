@@ -90,7 +90,10 @@ them; when they hold in none, the question fails and lists the candidates. A
 failed question names each failing citation as written (`file:line` or
 `file:start-end`, or the identifier) with its reason: file missing, line out of
 range, ambiguous file name, or outside the declaration span. Question 1 also reads
-each cited line range: a range past the end of its file fails, and so does a
+each cited line range, reading a file stored through Git LFS as its content
+(the working-tree file or the LFS object store copy whose size and SHA-256 match
+the pointer; when neither holds it, the detail notes the citation as not checked
+and the question does not fail on it): a range past the end of its file fails, and so does a
 range that no longer holds the symbol the text pairs with it, written as
 `` `Symbol` (`path:line`) `` or `` `Symbol` at `path:line` ``, or named as the
 one backticked identifier or call expression in a sentence that cites nothing

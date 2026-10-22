@@ -294,7 +294,11 @@ A brief carries only what the mission's mode and persona can use:
   extraction artifact directories are candidates beside the tracked files. The
   citation holds when the cited lines hold in exactly one file, is listed as
   ambiguous with those files when they hold in several, and is listed as stale
-  with every candidate when they hold in none.
+  with every candidate when they hold in none. A file stored through Git LFS is
+  read as its content, from the working-tree file or the repository's LFS
+  object store when its size and SHA-256 match the pointer; when neither holds
+  it, the citation is listed as not checked, never as past the end of the
+  pointer.
 - The Runtime Signals verdict lines reach only a Judge, and the Architect
   signal rule reaches only an Architect.
 - The read-only rules forbid editing, committing and pushing. By default they
