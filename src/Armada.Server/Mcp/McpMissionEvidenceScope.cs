@@ -5,6 +5,7 @@ namespace Armada.Server.Mcp
     using System.Linq;
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
+    using Armada.Core;
     using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Models;
@@ -17,13 +18,17 @@ namespace Armada.Server.Mcp
     /// rescue root); the objectives that authorize the mission or a direct source, with their ancestor
     /// chain, blockers and direct children; the objectives, missions and voyages those authorizing and
     /// ancestor objectives cite by id in their description, criteria or evidence links; and the missions
-    /// and voyages any of those objectives list. Citations are followed one hop only.
+    /// and voyages any of those objectives list. Citations are followed one hop only. A Challenger runs outside
+    /// any voyage, so its direct source is the Judge mission it challenges, proven by that Judge's dispatch
+    /// record; it then reaches what a source of the Judge's voyage reaches.
     /// </summary>
     internal static class McpMissionEvidenceScope
     {
         #region Private-Members
 
         private const int _MaxAncestorDepth = 32;
+
+        private const int _MaxJudgeEvents = 200;
 
         private static readonly Regex _CitedId = new Regex(
             @"(?<![A-Za-z0-9_])(?:obj|msn|vyg)_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*",
@@ -178,6 +183,12 @@ namespace Armada.Server.Mcp
                 Mission? source = await database.Missions.ReadAsync(sourceId).ConfigureAwait(false);
                 if (source != null && SameOwner(caller, source.TenantId, source.UserId)) sources.Add(source);
             }
+            Mission? challenged = await ReadChallengedJudgeAsync(database, caller, anchor).ConfigureAwait(false);
+            if (challenged != null)
+            {
+                sources.Add(challenged);
+                links.MissionIds.Add(challenged.Id);
+            }
 
             Dictionary<string, Objective> authorizing = new Dictionary<string, Objective>(StringComparer.Ordinal);
             foreach (Objective objective in ownedList)
@@ -242,6 +253,22 @@ namespace Armada.Server.Mcp
                 foreach (string voyageId in objective.VoyageIds) links.VoyageIds.Add(voyageId);
             }
             return links;
+        }
+
+        // The brief line only names a candidate; the Judge's dispatch record must name this Challenger, so a
+        // caller cannot widen its scope by writing a Judge id into a description.
+        private static async Task<Mission?> ReadChallengedJudgeAsync(DatabaseDriver database, AuthContext caller, Mission anchor)
+        {
+            if (!PersonaCatalog.Matches(anchor.Persona, PersonaCatalog.Challenger)) return null;
+            string? judgeId = JudgeChallenge.ReadJudgeMissionId(anchor.Description);
+            if (judgeId == null || String.Equals(judgeId, anchor.Id, StringComparison.Ordinal)) return null;
+            Mission? judge = await database.Missions.ReadAsync(judgeId).ConfigureAwait(false);
+            if (judge == null || !SameOwner(caller, judge.TenantId, judge.UserId)) return null;
+            List<ArmadaEvent> events = await database.Events.EnumerateByMissionAsync(judge.Id, _MaxJudgeEvents).ConfigureAwait(false);
+            bool dispatchedThisChallenger = events.Any(evt =>
+                String.Equals(evt.EventType, JudgeChallenge.DispatchedEvent, StringComparison.Ordinal)
+                && String.Equals(JudgeChallenge.ReadDispatchRecord(evt.Payload).ChallengerMissionId, anchor.Id, StringComparison.Ordinal));
+            return dispatchedThisChallenger ? judge : null;
         }
 
         private static IEnumerable<string> CitedIds(Objective objective)

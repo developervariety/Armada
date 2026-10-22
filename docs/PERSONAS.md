@@ -144,7 +144,12 @@ the same extraction the rescue brief uses, and dispatches one `Challenger`
 mission (template `persona.challenger`, mode `Audit`) checked out at the
 reviewed commit. Its brief holds the numbered findings, the Judge's output and
 the reviewed stage's brief with the objective. Routing skips every captain on the
-Judge's model. The Challenger classifies each finding (FACT, MISSING, DEFECT,
+Judge's model. The Challenger runs outside any voyage, so its read scope comes
+from the Judge it challenges: when the brief's `Judge mission: <id>` line names a
+Judge whose `judge_challenge.dispatched` record names this Challenger, it reads
+that Judge, the Judge's voyage and its missions (such as the reviewed Worker's
+report), and the objectives that voyage links, as a source of that voyage would.
+The brief line alone grants nothing. The Challenger classifies each finding (FACT, MISSING, DEFECT,
 SCOPE, PROOF, BOUNDARY, FORMAT, PROCESS, PENDING or CONFLICT), rules by kind, and
 ends with one `[ARMADA:CHALLENGE] {"findings":[...]}` line.
 

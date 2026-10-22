@@ -489,6 +489,13 @@ upstream integrations and excludes changes already present at that baseline.
   `POST /api/v1/missions/{id}/retry-landing` refuses a second retry with `409`,
   and the landing service refuses one from any other caller, so the same work
   never lands twice. A job names the record it acts on in `SubjectId`.
+
+- A Challenger reads the evidence its brief names. The challenged Judge is the
+  Challenger's direct evidence source when the Judge's
+  `judge_challenge.dispatched` record names the Challenger, so it reads that
+  Judge, the Judge's voyage and the reviewed Worker's report, and the objectives
+  the voyage links. The brief's `Judge mission:` line alone grants nothing, and
+  every record still needs the caller's tenant and owner.
 - Judge findings exclude items the Judge reports as agreeing with the
   source. A list under a lead-in such as "Spot checks that agree with source:" is
   context, the same as a list under a passing or reviewed lead-in, so neither the

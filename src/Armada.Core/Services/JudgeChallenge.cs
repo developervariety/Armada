@@ -50,6 +50,12 @@ namespace Armada.Core.Services
         /// <summary>Event recorded when a Challenger is dispatched.</summary>
         public const string DispatchedEvent = "judge_challenge.dispatched";
 
+        /// <summary>
+        /// Prefix of the Challenger brief line that names the Judge mission it challenges. The line alone grants
+        /// nothing: the Judge's <see cref="DispatchedEvent"/> must also name the Challenger.
+        /// </summary>
+        public const string JudgeMissionLinePrefix = "Judge mission: ";
+
         /// <summary>Event recorded when the Challenger's rulings are settled.</summary>
         public const string RuledEvent = "judge_challenge.ruled";
 
@@ -258,7 +264,7 @@ namespace Armada.Core.Services
             sb.AppendLine();
             sb.AppendLine("Reviewed commit: your dock is checked out at it. The change under review is "
                 + "`git diff origin/" + baseBranch + "...HEAD`; read it and the files each finding cites.");
-            sb.AppendLine("Judge mission: " + judge.Id);
+            sb.AppendLine(JudgeMissionLinePrefix + judge.Id);
             sb.AppendLine();
             sb.AppendLine("## Findings to rule on");
             for (int index = 0; index < findings.Count; index++)
@@ -270,6 +276,24 @@ namespace Armada.Core.Services
             sb.AppendLine("## The reviewed stage's brief (criteria, non-goals and owner rulings)");
             sb.AppendLine(Bound(MissionService.StripPersonaPreambles(judge.Description ?? String.Empty), MaxReviewedBriefChars));
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Read the Judge mission id from the first <see cref="JudgeMissionLinePrefix"/> line of a Challenger brief.
+        /// </summary>
+        /// <param name="brief">Challenger mission description.</param>
+        /// <returns>The mission id, or null when the brief names none.</returns>
+        public static string? ReadJudgeMissionId(string? brief)
+        {
+            if (String.IsNullOrEmpty(brief)) return null;
+            foreach (string raw in brief.Split('\n'))
+            {
+                string line = raw.Trim();
+                if (!line.StartsWith(JudgeMissionLinePrefix, StringComparison.Ordinal)) continue;
+                string id = line.Substring(JudgeMissionLinePrefix.Length).Trim();
+                return id.StartsWith("msn_", StringComparison.Ordinal) && !id.Any(Char.IsWhiteSpace) ? id : null;
+            }
+            return null;
         }
 
         /// <summary>

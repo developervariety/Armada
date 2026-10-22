@@ -751,6 +751,8 @@ A mission token's evidence links are:
 
 - its own report chain: its voyage, its direct `DependsOnMissionId` and
   `ParentMissionId` sources, and the failed parent of a marked rescue root;
+  a `Challenger` mission's direct source is the Judge mission its brief names,
+  when that Judge's `judge_challenge.dispatched` record names the Challenger;
 - the objectives that authorize the mission or one of those direct sources, by
   `MissionIds`, by `VoyageIds`, or through the objective named by the voyage
   brief;

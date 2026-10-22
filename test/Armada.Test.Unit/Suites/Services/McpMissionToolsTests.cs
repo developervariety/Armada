@@ -1078,6 +1078,130 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MissionEvidence_ChallengerReadsOnlyTheJudgeItsDispatchRecordNames", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string tenant = Armada.Core.Constants.DefaultTenantId;
+                    string user = Armada.Core.Constants.DefaultUserId;
+                    Voyage reviewed = await testDb.Driver.Voyages.CreateAsync(new Voyage("reviewed voyage") { TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                    Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("reviewed worker")
+                    {
+                        TenantId = tenant,
+                        UserId = user,
+                        VoyageId = reviewed.Id,
+                        AgentOutput = "worker report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("blocking judge")
+                    {
+                        TenantId = tenant,
+                        UserId = user,
+                        VoyageId = reviewed.Id,
+                        DependsOnMissionId = worker.Id,
+                        Persona = Armada.Core.PersonaCatalog.Judge,
+                        AgentOutput = "judge report",
+                        Status = MissionStatusEnum.Failed
+                    }).ConfigureAwait(false);
+                    string brief = JudgeChallenge.BuildBrief(judge, "judge report", new List<string> { "a finding" }, "main");
+
+                    Mission challenger = await testDb.Driver.Missions.CreateAsync(new Mission("linked challenger")
+                    {
+                        TenantId = tenant,
+                        UserId = user,
+                        Persona = Armada.Core.PersonaCatalog.Challenger,
+                        Description = brief
+                    }).ConfigureAwait(false);
+                    Mission unlinkedChallenger = await testDb.Driver.Missions.CreateAsync(new Mission("challenger the record does not name")
+                    {
+                        TenantId = tenant,
+                        UserId = user,
+                        Persona = Armada.Core.PersonaCatalog.Challenger,
+                        Description = brief
+                    }).ConfigureAwait(false);
+                    Mission workerWithLine = await testDb.Driver.Missions.CreateAsync(new Mission("worker quoting the judge line")
+                    {
+                        TenantId = tenant,
+                        UserId = user,
+                        Persona = Armada.Core.PersonaCatalog.Worker,
+                        Description = brief
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Events.CreateAsync(new ArmadaEvent(JudgeChallenge.DispatchedEvent, "challenger dispatched")
+                    {
+                        TenantId = tenant,
+                        UserId = user,
+                        EntityType = "mission",
+                        EntityId = judge.Id,
+                        MissionId = judge.Id,
+                        VoyageId = reviewed.Id,
+                        Payload = JsonSerializer.Serialize(new JudgeChallengeDispatchRecord { ChallengerMissionId = challenger.Id, FindingCount = 1 })
+                    }).ConfigureAwait(false);
+                    UserMaster otherUser = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant, "challenge-other-" + Guid.NewGuid().ToString("N") + "@example.com", "password")).ConfigureAwait(false);
+                    Mission otherOwnerJudge = await testDb.Driver.Missions.CreateAsync(new Mission("other owner judge")
+                    {
+                        TenantId = tenant,
+                        UserId = otherUser.Id,
+                        Persona = Armada.Core.PersonaCatalog.Judge,
+                        AgentOutput = "other owner judge report",
+                        Status = MissionStatusEnum.Failed
+                    }).ConfigureAwait(false);
+                    Mission otherOwnerChallenger = await testDb.Driver.Missions.CreateAsync(new Mission("challenger of another owner's judge")
+                    {
+                        TenantId = tenant,
+                        UserId = user,
+                        Persona = Armada.Core.PersonaCatalog.Challenger,
+                        Description = JudgeChallenge.BuildBrief(otherOwnerJudge, "judge report", new List<string> { "a finding" }, "main")
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Events.CreateAsync(new ArmadaEvent(JudgeChallenge.DispatchedEvent, "challenger dispatched")
+                    {
+                        TenantId = tenant,
+                        UserId = otherUser.Id,
+                        EntityType = "mission",
+                        EntityId = otherOwnerJudge.Id,
+                        MissionId = otherOwnerJudge.Id,
+                        Payload = JsonSerializer.Serialize(new JudgeChallengeDispatchRecord { ChallengerMissionId = otherOwnerChallenger.Id, FindingCount = 1 })
+                    }).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    List<ScopedReadCase> missionCases = new List<ScopedReadCase>
+                    {
+                        new ScopedReadCase(challenger, judge, true),
+                        new ScopedReadCase(challenger, worker, true),
+                        new ScopedReadCase(unlinkedChallenger, judge, false),
+                        new ScopedReadCase(unlinkedChallenger, worker, false),
+                        new ScopedReadCase(workerWithLine, judge, false),
+                        new ScopedReadCase(workerWithLine, worker, false),
+                        new ScopedReadCase(otherOwnerChallenger, otherOwnerJudge, false)
+                    };
+                    foreach (ScopedReadCase item in missionCases)
+                    {
+                        AuthContext caller = McpTestCaller.Operator;
+                        caller.MissionId = item.Caller.Id;
+                        using (McpCallerContext.Begin(caller))
+                        {
+                            object result = await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = item.Target.Id })).ConfigureAwait(false);
+                            AssertEqual(item.Readable, result is MissionOutputArtifactPage,
+                                item.Caller.Title + " reading " + item.Target.Title + "; actual result: " + JsonSerializer.Serialize(result));
+                        }
+                    }
+
+                    AuthContext linked = McpTestCaller.Operator;
+                    linked.MissionId = challenger.Id;
+                    using (McpCallerContext.Begin(linked))
+                    {
+                        string status = JsonSerializer.Serialize(await tools.VoyageStatus!(JsonSerializer.SerializeToElement(new { voyageId = reviewed.Id })).ConfigureAwait(false));
+                        AssertFalse(status.Contains("\"Error\"", StringComparison.Ordinal), "the linked Challenger reads the Judge's voyage; actual result: " + status);
+                    }
+                    AuthContext unlinked = McpTestCaller.Operator;
+                    unlinked.MissionId = unlinkedChallenger.Id;
+                    using (McpCallerContext.Begin(unlinked))
+                    {
+                        string status = JsonSerializer.Serialize(await tools.VoyageStatus!(JsonSerializer.SerializeToElement(new { voyageId = reviewed.Id })).ConfigureAwait(false));
+                        AssertContains("Voyage not found", status, "a Challenger the dispatch record does not name stays outside the voyage");
+                    }
+                }
+            });
+
             await RunTest("MissionEvidence_CallerReadsAncestorLinkedChildAndCitedRecordsOnly", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1657,6 +1781,21 @@ namespace Armada.Test.Unit.Suites.Services
                 }, database);
                 return handlers;
             }
+        }
+
+        /// <summary>One mission read by a mission caller and whether its scope allows it.</summary>
+        private sealed class ScopedReadCase
+        {
+            public ScopedReadCase(Mission caller, Mission target, bool readable)
+            {
+                Caller = caller;
+                Target = target;
+                Readable = readable;
+            }
+
+            public Mission Caller { get; }
+            public Mission Target { get; }
+            public bool Readable { get; }
         }
 
         /// <summary>
