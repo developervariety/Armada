@@ -410,7 +410,7 @@ armada go "Auth" -t "Add auth middleware" -t "Add login endpoint" -t "Add token 
 Armada recovers from these kinds of trouble without you:
 
 - **Stalled captains.** When a captain produces no output for `StallThresholdMinutes` (10), the Admiral repairs the dock and relaunches the agent in it, up to `MaxRecoveryAttempts` times (default 3). A mission that runs past `MaxMissionRuntimeMinutes` (240) is failed as a runaway.
-- **Endpoint and handoff trouble.** A transient model failure resumes the captain in place after a backoff; three endpoint-level failures in a row pause new work to that endpoint for two minutes. A captain that keeps failing is excluded or quarantined instead of being picked again. A Judge or Architect whose output breaks its contract gets one repair turn. Every work stage is built and tested before it hands off, whatever runtime ran it. See [docs/CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md).
+- **Endpoint and handoff trouble.** A transient model failure resumes the captain in place after a backoff, and keeps resuming through an outage for `TransientOutageGraceMinutes` (10) before the mission fails as `Infra`; three endpoint-level failures in a row pause new work to that endpoint for two minutes, and an endpoint that failed a recent health check gets no new missions. A Worker that ends with no commit and no completion line is re-dispatched rather than handed off. A captain that keeps failing is excluded or quarantined instead of being picked again. A Judge or Architect whose output breaks its contract gets one repair turn. Every work stage is built and tested before it hands off, whatever runtime ran it. See [docs/CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md).
 - **Mechanical failures.** A mission that failed with a compile error, failing tests, a landing conflict, a timeout, or a crash opens an incident, and Armada dispatches a bounded rescue mission for it, up to `MaxMissionRecoveryAttempts` (default 2, maximum 5, 0 disables). Failures that need judgment (scope, Judge verdicts, environment problems) are left for a person.
 
 ---
@@ -984,6 +984,7 @@ armada config init              # Interactive setup (optional)
 | `MaxCaptains` | 0 (no limit; `armada go` auto-creates at most 5) | Maximum total captains |
 | `StallThresholdMinutes` | 10 | Minutes before a captain is considered stalled |
 | `MaxRecoveryAttempts` | 3 | Stall recovery attempts before the mission fails |
+| `TransientOutageGraceMinutes` | 10 | How long transient model or endpoint failures keep resuming in place, past `MaxRecoveryAttempts`, before the mission fails (0 turns this off, maximum 120) |
 | `MaxMissionRecoveryAttempts` | 2 | Rescue missions per incident for recoverable failures (0 disables, maximum 5) |
 | `LandingMode` | `MergeAndPush` | Default landing policy (vessels and voyages can override it): `MergeAndPush`, `LocalMerge` (merge, no push), `PullRequest`, `MergeQueue`, or `None`. See [docs/MERGING.md](docs/MERGING.md#landing-mode); upgrading from 1.0.0, read [the landing mode notes](docs/MERGING.md#upgrading-from-100-landing-modes-fixed-in-101) |
 | `AutoMergePullRequests` | false | Enable auto-merge on pull requests opened by the `PullRequest` landing mode |
