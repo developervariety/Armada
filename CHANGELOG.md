@@ -456,6 +456,16 @@ upstream integrations and excludes changes already present at that baseline.
   (Linux; for example a `flock` the command was still waiting on), and a wait
   for the host command slot, which never counts against the limit, is logged
   on its own line.
+- A Check whose command times out, stops with an error, or is cancelled by an
+  admiral restart records its run time, `CompletedUtc - StartedUtc`.
+- The automatic Check runner does not start a Build or UnitTest Check beside a
+  running definition-of-done gate of its voyage or mission on the same vessel,
+  so the same full suite does not run twice at once. The Check waits, its
+  `SlotWait.QueueReason` names the gate, and the wait is reported as
+  `check.gate_overlap_*`. A gate that passes as a whole records the commands it
+  ran in full at a clean HEAD. An automatic Check of the same command, commit
+  and environment then passes and names that gate, and does not run the
+  command again. A failed, cancelled or timed-out gate records nothing.
 
 - A Check that waits is visible while it waits. The automatic Check runner
   reports three waits: the host command slot held for free memory

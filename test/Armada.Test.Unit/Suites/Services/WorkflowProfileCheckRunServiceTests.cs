@@ -434,6 +434,140 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            // A command that times out ran for the whole timeout. Its record says so, the same as a command
+            // that exited: the run time is the time from start to completion on every terminal path.
+            await RunTest("A check whose command times out records the time it ran, not zero", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging, commandTimeout: TimeSpan.FromSeconds(1));
+
+                await EnsureTenantAndUserAsync(testDb, "ten_check_timeout", "usr_check_timeout").ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-timeout-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_check_timeout", "usr_check_timeout", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_check_timeout",
+                        UserId = "usr_check_timeout",
+                        Name = "Timeout Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "sleep 20"
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    CheckRun pending = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        TenantId = "ten_check_timeout",
+                        UserId = "usr_check_timeout",
+                        VesselId = vessel.Id,
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Status = CheckRunStatusEnum.Pending,
+                        Label = "Timed-out Build",
+                        Command = "sleep 20"
+                    }).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_check_timeout", "usr_check_timeout", false, false, "UnitTest");
+                    CheckRun completed = await checkRuns.RunPendingAsync(auth, pending.Id).ConfigureAwait(false);
+
+                    AssertEqual(CheckRunStatusEnum.Failed, completed.Status);
+                    AssertContains("timed out", completed.Output ?? String.Empty, "the record names the timeout");
+                    AssertNotNull(completed.StartedUtc, "the command started");
+                    AssertNotNull(completed.CompletedUtc);
+                    long expected = Convert.ToInt64(Math.Round((completed.CompletedUtc!.Value - completed.StartedUtc!.Value).TotalMilliseconds));
+                    AssertEqual(expected, completed.DurationMs, "the run time is the time from start to completion");
+                    AssertTrue((completed.DurationMs ?? 0) >= 900, "the command ran for its one-second timeout: " + completed.DurationMs);
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            // A definition-of-done gate and the check armed for the same voyage run the same full suite. When the
+            // gate already passed that command on that commit, the check names the gate instead of running again.
+            await RunTest("An armed check of a voyage is satisfied by a gate that passed the same command on the same commit, and runs otherwise", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_gate_reuse", "usr_gate_reuse").ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-gate-reuse-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                string reviewed = new string('d', 40);
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_gate_reuse", "usr_gate_reuse", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    // The command fails when it runs, so a Passed record proves it did not run.
+                    string unitTest = "echo suite-ran; exit 7";
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_gate_reuse",
+                        UserId = "usr_gate_reuse",
+                        Name = "Gate Reuse Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        UnitTestCommand = unitTest
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("gate-reuse-voyage") { TenantId = "ten_gate_reuse", UserId = "usr_gate_reuse" }).ConfigureAwait(false);
+
+                    DefinitionOfDoneCommandPasses.Record(new DefinitionOfDoneCommandPass
+                    {
+                        MissionId = "msn_gate_reuse",
+                        VesselId = vessel.Id,
+                        CommitHash = reviewed,
+                        Label = "unit-test",
+                        Command = unitTest
+                    });
+
+                    CheckRun ArmedAt(string commit) => new CheckRun
+                    {
+                        TenantId = "ten_gate_reuse",
+                        UserId = "usr_gate_reuse",
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Pending,
+                        Label = "UnitTest (armed at dispatch)",
+                        BranchName = "armada/worker/msn-reuse",
+                        CommitHash = commit
+                    };
+
+                    AuthContext auth = AuthContext.Authenticated("ten_gate_reuse", "usr_gate_reuse", false, false, "UnitTest");
+                    CheckRun same = await testDb.Driver.CheckRuns.CreateAsync(ArmedAt(reviewed)).ConfigureAwait(false);
+                    CheckRun satisfied = await checkRuns.RunPendingAsync(auth, same.Id).ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Passed, satisfied.Status, "a gate pass of the same command on the same commit satisfies the check: " + satisfied.Output);
+                    AssertContains("msn_gate_reuse", satisfied.Summary ?? String.Empty, "the record names the gate that satisfied it");
+                    AssertFalse((satisfied.Output ?? String.Empty).Contains("suite-ran", StringComparison.Ordinal), "the command did not run again");
+
+                    CheckRun other = await testDb.Driver.CheckRuns.CreateAsync(ArmedAt(new string('e', 40))).ConfigureAwait(false);
+                    CheckRun ran = await checkRuns.RunPendingAsync(auth, other.Id).ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Failed, ran.Status, "a check of another commit runs its command");
+                    AssertContains("suite-ran", ran.Output ?? String.Empty, "the command ran");
+                }
+                finally
+                {
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
             // A captain's run_check must not time out while the check waits for the host slot: the call
             // returns the unfinished record, names where it waits, and the check still finishes.
             await RunTest("RunWithinAsync returns a check still waiting for the host slot and finishes it in the background", async () =>
@@ -1338,6 +1472,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, cancelled, "only the record that predates this process is cancelled");
                 AssertEqual(CheckRunStatusEnum.Canceled, reloadedInterrupted!.Status, "a check cannot survive the process that was running it");
                 AssertContains("admiral restart", reloadedInterrupted.Summary ?? String.Empty, "the cancel names the restart");
+                AssertEqual(Convert.ToInt64(Math.Round((reloadedInterrupted.CompletedUtc!.Value - reloadedInterrupted.StartedUtc!.Value).TotalMilliseconds)),
+                    reloadedInterrupted.DurationMs, "a cancelled run that started records how long it ran, from start to cancel");
                 AssertEqual(CheckRunStatusEnum.Running, reloadedCurrent!.Status, "a check started by this process must keep running");
             }).ConfigureAwait(false);
 

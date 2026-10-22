@@ -99,7 +99,9 @@ is absent, and report that exclusion.
   and cleared if the run returns to Pending.
 - Preparation delay (`preparationDelayMs`) is `SlotRequestedUtc - CreatedUtc`.
 - Host-slot queue time (`hostQueueMs`) is `StartedUtc - SlotRequestedUtc`.
-- Execution time is `DurationMs`.
+- Execution time is `DurationMs`, which is `CompletedUtc - StartedUtc` for
+  every started Check, timed-out and cancelled ones included. A Check satisfied
+  by a definition-of-done gate pass records 0.
 
 Imported external Checks never request the slot and are outside both slot
 denominators. An Armada Check that started without a recorded slot request is

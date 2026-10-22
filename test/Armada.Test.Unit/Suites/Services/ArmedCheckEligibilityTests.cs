@@ -216,6 +216,46 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("An armed Build check waits while a definition-of-done gate of its voyage runs on the same vessel, and names the gate", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("gate-overlap-voyage")).ConfigureAwait(false);
+                    CheckRun armed = await ArmCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+                    Mission work = await CreateWorkMissionAsync(
+                        testDb, vessel, voyage, MissionStatusEnum.WorkProduced, "armada/worker/msn-overlap", "abc123").ConfigureAwait(false);
+
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    AssertTrue(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false), "with no gate running the armed check is eligible");
+
+                    try
+                    {
+                        using (DefinitionOfDoneGateRun gate = DefinitionOfDoneGateRuns.Start(work.Id, CancellationToken.None))
+                        {
+                            AssertFalse(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false),
+                                "the check must not run the same suite beside the voyage's running gate");
+
+                            await orchestrator.RunSweepAsync().ConfigureAwait(false);
+                            List<ArmadaEvent> started = await testDb.Driver.Events.EnumerateByTypeAsync(AutomaticCheckRunOrchestrator.GateOverlapStartedEvent, 10).ConfigureAwait(false);
+                            AssertEqual(1, started.Count, "the wait behind the gate is recorded");
+                            AssertContains(armed.Id + " behind the gate of mission " + work.Id, started[0].Message, "the event names the check and the gate");
+
+                            CheckRun? waiting = await testDb.Driver.CheckRuns.ReadAsync(armed.Id).ConfigureAwait(false);
+                            AssertEqual(CheckRunStatusEnum.Pending, waiting!.Status, "the check stays pending while the gate runs");
+                            CheckRunSlotWait? view = CheckRunSlotWait.Describe(waiting, new HostSlotSnapshot());
+                            AssertContains("definition-of-done gate of mission " + work.Id, view!.QueueReason ?? String.Empty, "the check's view names the gate it waits for");
+                        }
+
+                        AssertTrue(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false), "the check is eligible again once the gate ends");
+                    }
+                    finally
+                    {
+                        AutomaticCheckRunPlaces.PublishGateWaits(null);
+                    }
+                }
+            });
+
             await RunTest("Armed check is not eligible while no stage has produced work", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

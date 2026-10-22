@@ -70,6 +70,22 @@ namespace Armada.Server
         public const string RunnerFullEndedEvent = "check.runner_full_ended";
 
         /// <summary>
+        /// Event written when an automatic Build or UnitTest check starts waiting for a running
+        /// definition-of-done gate of its voyage or mission on the same vessel.
+        /// </summary>
+        public const string GateOverlapStartedEvent = "check.gate_overlap_started";
+
+        /// <summary>
+        /// Event written at each report interval while checks still wait for such a gate.
+        /// </summary>
+        public const string GateOverlapContinuingEvent = "check.gate_overlap_continuing";
+
+        /// <summary>
+        /// Event written when no check waits for such a gate any longer.
+        /// </summary>
+        public const string GateOverlapEndedEvent = "check.gate_overlap_ended";
+
+        /// <summary>
         /// Most checks this orchestrator keeps in flight at once. A check in flight has been stamped
         /// and handed to the executor; most of them wait in the host-wide command slot, which still
         /// runs one expensive command at a time. The bound limits how many isolated checkouts can
@@ -96,6 +112,14 @@ namespace Armada.Server
         private readonly WaitReport _SlotBusyWait = new WaitReport(
             "wait", SlotBusyStartedEvent, SlotBusyContinuingEvent, SlotBusyEndedEvent,
             "A host command slot is free or no request waits");
+        private readonly WaitReport _GateOverlapWait = new WaitReport(
+            "wait", GateOverlapStartedEvent, GateOverlapContinuingEvent, GateOverlapEndedEvent,
+            "No automatic check waits for a running definition-of-done gate");
+
+        // Checks the latest eligibility scan held back behind a running gate, keyed by check run id, with the
+        // gate's mission id. Replaced on every scan.
+        private readonly ConcurrentDictionary<string, string> _GateWaits = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+
         private readonly WaitReport _RunnerFullWait = new WaitReport(
             "wait", RunnerFullStartedEvent, RunnerFullContinuingEvent, RunnerFullEndedEvent,
             "The automatic check runner has a free place or no check waits for one");
@@ -245,7 +269,9 @@ namespace Armada.Server
                 return started;
             }
 
+            _GateWaits.Clear();
             List<CheckRun> eligible = await FindEligiblePendingChecksAsync(capacity, hold, token).ConfigureAwait(false);
+            await ReportGateOverlapAsync(slot, token).ConfigureAwait(false);
             if (eligible.Count == 0) return started;
 
             _Logging.Info(_Header + "starting " + eligible.Count + " eligible pending check(s); "
@@ -797,13 +823,15 @@ namespace Armada.Server
                 // a later stage replaces, and that green is superseded without deciding anything.
                 List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(run.VoyageId!, token).ConfigureAwait(false);
                 // On a voyage that has split, only the record's own lane decides when its work is final.
-                return StaleCheckSupersessionService.SelectFinalWorkUnderReviewFor(run, missions) != null;
+                if (StaleCheckSupersessionService.SelectFinalWorkUnderReviewFor(run, missions) == null) return false;
+                return !IsBehindRunningGate(run, missions);
             }
 
             if (!String.IsNullOrWhiteSpace(run.MissionId))
             {
                 Mission? mission = await _Database.Missions.ReadAsync(run.MissionId, token).ConfigureAwait(false);
-                return mission?.Status == MissionStatusEnum.Complete;
+                if (mission?.Status != MissionStatusEnum.Complete) return false;
+                return !IsBehindRunningGate(run, new List<Mission> { mission! });
             }
 
             Release? release = await FindLinkedReleaseAsync(run.Id, token).ConfigureAwait(false);
@@ -811,6 +839,49 @@ namespace Armada.Server
                 return await IsReleaseReadyForChecksAsync(release, token).ConfigureAwait(false);
 
             return await IsVesselIdleAsync(run.VesselId!, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// True when a definition-of-done gate of one of these missions runs on the check's vessel. The gate runs
+        /// the same full build or test suite, so a Build or UnitTest check started beside it doubles the load
+        /// for the same answer; it waits, and a gate that passes the same command on the same commit then
+        /// satisfies it (see <see cref="DefinitionOfDoneCommandPasses"/>). The wait is recorded for reporting.
+        /// </summary>
+        private bool IsBehindRunningGate(CheckRun run, List<Mission> missions)
+        {
+            if (run.Type != CheckRunTypeEnum.Build && run.Type != CheckRunTypeEnum.UnitTest) return false;
+            foreach (Mission mission in missions)
+            {
+                if (!String.Equals(mission.VesselId, run.VesselId, StringComparison.Ordinal)) continue;
+                if (!DefinitionOfDoneGateRuns.IsRunning(mission.Id)) continue;
+                _GateWaits[run.Id] = mission.Id;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Publish and report the checks the latest scan held back behind a running gate.
+        /// </summary>
+        private async Task ReportGateOverlapAsync(HostSlotSnapshot slot, CancellationToken token)
+        {
+            Dictionary<string, string> waits = new Dictionary<string, string>(_GateWaits, StringComparer.Ordinal);
+            AutomaticCheckRunPlaces.PublishGateWaits(waits);
+            DateTime now = _Clock();
+            DefinitionOfDoneSettings settings = _GateSettings?.Invoke() ?? new DefinitionOfDoneSettings();
+            await StepWaitAsync(_GateOverlapWait, waits.Count > 0, "gate", now,
+                since => Task.FromResult(DescribeGateOverlap(waits, since, now)), slot, settings, now, token).ConfigureAwait(false);
+        }
+
+        private static string DescribeGateOverlap(Dictionary<string, string> waits, DateTime since, DateTime now)
+        {
+            List<string> items = waits
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => pair.Key + " behind the gate of mission " + pair.Value)
+                .ToList();
+            return "Automatic check(s) waiting for a running definition-of-done gate that runs the same suite on the same vessel for "
+                + WaitMinutes(since, now) + " min since " + since.ToString("u") + ": " + String.Join("; ", items) + ".";
         }
 
         private async Task<bool> IsDeploymentCheckEligibleAsync(CheckRun run, CancellationToken token)

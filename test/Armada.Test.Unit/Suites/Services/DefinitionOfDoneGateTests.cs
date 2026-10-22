@@ -131,6 +131,64 @@ namespace Armada.Test.Unit.Suites.Services
             // A gate takes the host slot at its first command and keeps it until it ends. A check that asks while
             // the gate builds therefore runs after the gate's unit tests, instead of splitting the gate and
             // sending it to the back of the queue for each command.
+            // A gate that passes vouches for each command it ran in full on a clean worktree at a known HEAD, so an
+            // armed check of the same command on that commit need not run the suite again. A failed gate, or a
+            // worktree with an uncommitted change, vouches for nothing.
+            await RunTest("A passing gate records the commands it ran in full at the worktree HEAD; a failed gate or a dirty worktree records none", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string passWorktree = CreateTempDir();
+                string failWorktree = CreateTempDir();
+                string dirtyWorktree = CreateTempDir();
+                string head = new string('a', 40);
+                try
+                {
+                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false };
+                    string build = "echo built";
+                    string test = "echo tested";
+
+                    await EnsureVesselWithProfileAsync(testDb, "ten_pass_rec", "vsl_pass_rec", passWorktree, build, test, null, "Pass Record Vessel").ConfigureAwait(false);
+                    Mission passing = CreateWorkerMission("ten_pass_rec", "vsl_pass_rec");
+                    DefinitionOfDoneGate passGate = new DefinitionOfDoneGate(settings, testDb.Driver, logging, null,
+                        new StubGitService { HeadCommitHashResult = head, IsWorkingDirectoryCleanResult = true });
+                    DefinitionOfDoneResult passed = await passGate.EvaluateAsync(passing, new Dock { WorktreePath = passWorktree }).ConfigureAwait(false);
+                    AssertTrue(passed.Passed, "the gate passes");
+
+                    DefinitionOfDoneCommandPass? buildPass = DefinitionOfDoneCommandPasses.Find("vsl_pass_rec", head, build, null);
+                    DefinitionOfDoneCommandPass? testPass = DefinitionOfDoneCommandPasses.Find("vsl_pass_rec", head, test, null);
+                    AssertNotNull(buildPass, "the build command is recorded at the worktree HEAD");
+                    AssertNotNull(testPass, "the unit-test command is recorded at the worktree HEAD");
+                    AssertEqual(passing.Id, testPass!.MissionId, "the pass names the gate's mission");
+                    AssertEqual("unit-test", testPass.Label);
+                    AssertNull(DefinitionOfDoneCommandPasses.Find("vsl_pass_rec", new string('b', 40), test, null), "a pass is bound to its commit");
+                    AssertNull(DefinitionOfDoneCommandPasses.Find("vsl_pass_rec", head, test, new Dictionary<string, string> { ["MODE"] = "ci" }),
+                        "a pass is bound to the environment the command ran with");
+
+                    await EnsureVesselWithProfileAsync(testDb, "ten_fail_rec", "vsl_fail_rec", failWorktree, build, FailCommand(), null, "Fail Record Vessel").ConfigureAwait(false);
+                    DefinitionOfDoneGate failGate = new DefinitionOfDoneGate(settings, testDb.Driver, logging, null,
+                        new StubGitService { HeadCommitHashResult = head, IsWorkingDirectoryCleanResult = true });
+                    DefinitionOfDoneResult failed = await failGate.EvaluateAsync(
+                        CreateWorkerMission("ten_fail_rec", "vsl_fail_rec"), new Dock { WorktreePath = failWorktree }).ConfigureAwait(false);
+                    AssertFalse(failed.Passed, "the gate fails on its unit tests");
+                    AssertNull(DefinitionOfDoneCommandPasses.Find("vsl_fail_rec", head, build, null), "a failed gate records nothing, not even the build it passed");
+
+                    await EnsureVesselWithProfileAsync(testDb, "ten_dirty_rec", "vsl_dirty_rec", dirtyWorktree, build, test, null, "Dirty Record Vessel").ConfigureAwait(false);
+                    DefinitionOfDoneGate dirtyGate = new DefinitionOfDoneGate(settings, testDb.Driver, logging, null,
+                        new StubGitService { HeadCommitHashResult = head, IsWorkingDirectoryCleanResult = false });
+                    DefinitionOfDoneResult dirty = await dirtyGate.EvaluateAsync(
+                        CreateWorkerMission("ten_dirty_rec", "vsl_dirty_rec"), new Dock { WorktreePath = dirtyWorktree }).ConfigureAwait(false);
+                    AssertTrue(dirty.Passed, "the gate passes");
+                    AssertNull(DefinitionOfDoneCommandPasses.Find("vsl_dirty_rec", head, test, null), "an uncommitted change means the HEAD does not describe what ran");
+                }
+                finally
+                {
+                    TryDeleteDirectory(passWorktree);
+                    TryDeleteDirectory(failWorktree);
+                    TryDeleteDirectory(dirtyWorktree);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("A check that asks for the host slot during a gate build runs after the gate's tests", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

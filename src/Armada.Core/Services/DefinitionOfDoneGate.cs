@@ -164,6 +164,7 @@ namespace Armada.Core.Services
             using (DefinitionOfDoneGateRun run = DefinitionOfDoneGateRuns.Start(mission.Id, token))
             {
                 DefinitionOfDoneResult result;
+                List<DefinitionOfDoneCommandPass> fullPasses = new List<DefinitionOfDoneCommandPass>();
                 try
                 {
                     // A gate that starts on an overloaded host spends its command time limits on the host's
@@ -172,7 +173,7 @@ namespace Armada.Core.Services
                     if (ResolveSkipReason(mission) == null)
                         await WaitForHostAdmissionAsync(mission, dock, run.Token).ConfigureAwait(false);
 
-                    result = await EvaluateAttemptAsync(mission, dock, run.Token, stageStartCommit).ConfigureAwait(false);
+                    result = await EvaluateAttemptAsync(mission, dock, run.Token, stageStartCommit, fullPasses).ConfigureAwait(false);
 
                     // A whole host running several times slower than normal times out commands that pass at
                     // normal load. Such a time limit says little about the change, so the gate waits for load
@@ -188,7 +189,7 @@ namespace Armada.Core.Services
                         {
                             HostLoadReading atRerun = await WaitForHostLoadToFallAsync(mission, dock, atTimeout, run.Token).ConfigureAwait(false);
                             await RecordHostLoadRerunAsync(mission, result, atTimeout, atRerun, token).ConfigureAwait(false);
-                            result = await EvaluateAttemptAsync(mission, dock, run.Token, stageStartCommit).ConfigureAwait(false);
+                            result = await EvaluateAttemptAsync(mission, dock, run.Token, stageStartCommit, fullPasses).ConfigureAwait(false);
                         }
                     }
                 }
@@ -204,6 +205,13 @@ namespace Armada.Core.Services
                 {
                     _Logging.Info(_Header + "gate for mission " + mission.Id + " stopped: the mission was cancelled");
                     throw new DefinitionOfDoneGateCancelledException(mission.Id);
+                }
+
+                // Only a gate that passed as a whole vouches for its commands; a failed or timed-out gate
+                // records nothing, even for a command that passed before the failure.
+                if (result.Passed && String.IsNullOrEmpty(result.SkippedReason))
+                {
+                    foreach (DefinitionOfDoneCommandPass pass in fullPasses) DefinitionOfDoneCommandPasses.Record(pass);
                 }
 
                 return result;
@@ -297,9 +305,11 @@ namespace Armada.Core.Services
             Mission mission,
             Dock dock,
             CancellationToken token,
-            string? stageStartCommit)
+            string? stageStartCommit,
+            List<DefinitionOfDoneCommandPass> fullPasses)
         {
-            GateSlot slot = new GateSlot(mission.Id);
+            fullPasses.Clear();
+            GateSlot slot = new GateSlot(mission.Id, fullPasses);
             _GateSlot.Value = slot;
             try
             {
@@ -628,12 +638,15 @@ namespace Armada.Core.Services
             string worktreePath,
             CancellationToken token)
         {
+            string? cleanHead = await ReadCleanHeadAsync(worktreePath, token).ConfigureAwait(false);
+
             if (!String.IsNullOrWhiteSpace(buildCommand))
             {
                 string effectiveBuild = _Settings.RunRestoreBeforeBuild ? EnsureRestore(buildCommand) : buildCommand;
                 DefinitionOfDoneResult buildResult = await RunCommandAsync("build", effectiveBuild, worktreePath, token).ConfigureAwait(false);
                 if (!buildResult.Passed)
                     return buildResult;
+                await CollectFullPassAsync(mission, "build", buildCommand!, worktreePath, cleanHead, token).ConfigureAwait(false);
             }
 
             if (!String.IsNullOrWhiteSpace(testCommand))
@@ -656,7 +669,12 @@ namespace Armada.Core.Services
                 string effectiveTest = _Settings.RunRestoreBeforeBuild ? EnsureRestore(selectedTest) : selectedTest;
                 Regex? failedTestLinePattern = ResolveFailedTestLinePattern(profile, "vessel");
                 DefinitionOfDoneResult testResult = await RunCommandAsync(testLabel, effectiveTest, worktreePath, token, failedTestLinePattern).ConfigureAwait(false);
-                if (!testResult.Passed)
+                if (testResult.Passed)
+                {
+                    // Only a first-run pass is a full-suite pass; a pass from the isolated re-run below is not.
+                    await CollectFullPassAsync(mission, testLabel, selectedTest, worktreePath, cleanHead, token).ConfigureAwait(false);
+                }
+                else
                 {
                     // D15 flake_score: when the failure reads as a load flake or a known flaky family,
                     // re-run only the failing classes in isolation; the re-run's real result is the
@@ -680,6 +698,53 @@ namespace Armada.Core.Services
             // The vessel's own build and tests pass. That says nothing about the repositories that
             // compile against it, so verify those before the branch is allowed to land.
             return await VerifyDeclaredConsumersAsync(mission, worktreePath, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Read the worktree HEAD when it has no uncommitted tracked change, or null when it has one or cannot be read.
+        /// </summary>
+        private async Task<string?> ReadCleanHeadAsync(string worktreePath, CancellationToken token)
+        {
+            if (_Git == null) return null;
+            try
+            {
+                if (await _Git.HasUncommittedTrackedChangesAsync(worktreePath, token).ConfigureAwait(false)) return null;
+                string? head = await _Git.GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false);
+                return String.IsNullOrWhiteSpace(head) ? null : head.Trim();
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not read a clean HEAD in " + worktreePath + ", so no command pass is recorded: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Keep a command that passed in full for this attempt, when the worktree was clean at the same HEAD
+        /// before the gate's first command and after this one. The gate publishes it only if it passes.
+        /// </summary>
+        private async Task CollectFullPassAsync(Mission mission, string label, string command, string worktreePath, string? cleanHead, CancellationToken token)
+        {
+            GateSlot? slot = _GateSlot.Value;
+            if (slot == null || cleanHead == null || String.IsNullOrWhiteSpace(mission.VesselId)) return;
+
+            string? headAfter = await ReadCleanHeadAsync(worktreePath, token).ConfigureAwait(false);
+            if (!String.Equals(cleanHead, headAfter, StringComparison.OrdinalIgnoreCase)) return;
+
+            slot.FullPasses.Add(new DefinitionOfDoneCommandPass
+            {
+                MissionId = mission.Id,
+                VesselId = mission.VesselId!,
+                CommitHash = cleanHead,
+                Label = label,
+                Command = command,
+                EnvironmentFingerprint = String.Empty,
+                CompletedUtc = DateTime.UtcNow
+            });
         }
 
         /// <summary>
@@ -1900,10 +1965,14 @@ namespace Armada.Core.Services
             private readonly string _MissionId;
             private IDisposable? _Lease = null;
 
-            public GateSlot(string missionId)
+            public GateSlot(string missionId, List<DefinitionOfDoneCommandPass> fullPasses)
             {
                 _MissionId = missionId;
+                FullPasses = fullPasses;
             }
+
+            /// <summary>Commands this attempt ran in full and passed on a clean worktree at a known HEAD.</summary>
+            public List<DefinitionOfDoneCommandPass> FullPasses { get; }
 
             public async Task EnsureHeldAsync(CancellationToken token)
             {

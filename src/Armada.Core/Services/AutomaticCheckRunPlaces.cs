@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
 
     /// <summary>
     /// How many of the automatic check runner's places hold a started check, published so the view of a
@@ -18,6 +19,7 @@ namespace Armada.Core.Services
         private static readonly object _Sync = new object();
         private static int _InFlight = 0;
         private static int _Limit = 0;
+        private static Dictionary<string, string> _GateWaits = new Dictionary<string, string>(StringComparer.Ordinal);
 
         #endregion
 
@@ -38,14 +40,38 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Why a pending check the runner has not started still waits, or null when a place is free or no
-        /// runner has reported.
+        /// Record which pending checks the runner holds back behind a running definition-of-done gate.
         /// </summary>
+        /// <param name="waits">Check run id to the mission whose gate it waits for.</param>
+        public static void PublishGateWaits(IReadOnlyDictionary<string, string>? waits)
+        {
+            Dictionary<string, string> copy = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (waits != null)
+            {
+                foreach (KeyValuePair<string, string> pair in waits) copy[pair.Key] = pair.Value;
+            }
+
+            lock (_Sync)
+            {
+                _GateWaits = copy;
+            }
+        }
+
+        /// <summary>
+        /// Why a pending check the runner has not started still waits, or null when nothing holds it.
+        /// </summary>
+        /// <param name="checkRunId">The check run id.</param>
         /// <returns>The reason, or null.</returns>
-        public static string? DescribeQueueReason()
+        public static string? DescribeQueueReason(string? checkRunId)
         {
             lock (_Sync)
             {
+                if (!String.IsNullOrWhiteSpace(checkRunId) && _GateWaits.TryGetValue(checkRunId, out string? missionId))
+                {
+                    return "waiting for the running definition-of-done gate of mission " + missionId
+                        + ", which runs the same suite on this vessel; a gate that passes the same command on the same commit satisfies this check";
+                }
+
                 if (_Limit <= 0 || _InFlight < _Limit) return null;
                 return "waiting for a place in the automatic check runner: " + _InFlight + " of " + _Limit
                     + " places hold started checks, and this check starts when one of them finishes";

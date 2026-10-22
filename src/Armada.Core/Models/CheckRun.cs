@@ -185,7 +185,8 @@ namespace Armada.Core.Models
         public List<CheckRunArtifact> Artifacts { get; set; } = new List<CheckRunArtifact>();
 
         /// <summary>
-        /// Run duration in milliseconds when known.
+        /// Run duration in milliseconds when known. A finished run that started carries the time from
+        /// <see cref="StartedUtc"/> to <see cref="CompletedUtc"/>; see <see cref="SettleRunDuration"/>.
         /// </summary>
         public long? DurationMs { get; set; } = null;
 
@@ -224,5 +225,16 @@ namespace Armada.Core.Models
 
         private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.CheckRunIdPrefix, 24);
         private string _Command = "echo";
+
+        /// <summary>
+        /// Set <see cref="DurationMs"/> to the time from <see cref="StartedUtc"/> to <see cref="CompletedUtc"/>.
+        /// Every path that ends a started run calls this, so a timeout, an error or a restart records how long
+        /// the command ran, the same as a command that exited. A run without both times keeps its duration.
+        /// </summary>
+        public void SettleRunDuration()
+        {
+            if (!StartedUtc.HasValue || !CompletedUtc.HasValue) return;
+            DurationMs = Math.Max(0L, Convert.ToInt64(Math.Round((CompletedUtc.Value - StartedUtc.Value).TotalMilliseconds)));
+        }
     }
 }

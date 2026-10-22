@@ -381,10 +381,12 @@ reading, `HeldForMemory` and `MemoryWaitReason`, for example
 `waiting for free memory: 4,100 MB available, floor 6,144 MB`.
 
 A waiting request has no process, so the automatic Check runner reports every
-wait on each heartbeat sweep. It reports three waits: the slot held for free
+wait on each heartbeat sweep. It reports four waits: the slot held for free
 memory (`check.memory_wait_*`), every slot held while requests wait
-(`check.slot_busy_*`), and every place of the runner holding a started Check
-while more Checks are pending (`check.runner_full_*`). Each wait records a
+(`check.slot_busy_*`), every place of the runner holding a started Check
+while more Checks are pending (`check.runner_full_*`), and Build or UnitTest
+Checks held back behind a running definition-of-done gate
+(`check.gate_overlap_*`). Each wait records a
 `_started` event when it begins, a `_continuing` event every
 `definitionOfDone.hostSlotWaitReportMinutes` (default 5, clamped to 1-60) while
 it lasts, and an `_ended` event with its length. Each event names the memory
@@ -444,7 +446,28 @@ work already in progress. A Build or UnitTest Check makes its isolated
 checkout before it waits for the host slot. The disk lifecycle sweep keeps the
 checkout of every Check that has not finished, and a Check that holds the slot
 and finds its checkout gone makes it again at the same source; when that fails,
-the Check fails with a reason that names the removed checkout. No setting turns this off. Deployment deploy, verify,
+the Check fails with a reason that names the removed checkout.
+
+A definition-of-done gate runs the same full build and unit-test commands as the
+Build and UnitTest Checks armed for its voyage. While a gate of one of the
+voyage's missions (or of the Check's own mission) runs on the Check's vessel, the
+heartbeat does not start such a Check: it waits, its `SlotWait.QueueReason` names
+the gate, and the wait is reported as `check.gate_overlap_*`. A gate that passes
+as a whole records each command it ran in full, on its first run, in a worktree
+with no uncommitted tracked change and the same HEAD before and after. A
+heartbeat Check of a voyage or mission whose commit, configured command and
+environment variables match such a record passes without running the command,
+and its summary names the gate's mission. A failed, cancelled or timed-out gate
+records nothing, and a pass from the gate's isolated re-run of failing classes is
+not a full-suite pass. The records live in the admiral's memory, so after a
+restart the Check runs its command. An operator's `run_check` or
+`retry_check_run` always runs the command.
+
+A Check command may run for 30 minutes. The time starts when the process starts,
+which is after the Check holds its runner place and the host command slot, so a
+Check that queued for hours still gets the full time. On every path that ends a
+started Check (exit, timeout, error, or the cancel at an admiral restart),
+`DurationMs` is `CompletedUtc - StartedUtc`. No setting turns any of this off. Deployment deploy, verify,
 and rollback Checks stay under the deployment action so the deployment record
 remains authoritative.
 

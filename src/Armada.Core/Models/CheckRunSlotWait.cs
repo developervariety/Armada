@@ -57,9 +57,9 @@ namespace Armada.Core.Models
         public string? MemoryWaitReason { get; set; } = null;
 
         /// <summary>
-        /// Why a check that has not asked for the slot still waits, such as "waiting for a place in the
-        /// automatic check runner: 4 of 4 places hold started checks, ...", or null when it is not queued or
-        /// a place is free.
+        /// Why a check that has not asked for the slot still waits: behind a running definition-of-done gate
+        /// that runs the same suite, or for a place in the automatic check runner, such as "waiting for a place
+        /// in the automatic check runner: 4 of 4 places hold started checks, ...". Null when nothing holds it.
         /// </summary>
         public string? QueueReason { get; set; } = null;
 
@@ -95,7 +95,7 @@ namespace Armada.Core.Models
             };
 
             if (!run.SlotRequestedUtc.HasValue && run.Source == CheckRunSourceEnum.Armada)
-                wait.QueueReason = Armada.Core.Services.AutomaticCheckRunPlaces.DescribeQueueReason();
+                wait.QueueReason = Armada.Core.Services.AutomaticCheckRunPlaces.DescribeQueueReason(run.Id);
 
             if (slot != null)
             {

@@ -456,7 +456,7 @@ Broadcast when a structured check run is created, imported, updated, or retried.
 | `type` | string | Always `"check-run.changed"` |
 | `data` | object | Full serialized `CheckRun` payload with enum values emitted as strings |
 | `data.queueDurationMs` | number \| null | Time from record creation until the host command slot was acquired |
-| `data.durationMs` | number \| null | Command execution time; does not include queue wait |
+| `data.durationMs` | number \| null | Command execution time from `startedUtc` to `completedUtc`, timeouts included; does not include queue wait |
 | `timestamp` | string | ISO 8601 UTC timestamp |
 
 ---

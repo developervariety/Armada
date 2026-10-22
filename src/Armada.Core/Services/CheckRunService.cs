@@ -44,7 +44,13 @@ namespace Armada.Core.Services
         private readonly VesselReadinessService _Readiness;
         private readonly LoggingModule _Logging;
         private readonly Func<IReadOnlyList<BannedDiffPatternRule>>? _BannedDiffPatterns;
-        private readonly TimeSpan _DefaultTimeout = TimeSpan.FromMinutes(30);
+        /// <summary>
+        /// How long one check command may run by default. The time starts when the process starts, which is
+        /// after the check holds its host command slot, so time spent waiting for the slot never counts.
+        /// </summary>
+        public static readonly TimeSpan DefaultCommandTimeout = TimeSpan.FromMinutes(30);
+
+        private readonly TimeSpan _CommandTimeout = DefaultCommandTimeout;
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _PendingRunLocks =
             new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
 
@@ -138,9 +144,11 @@ namespace Armada.Core.Services
             WorkflowProfileService workflowProfiles,
             VesselReadinessService readiness,
             LoggingModule logging,
-            Func<IReadOnlyList<BannedDiffPatternRule>>? bannedDiffPatterns = null)
+            Func<IReadOnlyList<BannedDiffPatternRule>>? bannedDiffPatterns = null,
+            TimeSpan? commandTimeout = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
+            if (commandTimeout.HasValue && commandTimeout.Value > TimeSpan.Zero) _CommandTimeout = commandTimeout.Value;
             _WorkflowProfiles = workflowProfiles ?? throw new ArgumentNullException(nameof(workflowProfiles));
             _Readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
@@ -201,6 +209,7 @@ namespace Armada.Core.Services
                         + "command never finished and the record carries no verdict.";
                     current.Output = String.IsNullOrWhiteSpace(current.Output) ? current.Summary : current.Output;
                     current.CompletedUtc = now;
+                    current.SettleRunDuration();
                     current.LastUpdateUtc = now;
                     updated = await _Database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
                     cancelled++;
@@ -389,7 +398,6 @@ namespace Armada.Core.Services
 
                 IsolatedCheckout? isolatedCheckout = null;
 
-                long executionDurationMs = 0;
                 CommandExecutionResult execution;
 
                 try
@@ -447,12 +455,9 @@ namespace Armada.Core.Services
                         }
                         run = claim.Run;
                         OnCheckRunChanged?.Invoke(run);
-                        Stopwatch sw = Stopwatch.StartNew();
                         Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
                         execution = await ExecuteCommandAsync(
-                            executionCommand, executionDirectory, _DefaultTimeout, token, commandEnvironment).ConfigureAwait(false);
-                        sw.Stop();
-                        executionDurationMs = Convert.ToInt64(Math.Round(sw.Elapsed.TotalMilliseconds));
+                            executionCommand, executionDirectory, _CommandTimeout, token, commandEnvironment).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -473,8 +478,9 @@ namespace Armada.Core.Services
 
                 run.ExitCode = execution.ExitCode;
                 run.Output = execution.Output;
-                run.DurationMs = executionDurationMs;
                 run.CompletedUtc = DateTime.UtcNow;
+                run.SettleRunDuration();
+                run.DurationMs ??= 0;
                 run.LastUpdateUtc = DateTime.UtcNow;
                 run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
 
@@ -1155,7 +1161,6 @@ namespace Armada.Core.Services
             string executionDirectory = run.WorkingDirectory!;
             string executionCommand = run.Command;
 
-            long executionDurationMs = 0;
             CommandExecutionResult execution;
 
             try
@@ -1167,6 +1172,9 @@ namespace Armada.Core.Services
                 run = slotRequested;
                 executionDirectory = run.WorkingDirectory!;
                 executionCommand = run.Command;
+
+                CheckRun? satisfied = await TryCompleteFromGatePassAsync(run, profile, token).ConfigureAwait(false);
+                if (satisfied != null) return satisfied;
 
                 if (IsIsolatedCheckoutType(run.Type))
                 {
@@ -1209,12 +1217,9 @@ namespace Armada.Core.Services
                     }
                     run = claim.Run;
                     OnCheckRunChanged?.Invoke(run);
-                    Stopwatch sw = Stopwatch.StartNew();
                     Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
                     execution = await ExecuteCommandAsync(
-                        executionCommand, executionDirectory, _DefaultTimeout, token, commandEnvironment).ConfigureAwait(false);
-                    sw.Stop();
-                    executionDurationMs = Convert.ToInt64(Math.Round(sw.Elapsed.TotalMilliseconds));
+                        executionCommand, executionDirectory, _CommandTimeout, token, commandEnvironment).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -1235,8 +1240,9 @@ namespace Armada.Core.Services
 
             run.ExitCode = execution.ExitCode;
             run.Output = execution.Output;
-            run.DurationMs = executionDurationMs;
             run.CompletedUtc = DateTime.UtcNow;
+            run.SettleRunDuration();
+            run.DurationMs ??= 0;
             run.LastUpdateUtc = DateTime.UtcNow;
             run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
 
@@ -1379,6 +1385,61 @@ namespace Armada.Core.Services
             {
                 stateLock.Release();
             }
+        }
+
+        /// <summary>
+        /// Record an automatic Build or UnitTest check of a voyage or mission as satisfied when a passing
+        /// definition-of-done gate already ran the same command in full on the same commit, with the same
+        /// environment. The check names that gate and does not run the suite again. An operator's run and a
+        /// check of a deployment always run their command. See <see cref="DefinitionOfDoneCommandPasses"/>.
+        /// </summary>
+        /// <returns>The completed record, or null when no gate pass applies and the command must run.</returns>
+        private async Task<CheckRun?> TryCompleteFromGatePassAsync(CheckRun run, WorkflowProfile? profile, CancellationToken token)
+        {
+            if (run.Source != CheckRunSourceEnum.Armada || IsOperatorRun(run.Id)) return null;
+            if (!IsIsolatedCheckoutType(run.Type)) return null;
+            if (!String.IsNullOrWhiteSpace(run.DeploymentId)) return null;
+            if (String.IsNullOrWhiteSpace(run.VoyageId) && String.IsNullOrWhiteSpace(run.MissionId)) return null;
+            if (String.IsNullOrWhiteSpace(run.CommitHash)) return null;
+
+            Dictionary<string, string> environment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
+            DefinitionOfDoneCommandPass? pass = DefinitionOfDoneCommandPasses.Find(run.VesselId, run.CommitHash, run.Command, environment);
+            if (pass == null) return null;
+
+            string text = "Satisfied by the definition-of-done gate of mission " + pass.MissionId + ": it passed the same "
+                + pass.Label + " command in full on commit " + pass.CommitHash + " at " + pass.CompletedUtc.ToString("u")
+                + ", so this check did not run the command again.";
+
+            SemaphoreSlim stateLock = GetRunStateLock(run.Id);
+            await stateLock.WaitAsync(token).ConfigureAwait(false);
+            CheckRun? current;
+            try
+            {
+                current = await _Database.CheckRuns.ReadAsync(run.Id, token: token).ConfigureAwait(false);
+                if (current == null) throw new InvalidOperationException("The check run no longer exists.");
+                if (current.Status != CheckRunStatusEnum.Pending) return current;
+
+                DateTime now = DateTime.UtcNow;
+                current.Status = CheckRunStatusEnum.Passed;
+                current.ExitCode = 0;
+                current.Command = run.Command;
+                current.Output = text;
+                current.Summary = text;
+                current.StartedUtc = now;
+                current.CompletedUtc = now;
+                current.SettleRunDuration();
+                current.LastUpdateUtc = now;
+                current = await _Database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                stateLock.Release();
+            }
+
+            _Logging.Info(_Header + "check " + run.Id + " satisfied by the definition-of-done gate of mission " + pass.MissionId
+                + " (" + pass.Label + " at " + pass.CommitHash + ")");
+            OnCheckRunChanged?.Invoke(current);
+            return current;
         }
 
         private async Task<CheckRun> CompleteExistingRunAsFailureAsync(CheckRun run, string output, CancellationToken token)

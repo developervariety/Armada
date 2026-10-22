@@ -131,6 +131,16 @@ at startup and on every settings reload. An unknown reading never holds a
 command. The held request keeps its place in line. When no slot is held and it
 has been held for memory for 15 minutes, it runs anyway and is recorded as
 granted under the floor.
+
+A gate that passes as a whole records each vessel command it ran in full: the
+build command, and the unit-test command when it passed on its first run. The
+record holds the worktree HEAD and needs a worktree with no uncommitted tracked
+change and the same HEAD before and after the command. An automatic Build or
+UnitTest Check armed for the same voyage or mission, on the same commit, with
+the same configured command and environment, passes by naming the gate instead
+of running the suite again. A failed, cancelled or timed-out gate records
+nothing. The automatic Check runner also holds those Checks back while the gate
+runs.
 `DefinitionOfDone.HostSlotWaitReportMinutes` (default 5, clamped to 1-60) is
 how often the automatic Check runner records a wait that lasts: the slot held
 for memory, every slot busy with requests waiting, or every runner place taken.
