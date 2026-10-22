@@ -1514,9 +1514,11 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Apply a stored operator-confirmed stage skip with the same <see cref="PipelineStageSkip.Apply"/>
-        /// rule dispatch uses. An unconfirmed skip is reported and not applied. A skip dispatch would
-        /// refuse is reported with the same code and not applied. Never throws into the preview.
+        /// Apply a stored operator-confirmed stage skip as the objective's default, with the same
+        /// <see cref="PipelineStageSkip.Apply"/> rule dispatch uses. An unconfirmed skip is reported and not
+        /// applied. A stored entry that names no stage of the chosen pipeline is dropped and named in a
+        /// <c>stage_skip_default_dropped</c> Warning. A skip dispatch would refuse is reported with the same
+        /// code and not applied. Never throws into the preview.
         /// </summary>
         private static Pipeline? ApplyStoredStageSkip(
             Objective objective,
@@ -1543,7 +1545,14 @@ namespace Armada.Core.Services
 
             try
             {
-                PipelineStageSkipResult applied = PipelineStageSkip.Apply(pipeline, skip);
+                PipelineStageSkipResult applied = PipelineStageSkip.Apply(pipeline, PipelineStageSkip.AsObjectiveDefault(skip));
+                foreach (DroppedStageSkip dropped in applied.DroppedDefaults)
+                {
+                    result.DroppedStageSkips.Add(dropped.Entry);
+                    AddIssue(result, PipelineStageSkip.DefaultDroppedCode, "pipeline", ReadinessSeverityEnum.Warning,
+                        "The stored stage skip entry \"" + dropped.Entry + "\" is dropped for this dispatch because it names no stage of the effective pipeline: "
+                        + dropped.Reason, dropped.Entry);
+                }
                 result.SkippedPipelineStages = applied.SkippedStages
                     .Where(stage => stage != null)
                     .Select(stage => stage.PersonaName)

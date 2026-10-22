@@ -40,6 +40,15 @@ namespace Armada.Core.Services
         /// <summary>Refusal code: a bare persona name that more than one stage carries, or an order more than one parallel stage shares.</summary>
         public const string AmbiguousPersonaCode = "stage_skip_ambiguous_persona";
 
+        /// <summary>
+        /// Preview Warning code: an entry of the objective's stored default skip names no stage of the
+        /// chosen pipeline, so the dispatch drops it instead of refusing.
+        /// </summary>
+        public const string DefaultDroppedCode = "stage_skip_default_dropped";
+
+        /// <summary>Event type recorded on a voyage once per stored default skip entry the dispatch dropped.</summary>
+        public const string DefaultDroppedEventType = "voyage.stage_skip_default_dropped";
+
         #endregion
 
         #region Public-Methods
@@ -94,6 +103,28 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// The skip a dispatch inherits from an objective's stored <c>preparation.stageSkip</c>: a copy
+        /// marked <see cref="StageSkipRequest.IsObjectiveDefault"/>, or null when nothing is stored or the
+        /// stored skip has no server-issued operator confirmation. A dispatch request that names its own
+        /// <c>skipStages</c>, an empty list included, uses that list instead.
+        /// </summary>
+        /// <param name="stored">The objective's stored skip, or null.</param>
+        /// <returns>The default skip to apply, or null.</returns>
+        public static StageSkipRequest? AsObjectiveDefault(StageSkipRequest? stored)
+        {
+            if (!StageSkipRequest.HasTrustedConfirmation(stored)) return null;
+            return new StageSkipRequest
+            {
+                Stages = stored!.Stages.ToList(),
+                Reason = stored.Reason,
+                ConfirmedBy = stored.ConfirmedBy,
+                ConfirmedUtc = stored.ConfirmedUtc,
+                OperatorConfirmationId = stored.OperatorConfirmationId,
+                IsObjectiveDefault = true
+            };
+        }
+
+        /// <summary>
         /// A readable label for who confirmed a skip: the principal display, else the user id, else
         /// <c>operator</c>.
         /// </summary>
@@ -114,15 +145,38 @@ namespace Armada.Core.Services
         /// <param name="pipeline">Resolved pipeline, or null for a single-stage Worker dispatch.</param>
         /// <param name="request">Skip request, or null.</param>
         /// <returns>The pipeline to materialise and the stages that were dropped.</returns>
+        /// <remarks>
+        /// An entry of an objective's stored default skip (<see cref="StageSkipRequest.IsObjectiveDefault"/>)
+        /// that names no stage of the pipeline is dropped and listed in
+        /// <see cref="PipelineStageSkipResult.DroppedDefaults"/>, because the default was written for
+        /// whichever pipeline the objective usually runs. Every other refusal holds for a default too.
+        /// </remarks>
         /// <exception cref="StageSkipRefusedException">
-        /// When an entry is blank or malformed, names the Judge, names no stage of the pipeline, names
-        /// more than one stage of the pipeline, or the skip would leave no stage other than the Judge.
+        /// When an entry is blank or malformed, names the Judge, names no stage of the pipeline (an entry
+        /// the request named), names more than one stage of the pipeline, or the skip would leave no stage
+        /// other than the Judge.
         /// </exception>
         public static PipelineStageSkipResult Apply(Pipeline? pipeline, StageSkipRequest? request)
         {
             if (!StageSkipRequest.HasStages(request))
                 return new PipelineStageSkipResult(pipeline, new List<PipelineStage>());
+            if (!request!.IsObjectiveDefault)
+                return ApplyRequested(pipeline, request);
 
+            try
+            {
+                return ApplyRequested(pipeline, request);
+            }
+            catch (StageSkipRefusedException refused)
+            {
+                throw new StageSkipRefusedException(refused.Code, refused.Persona,
+                    "The objective's stored stage skip (preparation.stageSkip) cannot be applied: " + refused.Message
+                    + " Correct the stored skip, or name this dispatch's own skipStages (an empty list skips nothing).");
+            }
+        }
+
+        private static PipelineStageSkipResult ApplyRequested(Pipeline? pipeline, StageSkipRequest request)
+        {
             ValidateNamesOrThrow(request);
 
             List<PipelineStage> stages = (pipeline?.Stages ?? new List<PipelineStage> { new PipelineStage(1, PersonaCatalog.Worker) })
@@ -140,9 +194,19 @@ namespace Armada.Core.Services
                 .ToList();
 
             HashSet<PipelineStage> selected = new HashSet<PipelineStage>();
-            foreach (string name in request!.Stages)
+            List<DroppedStageSkip> droppedDefaults = new List<DroppedStageSkip>();
+            foreach (string name in request.Stages)
             {
-                PipelineStage stage = ResolveOrThrow(ordered, name, pipelineName);
+                PipelineStage stage;
+                try
+                {
+                    stage = ResolveOrThrow(ordered, name, pipelineName);
+                }
+                catch (StageSkipRefusedException unknown) when (request.IsObjectiveDefault && unknown.Code == UnknownPersonaCode)
+                {
+                    droppedDefaults.Add(new DroppedStageSkip(name, unknown.Message));
+                    continue;
+                }
                 if (PersonaCatalog.Matches(stage.PersonaName, PersonaCatalog.Judge))
                 {
                     throw new StageSkipRefusedException(JudgeRefusedCode, name,
@@ -151,6 +215,9 @@ namespace Armada.Core.Services
                 }
                 selected.Add(stage);
             }
+
+            if (selected.Count == 0)
+                return new PipelineStageSkipResult(pipeline, new List<PipelineStage>(), droppedDefaults);
 
             List<PipelineStage> skipped = stages.Where(stage => selected.Contains(stage)).ToList();
             List<PipelineStage> kept = stages.Where(stage => !skipped.Contains(stage)).ToList();
@@ -174,13 +241,14 @@ namespace Armada.Core.Services
                 LastUpdateUtc = pipeline?.LastUpdateUtc ?? DateTime.UtcNow,
                 Stages = kept
             };
-            return new PipelineStageSkipResult(effective, skipped);
+            return new PipelineStageSkipResult(effective, skipped, droppedDefaults);
         }
 
         /// <summary>
         /// Record one <c>voyage.stage_skipped</c> event per skipped stage, naming the persona, the
-        /// reason and who confirmed the skip. A failure to record is logged, never thrown into the
-        /// dispatch that already created the voyage.
+        /// reason and who confirmed the skip, and one <c>voyage.stage_skip_default_dropped</c> event per
+        /// stored default entry the pipeline does not carry. A failure to record is logged, never thrown
+        /// into the dispatch that already created the voyage.
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="logging">Logging module, or null.</param>
@@ -197,10 +265,42 @@ namespace Armada.Core.Services
             CancellationToken token = default)
         {
             if (database == null) throw new ArgumentNullException(nameof(database));
-            if (voyage == null || result == null || result.SkippedStages.Count == 0) return;
+            if (voyage == null || result == null) return;
+            if (result.SkippedStages.Count == 0 && result.DroppedDefaults.Count == 0) return;
 
             string reason = String.IsNullOrWhiteSpace(request?.Reason) ? "operator-confirmed skip" : request!.Reason!.Trim();
             string confirmer = String.IsNullOrWhiteSpace(request?.ConfirmedBy) ? "unknown" : request!.ConfirmedBy!.Trim();
+
+            foreach (DroppedStageSkip dropped in result.DroppedDefaults)
+            {
+                try
+                {
+                    ArmadaEvent evt = new ArmadaEvent(DefaultDroppedEventType,
+                        "Stored default stage skip \"" + dropped.Entry + "\" dropped on voyage " + voyage.Id
+                        + " because it names no stage of the pipeline: " + dropped.Reason);
+                    evt.EntityType = "voyage";
+                    evt.EntityId = voyage.Id;
+                    evt.VoyageId = voyage.Id;
+                    evt.TenantId = voyage.TenantId;
+                    evt.UserId = voyage.UserId;
+                    evt.Payload = JsonSerializer.Serialize(new DefaultDroppedPayload
+                    {
+                        Entry = dropped.Entry,
+                        Reason = dropped.Reason,
+                        Confirmer = confirmer
+                    });
+                    await database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    logging?.Warn("[PipelineStageSkip] could not record " + DefaultDroppedEventType + " for voyage "
+                        + voyage.Id + " entry " + dropped.Entry + ": " + ex.Message);
+                }
+            }
 
             foreach (PipelineStage stage in result.SkippedStages)
             {
@@ -382,6 +482,13 @@ namespace Armada.Core.Services
                 selector.Persona = text;
                 return selector;
             }
+        }
+
+        private sealed class DefaultDroppedPayload
+        {
+            public string Entry { get; set; } = "";
+            public string Reason { get; set; } = "";
+            public string Confirmer { get; set; } = "";
         }
 
         private sealed class StageSkippedPayload

@@ -157,6 +157,10 @@ namespace Armada.Server
                 Objective? objective = await _ObjectiveService.ReadAsync(objectiveAuth, objectiveId, token).ConfigureAwait(false);
                 if (objective != null)
                 {
+                    // A request that names its own skipStages, an empty list included, replaces the
+                    // objective's stored default skip, so the stored skip neither applies nor gates it.
+                    if (request.SkipStages != null && objective.Preparation != null)
+                        objective.Preparation.StageSkip = null;
                     string? effectivePipeline = NormalizeEmpty(request.PipelineId)
                         ?? NormalizeEmpty(request.Pipeline)
                         ?? NormalizeEmpty(objective.SuggestedPipelineId);
@@ -449,7 +453,12 @@ namespace Armada.Server
                 }
             }
 
-            StageSkipRequest? stageSkip = PipelineStageSkip.FromOperator(request.SkipStages, request.SkipStagesReason, request.ObjectiveAuthContext);
+            // The request's own skipStages win, and an empty list skips nothing. Without one, a linked
+            // objective's confirmed stored skip is the default; its entries that name no stage of the
+            // chosen pipeline are dropped and recorded on the voyage instead of refusing the dispatch.
+            StageSkipRequest? stageSkip = request.SkipStages != null
+                ? PipelineStageSkip.FromOperator(request.SkipStages, request.SkipStagesReason, request.ObjectiveAuthContext)
+                : PipelineStageSkip.AsObjectiveDefault(dispatchObjective?.Preparation?.StageSkip);
 
             Voyage? voyage = null;
             try

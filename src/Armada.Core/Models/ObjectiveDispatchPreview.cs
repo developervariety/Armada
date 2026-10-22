@@ -102,6 +102,12 @@ namespace Armada.Core.Models
         public List<string> SkippedPipelineStages { get; set; } = new List<string>();
 
         /// <summary>
+        /// Entries of the stored confirmed stage skip that name no stage of the effective pipeline, so the
+        /// dispatch drops them; each also has a <c>stage_skip_default_dropped</c> Warning issue.
+        /// </summary>
+        public List<string> DroppedStageSkips { get; set; } = new List<string>();
+
+        /// <summary>
         /// True when the stored skip names a confirmer. An unconfirmed skip is not applied.
         /// </summary>
         public bool StageSkipConfirmed { get; set; }

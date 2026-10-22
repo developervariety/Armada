@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System;
     using System.Collections.Generic;
+    using System.Text.Json.Serialization;
 
     /// <summary>
     /// A request to drop named pipeline stages when a voyage is materialised. Stored objective skips
@@ -36,6 +37,15 @@ namespace Armada.Core.Models
         /// Older records have no identifier and require explicit reconfirmation.
         /// </summary>
         public string? OperatorConfirmationId { get; set; } = null;
+
+        /// <summary>
+        /// True when this skip is an objective's stored default rather than entries a dispatch request
+        /// named. A default entry that names no stage of the chosen pipeline is dropped and reported; an
+        /// entry the request named is refused instead. Set only by
+        /// <c>PipelineStageSkip.AsObjectiveDefault</c>; never stored.
+        /// </summary>
+        [JsonIgnore]
+        public bool IsObjectiveDefault { get; set; } = false;
 
         /// <summary>
         /// True when the request names at least one stage.

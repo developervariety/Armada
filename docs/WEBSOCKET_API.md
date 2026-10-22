@@ -1695,7 +1695,7 @@ voyage is created bare through the same shared create as `POST /api/v1/voyages`:
 | `data.CodeContextTokenBudget` / `data.CodeContextMaxResults` | integer | No | Context-pack limits |
 | `data.ObjectiveId` | string | No | Objective to link; needs `VesselId` and at least one mission |
 | `data.ForcePreflight` | boolean | No | Dispatch a linked objective despite an incomplete dispatch preflight; recorded as an override event |
-| `data.SkipStages` / `data.SkipStagesReason` | array / string | No | Pipeline stages the operator confirms this voyage does not need, and why; each entry is a persona, a stage order (`"5"`) or a persona occurrence (`"Worker#2"`), as for `POST /api/v1/voyages` |
+| `data.SkipStages` / `data.SkipStagesReason` | array / string | No | Pipeline stages the operator confirms this voyage does not need, and why; each entry is a persona, a stage order (`"5"`) or a persona occurrence (`"Worker#2"`), as for `POST /api/v1/voyages`; absent with `ObjectiveId` applies the objective's stored default skip, and `[]` skips nothing |
 
 A request without `VesselId` or without missions creates a bare voyage. It
 refuses `ObjectiveId` with `code` `objective_requires_dispatch`; link an

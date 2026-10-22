@@ -466,10 +466,22 @@ is blank or malformed or names no stage of the effective pipeline
 carries or an order that parallel stages share (`stage_skip_ambiguous_persona`;
 the message lists the order and occurrence name of each such stage), or when
 only the Judge would remain (`stage_skip_leaves_no_work`). A `stage_optional` preview Warning
-is advice only: nothing is skipped unless the operator names it. The autonomous
-scheduler reads an operator-confirmed skip from the objective's
-`preparation.stageSkip` (`stages`, `reason`, `confirmedBy`, `confirmedUtc`, and
-the server-issued `operatorConfirmationId`). A stored skip is honored only when
+is advice only: nothing is skipped unless the operator names it. An objective's
+operator-confirmed `preparation.stageSkip` (`stages`, `reason`, `confirmedBy`,
+`confirmedUtc`, and the server-issued `operatorConfirmationId`) is that
+objective's default skip. The autonomous scheduler applies it, and so does an
+operator dispatch linked to the objective that sends no `skipStages`. A dispatch
+that sends `skipStages` uses only its own list, and an empty list (`[]`) skips
+nothing; the stored default then neither applies nor gates the dispatch. A
+default entry that names no stage of the chosen pipeline (for example a stored
+`Recorder` on a Worker and Judge pipeline) is dropped instead of refusing the
+dispatch: the preview reports it as a `stage_skip_default_dropped` Warning and
+lists it in `droppedStageSkips`, and the voyage records one
+`voyage.stage_skip_default_dropped` event per dropped entry. Every other refusal
+holds for a default entry, with a message that names the stored skip: a bare
+persona name that two stages carry, the Judge, or a skip that leaves only the
+Judge refuses the dispatch until the stored skip is corrected or the dispatch
+names its own `skipStages`. A stored skip is honored only when
 all server confirmation fields are present; older records without the proof are
 kept but treated as unconfirmed until an operator confirms them. On objective
 create or update, send top-level `confirmStageSkip: true` with the skip in
@@ -491,9 +503,11 @@ such a rescue runs both stages), and the Judge is
 never skipped. A voyage with no recorded skip gets the full chain.
 `preview_objective_dispatch` lists `effectivePipelineStages` after that same
 `PipelineStageSkip` rule, names `skippedPipelineStages`, reports whether the
-stored skip is confirmed, and surfaces the named refusal a stored skip would hit
+stored skip is confirmed, lists the stored entries the pipeline does not carry
+in `droppedStageSkips` (each with a `stage_skip_default_dropped` Warning), and
+surfaces the named refusal a stored skip would hit
 (`stage_skip_unconfirmed`, `stage_skip_judge_refused`,
-`stage_skip_unknown_persona`, `stage_skip_ambiguous_persona`,
+`stage_skip_unknown_persona` for a malformed entry, `stage_skip_ambiguous_persona`,
 `stage_skip_leaves_no_work`) without creating a
 voyage. Captain coverage in the preview follows the effective stages, so preview
 and dispatch agree.

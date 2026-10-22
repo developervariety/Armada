@@ -15,14 +15,25 @@ namespace Armada.Core.Services
         public IReadOnlyList<PipelineStage> SkippedStages { get; }
 
         /// <summary>
+        /// Entries of an objective's stored default skip that name no stage of the chosen pipeline, so
+        /// they were dropped instead of refusing the dispatch. Empty for a skip the request named.
+        /// </summary>
+        public IReadOnlyList<DroppedStageSkip> DroppedDefaults { get; }
+
+        /// <summary>
         /// Instantiate.
         /// </summary>
         /// <param name="pipeline">Pipeline to materialise.</param>
         /// <param name="skippedStages">Dropped stages.</param>
-        public PipelineStageSkipResult(Pipeline? pipeline, IReadOnlyList<PipelineStage> skippedStages)
+        /// <param name="droppedDefaults">Stored default entries that name no stage of the pipeline, or null.</param>
+        public PipelineStageSkipResult(
+            Pipeline? pipeline,
+            IReadOnlyList<PipelineStage> skippedStages,
+            IReadOnlyList<DroppedStageSkip>? droppedDefaults = null)
         {
             Pipeline = pipeline;
             SkippedStages = skippedStages ?? new List<PipelineStage>();
+            DroppedDefaults = droppedDefaults ?? new List<DroppedStageSkip>();
         }
     }
 }

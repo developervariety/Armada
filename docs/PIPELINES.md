@@ -127,6 +127,13 @@ form when two stages share a persona, such as a first Worker and a revising
 Worker. A revising Worker runs unless it is named, even when every reviewing
 stage before it is skipped.
 
+An objective's confirmed stored skip is its default: a dispatch that names no
+`skipStages` applies it, and `skipStages: []` skips nothing. A default entry
+that names no stage of the chosen pipeline is dropped and reported
+(`stage_skip_default_dropped`), so a default written for a longer pipeline does
+not refuse a dispatch on a shorter one. A `skipStages` entry the dispatch
+itself names must still name a stage of the chosen pipeline.
+
 A stage whose final result is `[ARMADA:RESULT] BLOCKED` is a failure of this
 kind: it does not hand off, its later stages are cancelled, and no rescue runs.
 Its question goes to the owner on an incident and a board note. See

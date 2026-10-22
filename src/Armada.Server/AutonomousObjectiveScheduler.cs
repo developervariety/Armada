@@ -1565,7 +1565,9 @@ namespace Armada.Server
                     objective, vesselId, token).ConfigureAwait(false);
                 throw new ObjectiveSkippedException("stage_skip_unconfirmed");
             }
-            if (!StageSkipRequest.HasStages(stageSkip)) stageSkip = null;
+            // The stored skip is the objective's default: an entry that names no stage of the pipeline this
+            // dispatch resolves is dropped and recorded on the voyage, never a refusal of the objective.
+            stageSkip = PipelineStageSkip.AsObjectiveDefault(stageSkip);
 
             // The scheduler stages each mission's context pack through the same seam as operator dispatch.
             // A pack that cannot be built never holds the objective back: the mission records why instead.

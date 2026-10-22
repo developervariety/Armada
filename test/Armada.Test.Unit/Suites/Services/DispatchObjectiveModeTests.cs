@@ -636,6 +636,69 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A stored objective skip of a stage the chosen pipeline lacks is dropped and reported, while a request naming it is refused", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, harness.Vessel, "Worker", "Judge").ConfigureAwait(false);
+                    IObjectiveDispatchPreviewService preview = await harness.CreatePreviewAsync().ConfigureAwait(false);
+                    Pipeline reviewed = new Pipeline("ReviewedExample");
+                    reviewed.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, PersonaCatalog.Worker),
+                        new PipelineStage(2, PersonaCatalog.Judge)
+                    };
+                    reviewed = await testDb.Driver.Pipelines.CreateAsync(reviewed).ConfigureAwait(false);
+
+                    Objective objective = await CreateObjectiveWithStoredSkipAsync(testDb, harness.Vessel, "Stored default skip", "Recorder").ConfigureAwait(false);
+
+                    VoyageDispatchResult inherited = await harness.NewDispatchService(preview).DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "dispatch without skipStages",
+                        VesselId = harness.Vessel.Id,
+                        PipelineId = reviewed.Id,
+                        CodeContextMode = "off",
+                        ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
+                        Missions = new List<MissionDescription> { new MissionDescription("Change", "Change and prove.") }
+                    }).ConfigureAwait(false);
+
+                    AssertTrue(inherited.Succeeded, "a stored default naming a stage the pipeline lacks does not refuse the dispatch: "
+                        + JsonSerializer.Serialize(inherited.Value));
+                    List<Mission> created = await testDb.Driver.Missions.EnumerateByVoyageAsync(inherited.Voyage!.Id).ConfigureAwait(false);
+                    AssertEqual("Worker|1|none;Judge|2|Worker", String.Join(";", DescribePipelineGraph(created)),
+                        "every stage of the chosen pipeline runs");
+                    List<ArmadaEvent> dropped = (await testDb.Driver.Events
+                        .EnumerateByTypeAsync(PipelineStageSkip.DefaultDroppedEventType, 50).ConfigureAwait(false))
+                        .Where(evt => evt.VoyageId == inherited.Voyage.Id)
+                        .ToList();
+                    AssertEqual(1, dropped.Count, "the dropped default is recorded on the voyage, not silently ignored");
+                    AssertContains("Recorder", dropped[0].Message ?? "", "the record names the dropped entry");
+
+                    ObjectiveDispatchPreview previewed = await preview.PreviewAsync(
+                        McpTestCaller.Operator, objective, harness.Vessel.Id, reviewed.Id).ConfigureAwait(false);
+                    AssertTrue(previewed.Issues.Any(issue => issue.Code == PipelineStageSkip.DefaultDroppedCode
+                        && issue.Severity == ReadinessSeverityEnum.Warning), "the preview reports the dropped default as a Warning");
+                    AssertTrue(previewed.DroppedStageSkips.SequenceEqual(new[] { "Recorder" }), "the preview lists the dropped entry");
+
+                    Objective explicitObjective = await CreateObjectiveWithStoredSkipAsync(testDb, harness.Vessel, "Explicit skip", "Recorder").ConfigureAwait(false);
+                    VoyageDispatchResult named = await harness.NewDispatchService(preview).DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "dispatch naming the missing stage",
+                        VesselId = harness.Vessel.Id,
+                        PipelineId = reviewed.Id,
+                        CodeContextMode = "off",
+                        ObjectiveId = explicitObjective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
+                        SkipStages = new List<string> { "Recorder" },
+                        Missions = new List<MissionDescription> { new MissionDescription("Change", "Change and prove.") }
+                    }).ConfigureAwait(false);
+                    AssertFalse(named.Succeeded, "a skip the request names must match a stage of the chosen pipeline");
+                    AssertContains(PipelineStageSkip.UnknownPersonaCode, JsonSerializer.Serialize(named.Value));
+                }
+            });
+
             await RunTest("Alias dispatch and a skipped whole order group chain the remaining stages across the gap", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -763,6 +826,26 @@ namespace Armada.Test.Unit.Suites.Services
             return await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
         }
 
+        private static async Task<Objective> CreateObjectiveWithStoredSkipAsync(TestDatabase testDb, Vessel vessel, string title, params string[] storedSkip)
+        {
+            Objective objective = await CreateObjectiveAsync(testDb, title, ObjectiveKindEnum.Feature).ConfigureAwait(false);
+            objective.Description = "Change only the named dispatch behavior.";
+            objective.RefinementSummary = "Reuse the shared dispatch service.";
+            objective.AcceptanceCriteria = new List<string> { "The focused behavior is verified." };
+            objective.Status = ObjectiveStatusEnum.Planned;
+            objective.VesselIds = new List<string> { vessel.Id };
+            objective.Preparation.Preflight = PreflightTestData.Complete();
+            objective.Preparation.StageSkip = new StageSkipRequest
+            {
+                Stages = storedSkip.ToList(),
+                Reason = "this objective's dispatches skip these stages",
+                ConfirmedBy = "operator@example.com",
+                ConfirmedUtc = DateTime.UtcNow,
+                OperatorConfirmationId = Guid.NewGuid().ToString("N")
+            };
+            return await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+        }
+
         private static int CountOccurrences(string value, string search)
         {
             int count = 0;
@@ -855,6 +938,32 @@ namespace Armada.Test.Unit.Suites.Services
             public VoyageDispatchService NewDispatchService()
             {
                 return new VoyageDispatchService(_TestDb.Driver, Admiral, Logging, null, Objectives, Settings);
+            }
+
+            public VoyageDispatchService NewDispatchService(IObjectiveDispatchPreviewService preview)
+            {
+                return new VoyageDispatchService(_TestDb.Driver, Admiral, Logging, null, Objectives, Settings, preview);
+            }
+
+            // A real objective preview over this vessel, with the build and test commands and the
+            // repository directory a ready objective needs.
+            public async Task<IObjectiveDispatchPreviewService> CreatePreviewAsync()
+            {
+                Directory.CreateDirectory(Vessel.LocalPath!);
+                Directory.CreateDirectory(Vessel.WorkingDirectory!);
+                await _TestDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                {
+                    Name = "Dispatch workflow",
+                    TenantId = Vessel.TenantId,
+                    UserId = Vessel.UserId,
+                    Scope = WorkflowProfileScopeEnum.Vessel,
+                    VesselId = Vessel.Id,
+                    BuildCommand = "echo build",
+                    UnitTestCommand = "echo test"
+                }).ConfigureAwait(false);
+                WorkflowProfileService profiles = new WorkflowProfileService(_TestDb.Driver, Logging);
+                VesselReadinessService readiness = new VesselReadinessService(_TestDb.Driver, profiles, Logging);
+                return new ObjectiveDispatchPreviewService(_TestDb.Driver, profiles, readiness, Git, Settings);
             }
         }
     }

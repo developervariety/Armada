@@ -557,6 +557,19 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- An objective's confirmed stored stage skip (`preparation.stageSkip`) is a
+  default. An entry that names no stage of the chosen pipeline is dropped and
+  reported, and the dispatch proceeds: the preview lists it in
+  `droppedStageSkips` with a `stage_skip_default_dropped` Warning, and the voyage
+  records a `voyage.stage_skip_default_dropped` event. A stored `Recorder` skip
+  does not refuse a dispatch on a pipeline without a Recorder. An operator
+  dispatch linked to the objective applies the stored default when it sends no
+  `skipStages`, as the autonomous scheduler does, so preview and dispatch agree;
+  `skipStages: []` skips nothing, and the stored default then neither applies
+  nor gates the dispatch. An entry the dispatch names itself is still refused
+  with `stage_skip_unknown_persona` when it names no stage, and an ambiguous,
+  Judge or no-work default is refused with a message that names the stored skip.
+
 - A Judge PASS that copies an acceptance criterion holding a secret-shaped value
   (for example `token=<value>`) passes the criteria walk. The Judge's output is
   stored redacted, so the walk passes each brief criterion and each claimed line
