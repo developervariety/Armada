@@ -2015,12 +2015,15 @@ records a restart signal owned by the mission's owner, writes a `mission.restart
 Rebase a `WorkProduced` or `LandingFailed` mission's branch onto the current target and re-attempt landing. The produced
 work is kept. After the attempt, the mission's voyage is decided again by the voyage completion rule, at any age: a
 `Failed` voyage whose failed work has now landed (at least one mission `Complete`, none `Failed`) becomes `Complete` and raises the voyage completion hook. MCP
-`armada_retry_landing` runs the same retry.
+`armada_retry_landing` runs the same retry as a background job and returns the job at once; see the MCP API "Long
+Operations" section. The REST route answers when the landing ends. One retry per mission runs at a time, whichever
+surface started it.
 
 **Response:** `200 OK` - `{ "Status": "landed", "MissionId": "msn_abc123", "MissionStatus": "Complete" }`
 
 **Errors:** `400` - the mission is not `WorkProduced` or `LandingFailed`; `404` - Mission not found; `409` - the landing
-failed (the reason names a missing branch, a missing vessel, or a conflict)
+failed (the reason names a missing branch, a missing vessel, or a conflict), or another retry for the mission is
+already running (the message says so; nothing lands twice)
 
 ---
 
@@ -4234,7 +4237,8 @@ accepted.
       "Result": null,
       "FailureMessage": "dispatch_hold_active: ...",
       "ObjectiveId": "obj_abc123",
-      "VesselId": "vsl_abc123"
+      "VesselId": "vsl_abc123",
+      "SubjectId": null
     }
   ],
   "TotalRecords": 1,

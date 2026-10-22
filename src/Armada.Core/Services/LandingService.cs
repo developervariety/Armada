@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System.Collections.Concurrent;
     using System.Diagnostics;
     using System.IO;
     using System.Text.Json;
@@ -42,6 +43,7 @@ namespace Armada.Core.Services
         private IGitService _Git;
         private IncidentService _Incidents;
         private IntegrationCandidateValidator? _IntegrationValidator;
+        private readonly ConcurrentDictionary<string, byte> _RetriesInFlight = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
         #endregion
 
@@ -130,11 +132,53 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Refusal text for a landing retry requested while another retry for the same mission runs.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <returns>The refusal message.</returns>
+        public static string RetryInFlightMessage(string missionId)
+        {
+            return "A landing retry for mission " + missionId + " is already running. Wait for it and read the mission status; "
+                + "a second retry would land the same work again.";
+        }
+
+        /// <inheritdoc />
+        public bool IsRetryInFlight(string missionId)
+        {
+            if (String.IsNullOrEmpty(missionId)) return false;
+            return _RetriesInFlight.ContainsKey(missionId);
+        }
+
         /// <inheritdoc />
         public async Task<bool> RetryLandingAsync(string missionId, string? tenantId = null, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
+            // One retry per mission at a time. A retry resets the mission to WorkProduced before it lands, so a
+            // second retry started while the first runs passes every status check and lands the same work again.
+            if (!_RetriesInFlight.TryAdd(missionId, 0))
+            {
+                _Logging.Warn(_Header + "mission " + missionId + " already has a landing retry in flight -- refusing a second one");
+                return false;
+            }
+
+            try
+            {
+                return await RetryLandingOnceAsync(missionId, tenantId, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _RetriesInFlight.TryRemove(missionId, out byte _);
+            }
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task<bool> RetryLandingOnceAsync(string missionId, string? tenantId, CancellationToken token)
+        {
             Mission? mission = !String.IsNullOrEmpty(tenantId)
                 ? await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false)
                 : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
@@ -345,10 +389,6 @@ namespace Armada.Core.Services
                 return false;
             }
         }
-
-        #endregion
-
-        #region Private-Methods
 
         /// <summary>
         /// The integration-worktree landing itself. <paramref name="measure"/> learns whether an attempt started,

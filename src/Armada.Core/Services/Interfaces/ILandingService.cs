@@ -14,8 +14,17 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="missionId">Mission identifier.</param>
         /// <param name="tenantId">Optional tenant ID for tenant-scoped reads. Null for system/admin context.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>True if the retry succeeded, false if it failed (conflicts, etc.).</returns>
+        /// <returns>True if the retry succeeded, false if it failed (conflicts, etc.) or another retry for the
+        /// mission is already in flight.</returns>
         Task<bool> RetryLandingAsync(string missionId, string? tenantId = null, CancellationToken token = default);
+
+        /// <summary>
+        /// Whether a landing retry for the mission is running now. Only one retry per mission runs at a time;
+        /// <see cref="RetryLandingAsync"/> refuses a second one and returns false.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <returns>True while a retry for the mission is in flight.</returns>
+        bool IsRetryInFlight(string missionId);
 
         /// <summary>
         /// Merge a mission branch into a target branch using a dedicated temporary integration worktree.

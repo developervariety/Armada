@@ -24,6 +24,12 @@ namespace Armada.Server.Mcp.Tools
         /// <summary>Error returned when a mission read names no mission and the caller holds no mission credential.</summary>
         internal const string MissingMissionIdError = "missionId is required: pass a mission id (msn_ prefix). A captain may omit it to read its own mission.";
 
+        /// <summary>Job operation name of a landing retry; at most one runs per mission.</summary>
+        public const string RetryLandingJobOperation = "mission_retry_landing";
+
+        /// <summary>Refusal code when a landing retry for the mission is already running outside the job registry.</summary>
+        public const string RetryLandingInFlightCode = "retry_landing_in_flight";
+
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -44,6 +50,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="operations">Shared mission operations (cancel, purge, restart) REST and WebSocket use. When
         /// null, one is built from <paramref name="database"/>, <paramref name="settings"/> and <paramref name="admiral"/>
         /// that removes no docks and writes no events.</param>
+        /// <param name="jobs">Optional long-running job registry. When supplied, armada_retry_landing returns an
+        /// accepted job handle at once instead of holding the caller for the length of the landing.</param>
         public static void Register(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -52,7 +60,8 @@ namespace Armada.Server.Mcp.Tools
             IGitService? git,
             ILandingService? landingService = null,
             MissionStatusTransitionService? statusTransitions = null,
-            MissionOperations? operations = null)
+            MissionOperations? operations = null,
+            LongRunningJobService? jobs = null)
         {
             MissionOperations missionOperations = operations ?? new MissionOperations(
                 database,
@@ -453,7 +462,11 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_retry_landing",
-                "Retry landing for a mission in LandingFailed status. Rebases the mission branch onto the current target and re-attempts landing.",
+                jobs == null
+                    ? "Retry landing for a mission in WorkProduced or LandingFailed status. Rebases the mission branch onto the current target and re-attempts landing."
+                    : "Start a landing retry for a mission in WorkProduced or LandingFailed status (rebase the mission branch onto the current target and land) and "
+                        + "immediately return an accepted job handle. Use armada_job_status to read the outcome. A retry requested while one runs for the same "
+                        + "mission returns the running job (Joined=true) and never lands the work twice.",
                 new
                 {
                     type = "object",
@@ -467,8 +480,50 @@ namespace Armada.Server.Mcp.Tools
                 {
                     if (landingService == null) return (object)new { Error = "Landing service not configured" };
                     MissionRetryLandingArgs request = JsonSerializer.Deserialize<MissionRetryLandingArgs>(args!.Value, _JsonOptions)!;
-                    bool success = await landingService.RetryLandingAsync(request.MissionId).ConfigureAwait(false);
-                    Mission? mission = await database.Missions.ReadSummaryAsync(request.MissionId).ConfigureAwait(false);
+                    string missionId = request.MissionId;
+
+                    if (jobs != null)
+                    {
+                        // A landing can outlast any client deadline, and a caller that lost the reply would retry a
+                        // landing that is still running. The retry runs as a job, and a repeated request joins it.
+                        LongRunningJob? running = jobs.FindUnfinished(RetryLandingJobOperation, missionId);
+                        if (running != null) return ShapeRetryLandingJob(running, true);
+
+                        Mission? target = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                        if (target == null) return (object)new { Error = "Mission not found", Code = "mission_not_found" };
+                        if (landingService.IsRetryInFlight(missionId))
+                            return (object)new { Error = LandingService.RetryInFlightMessage(missionId), Code = RetryLandingInFlightCode };
+                        if (target.Status != MissionStatusEnum.WorkProduced && target.Status != MissionStatusEnum.LandingFailed)
+                        {
+                            return (object)new
+                            {
+                                Error = "Only WorkProduced or LandingFailed missions can retry landing (current: " + target.Status + ")",
+                                Code = "mission_not_landable"
+                            };
+                        }
+
+                        LongRunningJob job = jobs.StartOrJoin(
+                            RetryLandingJobOperation,
+                            missionId,
+                            async (token) =>
+                            {
+                                bool landed = await landingService.RetryLandingAsync(missionId, null, token).ConfigureAwait(false);
+                                Mission? after = await database.Missions.ReadSummaryAsync(missionId, token).ConfigureAwait(false);
+                                if (!landed)
+                                {
+                                    throw new InvalidOperationException("retry_landing_failed: the mission did not land (status "
+                                        + (after?.Status.ToString() ?? "unknown") + "). " + (after?.FailureReason ?? String.Empty));
+                                }
+                                return (object?)new { Success = true, Mission = after };
+                            },
+                            out bool joined,
+                            null,
+                            target.VesselId);
+                        return ShapeRetryLandingJob(job, joined);
+                    }
+
+                    bool success = await landingService.RetryLandingAsync(missionId).ConfigureAwait(false);
+                    Mission? mission = await database.Missions.ReadSummaryAsync(missionId).ConfigureAwait(false);
                     return (object)new { Success = success, Mission = mission };
                 });
 
@@ -586,6 +641,21 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { MissionId = page.MissionId, Log = page.Log, Lines = page.Lines, TotalLines = page.TotalLines };
                     });
             }
+        }
+
+        private static object ShapeRetryLandingJob(LongRunningJob job, bool joined)
+        {
+            return new
+            {
+                job.JobId,
+                job.Operation,
+                job.SubjectId,
+                job.Status,
+                job.SubmittedAtUtc,
+                job.StartedAtUtc,
+                job.VesselId,
+                Joined = joined
+            };
         }
 
         private static Mission SanitizeMissionForStatus(Mission mission)

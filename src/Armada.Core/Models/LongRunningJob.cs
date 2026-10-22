@@ -61,6 +61,12 @@ namespace Armada.Core.Models
         /// </summary>
         public string? VesselId { get; set; }
 
+        /// <summary>
+        /// Record the job acts on when only one job of its operation may run for that record at a time, for
+        /// example the mission a landing retry lands. Null for a job without that limit.
+        /// </summary>
+        public string? SubjectId { get; set; }
+
         #endregion
 
         #region Public-Methods
@@ -94,7 +100,8 @@ namespace Armada.Core.Models
                 Result = Result,
                 FailureMessage = FailureMessage,
                 ObjectiveId = ObjectiveId,
-                VesselId = VesselId
+                VesselId = VesselId,
+                SubjectId = SubjectId
             };
         }
 

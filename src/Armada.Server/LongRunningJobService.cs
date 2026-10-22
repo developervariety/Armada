@@ -83,6 +83,7 @@ namespace Armada.Server
         private readonly object _EvictionLock = new object();
         private readonly object _JournalLock = new object();
         private readonly object _TransitionLock = new object();
+        private readonly object _SubjectLock = new object();
         private readonly ConcurrentDictionary<string, CancellationTokenSource> _Executions = new ConcurrentDictionary<string, CancellationTokenSource>(StringComparer.Ordinal);
         private readonly int _MaxRetainedTerminalJobs;
         private readonly string? _JournalDirectory;
@@ -134,40 +135,65 @@ namespace Armada.Server
             string? objectiveId = null,
             string? vesselId = null)
         {
+            return StartCore(operation, operationAsync, objectiveId, vesselId, null);
+        }
+
+        /// <summary>
+        /// Accept an operation that may run only once at a time for one record. When an unfinished job of the same
+        /// operation already acts on <paramref name="subjectId"/>, that job is returned and nothing new starts, so a
+        /// caller that repeats a request after a lost reply reads the first job instead of running the work twice.
+        /// </summary>
+        /// <param name="operation">Operation name exposed in status responses.</param>
+        /// <param name="subjectId">Record the operation acts on, for example a mission id.</param>
+        /// <param name="operationAsync">Asynchronous operation to execute.</param>
+        /// <param name="joined">True when an unfinished job was returned instead of a new one.</param>
+        /// <param name="objectiveId">Objective the job acts for, when known.</param>
+        /// <param name="vesselId">Vessel the job acts on, when known.</param>
+        /// <returns>A snapshot of the new or the already running job.</returns>
+        /// <exception cref="InvalidOperationException">A new job could not be journalled, so it was not accepted.</exception>
+        public LongRunningJob StartOrJoin(
+            string operation,
+            string subjectId,
+            Func<CancellationToken, Task<object?>> operationAsync,
+            out bool joined,
+            string? objectiveId = null,
+            string? vesselId = null)
+        {
             if (String.IsNullOrWhiteSpace(operation)) throw new ArgumentException("Operation is required.", nameof(operation));
-            if (operationAsync == null) throw new ArgumentNullException(nameof(operationAsync));
+            if (String.IsNullOrWhiteSpace(subjectId)) throw new ArgumentException("Subject is required.", nameof(subjectId));
 
-            LongRunningJob trackedJob = new LongRunningJob
+            lock (_SubjectLock)
             {
-                JobId = Constants.IdGenerator.GenerateKSortable("job_", 24),
-                Operation = operation.Trim(),
-                Status = LongRunningJobStatusEnum.Accepted,
-                SubmittedAtUtc = DateTime.UtcNow,
-                ObjectiveId = String.IsNullOrWhiteSpace(objectiveId) ? null : objectiveId.Trim(),
-                VesselId = String.IsNullOrWhiteSpace(vesselId) ? null : vesselId.Trim()
-            };
+                LongRunningJob? running = FindUnfinished(operation, subjectId);
+                if (running != null)
+                {
+                    joined = true;
+                    return running;
+                }
 
-            // Durable before accepted: a job that cannot be journalled is refused here rather than
-            // accepted into memory that the next restart erases without a trace.
-            try
-            {
-                WriteJournal(trackedJob);
+                joined = false;
+                return StartCore(operation, operationAsync, objectiveId, vesselId, subjectId);
             }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException(
-                    "job_journal_unavailable: the job was not accepted because its journal record could not be written: " + ex.Message, ex);
-            }
+        }
 
-            if (!_Jobs.TryAdd(trackedJob.JobId, trackedJob))
-                throw new InvalidOperationException("Unable to allocate a unique job identifier.");
-
-            LongRunningJob acceptedSnapshot = trackedJob.CreateSnapshot();
-            _ = Task.Run(
-                () => ExecuteAsync(trackedJob.JobId, operationAsync),
-                CancellationToken.None);
-
-            return acceptedSnapshot;
+        /// <summary>
+        /// The unfinished job of an operation that acts on one record, if any.
+        /// </summary>
+        /// <param name="operation">Operation name.</param>
+        /// <param name="subjectId">Record the operation acts on.</param>
+        /// <returns>A snapshot of the unfinished job, or null when none runs.</returns>
+        public LongRunningJob? FindUnfinished(string operation, string subjectId)
+        {
+            if (String.IsNullOrWhiteSpace(operation) || String.IsNullOrWhiteSpace(subjectId)) return null;
+            string name = operation.Trim();
+            string subject = subjectId.Trim();
+            LongRunningJob? match = _Jobs.Values
+                .Where(job => !LongRunningJob.IsTerminal(job.Status)
+                    && String.Equals(job.Operation, name, StringComparison.Ordinal)
+                    && String.Equals(job.SubjectId, subject, StringComparison.Ordinal))
+                .OrderBy(job => job.SubmittedAtUtc)
+                .FirstOrDefault();
+            return match?.CreateSnapshot();
         }
 
         /// <summary>
@@ -352,6 +378,50 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        private LongRunningJob StartCore(
+            string operation,
+            Func<CancellationToken, Task<object?>> operationAsync,
+            string? objectiveId,
+            string? vesselId,
+            string? subjectId)
+        {
+            if (String.IsNullOrWhiteSpace(operation)) throw new ArgumentException("Operation is required.", nameof(operation));
+            if (operationAsync == null) throw new ArgumentNullException(nameof(operationAsync));
+
+            LongRunningJob trackedJob = new LongRunningJob
+            {
+                JobId = Constants.IdGenerator.GenerateKSortable("job_", 24),
+                Operation = operation.Trim(),
+                Status = LongRunningJobStatusEnum.Accepted,
+                SubmittedAtUtc = DateTime.UtcNow,
+                ObjectiveId = String.IsNullOrWhiteSpace(objectiveId) ? null : objectiveId.Trim(),
+                VesselId = String.IsNullOrWhiteSpace(vesselId) ? null : vesselId.Trim(),
+                SubjectId = String.IsNullOrWhiteSpace(subjectId) ? null : subjectId.Trim()
+            };
+
+            // Durable before accepted: a job that cannot be journalled is refused here rather than
+            // accepted into memory that the next restart erases without a trace.
+            try
+            {
+                WriteJournal(trackedJob);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "job_journal_unavailable: the job was not accepted because its journal record could not be written: " + ex.Message, ex);
+            }
+
+            if (!_Jobs.TryAdd(trackedJob.JobId, trackedJob))
+                throw new InvalidOperationException("Unable to allocate a unique job identifier.");
+
+            LongRunningJob acceptedSnapshot = trackedJob.CreateSnapshot();
+            _ = Task.Run(
+                () => ExecuteAsync(trackedJob.JobId, operationAsync),
+                CancellationToken.None);
+
+            return acceptedSnapshot;
+        }
 
         private async Task ExecuteAsync(string jobId, Func<CancellationToken, Task<object?>> operationAsync)
         {

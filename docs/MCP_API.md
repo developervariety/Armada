@@ -296,9 +296,20 @@ resident helper process and an AgentWake process owner.
 
 ## Long Operations
 
-Dispatch, code-index refresh, and merge processing can return an accepted job
-instead of blocking the request. Save the job ID and call `armada_job_status`
-until the job reaches a terminal state: `Succeeded`, `Failed` or `Lost`.
+Dispatch, code-index refresh, merge processing and landing retries can return an
+accepted job instead of blocking the request. Save the job ID and call
+`armada_job_status` until the job reaches a terminal state: `Succeeded`, `Failed`
+or `Lost`.
+
+`armada_retry_landing` checks that the mission exists and is `WorkProduced` or
+`LandingFailed`, then returns the job at once; the landing runs in the job. One
+retry per mission runs at a time. A retry requested while a retry job for the
+same mission is unfinished returns that job with `Joined: true` and starts
+nothing, so a caller that lost the reply never lands the work twice. A retry
+requested while a REST retry for the mission runs is refused with
+`retry_landing_in_flight`. The job's `SubjectId` names the mission. A job whose
+landing does not end `Complete` reads `Failed`, and its `FailureMessage` gives
+the mission status and failure reason.
 
 `armada_dispatch` validates the request, checks the dispatch hold and runs the
 objective preflight before it accepts anything. A refusal at that point returns

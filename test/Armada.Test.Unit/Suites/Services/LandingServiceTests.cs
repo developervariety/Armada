@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.IO;
     using System.Linq;
     using System.Text.Json;
+    using System.Threading;
     using Armada.Core;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
@@ -156,6 +157,65 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(git.ExistingBranches.Contains(tip), "The temporary worktree is placed at the branch tip commit");
                     AssertContains(landedFrom!, String.Join(" | ", git.RemoveWorktreeCalls), "The temporary worktree is removed after the landing");
                     AssertEqual(dock.Id, landedDockId, "The landing still names the mission's dock");
+                }
+            });
+
+            // A retry resets the mission to WorkProduced before it lands, so a second retry started while the first
+            // runs passes every status check. Only one retry per mission may run, or the same work lands twice.
+            await RunTest("RetryLandingAsync_SecondRetryWhileOneRuns_IsRefusedAndTheWorkLandsOnce", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+                    const string branch = "armada/retry-once/branch";
+
+                    Vessel vessel = new Vessel("retry-once-vessel", "https://github.com/test/retry-once.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_retry_once_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    git.ExistingBranches.Add(branch);
+                    git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + branch] = "7777777777777777777777777777777777777777";
+
+                    Mission mission = new Mission("retry once mission", "retry");
+                    mission.VesselId = vessel.Id;
+                    mission.BranchName = branch;
+                    mission.Status = MissionStatusEnum.LandingFailed;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    TaskCompletionSource<bool> landingStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    int landings = 0;
+                    service.OnPerformLanding = async (Mission m, Dock d) =>
+                    {
+                        Interlocked.Increment(ref landings);
+                        landingStarted.TrySetResult(true);
+                        await release.Task.ConfigureAwait(false);
+                        m.Status = MissionStatusEnum.Complete;
+                        await testDb.Driver.Missions.UpdateAsync(m).ConfigureAwait(false);
+                    };
+
+                    Task<bool> first = service.RetryLandingAsync(mission.Id);
+                    try
+                    {
+                        AssertTrue(await Task.WhenAny(landingStarted.Task, Task.Delay(TimeSpan.FromSeconds(20))).ConfigureAwait(false) == landingStarted.Task,
+                            "The first retry reaches the landing");
+                        AssertTrue(service.IsRetryInFlight(mission.Id), "The running retry is reported in flight");
+
+                        Task<bool> second = service.RetryLandingAsync(mission.Id);
+                        bool answered = await Task.WhenAny(second, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false) == second;
+                        AssertTrue(answered, "A second retry while the first runs is refused at once, not run into a second landing");
+                        AssertFalse(await second.ConfigureAwait(false), "The refused retry reports false");
+                    }
+                    finally
+                    {
+                        release.TrySetResult(true);
+                    }
+
+                    AssertTrue(await first.ConfigureAwait(false), "The first retry lands");
+                    AssertEqual(1, landings, "The work lands once");
+                    AssertFalse(service.IsRetryInFlight(mission.Id), "The finished retry is no longer in flight");
                 }
             });
 

@@ -80,6 +80,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     job.JobId,
                     job.Operation,
+                    job.SubjectId,
                     job.Status,
                     job.SubmittedAtUtc,
                     job.StartedAtUtc,
@@ -94,6 +95,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     job.JobId,
                     job.Operation,
+                    job.SubjectId,
                     job.Status,
                     job.SubmittedAtUtc,
                     job.StartedAtUtc,
@@ -108,6 +110,7 @@ namespace Armada.Server.Mcp.Tools
             {
                 job.JobId,
                 job.Operation,
+                job.SubjectId,
                 job.Status,
                 job.SubmittedAtUtc,
                 job.StartedAtUtc,

@@ -1051,8 +1051,14 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Only WorkProduced or LandingFailed missions can retry landing (current: " + mission.Status + ")" };
                 }
 
+                // One retry per mission at a time, whichever surface started it: a second one would land the same work again.
+                if (_landingService.IsRetryInFlight(id))
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = LandingService.RetryInFlightMessage(id) };
+                }
+
                 bool success = await _landingService.RetryLandingAsync(id, ctx.TenantId).ConfigureAwait(false);
-                mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false);
                 mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false);
                 if (!success)
                 {
@@ -1072,11 +1078,12 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Missions")
                 .WithSummary("Retry landing for a mission")
-                .WithDescription("Rebases the mission branch onto the current target and re-attempts landing. Only available for WorkProduced or LandingFailed missions.")
+                .WithDescription("Rebases the mission branch onto the current target and re-attempts landing, and answers when the landing ends. Only available for WorkProduced or LandingFailed missions. A retry requested while another retry for the same mission runs is refused with 409.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<object>("Landing result"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("The landing failed, or another retry for the mission is already running"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/missions/{id}/diff", async (ApiRequest req) =>

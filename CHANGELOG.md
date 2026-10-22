@@ -375,6 +375,14 @@ upstream integrations and excludes changes already present at that baseline.
   `captain.recovery_deferred_dispatch_hold` event and the assignment skip for
   deferred missions are gone.
 
+- `armada_retry_landing` runs the landing as a background job and returns the
+  job at once, so a landing that outlasts the MCP client deadline no longer
+  reads as a failure while it still runs. Read the outcome with
+  `armada_job_status`. One retry per mission runs at a time: a repeated MCP
+  request returns the running job (`Joined: true`), REST
+  `POST /api/v1/missions/{id}/retry-landing` refuses a second retry with `409`,
+  and the landing service refuses one from any other caller, so the same work
+  never lands twice. A job names the record it acts on in `SubjectId`.
 - Judge findings exclude items the Judge reports as agreeing with the
   source. A list under a lead-in such as "Spot checks that agree with source:" is
   context, the same as a list under a passing or reviewed lead-in, so neither the
