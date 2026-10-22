@@ -404,8 +404,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await adapter.EvaluateAsync(objective, Vessel(), Pipeline(), preview, CancellationToken.None).ConfigureAwait(false);
 
+                // The brief states one line before the change and zero after it, so the flag is a warning.
                 ObjectiveDispatchPreviewIssue flag = preview.Issues.Single(issue =>
-                    issue.Code == PreflightTextAdapter.ModelFlagIssueCode && issue.RelatedValue == "q9");
+                    issue.Code == "preflight_q9_model" && issue.RelatedValue == "q9" && issue.Severity == ReadinessSeverityEnum.Warning);
                 AssertContains("\"What proves the fix: each status poll writes one warning line before the change and zero after it\"", flag.Message,
                     "the q9 flag quotes the brief line that states the proof value");
                 AssertContains("which question 9 excludes: \"Parity values, unchanged on purpose:\"; \"- the poll state stays rejected\"; \"- the submit warning stays one line\"",
@@ -419,6 +420,46 @@ namespace Armada.Test.Unit.Suites.Services
                     issue.Code == PreflightTextAdapter.ModelFlagIssueCode && issue.RelatedValue == "q9");
                 AssertContains("No brief line states a proof or expected value", bare.Message,
                     "a brief without a proof line is told what to add");
+            });
+
+            await RunTest("Preflight_Q9Flag_IsAWarning_WhenTheBriefStatesDifferentProofValuesAndNoFactFails", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(
+                    ModelResult(new Dictionary<string, double> { ["q9"] = 0.95, ["q1"] = 0.05 }, "none", 0.05));
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+                string scope = "Scope rule: the freeze applies only to instruments whose expected session has ended.\n";
+
+                Objective changes = Objective();
+                changes.Description = scope + "What proves the fix: a fixture of four instruments freezes 2 after the fix and 3 at the old commit.";
+                ObjectiveDispatchPreview demoted = SeededPreview();
+                await adapter.EvaluateAsync(changes, Vessel(), Pipeline(), demoted, CancellationToken.None).ConfigureAwait(false);
+                AssertFalse(demoted.Issues.Any(issue => issue.Code == PreflightTextAdapter.ModelFlagIssueCode),
+                    "a q9 flag against a brief whose proof value changes does not block dispatch");
+                ObjectiveDispatchPreviewIssue note = demoted.Issues.Single(issue => issue.Code == "preflight_q9_model");
+                AssertEqual(ReadinessSeverityEnum.Warning, note.Severity, "the q9 flag stays visible as a warning");
+                AssertContains("\"What proves the fix: a fixture of four instruments freezes 2 after the fix and 3 at the old commit\"", note.Message,
+                    "the warning quotes the proof sentence the rule read");
+                List<ArmadaEvent> typed = await AllTypedDecisionEventsAsync(testDb.Driver).ConfigureAwait(false);
+                AssertContains("\"gate_outcome\":\"advisory_only\"", typed.Last().Payload ?? "", "the demoted flag records an advisory outcome");
+
+                Objective same = Objective();
+                same.Description = scope + "What proves the fix: a fixture of four instruments freezes 3 after the fix and 3 at the old commit.";
+                ObjectiveDispatchPreview unchanged = SeededPreview();
+                await adapter.EvaluateAsync(same, Vessel(), Pipeline(), unchanged, CancellationToken.None).ConfigureAwait(false);
+                AssertTrue(unchanged.Issues.Any(issue => issue.Code == PreflightTextAdapter.ModelFlagIssueCode && issue.RelatedValue == "q9"),
+                    "a proof value stated the same on both sides still blocks");
+
+                ObjectiveDispatchPreview failing = SeededPreview();
+                failing.Preflight.Facts.Add(new ObjectiveDispatchPreflightFact
+                {
+                    QuestionNumber = 2,
+                    Status = PreflightFactStatusEnum.Fail,
+                    Detail = "The objective kind does not match the deliverable."
+                });
+                await adapter.EvaluateAsync(changes, Vessel(), Pipeline(), failing, CancellationToken.None).ConfigureAwait(false);
+                AssertTrue(failing.Issues.Any(issue => issue.Code == PreflightTextAdapter.ModelFlagIssueCode && issue.RelatedValue == "q9"),
+                    "a failing deterministic fact keeps the q9 flag blocking");
             });
 
             await RunTest("Preflight_WithoutDockContext_StateSaysTheDockWasNotMeasured", async () =>

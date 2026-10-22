@@ -519,6 +519,13 @@ upstream integrations and excludes changes already present at that baseline.
 - A brief no longer tells the captain to read a `_briefing/` file the dock does
   not hold. Each such read points at the staged complete handoff text, or at
   the inline text when none is staged.
+- A high model reading on dispatch preflight question 9 no longer blocks a
+  brief that states its proof value changes, such as "freezes 2 after the fix
+  and 3 at the old commit". When no deterministic fact fails and a brief
+  sentence states two different values for the corrected and the defective
+  code, the reading adds a `preflight_q9_model` Warning that quotes that
+  sentence, not an `objective_preflight_model_flag` Error. A brief that states
+  the same value on both sides, or a preview with a failed fact, still blocks.
 - Dispatch preflight question 1 passes a citation whose line range lies inside
   the body of the declaration it names, such as `` `Size` (`Book.cs:20-22`) ``
   for lines inside `Size`. A range that crosses into the next declaration, or

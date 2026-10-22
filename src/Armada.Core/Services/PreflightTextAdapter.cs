@@ -32,8 +32,10 @@ namespace Armada.Core.Services
     /// nothing and records one unavailable event; a below-threshold answer adds nothing and records one
     /// rule-kept event. In Gate mode a blocking question answered at or above the decision threshold becomes
     /// an Error issue <see cref="ModelFlagIssueCode"/> that the autonomous scheduler already skips on. A
-    /// Q4 or Q13 model flag never blocks dispatch or posts an owner-addressed board note. The adapter never
-    /// throws into the caller.
+    /// Q4 or Q13 model flag never blocks dispatch or posts an owner-addressed board note. When no deterministic
+    /// fact fails, a Q1 flag is a Warning while the Q1 citation fact passes, and a Q9 flag is a Warning while the
+    /// brief states two different proof values for the corrected and the defective code
+    /// (<see cref="ProofValueChangeDetector"/>). The adapter never throws into the caller.
     ///
     /// Answers are cached by the redacted state's hash, the question contract's hash, the configured model
     /// and the model version the provider last reported. A repeat preview of an unchanged objective reuses
@@ -254,11 +256,21 @@ namespace Armada.Core.Services
             // the classifier block dispatch. Other questions retain the Gate blocking behavior.
             // Q1 asks whether the deterministic facts contradict the premise. When the citation fact passes and no
             // fact fails, there is no contradiction for the model to report, so its q1 flag stays a warning.
-            bool premiseProven = PremiseProven(result);
+            // Q9 asks whether the proof value is the same before and after the fix. When the brief itself states two
+            // different values for the corrected and the defective code and no fact fails, the question's own contract
+            // answers false, so its q9 flag stays a warning.
+            bool noFactFails = NoFactFails(result);
+            bool premiseProven = noFactFails && PremiseFactPasses(result);
+            string? statedChange = noFactFails
+                ? ProofValueChangeDetector.Find(objective.Description, objective.AcceptanceCriteria)
+                : null;
+            PreflightDemotion demotion = new PreflightDemotion(premiseProven, statedChange != null);
             foreach (PreflightFlag flag in reading.Flags)
             {
                 string evidence = flag.QuestionNumber == _ExampleValueQuestion ? ExampleValueEvidence(objective) : String.Empty;
-                if (gate && Blocks(flag, premiseProven))
+                if (flag.QuestionNumber == _ExampleValueQuestion && statedChange != null)
+                    evidence = " The brief states a proof value that changes with the fix: " + QuoteOne(statedChange) + "." + evidence;
+                if (gate && Blocks(flag, demotion))
                 {
                     AddIssue(result, ModelFlagIssueCode, ReadinessSeverityEnum.Error,
                         "Dispatch preflight model flag on question " + flag.QuestionNumber + ": " + flag.Defect + evidence,
@@ -282,8 +294,8 @@ namespace Armada.Core.Services
                     "q13");
             }
 
-            bool applied = gate && reading.Flags.Any(flag => Blocks(flag, premiseProven));
-            bool advisory = reading.HasAdvisory || reading.Flags.Any(flag => flag.BlocksDispatch && !Blocks(flag, premiseProven));
+            bool applied = gate && reading.Flags.Any(flag => Blocks(flag, demotion));
+            bool advisory = reading.HasAdvisory || reading.Flags.Any(flag => flag.BlocksDispatch && !Blocks(flag, demotion));
             if (cached != null)
             {
                 string cachedOutcome = applied
@@ -619,18 +631,31 @@ namespace Armada.Core.Services
             };
         }
 
-        private static bool Blocks(PreflightFlag flag, bool premiseProven)
+        private static bool Blocks(PreflightFlag flag, PreflightDemotion demotion)
         {
             if (!flag.BlocksDispatch) return false;
-            return !(premiseProven && flag.QuestionNumber == _PremiseQuestion);
+            if (demotion.PremiseProven && flag.QuestionNumber == _PremiseQuestion) return false;
+            if (demotion.ProofValueChangeStated && flag.QuestionNumber == _ExampleValueQuestion) return false;
+            return true;
         }
 
-        // True when the q1 citation fact passes and no deterministic fact fails.
-        private static bool PremiseProven(ObjectiveDispatchPreview result)
+        private static bool NoFactFails(ObjectiveDispatchPreview result)
         {
             List<ObjectiveDispatchPreflightFact> facts = result.Preflight?.Facts ?? new List<ObjectiveDispatchPreflightFact>();
-            if (facts.Any(fact => fact != null && fact.Status == PreflightFactStatusEnum.Fail)) return false;
+            return !facts.Any(fact => fact != null && fact.Status == PreflightFactStatusEnum.Fail);
+        }
+
+        private static bool PremiseFactPasses(ObjectiveDispatchPreview result)
+        {
+            List<ObjectiveDispatchPreflightFact> facts = result.Preflight?.Facts ?? new List<ObjectiveDispatchPreflightFact>();
             return facts.Any(fact => fact != null && fact.QuestionNumber == _PremiseQuestion && fact.Status == PreflightFactStatusEnum.Pass);
+        }
+
+        private static string QuoteOne(string text)
+        {
+            List<string> quoted = new List<string>();
+            Quote(quoted, text);
+            return quoted.Count > 0 ? quoted[0] : "\"\"";
         }
 
         /// <summary>
@@ -719,6 +744,19 @@ namespace Armada.Core.Services
             public string Defect { get; }
             public double Value { get; }
             public bool BlocksDispatch { get; }
+        }
+
+        // The deterministic evidence that turns a blocking model flag into a warning.
+        private sealed class PreflightDemotion
+        {
+            public PreflightDemotion(bool premiseProven, bool proofValueChangeStated)
+            {
+                PremiseProven = premiseProven;
+                ProofValueChangeStated = proofValueChangeStated;
+            }
+
+            public bool PremiseProven { get; }
+            public bool ProofValueChangeStated { get; }
         }
 
         private sealed class PreflightModelReading

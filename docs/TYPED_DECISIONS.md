@@ -560,7 +560,15 @@ One decision point reads the objective dispatch preview:
   reading for another text question adds the Error issue
   `objective_preflight_model_flag`. A high Q1 reading adds the `preflight_q1_model`
   Warning instead when the Q1 citation fact passes and no deterministic fact
-  fails: Q1 asks whether the facts contradict the premise, and none do; the autonomous scheduler skips on any Error
+  fails: Q1 asks whether the facts contradict the premise, and none do. A high
+  Q9 reading adds the `preflight_q9_model` Warning instead when no
+  deterministic fact fails and a brief sentence states two different proof
+  values for the corrected and the defective code ("freezes 2 after the fix and
+  3 at the old commit", "one line before the change and zero after it",
+  "from 3 to 2 with the fix"); Q9's own contract answers false for such a
+  brief, and the Warning quotes that sentence. A value is a number or a number
+  word up to ten, paired with the nearest fix-side or old-side phrase; a parity
+  or control section is never read. The autonomous scheduler skips on any Error
   issue and its `objective_scheduler.skipped_dispatch_preflight` event lists the
   code. The flag is preflight-class: an operator `armada_dispatch` with
   `forcePreflight: true` passes it, and the `objective.preflight_overridden`
