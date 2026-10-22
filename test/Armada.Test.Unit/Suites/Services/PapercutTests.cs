@@ -319,6 +319,209 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ListAsync DefaultGroupsOneRowPerVessel", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    GroupingFixture fixture = await SeedGroupingFixtureAsync(testDb.Driver).ConfigureAwait(false);
+                    PapercutListResponse result = await ListAsync(testDb.Driver, new { }).ConfigureAwait(false);
+
+                    AssertNull(result.Error);
+                    AssertEqual("vessel", result.GroupBy);
+                    AssertEqual(9, result.TotalFiltered);
+                    AssertEqual(3, result.TotalGroups);
+                    AssertEqual(3, result.Groups.Count);
+
+                    PapercutGroup alpha = result.Groups[0];
+                    AssertEqual(fixture.AlphaId, alpha.Key);
+                    AssertEqual(PapercutGroupingEnum.Vessel, alpha.GroupBy);
+                    AssertEqual(fixture.AlphaId, alpha.VesselId);
+                    AssertEqual("alpha-vessel", alpha.VesselName);
+                    AssertEqual(5, alpha.Count);
+                    AssertEqual(3, alpha.DistinctCaptainCount);
+                    AssertEqual(PapercutSeverityEnum.High, alpha.HighestSeverity);
+                    AssertEqual(PapercutCategoryEnum.ToolFailure, alpha.Category);
+                    AssertEqual(fixture.Now.AddMinutes(-50), alpha.FirstSeenUtc);
+                    AssertEqual(fixture.Now.AddMinutes(-10), alpha.LastSeenUtc);
+                    AssertEqual(2, alpha.CategoryCounts.Count);
+                    AssertEqual(3, alpha.CategoryCounts["ToolFailure"]);
+                    AssertEqual(2, alpha.CategoryCounts["MissingDoc"]);
+                    AssertEqual(3, alpha.TitleGroupCount);
+                    AssertEqual(3, alpha.TitleSubgroups.Count);
+                    AssertEqual(3, alpha.TitleSubgroups[0].Count);
+                    AssertEqual("build step # times out", alpha.TitleSubgroups[0].NormalizedTitle);
+                    AssertEqual("build step 3 times out", alpha.TitleSubgroups[0].SampleTitle);
+                    AssertEqual(PapercutCategoryEnum.ToolFailure, alpha.TitleSubgroups[0].Category);
+                    AssertEqual(fixture.Now.AddMinutes(-20), alpha.TitleSubgroups[0].LastSeenUtc);
+                    AssertEqual("changelog omits setup", alpha.TitleSubgroups[1].NormalizedTitle);
+                    AssertEqual("readme omits setup", alpha.TitleSubgroups[2].NormalizedTitle);
+                    AssertEqual("CHANGELOG omits setup", alpha.SampleTitle);
+                    AssertEqual("msn_a5", alpha.SampleMissionIds[0]);
+                    AssertEqual(5, alpha.SampleMissionIds.Count);
+
+                    AssertEqual(fixture.BravoId, result.Groups[1].Key);
+                    AssertEqual("bravo-vessel", result.Groups[1].VesselName);
+                    AssertEqual(3, result.Groups[1].Count);
+                    AssertEqual(1, result.Groups[1].DistinctCaptainCount);
+                    AssertEqual("vsl_unregistered", result.Groups[2].Key);
+                    AssertNull(result.Groups[2].VesselName);
+                }
+            });
+
+            await RunTest("ListAsync CategoryGroupsOneRowPerVesselAndCategory", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    GroupingFixture fixture = await SeedGroupingFixtureAsync(testDb.Driver).ConfigureAwait(false);
+                    PapercutListResponse result = await ListAsync(testDb.Driver, new { groupBy = "category" }).ConfigureAwait(false);
+
+                    AssertEqual("category", result.GroupBy);
+                    AssertEqual(4, result.TotalGroups);
+                    PapercutGroup alphaTools = result.Groups.Single(g => g.Key == fixture.AlphaId + "|ToolFailure");
+                    AssertEqual(PapercutGroupingEnum.Category, alphaTools.GroupBy);
+                    AssertEqual(PapercutCategoryEnum.ToolFailure, alphaTools.Category);
+                    AssertEqual(3, alphaTools.Count);
+                    AssertEqual(PapercutSeverityEnum.High, alphaTools.HighestSeverity);
+                    AssertEqual(1, alphaTools.CategoryCounts.Count);
+                    AssertEqual(1, alphaTools.TitleGroupCount);
+                    AssertEqual("build step # times out", alphaTools.TitleSubgroups.Single().NormalizedTitle);
+
+                    PapercutGroup alphaDocs = result.Groups.Single(g => g.Key == fixture.AlphaId + "|MissingDoc");
+                    AssertEqual(2, alphaDocs.Count);
+                    AssertEqual(2, alphaDocs.TitleGroupCount);
+                    AssertEqual(1, alphaDocs.DistinctCaptainCount);
+                    AssertEqual("alpha-vessel", alphaDocs.VesselName);
+                    AssertEqual(3, result.Groups[0].Count);
+                }
+            });
+
+            await RunTest("ListAsync TitleGroupingKeepsOneRowPerTitle", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    GroupingFixture fixture = await SeedGroupingFixtureAsync(testDb.Driver).ConfigureAwait(false);
+                    PapercutListResponse result = await ListAsync(testDb.Driver, new { groupBy = "Title" }).ConfigureAwait(false);
+
+                    AssertEqual("title", result.GroupBy);
+                    AssertEqual(5, result.TotalGroups);
+                    PapercutGroup top = result.Groups[0];
+                    AssertEqual(fixture.AlphaId + "|ToolFailure|build step # times out", top.Key);
+                    AssertEqual(PapercutGroupingEnum.Title, top.GroupBy);
+                    AssertEqual(3, top.Count);
+                    AssertEqual(0, top.TitleSubgroups.Count);
+                }
+            });
+
+            await RunTest("ListAsync FiltersApplyBeforeVesselGrouping", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    GroupingFixture fixture = await SeedGroupingFixtureAsync(testDb.Driver).ConfigureAwait(false);
+                    PapercutListResponse byCategory = await ListAsync(testDb.Driver, new { category = "MissingDoc" }).ConfigureAwait(false);
+                    AssertEqual(2, byCategory.TotalGroups);
+                    PapercutGroup alpha = byCategory.Groups.Single(g => g.Key == fixture.AlphaId);
+                    AssertEqual(2, alpha.Count);
+                    AssertEqual(PapercutCategoryEnum.MissingDoc, alpha.Category);
+                    AssertEqual(1, alpha.CategoryCounts.Count);
+                    AssertEqual(PapercutSeverityEnum.Medium, alpha.HighestSeverity);
+
+                    PapercutListResponse bySeverity = await ListAsync(testDb.Driver, new { minSeverity = "High", vesselId = fixture.AlphaId }).ConfigureAwait(false);
+                    AssertEqual(1, bySeverity.TotalGroups);
+                    AssertEqual(1, bySeverity.Groups[0].Count);
+
+                    PapercutListResponse recent = await ListAsync(testDb.Driver, new { sinceHours = 1 }).ConfigureAwait(false);
+                    AssertEqual(2, recent.TotalGroups);
+                    AssertEqual(5, recent.Groups[0].Count);
+                }
+            });
+
+            await RunTest("ListAsync VesselGroupCarriesTenLargestTitleSubgroups", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DateTime now = DateTime.UtcNow.AddMinutes(-1);
+                    for (int i = 0; i < 12; i++)
+                    {
+                        for (int copy = 0; copy <= i % 3; copy++)
+                        {
+                            Papercut papercut = BuildPapercut("vsl_wide", PapercutCategoryEnum.RepoFriction, PapercutSeverityEnum.Low,
+                                "friction " + AlphaCode(i), "cpt_w" + copy, "msn_w" + i + "_" + copy, now.AddSeconds(-i));
+                            await testDb.Driver.Events.CreateAsync(PapercutService.ToEvent(papercut), CancellationToken.None).ConfigureAwait(false);
+                        }
+                    }
+
+                    PapercutListResponse result = await ListAsync(testDb.Driver, new { }).ConfigureAwait(false);
+                    PapercutGroup wide = result.Groups.Single();
+                    AssertEqual(24, wide.Count);
+                    AssertEqual(12, wide.TitleGroupCount);
+                    AssertEqual(PapercutService.MaxTitleSubgroups, wide.TitleSubgroups.Count);
+                    AssertEqual("friction c", wide.TitleSubgroups[0].NormalizedTitle);
+                    AssertEqual("friction f", wide.TitleSubgroups[1].NormalizedTitle);
+                    for (int i = 1; i < wide.TitleSubgroups.Count; i++)
+                    {
+                        PapercutTitleSubgroup previous = wide.TitleSubgroups[i - 1];
+                        PapercutTitleSubgroup current = wide.TitleSubgroups[i];
+                        AssertTrue(previous.Count > current.Count ||
+                            (previous.Count == current.Count && previous.LastSeenUtc >= current.LastSeenUtc),
+                            "Subgroups are ordered by count, then by most recent report");
+                    }
+                }
+            });
+
+            await RunTest("ListAsync ContinuationPagesEveryGroupingModeAndRejectsAnotherMode", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    await SeedGroupingFixtureAsync(testDb.Driver).ConfigureAwait(false);
+                    Dictionary<string, int> expectedGroups = new Dictionary<string, int> { ["vessel"] = 3, ["category"] = 4, ["title"] = 5 };
+                    Dictionary<string, string> tokens = new Dictionary<string, string>();
+                    foreach (KeyValuePair<string, int> mode in expectedGroups)
+                    {
+                        HashSet<string> keys = new HashSet<string>(StringComparer.Ordinal);
+                        int reports = 0;
+                        string? token = null;
+                        int pages = 0;
+                        do
+                        {
+                            PapercutListResponse page = await ListAsync(testDb.Driver, new { groupBy = mode.Key, limit = 2, continuationToken = token }).ConfigureAwait(false);
+                            AssertNull(page.Error, mode.Key + " page " + pages);
+                            AssertEqual(mode.Key, page.GroupBy);
+                            AssertEqual(mode.Value, page.TotalGroups);
+                            foreach (PapercutGroup group in page.Groups)
+                            {
+                                AssertTrue(keys.Add(group.Key), "Continuation pages do not repeat " + mode.Key + " groups");
+                                reports += group.Count;
+                            }
+                            if (pages == 0) tokens[mode.Key] = page.NextContinuationToken!;
+                            token = page.NextContinuationToken;
+                            pages++;
+                        }
+                        while (token != null);
+                        AssertEqual(mode.Value, keys.Count);
+                        AssertEqual(9, reports);
+                        AssertEqual((mode.Value + 1) / 2, pages);
+                    }
+
+                    PapercutListResponse defaulted = await ListAsync(testDb.Driver, new { limit = 2, continuationToken = tokens["vessel"] }).ConfigureAwait(false);
+                    AssertNull(defaulted.Error);
+                    AssertEqual(1, defaulted.Groups.Count);
+
+                    PapercutListResponse vesselTokenAsTitle = await ListAsync(testDb.Driver, new { groupBy = "title", limit = 2, continuationToken = tokens["vessel"] }).ConfigureAwait(false);
+                    AssertContains("grouping mode", vesselTokenAsTitle.Error!);
+                    AssertContains("'vessel'", vesselTokenAsTitle.Error!);
+                    AssertContains("'title'", vesselTokenAsTitle.Error!);
+
+                    PapercutListResponse titleTokenAsDefault = await ListAsync(testDb.Driver, new { limit = 2, continuationToken = tokens["title"] }).ConfigureAwait(false);
+                    AssertContains("grouping mode", titleTokenAsDefault.Error!);
+
+                    PapercutListResponse categoryTokenUngrouped = await ListAsync(testDb.Driver, new { ungrouped = true, limit = 2, continuationToken = tokens["category"] }).ConfigureAwait(false);
+                    AssertContains("'ungrouped'", categoryTokenUngrouped.Error!);
+
+                    PapercutListResponse unknown = await ListAsync(testDb.Driver, new { groupBy = "captain" }).ConfigureAwait(false);
+                    AssertContains("Unknown groupBy", unknown.Error!);
+                }
+            });
+
             await RunTest("BriefSection NamesTheMarkerAndTheLimit", () =>
             {
                 string section = MissionService.BuildPapercutsSection();
@@ -359,10 +562,14 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private static async Task<PapercutListResponse> ListPageAsync(DatabaseDriver database, bool ungrouped, string? continuationToken, int limit = 200, int scanLimit = 500)
+        private static Task<PapercutListResponse> ListPageAsync(DatabaseDriver database, bool ungrouped, string? continuationToken, int limit = 200, int scanLimit = 500, string? groupBy = "title")
         {
-            string arguments = JsonSerializer.Serialize(new { ungrouped, limit, scanLimit, continuationToken });
-            using (JsonDocument args = JsonDocument.Parse(arguments))
+            return ListAsync(database, new { ungrouped, limit, scanLimit, continuationToken, groupBy });
+        }
+
+        private static async Task<PapercutListResponse> ListAsync(DatabaseDriver database, object arguments)
+        {
+            using (JsonDocument args = JsonDocument.Parse(JsonSerializer.Serialize(arguments)))
             {
                 object result = await McpPapercutTools.ListAsync(args.RootElement, database, null, CancellationToken.None).ConfigureAwait(false);
                 return JsonSerializer.Deserialize<PapercutListResponse>(JsonSerializer.Serialize(result), new JsonSerializerOptions
@@ -380,6 +587,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public List<Papercut> Papercuts { get; set; } = new List<Papercut>();
             public List<PapercutGroup> Groups { get; set; } = new List<PapercutGroup>();
+            public string? GroupBy { get; set; }
             public int Scanned { get; set; }
             public int Matched { get; set; }
             public int TotalFiltered { get; set; }
@@ -389,6 +597,40 @@ namespace Armada.Test.Unit.Suites.Services
             public bool HasMore { get; set; }
             public string? NextContinuationToken { get; set; }
             public string? Error { get; set; }
+        }
+
+        private sealed class GroupingFixture
+        {
+            public string AlphaId { get; set; } = String.Empty;
+            public string BravoId { get; set; } = String.Empty;
+            public DateTime Now { get; set; }
+        }
+
+        // Three vessels and three categories. Alpha: one ToolFailure title reported three times with
+        // different numbers by three captains (one High), and two distinct MissingDoc titles. Bravo:
+        // three reports of one title by one captain, two hours old. A third vessel id has no record.
+        private static async Task<GroupingFixture> SeedGroupingFixtureAsync(DatabaseDriver database)
+        {
+            Vessel alphaVessel = await database.Vessels.CreateAsync(new Vessel("alpha-vessel", "https://github.com/test/alpha.git")).ConfigureAwait(false);
+            Vessel bravoVessel = await database.Vessels.CreateAsync(new Vessel("bravo-vessel", "https://github.com/test/bravo.git")).ConfigureAwait(false);
+            DateTime now = new DateTime(DateTime.UtcNow.Ticks - (DateTime.UtcNow.Ticks % TimeSpan.TicksPerSecond), DateTimeKind.Utc);
+            string alpha = alphaVessel.Id;
+            string bravo = bravoVessel.Id;
+            List<Papercut> papercuts = new List<Papercut>
+            {
+                BuildPapercut(alpha, PapercutCategoryEnum.ToolFailure, PapercutSeverityEnum.Low, "build step 1 times out", "cpt_1", "msn_a1", now.AddMinutes(-50)),
+                BuildPapercut(alpha, PapercutCategoryEnum.ToolFailure, PapercutSeverityEnum.High, "build step 2 times out", "cpt_2", "msn_a2", now.AddMinutes(-40)),
+                BuildPapercut(alpha, PapercutCategoryEnum.ToolFailure, PapercutSeverityEnum.Low, "build step 3 times out", "cpt_3", "msn_a3", now.AddMinutes(-20)),
+                BuildPapercut(alpha, PapercutCategoryEnum.MissingDoc, PapercutSeverityEnum.Medium, "README omits setup", "cpt_1", "msn_a4", now.AddMinutes(-30)),
+                BuildPapercut(alpha, PapercutCategoryEnum.MissingDoc, PapercutSeverityEnum.Low, "CHANGELOG omits setup", "cpt_1", "msn_a5", now.AddMinutes(-10)),
+                BuildPapercut(bravo, PapercutCategoryEnum.TestFlake, PapercutSeverityEnum.Medium, "timing test flakes", "cpt_9", "msn_b1", now.AddHours(-2)),
+                BuildPapercut(bravo, PapercutCategoryEnum.TestFlake, PapercutSeverityEnum.Low, "timing test flakes", "cpt_9", "msn_b2", now.AddHours(-2).AddMinutes(1)),
+                BuildPapercut(bravo, PapercutCategoryEnum.TestFlake, PapercutSeverityEnum.Low, "timing test flakes", "cpt_9", "msn_b3", now.AddHours(-2).AddMinutes(2)),
+                BuildPapercut("vsl_unregistered", PapercutCategoryEnum.MissingDoc, PapercutSeverityEnum.Low, "no guide", "cpt_4", "msn_c1", now.AddMinutes(-5))
+            };
+            foreach (Papercut papercut in papercuts)
+                await database.Events.CreateAsync(PapercutService.ToEvent(papercut), CancellationToken.None).ConfigureAwait(false);
+            return new GroupingFixture { AlphaId = alpha, BravoId = bravo, Now = now };
         }
 
         private static string AlphaCode(int value)

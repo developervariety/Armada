@@ -725,7 +725,7 @@ Three persona-specific decision points sit on Judge and handoff seams (all ship
 Two decision points read the papercut grouping:
 
 - **`papercut_merge`** (ships `Gate`) runs at listing time
-  (`armada_list_papercuts`, grouped mode). It asks whether two groups of the same
+  (`armada_list_papercuts` with `groupBy=title`). It asks whether two groups of the same
   vessel and category describe the same underlying issue and, at or above the
   threshold, folds them into one row **in the listing only** — no stored papercut
   event is changed and no group is deleted, so setting the decision `Off`

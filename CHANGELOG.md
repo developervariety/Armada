@@ -426,6 +426,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Changed
 
+- `armada_list_papercuts` groups by vessel by default. A `groupBy` argument
+  selects `vessel` (one group per vessel), `category` (one per vessel and
+  category) or `title` (one per vessel, category and normalized title, with the
+  `papercut_merge` decision). Filters apply before grouping. Each group carries
+  `GroupBy`, `VesselName`, `CategoryCounts` and `TitleGroupCount`, and a vessel
+  or category group carries its 10 largest title subgroups. A continuation
+  token records its grouping mode, and a token used with another mode returns
+  an error that names both modes. Tokens issued before this change are
+  refused as invalid.
 - `scripts/linux/server-gate.sh` runs one gate per host. It takes a host-wide
   lock directory (`--host-lock`, `ARMADA_GATE_HOST_LOCK`, default
   `/tmp/armada-gate-host.lock`) inside the session that runs the gate, writes an

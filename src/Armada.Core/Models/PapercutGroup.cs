@@ -12,9 +12,15 @@ namespace Armada.Core.Models
         #region Public-Members
 
         /// <summary>
-        /// Grouping key: vessel, category, and normalized title.
+        /// Grouping key. A title group keys on vessel, category, and normalized title; a category
+        /// group on vessel and category; a vessel group on the vessel alone.
         /// </summary>
         public string Key { get; set; } = "";
+
+        /// <summary>
+        /// Grouping mode that produced the group.
+        /// </summary>
+        public PapercutGroupingEnum GroupBy { get; set; } = PapercutGroupingEnum.Title;
 
         /// <summary>
         /// Vessel the friction was reported against, or null when the report carried no vessel.
@@ -22,9 +28,40 @@ namespace Armada.Core.Models
         public string? VesselId { get; set; } = null;
 
         /// <summary>
-        /// Friction category.
+        /// Name of the vessel, when the listing could read it.
+        /// </summary>
+        public string? VesselName { get; set; } = null;
+
+        /// <summary>
+        /// Friction category. A vessel group spans categories, so it names the category with the most
+        /// reports; <see cref="CategoryCounts"/> carries the full split.
         /// </summary>
         public PapercutCategoryEnum Category { get; set; } = PapercutCategoryEnum.Other;
+
+        /// <summary>
+        /// Number of reports per category name.
+        /// </summary>
+        public Dictionary<string, int> CategoryCounts
+        {
+            get => _CategoryCounts;
+            set => _CategoryCounts = value ?? new Dictionary<string, int>();
+        }
+
+        /// <summary>
+        /// Number of distinct title groups (category and normalized title) inside the group. A title
+        /// group counts one.
+        /// </summary>
+        public int TitleGroupCount { get; set; } = 1;
+
+        /// <summary>
+        /// The largest title groups inside a vessel or category group, by count and then most recent
+        /// report. Empty for a title group.
+        /// </summary>
+        public List<PapercutTitleSubgroup> TitleSubgroups
+        {
+            get => _TitleSubgroups;
+            set => _TitleSubgroups = value ?? new List<PapercutTitleSubgroup>();
+        }
 
         /// <summary>
         /// Highest severity reported in the group.
@@ -94,6 +131,8 @@ namespace Armada.Core.Models
 
         private List<string> _SampleMissionIds = new List<string>();
         private List<string> _MergedGroupKeys = new List<string>();
+        private Dictionary<string, int> _CategoryCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        private List<PapercutTitleSubgroup> _TitleSubgroups = new List<PapercutTitleSubgroup>();
 
         #endregion
 

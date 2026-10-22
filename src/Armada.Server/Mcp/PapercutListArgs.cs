@@ -26,6 +26,11 @@ namespace Armada.Server.Mcp
         public int? SinceHours { get; set; }
 
         /// <summary>
+        /// Grouping mode: vessel (default), category, or title.
+        /// </summary>
+        public string? GroupBy { get; set; }
+
+        /// <summary>
         /// Return every report instead of collapsing repeats into groups.
         /// </summary>
         public bool? Ungrouped { get; set; }

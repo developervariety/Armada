@@ -895,11 +895,38 @@ reads the objective that lists the captain's mission, or else its voyage. A
 caller with no mission credential must pass the id; an omitted id returns an
 error that names the missing argument (`missionId` or `objectiveId`).
 
+### Papercut listing groups
+
+`armada_list_papercuts` collapses captain reports into groups. `groupBy` picks
+the grouping, and the filters (`vesselId`, `category`, `minSeverity`,
+`sinceHours`) apply to the reports before they are grouped:
+
+- `vessel` (the default) returns one group per vessel. `Key` is the vessel id
+  (`-` for reports with no vessel), and `Category` names the category with the
+  most reports.
+- `category` returns one group per vessel and category. `Key` is
+  `<vesselId>|<category>`.
+- `title` returns one group per vessel, category and normalized title, and
+  applies the `papercut_merge` decision to fold same-issue title groups.
+
+Every group carries `GroupBy`, `VesselId`, `VesselName` (null when the vessel
+record cannot be read), `Count`, `DistinctCaptainCount`, `HighestSeverity`,
+`FirstSeenUtc`, `LastSeenUtc`, `CategoryCounts` (reports per category name),
+`TitleGroupCount` (distinct titles in the group), the newest report's sample
+fields and up to five `SampleMissionIds`, newest first. A vessel or category
+group also carries `TitleSubgroups`: its 10 largest title groups by count and
+then most recent report, each with `Key` (the matching title-group key),
+`Category`, `NormalizedTitle`, `SampleTitle`, `Count` and `LastSeenUtc`. The
+response names the mode in `GroupBy`; `ungrouped=true` returns reports instead
+and reads `GroupBy` as `ungrouped`.
+
 ### Papercut listing pages
 
 `armada_list_papercuts` returns at most 200 groups or reports per page. Pass
 `NextContinuationToken` as `continuationToken` until `HasMore` is false. Keep the
-filters, `limit`, `scanLimit`, and grouping mode unchanged. The token fixes the
+filters, `limit`, `scanLimit`, `groupBy` and `ungrouped` unchanged. The token
+records its grouping mode; a token used with another mode returns an error that
+names both modes. The token fixes the
 source cutoff and time filter. New reports do not displace the original page
 set. If retained events or merged groups change, the tool asks you to restart
 instead of silently skipping rows.

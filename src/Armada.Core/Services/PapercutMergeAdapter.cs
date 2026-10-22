@@ -340,8 +340,12 @@ namespace Armada.Core.Services
             return new PapercutGroup
             {
                 Key = group.Key,
+                GroupBy = group.GroupBy,
                 VesselId = group.VesselId,
+                VesselName = group.VesselName,
                 Category = group.Category,
+                CategoryCounts = new Dictionary<string, int>(group.CategoryCounts, StringComparer.Ordinal),
+                TitleGroupCount = group.TitleGroupCount,
                 HighestSeverity = group.HighestSeverity,
                 SampleTitle = group.SampleTitle,
                 SampleDetail = group.SampleDetail,
@@ -358,6 +362,13 @@ namespace Armada.Core.Services
         private static void MergeInto(PapercutGroup representative, PapercutGroup other)
         {
             representative.Count += other.Count;
+            representative.TitleGroupCount += other.TitleGroupCount;
+            foreach (KeyValuePair<string, int> categoryCount in other.CategoryCounts)
+            {
+                int existing;
+                representative.CategoryCounts.TryGetValue(categoryCount.Key, out existing);
+                representative.CategoryCounts[categoryCount.Key] = existing + categoryCount.Value;
+            }
 
             // The group aggregates do not carry the raw captain sets, so a true union is not
             // available; take the larger distinct-captain count as a conservative floor rather than

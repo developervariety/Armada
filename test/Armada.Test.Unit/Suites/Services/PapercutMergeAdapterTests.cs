@@ -291,6 +291,10 @@ namespace Armada.Test.Unit.Suites.Services
 
                 using CancellationTokenSource toolCts = new CancellationTokenSource();
                 await Armada.Server.Mcp.Tools.McpPapercutTools.ListAsync(null, testDb.Driver, adapter, toolCts.Token).ConfigureAwait(false);
+                AssertEqual(0, client.Calls, "the default vessel grouping consults no merge decision");
+
+                using System.Text.Json.JsonDocument titleArgs = System.Text.Json.JsonDocument.Parse("{\"groupBy\":\"title\"}");
+                await Armada.Server.Mcp.Tools.McpPapercutTools.ListAsync(titleArgs.RootElement, testDb.Driver, adapter, toolCts.Token).ConfigureAwait(false);
 
                 AssertTrue(client.Calls >= 1, "the listing consulted the merge decision");
                 AssertTrue(client.LastToken.Equals(toolCts.Token), "the tool's own token reaches the client");

@@ -30,6 +30,11 @@ namespace Armada.Core.Services
         /// </summary>
         public const int MaxSampleMissions = 5;
 
+        /// <summary>
+        /// Maximum number of title subgroups a vessel or category group carries.
+        /// </summary>
+        public const int MaxTitleSubgroups = 10;
+
         #endregion
 
         #region Private-Members
@@ -190,6 +195,7 @@ namespace Armada.Core.Services
                 }
 
                 group.Count++;
+                AddCategoryCount(group, papercut.Category);
                 if (papercut.Severity > group.HighestSeverity) group.HighestSeverity = papercut.Severity;
                 if (papercut.ReportedUtc < group.FirstSeenUtc) group.FirstSeenUtc = papercut.ReportedUtc;
 
@@ -225,6 +231,105 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Collapse papercuts into groups for one grouping mode. <see cref="PapercutGroupingEnum.Title"/>
+        /// is <see cref="Group"/>. <see cref="PapercutGroupingEnum.Vessel"/> returns one group per vessel
+        /// and <see cref="PapercutGroupingEnum.Category"/> one per vessel and category; each of those
+        /// carries its per-category counts and its largest title subgroups. Groups are returned by
+        /// count, then by most recent report, then by key.
+        /// </summary>
+        /// <param name="papercuts">Papercuts to group.</param>
+        /// <param name="grouping">Grouping mode.</param>
+        /// <returns>Groups, largest first.</returns>
+        public static List<PapercutGroup> Summarize(IEnumerable<Papercut>? papercuts, PapercutGroupingEnum grouping)
+        {
+            if (grouping == PapercutGroupingEnum.Title) return Group(papercuts);
+
+            List<Papercut> reports = papercuts == null
+                ? new List<Papercut>()
+                : papercuts.Where(p => p != null && !String.IsNullOrWhiteSpace(p.Title)).ToList();
+
+            // A summary group folds together the title groups that share its key. Captain and mission
+            // samples come from the reports, because title-group aggregates cannot be unioned.
+            List<PapercutGroup> summaries = new List<PapercutGroup>();
+            foreach (IGrouping<string, Papercut> bucket in reports.GroupBy(p => BuildKey(p, grouping), StringComparer.Ordinal))
+            {
+                List<PapercutGroup> titleGroups = Group(bucket)
+                    .OrderByDescending(g => g.Count)
+                    .ThenByDescending(g => g.LastSeenUtc)
+                    .ThenBy(g => g.Key, StringComparer.Ordinal)
+                    .ToList();
+                PapercutGroup summary = Clone(titleGroups[0]);
+                foreach (PapercutGroup titleGroup in titleGroups.Skip(1)) Fold(summary, titleGroup);
+
+                Papercut first = bucket.First();
+                summary.Key = bucket.Key;
+                summary.GroupBy = grouping;
+                summary.VesselId = first.VesselId;
+                summary.DistinctCaptainCount = bucket
+                    .Where(p => !String.IsNullOrEmpty(p.CaptainId))
+                    .Select(p => p.CaptainId!)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count();
+                summary.SampleMissionIds = bucket
+                    .OrderByDescending(p => p.ReportedUtc)
+                    .Where(p => !String.IsNullOrEmpty(p.MissionId))
+                    .Select(p => p.MissionId!)
+                    .Distinct(StringComparer.Ordinal)
+                    .Take(MaxSampleMissions)
+                    .ToList();
+                summary.Category = grouping == PapercutGroupingEnum.Category
+                    ? first.Category
+                    : bucket.GroupBy(p => p.Category)
+                        .OrderByDescending(g => g.Count())
+                        .ThenBy(g => g.Key)
+                        .First().Key;
+
+                summary.TitleGroupCount = titleGroups.Count;
+                summary.TitleSubgroups = titleGroups
+                    .Take(MaxTitleSubgroups)
+                    .Select(g => new PapercutTitleSubgroup
+                    {
+                        Key = g.Key,
+                        Category = g.Category,
+                        NormalizedTitle = NormalizeTitle(g.SampleTitle),
+                        SampleTitle = g.SampleTitle,
+                        Count = g.Count,
+                        LastSeenUtc = g.LastSeenUtc
+                    })
+                    .ToList();
+                summaries.Add(summary);
+            }
+
+            return summaries
+                .OrderByDescending(g => g.Count)
+                .ThenByDescending(g => g.LastSeenUtc)
+                .ThenBy(g => g.Key, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Build the grouping key for a papercut under one grouping mode.
+        /// </summary>
+        /// <param name="papercut">Papercut.</param>
+        /// <param name="grouping">Grouping mode.</param>
+        /// <returns>Grouping key.</returns>
+        public static string BuildKey(Papercut papercut, PapercutGroupingEnum grouping)
+        {
+            if (papercut == null) throw new ArgumentNullException(nameof(papercut));
+
+            string vessel = papercut.VesselId ?? "-";
+            switch (grouping)
+            {
+                case PapercutGroupingEnum.Vessel:
+                    return vessel;
+                case PapercutGroupingEnum.Category:
+                    return vessel + "|" + papercut.Category;
+                default:
+                    return BuildKey(papercut);
+            }
+        }
+
+        /// <summary>
         /// Build the grouping key for a papercut.
         /// </summary>
         /// <param name="papercut">Papercut.</param>
@@ -255,6 +360,55 @@ namespace Armada.Core.Services
             string[] words = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (words.Length <= MaxKeyWords) return String.Join(" ", words);
             return String.Join(" ", words.Take(MaxKeyWords));
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static void AddCategoryCount(PapercutGroup group, PapercutCategoryEnum category)
+        {
+            string name = category.ToString();
+            int existing;
+            group.CategoryCounts.TryGetValue(name, out existing);
+            group.CategoryCounts[name] = existing + 1;
+        }
+
+        private static PapercutGroup Clone(PapercutGroup group)
+        {
+            PapercutGroup copy = new PapercutGroup();
+            copy.HighestSeverity = group.HighestSeverity;
+            copy.SampleTitle = group.SampleTitle;
+            copy.SampleDetail = group.SampleDetail;
+            copy.SamplePath = group.SamplePath;
+            copy.Count = group.Count;
+            copy.FirstSeenUtc = group.FirstSeenUtc;
+            copy.LastSeenUtc = group.LastSeenUtc;
+            copy.CategoryCounts = new Dictionary<string, int>(group.CategoryCounts, StringComparer.Ordinal);
+            return copy;
+        }
+
+        private static void Fold(PapercutGroup summary, PapercutGroup titleGroup)
+        {
+            summary.Count += titleGroup.Count;
+            if (titleGroup.HighestSeverity > summary.HighestSeverity) summary.HighestSeverity = titleGroup.HighestSeverity;
+            if (titleGroup.FirstSeenUtc < summary.FirstSeenUtc) summary.FirstSeenUtc = titleGroup.FirstSeenUtc;
+
+            // The newest report supplies the sample text, matching Group.
+            if (titleGroup.LastSeenUtc > summary.LastSeenUtc)
+            {
+                summary.LastSeenUtc = titleGroup.LastSeenUtc;
+                summary.SampleTitle = titleGroup.SampleTitle;
+                if (!String.IsNullOrWhiteSpace(titleGroup.SampleDetail)) summary.SampleDetail = titleGroup.SampleDetail;
+                if (!String.IsNullOrWhiteSpace(titleGroup.SamplePath)) summary.SamplePath = titleGroup.SamplePath;
+            }
+
+            foreach (KeyValuePair<string, int> categoryCount in titleGroup.CategoryCounts)
+            {
+                int existing;
+                summary.CategoryCounts.TryGetValue(categoryCount.Key, out existing);
+                summary.CategoryCounts[categoryCount.Key] = existing + categoryCount.Value;
+            }
         }
 
         #endregion

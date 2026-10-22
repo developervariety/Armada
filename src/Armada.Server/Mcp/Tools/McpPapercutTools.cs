@@ -27,6 +27,7 @@ namespace Armada.Server.Mcp.Tools
         private const int _MaxLimit = 200;
         private const int _DefaultScanLimit = 500;
         private const int _MaxScanLimit = 5000;
+        private const int _ContinuationVersion = 2;
         private static readonly TimeSpan _ListCallTimeout = TimeSpan.FromSeconds(120);
 
         /// <summary>
@@ -43,7 +44,7 @@ namespace Armada.Server.Mcp.Tools
         {
             register(
                 "armada_list_papercuts",
-                "List friction that captains reported during missions, collapsed into groups of the same vessel, category, and problem. Use continuationToken to read later pages without changing filters. TotalFiltered and TotalGroups describe the scanned corpus; when ScanTruncated is true they are lower bounds because scanLimit stopped the source scan.",
+                "List friction that captains reported during missions, collapsed into groups. groupBy picks the grouping: vessel (default) returns one group per vessel with per-category counts and its largest title subgroups; category returns one group per vessel and category with its largest title subgroups; title returns one group per vessel, category, and normalized title, with same-issue title groups merged by the papercut_merge decision. Filters apply before grouping. Use continuationToken to read later pages without changing filters. TotalFiltered and TotalGroups describe the scanned corpus; when ScanTruncated is true they are lower bounds because scanLimit stopped the source scan.",
                 new
                 {
                     type = "object",
@@ -53,8 +54,9 @@ namespace Armada.Server.Mcp.Tools
                         category = new { type = "string", description = "Filter to one category: BriefContradiction, ToolFailure, MissingDoc, BrokenLink, RepoFriction, TestFlake, EnvSetup, PlatformBug, Other" },
                         minSeverity = new { type = "string", description = "Minimum severity: Low, Medium, or High" },
                         sinceHours = new { type = "integer", description = "Only include reports newer than this many hours" },
+                        groupBy = new { type = "string", @enum = new[] { "vessel", "category", "title" }, description = "Grouping mode: vessel (default), category, or title. Ignored when ungrouped is true." },
                         ungrouped = new { type = "boolean", description = "Return every report instead of groups (default false)" },
-                        continuationToken = new { type = "string", description = "Opaque token from the previous page. Keep all filters and limits unchanged." },
+                        continuationToken = new { type = "string", description = "Opaque token from the previous page. Keep all filters, limits, and the grouping mode unchanged." },
                         limit = new { type = "integer", description = "Maximum rows returned (default 25, maximum 200)" },
                         scanLimit = new { type = "integer", description = "Stored reports to scan before filtering (default 500, maximum 5000)" }
                     },
@@ -93,6 +95,18 @@ namespace Armada.Server.Mcp.Tools
             if (request.ContinuationToken != null && continuation == null)
                 return (object)new { Error = "Invalid continuationToken" };
 
+            PapercutGroupingEnum grouping;
+            if (!TryParseGrouping(request.GroupBy, out grouping))
+                return (object)new { Error = "Unknown groupBy: " + request.GroupBy + ". Use vessel, category, or title." };
+            bool ungrouped = request.Ungrouped == true;
+            string mode = ungrouped ? "ungrouped" : grouping.ToString().ToLowerInvariant();
+            if (continuation != null && !String.Equals(continuation.GroupBy, mode, StringComparison.Ordinal))
+                return (object)new
+                {
+                    Error = "continuationToken does not match the grouping mode: it was issued for '" + continuation.GroupBy +
+                        "' and this call uses '" + mode + "'. Repeat the groupBy and ungrouped values of the first page, or restart without a token."
+                };
+
             PapercutCategoryEnum? categoryFilter = null;
             if (!String.IsNullOrWhiteSpace(request.Category))
             {
@@ -118,9 +132,8 @@ namespace Armada.Server.Mcp.Tools
             else if (continuation?.SinceUtc.HasValue == true)
                 return (object)new { Error = "continuationToken does not match the current filters and limits" };
 
-            bool ungrouped = request.Ungrouped == true;
             DateTime snapshotUtc = continuation?.SnapshotUtc ?? DateTime.UtcNow;
-            string filterSignature = BuildFilterSignature(request, scanLimit, limit, ungrouped, categoryFilter, severityFilter, since);
+            string filterSignature = BuildFilterSignature(request, scanLimit, limit, mode, categoryFilter, severityFilter, since);
             if (continuation != null && !String.Equals(continuation.FilterSignature, filterSignature, StringComparison.Ordinal))
                 return (object)new { Error = "continuationToken does not match the current filters and limits" };
 
@@ -165,6 +178,7 @@ namespace Armada.Server.Mcp.Tools
                 bool hasMore = offset + page.Count < ordered.Count;
                 string? nextToken = hasMore ? EncodeContinuation(new ContinuationState
                 {
+                    GroupBy = mode,
                     FilterSignature = filterSignature,
                     SnapshotUtc = snapshotUtc,
                     SourceFingerprint = sourceFingerprint,
@@ -175,6 +189,7 @@ namespace Armada.Server.Mcp.Tools
                 }) : null;
                 return (object)new
                 {
+                    GroupBy = mode,
                     Scanned = scan.Events.Count,
                     Matched = papercuts.Count,
                     TotalFiltered = papercuts.Count,
@@ -186,15 +201,17 @@ namespace Armada.Server.Mcp.Tools
                 };
             }
 
-            List<PapercutGroup> groups = PapercutService.Group(papercuts);
-            if (mergeAdapter != null)
+            // Only title groups are model-merged: vessel and category groups are already few, and a
+            // merge across their title subgroups would change nothing the operator triages on.
+            List<PapercutGroup> groups = PapercutService.Summarize(papercuts, grouping);
+            if (grouping == PapercutGroupingEnum.Title && mergeAdapter != null)
                 groups = await mergeAdapter.MergeAsync(groups, token).ConfigureAwait(false);
 
             groups = groups.OrderByDescending(group => group.Count)
                 .ThenByDescending(group => group.LastSeenUtc)
                 .ThenBy(group => group.Key, StringComparer.Ordinal)
                 .ToList();
-            string groupFingerprint = FingerprintGroups(groups, papercutEvents);
+            string groupFingerprint = FingerprintGroups(groups, papercutEvents, grouping);
             if (continuation != null && !String.Equals(continuation.ResultFingerprint, groupFingerprint, StringComparison.Ordinal))
                 return (object)new { Error = "The grouped papercut results changed while paging. Restart the listing." };
 
@@ -204,8 +221,10 @@ namespace Armada.Server.Mcp.Tools
                 return (object)new { Error = "The continuation position is invalid. Restart the listing." };
             List<PapercutGroup> groupPage = groups.Skip(groupOffset).Take(limit).ToList();
             bool groupsRemain = groupOffset + groupPage.Count < groups.Count;
+            await FillVesselNamesAsync(database, groupPage, token).ConfigureAwait(false);
             string? groupNextToken = groupsRemain ? EncodeContinuation(new ContinuationState
             {
+                GroupBy = mode,
                 FilterSignature = filterSignature,
                 SnapshotUtc = snapshotUtc,
                 SourceFingerprint = sourceFingerprint,
@@ -217,6 +236,7 @@ namespace Armada.Server.Mcp.Tools
 
             return (object)new
             {
+                GroupBy = mode,
                 Scanned = scan.Events.Count,
                 Matched = papercuts.Count,
                 GroupCount = groups.Count,
@@ -230,12 +250,49 @@ namespace Armada.Server.Mcp.Tools
             };
         }
 
-        private static string BuildFilterSignature(PapercutListArgs request, int scanLimit, int limit, bool ungrouped,
+        private static bool TryParseGrouping(string? value, out PapercutGroupingEnum grouping)
+        {
+            grouping = PapercutGroupingEnum.Vessel;
+            if (String.IsNullOrWhiteSpace(value)) return true;
+            switch (value.Trim().ToLowerInvariant())
+            {
+                case "vessel":
+                    grouping = PapercutGroupingEnum.Vessel;
+                    return true;
+                case "category":
+                    grouping = PapercutGroupingEnum.Category;
+                    return true;
+                case "title":
+                    grouping = PapercutGroupingEnum.Title;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static async Task FillVesselNamesAsync(DatabaseDriver database, List<PapercutGroup> groups, System.Threading.CancellationToken token)
+        {
+            Dictionary<string, string?> names = new Dictionary<string, string?>(StringComparer.Ordinal);
+            foreach (PapercutGroup group in groups)
+            {
+                if (String.IsNullOrEmpty(group.VesselId)) continue;
+                string? name;
+                if (!names.TryGetValue(group.VesselId!, out name))
+                {
+                    Vessel? vessel = await database.Vessels.ReadAsync(group.VesselId!, token).ConfigureAwait(false);
+                    name = vessel?.Name;
+                    names[group.VesselId!] = name;
+                }
+                group.VesselName = name;
+            }
+        }
+
+        private static string BuildFilterSignature(PapercutListArgs request, int scanLimit, int limit, string mode,
             PapercutCategoryEnum? category, PapercutSeverityEnum? severity, DateTime? since)
         {
             return String.Join("|", request.VesselId ?? String.Empty, category?.ToString() ?? String.Empty,
                 severity?.ToString() ?? String.Empty, request.SinceHours?.ToString() ?? "", since?.ToString("O") ?? "",
-                ungrouped ? "1" : "0", scanLimit.ToString(), limit.ToString());
+                mode, scanLimit.ToString(), limit.ToString());
         }
 
         private static async Task<PapercutScanResult> ScanEventsAsync(DatabaseDriver database, int scanLimit, DateTime snapshotUtc, System.Threading.CancellationToken token)
@@ -270,10 +327,10 @@ namespace Armada.Server.Mcp.Tools
             return Convert.ToHexString(SHA256.HashData(data));
         }
 
-        private static string FingerprintGroups(IEnumerable<PapercutGroup> groups, IEnumerable<PapercutEventRow> reports)
+        private static string FingerprintGroups(IEnumerable<PapercutGroup> groups, IEnumerable<PapercutEventRow> reports, PapercutGroupingEnum grouping)
         {
             Dictionary<string, List<string>> eventIdsByKey = reports
-                .GroupBy(report => PapercutService.BuildKey(report.Papercut), StringComparer.Ordinal)
+                .GroupBy(report => PapercutService.BuildKey(report.Papercut, grouping), StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.Select(report => report.EventId).OrderBy(id => id, StringComparer.Ordinal).ToList(), StringComparer.Ordinal);
             List<string> fingerprints = new List<string>();
             foreach (PapercutGroup group in groups)
@@ -303,7 +360,7 @@ namespace Armada.Server.Mcp.Tools
             try
             {
                 ContinuationState? state = JsonSerializer.Deserialize<ContinuationState>(Encoding.UTF8.GetString(Convert.FromBase64String(value)));
-                return state != null && state.Version == 1 && state.Offset >= 0 ? state : null;
+                return state != null && state.Version == _ContinuationVersion && state.Offset >= 0 ? state : null;
             }
             catch (FormatException) { return null; }
             catch (JsonException) { return null; }
@@ -323,7 +380,8 @@ namespace Armada.Server.Mcp.Tools
 
         private sealed class ContinuationState
         {
-            public int Version { get; set; } = 1;
+            public int Version { get; set; } = _ContinuationVersion;
+            public string GroupBy { get; set; } = String.Empty;
             public string FilterSignature { get; set; } = String.Empty;
             public DateTime SnapshotUtc { get; set; }
             public string SourceFingerprint { get; set; } = String.Empty;
