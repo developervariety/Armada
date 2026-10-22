@@ -366,6 +366,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The Git Anchors block no longer calls a present file absent when the text
+  names it with the repository's own directory in front: the path is anchored
+  at the file it names. A path with a declared sibling's directory in front, or
+  a bare file name a provisioned sibling tracks, is a sibling path whose cited
+  lines are checked in that sibling, and a bare name found nowhere is stated as
+  not found rather than as absent.
+
 - A stalled captain is relaunched while the dispatch hold is engaged. The hold
   refuses only new dispatches, and a relaunch continues an in-flight mission in
   its own dock, so stall recovery under the hold stops the stalled process and

@@ -2913,6 +2913,66 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dock Git anchors read a path the way text names it: own repository prefix, sibling prefix, bare sibling name, ambiguous, absent", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_named_path_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "src/Owner/SpeedWorkflow.cs", LedgerFixture);
+                    foreach (string widget in new[] { "src/Alpha/Widget.cs", "src/Beta/Widget.cs" })
+                    {
+                        string file = Path.Combine(worktree, widget.Replace('/', Path.DirectorySeparatorChar));
+                        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                        await File.WriteAllTextAsync(file, LedgerFixture);
+                    }
+                    await RunGitAsync(worktree, "add", "-A");
+                    await RunGitAsync(worktree, "commit", "-q", "-m", "widgets");
+                    string sibling = Path.Combine(root, "ExampleSibling");
+                    await CreateFixtureRepositoryAsync(sibling, "lib/Codec.cs", CodecFixture);
+                    await File.WriteAllTextAsync(Path.Combine(sibling, "lib", "SourceOnly.cs"), CodecFixture);
+                    await RunGitAsync(sibling, "add", "-A");
+                    await RunGitAsync(sibling, "commit", "-q", "-m", "source");
+                    string siblings = JsonSerializer.Serialize(new List<SiblingRepo> { new SiblingRepo { RelativePath = "../ExampleSibling" } });
+
+                    GitAnchors anchors = await ResolveRealDockAnchorsAsync(worktree,
+                        "`Total` is at ExampleVessel/src/Owner/SpeedWorkflow.cs:5 today.\n" +
+                        "`Encode` is at ExampleSibling/lib/Codec.cs:5 in the source.\n" +
+                        "`Encode` also appears at SourceOnly.cs:5 in the source.\n" +
+                        "`Total` is declared at Widget.cs:5 as well.\n" +
+                        "Create src/Gone/Missing.cs for the new step.\n" +
+                        "`Lookup` came from NoSuch.cs:2 once.",
+                        siblings, "ExampleVessel");
+
+                    AssertNull(anchors.ResolutionError, "the anchors resolve completely");
+                    Dictionary<string, GitAnchorFileHistory> byName = new Dictionary<string, GitAnchorFileHistory>(StringComparer.Ordinal);
+                    foreach (GitAnchorFileHistory file in anchors.Files) byName[String.IsNullOrEmpty(file.RequestedPath) ? file.Path : file.RequestedPath] = file;
+
+                    GitAnchorFileHistory own = byName["ExampleVessel/src/Owner/SpeedWorkflow.cs"];
+                    AssertTrue(own.ExistsOnRevision, "a path with the repository's own directory in front is present, never absent");
+                    AssertEqual("src/Owner/SpeedWorkflow.cs", own.Path, "it is anchored at the tracked path");
+                    AssertTrue(byName["ExampleSibling/lib/Codec.cs"].IsExternalSourceTree, "a path with a sibling's directory in front is a sibling path");
+                    AssertTrue(byName["SourceOnly.cs"].IsExternalSourceTree, "a bare name a provisioned sibling tracks is a sibling path");
+                    AssertEqual(2, byName["Widget.cs"].MatchingPathCount, "an ambiguous bare name is counted, not resolved");
+                    AssertFalse(byName["src/Gone/Missing.cs"].ExistsOnRevision, "a genuinely absent path stays absent");
+                    AssertEqual(0, anchors.CitationIssues.Count, "every reachable citation holds its symbol: " + String.Join(" | ", anchors.CitationIssues));
+
+                    string section = MissionService.BuildGitAnchorsSection(anchors);
+                    AssertContains("`src/Owner/SpeedWorkflow.cs` (the mission names it `ExampleVessel/src/Owner/SpeedWorkflow.cs`", section,
+                        "the brief names the tracked path");
+                    foreach (string named in new[] { "ExampleVessel/src/Owner/SpeedWorkflow.cs", "ExampleSibling/lib/Codec.cs", "SourceOnly.cs", "Widget.cs", "NoSuch.cs" })
+                        AssertFalse(section.Contains("`" + named + "` does not exist"), named + " is never called absent");
+                    AssertContains("- `src/Gone/Missing.cs` does not exist on this checkout. It is new work, not an edit.", section,
+                        "a genuinely absent path is still stated");
+                    AssertContains("- `NoSuch.cs` is not found in this checkout or in a provisioned sibling checkout, but the text cites lines in it", section,
+                        "a bare name found nowhere is stated as not found");
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
             await RunTest("GitAnchors Section Is Omitted When Nothing Resolved", () =>
             {
                 GitAnchors anchors = GitAnchors.Unresolved("no git service is configured on this admiral");
@@ -3578,7 +3638,8 @@ namespace Armada.Test.Unit.Suites.Services
         /// Record a dock provisioned at the repository's HEAD for a mission with the given description, and
         /// resolve its git anchors the way dispatch does.
         /// </summary>
-        private async Task<GitAnchors> ResolveRealDockAnchorsAsync(string worktree, string description, string? siblingRepos)
+        private async Task<GitAnchors> ResolveRealDockAnchorsAsync(string worktree, string description, string? siblingRepos,
+            string vesselName = "citations")
         {
             using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
             {
@@ -3589,7 +3650,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
                 MissionService service = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git,
                     resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
-                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("citations", "https://example.invalid/repo"));
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(vesselName, "https://example.invalid/repo"));
                 vessel.SiblingRepos = siblingRepos;
                 Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("citations"));
                 Mission mission = new Mission

@@ -4846,6 +4846,8 @@ namespace Armada.Core.Services
                                 history.MatchingPathCount = match.CandidateCount;
                             else
                                 history.IsExternalSourceTree = MissionSubjectExtractor.IsExternalSourceTreePath(path);
+                            if (!history.IsExternalSourceTree && history.MatchingPathCount == 0)
+                                await ApplyAnchorPathFallbacksAsync(history, path, worktreePath, "HEAD", vessel, token).ConfigureAwait(false);
                         }
                     }
 
@@ -4949,6 +4951,17 @@ namespace Armada.Core.Services
                             builder.Append("- `" + file.Path + "` is not tracked here and reads as a path in a " +
                                 "sibling read-only source tree, which is provisioned beside the dock rather than in it. " +
                                 "Read it there; never create it in this repository.\n");
+                            continue;
+                        }
+
+                        if (CitedPathPrefix.IsBareName(file.Path))
+                        {
+                            // A bare name says where nothing is: the file may sit under a name or in a
+                            // checkout the text does not give, so it is stated as not found, never as absent.
+                            builder.Append("- `" + file.Path + "` is not found in this checkout or in a provisioned sibling checkout" +
+                                (file.CitedWithLines
+                                    ? ", but the text cites lines in it: find where that code lives now.\n"
+                                    : (readOnly ? ".\n" : "; if the mission creates it, it is new work.\n")));
                             continue;
                         }
 

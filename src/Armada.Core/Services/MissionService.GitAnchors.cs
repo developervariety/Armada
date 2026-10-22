@@ -58,8 +58,8 @@ namespace Armada.Core.Services
             {
                 if (anchors.CitationIssues.Count >= MaxCitationIssues) break;
                 string? issue = IsSiblingCitation(range.Path)
-                    ? await CheckSiblingCitationAsync(range, worktreePath, vessel, token).ConfigureAwait(false)
-                    : await CheckRepositoryCitationAsync(anchors, range, worktreePath, revision, token).ConfigureAwait(false);
+                    ? await CheckSiblingCitationAsync(range, range.Path, worktreePath, vessel, token).ConfigureAwait(false)
+                    : await CheckRepositoryCitationAsync(anchors, range, worktreePath, revision, vessel, token).ConfigureAwait(false);
                 if (issue != null && issue.Length <= MaxCitationIssueLength && RuntimeLogFormatter.RedactSecrets(issue) == issue)
                     anchors.CitationIssues.Add(issue);
             }
@@ -84,26 +84,53 @@ namespace Armada.Core.Services
         /// <summary>
         /// Check one citation of a file in this checkout. An anchored path is read where the anchors resolved
         /// it, and the anchors section already states an absent or ambiguous one; any other cited path is
-        /// matched against the tracked files with the same rules the anchors use.
+        /// matched against the tracked files with the same rules the anchors use. A path that matches
+        /// nothing as written is read the other ways text names files before it is called stale: with this
+        /// repository's directory in front, with a sibling checkout's directory in front, or as the bare
+        /// name of a file in a provisioned sibling checkout.
         /// </summary>
         private async Task<string?> CheckRepositoryCitationAsync(GitAnchors anchors, CitedLineRange range,
-            string worktreePath, string revision, CancellationToken token)
+            string worktreePath, string revision, Vessel vessel, CancellationToken token)
         {
             string trackedPath;
             GitAnchorFileHistory? file = anchors.Files.Find(candidate =>
                 String.Equals(AnchorNamedPath(candidate), range.Path, StringComparison.Ordinal));
             if (file != null)
             {
-                if (!file.ExistsOnRevision) return null;
+                if (!file.ExistsOnRevision)
+                {
+                    if (!file.IsExternalSourceTree) return null;
+                    string? siblingPath = await SiblingPathForAsync(range.Path, worktreePath, vessel, token).ConfigureAwait(false);
+                    return siblingPath == null ? null
+                        : await CheckSiblingCitationAsync(range, siblingPath, worktreePath, vessel, token).ConfigureAwait(false);
+                }
                 trackedPath = file.Path;
             }
             else
             {
                 TrackedPathMatch? match = await TryMatchTrackedPathAsync(worktreePath, revision, range.Path, token).ConfigureAwait(false);
                 if (match == null) return null;
+                if (String.IsNullOrEmpty(match.Path) && match.CandidateCount == 0)
+                {
+                    string? own = CitedPathPrefix.WithoutOwnRepository(range.Path, vessel);
+                    if (own != null)
+                    {
+                        TrackedPathMatch? ownMatch = await TryMatchTrackedPathAsync(worktreePath, revision, own, token).ConfigureAwait(false);
+                        if (ownMatch != null && ownMatch.CandidateCount > 0) match = ownMatch;
+                    }
+                }
+                if (String.IsNullOrEmpty(match.Path) && match.CandidateCount == 0)
+                {
+                    string? siblingPath = await SiblingPathForAsync(range.Path, worktreePath, vessel, token).ConfigureAwait(false);
+                    if (siblingPath != null)
+                        return await CheckSiblingCitationAsync(range, siblingPath, worktreePath, vessel, token).ConfigureAwait(false);
+                }
                 if (String.IsNullOrEmpty(match.Path) && match.CandidateCount > 1)
                     return "`" + range.Text + "`: `" + range.Path + "` matches " + match.CandidateCount +
                         " tracked paths on this checkout; find the one meant before relying on the cited lines.";
+                if (String.IsNullOrEmpty(match.Path) && CitedPathPrefix.IsBareName(range.Path))
+                    return "`" + range.Text + "`: `" + range.Path + "` is not tracked on this checkout or in a provisioned sibling checkout, " +
+                        "so the citation is stale; find where that code lives now.";
                 if (String.IsNullOrEmpty(match.Path))
                     return "`" + range.Text + "`: `" + range.Path + "` is not tracked on this checkout, so the citation is stale; find where that code lives now.";
                 if (match.IsDirectory) return null;
@@ -115,15 +142,91 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// The <c>../</c> sibling path a cited path reaches when this checkout does not track it: a path whose
+        /// first segment names a declared sibling, or a bare file name a provisioned sibling tracks. Null when
+        /// neither applies.
+        /// </summary>
+        private async Task<string?> SiblingPathForAsync(string cited, string worktreePath, Vessel vessel, CancellationToken token)
+        {
+            string? prefixed = CitedPathPrefix.AsSiblingPath(cited, vessel.GetSiblingRepos());
+            if (prefixed != null) return prefixed;
+            if (!CitedPathPrefix.IsBareName(cited)) return null;
+            return await FindBareNameInSiblingAsync(cited, worktreePath, vessel, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// The <c>../</c> path of a bare file name in the first provisioned sibling checkout whose HEAD tracks
+        /// it, or null when no provisioned sibling does. An ambiguous name keeps the bare name, so the sibling
+        /// check states the ambiguity. A sibling that cannot be read is skipped: it is a separate checkout,
+        /// and the citation check names an unreadable sibling when it reads one directly.
+        /// </summary>
+        private async Task<string?> FindBareNameInSiblingAsync(string name, string worktreePath, Vessel vessel, CancellationToken token)
+        {
+            foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
+            {
+                if (sibling == null) continue;
+                string declared = NormalizeCitationPath(sibling.RelativePath);
+                if (declared.Length == 0) continue;
+                string siblingRoot = Path.GetFullPath(Path.Combine(worktreePath, sibling.RelativePath));
+                if (!Directory.Exists(siblingRoot) || !Directory.EnumerateFileSystemEntries(siblingRoot).Any()) continue;
+                try
+                {
+                    TrackedPathMatch? match = await TryMatchTrackedPathAsync(siblingRoot, "HEAD", name, token).ConfigureAwait(false);
+                    if (match == null || match.CandidateCount == 0) continue;
+                    return declared + "/" + (String.IsNullOrEmpty(match.Path) ? name : match.Path);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Read a named path that matched nothing as written the other ways text names files. With this
+        /// repository's directory in front it is anchored at the tracked path it names; with a declared
+        /// sibling's directory in front, or as the bare name of a file a provisioned sibling tracks, it is a
+        /// sibling path. Only a path none of those reach stays absent.
+        /// </summary>
+        private async Task ApplyAnchorPathFallbacksAsync(GitAnchorFileHistory history, string requested,
+            string worktreePath, string revision, Vessel vessel, CancellationToken token)
+        {
+            string? own = CitedPathPrefix.WithoutOwnRepository(requested, vessel);
+            if (own != null)
+            {
+                TrackedPathMatch? match = await TryMatchTrackedPathAsync(worktreePath, revision, own, token).ConfigureAwait(false);
+                if (match != null && !String.IsNullOrEmpty(match.Path))
+                {
+                    history.RequestedPath = requested;
+                    history.Path = match.Path!;
+                    history.ExistsOnRevision = true;
+                    return;
+                }
+                if (match != null && match.CandidateCount > 1)
+                {
+                    history.MatchingPathCount = match.CandidateCount;
+                    return;
+                }
+            }
+            if (await SiblingPathForAsync(requested, worktreePath, vessel, token).ConfigureAwait(false) != null)
+                history.IsExternalSourceTree = true;
+        }
+
+        /// <summary>
         /// Check one citation of a file in a sibling checkout. The vessel's sibling declarations are the
         /// checkouts provisioned beside a dock, and the provisioned HEAD is the tree a captain reads, so a
         /// cited path is resolved and read there. A citation that names no declared sibling, or a sibling
         /// that is not provisioned, is stated as unchecked with the reason.
         /// </summary>
-        private async Task<string?> CheckSiblingCitationAsync(CitedLineRange range, string worktreePath,
+        private async Task<string?> CheckSiblingCitationAsync(CitedLineRange range, string citedPath, string worktreePath,
             Vessel vessel, CancellationToken token)
         {
-            string cited = NormalizeCitationPath(range.Path);
+            string cited = NormalizeCitationPath(citedPath);
             SiblingRepo? owner = null;
             string declaredPath = "";
             foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
@@ -280,7 +383,19 @@ namespace Armada.Core.Services
                         history.Path = resolved;
                         history.ExistsOnRevision = true;
                     }
-                    else history.IsExternalSourceTree = MissionSubjectExtractor.IsExternalSourceTreePath(requested);
+                    else
+                    {
+                        history.IsExternalSourceTree = MissionSubjectExtractor.IsExternalSourceTreePath(requested);
+                        if (!history.IsExternalSourceTree)
+                            await ApplyAnchorPathFallbacksAsync(history, requested, path, seed.ProvisionedCommit, vessel, token).ConfigureAwait(false);
+                        if (history.ExistsOnRevision && (!DockGitAnchorPersistence.IsRelativePath(history.Path)
+                            || RuntimeLogFormatter.RedactSecrets(history.Path) != history.Path)) { result.Truncated = true; continue; }
+                        if (history.MatchingPathCount > 1)
+                        {
+                            result.Anchors.Files.Add(history);
+                            continue;
+                        }
+                    }
                     history.Commits = new List<GitAnchorCommit>(await _Git.GetCommitsTouchingPathOnRevisionAsync(
                         path, seed.ProvisionedCommit, history.Path, MaxAnchorCommitsPerPath, token).ConfigureAwait(false));
                     result.Anchors.Files.Add(history);

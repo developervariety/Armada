@@ -255,6 +255,15 @@ A brief carries only what the mission's mode and persona can use:
   declared sibling checkout (`../Sibling/path:line`) is read at that
   checkout's provisioned HEAD; one into an undeclared or unprovisioned sibling
   is listed in the same section as unchecked, with the reason.
+- A path that matches nothing as written is read the other ways text names
+  files before it is called absent. With the repository's own directory in
+  front (`ExampleVessel/src/Foo.cs`, compared without case against the vessel
+  name and the last segment of its repository URL and local path) it is
+  anchored at the tracked path. With a declared sibling's directory in front
+  and no `../` (`ExampleSibling/lib/Bar.cs`), or as a bare file name that a
+  provisioned sibling's HEAD tracks, it is a sibling path, and its cited lines
+  are checked in that sibling. A bare name found nowhere is stated as not found
+  in this checkout or in a provisioned sibling checkout, never as absent.
 - The Runtime Signals verdict lines reach only a Judge, and the Architect
   signal rule reaches only an Architect.
 - The read-only rules forbid editing, committing and pushing. By default they
