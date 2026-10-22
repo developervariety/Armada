@@ -15,6 +15,15 @@ upstream integrations and excludes changes already present at that baseline.
   again only when that set changes.
 - A preflight Q9 model flag quotes the brief lines that state a proof or expected
   value, and the lines declared unchanged on purpose apart from them.
+- History archive contract. The `archive` settings section (disabled by
+  default; hot-reloads) names an S3-compatible endpoint, bucket, region,
+  credentials file, key prefix, raw retention (90 days), trace retention (365
+  days), captain session roots and extra deny patterns, and
+  `archive.keepHistoryWithoutArchive` (default true) keeps history while no
+  archive is configured. `IArchiveSink` reports an upload verified only when
+  size and SHA-256 match, `IDataExpiryObserver` sees each expiring database row
+  before it is deleted, and `ArchiveKeys` fixes the `raw/` and `trace/` key
+  layout. `docs/ARCHIVE.md` describes them.
 - Typed-decision quality is measurable against outcomes. Every recorded call
   names its subject (`subject_type`, `subject_id`): the mission, else the
   objective, else the record the seam judged (`papercut_group`, `board_note`,
