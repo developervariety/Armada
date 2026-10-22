@@ -470,7 +470,12 @@ With an Architect stage the plan does not exist yet, so the warning lists every
 declared gate input the Architect brief tells it to assign. With operator
 `missionDescriptions` it lists each gate input that no mission title or
 description names, either as the exact path or through the declared glob. A
-pipeline with neither raises no gate-input warning.
+gate input the objective's rollout constraints or non-goals keep out of the
+change is not listed: a sentence that forbids changes ("No src/ or docs/ file
+changes") excludes each input it names or whose directory it names, and a
+sentence that allows only the files it names excludes each input it does not
+name. The warning names the excluded inputs, and with nothing left to list it is
+not raised. A pipeline with neither raises no gate-input warning.
 
 `armada_dispatch` accepts `captainAssignments`, an array of `persona`,
 `captainId` and optional `fallbackTier` entries (`persona` `*` applies to every

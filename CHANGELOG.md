@@ -9,6 +9,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- The objective scheduler names a vessel whose every auto-dispatch candidate it
+  skipped on dispatch preflight: one `objective_scheduler.vessel_preflight_blocked`
+  event and one board note list the objectives and their blocking codes, posted
+  again only when that set changes.
+- A preflight Q9 model flag quotes the brief lines that state a proof or expected
+  value, and the lines declared unchanged on purpose apart from them.
 - Typed-decision quality is measurable against outcomes. Every recorded call
   names its subject (`subject_type`, `subject_id`): the mission, else the
   objective, else the record the seam judged (`papercut_group`, `board_note`,
@@ -329,6 +335,14 @@ upstream integrations and excludes changes already present at that baseline.
   (default 8000), and releases the lock from its exit trap after it shuts down
   this run's build servers. A lock whose owner process is gone is taken over and
   reported. `--lock-held` serves a caller that already holds the lock.
+- Dispatch preflight Q1 names a moved symbol at its declaration nearest the
+  cited lines, never at an earlier call site. A symbol within 10 lines of its
+  cited range passes the question and adds a `preflight_citation_drift` Warning
+  with the corrected line. A backticked Armada record id is not searched for as
+  code.
+- `gate_inputs_unplanned` leaves out the gate inputs an objective's rollout
+  constraints or non-goals keep out of the change, names them, and is not raised
+  when none is left.
 
 - Claude Code captains launch with `--exclude-dynamic-system-prompt-sections`,
   so the per-repository system-prompt sections (memory path, environment, git

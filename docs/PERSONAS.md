@@ -261,7 +261,8 @@ A brief carries only what the mission's mode and persona can use:
   the text cites with line numbers (`Name.cs:12`) is a named path too. Every
   cited range is checked: a range past the end of its file, or one that no
   longer holds its symbol, is listed under "Cited line ranges to recheck" with
-  where the symbol is now. The symbol is the backticked identifier written
+  where the symbol is now: its declaration nearest the cited lines, else its
+  occurrence nearest them. The symbol is the backticked identifier written
   beside the citation, or the one backticked identifier or call expression in
   the same sentence when that sentence cites nothing else. A citation into a
   declared sibling checkout (`../Sibling/path:line`) is read at that

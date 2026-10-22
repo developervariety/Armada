@@ -329,6 +329,42 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("different defect", q9.Instructions, "a value guarding a separate defect is not the Q9 defect");
             });
 
+            await RunTest("Preflight_ExampleValueFlag_QuotesTheProofLines_AndTheDeclaredParityValuesApart", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(
+                    ModelResult(new Dictionary<string, double> { ["q9"] = 0.97, ["q1"] = 0.05 }, "none", 0.10));
+                PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+                Objective objective = Objective();
+                objective.Description = "Stop the per-poll warning.\n"
+                    + "What proves the fix: each status poll writes one warning line before the change and zero after it.\n"
+                    + "\n"
+                    + "Parity values, unchanged on purpose:\n"
+                    + "- the poll state stays rejected\n"
+                    + "- the submit warning stays one line\n"
+                    + "\n"
+                    + "Keep the public response shape.";
+                ObjectiveDispatchPreview preview = SeededPreview();
+
+                await adapter.EvaluateAsync(objective, Vessel(), Pipeline(), preview, CancellationToken.None).ConfigureAwait(false);
+
+                ObjectiveDispatchPreviewIssue flag = preview.Issues.Single(issue =>
+                    issue.Code == PreflightTextAdapter.ModelFlagIssueCode && issue.RelatedValue == "q9");
+                AssertContains("\"What proves the fix: each status poll writes one warning line before the change and zero after it\"", flag.Message,
+                    "the q9 flag quotes the brief line that states the proof value");
+                AssertContains("which question 9 excludes: \"Parity values, unchanged on purpose:\"; \"- the poll state stays rejected\"; \"- the submit warning stays one line\"",
+                    flag.Message, "the declared parity section is quoted apart, as excluded");
+                AssertFalse(flag.Message.Contains("Keep the public response shape", StringComparison.Ordinal),
+                    "a line after the parity section that states no value is not quoted");
+
+                ObjectiveDispatchPreview noProof = SeededPreview();
+                await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), noProof, CancellationToken.None).ConfigureAwait(false);
+                ObjectiveDispatchPreviewIssue bare = noProof.Issues.Single(issue =>
+                    issue.Code == PreflightTextAdapter.ModelFlagIssueCode && issue.RelatedValue == "q9");
+                AssertContains("No brief line states a proof or expected value", bare.Message,
+                    "a brief without a proof line is told what to add");
+            });
+
             await RunTest("Preflight_WithoutDockContext_StateSaysTheDockWasNotMeasured", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

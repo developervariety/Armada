@@ -43,6 +43,11 @@ namespace Armada.Core.Services
         private static readonly Regex _PathLinePattern = new Regex(@"([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):\d+(?:-\d+)?", RegexOptions.Compiled);
         private static readonly Regex _BacktickIdentifierPattern = new Regex(@"`([A-Za-z_][A-Za-z0-9_.]{4,})`", RegexOptions.Compiled);
 
+        // An Armada record id: a short prefix, the eight-character sortable stamp, and optionally the random
+        // tail. A brief cites such ids as records, never as code, so they are not searched for in the tree.
+        private static readonly Regex _RecordIdPattern = new Regex(@"^(?<prefix>[a-z]{2,5})_[0-9a-z]{8}(?<tail>_[A-Za-z0-9]{4,})?$", RegexOptions.Compiled);
+        private static readonly HashSet<string> _RecordIdPrefixes = ReadRecordIdPrefixes();
+
         #endregion
 
         #region Public-Members
@@ -59,6 +64,13 @@ namespace Armada.Core.Services
         /// none of them. The warning lists the paths and does not block dispatch.
         /// </summary>
         public const string GateInputsUnplannedIssueCode = "gate_inputs_unplanned";
+
+        /// <summary>
+        /// Issue code for a cited symbol that moved no more than <see cref="CitedLineRangeChecker.DriftToleranceLines"/>
+        /// lines from its cited range. The citation names the right code, so question 1 passes; the warning gives the
+        /// corrected line and does not block dispatch.
+        /// </summary>
+        public const string CitationDriftIssueCode = "preflight_citation_drift";
 
         /// <summary>
         /// The D5 preflight text-half adapter, run after the deterministic preflight block to add
@@ -256,7 +268,7 @@ namespace Armada.Core.Services
             EvaluateStageDutyConflicts(objective, readOnlyDispatch, result);
             await EvaluateCaptainCoverageAsync(auth, vessel, coveragePipeline, captains, captainAssignments, missionDescriptions, result, token).ConfigureAwait(false);
             await EvaluateChecksAsync(auth, vessel, result, token).ConfigureAwait(false);
-            await EvaluateGateInputsAsync(auth, vessel, missionDescriptions, result, token).ConfigureAwait(false);
+            await EvaluateGateInputsAsync(auth, objective, vessel, missionDescriptions, result, token).ConfigureAwait(false);
 
             // D5 preflight text half. Runs LAST, after the deterministic block computed the facts and
             // resolved the pipeline, so its state carries both. The model only adds issues; the
@@ -433,8 +445,15 @@ namespace Armada.Core.Services
             result.Preflight.Facts.Add(BuildDeliverableKindFact(objective, preflight, description));
             result.Preflight.Facts.Add(await BuildRecoverRefFact(objective, preflight, repositoryPath, description, token).ConfigureAwait(false));
             result.Preflight.Facts.Add(await BuildSiblingTipFact(auth, vessel, preflight, description, token).ConfigureAwait(false));
+            List<string> drifts = new List<string>();
             result.Preflight.Facts.Add(await BuildCitationResolvesFact(auth, objective, vessel, preflight, repositoryPath,
-                targetRevision, description, token).ConfigureAwait(false));
+                targetRevision, description, drifts, token).ConfigureAwait(false));
+            if (drifts.Count > 0)
+            {
+                AddIssue(result, CitationDriftIssueCode, "preflight", ReadinessSeverityEnum.Warning,
+                    "These cited symbols moved by a few lines; correct the line numbers: " + String.Join(" ", drifts),
+                    "q1");
+            }
         }
 
         private static ObjectiveDispatchPreflightFact BuildVesselCountFact(Objective objective, ObjectivePreflight preflight)
@@ -627,6 +646,7 @@ namespace Armada.Core.Services
             string repositoryPath,
             string targetRevision,
             string description,
+            List<string> drifts,
             CancellationToken token)
         {
             const int question = 1;
@@ -637,7 +657,9 @@ namespace Armada.Core.Services
             };
 
             List<string> paths = MatchAll(description, _PathLinePattern).Distinct(StringComparer.OrdinalIgnoreCase).Take(_MaxFactTokens).ToList();
-            List<string> identifiers = MatchAll(description, _BacktickIdentifierPattern).Distinct(StringComparer.Ordinal).Take(_MaxFactTokens).ToList();
+            List<string> identifiers = MatchAll(description, _BacktickIdentifierPattern)
+                .Where(identifier => !IsRecordId(identifier))
+                .Distinct(StringComparer.Ordinal).Take(_MaxFactTokens).ToList();
             if (paths.Count == 0 && identifiers.Count == 0)
             {
                 fact.Status = PreflightFactStatusEnum.Unknown;
@@ -691,8 +713,10 @@ namespace Armada.Core.Services
                     IReadOnlyList<string>? lines = await _Git.ReadFileLinesOnRevisionAsync(
                         repositoryPath, targetRevision, tracked, token).ConfigureAwait(false);
                     if (lines == null) continue;
-                    string? issue = CitedLineRangeChecker.Evaluate(range, lines);
-                    if (issue != null) issues.Add(issue);
+                    string? issue = CitedLineRangeChecker.Evaluate(range, lines, out int currentLine);
+                    if (issue == null) continue;
+                    if (CitedLineRangeChecker.IsSmallDrift(range, currentLine)) drifts.Add(issue);
+                    else issues.Add(issue);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -705,7 +729,8 @@ namespace Armada.Core.Services
             if (unresolved.Count == 0 && issues.Count == 0)
             {
                 fact.Status = PreflightFactStatusEnum.Pass;
-                fact.Detail = "Every cited path:line and backticked identifier resolves at the target tip.";
+                fact.Detail = "Every cited path:line and backticked identifier resolves at the target tip."
+                    + (drifts.Count > 0 ? " " + drifts.Count + " cited symbol(s) moved by a few lines (" + CitationDriftIssueCode + ")." : String.Empty);
             }
             else
             {
@@ -767,6 +792,32 @@ namespace Armada.Core.Services
                 if (!String.IsNullOrWhiteSpace(suffix)) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Whether a backticked token is an Armada record id rather than a code identifier. The long form (with its
+        /// random tail) is always a record id; the short form counts only with a known record prefix, so a
+        /// snake_case identifier of the same shape is still searched for.
+        /// </summary>
+        private static bool IsRecordId(string token)
+        {
+            Match match = _RecordIdPattern.Match(token ?? String.Empty);
+            if (!match.Success) return false;
+            return match.Groups["tail"].Success || _RecordIdPrefixes.Contains(match.Groups["prefix"].Value);
+        }
+
+        private static HashSet<string> ReadRecordIdPrefixes()
+        {
+            HashSet<string> prefixes = new HashSet<string>(StringComparer.Ordinal);
+            foreach (System.Reflection.FieldInfo field in typeof(Constants).GetFields(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+            {
+                if (field.FieldType != typeof(string) || !field.Name.EndsWith("IdPrefix", StringComparison.Ordinal)) continue;
+                string? value = field.GetValue(null) as string;
+                if (String.IsNullOrEmpty(value) || !value.EndsWith("_", StringComparison.Ordinal)) continue;
+                prefixes.Add(value.Substring(0, value.Length - 1));
+            }
+            return prefixes;
         }
 
         private static List<string> MatchAll(string input, Regex pattern)
@@ -1597,11 +1648,15 @@ namespace Armada.Core.Services
         /// <summary>
         /// Flag the gate inputs the vessel's workflow profile declares that the planned missions will not name. With
         /// an Architect stage the plan does not exist yet, so the warning lists every declared input the Architect is
-        /// told to assign; with operator mission descriptions it lists the inputs none of them names. A pipeline with
-        /// neither has no file lists to compare, and the warning is not raised. It never blocks dispatch.
+        /// told to assign; with operator mission descriptions it lists the inputs none of them names. A gate input
+        /// the objective's rollout constraints or non-goals keep out of the change (a "no docs/ changes" rule, or an
+        /// allow-list that does not name it) is not listed, and a warning with nothing left to list is not raised.
+        /// A pipeline with neither an Architect nor mission descriptions has no file lists to compare, and the
+        /// warning is not raised. It never blocks dispatch.
         /// </summary>
         private async Task EvaluateGateInputsAsync(
             AuthContext auth,
+            Objective objective,
             Vessel vessel,
             IReadOnlyList<MissionDescription>? missionDescriptions,
             ObjectiveDispatchPreview result,
@@ -1611,15 +1666,25 @@ namespace Armada.Core.Services
             List<string> declared = WorkflowGateInputs.Normalize(profile?.GateInputPaths);
             if (declared.Count == 0) return;
 
+            List<string?> constraintTexts = new List<string?>();
+            constraintTexts.AddRange(objective.RolloutConstraints ?? new List<string>());
+            constraintTexts.AddRange(objective.NonGoals ?? new List<string>());
+            List<string> excluded = WorkflowGateInputs.FindExcluded(declared, constraintTexts);
+            List<string> inScope = declared.Where(entry => !excluded.Contains(entry, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (inScope.Count == 0) return;
+            string excludedNote = excluded.Count == 0
+                ? String.Empty
+                : " The objective's constraints keep " + String.Join(", ", excluded) + " out of the change, so they are not listed.";
+
             bool architectPlans = result.EffectivePipelineStages.Any(stage => PersonaCatalog.Matches(stage, PersonaCatalog.Architect));
             if (architectPlans)
             {
                 AddIssue(result, GateInputsUnplannedIssueCode, "brief", ReadinessSeverityEnum.Warning,
                     "The Architect stage writes the mission file lists, and the required checks read these gate inputs: "
-                    + String.Join(", ", declared)
+                    + String.Join(", ", inScope)
                     + ". The Architect brief tells it to assign each one the change touches; a plan that names none of them records "
-                    + WorkflowGateInputs.PlanMissingEventType + ".",
-                    String.Join(",", declared));
+                    + WorkflowGateInputs.PlanMissingEventType + "." + excludedNote,
+                    String.Join(",", inScope));
                 return;
             }
 
@@ -1631,12 +1696,12 @@ namespace Armada.Core.Services
                 planTexts.Add(description.Title);
                 planTexts.Add(description.Description);
             }
-            List<string> unplanned = WorkflowGateInputs.FindUnplanned(declared, planTexts);
+            List<string> unplanned = WorkflowGateInputs.FindUnplanned(inScope, planTexts);
             if (unplanned.Count == 0) return;
             AddIssue(result, GateInputsUnplannedIssueCode, "brief", ReadinessSeverityEnum.Warning,
                 "No mission description names these gate inputs the required checks read: "
                 + String.Join(", ", unplanned)
-                + ". If the change touches what they describe, give each one to the mission that makes the change.",
+                + ". If the change touches what they describe, give each one to the mission that makes the change." + excludedNote,
                 String.Join(",", unplanned));
         }
 

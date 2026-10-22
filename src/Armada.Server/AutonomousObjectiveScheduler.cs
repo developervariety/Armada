@@ -167,11 +167,27 @@ namespace Armada.Server
         /// </summary>
         public long EventTriggeredSweepCount => Interlocked.Read(ref _EventTriggeredSweepCount);
 
+        /// <summary>
+        /// Posts the board note that names a vessel whose every auto-dispatch candidate a sweep skipped on dispatch
+        /// preflight. Null posts nothing; the skip events are recorded either way.
+        /// </summary>
+        public IBoardNotePoster? BoardNotePoster { get; set; }
+
+        /// <summary>
+        /// Most objectives one preflight-blocked board note names; the note gives the full count.
+        /// </summary>
+        public const int MaxBlockedObjectivesNamed = 20;
+
         #endregion
 
         #region Private-Members
 
         private const string _Header = "[AutonomousObjectiveScheduler] ";
+
+        // The blocked set each vessel's last preflight-blocked note named, keyed by vessel id. A note is posted
+        // only when the set changes, so a backlog that stays blocked is announced once, not on every sweep.
+        private readonly Dictionary<string, string> _PostedPreflightBlocks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly object _PreflightBlockLock = new object();
 
         // The live scheduler section. Read on every use: settings reload swaps the section object.
         private AutonomousObjectiveSchedulerSettings Section => _Settings.AutonomousObjectiveScheduler;
@@ -600,10 +616,16 @@ namespace Armada.Server
                 List<MergeEntry> mergeQueue = await _MergeQueue.ListAsync(token: token).ConfigureAwait(false);
                 Stopwatch candidateTimer = Stopwatch.StartNew();
                 Objective? lastExamined = null;
+                PreflightBlockTally preflightBlocks = new PreflightBlockTally();
+                bool stoppedEarly = false;
 
                 foreach (Objective objective in eligible)
                 {
-                    if (dispatched >= capacity) break;
+                    if (dispatched >= capacity)
+                    {
+                        stoppedEarly = true;
+                        break;
+                    }
                     token.ThrowIfCancellationRequested();
 
                     // A row whose recorded preflight does not admit dispatch can never dispatch, and the
@@ -614,6 +636,7 @@ namespace Armada.Server
                         && !ObjectivePreflightEvaluator.IsComplete(objective.Preparation?.Preflight))
                     {
                         RecordSkip(skipReasons, "dispatch_preflight");
+                        preflightBlocks.Blocked(objective, "objective_preflight_incomplete");
                         continue;
                     }
 
@@ -622,6 +645,7 @@ namespace Armada.Server
                     {
                         LastSweepBoundReached = true;
                         RecordSkip(skipReasons, "sweep_bound");
+                        stoppedEarly = true;
                         break;
                     }
 
@@ -642,6 +666,7 @@ namespace Armada.Server
                         if (activeOnVessel >= MaxConcurrentVoyagesPerVessel)
                         {
                             vesselConcurrencySkips++;
+                            preflightBlocks.Other(objective);
                             bool sharedLane = lane.Count > 1;
                             string laneName = String.Join("+", lane.OrderBy(v => v, StringComparer.Ordinal));
                             RecordSkip(skipReasons, sharedLane ? "lane_busy:" + laneName : "vessel_concurrency");
@@ -667,6 +692,7 @@ namespace Armada.Server
                         {
                             LastSweepBoundReached = true;
                             RecordSkip(skipReasons, "sweep_bound");
+                            stoppedEarly = true;
                             break;
                         }
 
@@ -682,6 +708,7 @@ namespace Armada.Server
                         {
                             LastSweepBoundReached = true;
                             RecordSkip(skipReasons, "sweep_bound");
+                            stoppedEarly = true;
                             break;
                         }
                         if (IsDependencyBlocked(preview))
@@ -695,6 +722,7 @@ namespace Armada.Server
                     try
                     {
                         await DispatchObjectiveAsync(objective, mergeQueue, preview, token).ConfigureAwait(false);
+                        preflightBlocks.Other(objective);
                         dispatched++;
                         SweepDispatchedCount = dispatched;
                         LastResultSummary = "running candidates=" + SweepCandidatesExamined + "/"
@@ -717,9 +745,14 @@ namespace Armada.Server
                     catch (ObjectiveSkippedException skipped)
                     {
                         RecordSkip(skipReasons, skipped.Reason);
+                        if (String.Equals(skipped.Reason, "dispatch_preflight", StringComparison.Ordinal))
+                            preflightBlocks.Blocked(objective, skipped.Detail);
+                        else if (!String.Equals(skipped.Reason, "dependency_blocked", StringComparison.Ordinal))
+                            preflightBlocks.Other(objective);
                     }
                     catch (FleetCapacityAdmissionException capacityRefusal)
                     {
+                        preflightBlocks.Other(objective);
                         string reason = String.Equals(
                             capacityRefusal.Code,
                             "sibling_lane_capacity_reached",
@@ -737,6 +770,7 @@ namespace Armada.Server
                     }
                     catch (StartFromRefMissingException missing)
                     {
+                        preflightBlocks.Other(objective);
                         // A ref that does not resolve is the objective's fault, not the fleet's.
                         // Report it by name so an operator can correct the row; a generic
                         // dispatch_error would send them looking at the captains.
@@ -748,11 +782,15 @@ namespace Armada.Server
                     }
                     catch (Exception ex)
                     {
+                        preflightBlocks.Other(objective);
                         RecordSkip(skipReasons, "dispatch_error");
                         LastSweepError = "objective " + objective.Id + ": " + ex.Message;
                         _Logging.Warn(_Header + "dispatch failed for objective " + objective.Id + ": " + ex.Message);
                     }
                 }
+
+                // Only a sweep that saw every candidate can say a vessel has nothing dispatchable.
+                if (!stoppedEarly) await AnnouncePreflightBlocksAsync(preflightBlocks, token).ConfigureAwait(false);
 
                 if (LastSweepBoundReached && lastExamined != null && dispatched < capacity)
                 {
@@ -1203,6 +1241,67 @@ namespace Armada.Server
             return voyageIds.Count;
         }
 
+        private static string ErrorCodes(ObjectiveDispatchPreview preview)
+        {
+            return String.Join(", ", preview.Issues
+                .Where(issue => issue.Severity == ReadinessSeverityEnum.Error)
+                .Select(issue => issue.Code)
+                .Distinct(StringComparer.Ordinal));
+        }
+
+        /// <summary>
+        /// Post one board note per vessel whose every candidate this sweep skipped on dispatch preflight, naming
+        /// the objectives and their blocking issue codes. A vessel whose blocked set matches its last note posts
+        /// nothing; a vessel that is no longer fully blocked is forgotten, so a later block is announced again.
+        /// </summary>
+        private async Task AnnouncePreflightBlocksAsync(PreflightBlockTally tally, CancellationToken token)
+        {
+            List<string> notes = new List<string>();
+            List<string> noteVessels = new List<string>();
+            lock (_PreflightBlockLock)
+            {
+                foreach (string vesselId in _PostedPreflightBlocks.Keys.ToList())
+                {
+                    if (!tally.IsFullyBlocked(vesselId)) _PostedPreflightBlocks.Remove(vesselId);
+                }
+
+                foreach (string vesselId in tally.FullyBlockedVessels())
+                {
+                    List<KeyValuePair<string, string>> blocked = tally.BlockedOn(vesselId);
+                    string key = String.Join(",", blocked.Select(pair => pair.Key + "=" + pair.Value));
+                    if (_PostedPreflightBlocks.TryGetValue(vesselId, out string? posted)
+                        && String.Equals(posted, key, StringComparison.Ordinal)) continue;
+                    _PostedPreflightBlocks[vesselId] = key;
+
+                    string named = String.Join("; ", blocked.Take(MaxBlockedObjectivesNamed)
+                        .Select(pair => pair.Key + (String.IsNullOrWhiteSpace(pair.Value) ? String.Empty : " (" + pair.Value + ")")));
+                    string more = blocked.Count > MaxBlockedObjectivesNamed
+                        ? " and " + (blocked.Count - MaxBlockedObjectivesNamed) + " more"
+                        : String.Empty;
+                    notes.Add("Objective scheduler: every auto-dispatch candidate on vessel " + vesselId + " is blocked by dispatch preflight, "
+                        + "so nothing on it dispatches (" + blocked.Count + " objective(s)): " + named + more
+                        + ". Preview one to read its issues.");
+                    noteVessels.Add(vesselId);
+                }
+            }
+
+            for (int i = 0; i < notes.Count; i++)
+            {
+                _Logging.Warn(_Header + notes[i]);
+                await EmitSystemEventAsync("objective_scheduler.vessel_preflight_blocked", notes[i], token).ConfigureAwait(false);
+                IBoardNotePoster? poster = BoardNotePoster;
+                if (poster == null) continue;
+                try
+                {
+                    await poster.PostBroadcastAsync(notes[i], noteVessels[i], null, token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _Logging.Warn(_Header + "could not post the preflight-blocked note for vessel " + noteVessels[i] + ": " + ex.Message);
+                }
+            }
+        }
+
         private static bool IsDependencyBlocked(ObjectiveDispatchPreview preview)
         {
             return preview.Issues.Any(issue =>
@@ -1218,9 +1317,7 @@ namespace Armada.Server
             bool dependencyBlocked,
             CancellationToken token)
         {
-            string issueCodes = String.Join(", ", preview.Issues
-                .Where(issue => issue.Severity == ReadinessSeverityEnum.Error)
-                .Select(issue => issue.Code));
+            string issueCodes = ErrorCodes(preview);
             string chains = preview.BlockingChains.Count > 0
                 ? " Blocking chains: " + String.Join("; ", preview.BlockingChains.Select(chain => String.Join(" -> ", chain))) + "."
                 : String.Empty;
@@ -1325,7 +1422,7 @@ namespace Armada.Server
                     bool dependencyBlocked = IsDependencyBlocked(preview);
                     string reason = dependencyBlocked ? "dependency_blocked" : "dispatch_preflight";
                     await EmitDispatchPreviewSkipAsync(objective, preview, dependencyBlocked, token).ConfigureAwait(false);
-                    throw new ObjectiveSkippedException(reason);
+                    throw new ObjectiveSkippedException(reason, ErrorCodes(preview));
                 }
             }
 
@@ -1673,9 +1770,63 @@ namespace Armada.Server
             /// Instantiate.
             /// </summary>
             /// <param name="reason">Short machine-readable skip reason.</param>
-            public ObjectiveSkippedException(string reason) : base("objective skipped: " + reason)
+            public ObjectiveSkippedException(string reason, string? detail = null) : base("objective skipped: " + reason)
             {
                 Reason = String.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
+                Detail = detail;
+            }
+
+            /// <summary>The blocking issue codes, when the skip came from a dispatch preview.</summary>
+            public string? Detail { get; }
+        }
+
+        /// <summary>
+        /// Per-vessel outcomes of one sweep: the candidates skipped on dispatch preflight, and whether any candidate
+        /// on the vessel had another outcome (dispatched, or skipped for capacity or an error). A dependency-blocked
+        /// candidate is neither: it waits on other work, not on its brief.
+        /// </summary>
+        private sealed class PreflightBlockTally
+        {
+            private readonly Dictionary<string, List<KeyValuePair<string, string>>> _Blocked =
+                new Dictionary<string, List<KeyValuePair<string, string>>>(StringComparer.OrdinalIgnoreCase);
+            private readonly HashSet<string> _Other = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            public void Blocked(Objective objective, string? codes)
+            {
+                string? vesselId = SingleVessel(objective);
+                if (vesselId == null) return;
+                if (!_Blocked.TryGetValue(vesselId, out List<KeyValuePair<string, string>>? list))
+                {
+                    list = new List<KeyValuePair<string, string>>();
+                    _Blocked[vesselId] = list;
+                }
+                list.Add(new KeyValuePair<string, string>(objective.Id, codes ?? String.Empty));
+            }
+
+            public void Other(Objective objective)
+            {
+                string? vesselId = SingleVessel(objective);
+                if (vesselId != null) _Other.Add(vesselId);
+            }
+
+            public bool IsFullyBlocked(string vesselId)
+            {
+                return _Blocked.ContainsKey(vesselId) && !_Other.Contains(vesselId);
+            }
+
+            public IEnumerable<string> FullyBlockedVessels()
+            {
+                return _Blocked.Keys.Where(IsFullyBlocked).OrderBy(id => id, StringComparer.Ordinal).ToList();
+            }
+
+            public List<KeyValuePair<string, string>> BlockedOn(string vesselId)
+            {
+                return _Blocked[vesselId].OrderBy(pair => pair.Key, StringComparer.Ordinal).ToList();
+            }
+
+            private static string? SingleVessel(Objective objective)
+            {
+                return objective.VesselIds != null && objective.VesselIds.Count == 1 ? objective.VesselIds[0] : null;
             }
         }
 

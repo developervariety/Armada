@@ -2770,7 +2770,7 @@ namespace Armada.Test.Unit.Suites.Services
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel).ConfigureAwait(false);
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md")).ConfigureAwait(false);
-                        AssertContains("`ParseFrame` is not within `src/Present.cs:3-4`; it is at line 2.", content,
+                        AssertContains("`ParseFrame` is not within `src/Present.cs:3-4`; it is declared at line 2.", content,
                             "a cited range that no longer holds its symbol is flagged with where the symbol is");
                         AssertContains("`src/Moved/Codec.cs` does not exist on this checkout, but the text cites lines in it", content,
                             "an absent path cited with lines is reported as a stale citation");
@@ -2878,7 +2878,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertNull(anchors.ResolutionError, "the anchors resolve completely");
                     AssertEqual(1, anchors.CitationIssues.Count, "only the stale sibling range is flagged: " + String.Join(" | ", anchors.CitationIssues));
-                    AssertEqual("`Encode` is not within `../Shared/lib/Codec.cs:1-2`; it is at line 5.", anchors.CitationIssues[0],
+                    AssertEqual("`Encode` is not within `../Shared/lib/Codec.cs:1-2`; it is declared at line 5.", anchors.CitationIssues[0],
                         "the sibling file is read at its HEAD and the symbol's current line is named");
                 }
                 finally

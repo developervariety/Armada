@@ -87,7 +87,12 @@ range that no longer holds the symbol the text pairs with it, written as
 `` `Symbol` (`path:line`) `` or `` `Symbol` at `path:line` ``, or named as the
 one backticked identifier or call expression in a sentence that cites nothing
 else. The symbol is matched as a whole word. The detail names the line where
-the symbol is now.
+the symbol is now: the declaration of the symbol nearest the cited lines, else
+its occurrence nearest them, never an earlier call site. A symbol within 10
+lines of its cited range still names the right code, so the question passes and
+the preview adds a `preflight_citation_drift` Warning with the corrected line.
+A backticked Armada record id (`obj_` and the other record prefixes) is a record,
+not code, and is not searched for in the tree.
 
 ## Execution
 

@@ -544,7 +544,11 @@ One decision point reads the objective dispatch preview:
   redacted before egress. Q4 judges dock observability against that section: a
   listed sibling, tool or evidence root is observable. Q9 does not count a value
   the brief states stays unchanged on purpose, or one that guards a different
-  defect. The rule answers only Q1 from the deterministic citation fact (`true`
+  defect. The model answers Q9 with a number only, so a Q9 flag or note quotes
+  the brief lines that state a proof or expected value, and apart from them the
+  lines the brief declares unchanged on purpose (a parity or control section,
+  from its heading to the next blank line), so the operator can find the value
+  or rule the flag false. The rule answers only Q1 from the deterministic citation fact (`true`
   for a failed fact, `false` for a passed one); every other question records
   null.
   In `Gate`, high Q4 (dock observability) and Q13 (owner question) readings add

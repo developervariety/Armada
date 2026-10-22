@@ -7,6 +7,7 @@ namespace Armada.Core.Services
     using System.Security.Cryptography;
     using System.Text;
     using System.Text.Json;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
@@ -77,6 +78,19 @@ namespace Armada.Core.Services
         private const string _Q13Id = "q13";
         private const string _Q13NeedsOwnerRuling = "needs_owner_ruling";
         private const string _Q13NeedsRepoFact = "needs_repo_fact";
+        private const int _ExampleValueQuestion = 9;
+        private const int _MaxQuotedLines = 3;
+        private const int _MaxQuoteLength = 160;
+
+        // A brief line that states the value proving a fix, and a heading or line that declares values
+        // unchanged on purpose. The model answers question 9 with a number only, so these lines are quoted
+        // beside its flag for the operator to check.
+        private static readonly Regex _ProofLine = new Regex(
+            @"\bprov(?:e|es|ed|ing)\b|\bproof\b|\bexpected\b|\bbefore\b.*\bafter\b",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        private static readonly Regex _ParityLine = new Regex(
+            @"\bparity\b|\bunchanged\s+on\s+purpose\b|\bunchanged\s+by\s+design\b|\bcontrol\s+values?\b",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
         private readonly TypedDecisionSettings _Settings;
         private readonly ITypedDecisionClient _Client;
@@ -247,17 +261,18 @@ namespace Armada.Core.Services
             // the classifier block dispatch. Other questions retain the Gate blocking behavior.
             foreach (PreflightFlag flag in reading.Flags)
             {
+                string evidence = flag.QuestionNumber == _ExampleValueQuestion ? ExampleValueEvidence(objective) : String.Empty;
                 if (gate && flag.BlocksDispatch)
                 {
                     AddIssue(result, ModelFlagIssueCode, ReadinessSeverityEnum.Error,
-                        "Dispatch preflight model flag on question " + flag.QuestionNumber + ": " + flag.Defect,
+                        "Dispatch preflight model flag on question " + flag.QuestionNumber + ": " + flag.Defect + evidence,
                         "q" + flag.QuestionNumber.ToString(CultureInfo.InvariantCulture));
                 }
                 else
                 {
                     AddIssue(result, "preflight_q" + flag.QuestionNumber.ToString(CultureInfo.InvariantCulture) + "_model",
                         ReadinessSeverityEnum.Warning,
-                        "Dispatch preflight model note on question " + flag.QuestionNumber + ": " + flag.Defect,
+                        "Dispatch preflight model note on question " + flag.QuestionNumber + ": " + flag.Defect + evidence,
                         "q" + flag.QuestionNumber.ToString(CultureInfo.InvariantCulture));
                 }
             }
@@ -485,6 +500,62 @@ namespace Armada.Core.Services
             }
 
             return reading;
+        }
+
+        /// <summary>
+        /// The brief lines a question-9 flag may refer to, quoted for the operator: the lines that state a proof or
+        /// expected value, and apart from them the values the brief declares unchanged on purpose, which the question
+        /// excludes. A declared section runs from its heading to the next blank line or heading.
+        /// </summary>
+        private static string ExampleValueEvidence(Objective objective)
+        {
+            List<string> proof = new List<string>();
+            List<string> parity = new List<string>();
+            List<string> lines = new List<string>();
+            lines.AddRange((objective.Description ?? String.Empty).Split('\n'));
+            lines.AddRange(objective.AcceptanceCriteria ?? new List<string>());
+
+            bool inParity = false;
+            foreach (string raw in lines)
+            {
+                string line = (raw ?? String.Empty).Trim();
+                if (line.Length == 0)
+                {
+                    inParity = false;
+                    continue;
+                }
+                bool heading = line.StartsWith("#", StringComparison.Ordinal) || line.EndsWith(":", StringComparison.Ordinal);
+                bool declaresParity = _ParityLine.IsMatch(line);
+                if (heading) inParity = declaresParity;
+                if (declaresParity || inParity)
+                {
+                    Quote(parity, line);
+                    continue;
+                }
+                foreach (string sentence in line.Split(new[] { ". " }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (_ProofLine.IsMatch(sentence)) Quote(proof, sentence);
+                }
+            }
+
+            StringBuilder evidence = new StringBuilder();
+            evidence.Append(" The model answers with a number only.");
+            if (proof.Count == 0)
+                evidence.Append(" No brief line states a proof or expected value; name the value that proves the fix and how it changes.");
+            else
+                evidence.Append(" Brief lines that state a proof or expected value: ").Append(String.Join("; ", proof)).Append('.');
+            if (parity.Count > 0)
+                evidence.Append(" Declared unchanged on purpose, which question 9 excludes: ").Append(String.Join("; ", parity)).Append('.');
+            return evidence.ToString();
+        }
+
+        private static void Quote(List<string> quotes, string text)
+        {
+            if (quotes.Count >= _MaxQuotedLines) return;
+            string trimmed = text.Trim().TrimEnd('.');
+            if (trimmed.Length == 0) return;
+            if (trimmed.Length > _MaxQuoteLength) trimmed = trimmed.Substring(0, _MaxQuoteLength) + "...";
+            quotes.Add("\"" + trimmed + "\"");
         }
 
         private static double NoulValue(TypedAnswer answer)

@@ -1396,7 +1396,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Preflight citations flag a stale line range, a moved symbol and a case-only path miss by name", async () =>
+            await RunTest("Preflight citations name a moved symbol at its declaration, warn on small drift, skip record ids and flag a case-only path miss", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -1404,28 +1404,48 @@ namespace Armada.Test.Unit.Suites.Services
                     Objective objective = harness.CreateReadyObjective("facts-citation-range-preview");
                     harness.Git.PathsOnRevision.Add("Services/Foo.cs");
                     harness.Git.FoundTermsOnRevision.Add("ParseFrame");
-                    harness.Git.FileLinesOnRevision["Services/Foo.cs"] = new List<string>
-                    {
-                        "class Foo {",
-                        "    void ParseFrame() { }",
-                        "    void Other() { }",
-                        "    void Third() { }",
-                        "}"
-                    };
+                    // A call site near the top and the declaration at line 40: the call is the first occurrence.
+                    List<string> fooLines = new List<string> { "class Foo {", "    void Run() { if (Ready) ParseFrame(); }" };
+                    for (int line = 3; line < 40; line++) fooLines.Add("    void Filler" + line + "() { }");
+                    fooLines.Add("    void ParseFrame() { }");
+                    fooLines.Add("}");
+                    harness.Git.FileLinesOnRevision["Services/Foo.cs"] = fooLines;
 
-                    objective.Description = "`ParseFrame` (`Services/Foo.cs:2`) reads the frame.";
+                    objective.Description = "`ParseFrame` (`Services/Foo.cs:40`) reads the frame.";
                     ObjectiveDispatchPreview good = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
                     AssertEqual(PreflightFactStatusEnum.Pass, good.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
                         "a range that holds its symbol passes");
+                    AssertFalse(good.Issues.Any(issue => issue.Code == ObjectiveDispatchPreviewService.CitationDriftIssueCode),
+                        "a citation that holds raises no drift warning");
 
-                    objective.Description = "`ParseFrame` (`Services/Foo.cs:3-4`) reads the frame; see also `Services/Foo.cs:40`.";
+                    objective.Description = "`ParseFrame` (`Services/Foo.cs:3-4`) reads the frame; see also `Services/Foo.cs:90`.";
                     ObjectiveDispatchPreview stale = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
                     ObjectiveDispatchPreflightFact staleFact = stale.Preflight.Facts.Single(fact => fact.QuestionNumber == 1);
-                    AssertEqual(PreflightFactStatusEnum.Fail, staleFact.Status, "a range that no longer holds its symbol fails question 1");
-                    AssertContains("`ParseFrame` is not within `Services/Foo.cs:3-4`; it is at line 2.", staleFact.Detail,
-                        "the moved symbol is named with its current line");
-                    AssertContains("`Services/Foo.cs:40` is past the end of the file (5 lines).", staleFact.Detail,
+                    AssertEqual(PreflightFactStatusEnum.Fail, staleFact.Status, "a symbol that moved far from its range fails question 1");
+                    AssertContains("`ParseFrame` is not within `Services/Foo.cs:3-4`; it is declared at line 40.", staleFact.Detail,
+                        "the moved symbol is named at its declaration, not at the earlier call site");
+                    AssertContains("`Services/Foo.cs:90` is past the end of the file (41 lines).", staleFact.Detail,
                         "a range past the end of its file is named");
+
+                    objective.Description = "`ParseFrame` (`Services/Foo.cs:35-36`) reads the frame.";
+                    ObjectiveDispatchPreview drifted = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Pass, drifted.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a symbol a few lines from its range still names the right code, so question 1 passes");
+                    ObjectiveDispatchPreviewIssue drift = drifted.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.CitationDriftIssueCode);
+                    AssertEqual(ReadinessSeverityEnum.Warning, drift.Severity, "line drift is a warning, never a dispatch block");
+                    AssertContains("it is declared at line 40", drift.Message, "the warning gives the corrected line");
+
+                    // Built from parts so no committed line has the shape of a real record id.
+                    string recordId = "obj" + "_abcdefgh" + "_Xy12Zw34Qr";
+                    objective.Description = "`ParseFrame` (`Services/Foo.cs:40`) reads the frame; the earlier attempt is `" + recordId + "`.";
+                    ObjectiveDispatchPreview withId = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreflightFact idFact = withId.Preflight.Facts.Single(fact => fact.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Pass, idFact.Status, "a backticked record id is not searched for as code. Detail: " + idFact.Detail);
+
+                    objective.Description = "`ParseFrame` (`Services/Foo.cs:40`) reads the frame through `load_settings`.";
+                    ObjectiveDispatchPreview snake = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertContains("load_settings", snake.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Detail,
+                        "a snake_case identifier of the short record-id shape, without a record prefix, is still searched for");
 
                     harness.Git.FileLinesOnRevision.Clear();
                     harness.Git.PathsOnRevision.Clear();
@@ -1552,6 +1572,20 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("docs/data-dictionary.md", planned.Message, "the warning names each declared gate input");
                     AssertContains("schema/**/*.sql", planned.Message, "the warning names a declared glob as written");
                     AssertContains("Architect", planned.Message, "the warning says the Architect plans the file lists");
+
+                    objective.RolloutConstraints = new List<string> { "No src/ or docs/ file changes." };
+                    ObjectiveDispatchPreview docsExcluded = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, architectPipeline.Id).ConfigureAwait(false);
+                    ObjectiveDispatchPreviewIssue narrowed = docsExcluded.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
+                    AssertEqual("schema/**/*.sql", narrowed.RelatedValue, "a gate input under a directory the constraints forbid is not listed");
+                    AssertContains("keep docs/data-dictionary.md out of the change", narrowed.Message, "the warning names the input the constraints exclude");
+
+                    objective.RolloutConstraints = new List<string> { "Change only tests/ExportTests.cs and tests/WriterTests.cs." };
+                    ObjectiveDispatchPreview allowList = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, architectPipeline.Id).ConfigureAwait(false);
+                    AssertFalse(allowList.Issues.Any(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode),
+                        "an allow-list that names no gate input leaves nothing to warn about");
+                    objective.RolloutConstraints = new List<string>();
 
                     List<MissionDescription> withoutInputs = new List<MissionDescription>
                     {

@@ -487,6 +487,113 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, scheduler.SweepCandidatesExamined, "only the previewed row counts as examined");
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_AVesselWhoseEveryCandidateFailsPreflight_PostsOneBoardNote_UntilTheBlockedSetChanges", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel blockedVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "preflight-blocked-vessel", "https://github.com/test/preflight-blocked-vessel.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Vessel openVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "preflight-open-vessel", "https://github.com/test/preflight-open-vessel.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Objective unanswered = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Blocked row without a preflight",
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    Rank = 1,
+                    VesselIds = new List<string> { blockedVessel.Id }
+                }).ConfigureAwait(false);
+                Objective flagged = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Blocked row the preview flags",
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    Rank = 2,
+                    VesselIds = new List<string> { blockedVessel.Id },
+                    Preparation = AdmittedPreparation()
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Ready row on another vessel",
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    Rank = 3,
+                    VesselIds = new List<string> { openVessel.Id },
+                    Preparation = AdmittedPreparation()
+                }).ConfigureAwait(false);
+
+                RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview();
+                preview.Handler = (objective, _) =>
+                {
+                    ObjectiveDispatchPreview result = new ObjectiveDispatchPreview
+                    {
+                        ObjectiveId = objective.Id,
+                        VesselId = objective.VesselIds[0],
+                        IsReady = objective.Id != flagged.Id
+                    };
+                    if (objective.Id == flagged.Id)
+                    {
+                        result.Issues.Add(new ObjectiveDispatchPreviewIssue
+                        {
+                            Code = "objective_preflight_model_flag",
+                            Area = "preflight",
+                            Severity = ReadinessSeverityEnum.Error,
+                            Message = "Dispatch preflight model flag on question 1."
+                        });
+                    }
+                    return Task.FromResult(result);
+                };
+                ArmadaSettings settings = EnabledSchedulerSettings();
+                settings.AutonomousObjectiveScheduler.IntervalMinutes = 1440;
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver, new RecordingAdmiralService(testDb.Driver), settings,
+                    objectiveDispatchPreview: preview,
+                    refillDebounceDelay: TimeSpan.FromMilliseconds(10));
+                FakeBoardNotePoster poster = new FakeBoardNotePoster();
+                scheduler.BoardNotePoster = poster;
+
+                try
+                {
+                    await scheduler.SweepAsync().ConfigureAwait(false);
+                    AssertEqual(1, poster.Posts.Count, "one note for the one vessel with nothing dispatchable. Summary: " + scheduler.LastResultSummary);
+                    string note = poster.Posts[0];
+                    AssertContains(blockedVessel.Id, note, "the note names the blocked vessel");
+                    AssertContains(unanswered.Id + " (objective_preflight_incomplete)", note, "a row without a recorded preflight is named with its reason");
+                    AssertContains(flagged.Id + " (objective_preflight_model_flag)", note, "a row the preview refuses is named with its blocking code");
+                    AssertFalse(note.Contains(openVessel.Id, StringComparison.Ordinal), "a vessel that dispatched is not named");
+
+                    DateTime? firstCompleted = scheduler.LastSweepCompletedUtc;
+                    scheduler.RequestRefill();
+                    await WaitForEventTriggeredSweepCountAsync(scheduler, 1).ConfigureAwait(false);
+                    await WaitForSweepCompletedAfterAsync(scheduler, firstCompleted).ConfigureAwait(false);
+                    AssertEqual(1, poster.Posts.Count, "an unchanged blocked set posts no second note");
+
+                    Objective added = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "A third blocked row",
+                        Status = ObjectiveStatusEnum.Planned,
+                        AutoDispatchEnabled = true,
+                        Rank = 4,
+                        VesselIds = new List<string> { blockedVessel.Id }
+                    }).ConfigureAwait(false);
+                    DateTime? secondCompleted = scheduler.LastSweepCompletedUtc;
+                    scheduler.RequestRefill();
+                    await WaitForEventTriggeredSweepCountAsync(scheduler, 2).ConfigureAwait(false);
+                    await WaitForSweepCompletedAfterAsync(scheduler, secondCompleted).ConfigureAwait(false);
+                    AssertEqual(2, poster.Posts.Count, "a changed blocked set posts a new note");
+                    AssertContains(added.Id, poster.Posts[1], "the new note names the added row");
+                }
+                finally
+                {
+                    scheduler.Dispose();
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_TimeBudgetCancelsSlowCandidatePreflight", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
