@@ -163,6 +163,61 @@ namespace Test.Shared.Suites.Runtimes
                 finally { Cleanup(dir); }
             }));
 
+            cases.Add(CaseAsync("context_compactor_replaces_oldest_tool_output", "Compaction replaces only older large tool outputs with notes, keeps the brief and recent outputs, and is idempotent", TestTags.Positive, () =>
+            {
+                List<ChatMessage> messages = new List<ChatMessage> { ChatMessage.System("system"), ChatMessage.User("the mission brief") };
+                for (int i = 0; i < 10; i++)
+                {
+                    ChatMessage call = ChatMessage.Assistant(String.Empty);
+                    call.ToolCalls = new List<ToolCall> { new ToolCall { Id = "c" + i, Name = "read_file", ArgumentsJson = "{\"path\":\"f" + i + "\"}" } };
+                    messages.Add(call);
+                    messages.Add(ChatMessage.ToolResult("c" + i, "read_file", new string('x', i == 1 ? 100 : 4000)));
+                }
+                long before = ApiContextCompactor.EstimateTokens(messages);
+                long removed = ApiContextCompactor.Compact(messages);
+                AssertTrue(removed > 0);
+                AssertTrue(ApiContextCompactor.EstimateTokens(messages) < before);
+                List<ChatMessage> results = messages.Where(m => !String.IsNullOrEmpty(m.ToolCallId) && (m.ToolCalls == null || m.ToolCalls.Count == 0)).ToList();
+                AssertEqual(10, results.Count, "every tool result stays, so each tool call keeps its answer");
+                AssertTrue(results[0].Content!.StartsWith(ApiContextCompactor.CompactedMarker, StringComparison.Ordinal), "the oldest large output is compacted");
+                AssertEqual(100, results[1].Content!.Length, "a short output is left alone");
+                for (int i = 4; i < 10; i++) AssertEqual(4000, results[i].Content!.Length, "the six most recent outputs are kept whole");
+                AssertEqual("the mission brief", messages[1].Content);
+                AssertEqual(0L, ApiContextCompactor.Compact(messages), "compacting again changes nothing");
+                AssertFalse(ApiContextCompactor.ShouldCompact(1000000, null), "an unknown window is never compacted");
+                AssertFalse(ApiContextCompactor.ShouldCompact(26000, 32768));
+                AssertTrue(ApiContextCompactor.ShouldCompact(26300, 32768));
+                return Task.CompletedTask;
+            }));
+
+            cases.Add(CaseAsync("context_pressure_compacts_and_continues", "A run that nears its context window compacts older tool output and finishes instead of stopping", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    File.WriteAllText(Path.Combine(dir, "big.txt"), new string('y', 5000));
+                    Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                    for (int i = 0; i < 8; i++)
+                        script.Enqueue(new ToolChatResponse { Success = true, Usage = new TokenUsage { PromptTokens = i == 7 ? 31500 : 2000 + i * 1000 },
+                            ToolCalls = new List<ToolCall> { new ToolCall { Id = "r" + i, Name = "read_file", ArgumentsJson = "{\"file_path\":\"big.txt\"}" } } });
+                    script.Enqueue(new ToolChatResponse { Success = true, Usage = new TokenUsage { PromptTokens = 9000 }, Text = "done", ToolCalls = new List<ToolCall>() });
+                    ModelEndpoint endpoint = new ModelEndpoint { Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.Ollama, BaseUrl = "http://localhost:1",
+                        InferenceOptions = new InferenceOptions { McpToolsEnabled = false, ContextLength = 32768 } };
+                    ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => new ScriptedClient(script, log));
+                    using ManualResetEventSlim exited = new ManualResetEventSlim(false); int code = -1;
+                    RuntimeProviderError? failure = null;
+                    System.Collections.Concurrent.ConcurrentQueue<string> lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+                    runtime.OnOutputReceived += (pid, line) => lines.Enqueue(line);
+                    runtime.OnProviderError += (pid, error) => failure = error;
+                    runtime.OnProcessExited += (pid, value) => { code = value ?? -1; exited.Set(); };
+                    await runtime.StartAsync(dir, "read the file repeatedly").ConfigureAwait(false);
+                    AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "The run must finish.");
+                    AssertEqual(0, code, "compaction made room, so the run finished: " + failure?.Reason);
+                    AssertTrue(lines.Any(l => l.Contains("[context]", StringComparison.Ordinal)), "the compaction is reported in the log");
+                }
+                finally { Cleanup(dir); }
+            }));
+
             cases.Add(CaseAsync("context_window_full_fails_typed", "A prompt that fills the configured context window stops with context_limit_exceeded; one well under it does not", TestTags.Negative, async () =>
             {
                 foreach (int promptTokens in new[] { 31500, 1000 })

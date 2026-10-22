@@ -604,9 +604,24 @@ namespace Armada.Runtimes
                 int incompleteResponses = 0;
                 RuntimeProviderError? tokenLimitFailure = null;
                 bool requiresCompletion = prompt.Contains("[ARMADA:RESULT] COMPLETE", StringComparison.Ordinal);
+                long lastPromptTokens = 0;
                 for (int iteration = 0; iteration < maxIterations; iteration++)
                 {
                     token.ThrowIfCancellationRequested();
+
+                    // Keep the conversation inside the window before it is sent: the provider's count can lag or undercount
+                    // (Ollama does not count cached prompt tokens), so the local estimate also decides.
+                    long pressure = Math.Max(lastPromptTokens, ApiContextCompactor.EstimateTokens(messages));
+                    if (ApiContextCompactor.ShouldCompact(pressure, settings.ContextLength))
+                    {
+                        long removed = ApiContextCompactor.Compact(messages);
+                        if (removed > 0)
+                        {
+                            lastPromptTokens = 0;
+                            EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[context] about " + pressure + " of " + settings.ContextLength
+                                + " tokens in use; replaced earlier tool output (about " + (removed / 4) + " tokens) with short notes to stay inside the window");
+                        }
+                    }
 
                     ToolChatRequest request = new ToolChatRequest();
                     request.Messages = messages;
@@ -629,6 +644,19 @@ namespace Armada.Runtimes
                     // A prompt that fills the configured window means the server has started (or is about to start) dropping
                     // the oldest turns, which hold the mission brief. Stop with a typed error rather than act on a partial view.
                     RuntimeProviderError? contextFailure = ContextLimitFailure(settings, response.Usage);
+                    if (response.Usage?.PromptTokens != null) lastPromptTokens = response.Usage.PromptTokens.Value;
+                    // Still below the window, nothing has been dropped yet: make room and carry on rather than stop.
+                    if (contextFailure != null && response.Usage!.PromptTokens!.Value < settings.ContextLength!.Value)
+                    {
+                        long removed = ApiContextCompactor.Compact(messages);
+                        if (removed > 0)
+                        {
+                            EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[context] prompt reached " + response.Usage.PromptTokens + " of " + settings.ContextLength
+                                + " tokens; replaced earlier tool output (about " + (removed / 4) + " tokens) with short notes and continued");
+                            lastPromptTokens = 0;
+                            contextFailure = null;
+                        }
+                    }
                     if (contextFailure != null)
                     {
                         EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, "[error] " + contextFailure.Reason);
