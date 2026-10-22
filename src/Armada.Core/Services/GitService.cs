@@ -1023,6 +1023,29 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<List<string>> ListTrackedPathCandidatesAsync(
+            string worktreePath,
+            string revision,
+            string relativePath,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath) || String.IsNullOrWhiteSpace(relativePath)) return new List<string>();
+            string effectiveRevision = String.IsNullOrEmpty(revision) ? "HEAD" : revision;
+            try
+            {
+                string output = await RunGitAsync(worktreePath, token, "ls-tree", "-r", "--name-only", effectiveRevision).ConfigureAwait(false);
+                string[] lines = output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                return TrackedPathMatcher.FileCandidates(lines, relativePath);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _Logging.Debug(_Header + "could not list path candidates for " + relativePath + " on " + effectiveRevision +
+                    " in " + worktreePath + ": " + ex.Message);
+                return new List<string>();
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<GitAnchorPriorArt> SearchTrackedContentAsync(
             string worktreePath,
             string term,

@@ -132,6 +132,32 @@ namespace Armada.Test.Unit.Suites.Services
                 },
                 new PreflightCase
                 {
+                    Name = "GateQ1WithPassingCitationFact_AddsWarning_NoBlock_AdvisoryEvent",
+                    GlobalMode = TypedDecisionModeEnum.Gate,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = ModelResult(new Dictionary<string, double> { ["q1"] = 0.95 }, "none", 0.05),
+                    PassingCitationFact = true,
+                    ExpectClientCalls = 1,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeRuleKept,
+                    ExpectGateOutcome = "advisory_only",
+                    ExpectModelErrorIssues = 0,
+                    ExpectModelWarningIssues = 1
+                },
+                new PreflightCase
+                {
+                    Name = "GateQ1AndQ9WithPassingCitationFact_BlocksOnQ9Only_GatedEvent",
+                    GlobalMode = TypedDecisionModeEnum.Gate,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = ModelResult(new Dictionary<string, double> { ["q1"] = 0.95, ["q9"] = 0.90 }, "none", 0.05),
+                    PassingCitationFact = true,
+                    ExpectClientCalls = 1,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeGated,
+                    ExpectGateOutcome = "applied",
+                    ExpectModelErrorIssues = 1,
+                    ExpectModelWarningIssues = 1
+                },
+                new PreflightCase
+                {
                     Name = "ShadowMode_AddsWarningNotError_ShadowEvent",
                     GlobalMode = TypedDecisionModeEnum.Shadow,
                     DecisionMode = TypedDecisionModeEnum.Gate,
@@ -152,6 +178,15 @@ namespace Armada.Test.Unit.Suites.Services
                     PreflightTextAdapter adapter = BuildAdapter(testDb.Driver, client, testCase.GlobalMode, testCase.DecisionMode);
 
                     ObjectiveDispatchPreview preview = SeededPreview();
+                    if (testCase.PassingCitationFact)
+                    {
+                        preview.Preflight.Facts.Add(new ObjectiveDispatchPreflightFact
+                        {
+                            QuestionNumber = 1,
+                            Status = PreflightFactStatusEnum.Pass,
+                            Detail = "Every cited path and line range resolves at the target tip."
+                        });
+                    }
 
                     await adapter.EvaluateAsync(Objective(), Vessel(), Pipeline(), preview, CancellationToken.None).ConfigureAwait(false);
 
@@ -560,6 +595,7 @@ namespace Armada.Test.Unit.Suites.Services
             public required int ExpectClientCalls { get; init; }
             public required string? ExpectTypedEvent { get; init; }
             public string? ExpectGateOutcome { get; init; }
+            public bool PassingCitationFact { get; init; }
             public required int ExpectModelErrorIssues { get; init; }
             public required int ExpectModelWarningIssues { get; init; }
         }

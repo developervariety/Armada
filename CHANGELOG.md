@@ -486,6 +486,19 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Dispatch preflight question 1 passes a citation whose line range lies inside
+  the body of the declaration it names, such as `` `Size` (`Book.cs:20-22`) ``
+  for lines inside `Size`. A range that crosses into the next declaration, or
+  lies outside every declaration, still fails. A high model Q1 reading adds a
+  `preflight_q1_model` Warning, not a blocking Error, when the Q1 citation fact
+  passes and no deterministic fact fails.
+- Dispatch preflight question 1 checks a bare file name that matches several
+  files against every candidate. It passes and names the file when the cited
+  lines hold in exactly one, warns `preflight_citation_ambiguous` with the
+  candidates when they hold in several, and fails with the candidates when they
+  hold in none. A failed question names each failing citation as written, with
+  its reason.
+
 - A Judge verdict held for a criterion ruling no longer reads as a failure.
   The mission, its voyage and the inbox showed `Failed` until someone opened
   the incident, so the voyage read as a real defect. The held verdict stays

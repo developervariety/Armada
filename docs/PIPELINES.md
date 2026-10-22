@@ -81,12 +81,26 @@ above that sibling root.
 
 A cited path resolves when the revision tracks it as a file or a directory,
 exactly or as a unique suffix. A path that resolves only after ignoring letter
-case fails the question and names the tracked spelling. Question 1 also reads
+case fails the question and names the tracked spelling. A name that matches
+several files (a bare `Program.cs:2610` in a repository with two `Program.cs`)
+is checked against every candidate: when the cited lines hold in exactly one,
+the question passes and the detail names that file; when they hold in several,
+it passes and the preview adds a `preflight_citation_ambiguous` Warning listing
+them; when they hold in none, the question fails and lists the candidates. A
+failed question names each failing citation as written (`file:line` or
+`file:start-end`, or the identifier) with its reason: file missing, line out of
+range, ambiguous file name, or outside the declaration span. Question 1 also reads
 each cited line range: a range past the end of its file fails, and so does a
 range that no longer holds the symbol the text pairs with it, written as
 `` `Symbol` (`path:line`) `` or `` `Symbol` at `path:line` ``, or named as the
 one backticked identifier or call expression in a sentence that cites nothing
-else. The symbol is matched as a whole word. The detail names the line where
+else. The symbol is matched as a whole word. A range that lies inside the span
+of one declaration of its symbol holds, so a brief may cite lines of a method
+body by the method's name. The span runs from the declaration line to the brace
+that closes its body (braces in strings, character literals and comments do not
+count), or, for a declaration line that ends with a colon, to the end of its
+indented block. A range that crosses into the next declaration does not hold.
+The detail names the line where
 the symbol is now: the declaration of the symbol nearest the cited lines, else
 its occurrence nearest them, never an earlier call site. A symbol within 10
 lines of its cited range still names the right code, so the question passes and

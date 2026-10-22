@@ -46,6 +46,34 @@ namespace Armada.Core.Services
             return ignoredCase;
         }
 
+        /// <summary>
+        /// List every tracked file a named path matches: the exact file, else each file that ends with the name as
+        /// a path suffix, in exact case first and then ignoring case. Directories are not listed.
+        /// </summary>
+        /// <param name="trackedFiles">Every file path the revision tracks, slash-separated.</param>
+        /// <param name="requested">The path as the text names it.</param>
+        /// <returns>The matching files in ordinal order; empty when none match.</returns>
+        public static List<string> FileCandidates(IEnumerable<string> trackedFiles, string? requested)
+        {
+            if (trackedFiles == null) throw new ArgumentNullException(nameof(trackedFiles));
+            string needle = Normalize(requested);
+            List<string> results = new List<string>();
+            if (needle.Length == 0) return results;
+            foreach (StringComparison comparison in new[] { StringComparison.Ordinal, StringComparison.OrdinalIgnoreCase })
+            {
+                foreach (string raw in trackedFiles)
+                {
+                    if (String.IsNullOrWhiteSpace(raw)) continue;
+                    string file = raw.Trim();
+                    if (String.Equals(file, needle, comparison)) return new List<string> { file };
+                    if (file.EndsWith("/" + needle, comparison) && !results.Contains(file)) results.Add(file);
+                }
+                if (results.Count > 0) break;
+            }
+            results.Sort(StringComparer.Ordinal);
+            return results;
+        }
+
         #endregion
 
         #region Private-Methods

@@ -558,7 +558,9 @@ One decision point reads the objective dispatch preview:
   visible `preflight_q4_model` and `preflight_q13_model` Warning issues. They do
   not block dispatch, and Q13 does not post an owner-addressed note. A high
   reading for another text question adds the Error issue
-  `objective_preflight_model_flag`; the autonomous scheduler skips on any Error
+  `objective_preflight_model_flag`. A high Q1 reading adds the `preflight_q1_model`
+  Warning instead when the Q1 citation fact passes and no deterministic fact
+  fails: Q1 asks whether the facts contradict the premise, and none do; the autonomous scheduler skips on any Error
   issue and its `objective_scheduler.skipped_dispatch_preflight` event lists the
   code. The flag is preflight-class: an operator `armada_dispatch` with
   `forcePreflight: true` passes it, and the `objective.preflight_overridden`

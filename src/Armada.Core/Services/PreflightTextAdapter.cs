@@ -79,6 +79,7 @@ namespace Armada.Core.Services
         private const string _Q13NeedsOwnerRuling = "needs_owner_ruling";
         private const string _Q13NeedsRepoFact = "needs_repo_fact";
         private const int _ExampleValueQuestion = 9;
+        private const int _PremiseQuestion = 1;
         private const int _MaxQuotedLines = 3;
         private const int _MaxQuoteLength = 160;
 
@@ -251,10 +252,13 @@ namespace Armada.Core.Services
 
             // Keep uncertain dock-observability and owner-question readings visible without letting
             // the classifier block dispatch. Other questions retain the Gate blocking behavior.
+            // Q1 asks whether the deterministic facts contradict the premise. When the citation fact passes and no
+            // fact fails, there is no contradiction for the model to report, so its q1 flag stays a warning.
+            bool premiseProven = PremiseProven(result);
             foreach (PreflightFlag flag in reading.Flags)
             {
                 string evidence = flag.QuestionNumber == _ExampleValueQuestion ? ExampleValueEvidence(objective) : String.Empty;
-                if (gate && flag.BlocksDispatch)
+                if (gate && Blocks(flag, premiseProven))
                 {
                     AddIssue(result, ModelFlagIssueCode, ReadinessSeverityEnum.Error,
                         "Dispatch preflight model flag on question " + flag.QuestionNumber + ": " + flag.Defect + evidence,
@@ -278,14 +282,15 @@ namespace Armada.Core.Services
                     "q13");
             }
 
-            bool applied = gate && reading.Flags.Any(flag => flag.BlocksDispatch);
+            bool applied = gate && reading.Flags.Any(flag => Blocks(flag, premiseProven));
+            bool advisory = reading.HasAdvisory || reading.Flags.Any(flag => flag.BlocksDispatch && !Blocks(flag, premiseProven));
             if (cached != null)
             {
                 string cachedOutcome = applied
                     ? "applied"
                     : cfg.Mode == TypedDecisionModeEnum.Shadow
                         ? "shadow_mode"
-                        : reading.HasAdvisory ? "advisory_only" : "below_threshold";
+                        : advisory ? "advisory_only" : "below_threshold";
                 await SafeRecordAsync(() => _Recorder.RecordCacheHitAsync(
                     BuildContext(objective, result, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), cachedOutcome, token)).ConfigureAwait(false);
             }
@@ -298,7 +303,7 @@ namespace Armada.Core.Services
             {
                 string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow
                     ? "shadow_mode"
-                    : reading.HasAdvisory ? "advisory_only" : "below_threshold";
+                    : advisory ? "advisory_only" : "below_threshold";
                 await SafeRecordAsync(() => _Recorder.RecordRuleKeptAsync(
                     BuildContext(objective, result, decision, reading.VerdictLabel, reading.MaxConfidence, redacted), outcome, token)).ConfigureAwait(false);
             }
@@ -612,6 +617,20 @@ namespace Armada.Core.Services
                 ObjectiveId = objective.Id,
                 RuleAnswers = RuleAnswers(preview)
             };
+        }
+
+        private static bool Blocks(PreflightFlag flag, bool premiseProven)
+        {
+            if (!flag.BlocksDispatch) return false;
+            return !(premiseProven && flag.QuestionNumber == _PremiseQuestion);
+        }
+
+        // True when the q1 citation fact passes and no deterministic fact fails.
+        private static bool PremiseProven(ObjectiveDispatchPreview result)
+        {
+            List<ObjectiveDispatchPreflightFact> facts = result.Preflight?.Facts ?? new List<ObjectiveDispatchPreflightFact>();
+            if (facts.Any(fact => fact != null && fact.Status == PreflightFactStatusEnum.Fail)) return false;
+            return facts.Any(fact => fact != null && fact.QuestionNumber == _PremiseQuestion && fact.Status == PreflightFactStatusEnum.Pass);
         }
 
         /// <summary>

@@ -484,6 +484,24 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// List every tracked file a name matches as a suffix at a revision, in path order. A bare file name
+        /// such as "Program.cs" can match several files; the caller then decides which one the text means.
+        /// </summary>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="revision">Revision to list; defaults to HEAD when empty.</param>
+        /// <param name="relativePath">Path as the text names it.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The matching tracked file paths; empty when none match or the query fails.</returns>
+        Task<List<string>> ListTrackedPathCandidatesAsync(
+            string worktreePath,
+            string revision,
+            string relativePath,
+            CancellationToken token = default)
+        {
+            return Task.FromResult(new List<string>());
+        }
+
+        /// <summary>
         /// Search tracked content for a fixed term and report how many files contain it, with a few
         /// sample locations. A caller must establish that the repository answers git before calling
         /// this, because a search that cannot run is reported the same way as one that found nothing.

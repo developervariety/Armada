@@ -41,6 +41,7 @@ namespace Armada.Core.Services
         private static readonly Regex _RecoverRefPattern = new Regex(@"recover/[A-Za-z0-9._/-]+", RegexOptions.Compiled);
         private static readonly Regex _CommitShaPattern = new Regex(@"\b[0-9a-fA-F]{40}\b", RegexOptions.Compiled);
         private static readonly Regex _PathLinePattern = new Regex(@"([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):\d+(?:-\d+)?", RegexOptions.Compiled);
+        private static readonly Regex _CitedPathLinePattern = new Regex(@"([A-Za-z0-9_./-]+\.[A-Za-z0-9]+:\d+(?:-\d+)?)", RegexOptions.Compiled);
         private static readonly Regex _BacktickIdentifierPattern = new Regex(@"`([A-Za-z_][A-Za-z0-9_.]{4,})`", RegexOptions.Compiled);
 
         // An Armada record id: a short prefix, the eight-character sortable stamp, and optionally the random
@@ -71,6 +72,12 @@ namespace Armada.Core.Services
         /// corrected line and does not block dispatch.
         /// </summary>
         public const string CitationDriftIssueCode = "preflight_citation_drift";
+
+        /// <summary>
+        /// Issue code for a bare cited file name that matches several tracked files when the cited lines hold in more
+        /// than one of them. Question 1 passes; the warning lists the candidates so the text can name the full path.
+        /// </summary>
+        public const string CitationAmbiguousIssueCode = "preflight_citation_ambiguous";
 
         /// <summary>
         /// The D5 preflight text-half adapter, run after the deterministic preflight block to add
@@ -446,8 +453,15 @@ namespace Armada.Core.Services
             result.Preflight.Facts.Add(await BuildRecoverRefFact(objective, preflight, repositoryPath, description, token).ConfigureAwait(false));
             result.Preflight.Facts.Add(await BuildSiblingTipFact(auth, vessel, preflight, description, token).ConfigureAwait(false));
             List<string> drifts = new List<string>();
+            List<string> ambiguities = new List<string>();
             result.Preflight.Facts.Add(await BuildCitationResolvesFact(auth, objective, vessel, preflight, repositoryPath,
-                targetRevision, description, drifts, token).ConfigureAwait(false));
+                targetRevision, description, drifts, ambiguities, token).ConfigureAwait(false));
+            if (ambiguities.Count > 0)
+            {
+                AddIssue(result, CitationAmbiguousIssueCode, "preflight", ReadinessSeverityEnum.Warning,
+                    "These cited file names match several files and the cited lines hold in more than one: " + String.Join(" ", ambiguities),
+                    "q1");
+            }
             if (drifts.Count > 0)
             {
                 AddIssue(result, CitationDriftIssueCode, "preflight", ReadinessSeverityEnum.Warning,
@@ -647,6 +661,7 @@ namespace Armada.Core.Services
             string targetRevision,
             string description,
             List<string> drifts,
+            List<string> ambiguities,
             CancellationToken token)
         {
             const int question = 1;
@@ -667,9 +682,10 @@ namespace Armada.Core.Services
                 return fact;
             }
 
-            List<string> unresolved = new List<string>();
             List<string> issues = new List<string>();
+            List<string> notes = new List<string>();
             Dictionary<string, string> trackedPaths = new Dictionary<string, string>(StringComparer.Ordinal);
+            List<CitedLineRange> ranges = CitedLineRangeChecker.Parse(description);
             try
             {
                 foreach (string path in paths)
@@ -678,7 +694,7 @@ namespace Armada.Core.Services
                     {
                         bool siblingExists = await PathExistsInDeclaredSiblingAsync(
                             auth, objective, vessel, path, token).ConfigureAwait(false);
-                        if (!siblingExists) unresolved.Add(path);
+                        if (!siblingExists) AddUnresolved(issues, description, path, "file missing");
                         continue;
                     }
 
@@ -692,7 +708,37 @@ namespace Armada.Core.Services
                     string? suffix = await _Git.ResolveTrackedPathSuffixAsync(repositoryPath, targetRevision, path, token).ConfigureAwait(false);
                     if (String.IsNullOrWhiteSpace(suffix))
                     {
-                        unresolved.Add(path);
+                        List<string> candidates = await _Git.ListTrackedPathCandidatesAsync(
+                            repositoryPath, targetRevision, path, token).ConfigureAwait(false);
+                        if (candidates.Count < 2)
+                        {
+                            AddUnresolved(issues, description, path, "file missing");
+                            continue;
+                        }
+
+                        // A bare name that matches several files means the one whose lines hold the citations.
+                        List<CitedLineRange> cited = ranges.Where(range => range.Path == path).ToList();
+                        List<string> holding = new List<string>();
+                        foreach (string candidate in candidates)
+                        {
+                            IReadOnlyList<string>? candidateLines = await _Git.ReadFileLinesOnRevisionAsync(
+                                repositoryPath, targetRevision, candidate, token).ConfigureAwait(false);
+                            if (candidateLines != null && cited.All(range => Holds(range, candidateLines))) holding.Add(candidate);
+                        }
+                        string listed = String.Join(", ", candidates.Select(candidate => "`" + candidate + "`"));
+                        if (holding.Count == 1)
+                        {
+                            trackedPaths[path] = holding[0];
+                            notes.Add("`" + path + "` names `" + holding[0] + "`, the one of " + candidates.Count + " matching files whose lines hold the citation.");
+                        }
+                        else if (holding.Count > 1)
+                        {
+                            ambiguities.Add("`" + path + "` is an ambiguous file name: " + String.Join(", ", holding.Select(candidate => "`" + candidate + "`")) + ".");
+                        }
+                        else
+                        {
+                            AddUnresolved(issues, description, path, "ambiguous file name, and no candidate holds the cited lines (" + listed + ")");
+                        }
                         continue;
                     }
 
@@ -705,9 +751,9 @@ namespace Armada.Core.Services
                 {
                     GitAnchorPriorArt search = await _Git.SearchTrackedContentOnRevisionAsync(
                         repositoryPath, targetRevision, identifier, 1, token).ConfigureAwait(false);
-                    if (!search.Found) unresolved.Add(identifier);
+                    if (!search.Found) issues.Add("`" + identifier + "` does not resolve: identifier not found.");
                 }
-                foreach (CitedLineRange range in CitedLineRangeChecker.Parse(description))
+                foreach (CitedLineRange range in ranges)
                 {
                     if (!trackedPaths.TryGetValue(range.Path, out string? tracked)) continue;
                     IReadOnlyList<string>? lines = await _Git.ReadFileLinesOnRevisionAsync(
@@ -716,7 +762,7 @@ namespace Armada.Core.Services
                     string? issue = CitedLineRangeChecker.Evaluate(range, lines, out int currentLine);
                     if (issue == null) continue;
                     if (CitedLineRangeChecker.IsSmallDrift(range, currentLine)) drifts.Add(issue);
-                    else issues.Add(issue);
+                    else issues.Add(issue + (range.StartLine > lines.Count ? " Reason: line out of range." : " Reason: outside the declaration span."));
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -726,21 +772,39 @@ namespace Armada.Core.Services
                 return fact;
             }
 
-            if (unresolved.Count == 0 && issues.Count == 0)
+            if (issues.Count == 0)
             {
                 fact.Status = PreflightFactStatusEnum.Pass;
-                fact.Detail = "Every cited path:line and backticked identifier resolves at the target tip."
-                    + (drifts.Count > 0 ? " " + drifts.Count + " cited symbol(s) moved by a few lines (" + CitationDriftIssueCode + ")." : String.Empty);
+                List<string> parts = new List<string> { "Every cited path:line and backticked identifier resolves at the target tip." };
+                parts.AddRange(notes);
+                if (drifts.Count > 0) parts.Add(drifts.Count + " cited symbol(s) moved by a few lines (" + CitationDriftIssueCode + ").");
+                if (ambiguities.Count > 0) parts.Add(ambiguities.Count + " cited file name(s) are ambiguous (" + CitationAmbiguousIssueCode + ").");
+                fact.Detail = String.Join(" ", parts);
             }
             else
             {
                 fact.Status = PreflightFactStatusEnum.Fail;
-                List<string> parts = new List<string>();
-                if (unresolved.Count > 0) parts.Add("These citations do not resolve at the target tip: " + String.Join(", ", unresolved) + ".");
-                parts.AddRange(issues);
-                fact.Detail = String.Join(" ", parts);
+                fact.Detail = String.Join(" ", issues);
             }
             return fact;
+        }
+
+        // A citation holds in a file when its start line is in range and its symbol, if any, is within or around it.
+        private static bool Holds(CitedLineRange range, IReadOnlyList<string> lines)
+        {
+            string? issue = CitedLineRangeChecker.Evaluate(range, lines, out int currentLine);
+            return issue == null || CitedLineRangeChecker.IsSmallDrift(range, currentLine);
+        }
+
+        // Names each cited string for a path as written (file:line or file:start-end) with why it does not resolve.
+        private static void AddUnresolved(List<string> issues, string description, string path, string reason)
+        {
+            List<string> cited = MatchAll(description, _CitedPathLinePattern)
+                .Where(text => text.StartsWith(path + ":", StringComparison.Ordinal))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (cited.Count == 0) cited.Add(path);
+            foreach (string text in cited) issues.Add("`" + text + "` does not resolve: " + reason + ".");
         }
 
         private async Task<bool> PathExistsInDeclaredSiblingAsync(

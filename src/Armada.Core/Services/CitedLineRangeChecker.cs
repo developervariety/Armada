@@ -17,6 +17,9 @@ namespace Armada.Core.Services
     /// that, when the sentence holding the citation cites nothing else and names exactly one backticked
     /// identifier or call expression, before or after it. The symbol must then appear inside the cited lines.
     ///
+    /// A range that falls inside the span of one declaration of the symbol (from its declaration line to the
+    /// brace that closes its body, or to the end of its indented block) holds: it cites lines of that symbol.
+    ///
     /// A symbol that has moved is reported where it is declared: the declaration of the member nearest the
     /// cited lines, then any other occurrence nearest them. A call site earlier in the file is never named as
     /// the symbol's place.
@@ -140,6 +143,10 @@ namespace Armada.Core.Services
             {
                 if (ContainsWord(lines[line - 1], member)) return null;
             }
+
+            // A range inside the body of the symbol's declaration cites that symbol: a reader names a member and
+            // points at the lines of it that matter.
+            if (EnclosingDeclaration(lines, range, member) > 0) return null;
 
             int declaration = NearestLine(lines, range.StartLine, line => IsDeclarationOf(line, member));
             if (declaration > 0)
@@ -266,6 +273,118 @@ namespace Armada.Core.Services
             char c = text[index];
             if (c != '.' && c != '?' && c != '!' && c != ';') return false;
             return index + 1 >= text.Length || Char.IsWhiteSpace(text[index + 1]);
+        }
+
+        /// <summary>
+        /// The line of a declaration of the member whose span holds the whole cited range, or 0 when none does.
+        /// The span runs from the declaration line to its closing brace, or, for a declaration line that ends with
+        /// a colon and opens no brace, to the end of its indented block.
+        /// </summary>
+        private static int EnclosingDeclaration(IReadOnlyList<string> lines, CitedLineRange range, string member)
+        {
+            int last = Math.Min(range.EndLine, lines.Count);
+            for (int line = range.StartLine; line >= 1; line--)
+            {
+                if (!IsDeclarationOf(lines[line - 1], member)) continue;
+                int end = DeclarationSpanEnd(lines, line);
+                if (end >= last) return line;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// The last line of the declaration that starts at a line: the line of the brace that closes its body, the
+        /// line that ends a body-less declaration with a semicolon, or the end of an indented block. Braces inside
+        /// strings, character literals and comments do not count. Returns the declaration line itself when no body
+        /// is found.
+        /// </summary>
+        private static int DeclarationSpanEnd(IReadOnlyList<string> lines, int declarationLine)
+        {
+            int depth = 0;
+            bool opened = false;
+            bool blockComment = false;
+            for (int line = declarationLine; line <= lines.Count; line++)
+            {
+                string text = lines[line - 1] ?? String.Empty;
+                char quote = '\0';
+                bool verbatim = false;
+                for (int i = 0; i < text.Length; i++)
+                {
+                    char c = text[i];
+                    char next = i + 1 < text.Length ? text[i + 1] : '\0';
+                    if (blockComment)
+                    {
+                        if (c == '*' && next == '/') { blockComment = false; i++; }
+                        continue;
+                    }
+                    if (quote != '\0')
+                    {
+                        if (verbatim)
+                        {
+                            if (c == '"' && next == '"') { i++; continue; }
+                            if (c == '"') quote = '\0';
+                            continue;
+                        }
+                        if (c == '\\') { i++; continue; }
+                        if (c == quote) quote = '\0';
+                        continue;
+                    }
+                    if (c == '/' && next == '/') break;
+                    if (c == '/' && next == '*') { blockComment = true; i++; continue; }
+                    if (c == '#' && !opened && line == declarationLine && text.Substring(0, i).Trim().Length > 0) break;
+                    if (c == '"' || c == '\'' || c == '`')
+                    {
+                        quote = c;
+                        verbatim = c == '"' && i > 0 && text[i - 1] == '@';
+                        continue;
+                    }
+                    if (c == '{') { depth++; opened = true; continue; }
+                    if (c == '}')
+                    {
+                        depth--;
+                        if (opened && depth <= 0) return line;
+                        continue;
+                    }
+                    if (c == ';' && !opened) return line;
+                }
+                if (!opened && line == declarationLine && EndsWithColon(text))
+                    return IndentedBlockEnd(lines, declarationLine);
+            }
+            return opened ? lines.Count : declarationLine;
+        }
+
+        private static bool EndsWithColon(string text)
+        {
+            int hash = text.IndexOf('#');
+            string code = (hash >= 0 ? text.Substring(0, hash) : text).TrimEnd();
+            return code.EndsWith(":", StringComparison.Ordinal);
+        }
+
+        // The last non-blank line indented deeper than the declaration line.
+        private static int IndentedBlockEnd(IReadOnlyList<string> lines, int declarationLine)
+        {
+            int indent = Indent(lines[declarationLine - 1]);
+            int end = declarationLine;
+            for (int line = declarationLine + 1; line <= lines.Count; line++)
+            {
+                string text = lines[line - 1] ?? String.Empty;
+                if (text.Trim().Length == 0) continue;
+                if (Indent(text) <= indent) break;
+                end = line;
+            }
+            return end;
+        }
+
+        private static int Indent(string? text)
+        {
+            int count = 0;
+            foreach (char c in text ?? String.Empty)
+            {
+                if (c == ' ') count++;
+                else if (c == '\t') count += 4;
+                else break;
+            }
+            return count;
         }
 
         // The matching line nearest the cited start; the earlier line wins a tie.

@@ -1459,6 +1459,117 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Preflight citations pass a range inside the body of the declaration they name", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("facts-citation-body-preview");
+
+                    // Size spans lines 2-31 and Other spans 33-37; Format's body holds closing braces in strings,
+                    // a character literal and comments, and closes at line 60.
+                    List<string> book = new List<string> { "class Book {", "    public int Size(int lots)", "    {" };
+                    for (int line = 4; line <= 30; line++) book.Add("        total += lots * " + line + ";");
+                    book.Add("    }");
+                    book.Add("");
+                    book.Add("    public int Other()");
+                    book.Add("    {");
+                    for (int line = 35; line <= 36; line++) book.Add("        total -= " + line + ";");
+                    book.Add("    }");
+                    book.Add("");
+                    book.Add("    public string Format()");
+                    book.Add("    {");
+                    book.Add("        string close = \"}\";");
+                    book.Add("        string escaped = \"\\\"}\";");
+                    book.Add("        string verbatim = @\"a\"\"}\";");
+                    book.Add("        char brace = '}';");
+                    book.Add("        // }");
+                    book.Add("        /* } */");
+                    for (int line = 47; line <= 59; line++) book.Add("        close += " + line + ";");
+                    book.Add("    }");
+                    book.Add("}");
+                    AssertEqual("    }", book[59], "the fixture closes Format at line 60");
+
+                    List<string> report = new List<string> { "def build(rows):", "    total = 0" };
+                    for (int line = 3; line <= 19; line++) report.Add("    total += rows[" + line + "]  # {");
+                    report.Add("    return total");
+                    report.Add("");
+                    report.Add("def other():");
+                    report.Add("    return 1");
+
+                    harness.Git.PathsOnRevision.Add("Services/Book.cs");
+                    harness.Git.PathsOnRevision.Add("tools/report.py");
+                    harness.Git.FoundTermsOnRevision.Add("Size");
+                    harness.Git.FoundTermsOnRevision.Add("Format");
+                    harness.Git.FoundTermsOnRevision.Add("build");
+                    harness.Git.FileLinesOnRevision["Services/Book.cs"] = book;
+                    harness.Git.FileLinesOnRevision["tools/report.py"] = report;
+
+                    List<CitationCase> cases = new List<CitationCase>
+                    {
+                        new CitationCase("a range inside a method body", "`Size` (`Services/Book.cs:20-22`) sums the lots.", PreflightFactStatusEnum.Pass),
+                        new CitationCase("a range that starts at the declaration", "`Size` (`Services/Book.cs:2-25`) sums the lots.", PreflightFactStatusEnum.Pass),
+                        new CitationCase("a range that crosses into the next method", "`Size` (`Services/Book.cs:28-35`) sums the lots.", PreflightFactStatusEnum.Fail,
+                            "`Size` is not within `Services/Book.cs:28-35`; it is declared at line 2. Reason: outside the declaration span."),
+                        new CitationCase("a range past braces held in strings and comments", "`Format` (`Services/Book.cs:56-58`) builds the text.", PreflightFactStatusEnum.Pass),
+                        new CitationCase("a range inside a Python indent block", "`build` (`tools/report.py:15-17`) sums the rows.", PreflightFactStatusEnum.Pass),
+                        new CitationCase("a range past the end of a Python indent block", "`build` (`tools/report.py:18-23`) sums the rows.", PreflightFactStatusEnum.Fail),
+                        new CitationCase("a range past the end of the file", "`Size` (`Services/Book.cs:90`) sums the lots.", PreflightFactStatusEnum.Fail,
+                            "Reason: line out of range."),
+                        new CitationCase("a missing file", "Change `Services/Gone.cs:4` to sum the lots.", PreflightFactStatusEnum.Fail,
+                            "`Services/Gone.cs:4` does not resolve: file missing.")
+                    };
+                    foreach (CitationCase testCase in cases)
+                    {
+                        objective.Description = testCase.Description;
+                        ObjectiveDispatchPreview preview = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                        ObjectiveDispatchPreflightFact fact = preview.Preflight.Facts.Single(item => item.QuestionNumber == 1);
+                        AssertEqual(testCase.Expected, fact.Status, testCase.Name + " gives question 1 " + testCase.Expected + ". Detail: " + fact.Detail);
+                        if (testCase.DetailContains != null)
+                            AssertContains(testCase.DetailContains, fact.Detail, testCase.Name + " is named as written with its reason");
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Preflight citations resolve a bare file name that matches several files by the file whose lines hold it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("facts-citation-bare-name-preview");
+
+                    // The application file is short; the test file of the same name holds the cited line.
+                    List<string> app = new List<string> { "class Program {", "    static void Main() { }", "}" };
+                    List<string> tests = new List<string> { "class Program {" };
+                    for (int line = 2; line <= 199; line++) tests.Add("    void Case" + line + "() { }");
+                    tests.Add("}");
+                    harness.Git.FileLinesOnRevision["src/App/Program.cs"] = app;
+                    harness.Git.FileLinesOnRevision["tests/App.Tests/Program.cs"] = tests;
+                    harness.Git.TrackedPathCandidates["Program.cs"] = new List<string> { "src/App/Program.cs", "tests/App.Tests/Program.cs" };
+
+                    objective.Description = "Fix the case at Program.cs:150.";
+                    ObjectiveDispatchPreview one = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreflightFact oneFact = one.Preflight.Facts.Single(fact => fact.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Pass, oneFact.Status, "one candidate holds the line, so question 1 passes. Detail: " + oneFact.Detail);
+                    AssertContains("`Program.cs` names `tests/App.Tests/Program.cs`", oneFact.Detail, "the chosen file is named");
+
+                    objective.Description = "Fix the class at Program.cs:1.";
+                    ObjectiveDispatchPreview several = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Pass, several.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a line that holds in both candidates passes question 1");
+                    ObjectiveDispatchPreviewIssue ambiguous = several.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.CitationAmbiguousIssueCode);
+                    AssertEqual(ReadinessSeverityEnum.Warning, ambiguous.Severity, "an ambiguous file name is a warning, never a dispatch block");
+                    AssertContains("`src/App/Program.cs`, `tests/App.Tests/Program.cs`", ambiguous.Message, "the warning lists the candidates");
+
+                    objective.Description = "Fix the case at Program.cs:900.";
+                    ObjectiveDispatchPreview none = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreflightFact noneFact = none.Preflight.Facts.Single(fact => fact.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Fail, noneFact.Status, "no candidate holds the line, so question 1 fails");
+                    AssertContains("`Program.cs:900` does not resolve: ambiguous file name, and no candidate holds the cited lines (`src/App/Program.cs`, `tests/App.Tests/Program.cs`).",
+                        noneFact.Detail, "the failure names the citation as written and lists the candidates");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Preview warns about stored text that names another current objective or a conflicting criterion count", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -2140,6 +2251,22 @@ namespace Armada.Test.Unit.Suites.Services
             public string HighCaptainId { get; set; } = String.Empty;
             /// <summary>Standard captain ID in the parity fixture.</summary>
             public string LowCaptainId { get; set; } = String.Empty;
+        }
+
+        private sealed class CitationCase
+        {
+            public CitationCase(string name, string description, PreflightFactStatusEnum expected, string? detailContains = null)
+            {
+                Name = name;
+                Description = description;
+                Expected = expected;
+                DetailContains = detailContains;
+            }
+
+            public string Name { get; }
+            public string Description { get; }
+            public PreflightFactStatusEnum Expected { get; }
+            public string? DetailContains { get; }
         }
 
         private sealed class CoverageParityCase
