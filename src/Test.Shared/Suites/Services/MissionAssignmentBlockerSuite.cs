@@ -173,6 +173,28 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("placement_wait_surfaces_reason", "A free captain whose dock cannot be placed reports the placement reason, not awaiting dispatch", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Harness h = await BuildHarnessAsync(testDb.Driver);
+                    await AddCaptainAsync(testDb.Driver, "Idle One", CaptainStateEnum.Idle);
+                    Mission mission = await AddMissionAsync(testDb.Driver, h.Vessel, "waiting", MissionStatusEnum.Pending);
+                    h.Missions.ResolveDockPlacementAsync = (m, c, v) => Task.FromResult(DockPlacement.WaitFor("no connected Harbor advertises api-inference-context-v1"));
+
+                    AssertFalse(await h.Missions.TryAssignAsync(mission, h.Vessel), "the mission waits");
+                    MissionAssignmentBlocker? blocker = await h.Missions.GetAssignmentBlockerAsync(mission);
+                    AssertEqual(MissionAssignmentBlockerReasonEnum.PlacementWaiting, blocker!.Reason, "reason");
+                    AssertContains("api-inference-context-v1", blocker.Summary);
+                    AssertContains("api-inference-context-v1", h.Missions.GetPlacementWaitReason(mission.Id) ?? String.Empty);
+
+                    // Placement now succeeds; provisioning afterwards may still fail in this harness, which is not under test.
+                    h.Missions.ResolveDockPlacementAsync = (m, c, v) => Task.FromResult(DockPlacement.OnAdmiral("test"));
+                    await h.Missions.TryAssignAsync(mission, h.Vessel);
+                    AssertNull(h.Missions.GetPlacementWaitReason(mission.Id), "the reason is dropped once placement succeeds");
+                }
+            }));
+
             return new TestSuiteDescriptor(SuiteId, "Mission assignment blocker", cases);
         }
 

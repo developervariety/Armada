@@ -1929,6 +1929,10 @@ namespace Armada.Core.Services
                 return "upstream mission " + dependency.Id + " is " + dependency.Status + " but the branch/context handoff is not yet ready";
             }
 
+            string? placementReason = _Missions.GetPlacementWaitReason(mission.Id);
+            if (placementReason != null)
+                return "its dock cannot be placed yet: " + placementReason;
+
             if (!String.IsNullOrEmpty(mission.RequestedCaptainId))
                 return "no idle captain matches the requested captain " + mission.RequestedCaptainId;
 

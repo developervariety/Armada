@@ -91,6 +91,14 @@ namespace Armada.Core.Services.Interfaces
         Task RecordEndpointOutcomeAsync(Captain captain, bool healthy, CancellationToken token = default);
 
         /// <summary>
+        /// Why a Pending mission's dock could not be placed on the last dispatch attempt, or null when placement was not
+        /// the obstacle.
+        /// </summary>
+        /// <param name="missionId">Mission ID.</param>
+        /// <returns>The placement wait reason, or null.</returns>
+        string? GetPlacementWaitReason(string missionId);
+
+        /// <summary>
         /// Re-drive pipeline handoffs that dangled: WorkProduced missions whose Pending downstream
         /// stage was never prepared. Returns the number of missions whose handoff was re-driven.
         /// </summary>

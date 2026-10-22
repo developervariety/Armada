@@ -83,6 +83,8 @@ namespace Armada.Core.Services
         private readonly IHostCommandExecutor _LocalCommands = new LocalHostCommandExecutor();
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _PlacementWaitReasons =
             new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _RefusedHandoffWarnings =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
         private const string ReviewFeedbackMarker = "<!-- ARMADA:REVIEW-FEEDBACK -->";
         private const string ReviewerGuidanceMarker = "<!-- ARMADA:REVIEWER-GUIDANCE -->";
@@ -322,6 +324,13 @@ namespace Armada.Core.Services
             if (idleCaptains.Count > 0)
             {
                 bool eligible = await IsAnyCaptainEligibleAsync(idleCaptains, mission, token).ConfigureAwait(false);
+                if (eligible && _PlacementWaitReasons.TryGetValue(mission.Id, out string? placementReason))
+                {
+                    blocker.Reason = MissionAssignmentBlockerReasonEnum.PlacementWaiting;
+                    blocker.Summary = "A captain is free, but the mission's dock cannot be placed yet: " + placementReason;
+                    return blocker;
+                }
+
                 if (eligible)
                 {
                     blocker.Reason = MissionAssignmentBlockerReasonEnum.AwaitingDispatch;
@@ -828,6 +837,13 @@ namespace Armada.Core.Services
                 if (_CompletionsInFlight.AddOrUpdate(missionId, 0, (_, count) => count - 1) <= 0)
                     _CompletionsInFlight.TryRemove(new KeyValuePair<string, int>(missionId, 0));
             }
+        }
+
+        /// <inheritdoc />
+        public string? GetPlacementWaitReason(string missionId)
+        {
+            if (String.IsNullOrEmpty(missionId)) return null;
+            return _PlacementWaitReasons.TryGetValue(missionId, out string? reason) ? reason : null;
         }
 
         /// <inheritdoc />
@@ -3290,7 +3306,9 @@ namespace Armada.Core.Services
                 if (PersonaCatalog.Matches(produced.Persona, PersonaCatalog.Judge)
                     && (JudgeVerdictParser.Parse(produced.AgentOutput) != JudgeVerdictEnum.Pass || !TryValidateJudgePassOutput(produced.AgentOutput, out _)))
                 {
-                    _Logging.Warn(_Header + "not re-driving handoff for Judge mission " + produced.Id + ": its recorded output is not a substantiated PASS");
+                    // Recovery runs every health cycle; say this once per mission, not every few seconds.
+                    if (_RefusedHandoffWarnings.TryAdd(produced.Id, 0))
+                        _Logging.Warn(_Header + "not re-driving handoff for Judge mission " + produced.Id + ": its recorded output is not a substantiated PASS");
                     continue;
                 }
 

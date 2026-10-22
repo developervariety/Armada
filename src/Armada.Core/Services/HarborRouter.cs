@@ -167,8 +167,19 @@ namespace Armada.Core.Services
             if (connected == 0)
                 return "No enabled Harbor is currently connected.";
             if (connectedCapable == 0)
-                return "No connected Harbor advertises the required capabilities"
-                    + (String.IsNullOrWhiteSpace(request.RequestedRuntime) ? "" : " (runtime " + request.RequestedRuntime + ")") + ".";
+            {
+                // Name what is actually missing: a Harbor may have the runtime and lack only a newer protocol capability.
+                List<string> required = new List<string>();
+                if (!String.IsNullOrWhiteSpace(request.RequestedRuntime)) required.Add(request.RequestedRuntime!);
+                if (request.RequiredCapabilities != null)
+                    required.AddRange(request.RequiredCapabilities.Where(c => !String.IsNullOrWhiteSpace(c)));
+                List<string> missing = required.Where(name => !candidates.Any(h => h.Enabled && isConnected(h.Id) && !IsExcluded(request, h.Id) && HasCapability(h, name)))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                if (missing.Count > 0)
+                    return "No connected Harbor advertises " + String.Join(", ", missing)
+                        + (missing.Any(m => m.StartsWith("api-inference-", StringComparison.OrdinalIgnoreCase)) ? "; update the Harbor to one that supports this endpoint's settings." : ".");
+                return "No single connected Harbor advertises all of " + String.Join(", ", required) + ".";
+            }
             return "All capable Harbors are at capacity; the mission will start when a slot frees up.";
         }
 

@@ -123,6 +123,19 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(incapable.CapableHarborsAtCapacity, "a Harbor without the runtime is not a capacity wait");
             }));
 
+            cases.Add(Case("missing_capability_named_in_reason", "The no-eligible reason names the capability that is missing, not the runtime the Harbor has", TestTags.Negative, () =>
+            {
+                HarborRouter router = new HarborRouter();
+                List<Harbor> harbors = new List<Harbor> { Cap("hbr_a", "A", 4, "ApiEndpoint") };
+                HarborRoutingRequest request = new HarborRoutingRequest { RequestedRuntime = "ApiEndpoint", RequiredCapabilities = new List<string> { "api-inference-context-v1" } };
+
+                HarborRoutingDecision decision = router.Select(harbors, All, Zero, request);
+                AssertFalse(decision.Success);
+                AssertContains("api-inference-context-v1", decision.Reason ?? String.Empty);
+                AssertContains("update the Harbor", decision.Reason ?? String.Empty);
+                AssertFalse((decision.Reason ?? String.Empty).Contains("ApiEndpoint"), "the runtime is present and must not be blamed");
+            }));
+
             cases.Add(Case("no_connected_reports_reason", "No connected Harbor reports a clear reason", TestTags.Negative, () =>
             {
                 HarborRouter router = new HarborRouter();

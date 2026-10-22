@@ -74,6 +74,12 @@ namespace Armada.Core.Enums
         /// The captain could not be started (for example its CLI is missing on the host the mission was placed on);
         /// assignment is retried after a backoff.
         /// </summary>
-        LaunchFailing
+        LaunchFailing,
+
+        /// <summary>
+        /// A captain is free, but no host can take the mission's dock yet (for example Require Harbor is on and no
+        /// connected Harbor has the capabilities it needs, or every capable Harbor is at capacity).
+        /// </summary>
+        PlacementWaiting
     }
 }
