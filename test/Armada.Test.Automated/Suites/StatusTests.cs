@@ -421,45 +421,55 @@ namespace Armada.Test.Automated.Suites
                 string suffix = Guid.NewGuid().ToString("N");
                 string listedModel = "armada-routing-preview-listed-" + suffix;
                 string excludedModel = "armada-routing-preview-unlisted-" + suffix;
-                string captainName = "routing-preview-listed-" + suffix;
-                string? endpointId = null;
-                string? captainId = null;
+                string deadModel = "armada-routing-preview-dead-" + suffix;
+                string listedName = "routing-preview-listed-" + suffix;
+                string excludedName = "routing-preview-unlisted-" + suffix;
+                List<string> endpointIds = new List<string>();
+                List<string> captainIds = new List<string>();
                 try
                 {
-                    // API-endpoint admission validates this synthetic local endpoint without sending an
+                    // API-endpoint admission validates these synthetic local endpoints without sending an
                     // inference request. The preview draft below has no accounts, so it also has no collectors.
-                    using (StringContent createEndpoint = JsonHelper.ToJsonContent(new
+                    async Task CreateCaptainAsync(string name, string model)
                     {
-                        Name = "routing-preview-endpoint-" + suffix,
-                        Kind = "Inference",
-                        Scope = "TenantWide",
-                        Provider = "OpenAICompatible",
-                        BaseUrl = "http://127.0.0.1:1",
-                        Model = listedModel,
-                        Enabled = true
-                    }))
-                    using (HttpResponseMessage createdEndpoint = await _AuthClient.PostAsync("/api/v1/model-endpoints", createEndpoint).ConfigureAwait(false))
-                    {
-                        createdEndpoint.EnsureSuccessStatusCode();
-                        ModelEndpoint endpoint = await JsonHelper.DeserializeAsync<ModelEndpoint>(createdEndpoint).ConfigureAwait(false);
-                        endpointId = endpoint.Id;
+                        string endpointId;
+                        using (StringContent createEndpoint = JsonHelper.ToJsonContent(new
+                        {
+                            Name = "routing-preview-endpoint-" + name,
+                            Kind = "Inference",
+                            Scope = "TenantWide",
+                            Provider = "OpenAICompatible",
+                            BaseUrl = "http://127.0.0.1:1",
+                            Model = model,
+                            Enabled = true
+                        }))
+                        using (HttpResponseMessage createdEndpoint = await _AuthClient.PostAsync("/api/v1/model-endpoints", createEndpoint).ConfigureAwait(false))
+                        {
+                            createdEndpoint.EnsureSuccessStatusCode();
+                            ModelEndpoint endpoint = await JsonHelper.DeserializeAsync<ModelEndpoint>(createdEndpoint).ConfigureAwait(false);
+                            endpointId = endpoint.Id;
+                            endpointIds.Add(endpointId);
+                        }
+
+                        using (StringContent createCaptain = JsonHelper.ToJsonContent(new
+                        {
+                            Name = name,
+                            Runtime = "ApiEndpoint",
+                            Model = model,
+                            ModelEndpointId = endpointId
+                        }))
+                        using (HttpResponseMessage createdCaptain = await _AuthClient.PostAsync("/api/v1/captains", createCaptain).ConfigureAwait(false))
+                        {
+                            createdCaptain.EnsureSuccessStatusCode();
+                            Captain captain = await JsonHelper.DeserializeAsync<Captain>(createdCaptain).ConfigureAwait(false);
+                            captainIds.Add(captain.Id);
+                            AssertEqual(model, captain.Model, "the harness captain has its synthetic model");
+                            AssertEqual(CaptainStateEnum.Idle, captain.State, "the harness captain is idle");
+                        }
                     }
 
-                    using (StringContent createCaptain = JsonHelper.ToJsonContent(new
-                    {
-                        Name = captainName,
-                        Runtime = "ApiEndpoint",
-                        Model = listedModel,
-                        ModelEndpointId = endpointId
-                    }))
-                    using (HttpResponseMessage createdCaptain = await _AuthClient.PostAsync("/api/v1/captains", createCaptain).ConfigureAwait(false))
-                    {
-                        createdCaptain.EnsureSuccessStatusCode();
-                        Captain captain = await JsonHelper.DeserializeAsync<Captain>(createdCaptain).ConfigureAwait(false);
-                        captainId = captain.Id;
-                        AssertEqual(listedModel, captain.Model, "the harness captain has the synthetic listed model");
-                        AssertEqual(CaptainStateEnum.Idle, captain.State, "the harness captain is idle");
-                    }
+                    await CreateCaptainAsync(listedName, listedModel).ConfigureAwait(false);
+                    await CreateCaptainAsync(excludedName, excludedModel).ConfigureAwait(false);
 
                     bool settingsFileExisted = File.Exists(_SettingsFilePath);
                     string? savedSettings = settingsFileExisted
@@ -490,27 +500,29 @@ namespace Armada.Test.Automated.Suites
                         }
                     }
 
-                    UsagePreviewResponse excluded = await PreviewAsync(excludedModel).ConfigureAwait(false);
-                    AssertEqual(SmartRoutingSelector.ReasonPersonaModelListExcludes, excluded.Reason, "the route reports the named list exclusion");
-                    AssertEqual(0, excluded.Candidates.Count, "an unlisted idle model is not a candidate");
-                    AssertFalse(excluded.Capacity.Asked, "no work text means no capacity client call");
-
                     UsagePreviewResponse allowed = await PreviewAsync(listedModel).ConfigureAwait(false);
-                    AssertEqual(1, allowed.Candidates.Count, "the listed synthetic model is a candidate");
-                    AssertEqual(captainName, allowed.Candidates[0].Name, "the listed captain is returned");
-                    AssertFalse(allowed.Capacity.Asked, "the allowed control also avoids capacity calls");
+                    AssertTrue(allowed.Candidates.Any(c => c.Name == listedName), "the listed synthetic model is a candidate");
+                    AssertFalse(allowed.Candidates.Any(c => c.Name == excludedName), "an unlisted idle model is not a candidate while a listed captain serves");
+                    AssertFalse(allowed.Capacity.Asked, "no work text means no capacity client call");
+
+                    UsagePreviewResponse dead = await PreviewAsync(deadModel).ConfigureAwait(false);
+                    AssertTrue(dead.Reason.StartsWith(PersonaModelListHealth.ReasonDeadFallbackPrefix, StringComparison.Ordinal),
+                        "a list naming only a model no captain runs reports the fallback: " + dead.Reason);
+                    AssertTrue(dead.Candidates.Any(c => c.Name == listedName) && dead.Candidates.Any(c => c.Name == excludedName),
+                        "dead lists fall back to every admitted captain");
+                    AssertFalse(dead.Capacity.Asked, "the dead-list control also avoids capacity calls");
                     AssertEqual(settingsFileExisted, File.Exists(_SettingsFilePath), "draft previews do not create or remove a settings file");
                     if (settingsFileExisted)
                         AssertEqual(savedSettings, await File.ReadAllTextAsync(_SettingsFilePath).ConfigureAwait(false), "draft previews do not save settings");
                 }
                 finally
                 {
-                    if (!String.IsNullOrWhiteSpace(captainId))
+                    foreach (string captainId in captainIds)
                     {
                         using (HttpResponseMessage deletedCaptain = await _AuthClient.DeleteAsync("/api/v1/captains/" + Uri.EscapeDataString(captainId)).ConfigureAwait(false))
                             AssertTrue(deletedCaptain.IsSuccessStatusCode, "the synthetic captain is removed after the route test");
                     }
-                    if (!String.IsNullOrWhiteSpace(endpointId))
+                    foreach (string endpointId in endpointIds)
                     {
                         using (HttpResponseMessage deletedEndpoint = await _AuthClient.DeleteAsync("/api/v1/model-endpoints/" + Uri.EscapeDataString(endpointId)).ConfigureAwait(false))
                             AssertTrue(deletedEndpoint.IsSuccessStatusCode, "the synthetic endpoint is removed after the route test");

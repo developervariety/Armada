@@ -12868,6 +12868,11 @@ namespace Armada.Core.Services
                     narrow = request.Outcome == RequestedCaptainOutcomeEnum.FallbackByTier;
                 }
 
+                // The whole roster tells a persona model list waiting for a busy listed captain from one no listed
+                // captain can serve; it is read only when the persona names models.
+                List<Captain>? roster = UsageRoutingService.FindPersonaModels(usagePolicy, mission.Persona) != null
+                    ? await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false)
+                    : null;
                 UsageRoutingDecision decision = await SmartRoutingSelector.SelectAsync(new SmartRoutingRequest
                 {
                     Tiers = _Settings.ModelTier,
@@ -12875,6 +12880,7 @@ namespace Armada.Core.Services
                     Usage = usage,
                     Mission = mission,
                     Pool = idleCaptains,
+                    Roster = roster,
                     BusyCaptainIds = busy,
                     NowUtc = now,
                     NarrowToLowestTier = narrow,

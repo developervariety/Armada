@@ -21,7 +21,8 @@ namespace Armada.Core.Models
         public List<string> EligibleConfiguredCaptainIds { get; set; } = new List<string>();
 
         /// <summary>
-        /// Number of eligible captains that are currently idle. This is capacity information only.
+        /// Number of eligible captains that are currently idle and that Smart Routing usage does not remove, so
+        /// assignment could take them now. This is capacity information only.
         /// </summary>
         public int IdleEligibleCount { get; set; }
     }

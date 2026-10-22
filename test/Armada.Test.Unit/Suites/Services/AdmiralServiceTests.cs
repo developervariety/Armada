@@ -1037,6 +1037,91 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HandleProcessExitAsync QuotaHoldFromOneError IsCappedAndEndsWhenAnotherCaptainOnTheAccountFinishesARun", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxRecoveryAttempts = 3;
+                    settings.MinIdleCaptains = 0;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                    Captain failing = new Captain("hold-source") { Model = "shared-model", State = CaptainStateEnum.Working, ProcessId = 5353 };
+                    Captain idleSibling = new Captain("hold-idle-sibling") { Model = "shared-model", State = CaptainStateEnum.Idle };
+                    Captain busySibling = new Captain("hold-busy-sibling") { Model = "shared-model", State = CaptainStateEnum.Working, ProcessId = 5454 };
+                    await db.Captains.CreateAsync(failing);
+                    await db.Captains.CreateAsync(idleSibling);
+                    await db.Captains.CreateAsync(busySibling);
+                    settings.ModelTier.UsageRouting = new UsageRoutingSettings
+                    {
+                        Enabled = true,
+                        Accounts = new List<UsageAccountSettings>
+                        {
+                            new UsageAccountSettings { Id = "shared", CaptainIds = new List<string> { failing.Id, idleSibling.Id, busySibling.Id } }
+                        }
+                    };
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Voyage voyage = new Voyage("Account hold voyage") { Status = VoyageStatusEnum.InProgress };
+                    await db.Voyages.CreateAsync(voyage);
+                    Mission failed = new Mission("Mission that hits the limit")
+                    {
+                        VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.InProgress,
+                        AssignmentState = MissionAssignmentStateEnum.Assigned, ProcessId = 5353, CaptainId = failing.Id
+                    };
+                    Mission served = new Mission("Mission the provider serves")
+                    {
+                        VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.InProgress,
+                        AssignmentState = MissionAssignmentStateEnum.Assigned, ProcessId = 5454, CaptainId = busySibling.Id
+                    };
+                    await db.Missions.CreateAsync(failed);
+                    await db.Missions.CreateAsync(served);
+                    failing.CurrentMissionId = failed.Id;
+                    busySibling.CurrentMissionId = served.Id;
+                    await db.Captains.UpdateAsync(failing);
+                    await db.Captains.UpdateAsync(busySibling);
+
+                    string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                    Directory.CreateDirectory(missionLogDir);
+                    await File.WriteAllTextAsync(
+                        Path.Combine(missionLogDir, failed.Id + ".log"),
+                        "[stderr] ActionRequiredError: Weekly usage limit reached. It resets in 5 days.\n[2026-04-02 23:49:03] Agent exited with code 1").ConfigureAwait(false);
+
+                    // The default account hold limit.
+                    const int DefaultAccountHoldMinutes = 60;
+                    DateTime before = DateTime.UtcNow;
+                    await service.HandleProcessExitAsync(5353, 1, failing.Id, failed.Id).ConfigureAwait(false);
+
+                    Captain? sourceHeld = await db.Captains.ReadAsync(failing.Id).ConfigureAwait(false);
+                    Captain? siblingHeld = await db.Captains.ReadAsync(idleSibling.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, siblingHeld!.State, "the idle sibling is held with the account");
+                    AssertTrue(siblingHeld.QuarantineUntilUtc.HasValue
+                        && siblingHeld.QuarantineUntilUtc.Value <= before.AddMinutes(DefaultAccountHoldMinutes + 1),
+                        "one error holds a sibling no longer than the account hold limit, not the provider's 5 days: " + siblingHeld.QuarantineUntilUtc);
+                    AssertContains(failing.Id, siblingHeld.QuarantineReason ?? String.Empty, "the sibling's hold names the captain whose error started it");
+                    AssertTrue(sourceHeld!.QuarantineUntilUtc > before.AddDays(1), "the failing captain keeps the provider's own retry time");
+                    UsageRoutingService usage = UsageRoutingService.For(settings);
+                    ProviderUsageStatus held = usage.GetStatus(settings.ModelTier.UsageRouting.Accounts[0], null, DateTime.UtcNow);
+                    AssertEqual("Exhausted", held.State, "the account is held");
+                    AssertTrue(held.ExhaustedUntilUtc <= before.AddMinutes(DefaultAccountHoldMinutes + 1), "the account hold is capped");
+
+                    // The busy sibling's run ends cleanly: the provider served the account after the error.
+                    await service.HandleProcessExitAsync(5454, 0, busySibling.Id, served.Id).ConfigureAwait(false);
+
+                    Captain? sourceAfter = await db.Captains.ReadAsync(failing.Id).ConfigureAwait(false);
+                    Captain? siblingAfter = await db.Captains.ReadAsync(idleSibling.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, siblingAfter!.State, "a served run on the account releases the held sibling");
+                    AssertEqual(CaptainStateEnum.Idle, sourceAfter!.State, "a served run on the account releases the captain whose error started the hold");
+                    AssertFalse(usage.GetStatus(settings.ModelTier.UsageRouting.Accounts[0], null, DateTime.UtcNow).State == "Exhausted", "the account hold is cleared");
+                    EnumerationResult<ArmadaEvent> events = await db.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
+                    ArmadaEvent? cleared = events.Objects.FirstOrDefault(e => e.EventType == "usage_account.hold_cleared");
+                    AssertNotNull(cleared, "the operator sees the hold end");
+                    AssertContains(busySibling.Id, cleared!.Message, "the event names the captain whose run ended the hold");
+                }
+            });
+
             await RunTest("HandleProcessExitAsync AuthFailureOnAccountCaptain RefusesAccountUntilSignInWithoutTimedHold", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

@@ -27,6 +27,12 @@ namespace Armada.Core.Services
         /// <summary>The gated, idle captain pool.</summary>
         public required List<Captain> Pool { get; init; }
 
+        /// <summary>
+        /// Every captain of the fleet, busy ones included, used to tell a persona model list that waits for a busy
+        /// listed captain from one no listed captain can serve. Null means the pool is the whole roster.
+        /// </summary>
+        public IReadOnlyList<Captain>? Roster { get; init; }
+
         /// <summary>Captains working or reserved, for account concurrency limits.</summary>
         public IReadOnlyCollection<string> BusyCaptainIds { get; init; } = new List<string>();
 

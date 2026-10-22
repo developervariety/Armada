@@ -111,7 +111,8 @@ namespace Armada.Test.Unit.Suites.Services
             List<Captain> pool,
             Mission? mission = null,
             CapacityEscalationResolver? capacity = null,
-            bool withText = true)
+            bool withText = true,
+            List<Captain>? roster = null)
         {
             return SmartRoutingSelector.SelectAsync(new SmartRoutingRequest
             {
@@ -120,6 +121,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Usage = new UsageRoutingService(),
                 Mission = mission ?? new Mission { Id = "msn_example", Persona = "Worker", Priority = 100, Title = "work" },
                 Pool = pool,
+                Roster = roster,
                 NowUtc = DateTime.UtcNow,
                 RandomPick = n => 0,
                 Capacity = capacity,
@@ -300,8 +302,11 @@ namespace Armada.Test.Unit.Suites.Services
                 unlisted.PreferenceRank = 1000;
                 UsageRoutingSettings policy = Policy();
                 policy.PersonaModels["Worker"] = WorkerModels();
-                UsageRoutingDecision decision = await SelectAsync(policy, new List<Captain> { unlisted });
-                AssertEqual(0, decision.Candidates.Count);
+                Captain busyListed = NewCaptain("cpt-luna", _Luna);
+                busyListed.State = CaptainStateEnum.Working;
+                UsageRoutingDecision decision = await SelectAsync(policy, new List<Captain> { unlisted },
+                    roster: new List<Captain> { unlisted, busyListed });
+                AssertEqual(0, decision.Candidates.Count, "a busy listed captain keeps the lists authoritative");
                 AssertEqual(SmartRoutingSelector.ReasonPersonaModelListExcludes, decision.Reason);
 
                 List<Captain> pool = Pool();
@@ -309,6 +314,49 @@ namespace Armada.Test.Unit.Suites.Services
                 UsageRoutingDecision withListed = await SelectAsync(policy, pool);
                 AssertFalse(withListed.Candidates.Any(c => c.Id == "cpt-unlisted"), "a listed captain being idle changes nothing for the unlisted one");
                 AssertEqual("cpt-luna", withListed.Candidates[0].Id);
+            });
+
+            await RunTest("Lists that name only models no captain can serve fall back to every admitted captain and record it", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Captain unlisted = NewCaptain("cpt-unlisted", _Unlisted);
+                    UsageRoutingSettings policy = Policy();
+                    policy.PersonaModels["Worker"] = WorkerModels();
+                    Mission mission = new Mission { Id = "msn_dead_lists", Persona = "Worker", Priority = 100, Title = "work" };
+                    UsageRoutingDecision decision = await SelectAsync(policy, new List<Captain> { unlisted }, mission);
+                    AssertEqual(1, decision.Candidates.Count, "no captain runs a listed model, so waiting for the lists would never end");
+                    AssertEqual("cpt-unlisted", decision.Candidates[0].Id);
+                    AssertEqual("persona_models_dead_fallback:cpt-unlisted", decision.Reason, "the reason names the fallback and the captain");
+
+                    await PersonaModelListHealth.TryEmitAsync(db.Driver, mission, decision);
+                    AssertEqual(1, await CountEventsAsync(db, "routing.persona_model_list_fallback"), "the fallback is recorded as an event");
+                }
+            });
+
+            await RunTest("A quarantined or benched listed captain does not keep dead lists authoritative; a busy one does", async () =>
+            {
+                Captain unlisted = NewCaptain("cpt-unlisted", _Unlisted);
+                Captain quarantined = NewCaptain("cpt-luna", _Luna);
+                quarantined.State = CaptainStateEnum.Quarantined;
+                quarantined.QuarantineUntilUtc = DateTime.UtcNow.AddDays(5);
+                Captain benched = NewCaptain("cpt-opus", _Opus);
+                benched.State = CaptainStateEnum.Benched;
+                UsageRoutingSettings policy = Policy();
+                policy.PersonaModels["Worker"] = WorkerModels();
+
+                UsageRoutingDecision outOfService = await SelectAsync(policy, new List<Captain> { unlisted },
+                    roster: new List<Captain> { unlisted, quarantined, benched });
+                AssertTrue(outOfService.ListsDeadFallback, "no listed captain can take work");
+                AssertEqual("cpt-unlisted", outOfService.Candidates[0].Id);
+
+                Captain busy = NewCaptain("cpt-deepseek", _DeepSeek);
+                busy.State = CaptainStateEnum.Working;
+                UsageRoutingDecision waiting = await SelectAsync(policy, new List<Captain> { unlisted },
+                    roster: new List<Captain> { unlisted, quarantined, benched, busy });
+                AssertFalse(waiting.ListsDeadFallback, "a busy listed captain will be free, so the lists stay authoritative");
+                AssertEqual(0, waiting.Candidates.Count);
+                AssertEqual(SmartRoutingSelector.ReasonPersonaModelListExcludes, waiting.Reason);
             });
 
             await RunTest("A persona without model lists still reaches every admitted captain", async () =>
@@ -332,7 +380,8 @@ namespace Armada.Test.Unit.Suites.Services
                     null,
                     WorkerModels(),
                     new PersonaModelSettings { Default = new List<string> { _Unlisted } },
-                    new PersonaModelSettings { Default = new List<string> { _Luna }, Lighter = new List<string> { _Unlisted } }
+                    new PersonaModelSettings { Default = new List<string> { _Luna }, Lighter = new List<string> { _Unlisted } },
+                    new PersonaModelSettings { Default = new List<string> { "example/no-captain-runs-this" } }
                 };
                 List<string?> pins = new List<string?> { null, "mid", _Unlisted };
                 foreach (PersonaModelSettings? shape in shapes)
@@ -347,7 +396,7 @@ namespace Armada.Test.Unit.Suites.Services
                         {
                             if (!decision.LegacyOrder.Any(c => c.Id == captain.Id)) continue;
                             bool live = decision.Candidates.Any(c => c.Id == captain.Id);
-                            bool preview = SmartRoutingSelector.PersonaModelListsAdmit(policy, mission, captain);
+                            bool preview = SmartRoutingSelector.PersonaModelListsAdmit(policy, mission, captain, Tiers(), pool, DateTime.UtcNow);
                             AssertEqual(preview, live, "shape " + shapes.IndexOf(shape) + ", pin " + (pin ?? "none") + ", " + captain.Id);
                         }
                     }

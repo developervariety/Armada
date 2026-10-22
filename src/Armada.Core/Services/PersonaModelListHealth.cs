@@ -28,6 +28,60 @@ namespace Armada.Core.Services
         public const string ReasonMatchedNothing = "persona_models_matched_nothing";
 
         /// <summary>
+        /// Event recorded when no captain that may serve the persona runs a listed model and can take work, so the
+        /// lists stop restricting and every admitted captain is reachable.
+        /// </summary>
+        public const string FallbackEventType = "routing.persona_model_list_fallback";
+
+        /// <summary>Reason prefix when dead lists fell back to every admitted captain. Followed by the captain id.</summary>
+        public const string ReasonDeadFallbackPrefix = "persona_models_dead_fallback:";
+
+        /// <summary>
+        /// Whether the captain can take work now or after its current run: a working, stalled or idle captain can;
+        /// a benched, quarantined or stopping one cannot.
+        /// </summary>
+        public static bool CanTakeWork(Captain captain, DateTime nowUtc)
+        {
+            if (captain == null) return false;
+            if (captain.State == CaptainStateEnum.Benched || captain.State == CaptainStateEnum.Stopping) return false;
+            return !CaptainQuarantineService.IsQuarantinedAt(captain, nowUtc);
+        }
+
+        /// <summary>
+        /// Whether the persona's model lists still have a captain to wait for: true when the policy is disabled, the
+        /// persona names no model, or a captain of the mission's tenant that may serve the persona, that the persona
+        /// routes admit, and that can take work (busy counts) runs a listed model. False means every listed model is
+        /// dead for this mission, and waiting for the lists would never end.
+        /// </summary>
+        public static bool ListsHaveServingCaptain(
+            ModelTierSettings tiers,
+            UsageRoutingSettings policy,
+            Mission mission,
+            IReadOnlyList<Captain> roster,
+            DateTime nowUtc)
+        {
+            if (policy == null) throw new ArgumentNullException(nameof(policy));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (!policy.Enabled) return true;
+            PersonaModelSettings? models = UsageRoutingService.FindPersonaModels(policy, mission.Persona);
+            if (models == null || models.Default.Count + models.Stronger.Count + models.Lighter.Count == 0) return true;
+            if (roster == null) return false;
+            foreach (Captain captain in roster)
+            {
+                if (captain == null || !CanTakeWork(captain, nowUtc)) continue;
+                if (!MissionService.CaptainServesTenant(captain, mission.TenantId)) continue;
+                if (!IsEligible(tiers, mission.Persona ?? String.Empty, captain)) continue;
+                if (!UsageRoutingService.PersonaRoutesAdmit(policy, mission.Persona, captain)) continue;
+                string model = captain.Model ?? String.Empty;
+                if (models.Default.Contains(model, StringComparer.OrdinalIgnoreCase)
+                    || models.Stronger.Contains(model, StringComparer.OrdinalIgnoreCase)
+                    || models.Lighter.Contains(model, StringComparer.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Every model-list entry that no captain who may serve that persona can satisfy.
         /// </summary>
         public static List<DeadPersonaModelEntry> FindDead(
@@ -121,6 +175,30 @@ namespace Armada.Core.Services
             CancellationToken token = default)
         {
             if (database == null || mission == null || decision == null) return;
+            if (decision.ListsDeadFallback)
+            {
+                try
+                {
+                    await database.Events.CreateAsync(new ArmadaEvent
+                    {
+                        TenantId = mission.TenantId,
+                        UserId = mission.UserId,
+                        EventType = FallbackEventType,
+                        EntityType = "mission",
+                        EntityId = mission.Id,
+                        MissionId = mission.Id,
+                        VesselId = mission.VesselId,
+                        VoyageId = mission.VoyageId,
+                        Message = "persona model lists for " + (mission.Persona ?? "(none)") + " name no captain that can take work;"
+                            + " routing falls back to every admitted captain (" + decision.Reason + ")",
+                        Payload = JsonSerializer.Serialize(new { persona = mission.Persona, reason = decision.Reason, dead = decision.DeadListEntries })
+                    }, token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Assignment already chose a captain; a failed event must not fail the mission.
+                }
+            }
             if (!decision.MatchedNothing && (decision.DeadListEntries == null || decision.DeadListEntries.Count == 0))
                 return;
             try

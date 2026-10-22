@@ -15,7 +15,9 @@ namespace Armada.Core.Services
     /// capacity decision choosing the group tried first. It never re-ranks captains inside a group, and it never
     /// admits a captain the Legacy Routing eligibility layer (persona lock and tier floor) excluded. When a persona
     /// names models, the lists are authoritative: a captain whose model is on none of them never takes that
-    /// persona's work, and the mission waits with <see cref="ReasonPersonaModelListExcludes"/> instead.
+    /// persona's work, and the mission waits with <see cref="ReasonPersonaModelListExcludes"/> instead, while any
+    /// listed captain that may serve the persona can take work (a busy one included). When none can, the lists are
+    /// dead for the mission and every admitted captain is reachable.
     /// </summary>
     public static class SmartRoutingSelector
     {
@@ -149,10 +151,14 @@ namespace Armada.Core.Services
                     && !decision.LegacyOrder.Any(captain => chosenModels.Contains(captain.Model ?? String.Empty, StringComparer.OrdinalIgnoreCase)))
                 {
                     decision.MatchedNothing = true;
+                    List<Captain> serving = (request.Roster ?? request.Pool)
+                        .Where(captain => PersonaModelListHealth.CanTakeWork(captain, request.NowUtc)
+                            && MissionService.CaptainServesTenant(captain, mission.TenantId))
+                        .ToList();
                     foreach (string model in chosenModels)
                     {
                         if (String.IsNullOrWhiteSpace(model)) continue;
-                        if (PersonaModelListHealth.ModelHasEligibleCaptain(request.Tiers, mission.Persona, model, request.Pool)) continue;
+                        if (PersonaModelListHealth.ModelHasEligibleCaptain(request.Tiers, mission.Persona, model, serving)) continue;
                         decision.DeadListEntries.Add(new DeadPersonaModelEntry
                         {
                             Persona = mission.Persona ?? String.Empty,
@@ -175,7 +181,9 @@ namespace Armada.Core.Services
                     if (groupReason.Length == 0 && group.CaptainIds.Count > 0) groupReason = ReasonGroupPrefix + group.Name;
                     decision.Groups.Add(group);
                 }
-                if (NamesModels(models))
+                bool listsServe = !NamesModels(models)
+                    || PersonaModelListHealth.ListsHaveServingCaptain(request.Tiers, policy, mission, request.Roster ?? request.Pool, request.NowUtc);
+                if (NamesModels(models) && listsServe)
                 {
                     // The persona names its models, so a captain whose model is on none of the lists is not a
                     // candidate, whatever its persona lock or preferred persona say.
@@ -195,7 +203,10 @@ namespace Armada.Core.Services
                 }
                 else
                 {
-                    // Lists configured but all empty name no model, so every admitted captain stays reachable.
+                    // Lists that name no model, or name only models no captain that may serve the persona runs
+                    // and can take work, restrict nothing: waiting for them would never end, so every admitted
+                    // captain stays reachable and the fallback is recorded.
+                    decision.ListsDeadFallback = NamesModels(models);
                     SmartRoutingModelGroup unlisted = new SmartRoutingModelGroup { Name = "unlisted" };
                     foreach (Captain captain in filtered)
                     {
@@ -217,7 +228,9 @@ namespace Armada.Core.Services
             {
                 Captain first = decision.Candidates[0];
                 bool firstDemoted = demoted.Contains(first);
-                if (decision.MatchedNothing)
+                if (decision.ListsDeadFallback)
+                    decision.Reason = PersonaModelListHealth.ReasonDeadFallbackPrefix + first.Id;
+                else if (decision.MatchedNothing)
                     decision.Reason = PersonaModelListHealth.ReasonMatchedNothing;
                 else if (groupReason.StartsWith(ReasonGroupPrefix, StringComparison.Ordinal)
                     && !groupReason.EndsWith("unlisted", StringComparison.Ordinal))
@@ -267,6 +280,31 @@ namespace Armada.Core.Services
             return models.Default.Contains(model, StringComparer.OrdinalIgnoreCase)
                 || models.Stronger.Contains(model, StringComparer.OrdinalIgnoreCase)
                 || models.Lighter.Contains(model, StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Whether the persona model lists let a captain take the mission, given the fleet: the captain is admitted
+        /// by <see cref="PersonaModelListsAdmit(UsageRoutingSettings, Mission, Captain)"/>, or no captain of the
+        /// roster that may serve the persona runs a listed model and can take work, so the lists fall back to every
+        /// admitted captain. Live assignment and the dispatch preview both apply this rule.
+        /// </summary>
+        /// <param name="policy">Smart Routing policy.</param>
+        /// <param name="mission">The mission (or dispatch probe) being assigned.</param>
+        /// <param name="captain">The candidate captain.</param>
+        /// <param name="tiers">Model tier settings for the persona floor.</param>
+        /// <param name="roster">Every captain of the fleet, busy ones included.</param>
+        /// <param name="nowUtc">The evaluation time.</param>
+        /// <returns>True when the lists admit the captain.</returns>
+        public static bool PersonaModelListsAdmit(
+            UsageRoutingSettings policy,
+            Mission mission,
+            Captain captain,
+            ModelTierSettings tiers,
+            IReadOnlyList<Captain> roster,
+            DateTime nowUtc)
+        {
+            return PersonaModelListsAdmit(policy, mission, captain)
+                || !PersonaModelListHealth.ListsHaveServingCaptain(tiers, policy, mission, roster, nowUtc);
         }
 
         #endregion

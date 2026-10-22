@@ -188,21 +188,37 @@ usage order stays, except that a Cursor captain whose API pool has usage left
 leads its own group; it never moves ahead of an earlier group. The first
 captain of the first non-empty group is assigned.
 
-The lists are authoritative. A captain whose model is on none of the
-persona's lists never takes that persona's work, whatever its persona lock,
-preferred persona or preference rank. Its verdict reads layer
-`persona_models`, outcome `excluded`. When no listed captain can take the
-mission now and an idle captain was excluded this way, the mission waits as
-`WaitingForProviderUsage` with reason `persona_model_list_excludes`, so a
-model that should serve as a fallback must be on one of the lists. A mission
-that pins a concrete model, and a persona with no entry, skip the lists. The
-dispatch preview applies the same rule when it counts the captains that can
-run a required role. A captain named directly (an assignment override or the
-persona's default captain) is an explicit choice and is not filtered by the
-lists.
+The lists are authoritative while they have a captain to wait for. A captain
+whose model is on none of the persona's lists never takes that persona's work,
+whatever its persona lock, preferred persona or preference rank. Its verdict
+reads layer `persona_models`, outcome `excluded`. When no listed captain can
+take the mission now and an idle captain was excluded this way, the mission
+waits as `WaitingForProviderUsage` with reason `persona_model_list_excludes`,
+so a model that should serve as a fallback must be on one of the lists. A
+listed captain that is busy, stalled, or on an account whose allowance is
+spent still counts: it will be free, so the mission waits for it.
+
+When no captain of the fleet that may serve the persona (persona lock, tier
+floor, tenant and persona routes) runs a listed model and can take work at
+all, because every such captain is quarantined, benched or stopping, or none
+exists, the lists are dead for the mission. Waiting would never end, so the
+lists stop restricting: every admitted captain is reachable in the Legacy
+Routing and usage order, the reason is
+`persona_models_dead_fallback:<captainId>`, and the event
+`routing.persona_model_list_fallback` records the fallback each time it
+applies. The lists restrict again as soon as one listed captain can take work.
+
+A mission that pins a concrete model, and a persona with no entry, skip the
+lists. The dispatch preview applies the same rule, the fallback included, when
+it counts the captains that can run a required role. Its `idleEligibleCount`
+counts only the idle captains that the usage filter keeps or demotes, so a
+role whose idle captains are all on exhausted or held accounts reports no idle
+capacity, as assignment sees it. A captain named directly (an assignment
+override or the persona's default captain) is an explicit choice and is not
+filtered by the lists.
 
 A list entry is **dead** when no captain who may serve that persona (persona
-lock plus the capability tier floor) runs that model. Saving the policy still
+lock plus the capability tier floor) and can take work runs that model. Saving the policy still
 succeeds and reports every dead entry in `personaModelHealth` on
 `GET`/`PUT /api/v1/settings` and on `usage-preview`. Startup logs one summary
 so existing misconfiguration is visible without anyone asking. When the
@@ -596,7 +612,19 @@ toward crash-loop quarantine. The bench decision and the crash-loop classifier
 read the same provider signatures. Idle captains on the same
 account are quarantined until then, so the re-routed mission cannot land on
 them. A busy captain on the account keeps its running mission, and routing gives
-it no new work while the hold lasts. Holds and login refusals are kept in
+it no new work while the hold lasts.
+
+One captain's error is weak evidence for a whole account, so it holds the
+account and the other captains on it for at most `accountHoldMaxMinutes`
+(default 60, range 1–10080), even when the provider's message names a longer
+reset. The failing captain keeps the provider's retry time. The quarantine
+reason on each held captain names the account and the captain whose error
+started the hold. When any captain on the account finishes a run the provider
+served (a clean exit, or a declared success), the account's quota or credit
+hold ends and every captain on the account that a usage hold quarantined, the
+failing captain included, returns to Idle; the event
+`usage_account.hold_cleared` names the account, the captain whose run ended the
+hold, and the captains released. Manual, crash-loop and indefinite holds stay. Holds and login refusals are kept in
 memory and end at a restart. An operator override replaces a quota or credit
 hold; it does not replace a login refusal, because a captain cannot run on a
 rejected login.
@@ -795,7 +823,8 @@ until a successful usage read or a new login (see
 account removes every remaining captain, the routing decision reason (usage
 preview `reason`, and the deferred-mission log) is that account code. A quota or
 credit failure on one captain holds the whole account Exhausted and quarantines
-its idle captains until the retry time.
+its idle captains until the retry time, at most `accountHoldMaxMinutes`, and a
+run the provider serves on the account ends the hold.
 Rollout of any second subscription account needs an owner decision under the
 provider's terms. See [Account logins](#account-logins).
 

@@ -68,6 +68,54 @@ namespace Armada.Test.Unit.Suites.Services
                     if (next != null) await next.DisposeAsync().ConfigureAwait(false);
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("A pass in the same process queues for a held lane and takes it when the holder releases", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    Vessel[] vessels = await CreateSiblingLaneAsync(testDb).ConfigureAwait(false);
+                    SiblingLaneAdmission admission = new SiblingLaneAdmission(testDb.Driver, logging);
+                    SiblingLaneReservation? holder = await admission.TryReserveAsync(
+                        vessels[0], "msn_holder").ConfigureAwait(false);
+                    AssertNotNull(holder, "holder reservation");
+
+                    // The holder found no captain and releases; the queued pass must not have been refused meanwhile.
+                    Task<SiblingLaneReservation?> queued = admission.TryReserveAsync(vessels[1], "msn_queued");
+                    await holder!.DisposeAsync().ConfigureAwait(false);
+                    SiblingLaneReservation? taken = await queued.ConfigureAwait(false);
+                    AssertNotNull(taken, "the queued pass reserves the lane once the holder releases it");
+                    if (taken != null) await taken.DisposeAsync().ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A queued pass gives up after its bounded wait while the lane stays held", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    Vessel[] vessels = await CreateSiblingLaneAsync(testDb).ConfigureAwait(false);
+                    SiblingLaneAdmission admission = new SiblingLaneAdmission(testDb.Driver, logging, TimeSpan.FromMilliseconds(50));
+                    SiblingLaneReservation? holder = await admission.TryReserveAsync(
+                        vessels[0], "msn_holder").ConfigureAwait(false);
+                    AssertNotNull(holder, "holder reservation");
+                    try
+                    {
+                        SiblingLaneReservation? refused = await admission.TryReserveAsync(
+                            vessels[1], "msn_refused").ConfigureAwait(false);
+                        AssertNull(refused, "a lane held past the wait still defers the contender");
+                    }
+                    finally
+                    {
+                        if (holder != null) await holder.DisposeAsync().ConfigureAwait(false);
+                    }
+
+                    SiblingLaneReservation? after = await admission.TryReserveAsync(
+                        vessels[1], "msn_after").ConfigureAwait(false);
+                    AssertNotNull(after, "a refused wait leaves the lane free for the next pass");
+                    if (after != null) await after.DisposeAsync().ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
         }
 
         private static LoggingModule CreateLogging()

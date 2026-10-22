@@ -78,6 +78,7 @@ namespace Armada.Core.Services
             if (settings.RefreshIntervalMinutes < 1 || settings.RefreshIntervalMinutes > 60) throw new ArgumentException("Usage refresh interval must be between 1 and 60 minutes.");
             if (settings.LoginProbeIntervalMinutes < 1 || settings.LoginProbeIntervalMinutes > 1440) throw new ArgumentException("Login probe interval must be between 1 and 1440 minutes.");
             if (settings.LoginProbeTimeoutSeconds < 1 || settings.LoginProbeTimeoutSeconds > 60) throw new ArgumentException("Login probe timeout must be between 1 and 60 seconds.");
+            if (settings.AccountHoldMaxMinutes < 1 || settings.AccountHoldMaxMinutes > 10080) throw new ArgumentException("Account hold limit must be between 1 and 10080 minutes.");
             if (settings.Accounts == null || settings.PersonaRoutes == null) throw new ArgumentException("Usage accounts and persona routes cannot be null.");
             if (settings.Accounts.Count > 32) throw new ArgumentException("At most 32 usage accounts are supported.");
             if (settings.MonthlyBudget < 0) throw new ArgumentException("Monthly budget cannot be negative.");
@@ -504,6 +505,53 @@ namespace Armada.Core.Services
             DateTime until = untilUtc.Kind == DateTimeKind.Utc ? untilUtc : DateTime.SpecifyKind(untilUtc.ToUniversalTime(), DateTimeKind.Utc);
             lock (_StateLock)
                 if (!_Holds.TryGetValue(accountId, out AccountHold? existing) || existing.UntilUtc < until) _Holds[accountId] = new AccountHold { Kind = kind, UntilUtc = until };
+        }
+
+        /// <summary>
+        /// End a timed quota or credit hold on the account, after one of its captains finished a run the provider
+        /// served. An operator override and a login refusal are not holds and stay. Returns true when a hold ended.
+        /// </summary>
+        /// <param name="accountId">Account identifier.</param>
+        /// <returns>True when a hold was cleared.</returns>
+        public bool ClearAccountExhausted(string accountId)
+        {
+            if (String.IsNullOrWhiteSpace(accountId)) throw new ArgumentException("Account ID is required.", nameof(accountId));
+            lock (_StateLock) return _Holds.Remove(accountId);
+        }
+
+        /// <summary>
+        /// The quarantine reason an account hold writes on the failing captain's siblings. It names the account and
+        /// the captain whose error started the hold.
+        /// </summary>
+        /// <param name="accountId">Account identifier.</param>
+        /// <param name="sourceCaptainId">The captain whose provider error started the hold.</param>
+        /// <param name="kind"><see cref="HoldKindQuota"/> or <see cref="HoldKindCredit"/>.</param>
+        /// <returns>The reason text.</returns>
+        public static string AccountHoldReason(string accountId, string sourceCaptainId, string kind)
+        {
+            return AccountHoldReasonPrefix(accountId) + "captain " + sourceCaptainId + " hit a provider " + kind + " limit.";
+        }
+
+        /// <summary>
+        /// Whether a captain quarantine came from a usage limit on the account: an account hold written on a sibling,
+        /// or the failing captain's own quota or credit error. A later run the provider served on the same account
+        /// proves the allowance is there, so either may end early.
+        /// </summary>
+        /// <param name="reason">The captain's quarantine reason.</param>
+        /// <param name="accountId">Account identifier.</param>
+        /// <returns>True when the quarantine is a usage hold.</returns>
+        public static bool IsAccountUsageHoldReason(string? reason, string accountId)
+        {
+            if (String.IsNullOrWhiteSpace(reason)) return false;
+            return reason.StartsWith(AccountHoldReasonPrefix(accountId), StringComparison.Ordinal)
+                || ProviderQuotaLimitDetector.IsQuotaLimitSignal(reason)
+                || ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(reason)
+                || ProviderQuotaLimitDetector.IsCreditSignal(reason);
+        }
+
+        private static string AccountHoldReasonPrefix(string accountId)
+        {
+            return "Usage account " + accountId + " is exhausted: ";
         }
 
         /// <summary>

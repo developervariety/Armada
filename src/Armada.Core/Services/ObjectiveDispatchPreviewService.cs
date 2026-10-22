@@ -1415,6 +1415,10 @@ namespace Armada.Core.Services
             ModelTierSettings tiers = _Settings.ModelTier;
             UsageRoutingSettings usage = tiers.UsageRouting;
             DateTime now = DateTime.UtcNow;
+            List<string> busy = captains
+                .Where(captain => captain != null && captain.State == CaptainStateEnum.Working)
+                .Select(captain => captain.Id)
+                .ToList();
             Dictionary<string, string?> personaDefaults = new Dictionary<string, string?>(StringComparer.Ordinal);
             foreach (PipelineStage stage in stages
                 .Where(item => item != null)
@@ -1450,7 +1454,7 @@ namespace Armada.Core.Services
                     };
 
                     List<Captain> pool = captains
-                        .Where(captain => captain != null && IsAssignableForCoverage(captain, probe, usage, now))
+                        .Where(captain => captain != null && IsAssignableForCoverage(captain, probe, usage, tiers, captains, now))
                         .ToList();
 
                     Captain? requested = null;
@@ -1518,7 +1522,7 @@ namespace Armada.Core.Services
                         Persona = stage.PersonaName,
                         PreferredModel = preferredModel,
                         EligibleConfiguredCaptainIds = configured.Select(captain => captain.Id).OrderBy(id => id, StringComparer.Ordinal).ToList(),
-                        IdleEligibleCount = configured.Count(captain => captain.State == CaptainStateEnum.Idle)
+                        IdleEligibleCount = configured.Count(captain => IsIdleCapacity(captain, probe, usage, busy, now))
                     };
                     result.RequiredRoles.Add(role);
 
@@ -1538,14 +1542,25 @@ namespace Armada.Core.Services
 
         // The gates assignment applies before any choice, with a busy captain counted as one that will be
         // free: its state is usable, it belongs to the mission's tenant, it is not quarantined, and the
-        // persona's Smart Routing routes and model lists admit it when Smart Routing is enabled.
-        private static bool IsAssignableForCoverage(Captain captain, Mission probe, UsageRoutingSettings usage, DateTime now)
+        // persona's Smart Routing routes and model lists admit it when Smart Routing is enabled (dead lists
+        // fall back to every admitted captain, as assignment does).
+        private static bool IsAssignableForCoverage(
+            Captain captain, Mission probe, UsageRoutingSettings usage, ModelTierSettings tiers, IReadOnlyList<Captain> roster, DateTime now)
         {
             return IsConfiguredUsableCaptain(captain)
                 && MissionService.CaptainServesTenant(captain, probe.TenantId)
                 && !CaptainQuarantineService.IsQuarantinedAt(captain, now)
                 && (!usage.Enabled || UsageRoutingService.PersonaRoutesAdmit(usage, probe.Persona, captain))
-                && SmartRoutingSelector.PersonaModelListsAdmit(usage, probe, captain);
+                && SmartRoutingSelector.PersonaModelListsAdmit(usage, probe, captain, tiers, roster, now);
+        }
+
+        // Idle capacity is what assignment could take now: an idle captain whose account usage Smart Routing
+        // removes (an exhausted allowance, a held account, a concurrency limit) is coverage, not capacity.
+        private bool IsIdleCapacity(Captain captain, Mission probe, UsageRoutingSettings usage, IReadOnlyCollection<string> busy, DateTime now)
+        {
+            if (captain.State != CaptainStateEnum.Idle) return false;
+            if (!usage.Enabled) return true;
+            return UsageRoutingService.For(_Settings).ClassifyCaptain(usage, probe, captain, busy, now).Outcome != UsageRoutingService.OutcomeRemoved;
         }
 
         private static List<string?> ResolveStagePreferredModels(

@@ -398,6 +398,25 @@ upstream integrations and excludes changes already present at that baseline.
   lines are checked in that sibling, and a bare name found nowhere is stated as
   not found rather than as absent.
 
+- Smart Routing persona model lists fall back when they are dead. When no
+  captain that may serve the persona runs a listed model and can take work
+  (every such captain quarantined, benched or stopping, or none exists), every
+  admitted captain is reachable, the reason is
+  `persona_models_dead_fallback:<captainId>`, and the event
+  `routing.persona_model_list_fallback` records it. A busy listed captain still
+  keeps the lists authoritative. Dead-entry reporting checks the whole fleet,
+  so a list whose captains are only busy is not reported dead.
+- The dispatch preview counts idle capacity as assignment does: the persona
+  model-list fallback applies to role coverage, and `idleEligibleCount` leaves
+  out idle captains whose account the usage filter removes.
+- One captain's provider quota or credit error holds its usage account and the
+  account's other captains for at most `accountHoldMaxMinutes` (default 60),
+  whatever reset the provider's message names. A run the provider serves on
+  the same account ends the hold and releases every captain on the account that
+  a usage hold quarantined, recorded as `usage_account.hold_cleared`.
+- Parallel assignment passes of one admiral queue for a sibling lane, up to 30
+  seconds, instead of deferring. A pass that reserves the lane and finds no
+  captain no longer defers the lane's other missions on every tick.
 - A stalled captain is relaunched while the dispatch hold is engaged. The hold
   refuses only new dispatches, and a relaunch continues an in-flight mission in
   its own dock, so stall recovery under the hold stops the stalled process and

@@ -1182,8 +1182,9 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission? secondBack = await testDb.Driver.Missions.ReadAsync(second.Id).ConfigureAwait(false);
                     Mission waiting = results[0] ? secondBack! : firstBack!;
                     AssertEqual(MissionStatusEnum.Pending, waiting.Status, "The mission that lost the captain stays Pending.");
-                    AssertEqual(MissionAssignmentStateEnum.WaitingForVesselMutex, waiting.AssignmentState,
-                        "The concurrent pass must wait on the atomic admission transition without provisioning.");
+                    // The concurrent pass queues behind the admission transition, then finds the only captain taken.
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForIdleCaptain, waiting.AssignmentState,
+                        "The concurrent pass waits for the admission transition and then reports the captain it lacks.");
                     AssertTrue(String.IsNullOrEmpty(waiting.BranchName), "No branch name is written for a mission that never provisioned.");
                 }
             });

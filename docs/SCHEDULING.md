@@ -243,6 +243,14 @@ captains would run unsafe concurrent dock-side suites. The host interlock
 serializes Armada-owned Checks, but it cannot serialize a suite that a captain
 runs directly in its dock.
 
+Mission assignment reserves a whole lane while it admits one mission. The
+admiral's assignment passes run in parallel, so a pass that finds the lane
+reserved by another pass of the same admiral waits for it, up to 30 seconds,
+instead of deferring. A pass that holds the lane and finds no captain therefore
+never defers the lane's other missions on every tick. A reservation held by
+another admiral process still defers at once, with assignment state
+`WaitingForVesselMutex`.
+
 A normal autonomous fleet can use two or three concurrent voyages when it has
 that many independent writable lanes. One global voyage is a deliberate
 throttle, not Armada's required operating model. Inspect both

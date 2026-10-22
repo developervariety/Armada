@@ -406,6 +406,7 @@ namespace Armada.Server.Routes
                     Usage = usage,
                     Mission = mission,
                     Pool = idle,
+                    Roster = captains,
                     BusyCaptainIds = busy,
                     NowUtc = DateTime.UtcNow,
                     Capacity = capacity,
@@ -433,6 +434,7 @@ namespace Armada.Server.Routes
                     AccountLoginRefusals = CaptainAccountLaunch.ListAccountLoginRefusals(policy, captains)
                         .Select(item => new { item.CaptainId, item.Reason, item.AccountId }).ToList(),
                     MatchedNothing = decision.MatchedNothing,
+                    decision.ListsDeadFallback,
                     DeadListEntries = decision.DeadListEntries,
                     PersonaModelHealth = BuildPersonaModelHealth(_settings.ModelTier, policy, captains),
                     Scope = "Idle captains only. Live assignment reservations, retry exclusions, requested captains, and vessel gates apply at dispatch."

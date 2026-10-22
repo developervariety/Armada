@@ -1246,12 +1246,11 @@ namespace Armada.Test.Unit.Suites.Services
                         }
                         else if (parityCase.ModelList == "all-unlisted")
                         {
-                            AssertEqual(0, verdict.PreviewEligibleCaptainIds.Count,
-                                "no configured captain model is on a persona list");
-                            AssertEqual("required_role_has_no_captain", verdict.PreviewIssueCode,
-                                "the actual dispatch preview reports the uncovered role");
-                            AssertEqual(null, verdict.AssignedCaptainId,
-                                "live assignment leaves the mission unassigned when every model is unlisted");
+                            AssertEqual(2, verdict.PreviewEligibleCaptainIds.Count,
+                                "the lists name only a model no captain runs, so they fall back to every admitted captain");
+                            AssertEqual(null, verdict.PreviewIssueCode, "the fallback role is covered");
+                            AssertTrue(verdict.AssignedCaptainId == verdict.HighCaptainId || verdict.AssignedCaptainId == verdict.LowCaptainId,
+                                "live assignment falls back instead of waiting without end");
                         }
                         else
                         {
@@ -1260,6 +1259,26 @@ namespace Armada.Test.Unit.Suites.Services
                             AssertTrue(verdict.AssignedCaptainId == verdict.HighCaptainId || verdict.AssignedCaptainId == verdict.LowCaptainId,
                                 "live assignment retains at least one legacy candidate");
                         }
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Preview idle capacity agrees with assignment when account usage removes idle captains", async () =>
+            {
+                foreach (CoverageParityCase parityCase in new[]
+                {
+                    new CoverageParityCase { Usage = "exhausted-all" },
+                    new CoverageParityCase { Usage = "exhausted-high", ModelList = "listed-high" },
+                    new CoverageParityCase { Usage = "exhausted-high" },
+                    new CoverageParityCase { Usage = "normal", ModelList = "listed-high" }
+                })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        CoverageParityVerdict verdict = await EvaluateCoverageParityAsync(testDb, parityCase).ConfigureAwait(false);
+                        AssertEqual(verdict.DispatchAssigns, verdict.PreviewIdleEligibleCount > 0,
+                            parityCase.Usage + "/" + parityCase.ModelList + ": the preview reports idle capacity exactly when assignment can take a captain now (idle "
+                            + verdict.PreviewIdleEligibleCount + ", assigned " + (verdict.AssignedCaptainId ?? "none") + ")");
                     }
                 }
             }).ConfigureAwait(false);
@@ -1894,6 +1913,24 @@ namespace Armada.Test.Unit.Suites.Services
             };
         }
 
+        private static UsageAccountSettings UsageAccount(string id, string captainId, double remainingPercent)
+        {
+            return new UsageAccountSettings
+            {
+                Id = id,
+                CaptainIds = new List<string> { captainId },
+                ManualSnapshot = new ProviderUsageSnapshot
+                {
+                    ObservedUtc = DateTime.UtcNow,
+                    Source = "test",
+                    Windows = new List<ProviderUsageWindow>
+                    {
+                        new ProviderUsageWindow { Name = "weekly", RemainingPercent = remainingPercent, ResetsUtc = DateTime.UtcNow.AddDays(1) }
+                    }
+                }
+            };
+        }
+
         private static async Task SetPersonaDefaultCaptainAsync(TestDatabase testDb, string personaName, string captainId)
         {
             Persona? persona = await testDb.Driver.Personas.ReadByNameAsync(personaName).ConfigureAwait(false);
@@ -1952,9 +1989,24 @@ namespace Armada.Test.Unit.Suites.Services
             else if (parityCase.Routing == "admit-high")
                 ApplyRoutes(settings, new List<string> { high.Id }, new List<string>());
 
+            if (parityCase.Usage != "off")
+            {
+                double highRemaining = parityCase.Usage == "normal" ? 80 : 0;
+                double lowRemaining = parityCase.Usage == "exhausted-all" ? 0 : 80;
+                settings.ModelTier.UsageRouting = new UsageRoutingSettings
+                {
+                    Enabled = true,
+                    Accounts = new List<UsageAccountSettings>
+                    {
+                        UsageAccount("coverage-high", high.Id, highRemaining),
+                        UsageAccount("coverage-low", low.Id, lowRemaining)
+                    }
+                };
+            }
+
             if (parityCase.ModelList != "off")
             {
-                ApplyRoutes(settings, new List<string> { high.Id, low.Id }, new List<string>());
+                if (parityCase.Usage == "off") ApplyRoutes(settings, new List<string> { high.Id, low.Id }, new List<string>());
                 PersonaModelSettings models = new PersonaModelSettings();
                 if (parityCase.ModelList == "listed-high") models.Default.Add(high.Model!);
                 else if (parityCase.ModelList == "listed-low") models.Default.Add(low.Model!);
@@ -1987,6 +2039,7 @@ namespace Armada.Test.Unit.Suites.Services
                     new MissionDescription("Implement", "Change code") { Mode = "Implementation", PreferredModel = parityCase.Pin }
                 }).ConfigureAwait(false);
             bool previewCoverable = preview.RequiredRoles.Single(role => role.Persona == "Worker").EligibleConfiguredCaptainIds.Count > 0;
+            int previewIdleEligibleCount = preview.RequiredRoles.Single(role => role.Persona == "Worker").IdleEligibleCount;
             List<string> previewEligibleCaptainIds = preview.RequiredRoles.Single(role => role.Persona == "Worker").EligibleConfiguredCaptainIds;
             string? previewIssueCode = preview.Issues.FirstOrDefault(issue => issue.Code == "required_role_has_no_captain")?.Code;
 
@@ -2029,6 +2082,7 @@ namespace Armada.Test.Unit.Suites.Services
                 PreviewCoverable = previewCoverable,
                 DispatchAssigns = !String.IsNullOrEmpty(stored?.CaptainId),
                 PreviewEligibleCaptainIds = previewEligibleCaptainIds,
+                PreviewIdleEligibleCount = previewIdleEligibleCount,
                 PreviewIssueCode = previewIssueCode,
                 AssignedCaptainId = stored?.CaptainId,
                 HighCaptainId = high.Id,
@@ -2042,6 +2096,8 @@ namespace Armada.Test.Unit.Suites.Services
             public bool DispatchAssigns { get; set; }
             /// <summary>Configured captain IDs the actual dispatch preview admits for the role.</summary>
             public List<string> PreviewEligibleCaptainIds { get; set; } = new List<string>();
+            /// <summary>Idle capacity the actual dispatch preview reports for the role.</summary>
+            public int PreviewIdleEligibleCount { get; set; }
             /// <summary>Blocking role issue returned by the actual dispatch preview, when present.</summary>
             public string? PreviewIssueCode { get; set; }
             /// <summary>Captain ID stored by the real assignment service, or null when it assigns none.</summary>
@@ -2064,6 +2120,11 @@ namespace Armada.Test.Unit.Suites.Services
             /// The all-unlisted shape names a model that no configured captain runs.
             /// </summary>
             public string ModelList { get; set; } = "off";
+            /// <summary>
+            /// Account usage shape: off, normal, exhausted-high (the Premium captain's account has no allowance
+            /// left), or exhausted-all (neither account has any).
+            /// </summary>
+            public string Usage { get; set; } = "off";
 
             public string Label => "high=" + HighState + " low=" + Low + " request=" + Request
                 + " pin=" + (Pin ?? "none") + " routing=" + Routing;

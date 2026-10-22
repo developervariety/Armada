@@ -1711,6 +1711,7 @@ namespace Armada.Core.Services
             {
                 // Clean exit — delegate to the normal completion flow
                 _Logging.Info(_Header + "agent process " + processId + " exited cleanly for mission " + missionId + " — handling completion");
+                await ClearUsageAccountHoldAfterServedRunAsync(captain, mission, token).ConfigureAwait(false);
                 await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
             }
             else if (await AgentDeclaredExplicitSuccessAsync(missionId, token).ConfigureAwait(false))
@@ -1720,6 +1721,7 @@ namespace Armada.Core.Services
                 // the normal completion flow -- the DoD gates then verify the work -- rather than
                 // mislabeling good work as Failed and cascade-cancelling the voyage.
                 _Logging.Info(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId + " but declared [ARMADA:RESULT] COMPLETE — honoring the explicit success verdict and handling completion");
+                await ClearUsageAccountHoldAfterServedRunAsync(captain, mission, token).ConfigureAwait(false);
                 await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
             }
             else
@@ -3912,10 +3914,13 @@ namespace Armada.Core.Services
         internal const string UsageAccountLoginRejectedEvent = "usage_account.login_rejected";
 
         /// <summary>
-        /// Hold the failing captain's whole usage account Exhausted until the provider's retry time. Every captain on
-        /// one account shares its allowance, so benching only the failed captain lets the re-route land on a sibling
-        /// that fails the same way. Idle siblings are held now; a busy sibling keeps its running mission and routing
-        /// refuses it new work while the account is Exhausted. A captain on no account is unaffected.
+        /// Hold the failing captain's whole usage account Exhausted until the provider's retry time, capped at
+        /// <see cref="UsageRoutingSettings.AccountHoldMaxMinutes"/>. Every captain on one account shares its allowance,
+        /// so benching only the failed captain lets the re-route land on a sibling that fails the same way. One error
+        /// is weak evidence for the whole account, so the cap bounds how long it holds the siblings, and a later run
+        /// the provider serves on the account ends the hold (<see cref="ClearUsageAccountHoldAfterServedRunAsync"/>).
+        /// Idle siblings are held now; a busy sibling keeps its running mission and routing refuses it new work while
+        /// the account is Exhausted. A captain on no account is unaffected.
         /// </summary>
         private async Task HoldUsageAccountAsync(Captain failingCaptain, DateTime? retryAfterUtc, string holdKind, CancellationToken token)
         {
@@ -3926,10 +3931,12 @@ namespace Armada.Core.Services
             DateTime untilUtc = retryAfterUtc.HasValue && retryAfterUtc.Value.ToUniversalTime() > nowUtc
                 ? retryAfterUtc.Value.ToUniversalTime()
                 : nowUtc.AddSeconds(_Settings.CaptainQuarantine.DefaultBackoffSeconds);
+            DateTime capUtc = nowUtc.AddMinutes(_Settings.ModelTier.UsageRouting.AccountHoldMaxMinutes);
+            bool capped = untilUtc > capUtc;
+            if (capped) untilUtc = capUtc;
             UsageRoutingService.For(_Settings).MarkAccountExhausted(account.Id, untilUtc, holdKind);
 
-            string reason = "Usage account " + account.Id + " is exhausted: captain " + failingCaptain.Id +
-                " hit a provider " + holdKind + " limit.";
+            string reason = UsageRoutingService.AccountHoldReason(account.Id, failingCaptain.Id, holdKind);
             AuthContext siblingScope = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "Internal");
             int held = 0;
             int busy = 0;
@@ -3953,8 +3960,55 @@ namespace Armada.Core.Services
                 }
             }
             _Logging.Warn(_Header + "usage account " + account.Id + " held Exhausted (" + holdKind + ") until " +
-                untilUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture) + " after captain " + failingCaptain.Id +
+                untilUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture) + (capped ? " (capped by accountHoldMaxMinutes)" : String.Empty) +
+                " after captain " + failingCaptain.Id +
                 " failed; held " + held + " idle sibling(s), " + busy + " busy sibling(s) keep their running mission");
+        }
+
+        /// <summary>Event recorded when a run the provider served ends a usage hold on its account.</summary>
+        internal const string UsageAccountHoldClearedEvent = "usage_account.hold_cleared";
+
+        /// <summary>
+        /// End the usage hold on a captain's account after the captain finished a run the provider served: the
+        /// account's timed quota or credit hold ends, and every captain on the account that a usage hold quarantined
+        /// (the source captain included) returns to Idle. A served run proves the allowance a single error said was
+        /// gone. Manual, crash-loop and indefinite holds stay. Never throws into completion handling.
+        /// </summary>
+        internal async Task ClearUsageAccountHoldAfterServedRunAsync(Captain captain, Mission mission, CancellationToken token)
+        {
+            try
+            {
+                UsageAccountSettings? account = CaptainAccountLaunch.FindAccount(_Settings.ModelTier.UsageRouting, captain.Id);
+                if (account == null) return;
+                bool holdCleared = UsageRoutingService.For(_Settings).ClearAccountExhausted(account.Id);
+                List<string> released = new List<string>();
+                List<Captain> quarantined = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Quarantined, token).ConfigureAwait(false);
+                foreach (Captain held in quarantined)
+                {
+                    if (String.Equals(held.Id, captain.Id, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!account.CaptainIds.Contains(held.Id, StringComparer.OrdinalIgnoreCase)) continue;
+                    if (!held.QuarantineUntilUtc.HasValue) continue;
+                    if (!UsageRoutingService.IsAccountUsageHoldReason(held.QuarantineReason, account.Id)) continue;
+                    if (await _Database.Captains.TryReleaseQuarantineAsync(held.Id, token).ConfigureAwait(false)) released.Add(held.Id);
+                }
+                if (!holdCleared && released.Count == 0) return;
+                string message = "Usage account " + account.Id + " hold ended: captain " + captain.Id + " finished mission " + mission.Id +
+                    " with a run the provider served" + (holdCleared ? "; the account hold is cleared" : String.Empty) +
+                    (released.Count > 0 ? "; released " + String.Join(", ", released) : String.Empty) + ".";
+                _Logging.Info(_Header + message);
+                await EmitEventAsync(UsageAccountHoldClearedEvent, message,
+                    entityType: "usage_account", entityId: account.Id,
+                    captainId: captain.Id, missionId: mission.Id,
+                    vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not clear the usage hold for captain " + captain.Id + "'s account: " + ex.Message);
+            }
         }
 
         private Task HandleQuotaFailureRerouteAsync(

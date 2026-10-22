@@ -45,6 +45,12 @@ namespace Armada.Core.Models
         /// <summary>Dead entries on the capacity-chosen list, when <see cref="MatchedNothing"/> is true.</summary>
         public List<DeadPersonaModelEntry> DeadListEntries { get; set; } = new List<DeadPersonaModelEntry>();
 
+        /// <summary>
+        /// True when the persona names models but no captain of the fleet that may serve it runs a listed model and
+        /// can take work, so the lists stopped restricting and every admitted captain was reachable.
+        /// </summary>
+        public bool ListsDeadFallback { get; set; }
+
         #endregion
     }
 }

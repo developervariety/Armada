@@ -19,6 +19,13 @@ namespace Armada.Core.Settings
         /// <summary>Seconds a runtime login status command may run before it counts as timed out, from 1 through 60.</summary>
         public int LoginProbeTimeoutSeconds { get; set; } = 10;
 
+        /// <summary>
+        /// Longest time, in minutes from 1 through 10080, one captain's provider quota or credit error holds its whole
+        /// usage account and the account's other captains. The failing captain keeps the provider's own retry time.
+        /// Default 60.
+        /// </summary>
+        public int AccountHoldMaxMinutes { get; set; } = 60;
+
         /// <summary>Enable Smart Routing: the usage filter, persona model groups, the capacity decision, and persona route restrictions.</summary>
         public bool Enabled { get; set; } = false;
 

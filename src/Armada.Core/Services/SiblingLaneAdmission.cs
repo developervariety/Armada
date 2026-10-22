@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System.Collections.Concurrent;
     using System.Security.Cryptography;
     using System.Text;
     using Armada.Core.Database;
@@ -8,21 +9,33 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// Provides a durable, multi-instance-safe reservation for the short mission-assignment
-    /// transition across all build-participating sibling vessels.
+    /// transition across all build-participating sibling vessels. Assignment passes of one
+    /// server run in parallel, so passes in this process queue for the lane, up to a bounded
+    /// wait, instead of failing: a pass that holds the lane only to find no captain must not
+    /// defer every other mission of the lane on every tick. A reservation held by another
+    /// server process still fails at once.
     /// </summary>
     public sealed class SiblingLaneAdmission
     {
         private static readonly TimeSpan _LeaseTtl = TimeSpan.FromMinutes(15);
+        private static readonly TimeSpan _DefaultQueueWait = TimeSpan.FromSeconds(30);
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
+        private readonly TimeSpan _QueueWait;
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> _LaneGates =
+            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
 
         /// <summary>
         /// Instantiate.
         /// </summary>
-        public SiblingLaneAdmission(DatabaseDriver database, LoggingModule logging)
+        /// <param name="database">Database driver.</param>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="queueWait">Longest time a pass in this process waits for another pass of this process to release the lane; null uses 30 seconds.</param>
+        public SiblingLaneAdmission(DatabaseDriver database, LoggingModule logging, TimeSpan? queueWait = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _QueueWait = queueWait ?? _DefaultQueueWait;
         }
 
         /// <summary>
@@ -41,6 +54,10 @@ namespace Armada.Core.Services
             string[] members = map.MembersFor(vessel.Id)
                 .OrderBy(id => id, StringComparer.Ordinal)
                 .ToArray();
+            string laneKey = (vessel.TenantId ?? String.Empty) + "\n" + String.Join("\n", members);
+            SemaphoreSlim gate = _LaneGates.GetOrAdd(laneKey, _ => new SemaphoreSlim(1, 1));
+            if (!await gate.WaitAsync(_QueueWait, token).ConfigureAwait(false)) return null;
+
             string holder = "mission-assignment:" + missionId + ":" + Guid.NewGuid().ToString("N");
             List<string> acquired = new List<string>();
 
@@ -55,7 +72,7 @@ namespace Armada.Core.Services
                     acquired.Add(leaseName);
                 }
 
-                return new SiblingLaneReservation(_Database, holder, members, acquired);
+                return new SiblingLaneReservation(_Database, holder, members, acquired, gate);
             }
             finally
             {
@@ -66,6 +83,7 @@ namespace Armada.Core.Services
                         await _Database.CoordinationLeases.ReleaseAsync(leaseName, holder, CancellationToken.None)
                             .ConfigureAwait(false);
                     }
+                    gate.Release();
                 }
             }
         }
@@ -85,18 +103,21 @@ namespace Armada.Core.Services
         private readonly DatabaseDriver _Database;
         private readonly string _Holder;
         private readonly IReadOnlyList<string> _LeaseNames;
+        private readonly SemaphoreSlim? _Gate;
         private int _Released;
 
         internal SiblingLaneReservation(
             DatabaseDriver database,
             string holder,
             IReadOnlyList<string> members,
-            IReadOnlyList<string> leaseNames)
+            IReadOnlyList<string> leaseNames,
+            SemaphoreSlim? gate = null)
         {
             _Database = database;
             _Holder = holder;
             Members = members;
             _LeaseNames = leaseNames;
+            _Gate = gate;
         }
 
         /// <summary>
@@ -108,10 +129,17 @@ namespace Armada.Core.Services
         public async ValueTask DisposeAsync()
         {
             if (Interlocked.Exchange(ref _Released, 1) != 0) return;
-            foreach (string leaseName in _LeaseNames)
+            try
             {
-                await _Database.CoordinationLeases.ReleaseAsync(leaseName, _Holder, CancellationToken.None)
-                    .ConfigureAwait(false);
+                foreach (string leaseName in _LeaseNames)
+                {
+                    await _Database.CoordinationLeases.ReleaseAsync(leaseName, _Holder, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _Gate?.Release();
             }
         }
     }
