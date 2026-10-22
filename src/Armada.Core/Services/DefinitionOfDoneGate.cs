@@ -144,8 +144,10 @@ namespace Armada.Core.Services
         /// A result classified <c>Timeout</c> while the host is overloaded (see <see cref="HostLoadMonitor"/>)
         /// does not stand on its own: the gate releases the host slot, waits until load falls or
         /// <see cref="HostLoadMonitor.MaximumWait"/> ends, records a <see cref="DefinitionOfDoneLoadRerunRecord"/>
-        /// event, and evaluates once more. The second result stands, whatever it is. A <c>Timeout</c> at normal
-        /// or unknown load stands at once.
+        /// event, and evaluates once more. A result whose command hit its time limit while it shared the host command
+        /// slots with another build or test command is evaluated once more the same way, without the load wait: the
+        /// re-run queues for the host slot again. The second result stands, whatever it is. A <c>Timeout</c> at
+        /// normal or unknown load on a command that held the host alone stands at once.
         /// </remarks>
         /// <exception cref="DefinitionOfDoneGateCancelledException">The mission was cancelled while the gate ran,
         /// waited for the host-wide command slot, or waited for host load to fall. The command process is stopped
@@ -179,16 +181,21 @@ namespace Armada.Core.Services
                     // normal load. Such a time limit says little about the change, so the gate waits for load
                     // to fall and runs once more; the second result stands. The run counts as overloaded when
                     // the 15-minute average says so, because the 1-minute average drops as the timed-out
-                    // command's own processes exit.
+                    // command's own processes exit. A command that shared the host slots with another build or test
+                    // command can spend its limit on that command's load, or waiting on a lock both take inside their
+                    // commands (a vessel suite lock, for example), at any load average; it runs once more as well.
                     if (!run.CancelledByMission
                         && !result.Passed
                         && result.TimedOut)
                     {
                         HostLoadReading atTimeout = _HostLoad.Read();
-                        if (_HostLoad.RanOverloaded(atTimeout))
+                        bool overloaded = _HostLoad.RanOverloaded(atTimeout);
+                        if (overloaded || result.TimedOutOnSharedHost)
                         {
-                            HostLoadReading atRerun = await WaitForHostLoadToFallAsync(mission, dock, atTimeout, run.Token).ConfigureAwait(false);
-                            await RecordHostLoadRerunAsync(mission, result, atTimeout, atRerun, token).ConfigureAwait(false);
+                            HostLoadReading atRerun = overloaded
+                                ? await WaitForHostLoadToFallAsync(mission, dock, atTimeout, run.Token).ConfigureAwait(false)
+                                : atTimeout;
+                            await RecordHostLoadRerunAsync(mission, result, overloaded, atTimeout, atRerun, token).ConfigureAwait(false);
                             result = await EvaluateAttemptAsync(mission, dock, run.Token, stageStartCommit, fullPasses).ConfigureAwait(false);
                         }
                     }
@@ -351,12 +358,13 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Record the load re-run and the reading that triggered it as a scoped event. A failed write is logged and
-        /// never changes the gate outcome.
+        /// Record the re-run after a time limit and the reading that triggered it as a scoped event. A failed write is
+        /// logged and never changes the gate outcome.
         /// </summary>
         private async Task RecordHostLoadRerunAsync(
             Mission mission,
             DefinitionOfDoneResult timedOut,
+            bool overloaded,
             HostLoadReading atTimeout,
             HostLoadReading atRerun,
             CancellationToken token)
@@ -366,6 +374,8 @@ namespace Armada.Core.Services
             if (waited < TimeSpan.Zero) waited = TimeSpan.Zero;
             DefinitionOfDoneLoadRerunRecord record = new DefinitionOfDoneLoadRerunRecord
             {
+                Reason = overloaded ? DefinitionOfDoneLoadRerunRecord.HostOverloadedReason : DefinitionOfDoneLoadRerunRecord.HostSlotSharedReason,
+                SharedHostSlot = timedOut.TimedOutOnSharedHost,
                 TimedOutCommandLabel = timedOut.CommandLabel,
                 LoadAtTimeout = atTimeout.LoadAverage1Min,
                 LongLoadAtTimeout = atTimeout.LoadAverage15Min,
@@ -379,8 +389,11 @@ namespace Armada.Core.Services
                 RerunStartedUtc = atRerun.ReadUtc
             };
 
-            string message = "Definition-of-done gate timed out under host load (" + DescribeLoad(atTimeout) + "); "
-                + (loadFell ? "re-running after load fell (" : "re-running after the maximum wait (") + DescribeLoad(atRerun) + ")";
+            string message = overloaded
+                ? "Definition-of-done gate timed out under host load (" + DescribeLoad(atTimeout) + "); "
+                    + (loadFell ? "re-running after load fell (" : "re-running after the maximum wait (") + DescribeLoad(atRerun) + ")"
+                : "Definition-of-done gate " + (timedOut.CommandLabel ?? "command") + " command timed out while another build or test command "
+                    + "held a host command slot at the same time (" + DescribeLoad(atTimeout) + "); re-running once";
             _Logging.Info(_Header + "mission " + mission.Id + ": " + message);
             await RecordGateEventAsync(mission, DefinitionOfDoneLoadRerunRecord.EventType, message, JsonSerializer.Serialize(record), "load re-run", token).ConfigureAwait(false);
         }
@@ -1742,6 +1755,12 @@ namespace Armada.Core.Services
                 commandLease = await HostWideCommandLock.AcquireAsync(null, "definition-of-done " + label, token).ConfigureAwait(false);
             }
             slotWait.Stop();
+
+            // Whether another build or test command held a slot while this command ran is read before the lease can
+            // be released, so a time limit can say whether the command had the host to itself.
+            IDisposable? heldLease = gateSlot != null ? gateSlot.Lease : commandLease;
+            long shareMark = HostWideCommandLock.ReadShareMark(heldLease);
+            bool sharedHost = false;
             if (slotWait.Elapsed >= TimeSpan.FromSeconds(1))
             {
                 _Logging.Info(_Header + label + " command waited "
@@ -1757,6 +1776,7 @@ namespace Armada.Core.Services
                 try
                 {
                     result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+                    sharedHost = HostWideCommandLock.SharedSince(heldLease, shareMark);
                     ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, result);
                 }
                 catch (Exception ex)
@@ -1792,6 +1812,8 @@ namespace Armada.Core.Services
                 // (for example flock around a shared suite), so the processes still running at the limit are named.
                 if (result.ProcessesAtTimeout.Count > 0)
                     message += " Still running at the limit: " + SecretRedactor.Redact(String.Join("; ", result.ProcessesAtTimeout));
+                if (sharedHost)
+                    message += " Another build or test command held a host command slot while this command ran.";
                 string timedOutOutput = String.IsNullOrWhiteSpace(combined) ? message : message + "\n" + combined;
                 _Logging.Warn(_Header + message);
 
@@ -1808,6 +1830,7 @@ namespace Armada.Core.Services
                         ? DefinitionOfDoneFailureClassEnum.TestFail
                         : _FailureClassifier.Classify(label, -1, timedOutOutput, true));
                 timeoutResult.TimedOut = true;
+                timeoutResult.TimedOutOnSharedHost = sharedHost;
                 if (namedFailures)
                 {
                     // The tests after the time limit never ran, so the set is incomplete and is never compared.
@@ -2034,6 +2057,12 @@ namespace Armada.Core.Services
 
             /// <summary>Commands this attempt ran in full and passed on a clean worktree at a known HEAD.</summary>
             public List<DefinitionOfDoneCommandPass> FullPasses { get; }
+
+            /// <summary>The host slot lease this attempt holds, or null before its first command.</summary>
+            public IDisposable? Lease
+            {
+                get => _Lease;
+            }
 
             public async Task EnsureHeldAsync(CancellationToken token)
             {

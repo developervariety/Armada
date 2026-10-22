@@ -1156,6 +1156,53 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A gate whose command times out at normal load while another command holds a host slot runs once more", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                int slotsBefore = HostWideCommandLock.SlotCount;
+                IDisposable? otherCommand = null;
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_slot_shared", "vsl_slot_shared",
+                        worktreePath, HangOnceCommand(), SuccessCommand()).ConfigureAwait(false);
+
+                    // Two slots: the other command holds one for the whole gate, so the gate's build shares the
+                    // host. Load stays normal throughout, so only the shared slot can explain the time limit.
+                    HostWideCommandLock.SetSlotCount(2);
+                    otherCommand = await HostWideCommandLock.AcquireAsync("chk_slot_shared", "another vessel's suite", CancellationToken.None).ConfigureAwait(false);
+                    FakeHostLoad load = new FakeHostLoad(4, 3.0);
+                    DefinitionOfDoneGate gate = new FastTimeoutGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, CommandTimeoutSeconds = 30 },
+                        testDb.Driver,
+                        logging,
+                        TimeSpan.FromSeconds(1),
+                        load.Monitor);
+
+                    Mission mission = CreateWorkerMission("ten_slot_shared", "vsl_slot_shared");
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "the re-run passes, and its result stands");
+                    AssertEqual(2, CountCommandRuns(worktreePath), "the gate ran its build twice: the timed-out run and the re-run");
+                    AssertEqual(0, load.Delays.Count, "the gate does not wait for load at normal load");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(DefinitionOfDoneLoadRerunRecord.EventType).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "one re-run event is recorded");
+                    DefinitionOfDoneLoadRerunRecord? record = JsonSerializer.Deserialize<DefinitionOfDoneLoadRerunRecord>(events[0].Payload!);
+                    AssertEqual(DefinitionOfDoneLoadRerunRecord.HostSlotSharedReason, record!.Reason, "the record names the shared host slot as the reason");
+                    AssertTrue(record.SharedHostSlot, "the record says the timed-out command shared the host");
+                    AssertEqual("build", record.TimedOutCommandLabel, "the record names the command that timed out");
+                    AssertEqual(0.0, record.WaitedSeconds, "the re-run did not wait for load");
+                }
+                finally
+                {
+                    otherCommand?.Dispose();
+                    HostWideCommandLock.SetSlotCount(slotsBefore);
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("A gate whose command times out at a normal 1-minute load after a run under load runs once more", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

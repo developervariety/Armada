@@ -41,6 +41,11 @@ namespace Armada.Core.Services
     /// is granted ahead of it. Memory used by processes outside the lock can stay below the floor
     /// indefinitely, so when no slot is held and the first request has been held for memory for
     /// <see cref="MaximumMemoryWait"/>, it is granted anyway and recorded as granted under the floor.
+    ///
+    /// A lease also says whether it shared the host: <see cref="ReadShareMark"/> marks a point in time and
+    /// <see cref="SharedSince"/> answers whether another request held a slot at the same time as the lease at any
+    /// moment after that mark. A command that hit its time limit while it shared the host may have spent that time
+    /// on the other command's load or on a lock both commands take.
     /// </remarks>
     public static class HostWideCommandLock
     {
@@ -329,6 +334,38 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Mark the present moment of a lease, for a later <see cref="SharedSince"/> question.
+        /// </summary>
+        /// <param name="lease">A lease this lock granted.</param>
+        /// <returns>The mark. A null lease, or one this lock did not grant, reads as 0.</returns>
+        public static long ReadShareMark(IDisposable? lease)
+        {
+            if (lease is not Lease held) return 0;
+            lock (_Sync)
+            {
+                return held.Request.ShareEvents;
+            }
+        }
+
+        /// <summary>
+        /// Whether another request held a slot at the same time as this lease at any moment after the mark.
+        /// </summary>
+        /// <param name="lease">A lease this lock granted.</param>
+        /// <param name="mark">A mark read with <see cref="ReadShareMark"/> while the lease was held.</param>
+        /// <returns>True when the lease shared the host after the mark. A null lease, or one this lock did not
+        /// grant, never shared.</returns>
+        public static bool SharedSince(IDisposable? lease, long mark)
+        {
+            if (lease is not Lease held) return false;
+            lock (_Sync)
+            {
+                Request request = held.Request;
+                if (_Holders.Count > 1 && _Holders.Contains(request)) return true;
+                return request.ShareEvents > mark;
+            }
+        }
+
+        /// <summary>
         /// Who holds the slots and who waits for one, in grant order, and whether free memory holds the
         /// first request in line.
         /// </summary>
@@ -414,6 +451,9 @@ namespace Armada.Core.Services
             lock (_Sync)
             {
                 if (!_Holders.Remove(request)) return;
+
+                // The holders that remain held their slots together with the released request until now.
+                if (_Holders.Count > 0) CountShared();
                 GrantWaiting(granted);
             }
 
@@ -456,9 +496,19 @@ namespace Armada.Core.Services
                 if (underFloor) _UnderFloorGrants++;
                 _Holders.Add(next);
                 granted.Add(next);
+                if (_Holders.Count > 1) CountShared();
             }
 
             UpdateRecheckTimer(_HeadHeldForMemory);
+        }
+
+        /// <summary>
+        /// Count one sharing event on every holder: the holders now hold slots together. Call under
+        /// <see cref="_Sync"/>.
+        /// </summary>
+        private static void CountShared()
+        {
+            foreach (Request holder in _Holders) holder.ShareEvents++;
         }
 
         /// <summary>
@@ -576,6 +626,9 @@ namespace Armada.Core.Services
 
             public bool GrantedUnderMemoryFloor { get; set; }
 
+            /// <summary>How many times this request began or ended holding a slot together with another request.</summary>
+            public long ShareEvents { get; set; }
+
             public TaskCompletionSource<bool> Granted { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
@@ -587,6 +640,11 @@ namespace Armada.Core.Services
             public Lease(Request request)
             {
                 _Request = request ?? throw new ArgumentNullException(nameof(request));
+            }
+
+            public Request Request
+            {
+                get => _Request;
             }
 
             public void Dispose()

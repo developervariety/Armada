@@ -4,7 +4,7 @@ namespace Armada.Core.Models
 
     /// <summary>
     /// Payload of the event recorded when a definition-of-done gate whose command hit its time limit while the
-    /// host ran overloaded is run again after load falls.
+    /// host ran overloaded, or while another build or test command shared the host, is run once more.
     /// </summary>
     public class DefinitionOfDoneLoadRerunRecord
     {
@@ -18,12 +18,33 @@ namespace Armada.Core.Models
         /// <summary>
         /// Payload version this code writes.
         /// </summary>
-        public const int CurrentSchemaVersion = 1;
+        public const int CurrentSchemaVersion = 2;
+
+        /// <summary>
+        /// Reason recorded when the run stood under host load. The gate waited for load to fall first.
+        /// </summary>
+        public const string HostOverloadedReason = "host_overloaded";
+
+        /// <summary>
+        /// Reason recorded when the run stood at normal load but shared the host command slots with another build or
+        /// test command. The gate does not wait for load; the re-run queues for the host slot again.
+        /// </summary>
+        public const string HostSlotSharedReason = "host_slot_shared";
 
         /// <summary>
         /// Payload version.
         /// </summary>
         public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+
+        /// <summary>
+        /// Why the gate ran once more: <see cref="HostOverloadedReason"/> or <see cref="HostSlotSharedReason"/>.
+        /// </summary>
+        public string Reason { get; set; } = HostOverloadedReason;
+
+        /// <summary>
+        /// True when the timed-out command held its host slot at the same time as another build or test command.
+        /// </summary>
+        public bool SharedHostSlot { get; set; } = false;
 
         /// <summary>
         /// Label of the command that timed out, for example <c>unit-test</c>.

@@ -100,15 +100,32 @@ that result:
    or below the logical core count, for at most 20 minutes. At 20 minutes it
    stops waiting even when load is still high.
 3. It records event `mission.definition_of_done_load_rerun`. The payload is a
-   `DefinitionOfDoneLoadRerunRecord`, schema version 1: the command that timed
-   out, the 1-minute and 15-minute load at the timeout, the load at the
+   `DefinitionOfDoneLoadRerunRecord`, schema version 2: the reason
+   `host_overloaded`, whether the command shared the host (`SharedHostSlot`),
+   the command that timed out, the 1-minute and 15-minute load at the timeout, the load at the
    re-run, the core count, both thresholds, whether load fell, and the seconds
    waited.
 4. It runs the whole evaluation once more, through the host-wide slot. That
    result is the gate outcome and is recorded as the evaluation event. A
    second time limit fails the mission like any other; there is no third run.
 
-A time limit hit at normal load fails at once. While the gate waits for load
+**After a time limit on a shared host.** The gate also records whether
+another build or test command held a host command slot at the same time as
+the timed-out command, at any moment while it ran (`TimedOutOnSharedHost` on
+the result; the timeout message adds `Another build or test command held a
+host command slot while this command ran.`). With `HostCommandSlots` above 1,
+two gates of one vessel can hold slots together. A lock inside the vessel's own
+commands, such as a `flock` around its suite, then makes one gate's suite wait
+for the other's inside its time limit, at any load average. So a time limit on
+a shared host is not reported either, even at normal load: the gate releases
+the host slot, records `mission.definition_of_done_load_rerun` with reason
+`host_slot_shared` and no load wait, and runs the whole evaluation once more,
+queuing for the host slot again. That result stands; there is no third run. A
+run under load that also shared the host uses the load wait above and records
+reason `host_overloaded` with `SharedHostSlot` true.
+
+A time limit hit at normal load on a command that held the host alone fails at
+once. While the gate waits for load
 it is still a running gate: it shows in `RunningGates`, and cancelling the
 mission stops the wait and records `Cancelled`. The interrupted-gate re-run
 follows the same rules.

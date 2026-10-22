@@ -526,6 +526,17 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A definition-of-done command that hits its time limit while another build or
+  test command holds a host command slot at the same time no longer fails the
+  mission at once. With more than one host slot, two gates of one vessel can run
+  together, and a suite lock inside the vessel's own commands then makes one
+  gate's suite wait out the other's inside its time limit, at normal load. The
+  gate now runs once more, queuing for the host slot again, and records
+  `mission.definition_of_done_load_rerun` with reason `host_slot_shared`
+  (payload schema version 2 adds `Reason` and `SharedHostSlot`). The second
+  result stands. The timeout message says when another command held a slot,
+  and the result carries `TimedOutOnSharedHost`. A time limit on a command that
+  held the host alone at normal load still fails at once.
 - A pipeline reads by its id as well as its name. REST
   `GET /api/v1/pipelines/{name}` and the MCP and WebSocket `get_pipeline` match
   the value as a name first, then as an id, so the pipeline id a voyage records

@@ -71,6 +71,13 @@ namespace Armada.Core.Models
         public bool TimedOut { get; set; }
 
         /// <summary>
+        /// True when the command that hit its time limit held its host command slot at the same time as another
+        /// build or test command for some part of its run. Such a limit may have been spent on the other command's
+        /// load or on a lock both commands take, so the gate runs once more before it reports it.
+        /// </summary>
+        public bool TimedOutOnSharedHost { get; set; }
+
+        /// <summary>
         /// Non-null when the gate was skipped rather than run (e.g., persona not applicable,
         /// doc-only marker present). A skipped gate is treated as passed.
         /// </summary>
